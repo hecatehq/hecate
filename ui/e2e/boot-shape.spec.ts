@@ -24,11 +24,13 @@ test("default Chats boot fires exactly the expected endpoints, no more", async (
   // calls fulfill the responses, but we tap with continue() to keep
   // both behaviors. Use a request listener instead of additional
   // route handlers so we don't shadow the fixture routes' fulfillment.
-  page.on("request", req => {
+  page.on("request", (req) => {
     const url = new URL(req.url());
-    if (url.pathname === "/healthz"
-      || url.pathname === "/v1/models"
-      || url.pathname.startsWith("/hecate/v1/")) {
+    if (
+      url.pathname === "/healthz" ||
+      url.pathname === "/v1/models" ||
+      url.pathname.startsWith("/hecate/v1/")
+    ) {
       hits.push(url.pathname);
     }
   });

@@ -61,7 +61,14 @@ export function DropdownPicker<Value extends string = string>({
 }) {
   const [filter, setFilter] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
+  const {
+    open,
+    setOpen,
+    toggle,
+    wrapRef: ref,
+    triggerRef,
+    menuRef,
+  } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
     // onCloseRef inside useFloatingMenu absorbs closure-identity
     // churn, so passing a fresh () => setFilter("") each render
     // doesn't re-bind the document listener — no useCallback needed.
@@ -70,14 +77,17 @@ export function DropdownPicker<Value extends string = string>({
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, align, placement);
   const selected = options.find((option) => option.value === value);
   const locked = disabled || options.length === 0;
-  const filteredOptions = searchable && filter.trim()
-    ? options.filter((option) => {
-      const needle = filter.trim().toLowerCase();
-      return option.label.toLowerCase().includes(needle)
-        || option.detail?.toLowerCase().includes(needle)
-        || option.statusLabel?.toLowerCase().includes(needle);
-    })
-    : options;
+  const filteredOptions =
+    searchable && filter.trim()
+      ? options.filter((option) => {
+          const needle = filter.trim().toLowerCase();
+          return (
+            option.label.toLowerCase().includes(needle) ||
+            option.detail?.toLowerCase().includes(needle) ||
+            option.statusLabel?.toLowerCase().includes(needle)
+          );
+        })
+      : options;
 
   useEffect(() => {
     if (!open) return;
@@ -99,7 +109,12 @@ export function DropdownPicker<Value extends string = string>({
       closeMenu();
       return;
     }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
       event.preventDefault();
       focusDropdownItem(menuRef.current, event.key);
     }
@@ -140,7 +155,11 @@ export function DropdownPicker<Value extends string = string>({
         onClick={() => {
           if (!locked) toggle();
         }}
-        title={locked ? disabledReason || "No options available" : selected?.title || selected?.label || placeholder}
+        title={
+          locked
+            ? disabledReason || "No options available"
+            : selected?.title || selected?.label || placeholder
+        }
         type="button"
         style={{
           color: locked ? "var(--t3)" : "var(--t1)",
@@ -159,7 +178,14 @@ export function DropdownPicker<Value extends string = string>({
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           {triggerIcon}
           {triggerPrefix && (
-            <span style={{ color: "var(--t3)", fontSize: 10, textTransform: "lowercase", whiteSpace: "nowrap" }}>
+            <span
+              style={{
+                color: "var(--t3)",
+                fontSize: 10,
+                textTransform: "lowercase",
+                whiteSpace: "nowrap",
+              }}
+            >
               {triggerPrefix}
             </span>
           )}
@@ -220,27 +246,39 @@ export function DropdownPicker<Value extends string = string>({
               >
                 {option.icon}
                 <span style={{ display: "grid", flex: 1, minWidth: 0 }}>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span
+                    style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
                     {option.label}
                   </span>
                   {option.detail && (
-                    <span style={{
-                      color: "var(--t3)",
-                      display: "-webkit-box",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10,
-                      lineHeight: 1.35,
-                      overflow: "hidden",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: 2,
-                      whiteSpace: "normal",
-                    }}>
+                    <span
+                      style={{
+                        color: "var(--t3)",
+                        display: "-webkit-box",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10,
+                        lineHeight: 1.35,
+                        overflow: "hidden",
+                        WebkitBoxOrient: "vertical",
+                        WebkitLineClamp: 2,
+                        whiteSpace: "normal",
+                      }}
+                    >
                       {option.detail}
                     </span>
                   )}
                 </span>
                 {option.statusLabel && (
-                  <span style={{ color: option.statusColor || "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                  <span
+                    style={{
+                      color: option.statusColor || "var(--t3)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 9,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                    }}
+                  >
                     · {option.statusLabel}
                   </span>
                 )}

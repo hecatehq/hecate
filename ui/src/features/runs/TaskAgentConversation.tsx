@@ -59,7 +59,15 @@ export function AgentConversationView({
     if (Array.isArray(parsed)) messages = parsed as AgentConversationMessage[];
   } catch {
     return (
-      <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border)", fontSize: 11, color: "var(--red)", fontFamily: "var(--font-mono)" }}>
+      <div
+        style={{
+          padding: "10px 16px",
+          borderBottom: "1px solid var(--border)",
+          fontSize: 11,
+          color: "var(--red)",
+          fontFamily: "var(--font-mono)",
+        }}
+      >
         Could not parse agent conversation artifact (invalid JSON).
       </div>
     );
@@ -74,7 +82,7 @@ export function AgentConversationView({
   // the button. Counting in a single pass here keeps the bubble itself
   // O(1) at render time.
   let assistantSeen = 0;
-  const turnByIndex: number[] = visibleMessages.map(m => {
+  const turnByIndex: number[] = visibleMessages.map((m) => {
     if (m.role === "assistant") {
       assistantSeen++;
       return assistantSeen;
@@ -101,9 +109,18 @@ export function AgentConversationView({
 
   return (
     <>
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+      <div
+        style={{
+          padding: "12px 16px",
+          borderBottom: "1px solid var(--border)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
         <div className="kicker" style={{ marginBottom: 4 }}>
-          Agent conversation · {visibleMessages.length} message{visibleMessages.length === 1 ? "" : "s"}
+          Agent conversation · {visibleMessages.length} message
+          {visibleMessages.length === 1 ? "" : "s"}
         </div>
         {visibleMessages.map((m, i) => (
           <ConversationBubble
@@ -174,24 +191,39 @@ function RetryFromTurnModal({
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <p style={{ margin: 0, fontSize: 13, color: "var(--t1)", lineHeight: 1.5 }}>
-          A new run will be created with the conversation truncated to just before
-          turn {turn}'s assistant message. The prior steps and file state are preserved.
+          A new run will be created with the conversation truncated to just before turn {turn}'s
+          assistant message. The prior steps and file state are preserved.
         </p>
         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ fontSize: 11, fontWeight: 500, color: "var(--t2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--t2)",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
             Reason <span style={{ fontWeight: 400, color: "var(--t3)" }}>(optional)</span>
           </span>
           <textarea
             autoFocus
             rows={2}
             value={reason}
-            onChange={e => setReason(e.target.value)}
+            onChange={(e) => setReason(e.target.value)}
             placeholder="Why are you branching from this turn?"
             style={{
-              resize: "vertical", fontFamily: "var(--font-sans)", fontSize: 13,
-              color: "var(--t0)", background: "var(--bg2)",
-              border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
-              padding: "6px 8px", lineHeight: 1.5, width: "100%", boxSizing: "border-box",
+              resize: "vertical",
+              fontFamily: "var(--font-sans)",
+              fontSize: 13,
+              color: "var(--t0)",
+              background: "var(--bg2)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              padding: "6px 8px",
+              lineHeight: 1.5,
+              width: "100%",
+              boxSizing: "border-box",
             }}
           />
         </label>
@@ -242,12 +274,20 @@ function ConversationBubble({
   if (message.role === "user") {
     return (
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <div style={{
-          maxWidth: "80%", padding: "8px 12px",
-          background: "var(--teal-bg)", border: "1px solid var(--teal-border)",
-          borderRadius: "var(--radius)", color: "var(--t0)", fontSize: 13, lineHeight: 1.5,
-          whiteSpace: "pre-wrap", wordBreak: "break-word",
-        }}>
+        <div
+          style={{
+            maxWidth: "80%",
+            padding: "8px 12px",
+            background: "var(--teal-bg)",
+            border: "1px solid var(--teal-border)",
+            borderRadius: "var(--radius)",
+            color: "var(--t0)",
+            fontSize: 13,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
           {message.content || ""}
         </div>
       </div>
@@ -259,16 +299,31 @@ function ConversationBubble({
     const callRef = message.tool_call_id ? ` · ${message.tool_call_id.slice(0, 12)}` : "";
     return (
       <div style={{ display: "flex", justifyContent: "flex-start" }}>
-        <div style={{
-          maxWidth: "90%", padding: "6px 10px",
-          background: "var(--bg2)", border: "1px solid var(--border)",
-          borderRadius: "var(--radius-sm)", fontSize: 11,
-          fontFamily: "var(--font-mono)", color: "var(--t1)",
-        }}>
+        <div
+          style={{
+            maxWidth: "90%",
+            padding: "6px 10px",
+            background: "var(--bg2)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+            color: "var(--t1)",
+          }}
+        >
           <div className="kicker" style={{ marginBottom: 4 }}>
             tool result{callRef}
           </div>
-          <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 200, overflowY: "auto", color: "var(--t1)" }}>
+          <pre
+            style={{
+              margin: 0,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              maxHeight: 200,
+              overflowY: "auto",
+              color: "var(--t1)",
+            }}
+          >
             {message.content || ""}
           </pre>
         </div>
@@ -279,7 +334,15 @@ function ConversationBubble({
   const showRetry = canRetryFromTurn && !!turn && turn > 0 && !!onRetryFromTurn;
   const showCost = typeof turnCostMicros === "number" && turnCostMicros > 0;
   return (
-    <div style={{ display: "flex", justifyContent: "flex-start", flexDirection: "column", gap: 6, alignItems: "stretch" }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "flex-start",
+        flexDirection: "column",
+        gap: 6,
+        alignItems: "stretch",
+      }}
+    >
       <div className="kicker" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span>turn {turn || "?"}</span>
         {showCost && (
@@ -304,12 +367,21 @@ function ConversationBubble({
         )}
       </div>
       {message.content && (
-        <div style={{
-          alignSelf: "flex-start", maxWidth: "80%", padding: "8px 12px",
-          background: "var(--bg3)", border: "1px solid var(--border)",
-          borderRadius: "var(--radius)", color: "var(--t0)", fontSize: 13, lineHeight: 1.5,
-          whiteSpace: "pre-wrap", wordBreak: "break-word",
-        }}>
+        <div
+          style={{
+            alignSelf: "flex-start",
+            maxWidth: "80%",
+            padding: "8px 12px",
+            background: "var(--bg3)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+            color: "var(--t0)",
+            fontSize: 13,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
           {message.content}
         </div>
       )}
@@ -324,7 +396,11 @@ function ConversationBubble({
   );
 }
 
-function ToolCallChip({ call }: { call: NonNullable<AgentConversationMessage["tool_calls"]>[number] }) {
+function ToolCallChip({
+  call,
+}: {
+  call: NonNullable<AgentConversationMessage["tool_calls"]>[number];
+}) {
   // Pretty-print the JSON arguments when possible — collapsed to a
   // single line for compactness, with a click-to-expand affordance.
   const argsText = (() => {
@@ -337,17 +413,37 @@ function ToolCallChip({ call }: { call: NonNullable<AgentConversationMessage["to
     }
   })();
   return (
-    <div style={{
-      alignSelf: "flex-start", maxWidth: "90%",
-      padding: "6px 10px", background: "var(--bg2)",
-      border: "1px solid var(--teal-border)", borderRadius: "var(--radius-sm)",
-      fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)",
-    }}>
-      <span style={{ color: "var(--teal)", fontWeight: 500 }}>→ {call.function?.name || "(unknown)"}</span>
+    <div
+      style={{
+        alignSelf: "flex-start",
+        maxWidth: "90%",
+        padding: "6px 10px",
+        background: "var(--bg2)",
+        border: "1px solid var(--teal-border)",
+        borderRadius: "var(--radius-sm)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+        color: "var(--t1)",
+      }}
+    >
+      <span style={{ color: "var(--teal)", fontWeight: 500 }}>
+        → {call.function?.name || "(unknown)"}
+      </span>
       {argsText && (
         <>
           <span style={{ color: "var(--t3)" }}> </span>
-          <span title={argsText} style={{ color: "var(--t2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%", display: "inline-block", verticalAlign: "bottom" }}>
+          <span
+            title={argsText}
+            style={{
+              color: "var(--t2)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              maxWidth: "100%",
+              display: "inline-block",
+              verticalAlign: "bottom",
+            }}
+          >
             {argsText.length > 200 ? argsText.slice(0, 200) + "…" : argsText}
           </span>
         </>

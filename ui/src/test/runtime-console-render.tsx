@@ -13,7 +13,10 @@ import { useEffect, useRef, type ReactElement, type ReactNode } from "react";
 
 import { ApprovalsProvider, useApprovals } from "../app/state/approvals";
 import { ChatProvider, useChat } from "../app/state/chat";
-import { CoordinatorOverridesProvider, type CoordinatorOverrides } from "../app/state/coordinators/overrides";
+import {
+  CoordinatorOverridesProvider,
+  type CoordinatorOverrides,
+} from "../app/state/coordinators/overrides";
 import { ProvidersAndModelsProvider, useProvidersAndModels } from "../app/state/providersAndModels";
 import { RetentionProvider, useRetention } from "../app/state/retention";
 import { RuntimeProvider, useRuntime } from "../app/state/runtime";
@@ -299,7 +302,9 @@ function FixtureSyncer({ state }: { state: RuntimeConsoleFixtureState }) {
       state.models.length > 0 ? state.models : state.providerScopedModels,
     );
     providersAndModelsActionsRef.current.setAgentAdapters(state.agentAdapters);
-    providersAndModelsActionsRef.current.setAgentAdapterApprovalMode(state.agentAdapterApprovalMode);
+    providersAndModelsActionsRef.current.setAgentAdapterApprovalMode(
+      state.agentAdapterApprovalMode,
+    );
     for (const [id, record] of state.agentAdapterHealthByID) {
       providersAndModelsActionsRef.current.setAgentAdapterHealth(id, record);
     }

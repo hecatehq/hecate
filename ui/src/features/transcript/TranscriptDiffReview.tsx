@@ -11,7 +11,11 @@ type Props = {
   diffStat?: string;
   diff?: string;
   onListFiles?: (sessionID: string, messageID: string) => Promise<ChatChangedFileRecord[]>;
-  onGetFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<ChatChangedFileDiffRecord | null>;
+  onGetFileDiff?: (
+    sessionID: string,
+    messageID: string,
+    path: string,
+  ) => Promise<ChatChangedFileDiffRecord | null>;
   onRevertFiles?: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
 };
 
@@ -77,14 +81,18 @@ export function TranscriptDiffReview({
     try {
       const ok = await onRevertFiles(sessionID, messageID, paths);
       if (!ok) {
-        setLocalError("Revert failed. The workspace may not be a Git repository, or the file changed since capture.");
+        setLocalError(
+          "Revert failed. The workspace may not be a Git repository, or the file changed since capture.",
+        );
         return;
       }
       setSelectedDiff(null);
       setFiles(null);
       await loadFiles();
     } catch {
-      setLocalError("Revert failed. The workspace may not be a Git repository, or the file changed since capture.");
+      setLocalError(
+        "Revert failed. The workspace may not be a Git repository, or the file changed since capture.",
+      );
     } finally {
       setRevertingPath("");
       setConfirmRevertPath("");
@@ -104,12 +112,20 @@ export function TranscriptDiffReview({
       }}
       style={{ marginTop: 8 }}
     >
-      <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
+      <summary
+        style={{
+          cursor: "pointer",
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--t3)",
+        }}
+      >
         files changed{summary ? ` · ${summary}` : ""}
       </summary>
       <div style={{ display: "grid", gap: 8, marginTop: 6 }}>
         <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>
-          External-agent changes are already in your workspace. Inspect the captured Git diff, keep it, or revert selected paths.
+          External-agent changes are already in your workspace. Inspect the captured Git diff, keep
+          it, or revert selected paths.
         </div>
         {!hasReviewAPI && (
           <>
@@ -120,27 +136,35 @@ export function TranscriptDiffReview({
         {hasReviewAPI && (
           <>
             {loadingFiles && (
-              <div style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11 }}>Loading changed files...</div>
+              <div style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+                Loading changed files...
+              </div>
             )}
             {!loadingFiles && visibleFiles.length === 0 && diffStat && (
               <DiffStatList diffStat={diffStat} />
             )}
             {visibleFiles.length > 0 && (
-              <div style={{
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--bg2)",
-                overflow: "hidden",
-              }}>
-                <div style={{
-                  alignItems: "center",
-                  borderBottom: "1px solid var(--border)",
-                  display: "flex",
-                  gap: 8,
-                  justifyContent: "space-between",
-                  padding: "6px 8px",
-                }}>
-                  <span style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+              <div
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--bg2)",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    alignItems: "center",
+                    borderBottom: "1px solid var(--border)",
+                    display: "flex",
+                    gap: 8,
+                    justifyContent: "space-between",
+                    padding: "6px 8px",
+                  }}
+                >
+                  <span
+                    style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11 }}
+                  >
                     {visibleFiles.length} changed file{visibleFiles.length === 1 ? "" : "s"}
                   </span>
                   {confirmRevertPath === "__all__" ? (
@@ -153,7 +177,13 @@ export function TranscriptDiffReview({
                       >
                         {revertingPath === "__all__" ? "Reverting..." : "Confirm revert all"}
                       </button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => setConfirmRevertPath("")} type="button">Cancel</button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setConfirmRevertPath("")}
+                        type="button"
+                      >
+                        Cancel
+                      </button>
                     </div>
                   ) : (
                     <button
@@ -167,7 +197,7 @@ export function TranscriptDiffReview({
                   )}
                 </div>
                 <div style={{ display: "grid" }}>
-                  {visibleFiles.map(file => (
+                  {visibleFiles.map((file) => (
                     <div
                       key={file.path}
                       style={{
@@ -180,10 +210,28 @@ export function TranscriptDiffReview({
                       }}
                     >
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 10.5, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div
+                          style={{
+                            color: "var(--t1)",
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 10.5,
+                            lineHeight: 1.3,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {file.path}
                         </div>
-                        <div style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 9.5, lineHeight: 1.25, marginTop: 1 }}>
+                        <div
+                          style={{
+                            color: "var(--t3)",
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 9.5,
+                            lineHeight: 1.25,
+                            marginTop: 1,
+                          }}
+                        >
                           {formatChangedFileMeta(file)}
                         </div>
                       </div>
@@ -199,7 +247,13 @@ export function TranscriptDiffReview({
                           >
                             {revertingPath === file.path ? "Reverting..." : "Confirm"}
                           </button>
-                          <button className="btn btn-ghost btn-sm" onClick={() => setConfirmRevertPath("")} type="button">Cancel</button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => setConfirmRevertPath("")}
+                            type="button"
+                          >
+                            Cancel
+                          </button>
                         </div>
                       ) : (
                         <div style={{ display: "flex", gap: 4 }}>

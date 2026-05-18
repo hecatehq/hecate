@@ -3,8 +3,11 @@ import type { ChatActivityRecord } from "../../types/chat";
 const terminalRunSummaryTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
 
 export function formatDiffStatSummary(diffStat: string): string {
-  const lines = diffStat.split(/\\n|\r?\n/).map(line => line.trim()).filter(Boolean);
-  return lines.find(line => /\bfiles? changed\b/.test(line)) || lines[0] || "";
+  const lines = diffStat
+    .split(/\\n|\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.find((line) => /\bfiles? changed\b/.test(line)) || lines[0] || "";
 }
 
 export function fileChangesActivity(diffStat: string): ChatActivityRecord {
@@ -20,10 +23,10 @@ export function fileChangesActivity(diffStat: string): ChatActivityRecord {
 export function parseDiffStatRows(diffStat: string): Array<{ path: string; change: string }> {
   return diffStat
     .split(/\\n|\r?\n/)
-    .map(line => line.trim())
+    .map((line) => line.trim())
     .filter(Boolean)
-    .filter(line => !/\bfiles? changed\b/.test(line))
-    .map(line => {
+    .filter((line) => !/\bfiles? changed\b/.test(line))
+    .map((line) => {
       const match = line.match(/^(.+?)\s+\|\s+(.+)$/);
       if (!match) return null;
       return { path: match[1].trim(), change: match[2].trim() };
@@ -47,10 +50,16 @@ export function compactAgentActivities(activities: ChatActivityRecord[]): ChatAc
     // so an informative "LLM call failed on turn 3" beats a
     // bare-bones "Failed". When no row is chosen we keep them all.
     if (terminalIndex !== -1 && index !== terminalIndex && isTerminalActivity(activity)) continue;
-    if (terminalIndex !== -1 && (activity.type === "started" || activity.type === "running")) continue;
-    if (activity.type === "running" && activities.some(item => item.type === "output")) continue;
+    if (terminalIndex !== -1 && (activity.type === "started" || activity.type === "running"))
+      continue;
+    if (activity.type === "running" && activities.some((item) => item.type === "output")) continue;
     if (isTaskRunActivity(activity) && index !== lastTaskRunIndex) continue;
-    if (activity.type === "approval" && activity.approval_id && lastApprovalIndexByID.get(activity.approval_id) !== index) continue;
+    if (
+      activity.type === "approval" &&
+      activity.approval_id &&
+      lastApprovalIndexByID.get(activity.approval_id) !== index
+    )
+      continue;
     out.push(activity);
   }
   return collapseModelTurnActivities(out);
@@ -95,9 +104,12 @@ export function pickTerminalActivityIndex(activities: ChatActivityRecord[]): num
   return lastByShape;
 }
 
-export function compactDetailActivities(activities: ChatActivityRecord[], hasDiffStat: boolean): ChatActivityRecord[] {
+export function compactDetailActivities(
+  activities: ChatActivityRecord[],
+  hasDiffStat: boolean,
+): ChatActivityRecord[] {
   const detailTypes = new Set(["artifact", "changed_files", "final_answer", "output"]);
-  return activities.filter(activity => {
+  return activities.filter((activity) => {
     if (!detailTypes.has(activity.type)) return false;
     if (hasDiffStat && activity.type === "changed_files") return false;
     return true;
@@ -106,7 +118,12 @@ export function compactDetailActivities(activities: ChatActivityRecord[], hasDif
 
 export function orderVisibleActivities(activities: ChatActivityRecord[]): ChatActivityRecord[] {
   return activities
-    .map((activity, index) => ({ activity, index, time: activitySortTime(activity.created_at), phase: activitySortPhase(activity) }))
+    .map((activity, index) => ({
+      activity,
+      index,
+      time: activitySortTime(activity.created_at),
+      phase: activitySortPhase(activity),
+    }))
     .sort((a, b) => {
       if (a.time !== b.time) return a.time - b.time;
       if (a.phase !== b.phase) return a.phase - b.phase;
@@ -139,7 +156,10 @@ function lastIndexOfTaskRunActivity(activities: ChatActivityRecord[]): number {
 }
 
 function isTaskRunActivity(activity: ChatActivityRecord): boolean {
-  return activity.type === "task_run" || (activity.type.startsWith("task_") && activity.title.startsWith("Task run"));
+  return (
+    activity.type === "task_run" ||
+    (activity.type.startsWith("task_") && activity.title.startsWith("Task run"))
+  );
 }
 
 function isTerminalRunSummary(activity: ChatActivityRecord): boolean {
@@ -162,7 +182,7 @@ function collapseModelTurnActivities(activities: ChatActivityRecord[]): ChatActi
     detail: `${turnActivities.length} model turns ${humanActivityStatus(status)}`,
   };
 
-  const out = activities.filter(activity => !isModelTurnActivity(activity));
+  const out = activities.filter((activity) => !isModelTurnActivity(activity));
   out.splice(Math.max(firstTurnIndex, 0), 0, collapsed);
   return out;
 }
@@ -172,10 +192,10 @@ function isModelTurnActivity(activity: ChatActivityRecord): boolean {
 }
 
 function aggregateActivityStatus(activities: ChatActivityRecord[]): string {
-  if (activities.some(activity => activity.status === "failed")) return "failed";
-  if (activities.some(activity => activity.status === "cancelled")) return "cancelled";
+  if (activities.some((activity) => activity.status === "failed")) return "failed";
+  if (activities.some((activity) => activity.status === "cancelled")) return "cancelled";
   if (activities.some(isActiveAgentActivity)) return "running";
-  if (activities.every(activity => activity.status === "completed")) return "completed";
+  if (activities.every((activity) => activity.status === "completed")) return "completed";
   return activities[activities.length - 1]?.status || "completed";
 }
 
@@ -208,13 +228,19 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
     return { title: "Changed files", detail: cleanActivityDetail(activity) || activity.title };
   }
   if (activity.type === "final_answer") {
-    return { title: "Final answer artifact", detail: cleanActivityDetail(activity) || activity.title };
+    return {
+      title: "Final answer artifact",
+      detail: cleanActivityDetail(activity) || activity.title,
+    };
   }
   if (activity.type === "started" && /^Starting Hecate Agent$/i.test(activity.title.trim())) {
     return { title: "Starting agent", detail: cleanActivityDetail(activity) };
   }
   if (activity.type === "cancelled") {
-    return { title: "Cancelled", detail: cleanActivityDetail(activity) || "stopped before the run finished" };
+    return {
+      title: "Cancelled",
+      detail: cleanActivityDetail(activity) || "stopped before the run finished",
+    };
   }
   if (!isTaskRunActivity(activity)) {
     return { title: activity.title, detail: cleanActivityDetail(activity) };
@@ -246,7 +272,8 @@ function toolActivityTitle(activity: ChatActivityRecord): string {
   const kind = (activity.kind || activity.detail || "").trim().toLowerCase();
 
   if (/^call_[a-z0-9_-]+$/i.test(raw)) {
-    if (kind.includes("execute") || kind.includes("command") || kind.includes("shell")) return "Ran command";
+    if (kind.includes("execute") || kind.includes("command") || kind.includes("shell"))
+      return "Ran command";
     if (kind.includes("read")) return "Read context";
     if (kind.includes("edit") || kind.includes("write")) return "Edited file";
     return "Used tool";
@@ -292,12 +319,17 @@ function modelTurnDetail(activity: ChatActivityRecord): string {
   return turn ? `turn ${turn} ${status}` : status;
 }
 
-function fallbackToolDetail(activity: ChatActivityRecord, displayTitle: string): string | undefined {
+function fallbackToolDetail(
+  activity: ChatActivityRecord,
+  displayTitle: string,
+): string | undefined {
   const raw = stripStatusSuffix(activity.title || "").trim();
   const opaqueID = opaqueToolCallID(raw);
   if (opaqueID) {
     const kind = activity.kind || activity.detail;
-    return [toolKindLabel(kind), shortToolCallID(opaqueID)].filter(Boolean).join(" · ") || undefined;
+    return (
+      [toolKindLabel(kind), shortToolCallID(opaqueID)].filter(Boolean).join(" · ") || undefined
+    );
   }
   if (!raw) return undefined;
   if (raw === displayTitle) return undefined;
@@ -321,7 +353,12 @@ function shortToolCallID(id: string): string {
 function toolKindLabel(kind?: string): string | undefined {
   const normalized = kind?.trim().toLowerCase();
   if (!normalized) return undefined;
-  if (normalized.includes("execute") || normalized.includes("command") || normalized.includes("shell")) return "execute";
+  if (
+    normalized.includes("execute") ||
+    normalized.includes("command") ||
+    normalized.includes("shell")
+  )
+    return "execute";
   if (normalized.includes("read")) return "read";
   if (normalized.includes("edit") || normalized.includes("write")) return "edit";
   return normalized.replaceAll("_", " ");
@@ -343,7 +380,10 @@ function formatBytes(bytes?: number): string | undefined {
 function cleanApprovalDetail(detail?: string): string | undefined {
   const cleaned = detail
     ?.replace(/^Agent requested tools that require approval:\s*/i, "")
-    .replace(/\s+-\s+(awaiting_approval|pending|approved|rejected|denied|cancelled|timed_out)$/i, "")
+    .replace(
+      /\s+-\s+(awaiting_approval|pending|approved|rejected|denied|cancelled|timed_out)$/i,
+      "",
+    )
     .trim();
   if (!cleaned || cleaned.startsWith("builtin.agent_loop_")) return undefined;
   return cleaned || undefined;
@@ -368,13 +408,18 @@ function cleanActivityDetail(activity: ChatActivityRecord): string | undefined {
     status ? `${title} · ${status}` : "",
     status ? `${baseTitle} - ${status}` : "",
     status ? `${baseTitle} · ${status}` : "",
-  ].filter((value): value is string => Boolean(value)).map(value => value.toLowerCase());
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase());
 
   return duplicateForms.includes(detail.toLowerCase()) ? undefined : detail;
 }
 
 function stripStatusSuffix(value: string): string {
-  return value.replace(/\s+\((running|completed|failed|cancelled|awaiting_approval|pending|approved|rejected|denied|timed_out)\)$/i, "");
+  return value.replace(
+    /\s+\((running|completed|failed|cancelled|awaiting_approval|pending|approved|rejected|denied|timed_out)\)$/i,
+    "",
+  );
 }
 
 function cleanTaskRunDetail(existingDetail: string, humanStatus: string): string {
@@ -398,7 +443,11 @@ function humanActivityStatus(status?: string): string {
 }
 
 function approvalActivityTitle(activity: ChatActivityRecord): string {
-  if (activity.needs_action || activity.status === "awaiting_approval" || activity.status === "pending") {
+  if (
+    activity.needs_action ||
+    activity.status === "awaiting_approval" ||
+    activity.status === "pending"
+  ) {
     return "Waiting for approval";
   }
   switch (activity.status) {
@@ -421,7 +470,9 @@ function approvalActivityTitle(activity: ChatActivityRecord): string {
 // could miss a `run_result`-typed terminal that pickTerminalActivityIndex
 // would correctly pick — leading to the dedupe dropping the row
 // the timeline summary needed.
-export function terminalAgentActivity(activities: ChatActivityRecord[]): ChatActivityRecord | undefined {
+export function terminalAgentActivity(
+  activities: ChatActivityRecord[],
+): ChatActivityRecord | undefined {
   const index = pickTerminalActivityIndex(activities);
   return index === -1 ? undefined : activities[index];
 }
@@ -441,8 +492,14 @@ export function terminalStatusLabel(status?: string): string {
 
 export function detailSummaryLabel(details: ChatActivityRecord[]): string {
   const count = `${details.length} item${details.length === 1 ? "" : "s"}`;
-  const hasOutput = details.some(activity => activity.type === "output" || /\bstd(out|err)\b/i.test(`${activity.title} ${activity.detail ?? ""}`));
-  const hasArtifact = details.some(activity => activity.type === "artifact" || activity.type === "final_answer");
+  const hasOutput = details.some(
+    (activity) =>
+      activity.type === "output" ||
+      /\bstd(out|err)\b/i.test(`${activity.title} ${activity.detail ?? ""}`),
+  );
+  const hasArtifact = details.some(
+    (activity) => activity.type === "artifact" || activity.type === "final_answer",
+  );
   if (hasOutput && hasArtifact) return `Output and artifacts · ${count}`;
   if (hasOutput) return `Output · ${count}`;
   if (hasArtifact) return `Artifacts · ${count}`;
@@ -458,28 +515,40 @@ function activitySortPhase(activity: ChatActivityRecord): number {
   if (activity.type === "approval") return 5;
   if (activity.type === "tool_call") return 6;
   if (activity.type === "files_changed") return 7;
-  if (activity.type === "failed" || activity.type === "cancelled" || activity.type === "completed" || activity.type === "run_result") return 9;
+  if (
+    activity.type === "failed" ||
+    activity.type === "cancelled" ||
+    activity.type === "completed" ||
+    activity.type === "run_result"
+  )
+    return 9;
   return 8;
 }
 
 export function activityStatusColor(status?: string) {
   switch (status) {
-  case "failed":
-    return "var(--red)";
-  case "cancelled":
-    return "var(--amber)";
-  case "awaiting_approval":
-  case "pending":
-  case "proposed":
-    return "var(--amber)";
-  case "running":
-  case "in_progress":
-    return "var(--teal)";
-  default:
-    return "var(--green)";
+    case "failed":
+      return "var(--red)";
+    case "cancelled":
+      return "var(--amber)";
+    case "awaiting_approval":
+    case "pending":
+    case "proposed":
+      return "var(--amber)";
+    case "running":
+    case "in_progress":
+      return "var(--teal)";
+    default:
+      return "var(--green)";
   }
 }
 
 export function isActiveAgentActivity(activity: ChatActivityRecord): boolean {
-  return activity.status === "running" || activity.status === "in_progress" || activity.status === "awaiting_approval" || activity.status === "pending" || Boolean(activity.needs_action);
+  return (
+    activity.status === "running" ||
+    activity.status === "in_progress" ||
+    activity.status === "awaiting_approval" ||
+    activity.status === "pending" ||
+    Boolean(activity.needs_action)
+  );
 }

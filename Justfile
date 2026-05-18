@@ -154,6 +154,18 @@ ui-dev: _ui-deps
 ui-build: _ui-deps
 	cd ui && bun run build
 
+# Run UI lint checks.
+ui-lint: _ui-deps
+	cd ui && bun run lint
+
+# Format UI source files with Oxfmt.
+ui-format: _ui-deps
+	cd ui && bun run format
+
+# Check UI source formatting with Oxfmt.
+ui-format-check: _ui-deps
+	cd ui && bun run format:check
+
 # Run UI unit tests.
 ui-test: _ui-deps
 	cd ui && bun run test
@@ -173,6 +185,18 @@ website-dev: _website-deps
 # Typecheck the Astro website.
 website-check: _website-deps
 	cd website && bun --bun run check
+
+# Run website lint checks.
+website-lint: _website-deps
+	cd website && bun --bun run lint
+
+# Format website source files with Oxfmt.
+website-format: _website-deps
+	cd website && bun --bun run format
+
+# Check website source formatting with Oxfmt.
+website-format-check: _website-deps
+	cd website && bun --bun run format:check
 
 # Build the Astro website.
 website-build: _website-deps
@@ -223,7 +247,7 @@ check-links:
 # Project verification gate. It intentionally runs only non-destructive
 # checks, but it is not cheap: Docker and UI e2e can take a bit.
 # Run the full project verification gate.
-verify: docs-env-check test vet test-race test-acp-smoke test-docker-smoke ui-test ui-test-e2e build
+verify: docs-env-check test vet test-race test-acp-smoke test-docker-smoke ui-lint ui-format-check website-lint website-format-check ui-test ui-test-e2e build
 
 # Run verification, then cut a release tag. Optional args pass through to
 # scripts/release.ts, for example: just release vX.Y.Z --skip-snapshot.

@@ -30,16 +30,27 @@ import { useDashboardActions } from "./coordinators/dashboard";
 import { useSettingsActions } from "./coordinators/settings";
 import type { ConfiguredStateResponse } from "../../types/provider";
 
-function chatSessionIsExternal(session: { runtime_kind?: string; adapter_id?: string } | null): boolean {
+function chatSessionIsExternal(
+  session: { runtime_kind?: string; adapter_id?: string } | null,
+): boolean {
   return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
 }
 
-function chatSessionIsBusy(session: { status?: string; segments?: Array<{ status?: string }>; messages?: Array<{ role: string; status?: string }> } | null): boolean {
-  const busy = (status?: string) => status === "queued" || status === "running" || status === "awaiting_approval";
+function chatSessionIsBusy(
+  session: {
+    status?: string;
+    segments?: Array<{ status?: string }>;
+    messages?: Array<{ role: string; status?: string }>;
+  } | null,
+): boolean {
+  const busy = (status?: string) =>
+    status === "queued" || status === "running" || status === "awaiting_approval";
   if (!session) return false;
   if (busy(session.status)) return true;
   if ((session.segments ?? []).some((segment) => busy(segment.status))) return true;
-  return (session.messages ?? []).some((message) => message.role === "assistant" && busy(message.status));
+  return (session.messages ?? []).some(
+    (message) => message.role === "assistant" && busy(message.status),
+  );
 }
 
 export function RootEffects() {
@@ -76,9 +87,20 @@ export function RootEffects() {
 
   const setSettingsConfig = useMemo(
     () =>
-      (next: ConfiguredStateResponse["data"] | null | ((current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null)) => {
+      (
+        next:
+          | ConfiguredStateResponse["data"]
+          | null
+          | ((
+              current: ConfiguredStateResponse["data"] | null,
+            ) => ConfiguredStateResponse["data"] | null),
+      ) => {
         if (typeof next === "function") {
-          settings.actions.updateConfig(next as (current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null);
+          settings.actions.updateConfig(
+            next as (
+              current: ConfiguredStateResponse["data"] | null,
+            ) => ConfiguredStateResponse["data"] | null,
+          );
         } else {
           settings.actions.setConfig(next);
         }
@@ -142,7 +164,12 @@ export function RootEffects() {
       return;
     }
     setHecateRTKEnabledState(Boolean(activeChatSession.rtk_enabled));
-  }, [activeChatSession?.id, activeChatSession?.rtk_enabled, setHecateRTKEnabledState, activeChatSession]);
+  }, [
+    activeChatSession?.id,
+    activeChatSession?.rtk_enabled,
+    setHecateRTKEnabledState,
+    activeChatSession,
+  ]);
 
   useEffect(() => {
     if (!notice) return;
@@ -160,7 +187,15 @@ export function RootEffects() {
     if (nextProvider === providerFilter) return;
     setProviderFilter(nextProvider);
     setModel(defaultModelForProvider(nextProvider, models, providers, providerPresets));
-  }, [models, providerFilter, providerPresets, providers, settingsConfig, setProviderFilter, setModel]);
+  }, [
+    models,
+    providerFilter,
+    providerPresets,
+    providers,
+    settingsConfig,
+    setProviderFilter,
+    setModel,
+  ]);
 
   useEffect(() => {
     if (providerFilter === "auto") return;
@@ -169,7 +204,13 @@ export function RootEffects() {
       providers.some((entry) => entry.name === providerFilter) ||
       providerPresets.some((entry) => entry.id === providerFilter);
     if (model && !hasProviderEvidence) return;
-    const stillValid = isModelValidForProvider(model, providerFilter, models, providers, providerPresets);
+    const stillValid = isModelValidForProvider(
+      model,
+      providerFilter,
+      models,
+      providers,
+      providerPresets,
+    );
     if (stillValid) return;
     const nextModel = defaultModelForProvider(providerFilter, models, providers, providerPresets);
     setModel(nextModel);

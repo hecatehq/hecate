@@ -40,40 +40,53 @@ describe("TranscriptMessageRow", () => {
   });
 
   it("strips the recovery marker from the visible failure message", () => {
-    render(<TranscriptMessageRow
-      {...baseProps}
-      badge="failed"
-      error="Claude Code isn't signed in. Click the button below. (claude_code_auth_required)"
-    />);
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="failed"
+        error="Claude Code isn't signed in. Click the button below. (claude_code_auth_required)"
+      />,
+    );
     expect(screen.getByText(/Claude Code isn't signed in/)).toBeInTheDocument();
     expect(screen.queryByText(/claude_code_auth_required/)).toBeNull();
   });
 
   it("renders the setup-action button on a failed agent run", () => {
     const onClick = vi.fn();
-    render(<TranscriptMessageRow
-      {...baseProps}
-      badge="failed"
-      error="Claude Code isn't signed in. (claude_code_auth_required)"
-      setupAction={{ label: "Open Claude Code setup", onClick }}
-    />);
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="failed"
+        error="Claude Code isn't signed in. (claude_code_auth_required)"
+        setupAction={{ label: "Open Claude Code setup", onClick }}
+      />,
+    );
     const button = screen.getByRole("button", { name: "Open Claude Code setup" });
     fireEvent.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
   it("does not render the setup-action button when the run is cancelled (only on failure)", () => {
-    render(<TranscriptMessageRow
-      {...baseProps}
-      badge="cancelled"
-      error="user pressed stop"
-      setupAction={{ label: "Open Claude Code setup", onClick: vi.fn() }}
-    />);
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="cancelled"
+        error="user pressed stop"
+        setupAction={{ label: "Open Claude Code setup", onClick: vi.fn() }}
+      />,
+    );
     expect(screen.queryByRole("button", { name: "Open Claude Code setup" })).toBeNull();
   });
 
   it("keeps cancelled run content and appends a cancellation notice", () => {
-    render(<TranscriptMessageRow {...baseProps} badge="cancelled" content="partial answer before stop" error="operator stopped the run" />);
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="cancelled"
+        content="partial answer before stop"
+        error="operator stopped the run"
+      />,
+    );
     expect(screen.getByText("agent run cancelled")).toBeInTheDocument();
     expect(screen.getByText("partial answer before stop")).toBeInTheDocument();
     expect(screen.getByText("operator stopped the run")).toBeInTheDocument();
@@ -191,9 +204,29 @@ describe("TranscriptMessageRow", () => {
     const onOpenTask = vi.fn();
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [
-      { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
-      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42, artifact_preview: "  diff --git a/README.md b/README.md\n+hello\n" },
-      { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 19, artifact_preview: "fatal: not a git repository" },
+      {
+        type: "tool_call",
+        title: "git_exec (failed)",
+        status: "failed",
+        kind: "git",
+        detail: "git_exec - failed",
+      },
+      {
+        type: "artifact",
+        title: "git-stdout.txt",
+        status: "ready",
+        artifact_id: "artifact_stdout",
+        artifact_size_bytes: 42,
+        artifact_preview: "  diff --git a/README.md b/README.md\n+hello\n",
+      },
+      {
+        type: "artifact",
+        title: "git-stderr.txt",
+        status: "ready",
+        artifact_id: "artifact_stderr",
+        artifact_size_bytes: 19,
+        artifact_preview: "fatal: not a git repository",
+      },
       { type: "failed", title: "Run failed", status: "failed", terminal: true },
     ];
 
@@ -208,7 +241,11 @@ describe("TranscriptMessageRow", () => {
     await user.click(screen.getByText(/1 failed tool/));
     await user.click(screen.getByText("Advanced"));
     expect(screen.getByText(/Preview the related run output/)).toBeInTheDocument();
-    expect([...container.querySelectorAll("pre")].some((node) => node.textContent?.startsWith("  diff --git"))).toBe(true);
+    expect(
+      [...container.querySelectorAll("pre")].some((node) =>
+        node.textContent?.startsWith("  diff --git"),
+      ),
+    ).toBe(true);
     expect(screen.getByText(/\+hello/)).toBeInTheDocument();
     expect(screen.getByText("fatal: not a git repository")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open task output" }));
@@ -218,9 +255,28 @@ describe("TranscriptMessageRow", () => {
   it("does not link empty stderr artifacts from failed tools", async () => {
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [
-      { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
-      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42, artifact_preview: "stdout details" },
-      { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 0 },
+      {
+        type: "tool_call",
+        title: "git_exec (failed)",
+        status: "failed",
+        kind: "git",
+        detail: "git_exec - failed",
+      },
+      {
+        type: "artifact",
+        title: "git-stdout.txt",
+        status: "ready",
+        artifact_id: "artifact_stdout",
+        artifact_size_bytes: 42,
+        artifact_preview: "stdout details",
+      },
+      {
+        type: "artifact",
+        title: "git-stderr.txt",
+        status: "ready",
+        artifact_id: "artifact_stderr",
+        artifact_size_bytes: 0,
+      },
     ];
 
     render(
@@ -258,9 +314,17 @@ describe("TranscriptMessageRow", () => {
   });
 
   it("renders the diff review section when diff metadata is present", () => {
-    const onListFiles: (sid: string, mid: string) => Promise<ChatChangedFileRecord[]> = vi.fn(async () => []);
-    const onGetFileDiff: (sid: string, mid: string, p: string) => Promise<ChatChangedFileDiffRecord | null> = vi.fn(async () => null);
-    const onRevertFiles: (sid: string, mid: string, ps: string[]) => Promise<boolean> = vi.fn(async () => true);
+    const onListFiles: (sid: string, mid: string) => Promise<ChatChangedFileRecord[]> = vi.fn(
+      async () => [],
+    );
+    const onGetFileDiff: (
+      sid: string,
+      mid: string,
+      p: string,
+    ) => Promise<ChatChangedFileDiffRecord | null> = vi.fn(async () => null);
+    const onRevertFiles: (sid: string, mid: string, ps: string[]) => Promise<boolean> = vi.fn(
+      async () => true,
+    );
 
     render(
       <TranscriptMessageRow
@@ -276,7 +340,13 @@ describe("TranscriptMessageRow", () => {
   });
 
   it("renders the raw adapter output details when rawOutput differs from content", () => {
-    render(<TranscriptMessageRow {...baseProps} content="final answer" rawOutput="I'll do this. final answer" />);
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        content="final answer"
+        rawOutput="I'll do this. final answer"
+      />,
+    );
     expect(screen.getByText(/raw adapter output/)).toBeInTheDocument();
   });
 

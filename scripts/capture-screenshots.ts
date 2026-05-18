@@ -15,7 +15,7 @@
 // optimizer on PATH (preference: pngquant > oxipng > magick) and runs
 // it over each captured PNG. None of these are required to take
 // captures; the standard "people usually use this for README PNGs"
-// install is `brew install oxipng`. Set HECATE_SKIP_OPTIMIZE=1 to skip.
+// install is `brew install pngquant`. Set HECATE_SKIP_OPTIMIZE=1 to skip.
 //
 // Outputs to docs/screenshots/<name>.png.
 

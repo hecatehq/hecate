@@ -18,15 +18,37 @@ function SectionHeader({
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: description ? 3 : 0 }}>{title}</div>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--t0)",
+            marginBottom: description ? 3 : 0,
+          }}
+        >
+          {title}
+        </div>
         {description && (
           <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>{description}</div>
         )}
       </div>
       {meta && (
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)", whiteSpace: "nowrap" }}>{meta}</span>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            color: "var(--t3)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {meta}
+        </span>
       )}
-      {actions && <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>{actions}</div>}
+      {actions && (
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
@@ -52,7 +74,11 @@ export function ModelCapabilitiesSection() {
   }, [query, models]);
 
   return (
-    <div className="card" style={{ padding: "14px 16px", marginBottom: 24 }} data-testid="connections-model-capabilities">
+    <div
+      className="card"
+      style={{ padding: "14px 16px", marginBottom: 24 }}
+      data-testid="connections-model-capabilities"
+    >
       <SectionHeader
         title="Model capabilities"
         description="Control whether Hecate should try tools for each discovered model. Tools are on by default unless a model is explicitly marked off; use this when a local/custom model fails tool calls or when you want direct model chat only."
@@ -60,7 +86,10 @@ export function ModelCapabilitiesSection() {
       />
 
       <div style={{ marginBottom: 14 }}>
-        <label style={{ display: "block", fontSize: 11, color: "var(--t3)", marginBottom: 6 }} htmlFor="model-capability-search">
+        <label
+          style={{ display: "block", fontSize: 11, color: "var(--t3)", marginBottom: 6 }}
+          htmlFor="model-capability-search"
+        >
           Filter by model or provider
         </label>
         <input
@@ -85,7 +114,14 @@ export function ModelCapabilitiesSection() {
           No models discovered yet. Add or start a provider, then refresh the dashboard.
         </div>
       ) : (
-        <div style={{ overflow: "hidden", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }} data-testid="model-capabilities-list">
+        <div
+          style={{
+            overflow: "hidden",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+          }}
+          data-testid="model-capabilities-list"
+        >
           {rows.map((model, index) => (
             <ModelCapabilityRow
               key={`${model.metadata?.provider ?? "unknown"}:${model.id}`}
@@ -100,7 +136,9 @@ export function ModelCapabilitiesSection() {
                   tool_calling: enabled ? "basic" : "none",
                   streaming: model.metadata?.capabilities?.streaming,
                   max_context_tokens: model.metadata?.capabilities?.max_context_tokens,
-                  note: enabled ? "Tools enabled from Connections." : "Tools disabled from Connections.",
+                  note: enabled
+                    ? "Tools enabled from Connections."
+                    : "Tools disabled from Connections.",
                 });
               }}
               onClear={() => {
@@ -149,8 +187,12 @@ function ModelCapabilityRow({
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
           <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{model.id}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>·</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>{provider}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
+            ·
+          </span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
+            {provider}
+          </span>
           <span
             style={{
               fontFamily: "var(--font-mono)",
@@ -163,13 +205,44 @@ function ModelCapabilityRow({
             tools {toolsEnabled ? "on" : "off"}
           </span>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-          <span>source <span style={{ color: "var(--t1)" }}>{source}</span></span>
-          {capabilities?.streaming !== undefined && <span>streaming <span style={{ color: "var(--t1)" }}>{capabilities.streaming ? "yes" : "no"}</span></span>}
-          {capabilities?.max_context_tokens !== undefined && <span>context <span style={{ color: "var(--t1)" }}>{formatInteger(capabilities.max_context_tokens)}</span></span>}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--t3)",
+          }}
+        >
+          <span>
+            source <span style={{ color: "var(--t1)" }}>{source}</span>
+          </span>
+          {capabilities?.streaming !== undefined && (
+            <span>
+              streaming{" "}
+              <span style={{ color: "var(--t1)" }}>{capabilities.streaming ? "yes" : "no"}</span>
+            </span>
+          )}
+          {capabilities?.max_context_tokens !== undefined && (
+            <span>
+              context{" "}
+              <span style={{ color: "var(--t1)" }}>
+                {formatInteger(capabilities.max_context_tokens)}
+              </span>
+            </span>
+          )}
         </div>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
         <div
           role="group"
           aria-label={`Tools for ${model.id}`}
@@ -223,7 +296,12 @@ function ModelCapabilityRow({
             tools off
           </button>
         </div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onClear} disabled={clearDisabled}>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={onClear}
+          disabled={clearDisabled}
+        >
           Clear override
         </button>
       </div>

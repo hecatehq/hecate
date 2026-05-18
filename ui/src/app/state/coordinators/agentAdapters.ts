@@ -33,13 +33,24 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     return result.health;
   }
 
-  async function setAgentAdapterCredential(adapterID: string, value: string, name?: string): Promise<boolean> {
-    const result = await providersAndModels.actions.setAgentAdapterCredential(adapterID, value, name);
+  async function setAgentAdapterCredential(
+    adapterID: string,
+    value: string,
+    name?: string,
+  ): Promise<boolean> {
+    const result = await providersAndModels.actions.setAgentAdapterCredential(
+      adapterID,
+      value,
+      name,
+    );
     if (!result.ok) {
       params.setNoticeMessage("error", result.error);
       return false;
     }
-    params.setNoticeMessage("success", result.isClaudeCode ? "Claude Code verified." : "Adapter credential saved.");
+    params.setNoticeMessage(
+      "success",
+      result.isClaudeCode ? "Claude Code verified." : "Adapter credential saved.",
+    );
     return true;
   }
 

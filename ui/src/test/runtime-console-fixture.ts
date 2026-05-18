@@ -226,13 +226,25 @@ export type RuntimeConsoleFixtureActions = {
   getChatApproval: (sessionID: string, approvalID: string) => Promise<unknown>;
   listChatMessageFiles: (sessionID: string, messageID: string) => Promise<unknown[]>;
   getChatMessageFileDiff: (sessionID: string, messageID: string, path: string) => Promise<unknown>;
-  revertChatMessageFiles: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
+  revertChatMessageFiles: (
+    sessionID: string,
+    messageID: string,
+    paths: string[],
+  ) => Promise<boolean>;
   resolveTaskApproval: (taskID: string, approvalID: string, decision: unknown) => Promise<boolean>;
-  resolveChatApproval: (sessionID: string, approvalID: string, decision: unknown) => Promise<boolean>;
+  resolveChatApproval: (
+    sessionID: string,
+    approvalID: string,
+    decision: unknown,
+  ) => Promise<boolean>;
   cancelChatApproval: (sessionID: string, approvalID: string) => Promise<boolean>;
   listChatGrants: (filter?: unknown) => Promise<void>;
   deleteChatGrant: (grantID: string) => Promise<boolean>;
-  setChatConfigOption: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
+  setChatConfigOption: (
+    sessionID: string,
+    configID: string,
+    value: string | boolean,
+  ) => Promise<boolean>;
   setHecateRTKEnabled: (enabled: boolean) => Promise<boolean>;
   probeAgentAdapter: (adapterID: string) => Promise<unknown>;
   setAgentAdapterCredential: (adapterID: string, value: string, name?: string) => Promise<boolean>;

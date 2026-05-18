@@ -2,23 +2,39 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useApprovals } from "../../app/state/approvals";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
-import { useWiredProviderActions, useWiredSettingsActions } from "../../app/state/coordinators/wired";
+import {
+  useWiredProviderActions,
+  useWiredSettingsActions,
+} from "../../app/state/coordinators/wired";
 import { useChatTarget } from "../../app/state/derived";
-import { useProvidersAndModels, type ProvidersAndModelsState } from "../../app/state/providersAndModels";
+import {
+  useProvidersAndModels,
+  type ProvidersAndModelsState,
+} from "../../app/state/providersAndModels";
 import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
 import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { formatLocaleDateTime } from "../../lib/format";
-import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
+import {
+  providerFleetRepairHint,
+  providerReadinessMeaning,
+  providerRepairActionLabel,
+} from "../../lib/provider-readiness";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatGrantRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
-import type { ConfiguredProviderRecord, ConfiguredStateResponse, ProviderRecord } from "../../types/provider";
+import type {
+  ConfiguredProviderRecord,
+  ConfiguredStateResponse,
+  ProviderRecord,
+} from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
 
 type Props = {
-  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "chats" | "usage") => void;
+  onNavigate?: (
+    workspace: "connections" | "runs" | "overview" | "settings" | "chats" | "usage",
+  ) => void;
 };
 
 function SectionHeader({
@@ -35,15 +51,37 @@ function SectionHeader({
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: description ? 3 : 0 }}>{title}</div>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--t0)",
+            marginBottom: description ? 3 : 0,
+          }}
+        >
+          {title}
+        </div>
         {description && (
           <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>{description}</div>
         )}
       </div>
       {meta && (
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)", whiteSpace: "nowrap" }}>{meta}</span>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            color: "var(--t3)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {meta}
+        </span>
       )}
-      {actions && <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>{actions}</div>}
+      {actions && (
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
@@ -70,7 +108,9 @@ export function ConnectionsPanel({
   const runtime = useRuntime();
   const providerActions = useWiredProviderActions();
   const { actions: settingsActions } = useWiredSettingsActions();
-  const agentAdapterActions = useAgentAdapterActions({ setNoticeMessage: settingsActions.setNoticeMessage });
+  const agentAdapterActions = useAgentAdapterActions({
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
   const chatActions = useChatActions({
     chatTarget: useChatTarget(),
     setNoticeMessage: settingsActions.setNoticeMessage,
@@ -85,9 +125,17 @@ export function ConnectionsPanel({
   const chatGrantsLoading = approvals.state.grantsLoading;
   const chatGrantsError = approvals.state.grantsError;
   const liveAnthropicProvider = findAnthropicProvider(settingsConfig?.providers ?? []);
-  const [rememberedAnthropicProvider, setRememberedAnthropicProvider] = useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
+  const [rememberedAnthropicProvider, setRememberedAnthropicProvider] =
+    useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
   const probedAdapterIDsRef = useRef<Set<string>>(new Set());
-  const adapterIDsKey = useMemo(() => agentAdapters.map((adapter) => adapter.id).sort().join(","), [agentAdapters]);
+  const adapterIDsKey = useMemo(
+    () =>
+      agentAdapters
+        .map((adapter) => adapter.id)
+        .sort()
+        .join(","),
+    [agentAdapters],
+  );
   const listChatGrants = approvals.actions.loadGrants;
   const probeAgentAdapter = agentAdapterActions.probeAgentAdapter;
 
@@ -131,8 +179,9 @@ export function ConnectionsPanel({
     const KNOWN_FOCUS_TARGETS = new Set(["claude-code-guided-setup"]);
     let focusTarget: string | null = null;
     try {
-      const raw = sessionStorage.getItem("hecate.connectionsFocus")
-        || sessionStorage.getItem("hecate.settingsFocus");
+      const raw =
+        sessionStorage.getItem("hecate.connectionsFocus") ||
+        sessionStorage.getItem("hecate.settingsFocus");
       if (raw) {
         sessionStorage.removeItem("hecate.connectionsFocus");
         sessionStorage.removeItem("hecate.settingsFocus");
@@ -229,7 +278,9 @@ export function ConnectionsPanel({
           style={{ padding: "24px", textAlign: "center", color: "var(--t3)", fontSize: 12 }}
           data-testid="external-agents-empty"
         >
-          {chatGrantsLoading ? "Loading grants…" : "No grants yet. Approvals stay scoped to a single call until an operator picks a broader scope."}
+          {chatGrantsLoading
+            ? "Loading grants…"
+            : "No grants yet. Approvals stay scoped to a single call until an operator picks a broader scope."}
         </div>
       ) : (
         <div className="card" style={{ overflow: "hidden" }} data-testid="external-agents-list">
@@ -263,7 +314,12 @@ function ModelProviderConnectionsSection({
   const knownStatuses = providers.filter((provider) => configuredProviderIDs.has(provider.name));
   const readyProviders = knownStatuses.filter(isProviderReady).length;
   const blockedProviders = knownStatuses.filter(isProviderBlocked).length;
-  const modelCount = models.length || knownStatuses.reduce((sum, provider) => sum + (provider.model_count ?? provider.models?.length ?? 0), 0);
+  const modelCount =
+    models.length ||
+    knownStatuses.reduce(
+      (sum, provider) => sum + (provider.model_count ?? provider.models?.length ?? 0),
+      0,
+    );
   const statusByName = new Map(providers.map((provider) => [provider.name, provider]));
   const repair = providerFleetRepairHint(configuredProviders, statusByName);
   const repairLabel = repair?.tone === "muted" ? "Ready for chat" : "Next repair";
@@ -277,14 +333,22 @@ function ModelProviderConnectionsSection({
   });
 
   return (
-    <div className="card" style={{ padding: "14px 16px", marginBottom: 24 }} data-testid="connections-model-providers">
+    <div
+      className="card"
+      style={{ padding: "14px 16px", marginBottom: 24 }}
+      data-testid="connections-model-providers"
+    >
       <SectionHeader
         title="Model providers"
         description="Cloud and local model endpoints used by Hecate Chat, direct model chat, routing, and usage reporting."
         meta={`${configuredProviders.length} configured`}
         actions={
           onNavigate ? (
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => onNavigate("connections")}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => onNavigate("connections")}
+            >
               Open Connections
             </button>
           ) : undefined
@@ -302,17 +366,25 @@ function ModelProviderConnectionsSection({
           }}
         >
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 3 }}>
-            <span style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              color: repair.tone === "amber" ? "var(--amber)" : "var(--green)",
-              whiteSpace: "nowrap",
-            }}>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                color: repair.tone === "amber" ? "var(--amber)" : "var(--green)",
+                whiteSpace: "nowrap",
+              }}
+            >
               {repairLabel}
             </span>
-            <span style={{ fontSize: 11, fontWeight: 600, color: repair.tone === "amber" ? "var(--amber)" : "var(--t1)" }}>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: repair.tone === "amber" ? "var(--amber)" : "var(--t1)",
+              }}
+            >
               {repair.title}
             </span>
             {repairButton && onNavigate && (
@@ -327,7 +399,14 @@ function ModelProviderConnectionsSection({
             )}
           </div>
           <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>{repair.message}</div>
-          <div style={{ marginTop: 5, fontSize: 10, color: repair.tone === "amber" ? "var(--amber)" : "var(--t3)", fontFamily: "var(--font-mono)" }}>
+          <div
+            style={{
+              marginTop: 5,
+              fontSize: 10,
+              color: repair.tone === "amber" ? "var(--amber)" : "var(--t3)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
             {repair.tone === "muted" ? "Status" : "Next"} ·{" "}
             <span style={{ color: repair.tone === "muted" ? "var(--t3)" : "var(--amber)" }}>
               {repair.action}
@@ -342,9 +421,23 @@ function ModelProviderConnectionsSection({
           gap: 10,
         }}
       >
-        <ConnectionStat label="Configured" value={String(configuredProviders.length)} hint="provider records" />
-        <ConnectionStat label="Ready" value={String(readyProviders)} hint="routing-ready" tone={readyProviders > 0 ? "green" : "muted"} />
-        <ConnectionStat label="Needs attention" value={String(blockedProviders)} hint="blocked providers" tone={blockedProviders > 0 ? "amber" : "muted"} />
+        <ConnectionStat
+          label="Configured"
+          value={String(configuredProviders.length)}
+          hint="provider records"
+        />
+        <ConnectionStat
+          label="Ready"
+          value={String(readyProviders)}
+          hint="routing-ready"
+          tone={readyProviders > 0 ? "green" : "muted"}
+        />
+        <ConnectionStat
+          label="Needs attention"
+          value={String(blockedProviders)}
+          hint="blocked providers"
+          tone={blockedProviders > 0 ? "amber" : "muted"}
+        />
         <ConnectionStat label="Models" value={String(modelCount)} hint="discovered" />
       </div>
       <div
@@ -362,7 +455,9 @@ function ModelProviderConnectionsSection({
   );
 }
 
-function providerRepairButtonLabel(hint: ReturnType<typeof providerFleetRepairHint>): string | null {
+function providerRepairButtonLabel(
+  hint: ReturnType<typeof providerFleetRepairHint>,
+): string | null {
   if (!hint || hint.tone === "muted") return null;
   return providerRepairActionLabel(hint.actionKind);
 }
@@ -387,10 +482,27 @@ function ConnectionStat({
         background: "rgba(255, 255, 255, 0.015)",
       }}
     >
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          color: "var(--t3)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: 5,
+        }}
+      >
         {label}
       </div>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 700, color: chipColor(tone), lineHeight: 1 }}>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 18,
+          fontWeight: 700,
+          color: chipColor(tone),
+          lineHeight: 1,
+        }}
+      >
         {value}
       </div>
       <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 6 }}>{hint}</div>
@@ -409,15 +521,22 @@ function isProviderBlocked(provider: ProviderRecord): boolean {
   if (provider.readiness?.status) {
     return provider.readiness.status === "blocked";
   }
-  return Boolean(provider.routing_blocked_reason || (!provider.healthy && provider.status !== "pending"));
+  return Boolean(
+    provider.routing_blocked_reason || (!provider.healthy && provider.status !== "pending"),
+  );
 }
 
-function findAnthropicProvider(providers: ConfiguredProviderRecord[]): ConfiguredProviderRecord | null {
-  return providers.find((provider) => (
-    provider.id === "anthropic" ||
-    provider.preset_id === "anthropic" ||
-    provider.protocol === "anthropic"
-  )) ?? null;
+function findAnthropicProvider(
+  providers: ConfiguredProviderRecord[],
+): ConfiguredProviderRecord | null {
+  return (
+    providers.find(
+      (provider) =>
+        provider.id === "anthropic" ||
+        provider.preset_id === "anthropic" ||
+        provider.protocol === "anthropic",
+    ) ?? null
+  );
 }
 
 function AnthropicProviderKeyCard({
@@ -467,7 +586,9 @@ function AnthropicProviderKeyCard({
       }}
     >
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t0)" }}>Anthropic provider key</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t0)" }}>
+          Anthropic provider key
+        </span>
         <span
           style={{
             fontFamily: "var(--font-mono)",
@@ -481,7 +602,8 @@ function AnthropicProviderKeyCard({
         </span>
       </div>
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45, marginBottom: 12 }}>
-        Used by Hecate Chat and direct Anthropic provider calls through {provider.name || "Anthropic"}. This is separate from the Claude Code adapter token below.
+        Used by Hecate Chat and direct Anthropic provider calls through{" "}
+        {provider.name || "Anthropic"}. This is separate from the Claude Code adapter token below.
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <input
@@ -493,11 +615,21 @@ function AnthropicProviderKeyCard({
           style={{ flex: 1, minWidth: 220 }}
           aria-label="Anthropic API key"
         />
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => void save()} disabled={saving || key.trim() === ""}>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={() => void save()}
+          disabled={saving || key.trim() === ""}
+        >
           {saving ? "Saving..." : configured ? "Update key" : "Save key"}
         </button>
         {configured && (
-          <button type="button" className="btn btn-danger btn-sm" onClick={() => void clear()} disabled={saving}>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            onClick={() => void clear()}
+            disabled={saving}
+          >
             Remove
           </button>
         )}
@@ -551,9 +683,15 @@ function AdapterStatusSection({
             divider={i < agentAdapters.length - 1}
             health={agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
-            onSaveCredential={(value) => setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")}
-            onDeleteCredential={() => deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")}
-            onCopyCommand={() => void copyCommand(claudeCodeSetupTokenCommand(adapter.claude_code_cli))}
+            onSaveCredential={(value) =>
+              setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")
+            }
+            onDeleteCredential={() =>
+              deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")
+            }
+            onCopyCommand={() =>
+              void copyCommand(claudeCodeSetupTokenCommand(adapter.claude_code_cli))
+            }
           />
         ))}
       </div>
@@ -605,8 +743,12 @@ function AdapterStatusRow({
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
           <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{adapter.name}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>·</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>{adapter.id}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
+            ·
+          </span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
+            {adapter.id}
+          </span>
           {chip && (
             <span
               style={{
@@ -646,15 +788,44 @@ function AdapterStatusRow({
               }}
               title={displayAuthError || undefined}
             >
-              {displayAuthStatus === "billing" ? "billing" : displayAuthStatus === "unauthenticated" ? "auth required" : "auth unknown"}
+              {displayAuthStatus === "billing"
+                ? "billing"
+                : displayAuthStatus === "unauthenticated"
+                  ? "auth required"
+                  : "auth unknown"}
             </span>
           )}
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-          {adapter.command && <span>command <span style={{ color: "var(--t1)" }}>{adapter.command}</span></span>}
-          {adapter.version && <span>version <span style={{ color: "var(--t1)" }}>{adapter.version}</span></span>}
-          {displayAuthStatus && <span>auth <span style={{ color: "var(--t1)" }}>{displayAuthStatus}</span></span>}
-          {health?.path && <span>path <span style={{ color: "var(--t1)" }}>{health.path}</span></span>}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--t3)",
+          }}
+        >
+          {adapter.command && (
+            <span>
+              command <span style={{ color: "var(--t1)" }}>{adapter.command}</span>
+            </span>
+          )}
+          {adapter.version && (
+            <span>
+              version <span style={{ color: "var(--t1)" }}>{adapter.version}</span>
+            </span>
+          )}
+          {displayAuthStatus && (
+            <span>
+              auth <span style={{ color: "var(--t1)" }}>{displayAuthStatus}</span>
+            </span>
+          )}
+          {health?.path && (
+            <span>
+              path <span style={{ color: "var(--t1)" }}>{health.path}</span>
+            </span>
+          )}
           {health?.duration_ms !== undefined && <span>{health.duration_ms} ms</span>}
         </div>
         {health && (health.hint || health.error) && (
@@ -670,7 +841,14 @@ function AdapterStatusRow({
           >
             {health.hint && <div>{health.hint}</div>}
             {health.error && (
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", marginTop: 2 }}>
+              <div
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  color: "var(--t3)",
+                  marginTop: 2,
+                }}
+              >
                 {health.error}
               </div>
             )}
@@ -701,7 +879,12 @@ function AdapterStatusRow({
       {loading && (
         <span
           data-testid={`external-agents-checking-${adapter.id}`}
-          style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)", whiteSpace: "nowrap" }}
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            color: "var(--t3)",
+            whiteSpace: "nowrap",
+          }}
         >
           checking…
         </span>
@@ -779,11 +962,32 @@ function ClaudeCredentialSetup({
         background,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 8,
+        }}
+      >
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, fontWeight: 600, color: accent }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 11,
+              fontWeight: 600,
+              color: accent,
+            }}
+          >
             <Icon d={tokenVerified ? Icons.check : Icons.keys} size={12} />
-            {tokenVerified ? "Claude Code token verified" : configured ? "Claude Code token saved" : "Claude Code guided setup"}
+            {tokenVerified
+              ? "Claude Code token verified"
+              : configured
+                ? "Claude Code token saved"
+                : "Claude Code guided setup"}
           </div>
           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4 }}>
             {tokenVerified
@@ -794,7 +998,16 @@ function ClaudeCredentialSetup({
                   ? "Claude Code is signed in for normal CLI use, but Hecate still needs its own adapter token. Run claude setup-token and paste the token here."
                   : "Run claude setup-token, paste the token here, then Hecate injects it only into Claude ACP."}
           </div>
-          <div style={{ marginTop: 5, display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10 }}>
+          <div
+            style={{
+              marginTop: 5,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+            }}
+          >
             <span style={{ color: adapterReady ? "var(--teal)" : "var(--t3)" }}>
               adapter {adapterReady ? "installed" : "not verified"}
             </span>
@@ -813,12 +1026,39 @@ function ClaudeCredentialSetup({
         )}
       </div>
       {configured && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 11, color: "var(--t2)" }}>
-          <span>Stored token {preview ? <span style={{ fontFamily: "var(--font-mono)", color: "var(--t1)" }}>{preview}</span> : "configured"}</span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 8,
+            fontSize: 11,
+            color: "var(--t2)",
+          }}
+        >
+          <span>
+            Stored token{" "}
+            {preview ? (
+              <span style={{ fontFamily: "var(--font-mono)", color: "var(--t1)" }}>{preview}</span>
+            ) : (
+              "configured"
+            )}
+          </span>
           {tokenVerified && <span style={{ color: "var(--teal)" }}>Token valid.</span>}
-          {!tokenVerified && health?.status === "auth_required" && <span style={{ color: "var(--amber)" }}>Token saved, but Claude still reports auth required.</span>}
-          {!tokenVerified && health?.status === "error" && <span style={{ color: "var(--red)" }}>Token saved, but the auth check failed.</span>}
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void remove()} disabled={removing}>
+          {!tokenVerified && health?.status === "auth_required" && (
+            <span style={{ color: "var(--amber)" }}>
+              Token saved, but Claude still reports auth required.
+            </span>
+          )}
+          {!tokenVerified && health?.status === "error" && (
+            <span style={{ color: "var(--red)" }}>Token saved, but the auth check failed.</span>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => void remove()}
+            disabled={removing}
+          >
             {removing ? "Removing..." : "Remove"}
           </button>
         </div>
@@ -827,13 +1067,22 @@ function ClaudeCredentialSetup({
         <input
           value={token}
           onChange={(event) => setToken(event.target.value)}
-          placeholder={configured ? "Paste a replacement CLAUDE_CODE_OAUTH_TOKEN" : "Paste CLAUDE_CODE_OAUTH_TOKEN"}
+          placeholder={
+            configured
+              ? "Paste a replacement CLAUDE_CODE_OAUTH_TOKEN"
+              : "Paste CLAUDE_CODE_OAUTH_TOKEN"
+          }
           type="password"
           className="input"
           style={{ flex: 1, minWidth: 180 }}
           aria-label="Claude Code OAuth token"
         />
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => void save()} disabled={saving || token.trim() === ""}>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={() => void save()}
+          disabled={saving || token.trim() === ""}
+        >
           {saving ? "Checking auth..." : "Save"}
         </button>
       </div>
@@ -845,20 +1094,29 @@ type ChipTone = "green" | "amber" | "red" | "muted";
 
 function probeStatusChip(status: string): { tone: ChipTone; label: string } | null {
   switch (status) {
-    case "ready":         return { tone: "green", label: "ready" };
-    case "auth_required": return { tone: "amber", label: "auth required" };
-    case "not_installed": return { tone: "amber", label: "not installed" };
-    case "error":         return { tone: "red",   label: "error" };
-    default:              return null;
+    case "ready":
+      return { tone: "green", label: "ready" };
+    case "auth_required":
+      return { tone: "amber", label: "auth required" };
+    case "not_installed":
+      return { tone: "amber", label: "not installed" };
+    case "error":
+      return { tone: "red", label: "error" };
+    default:
+      return null;
   }
 }
 
 function chipColor(tone: ChipTone): string {
   switch (tone) {
-    case "green": return "var(--teal)";
-    case "amber": return "var(--amber)";
-    case "red":   return "var(--red)";
-    case "muted": return "var(--t3)";
+    case "green":
+      return "var(--teal)";
+    case "amber":
+      return "var(--amber)";
+    case "red":
+      return "var(--red)";
+    case "muted":
+      return "var(--t3)";
   }
 }
 
@@ -872,11 +1130,12 @@ function GrantRow({
   onRevoke: () => void;
 }) {
   const [confirmingRevoke, setConfirmingRevoke] = useState(false);
-  const decisionTone = grant.decision === "approve"
-    ? { color: "var(--teal)", label: "always approve" }
-    : grant.decision === "deny"
-      ? { color: "var(--red)", label: "always deny" }
-      : { color: "var(--t2)", label: grant.decision };
+  const decisionTone =
+    grant.decision === "approve"
+      ? { color: "var(--teal)", label: "always approve" }
+      : grant.decision === "deny"
+        ? { color: "var(--red)", label: "always deny" }
+        : { color: "var(--t2)", label: grant.decision };
   const expiresLabel = grant.expires_at
     ? `expires ${formatLocaleDateTime(grant.expires_at)}`
     : "no expiry";
@@ -895,18 +1154,55 @@ function GrantRow({
       <BrandAvatar brand={grant.adapter_id} fallback={grant.adapter_id} size={26} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{grant.adapter_id}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>·</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)" }}>{grant.tool_kind}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: decisionTone.color, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>
+            {grant.adapter_id}
+          </span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
+            ·
+          </span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)" }}>
+            {grant.tool_kind}
+          </span>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: decisionTone.color,
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
             {decisionTone.label}
           </span>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-          <span>scope <span style={{ color: "var(--t1)" }}>{grant.scope}</span></span>
-          {grant.workspace && <span>workspace <span style={{ color: "var(--t1)" }}>{grant.workspace}</span></span>}
-          {grant.session_id && <span>session <span style={{ color: "var(--t1)" }}>{grant.session_id}</span></span>}
-          {grant.granted_by && <span>by <span style={{ color: "var(--t1)" }}>{grant.granted_by}</span></span>}
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--t3)",
+          }}
+        >
+          <span>
+            scope <span style={{ color: "var(--t1)" }}>{grant.scope}</span>
+          </span>
+          {grant.workspace && (
+            <span>
+              workspace <span style={{ color: "var(--t1)" }}>{grant.workspace}</span>
+            </span>
+          )}
+          {grant.session_id && (
+            <span>
+              session <span style={{ color: "var(--t1)" }}>{grant.session_id}</span>
+            </span>
+          )}
+          {grant.granted_by && (
+            <span>
+              by <span style={{ color: "var(--t1)" }}>{grant.granted_by}</span>
+            </span>
+          )}
           <span>{formatLocaleDateTime(grant.granted_at)}</span>
           <span>{expiresLabel}</span>
         </div>

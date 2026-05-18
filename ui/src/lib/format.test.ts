@@ -59,27 +59,23 @@ describe("formatDurationRange", () => {
   });
 
   it("formats explicit start/end ranges via formatDurationMs", () => {
-    expect(
-      formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.500Z"),
-    ).toBe("500ms");
-    expect(
-      formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:05.500Z"),
-    ).toBe("5.5s");
-    expect(
-      formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:02:06.000Z"),
-    ).toBe("2m 6s");
+    expect(formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.500Z")).toBe(
+      "500ms",
+    );
+    expect(formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:05.500Z")).toBe(
+      "5.5s",
+    );
+    expect(formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:02:06.000Z")).toBe(
+      "2m 6s",
+    );
   });
 
   it("renders an equal-boundary range as 0ms", () => {
-    expect(
-      formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"),
-    ).toBe("0ms");
+    expect(formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z")).toBe("0ms");
   });
 
   it("clamps a negative range to 0ms", () => {
-    expect(
-      formatDurationRange("2026-01-01T00:00:10.000Z", "2026-01-01T00:00:00.000Z"),
-    ).toBe("0ms");
+    expect(formatDurationRange("2026-01-01T00:00:10.000Z", "2026-01-01T00:00:00.000Z")).toBe("0ms");
   });
 
   it("rejects an unparseable end", () => {
@@ -130,7 +126,8 @@ describe("formatAbsoluteTime", () => {
     const yearPart = partsFor({ year: "numeric" }).find((p) => p.type === "year")?.value ?? "";
     const monthPart = partsFor({ month: "short" }).find((p) => p.type === "month")?.value ?? "";
     const dayPart = partsFor({ day: "numeric" }).find((p) => p.type === "day")?.value ?? "";
-    const tzPart = partsFor({ timeZoneName: "short" }).find((p) => p.type === "timeZoneName")?.value ?? "";
+    const tzPart =
+      partsFor({ timeZoneName: "short" }).find((p) => p.type === "timeZoneName")?.value ?? "";
 
     const out = formatAbsoluteTime(isoInput);
     expect(out).toContain(yearPart);

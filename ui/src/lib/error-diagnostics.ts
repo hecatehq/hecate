@@ -17,12 +17,14 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   },
   provider_unavailable: {
     title: "Provider is unavailable",
-    action: "Check provider health, local runtime process, base URL, or fail over to another model.",
+    action:
+      "Check provider health, local runtime process, base URL, or fail over to another model.",
     tone: "danger",
   },
   unsupported_model: {
     title: "Model is not supported by this route",
-    action: "Choose a model listed for the selected provider, or switch provider route back to Auto.",
+    action:
+      "Choose a model listed for the selected provider, or switch provider route back to Auto.",
     tone: "warning",
   },
   route_impossible: {
@@ -52,17 +54,20 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   },
   model_not_configured: {
     title: "Selected model is unavailable",
-    action: "Choose a discovered model, refresh provider status, or open Connections to fix model discovery.",
+    action:
+      "Choose a discovered model, refresh provider status, or open Connections to fix model discovery.",
     tone: "warning",
   },
   "chat.model_capability_required": {
     title: "Tools unavailable for this model",
-    action: "Turn tools off for direct model chat, test the model, or enable tool support in Connections.",
+    action:
+      "Turn tools off for direct model chat, test the model, or enable tool support in Connections.",
     tone: "warning",
   },
   "chat.agent_session_busy": {
     title: "Chat is still working",
-    action: "Open the backing task, resolve the approval, or stop the run before sending another message.",
+    action:
+      "Open the backing task, resolve the approval, or stop the run before sending another message.",
     tone: "warning",
   },
   "chat.runtime_mismatch": {
@@ -92,7 +97,10 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   },
 };
 
-export function describeGatewayError(code?: string, status?: number): GatewayErrorDiagnostic | null {
+export function describeGatewayError(
+  code?: string,
+  status?: number,
+): GatewayErrorDiagnostic | null {
   if (code && diagnostics[code]) {
     return diagnostics[code];
   }

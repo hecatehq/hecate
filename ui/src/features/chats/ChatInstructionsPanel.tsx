@@ -13,16 +13,22 @@ export function ChatInstructionsPanel({
   value,
   onChange,
 }: ChatInstructionsPanelProps) {
-  const label = isHecateAgentChat ? "System prompt / agent instructions" : "System prompt / instructions";
+  const label = isHecateAgentChat
+    ? "System prompt / agent instructions"
+    : "System prompt / instructions";
   return (
-    <div style={{
-      borderBottom: embedded ? "none" : "1px solid var(--border)",
-      padding: embedded ? 0 : "10px 14px",
-      background: embedded ? "transparent" : "var(--bg2)",
-    }}>
+    <div
+      style={{
+        borderBottom: embedded ? "none" : "1px solid var(--border)",
+        padding: embedded ? 0 : "10px 14px",
+        background: embedded ? "transparent" : "var(--bg2)",
+      }}
+    >
       <div style={{ display: "flex", alignItems: "center", marginBottom: 5, gap: 8 }}>
         <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)" }}>
-          {isHecateAgentChat ? "SYSTEM PROMPT / AGENT INSTRUCTIONS" : "SYSTEM PROMPT / INSTRUCTIONS"}
+          {isHecateAgentChat
+            ? "SYSTEM PROMPT / AGENT INSTRUCTIONS"
+            : "SYSTEM PROMPT / INSTRUCTIONS"}
         </span>
         {locked && (
           <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
@@ -38,7 +44,7 @@ export function ChatInstructionsPanel({
       <textarea
         aria-label={label}
         value={value}
-        onChange={event => onChange(event.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         disabled={locked}
         style={{
           width: "100%",

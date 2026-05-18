@@ -4,10 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatView } from "./ChatView";
 import { discoverLocalProviders } from "../../lib/api";
-import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 
-vi.mock("../../lib/api", async importOriginal => {
+vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
     ...actual,
@@ -17,13 +20,20 @@ vi.mock("../../lib/api", async importOriginal => {
 
 afterEach(() => {
   vi.mocked(discoverLocalProviders).mockReset();
-  vi.mocked(discoverLocalProviders).mockResolvedValue({ object: "local_provider_discovery", data: [] });
+  vi.mocked(discoverLocalProviders).mockResolvedValue({
+    object: "local_provider_discovery",
+    data: [],
+  });
 });
 
 function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
   const state = createRuntimeConsoleFixture({
     providerScopedModels: [
-      { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
+      {
+        id: "gpt-4o-mini",
+        owned_by: "openai",
+        metadata: { provider: "openai", provider_kind: "cloud" },
+      },
     ],
     ...stateOverrides,
   });
@@ -51,20 +61,23 @@ describe("ChatView input", () => {
 
   it("toggles Hecate Chat between direct model chat and tool-backed agent mode", async () => {
     const setChatTarget = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      providerScopedModels: [
-        {
-          id: "gpt-4o-mini",
-          owned_by: "openai",
-          metadata: {
-            provider: "openai",
-            provider_kind: "cloud",
-            capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        providerScopedModels: [
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: {
+              provider: "openai",
+              provider_kind: "cloud",
+              capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+            },
           },
-        },
-      ],
-    }, { setChatTarget });
+        ],
+      },
+      { setChatTarget },
+    );
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -84,20 +97,23 @@ describe("ChatView input", () => {
 
   it("keeps tools off for an existing Hecate session when the next turn is direct model chat", async () => {
     const setChatTarget = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      activeChatSessionID: "chat_1",
-      activeChatSession: {
-        id: "chat_1",
-        runtime_kind: "agent",
-        title: "Repo work",
-        provider: "openai",
-        model: "gpt-4o-mini",
-        workspace: "/workspace",
-        status: "completed",
-        messages: [],
-      } as any,
-    }, { setChatTarget });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        activeChatSessionID: "chat_1",
+        activeChatSession: {
+          id: "chat_1",
+          runtime_kind: "agent",
+          title: "Repo work",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          workspace: "/workspace",
+          status: "completed",
+          messages: [],
+        } as any,
+      },
+      { setChatTarget },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -110,21 +126,24 @@ describe("ChatView input", () => {
 
   it("shows editable system prompt instructions in chat settings before the first message", async () => {
     const setSystemPrompt = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      systemPrompt: "Prefer small, reviewable diffs.",
-      providerScopedModels: [
-        {
-          id: "gpt-4o-mini",
-          owned_by: "openai",
-          metadata: {
-            provider: "openai",
-            provider_kind: "cloud",
-            capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        systemPrompt: "Prefer small, reviewable diffs.",
+        providerScopedModels: [
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: {
+              provider: "openai",
+              provider_kind: "cloud",
+              capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+            },
           },
-        },
-      ],
-    }, { setSystemPrompt });
+        ],
+      },
+      { setSystemPrompt },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -161,34 +180,44 @@ describe("ChatView input", () => {
     await user.click(screen.getByRole("button", { name: "Chat settings" }));
 
     expect(screen.getByText("System prompt")).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "System prompt / instructions" })).toHaveValue("Keep explanations short.");
+    expect(screen.getByRole("textbox", { name: "System prompt / instructions" })).toHaveValue(
+      "Keep explanations short.",
+    );
   });
 
   it("shows per-chat settings and toggles compact command output", async () => {
     const setHecateRTKEnabled = vi.fn(async () => true);
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      activeChatSessionID: "chat_1",
-      activeChatSession: {
-        id: "chat_1",
-        runtime_kind: "agent",
-        title: "Repo work",
-        task_id: "task_hecate_123456",
-        provider: "ollama",
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        activeChatSessionID: "chat_1",
+        activeChatSession: {
+          id: "chat_1",
+          runtime_kind: "agent",
+          title: "Repo work",
+          task_id: "task_hecate_123456",
+          provider: "ollama",
+          model: "qwen2.5-coder",
+          rtk_enabled: false,
+          workspace: "/Users/alice/dev/hecate",
+          status: "completed",
+          messages: [
+            {
+              id: "msg_user",
+              role: "user",
+              content: "show git status",
+              created_at: "2026-05-01T10:00:00Z",
+            },
+          ],
+        } as any,
+        hecateRTKEnabled: false,
+        hecateRTKAvailable: true,
+        hecateRTKPath: "/usr/local/bin/rtk",
+        providerFilter: "ollama",
         model: "qwen2.5-coder",
-        rtk_enabled: false,
-        workspace: "/Users/alice/dev/hecate",
-        status: "completed",
-        messages: [
-          { id: "msg_user", role: "user", content: "show git status", created_at: "2026-05-01T10:00:00Z" },
-        ],
-      } as any,
-      hecateRTKEnabled: false,
-      hecateRTKAvailable: true,
-      hecateRTKPath: "/usr/local/bin/rtk",
-      providerFilter: "ollama",
-      model: "qwen2.5-coder",
-    }, { setHecateRTKEnabled });
+      },
+      { setHecateRTKEnabled },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -216,24 +245,27 @@ describe("ChatView input", () => {
 
   it("does not show the RTK onboarding hint after RTK is explicitly turned off in settings", async () => {
     const setHecateRTKEnabled = vi.fn(async () => true);
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      message: "",
-      hecateRTKEnabled: true,
-      hecateRTKAvailable: true,
-      hecateRTKPath: "/usr/local/bin/rtk",
-      providerScopedModels: [
-        {
-          id: "gpt-4o-mini",
-          owned_by: "openai",
-          metadata: {
-            provider: "openai",
-            provider_kind: "cloud",
-            capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        message: "",
+        hecateRTKEnabled: true,
+        hecateRTKAvailable: true,
+        hecateRTKPath: "/usr/local/bin/rtk",
+        providerScopedModels: [
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: {
+              provider: "openai",
+              provider_kind: "cloud",
+              capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+            },
           },
-        },
-      ],
-    }, { setHecateRTKEnabled });
+        ],
+      },
+      { setHecateRTKEnabled },
+    );
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -242,7 +274,9 @@ describe("ChatView input", () => {
     await user.click(screen.getByRole("button", { name: "Compact command output on" }));
     expect(setHecateRTKEnabled).toHaveBeenCalledWith(false);
 
-    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, hecateRTKEnabled: false }, actions }));
+    rerender(
+      withRuntimeConsole(<ChatView />, { state: { ...state, hecateRTKEnabled: false }, actions }),
+    );
     await user.click(screen.getByRole("button", { name: "Chat settings" }));
 
     expect(screen.queryByText("Compact command output is available")).toBeNull();
@@ -253,7 +287,15 @@ describe("ChatView input", () => {
       chatTarget: "external_agent",
       agentAdapterID: "codex",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -264,33 +306,44 @@ describe("ChatView input", () => {
 
   it("surfaces adapter-exposed instructions in external-agent chat settings", async () => {
     const setChatConfigOption = vi.fn(async () => true);
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentAdapterID: "codex",
-      activeChatSessionID: "a1",
-      activeChatSession: {
-        id: "a1",
-        runtime_kind: "external_agent",
-        title: "Codex work",
-        adapter_id: "codex",
-        workspace: "/Users/alice/dev/hecate",
-        status: "idle",
-        config_options: [
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentAdapterID: "codex",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          runtime_kind: "external_agent",
+          title: "Codex work",
+          adapter_id: "codex",
+          workspace: "/Users/alice/dev/hecate",
+          status: "idle",
+          config_options: [
+            {
+              id: "system_prompt",
+              name: "System prompt",
+              description: "Instructions applied by the adapter.",
+              category: "instructions",
+              type: "text",
+              current_value: "Be concise.",
+            },
+          ],
+          messages: [],
+        } as any,
+        agentAdapters: [
           {
-            id: "system_prompt",
-            name: "System prompt",
-            description: "Instructions applied by the adapter.",
-            category: "instructions",
-            type: "text",
-            current_value: "Be concise.",
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
           },
         ],
-        messages: [],
-      } as any,
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-      ],
-    }, { setChatConfigOption });
+      },
+      { setChatConfigOption },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -305,7 +358,11 @@ describe("ChatView input", () => {
     await user.type(editor, "Prefer short answers.");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(setChatConfigOption).toHaveBeenCalledWith("a1", "system_prompt", "Prefer short answers.");
+    expect(setChatConfigOption).toHaveBeenCalledWith(
+      "a1",
+      "system_prompt",
+      "Prefer short answers.",
+    );
   });
 
   it("disables the send button when message is empty", () => {
@@ -341,7 +398,15 @@ describe("ChatView input", () => {
       message: "hello",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -360,7 +425,15 @@ describe("ChatView input", () => {
       settingsConfig: {
         backend: "memory",
         providers: [
-          { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+          {
+            id: "ollama",
+            name: "Ollama",
+            preset_id: "ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: false,
+          },
         ],
         policy_rules: [],
         events: [],
@@ -379,13 +452,22 @@ describe("ChatView input", () => {
         },
       ],
       providerScopedModels: [
-        { id: "qwen2.5:7b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
+        {
+          id: "qwen2.5:7b",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local" },
+        },
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getAllByText("Selected model is not available from this provider").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Ollama is configured, but it does not currently report "llama3.1:8b"/).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Selected model is not available from this provider").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Ollama is configured, but it does not currently report "llama3.1:8b"/)
+        .length,
+    ).toBeGreaterThan(0);
     expect(screen.getAllByText("Selected model").length).toBeGreaterThan(0);
     expect(screen.getAllByText("llama3.1:8b").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Discovered models").length).toBeGreaterThan(0);
@@ -395,9 +477,17 @@ describe("ChatView input", () => {
     expect(screen.getAllByText("Blocked by").length).toBeGreaterThan(0);
     expect(screen.getAllByText("no discovered route").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Last error").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("model discovery returned no llama3.1:8b").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Start the local provider app or server.").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Pull or load llama3.1:8b in that provider, or pick one of its discovered models.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("model discovery returned no llama3.1:8b").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText("Start the local provider app or server.").length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      screen.getAllByText(
+        "Pull or load llama3.1:8b in that provider, or pick one of its discovered models.",
+      ).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
@@ -418,13 +508,27 @@ describe("ChatView input", () => {
         provider: "ollama",
         model: "llama3.1:8b",
         messages: [
-          { id: "m1", role: "user", content: "hi", runtime_kind: "model", created_at: "2026-04-20T00:00:00Z" },
+          {
+            id: "m1",
+            role: "user",
+            content: "hi",
+            runtime_kind: "model",
+            created_at: "2026-04-20T00:00:00Z",
+          },
         ],
       },
       settingsConfig: {
         backend: "memory",
         providers: [
-          { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+          {
+            id: "ollama",
+            name: "Ollama",
+            preset_id: "ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: false,
+          },
         ],
         policy_rules: [],
         events: [],
@@ -441,7 +545,11 @@ describe("ChatView input", () => {
         },
       ],
       providerScopedModels: [
-        { id: "qwen2.5:7b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
+        {
+          id: "qwen2.5:7b",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local" },
+        },
       ],
     });
     render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
@@ -458,38 +566,53 @@ describe("ChatView input", () => {
   it("offers the backend-suggested model as a one-click repair", async () => {
     const setModel = vi.fn();
     const setProviderFilter = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      providerFilter: "anthropic",
-      model: "claude-sonnet-4-6",
-      message: "hello",
-      settingsConfig: {
-        backend: "memory",
-        providers: [
-          { id: "anthropic", name: "Anthropic", preset_id: "anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com/v1", credential_configured: false },
-        ],
-        policy_rules: [],
-        events: [],
-      },
-      providerScopedModels: [
-        {
-          id: "claude-sonnet-4-6",
-          owned_by: "anthropic",
-          metadata: {
-            provider: "anthropic",
-            provider_kind: "cloud",
-            readiness: {
-              ready: false,
-              status: "blocked",
-              reason: "credential_missing",
-              message: "Anthropic needs credentials before this model can route.",
-              suggested_models: ["gpt-4o-mini"],
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        providerFilter: "anthropic",
+        model: "claude-sonnet-4-6",
+        message: "hello",
+        settingsConfig: {
+          backend: "memory",
+          providers: [
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              preset_id: "anthropic",
+              kind: "cloud",
+              protocol: "anthropic",
+              base_url: "https://api.anthropic.com/v1",
+              credential_configured: false,
+            },
+          ],
+          policy_rules: [],
+          events: [],
+        },
+        providerScopedModels: [
+          {
+            id: "claude-sonnet-4-6",
+            owned_by: "anthropic",
+            metadata: {
+              provider: "anthropic",
+              provider_kind: "cloud",
+              readiness: {
+                ready: false,
+                status: "blocked",
+                reason: "credential_missing",
+                message: "Anthropic needs credentials before this model can route.",
+                suggested_models: ["gpt-4o-mini"],
+              },
             },
           },
-        },
-        { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
-      ],
-    }, { setModel, setProviderFilter });
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: { provider: "openai", provider_kind: "cloud" },
+          },
+        ],
+      },
+      { setModel, setProviderFilter },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -505,7 +628,15 @@ describe("ChatView input", () => {
       chatTarget: "model",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
     });
     render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
@@ -523,7 +654,15 @@ describe("ChatView input", () => {
       settingsConfig: {
         backend: "memory",
         providers: [
-          { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+          {
+            id: "ollama",
+            name: "Ollama",
+            preset_id: "ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: false,
+          },
         ],
         policy_rules: [],
         events: [],
@@ -538,15 +677,38 @@ describe("ChatView input", () => {
           models: [],
           model_count: 0,
           readiness_checks: [
-            { name: "credentials", status: "ok", reason: "not_required", message: "No credentials are required for this provider." },
-            { name: "models", status: "blocked", reason: "no_models", message: "No models were discovered and no default model is configured." },
-            { name: "routing", status: "blocked", reason: "no_models", message: "Routing is blocked because no models are available." },
+            {
+              name: "credentials",
+              status: "ok",
+              reason: "not_required",
+              message: "No credentials are required for this provider.",
+            },
+            {
+              name: "models",
+              status: "blocked",
+              reason: "no_models",
+              message: "No models were discovered and no default model is configured.",
+            },
+            {
+              name: "routing",
+              status: "blocked",
+              reason: "no_models",
+              message: "Routing is blocked because no models are available.",
+            },
           ],
         },
       ],
       providerScopedModels: [],
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -594,18 +756,43 @@ describe("ChatView input", () => {
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
     const setProviderFilter = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
-      providerPresets: [
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
-        { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", description: "" },
-      ],
-      providerScopedModels: [],
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-      ],
-    }, { createProvider, loadDashboard, setProviderFilter });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+        providerPresets: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            description: "",
+          },
+          {
+            id: "lmstudio",
+            name: "LM Studio",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:1234/v1",
+            description: "",
+          },
+        ],
+        providerScopedModels: [],
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { createProvider, loadDashboard, setProviderFilter },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -614,20 +801,28 @@ describe("ChatView input", () => {
     expect(screen.getByText("LM Studio")).toBeTruthy();
     await user.click(quickAdd);
 
-    expect(createProvider).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      name: "Ollama",
-      preset_id: "ollama",
-      base_url: "http://127.0.0.1:11434/v1",
-      kind: "local",
-      protocol: "openai",
-    }), { refresh: false });
-    expect(createProvider).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      name: "LM Studio",
-      preset_id: "lmstudio",
-      base_url: "http://127.0.0.1:1234/v1",
-      kind: "local",
-      protocol: "openai",
-    }), { refresh: false });
+    expect(createProvider).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        name: "Ollama",
+        preset_id: "ollama",
+        base_url: "http://127.0.0.1:11434/v1",
+        kind: "local",
+        protocol: "openai",
+      }),
+      { refresh: false },
+    );
+    expect(createProvider).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        name: "LM Studio",
+        preset_id: "lmstudio",
+        base_url: "http://127.0.0.1:1234/v1",
+        kind: "local",
+        protocol: "openai",
+      }),
+      { refresh: false },
+    );
     expect(loadDashboard).toHaveBeenCalledTimes(1);
     expect(setProviderFilter).toHaveBeenCalledWith("lmstudio");
   });
@@ -667,30 +862,61 @@ describe("ChatView input", () => {
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
     const setProviderFilter = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
-      providerPresets: [
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
-        { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", description: "" },
-      ],
-      providerScopedModels: [],
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-      ],
-    }, { createProvider, loadDashboard, setProviderFilter });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+        providerPresets: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            description: "",
+          },
+          {
+            id: "lmstudio",
+            name: "LM Studio",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:1234/v1",
+            description: "",
+          },
+        ],
+        providerScopedModels: [],
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { createProvider, loadDashboard, setProviderFilter },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    expect(await screen.findByRole("button", { name: "Deselect Ollama" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", { name: "Deselect Ollama" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await user.click(screen.getByRole("button", { name: "Deselect LM Studio" }));
     await user.click(screen.getByRole("button", { name: /Add selected/i }));
 
     expect(createProvider).toHaveBeenCalledTimes(1);
-    expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
-      name: "Ollama",
-      preset_id: "ollama",
-    }), { refresh: false });
+    expect(createProvider).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "Ollama",
+        preset_id: "ollama",
+      }),
+      { refresh: false },
+    );
     expect(loadDashboard).toHaveBeenCalledTimes(1);
     expect(setProviderFilter).toHaveBeenCalledWith("ollama");
   });
@@ -717,19 +943,37 @@ describe("ChatView input", () => {
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
     const setProviderFilter = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      providerFilter: "lmstudio",
-      agentWorkspace: "/tmp/hecate",
-      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
-      providerPresets: [
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
-      ],
-      providerScopedModels: [],
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-      ],
-    }, { createProvider, loadDashboard, setProviderFilter });
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        providerFilter: "lmstudio",
+        agentWorkspace: "/tmp/hecate",
+        settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+        providerPresets: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            description: "",
+          },
+        ],
+        providerScopedModels: [],
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { createProvider, loadDashboard, setProviderFilter },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(await screen.findByText("Detected locally")).toBeTruthy();
@@ -738,13 +982,18 @@ describe("ChatView input", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /Add selected/i }));
 
-    expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
-      name: "Ollama",
-      preset_id: "ollama",
-      base_url: "http://127.0.0.1:11434/v1",
-    }), { refresh: false });
-    expect(loadDashboard).toHaveBeenCalledTimes(1);
-    expect(setProviderFilter).toHaveBeenCalledWith("ollama");
+    await waitFor(() => {
+      expect(createProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Ollama",
+          preset_id: "ollama",
+          base_url: "http://127.0.0.1:11434/v1",
+        }),
+        { refresh: false },
+      );
+    });
+    await waitFor(() => expect(loadDashboard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(setProviderFilter).toHaveBeenCalledWith("ollama"));
   });
 
   it("quick-add skips duplicate local provider endpoints", async () => {
@@ -782,31 +1031,61 @@ describe("ChatView input", () => {
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
     const setProviderFilter = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
-      providerPresets: [
-        { id: "llamacpp", name: "llama.cpp", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1", description: "" },
-        { id: "localai", name: "LocalAI", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1", description: "" },
-      ],
-      providerScopedModels: [],
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-      ],
-    }, { createProvider, loadDashboard, setProviderFilter });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+        providerPresets: [
+          {
+            id: "llamacpp",
+            name: "llama.cpp",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:8080/v1",
+            description: "",
+          },
+          {
+            id: "localai",
+            name: "LocalAI",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:8080/v1",
+            description: "",
+          },
+        ],
+        providerScopedModels: [],
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { createProvider, loadDashboard, setProviderFilter },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Add selected/i }));
 
-    expect(createProvider).toHaveBeenCalledTimes(1);
-    expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
-      name: "llama.cpp",
-      preset_id: "llamacpp",
-      base_url: "http://127.0.0.1:8080/v1",
-    }), { refresh: false });
-    expect(loadDashboard).toHaveBeenCalledTimes(1);
-    expect(setProviderFilter).toHaveBeenCalledWith("llamacpp");
+    await waitFor(() => expect(createProvider).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(createProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "llama.cpp",
+          preset_id: "llamacpp",
+          base_url: "http://127.0.0.1:8080/v1",
+        }),
+        { refresh: false },
+      );
+    });
+    await waitFor(() => expect(loadDashboard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(setProviderFilter).toHaveBeenCalledWith("llamacpp"));
   });
 
   it("quick-add refreshes dashboard after partial provider creation failures", async () => {
@@ -848,26 +1127,51 @@ describe("ChatView input", () => {
     });
     const loadDashboard = vi.fn(async () => undefined);
     const setProviderFilter = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
-      providerPresets: [
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
-        { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", description: "" },
-      ],
-      providerScopedModels: [],
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-      ],
-    }, { createProvider, loadDashboard, setProviderFilter });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+        providerPresets: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            description: "",
+          },
+          {
+            id: "lmstudio",
+            name: "LM Studio",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:1234/v1",
+            description: "",
+          },
+        ],
+        providerScopedModels: [],
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { createProvider, loadDashboard, setProviderFilter },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Add selected/i }));
 
-    expect(createProvider).toHaveBeenCalledTimes(2);
-    expect(loadDashboard).toHaveBeenCalledTimes(1);
-    expect(setProviderFilter).toHaveBeenCalledWith("ollama");
+    await waitFor(() => expect(createProvider).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(loadDashboard).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(setProviderFilter).toHaveBeenCalledWith("ollama"));
     expect(screen.getByText("LM Studio endpoint already exists")).toBeTruthy();
   });
 
@@ -877,7 +1181,15 @@ describe("ChatView input", () => {
       message: "hello",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: false, status: "missing", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: false,
+          status: "missing",
+          cost_mode: "external",
+        },
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -919,7 +1231,9 @@ describe("ChatView input", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /settings/i }));
     expect(screen.getByRole("button", { name: "Tools on" })).toBeTruthy();
-    expect(screen.getByText(/task runtime, approvals, artifacts, and sandboxed tool calls/)).toBeTruthy();
+    expect(
+      screen.getByText(/task runtime, approvals, artifacts, and sandboxed tool calls/),
+    ).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
   });
@@ -934,15 +1248,43 @@ describe("ChatView input", () => {
       settingsConfig: {
         backend: "memory",
         providers: [
-          { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: true },
-          { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: true,
+          },
+          {
+            id: "openai",
+            name: "OpenAI",
+            kind: "cloud",
+            protocol: "openai",
+            base_url: "https://api.openai.com/v1",
+            credential_configured: true,
+          },
         ],
         policy_rules: [],
         events: [],
       },
       providerPresets: [
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
-        { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", description: "" },
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+          description: "",
+        },
+        {
+          id: "openai",
+          name: "OpenAI",
+          kind: "cloud",
+          protocol: "openai",
+          base_url: "https://api.openai.com/v1",
+          description: "",
+        },
       ],
       providerScopedModels: [
         {
@@ -990,60 +1332,91 @@ describe("ChatView input", () => {
   it("uses shared composer dropdown controls for editable Hecate provider and model selection", async () => {
     const setProviderFilter = vi.fn();
     const setModel = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      message: "continue",
-      agentWorkspace: "/tmp/hecate",
-      providerFilter: "ollama",
-      model: "smollm2:135m",
-      settingsConfig: {
-        backend: "memory",
-        providers: [
-          { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: true },
-          { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        message: "continue",
+        agentWorkspace: "/tmp/hecate",
+        providerFilter: "ollama",
+        model: "smollm2:135m",
+        settingsConfig: {
+          backend: "memory",
+          providers: [
+            {
+              id: "ollama",
+              name: "Ollama",
+              kind: "local",
+              protocol: "openai",
+              base_url: "http://127.0.0.1:11434/v1",
+              credential_configured: true,
+            },
+            {
+              id: "openai",
+              name: "OpenAI",
+              kind: "cloud",
+              protocol: "openai",
+              base_url: "https://api.openai.com/v1",
+              credential_configured: true,
+            },
+          ],
+          policy_rules: [],
+          events: [],
+        },
+        providerPresets: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            description: "",
+          },
+          {
+            id: "openai",
+            name: "OpenAI",
+            kind: "cloud",
+            protocol: "openai",
+            base_url: "https://api.openai.com/v1",
+            description: "",
+          },
         ],
-        policy_rules: [],
-        events: [],
+        providerScopedModels: [
+          {
+            id: "qwen2.5-coder",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+            },
+          },
+          {
+            id: "smollm2:135m",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+            },
+          },
+        ],
+        activeChatSessionID: "chat_1",
+        activeChatSession: {
+          id: "chat_1",
+          runtime_kind: "agent",
+          title: "Repo work",
+          task_id: "task_hecate_123456",
+          latest_run_id: "run_hecate_abcdef",
+          provider: "ollama",
+          model: "qwen2.5-coder",
+          capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [],
+        } as any,
       },
-      providerPresets: [
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
-        { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", description: "" },
-      ],
-      providerScopedModels: [
-        {
-          id: "qwen2.5-coder",
-          owned_by: "ollama",
-          metadata: {
-            provider: "ollama",
-            provider_kind: "local",
-            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
-          },
-        },
-        {
-          id: "smollm2:135m",
-          owned_by: "ollama",
-          metadata: {
-            provider: "ollama",
-            provider_kind: "local",
-            capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
-          },
-        },
-      ],
-      activeChatSessionID: "chat_1",
-      activeChatSession: {
-        id: "chat_1",
-        runtime_kind: "agent",
-        title: "Repo work",
-        task_id: "task_hecate_123456",
-        latest_run_id: "run_hecate_abcdef",
-        provider: "ollama",
-        model: "qwen2.5-coder",
-        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
-        workspace: "/tmp/hecate",
-        status: "completed",
-        messages: [],
-      } as any,
-    }, { setProviderFilter, setModel });
+      { setProviderFilter, setModel },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const controls = screen.getByLabelText("Hecate message controls");
@@ -1077,13 +1450,28 @@ describe("ChatView input", () => {
       settingsConfig: {
         backend: "memory",
         providers: [
-          { id: "local-ollama", name: "ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: true },
+          {
+            id: "local-ollama",
+            name: "ollama",
+            preset_id: "ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: true,
+          },
         ],
         policy_rules: [],
         events: [],
       },
       providerPresets: [
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+          description: "",
+        },
       ],
       providerScopedModels: [
         {
@@ -1130,7 +1518,14 @@ describe("ChatView input", () => {
         events: [],
       },
       providerPresets: [
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+          description: "",
+        },
       ],
       providerScopedModels: [
         {
@@ -1160,8 +1555,12 @@ describe("ChatView input", () => {
     });
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    const fixedProvider = screen.getByRole("button", { name: "Fixed provider: Ollama" }) as HTMLButtonElement;
-    const fixedModel = screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" }) as HTMLButtonElement;
+    const fixedProvider = screen.getByRole("button", {
+      name: "Fixed provider: Ollama",
+    }) as HTMLButtonElement;
+    const fixedModel = screen.getByRole("button", {
+      name: "Fixed model: qwen2.5-coder",
+    }) as HTMLButtonElement;
     expect(fixedProvider.disabled).toBe(true);
     expect(fixedModel.disabled).toBe(true);
     expect(screen.queryByText("smollm2:135m")).toBeNull();
@@ -1170,7 +1569,9 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
     expect(screen.getByText(/Hecate Chat is still working on this task/)).toBeTruthy();
 
-    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }));
+    rerender(
+      withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }),
+    );
     expect(document.querySelector('[aria-label="Fixed provider: Ollama"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Fixed model: qwen2.5-coder"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Model picker: smollm2:135m"]')).toBeNull();
@@ -1193,13 +1594,24 @@ describe("ChatView input", () => {
         events: [],
       },
       providerPresets: [
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+          description: "",
+        },
       ],
       providerScopedModels: [
         {
           id: "smollm2:135m",
           owned_by: "ollama",
-          metadata: { provider: "ollama", provider_kind: "local", capabilities: { tool_calling: "unknown", streaming: true, source: "provider" } },
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+          },
         },
       ],
       activeChatSessionID: "chat_1",
@@ -1212,8 +1624,24 @@ describe("ChatView input", () => {
         workspace: "/tmp/hecate",
         status: "running",
         segments: [
-          { id: "model:first", runtime_kind: "model", provider: "ollama", model: "smollm2:135m", status: "completed", message_count: 2 },
-          { id: "task:task_hecate_123456", runtime_kind: "agent", provider: "ollama", model: "qwen2.5-coder", task_id: "task_hecate_123456", latest_run_id: "run_hecate_abcdef", status: "running", message_count: 1 },
+          {
+            id: "model:first",
+            runtime_kind: "model",
+            provider: "ollama",
+            model: "smollm2:135m",
+            status: "completed",
+            message_count: 2,
+          },
+          {
+            id: "task:task_hecate_123456",
+            runtime_kind: "agent",
+            provider: "ollama",
+            model: "qwen2.5-coder",
+            task_id: "task_hecate_123456",
+            latest_run_id: "run_hecate_abcdef",
+            status: "running",
+            message_count: 1,
+          },
         ],
         messages: [],
       } as any,
@@ -1233,23 +1661,26 @@ describe("ChatView input", () => {
     const removeQueuedChatMessage = vi.fn();
     const updateQueuedChatMessage = vi.fn();
     const user = userEvent.setup();
-    const { state, actions } = setup({
-      activeChatSessionID: "chat_1",
-      queuedChatMessages: [
-        {
-          id: "queued_1",
-          session_id: "chat_1",
-          content: "run tests after this",
-          runtime_kind: "agent",
-          provider_filter: "ollama",
-          model: "qwen2.5-coder",
-          workspace: "/workspace",
-          system_prompt: "",
-          adapter_id: "codex",
-          created_at: "2026-04-20T00:00:00Z",
-        },
-      ],
-    }, { removeQueuedChatMessage, updateQueuedChatMessage });
+    const { state, actions } = setup(
+      {
+        activeChatSessionID: "chat_1",
+        queuedChatMessages: [
+          {
+            id: "queued_1",
+            session_id: "chat_1",
+            content: "run tests after this",
+            runtime_kind: "agent",
+            provider_filter: "ollama",
+            model: "qwen2.5-coder",
+            workspace: "/workspace",
+            system_prompt: "",
+            adapter_id: "codex",
+            created_at: "2026-04-20T00:00:00Z",
+          },
+        ],
+      },
+      { removeQueuedChatMessage, updateQueuedChatMessage },
+    );
 
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
@@ -1257,7 +1688,10 @@ describe("ChatView input", () => {
     const queuedInput = screen.getByLabelText("Queued message 1");
     expect(queuedInput).toHaveValue("run tests after this");
     fireEvent.change(queuedInput, { target: { value: "run unit tests after this" } });
-    expect(updateQueuedChatMessage).toHaveBeenLastCalledWith("queued_1", "run unit tests after this");
+    expect(updateQueuedChatMessage).toHaveBeenLastCalledWith(
+      "queued_1",
+      "run unit tests after this",
+    );
     await user.click(screen.getByRole("button", { name: "Remove queued message 1" }));
     expect(removeQueuedChatMessage).toHaveBeenCalledWith("queued_1");
   });
@@ -1318,38 +1752,47 @@ describe("ChatView input", () => {
     });
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByText(/Hecate Agent runs through task approvals and per-call sandboxing/)).toBeTruthy();
+    expect(
+      screen.getByText(/Hecate Agent runs through task approvals and per-call sandboxing/),
+    ).toBeTruthy();
 
-    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }));
-    expect(screen.queryByText(/Hecate Agent runs through task approvals and per-call sandboxing/)).toBeNull();
+    rerender(
+      withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }),
+    );
+    expect(
+      screen.queryByText(/Hecate Agent runs through task approvals and per-call sandboxing/),
+    ).toBeNull();
   });
 
   it("blocks Hecate Agent sends when tools are explicitly disabled for the model", async () => {
     const upsertModelCapabilityOverride = vi.fn(async () => true);
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      message: "inspect this repo",
-      agentWorkspace: "/tmp/hecate",
-      settingsConfig: {
-        backend: "memory",
-        providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
-        policy_rules: [],
-        events: [],
-      },
-      providerFilter: "ollama",
-      model: "llama3.1:8b",
-      providerScopedModels: [
-        {
-          id: "llama3.1:8b",
-          owned_by: "ollama",
-          metadata: {
-            provider: "ollama",
-            provider_kind: "local",
-            capabilities: { tool_calling: "none", streaming: true, source: "operator_override" },
-          },
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        message: "inspect this repo",
+        agentWorkspace: "/tmp/hecate",
+        settingsConfig: {
+          backend: "memory",
+          providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
+          policy_rules: [],
+          events: [],
         },
-      ],
-    }, { upsertModelCapabilityOverride });
+        providerFilter: "ollama",
+        model: "llama3.1:8b",
+        providerScopedModels: [
+          {
+            id: "llama3.1:8b",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              capabilities: { tool_calling: "none", streaming: true, source: "operator_override" },
+            },
+          },
+        ],
+      },
+      { upsertModelCapabilityOverride },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText(/Tools are disabled for this model/)).toBeTruthy();
@@ -1358,12 +1801,14 @@ describe("ChatView input", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Enable tools" }));
-    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
-      provider: "ollama",
-      model: "llama3.1:8b",
-      tool_calling: "basic",
-      note: "Tools enabled from Hecate Chat.",
-    }));
+    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "ollama",
+        model: "llama3.1:8b",
+        tool_calling: "basic",
+        note: "Tools enabled from Hecate Chat.",
+      }),
+    );
   });
 
   it("opens the backing task from the Hecate Agent assistant turn, not the header", async () => {
@@ -1382,7 +1827,15 @@ describe("ChatView input", () => {
         workspace: "/tmp/hecate",
         status: "completed",
         messages: [
-          { id: "m1", runtime_kind: "agent", segment_id: "task:task_hecate_123456", task_id: "task_hecate_123456", role: "user", content: "inspect this repo", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m1",
+            runtime_kind: "agent",
+            segment_id: "task:task_hecate_123456",
+            task_id: "task_hecate_123456",
+            role: "user",
+            content: "inspect this repo",
+            created_at: "2026-05-03T10:00:00Z",
+          },
           {
             id: "m2",
             runtime_kind: "agent",
@@ -1423,7 +1876,14 @@ describe("ChatView input", () => {
         workspace: "/tmp/hecate",
         status: "completed",
         messages: [
-          { id: "m1", runtime_kind: "model", segment_id: "model:direct", role: "user", content: "tell a joke", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m1",
+            runtime_kind: "model",
+            segment_id: "model:direct",
+            role: "user",
+            content: "tell a joke",
+            created_at: "2026-05-03T10:00:00Z",
+          },
           {
             id: "m2",
             runtime_kind: "model",
@@ -1489,12 +1949,63 @@ describe("ChatView input", () => {
           },
         ],
         messages: [
-          { id: "m1", runtime_kind: "model", segment_id: "model:first", role: "user", content: "answer directly", created_at: "2026-05-03T10:00:00Z" },
-          { id: "m2", runtime_kind: "model", segment_id: "model:first", role: "assistant", content: "Direct answer.", status: "completed", model: "smollm2:135m", created_at: "2026-05-03T10:00:01Z" },
-          { id: "m3", runtime_kind: "agent", segment_id: "task:task_first", task_id: "task_first", role: "user", content: "use tools", created_at: "2026-05-03T10:01:00Z" },
-          { id: "m4", runtime_kind: "agent", segment_id: "task:task_first", task_id: "task_first", run_id: "run_first", role: "assistant", content: "Tool answer.", status: "completed", model: "qwen2.5-coder", created_at: "2026-05-03T10:01:01Z" },
-          { id: "m5", runtime_kind: "model", segment_id: "model:second", role: "user", content: "back to direct", created_at: "2026-05-03T10:02:00Z" },
-          { id: "m6", runtime_kind: "model", segment_id: "model:second", role: "assistant", content: "Direct again.", status: "completed", model: "smollm2:135m", created_at: "2026-05-03T10:02:01Z" },
+          {
+            id: "m1",
+            runtime_kind: "model",
+            segment_id: "model:first",
+            role: "user",
+            content: "answer directly",
+            created_at: "2026-05-03T10:00:00Z",
+          },
+          {
+            id: "m2",
+            runtime_kind: "model",
+            segment_id: "model:first",
+            role: "assistant",
+            content: "Direct answer.",
+            status: "completed",
+            model: "smollm2:135m",
+            created_at: "2026-05-03T10:00:01Z",
+          },
+          {
+            id: "m3",
+            runtime_kind: "agent",
+            segment_id: "task:task_first",
+            task_id: "task_first",
+            role: "user",
+            content: "use tools",
+            created_at: "2026-05-03T10:01:00Z",
+          },
+          {
+            id: "m4",
+            runtime_kind: "agent",
+            segment_id: "task:task_first",
+            task_id: "task_first",
+            run_id: "run_first",
+            role: "assistant",
+            content: "Tool answer.",
+            status: "completed",
+            model: "qwen2.5-coder",
+            created_at: "2026-05-03T10:01:01Z",
+          },
+          {
+            id: "m5",
+            runtime_kind: "model",
+            segment_id: "model:second",
+            role: "user",
+            content: "back to direct",
+            created_at: "2026-05-03T10:02:00Z",
+          },
+          {
+            id: "m6",
+            runtime_kind: "model",
+            segment_id: "model:second",
+            role: "assistant",
+            content: "Direct again.",
+            status: "completed",
+            model: "smollm2:135m",
+            created_at: "2026-05-03T10:02:01Z",
+          },
         ],
       } as any,
     });
@@ -1523,7 +2034,12 @@ describe("ChatView input", () => {
         workspace: "/tmp/hecate",
         status: "completed",
         messages: [
-          { id: "m1", role: "user", content: "inspect this repo", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m1",
+            role: "user",
+            content: "inspect this repo",
+            created_at: "2026-05-03T10:00:00Z",
+          },
           {
             id: "m2",
             run_id: "run_hecate_abcdef",
@@ -1533,11 +2049,42 @@ describe("ChatView input", () => {
             cost_mode: "hecate",
             created_at: "2026-05-03T10:00:01Z",
             activities: [
-              { id: "legacy-task-run-running", type: "task_running", status: "running", title: "Task run running", detail: "run_hecate_abcdef" },
-              { id: "hecate_task_run:run_hecate_abcdef", type: "task_run", status: "running", title: "Backing task", detail: "running · run_hecate_abcdef" },
-              { id: "task:step:model", type: "thinking", status: "completed", kind: "model", title: "Agent turn 1", detail: "completed" },
-              { id: "task:step:shell", type: "tool_call", status: "completed", kind: "shell", title: "shell_exec", detail: "completed" },
-              { id: "task:run:terminal", type: "run_result", status: "completed", title: "Run completed" },
+              {
+                id: "legacy-task-run-running",
+                type: "task_running",
+                status: "running",
+                title: "Task run running",
+                detail: "run_hecate_abcdef",
+              },
+              {
+                id: "hecate_task_run:run_hecate_abcdef",
+                type: "task_run",
+                status: "running",
+                title: "Backing task",
+                detail: "running · run_hecate_abcdef",
+              },
+              {
+                id: "task:step:model",
+                type: "thinking",
+                status: "completed",
+                kind: "model",
+                title: "Agent turn 1",
+                detail: "completed",
+              },
+              {
+                id: "task:step:shell",
+                type: "tool_call",
+                status: "completed",
+                kind: "shell",
+                title: "shell_exec",
+                detail: "completed",
+              },
+              {
+                id: "task:run:terminal",
+                type: "run_result",
+                status: "completed",
+                title: "Run completed",
+              },
               { type: "completed", status: "completed", title: "Final answer" },
             ],
           },
@@ -1559,46 +2106,55 @@ describe("ChatView input", () => {
   it("resolves projected Hecate Agent task approvals from the chat banner", async () => {
     const resolveTaskApproval = vi.fn(async () => true);
     const onOpenTask = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      activeChatSessionID: "chat_1",
-      activeChatSession: {
-        id: "chat_1",
-        runtime_kind: "agent",
-        title: "Repo work",
-        task_id: "task_hecate_123456",
-        latest_run_id: "run_hecate_abcdef",
-        provider: "ollama",
-        model: "qwen2.5-coder",
-        workspace: "/tmp/hecate",
-        status: "awaiting_approval",
-        messages: [
-          { id: "m1", role: "user", content: "echo lol please", created_at: "2026-05-03T10:00:00Z" },
-          {
-            id: "m2",
-            run_id: "run_hecate_abcdef",
-            role: "assistant",
-            content: "",
-            status: "awaiting_approval",
-            cost_mode: "hecate",
-            created_at: "2026-05-03T10:00:01Z",
-            activities: [
-              {
-                id: "task:step:step_approval",
-                type: "approval",
-                status: "awaiting_approval",
-                kind: "approval",
-                title: "Awaiting approval — turn 1",
-                detail: "Agent requested tools that require approval: shell_exec - awaiting_approval",
-                approval_id: "appr_123",
-                needs_action: true,
-                created_at: "2026-05-03T10:00:02Z",
-              },
-            ],
-          },
-        ],
-      } as any,
-    }, { resolveTaskApproval });
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        activeChatSessionID: "chat_1",
+        activeChatSession: {
+          id: "chat_1",
+          runtime_kind: "agent",
+          title: "Repo work",
+          task_id: "task_hecate_123456",
+          latest_run_id: "run_hecate_abcdef",
+          provider: "ollama",
+          model: "qwen2.5-coder",
+          workspace: "/tmp/hecate",
+          status: "awaiting_approval",
+          messages: [
+            {
+              id: "m1",
+              role: "user",
+              content: "echo lol please",
+              created_at: "2026-05-03T10:00:00Z",
+            },
+            {
+              id: "m2",
+              run_id: "run_hecate_abcdef",
+              role: "assistant",
+              content: "",
+              status: "awaiting_approval",
+              cost_mode: "hecate",
+              created_at: "2026-05-03T10:00:01Z",
+              activities: [
+                {
+                  id: "task:step:step_approval",
+                  type: "approval",
+                  status: "awaiting_approval",
+                  kind: "approval",
+                  title: "Awaiting approval — turn 1",
+                  detail:
+                    "Agent requested tools that require approval: shell_exec - awaiting_approval",
+                  approval_id: "appr_123",
+                  needs_action: true,
+                  created_at: "2026-05-03T10:00:02Z",
+                },
+              ],
+            },
+          ],
+        } as any,
+      },
+      { resolveTaskApproval },
+    );
     render(withRuntimeConsole(<ChatView onOpenTask={onOpenTask} />, { state, actions }));
 
     expect(screen.getByTestId("hecate-task-approval-banner")).toBeTruthy();
@@ -1611,7 +2167,9 @@ describe("ChatView input", () => {
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
 
     await user.click(screen.getByRole("button", { name: /Approve Shell execution/i }));
-    expect(resolveTaskApproval).toHaveBeenCalledWith("task_hecate_123456", "appr_123", { decision: "approve" });
+    expect(resolveTaskApproval).toHaveBeenCalledWith("task_hecate_123456", "appr_123", {
+      decision: "approve",
+    });
   });
 
   it("does not keep stale resolved Hecate Agent task approvals actionable", () => {
@@ -1673,21 +2231,34 @@ describe("ChatView input", () => {
 
   it("browses previous user messages with ArrowUp and ArrowDown", () => {
     const setMessage = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      message: "",
-      activeChatSessionID: "chat_history",
-      activeChatSession: {
-        id: "chat_history",
-        title: "History",
-        messages: [
-          { id: "u1", role: "user", content: "first prompt", created_at: "2026-05-01T10:00:00Z" },
-          { id: "a1", role: "assistant", content: "first answer", created_at: "2026-05-01T10:00:01Z" },
-          { id: "u2", role: "user", content: "second prompt", created_at: "2026-05-01T10:00:02Z" },
-        ],
-        provider_calls: [],
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        message: "",
+        activeChatSessionID: "chat_history",
+        activeChatSession: {
+          id: "chat_history",
+          title: "History",
+          messages: [
+            { id: "u1", role: "user", content: "first prompt", created_at: "2026-05-01T10:00:00Z" },
+            {
+              id: "a1",
+              role: "assistant",
+              content: "first answer",
+              created_at: "2026-05-01T10:00:01Z",
+            },
+            {
+              id: "u2",
+              role: "user",
+              content: "second prompt",
+              created_at: "2026-05-01T10:00:02Z",
+            },
+          ],
+          provider_calls: [],
+        },
       },
-    }, { setMessage });
+      { setMessage },
+    );
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     let textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
@@ -1718,19 +2289,27 @@ describe("ChatView input", () => {
 
   it("keeps normal ArrowUp navigation inside multiline drafts", () => {
     const setMessage = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      message: "line one\nline two",
-      activeChatSessionID: "chat_history",
-      activeChatSession: {
-        id: "chat_history",
-        title: "History",
-        messages: [
-          { id: "u1", role: "user", content: "previous prompt", created_at: "2026-05-01T10:00:00Z" },
-        ],
-        provider_calls: [],
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        message: "line one\nline two",
+        activeChatSessionID: "chat_history",
+        activeChatSession: {
+          id: "chat_history",
+          title: "History",
+          messages: [
+            {
+              id: "u1",
+              role: "user",
+              content: "previous prompt",
+              created_at: "2026-05-01T10:00:00Z",
+            },
+          ],
+          provider_calls: [],
+        },
       },
-    }, { setMessage });
+      { setMessage },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
@@ -1741,19 +2320,27 @@ describe("ChatView input", () => {
 
   it("restores a single-line draft after browsing history", () => {
     const setMessage = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      message: "draft question",
-      activeChatSessionID: "chat_history",
-      activeChatSession: {
-        id: "chat_history",
-        title: "History",
-        messages: [
-          { id: "u1", role: "user", content: "previous prompt", created_at: "2026-05-01T10:00:00Z" },
-        ],
-        provider_calls: [],
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        message: "draft question",
+        activeChatSessionID: "chat_history",
+        activeChatSession: {
+          id: "chat_history",
+          title: "History",
+          messages: [
+            {
+              id: "u1",
+              role: "user",
+              content: "previous prompt",
+              created_at: "2026-05-01T10:00:00Z",
+            },
+          ],
+          provider_calls: [],
+        },
       },
-    }, { setMessage });
+      { setMessage },
+    );
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     let textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
@@ -1761,7 +2348,12 @@ describe("ChatView input", () => {
     fireEvent.keyDown(textarea, { key: "ArrowUp" });
     expect(setMessage).toHaveBeenLastCalledWith("previous prompt");
 
-    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, message: "previous prompt" }, actions }));
+    rerender(
+      withRuntimeConsole(<ChatView />, {
+        state: { ...state, message: "previous prompt" },
+        actions,
+      }),
+    );
     textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     textarea.setSelectionRange("previous prompt".length, "previous prompt".length);
     fireEvent.keyDown(textarea, { key: "ArrowDown" });
@@ -1775,8 +2367,10 @@ describe("ChatView Enter switch", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     // The switch is one of the toggle buttons in the input toolbar.
     const buttons = screen.getAllByRole("button");
-    const labels = buttons.map(b => b.textContent?.trim()).filter(Boolean);
-    const hasEnterToggle = labels.some(l => l === "↵ to send" || /[⌘+|Ctrl\+]\+?↵ to send/.test(l!));
+    const labels = buttons.map((b) => b.textContent?.trim()).filter(Boolean);
+    const hasEnterToggle = labels.some(
+      (l) => l === "↵ to send" || /^[⌘+|Ctrl+]+↵ to send$/.test(l!),
+    );
     expect(hasEnterToggle).toBe(true);
   });
 });
@@ -1798,8 +2392,20 @@ describe("ChatView chats sidebar", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       chatSessions: [
-        { id: "s1", title: "First chat", message_count: 4, provider_call_count: 2, updated_at: daysAgo(0) } as any,
-        { id: "s2", title: "Second chat", message_count: 2, provider_call_count: 1, updated_at: daysAgo(10) } as any,
+        {
+          id: "s1",
+          title: "First chat",
+          message_count: 4,
+          provider_call_count: 2,
+          updated_at: daysAgo(0),
+        } as any,
+        {
+          id: "s2",
+          title: "Second chat",
+          message_count: 2,
+          provider_call_count: 1,
+          updated_at: daysAgo(10),
+        } as any,
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -1813,8 +2419,24 @@ describe("ChatView chats sidebar", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       chatSessions: [
-        { id: "s1", title: "Budget check", runtime_kind: "model", status: "completed", provider: "anthropic", message_count: 4, updated_at: daysAgo(0) } as any,
-        { id: "s2", title: "Draft release notes", runtime_kind: "model", status: "completed", provider: "openai", message_count: 2, updated_at: daysAgo(0) } as any,
+        {
+          id: "s1",
+          title: "Budget check",
+          runtime_kind: "model",
+          status: "completed",
+          provider: "anthropic",
+          message_count: 4,
+          updated_at: daysAgo(0),
+        } as any,
+        {
+          id: "s2",
+          title: "Draft release notes",
+          runtime_kind: "model",
+          status: "completed",
+          provider: "openai",
+          message_count: 2,
+          updated_at: daysAgo(0),
+        } as any,
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -1828,8 +2450,22 @@ describe("ChatView chats sidebar", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       chatSessions: [
-        { id: "a1", title: "Codex refactor", adapter_id: "codex", status: "completed", message_count: 4, updated_at: daysAgo(0) } as any,
-        { id: "a2", title: "Cursor repro", adapter_id: "cursor_agent", status: "failed", message_count: 2, updated_at: daysAgo(0) } as any,
+        {
+          id: "a1",
+          title: "Codex refactor",
+          adapter_id: "codex",
+          status: "completed",
+          message_count: 4,
+          updated_at: daysAgo(0),
+        } as any,
+        {
+          id: "a2",
+          title: "Cursor repro",
+          adapter_id: "cursor_agent",
+          status: "failed",
+          message_count: 2,
+          updated_at: daysAgo(0),
+        } as any,
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -1841,12 +2477,22 @@ describe("ChatView chats sidebar", () => {
 
   it("allows renaming agent chats from the sidebar", async () => {
     const renameChatSession = vi.fn(async () => undefined);
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      chatSessions: [
-        { id: "a1", title: "Codex refactor", adapter_id: "codex", status: "completed", message_count: 4, updated_at: daysAgo(0) } as any,
-      ],
-    }, { renameChatSession });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        chatSessions: [
+          {
+            id: "a1",
+            title: "Codex refactor",
+            adapter_id: "codex",
+            status: "completed",
+            message_count: 4,
+            updated_at: daysAgo(0),
+          } as any,
+        ],
+      },
+      { renameChatSession },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -1860,10 +2506,15 @@ describe("ChatView chats sidebar", () => {
 
   it("calls selectChatSession when clicking a chat row", async () => {
     const selectChatSession = vi.fn(async () => undefined);
-    const { state, actions } = setup({
-      chatTarget: "model",
-      chatSessions: [{ id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
-    }, { selectChatSession });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        chatSessions: [
+          { id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any,
+        ],
+      },
+      { selectChatSession },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     const user = userEvent.setup();
     await user.click(screen.getByText("Pick me"));
@@ -1872,10 +2523,15 @@ describe("ChatView chats sidebar", () => {
 
   it("calls selectChatSession when pressing Enter or Space on a focused chat row", async () => {
     const selectChatSession = vi.fn(async () => undefined);
-    const { state, actions } = setup({
-      chatTarget: "model",
-      chatSessions: [{ id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
-    }, { selectChatSession });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        chatSessions: [
+          { id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any,
+        ],
+      },
+      { selectChatSession },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     const user = userEvent.setup();
     const row = screen.getByRole("button", { name: /^Chat Pick me$/ });
@@ -1893,7 +2549,9 @@ describe("ChatView external-agent target", () => {
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText(/External agents run as your OS user/)).toBeTruthy();
 
-    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }));
+    rerender(
+      withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }),
+    );
     expect(screen.queryByText(/External agents run as your OS user/)).toBeNull();
   });
 
@@ -1904,7 +2562,18 @@ describe("ChatView external-agent target", () => {
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
       agentAdapterID: "codex",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", managed: true, managed_package: "@zed-industries/codex-acp", available: false, status: "missing", error: "no local package runner found for @zed-industries/codex-acp", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          managed: true,
+          managed_package: "@zed-industries/codex-acp",
+          available: false,
+          status: "missing",
+          error: "no local package runner found for @zed-industries/codex-acp",
+          cost_mode: "external",
+        },
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -1924,75 +2593,131 @@ describe("ChatView external-agent target", () => {
     const setChatTarget = vi.fn();
     const setAgentAdapterID = vi.fn();
     const setNewChatAgent = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentAdapterID: "codex",
-      agentWorkspace: "/tmp/hecate",
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-        { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: false, status: "missing", cost_mode: "external" },
-      ],
-      chatSessions: [
-        { id: "a1", title: "Codex work", adapter_id: "codex", workspace: "/tmp/hecate", status: "completed", message_count: 2 } as any,
-      ],
-      activeChatSessionID: "a1",
-      activeChatSession: {
-        id: "a1",
-        title: "Codex work",
-        adapter_id: "codex",
-        runtime_kind: "external_agent",
-        workspace: "/tmp/hecate",
-        status: "completed",
-        config_options: [
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentAdapterID: "codex",
+        agentWorkspace: "/tmp/hecate",
+        agentAdapters: [
           {
-            id: "model",
-            name: "Model",
-            category: "model",
-            type: "select",
-            current_value: "fast",
-            options: [
-              { value: "fast", name: "Fast" },
-              { value: "smart", name: "Smart" },
-            ],
-          },
-          {
-            id: "auto_approve",
-            name: "Auto approve",
-            category: "mode",
-            type: "boolean",
-            current_bool: false,
-          },
-        ],
-        messages: [
-          { id: "m1", role: "user", content: "review this", created_at: "2026-05-03T10:00:00Z" },
-          {
-            id: "m2",
-            run_id: "agent_run_c4",
-            request_id: "req_codex_123456",
-            trace_id: "0123456789abcdef0123456789abcdef",
-            role: "assistant",
-            content: "Looks good.",
-            raw_output: `{"sessionId":"native_codex_1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looks good."}}}`,
-            adapter_id: "codex",
-            adapter_name: "Codex",
-            driver_kind: "acp",
-            native_session_id: "native_codex_1",
-            status: "completed",
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
             cost_mode: "external",
-            diff_stat: "README.md | 2 +-\nui/src/features/chats/ChatView.tsx | 12 +++++++---\n2 files changed, 10 insertions(+), 4 deletions(-)",
-            diff: "diff --git a/README.md b/README.md",
-            created_at: "2026-05-03T10:00:01Z",
-            activities: [
-              { type: "started", status: "completed", title: "Starting external agent", detail: "Codex ACP session started" },
-              { id: "plan:0:Inspect", type: "plan", status: "completed", kind: "high", title: "Inspect changes" },
-              { id: "plan:1:Summarize", type: "plan", status: "in_progress", kind: "medium", title: "Summarize result" },
-              { id: "tool:call_1", type: "tool_call", status: "completed", kind: "execute", title: "git diff --stat", detail: "README.md:12" },
-              { type: "completed", status: "completed", title: "Final answer" },
-            ],
+          },
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: false,
+            status: "missing",
+            cost_mode: "external",
           },
         ],
-      } as any,
-    }, { setChatTarget, setAgentAdapterID, setNewChatAgent, setChatConfigOption: vi.fn(async () => true) });
+        chatSessions: [
+          {
+            id: "a1",
+            title: "Codex work",
+            adapter_id: "codex",
+            workspace: "/tmp/hecate",
+            status: "completed",
+            message_count: 2,
+          } as any,
+        ],
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Codex work",
+          adapter_id: "codex",
+          runtime_kind: "external_agent",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          config_options: [
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              current_value: "fast",
+              options: [
+                { value: "fast", name: "Fast" },
+                { value: "smart", name: "Smart" },
+              ],
+            },
+            {
+              id: "auto_approve",
+              name: "Auto approve",
+              category: "mode",
+              type: "boolean",
+              current_bool: false,
+            },
+          ],
+          messages: [
+            { id: "m1", role: "user", content: "review this", created_at: "2026-05-03T10:00:00Z" },
+            {
+              id: "m2",
+              run_id: "agent_run_c4",
+              request_id: "req_codex_123456",
+              trace_id: "0123456789abcdef0123456789abcdef",
+              role: "assistant",
+              content: "Looks good.",
+              raw_output: `{"sessionId":"native_codex_1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looks good."}}}`,
+              adapter_id: "codex",
+              adapter_name: "Codex",
+              driver_kind: "acp",
+              native_session_id: "native_codex_1",
+              status: "completed",
+              cost_mode: "external",
+              diff_stat:
+                "README.md | 2 +-\nui/src/features/chats/ChatView.tsx | 12 +++++++---\n2 files changed, 10 insertions(+), 4 deletions(-)",
+              diff: "diff --git a/README.md b/README.md",
+              created_at: "2026-05-03T10:00:01Z",
+              activities: [
+                {
+                  type: "started",
+                  status: "completed",
+                  title: "Starting external agent",
+                  detail: "Codex ACP session started",
+                },
+                {
+                  id: "plan:0:Inspect",
+                  type: "plan",
+                  status: "completed",
+                  kind: "high",
+                  title: "Inspect changes",
+                },
+                {
+                  id: "plan:1:Summarize",
+                  type: "plan",
+                  status: "in_progress",
+                  kind: "medium",
+                  title: "Summarize result",
+                },
+                {
+                  id: "tool:call_1",
+                  type: "tool_call",
+                  status: "completed",
+                  kind: "execute",
+                  title: "git diff --stat",
+                  detail: "README.md:12",
+                },
+                { type: "completed", status: "completed", title: "Final answer" },
+              ],
+            },
+          ],
+        } as any,
+      },
+      {
+        setChatTarget,
+        setAgentAdapterID,
+        setNewChatAgent,
+        setChatConfigOption: vi.fn(async () => true),
+      },
+    );
     const onOpenTrace = vi.fn();
     render(withRuntimeConsole(<ChatView onOpenTrace={onOpenTrace} />, { state, actions }));
 
@@ -2019,7 +2744,9 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Summarize result")).toBeTruthy();
     expect(screen.getByText("Ran command")).toBeTruthy();
     expect(screen.getByText("README.md:12")).toBeTruthy();
-    expect(screen.getByText("files changed · 2 files changed, 10 insertions(+), 4 deletions(-)")).toBeTruthy();
+    expect(
+      screen.getByText("files changed · 2 files changed, 10 insertions(+), 4 deletions(-)"),
+    ).toBeTruthy();
     expect(screen.getByText("README.md")).toBeTruthy();
     expect(screen.getByText("2 +-")).toBeTruthy();
     expect(screen.getByText("ui/src/features/chats/ChatView.tsx")).toBeTruthy();
@@ -2047,17 +2774,36 @@ describe("ChatView external-agent target", () => {
 
   it("allows choosing an agent before an agent chat is created", async () => {
     const setNewChatAgent = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      newChatAgentID: "codex",
-      agentAdapterID: "codex",
-      activeChatSessionID: "",
-      activeChatSession: null,
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-        { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
-      ],
-    }, { setNewChatAgent });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        newChatAgentID: "codex",
+        agentAdapterID: "codex",
+        activeChatSessionID: "",
+        activeChatSession: null,
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { setNewChatAgent },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -2070,25 +2816,28 @@ describe("ChatView external-agent target", () => {
     const setAgentAdapterCredential = vi.fn(async () => true);
     const probeAgentAdapter = vi.fn(async () => null);
     const onNavigate = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentAdapterID: "claude_code",
-      agentWorkspace: "/tmp/hecate",
-      message: "inspect repo",
-      agentAdapters: [
-        {
-          id: "claude_code",
-          name: "Claude Code",
-          kind: "acp",
-          command: "claude-agent-acp",
-          available: true,
-          status: "available",
-          auth_status: "unknown",
-          credential_configured: false,
-          cost_mode: "external",
-        },
-      ],
-    }, { setAgentAdapterCredential, probeAgentAdapter });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentAdapterID: "claude_code",
+        agentWorkspace: "/tmp/hecate",
+        message: "inspect repo",
+        agentAdapters: [
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            auth_status: "unknown",
+            credential_configured: false,
+            cost_mode: "external",
+          },
+        ],
+      },
+      { setAgentAdapterCredential, probeAgentAdapter },
+    );
     render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
 
     expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
@@ -2097,19 +2846,23 @@ describe("ChatView external-agent target", () => {
     expect(document.querySelector("button[type='submit']")).toBeNull();
 
     const user = userEvent.setup();
-    const installCommand = screen.getByRole("button", { name: /npx -y @anthropic-ai\/claude-code --version/i });
+    const installCommand = screen.getByRole("button", {
+      name: /npx -y @anthropic-ai\/claude-code --version/i,
+    });
     expect(installCommand).toBeTruthy();
     await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(setAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN");
+    expect(setAgentAdapterCredential).toHaveBeenCalledWith(
+      "claude_code",
+      "claude-token",
+      "CLAUDE_CODE_OAUTH_TOKEN",
+    );
     expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
     await user.click(screen.getByRole("button", { name: "Check auth" }));
     expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
     expect(screen.queryByRole("button", { name: "Open Settings" })).toBeNull();
     expect(onNavigate).not.toHaveBeenCalled();
   });
-
-
 
   it("uses the centered Claude Code setup and hides the composer for existing empty sessions", () => {
     const { state, actions } = setup({
@@ -2166,14 +2919,20 @@ describe("ChatView external-agent target", () => {
           auth_status: "unknown",
           credential_configured: false,
           cost_mode: "external",
-          claude_code_cli: { available: true, command: "/opt/homebrew/bin/claude", executable_path: "/opt/homebrew/bin/claude" },
+          claude_code_cli: {
+            available: true,
+            command: "/opt/homebrew/bin/claude",
+            executable_path: "/opt/homebrew/bin/claude",
+          },
         },
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("Available via /opt/homebrew/bin/claude")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "npx -y @anthropic-ai/claude-code --version" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "npx -y @anthropic-ai/claude-code --version" }),
+    ).toBeNull();
   });
 
   it("keeps Claude Code setup visible until the adapter probe verifies auth", () => {
@@ -2218,7 +2977,10 @@ describe("ChatView external-agent target", () => {
         },
       ],
       agentAdapterHealthByID: new Map([
-        ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 120 }],
+        [
+          "claude_code",
+          { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 120 },
+        ],
       ]),
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -2248,7 +3010,10 @@ describe("ChatView external-agent target", () => {
         },
       ],
       agentAdapterHealthByID: new Map([
-        ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 120 }],
+        [
+          "claude_code",
+          { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 120 },
+        ],
       ]),
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -2261,7 +3026,15 @@ describe("ChatView external-agent target", () => {
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
       activeChatSessionID: "a1",
       activeChatSession: {
@@ -2282,7 +3055,12 @@ describe("ChatView external-agent target", () => {
             status: "running",
             created_at: "2026-05-03T10:00:01Z",
             activities: [
-              { type: "running", status: "running", title: "Running", detail: "Waiting for ACP output" },
+              {
+                type: "running",
+                status: "running",
+                title: "Running",
+                detail: "Waiting for ACP output",
+              },
             ],
           },
         ],
@@ -2299,7 +3077,15 @@ describe("ChatView external-agent target", () => {
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
       activeChatSessionID: "a1",
       activeChatSession: {
@@ -2314,13 +3100,19 @@ describe("ChatView external-agent target", () => {
           {
             id: "m2",
             role: "assistant",
-            content: "I’ll check the current worktree diff and summarize the changed files plus the important hunks.",
+            content:
+              "I’ll check the current worktree diff and summarize the changed files plus the important hunks.",
             adapter_id: "codex",
             adapter_name: "Codex",
             status: "running",
             created_at: "2026-05-03T10:00:01Z",
             activities: [
-              { type: "running", status: "running", title: "Running", detail: "Waiting for ACP output" },
+              {
+                type: "running",
+                status: "running",
+                title: "Running",
+                detail: "Waiting for ACP output",
+              },
             ],
           },
         ],
@@ -2328,8 +3120,18 @@ describe("ChatView external-agent target", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByText("I’ll check the current worktree diff and summarize the changed files plus the important hunks.")).toBeTruthy();
-    expect(screen.getByText("I’ll check the current worktree diff and summarize the changed files plus the important hunks.").parentElement?.querySelector("[aria-hidden='true']")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "I’ll check the current worktree diff and summarize the changed files plus the important hunks.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByText(
+          "I’ll check the current worktree diff and summarize the changed files plus the important hunks.",
+        )
+        .parentElement?.querySelector("[aria-hidden='true']"),
+    ).toBeTruthy();
     expect(screen.queryByText("Waiting for agent output...")).toBeNull();
   });
 
@@ -2338,7 +3140,15 @@ describe("ChatView external-agent target", () => {
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
       activeChatSessionID: "a1",
       activeChatSession: {
@@ -2438,36 +3248,42 @@ describe("ChatView external-agent target", () => {
       diff: "diff --git a/README.md b/README.md\n+new line",
     }));
     const revertChatMessageFiles = vi.fn(async () => true);
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentWorkspace: "/tmp/hecate",
-      activeChatSessionID: "a1",
-      activeChatSession: {
-        id: "a1",
-        title: "Review files",
-        adapter_id: "codex",
-        workspace: "/tmp/hecate",
-        status: "completed",
-        messages: [
-          { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
-          {
-            id: "m2",
-            role: "assistant",
-            content: "Updated the docs.",
-            adapter_id: "codex",
-            adapter_name: "Codex",
-            status: "completed",
-            diff_stat: "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
-            diff: "diff --git a/README.md b/README.md\n+new line",
-            created_at: "2026-05-03T10:00:01Z",
-          },
-        ],
-      } as any,
-    }, { listChatMessageFiles, getChatMessageFileDiff, revertChatMessageFiles });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review files",
+          adapter_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [
+            { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
+            {
+              id: "m2",
+              role: "assistant",
+              content: "Updated the docs.",
+              adapter_id: "codex",
+              adapter_name: "Codex",
+              status: "completed",
+              diff_stat:
+                "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
+              diff: "diff --git a/README.md b/README.md\n+new line",
+              created_at: "2026-05-03T10:00:01Z",
+            },
+          ],
+        } as any,
+      },
+      { listChatMessageFiles, getChatMessageFileDiff, revertChatMessageFiles },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(screen.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)"));
+    await user.click(
+      screen.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)"),
+    );
 
     expect(await screen.findByText("2 changed files")).toBeTruthy();
     expect(listChatMessageFiles).toHaveBeenCalledWith("a1", "m2");
@@ -2493,36 +3309,41 @@ describe("ChatView external-agent target", () => {
     const revertChatMessageFiles = vi.fn(async () => {
       throw new Error("git restore failed");
     });
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentWorkspace: "/tmp/hecate",
-      activeChatSessionID: "a1",
-      activeChatSession: {
-        id: "a1",
-        title: "Review files",
-        adapter_id: "codex",
-        workspace: "/tmp/hecate",
-        status: "completed",
-        messages: [
-          { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
-          {
-            id: "m2",
-            role: "assistant",
-            content: "Updated the docs.",
-            adapter_id: "codex",
-            adapter_name: "Codex",
-            status: "completed",
-            diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
-            diff: "diff --git a/README.md b/README.md\n+new line",
-            created_at: "2026-05-03T10:00:01Z",
-          },
-        ],
-      } as any,
-    }, { listChatMessageFiles, getChatMessageFileDiff, revertChatMessageFiles });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review files",
+          adapter_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [
+            { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
+            {
+              id: "m2",
+              role: "assistant",
+              content: "Updated the docs.",
+              adapter_id: "codex",
+              adapter_name: "Codex",
+              status: "completed",
+              diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
+              diff: "diff --git a/README.md b/README.md\n+new line",
+              created_at: "2026-05-03T10:00:01Z",
+            },
+          ],
+        } as any,
+      },
+      { listChatMessageFiles, getChatMessageFileDiff, revertChatMessageFiles },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"));
+    await user.click(
+      screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"),
+    );
     expect(await screen.findByText("1 changed file")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Inspect README.md" }));
@@ -2531,7 +3352,11 @@ describe("ChatView external-agent target", () => {
 
     await user.click(screen.getByRole("button", { name: "Revert README.md" }));
     await user.click(screen.getByRole("button", { name: "Confirm revert README.md" }));
-    expect(await screen.findByText("Revert failed. The workspace may not be a Git repository, or the file changed since capture.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Revert failed. The workspace may not be a Git repository, or the file changed since capture.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Revert README.md" })).toBeTruthy();
   });
 
@@ -2539,40 +3364,49 @@ describe("ChatView external-agent target", () => {
     const listChatMessageFiles = vi.fn(async () => {
       throw new Error("files unavailable");
     });
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentWorkspace: "/tmp/hecate",
-      activeChatSessionID: "a1",
-      activeChatSession: {
-        id: "a1",
-        title: "Review files",
-        adapter_id: "codex",
-        workspace: "/tmp/hecate",
-        status: "completed",
-        messages: [
-          {
-            id: "m2",
-            role: "assistant",
-            content: "Updated the docs.",
-            adapter_id: "codex",
-            adapter_name: "Codex",
-            status: "completed",
-            diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
-            diff: "diff --git a/README.md b/README.md\n+new line",
-            created_at: "2026-05-03T10:00:01Z",
-          },
-        ],
-      } as any,
-    }, {
-      listChatMessageFiles,
-      getChatMessageFileDiff: vi.fn(async () => null),
-      revertChatMessageFiles: vi.fn(async () => false),
-    });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review files",
+          adapter_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [
+            {
+              id: "m2",
+              role: "assistant",
+              content: "Updated the docs.",
+              adapter_id: "codex",
+              adapter_name: "Codex",
+              status: "completed",
+              diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
+              diff: "diff --git a/README.md b/README.md\n+new line",
+              created_at: "2026-05-03T10:00:01Z",
+            },
+          ],
+        } as any,
+      },
+      {
+        listChatMessageFiles,
+        getChatMessageFileDiff: vi.fn(async () => null),
+        revertChatMessageFiles: vi.fn(async () => false),
+      },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"));
-    expect(await screen.findByText("Could not load changed files. The captured diff may no longer be available.")).toBeTruthy();
+    await user.click(
+      screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"),
+    );
+    expect(
+      await screen.findByText(
+        "Could not load changed files. The captured diff may no longer be available.",
+      ),
+    ).toBeTruthy();
     expect(screen.queryByText("Loading changed files...")).toBeNull();
   });
 
@@ -2581,36 +3415,41 @@ describe("ChatView external-agent target", () => {
       { path: "README.md", additions: 2, deletions: 1, status: "modified" },
     ]);
     const revertChatMessageFiles = vi.fn(async () => true);
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentWorkspace: "/tmp/hecate",
-      activeChatSessionID: "a1",
-      activeChatSession: {
-        id: "a1",
-        title: "Review all",
-        adapter_id: "codex",
-        workspace: "/tmp/hecate",
-        status: "completed",
-        messages: [
-          { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
-          {
-            id: "m2",
-            role: "assistant",
-            content: "Updated the docs.",
-            adapter_id: "codex",
-            adapter_name: "Codex",
-            status: "completed",
-            diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
-            diff: "diff --git a/README.md b/README.md",
-            created_at: "2026-05-03T10:00:01Z",
-          },
-        ],
-      } as any,
-    }, { listChatMessageFiles, revertChatMessageFiles });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review all",
+          adapter_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [
+            { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
+            {
+              id: "m2",
+              role: "assistant",
+              content: "Updated the docs.",
+              adapter_id: "codex",
+              adapter_name: "Codex",
+              status: "completed",
+              diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
+              diff: "diff --git a/README.md b/README.md",
+              created_at: "2026-05-03T10:00:01Z",
+            },
+          ],
+        } as any,
+      },
+      { listChatMessageFiles, revertChatMessageFiles },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"));
+    await user.click(
+      screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"),
+    );
     expect(await screen.findByText("1 changed file")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Revert all" }));
@@ -2626,7 +3465,15 @@ describe("ChatView external-agent target", () => {
       chatCancelling: true,
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
       activeChatSessionID: "a1",
       activeChatSession: {
@@ -2652,7 +3499,15 @@ describe("ChatView external-agent target", () => {
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
-        { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "claude_code",
+          name: "Claude Code",
+          kind: "acp",
+          command: "claude-agent-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
       activeChatSessionID: "a1",
       activeChatSession: {
@@ -2675,7 +3530,12 @@ describe("ChatView external-agent target", () => {
             status: "failed",
             created_at: "2026-05-03T10:00:01Z",
             activities: [
-              { type: "failed", status: "failed", title: "Failed", detail: "Claude Code usage limit: credit balance is too low" },
+              {
+                type: "failed",
+                status: "failed",
+                title: "Failed",
+                detail: "Claude Code usage limit: credit balance is too low",
+              },
             ],
           },
         ],
@@ -2684,20 +3544,33 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("agent run failed")).toBeTruthy();
-    expect(screen.getAllByText("Claude Code usage limit: credit balance is too low").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Claude Code usage limit: credit balance is too low").length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("raw adapter output · 1 line")).toBeTruthy();
     expect(screen.getAllByText("failed").length).toBeGreaterThan(0);
   });
 
   it("opens the workspace picker action from the folder button", async () => {
     const chooseAgentWorkspace = vi.fn(async () => true);
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentWorkspace: "",
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-      ],
-    }, { chooseAgentWorkspace });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "",
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { chooseAgentWorkspace },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -2708,13 +3581,24 @@ describe("ChatView external-agent target", () => {
   it("allows pasting a workspace path when the folder dialog is unavailable", async () => {
     const chooseAgentWorkspace = vi.fn(async () => false);
     const setAgentWorkspace = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentWorkspace: "",
-      agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
-      ],
-    }, { chooseAgentWorkspace, setAgentWorkspace });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "",
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { chooseAgentWorkspace, setAgentWorkspace },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -2731,7 +3615,15 @@ describe("ChatView external-agent target", () => {
       message: "run codex",
       agentWorkspace: "",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -2742,22 +3634,25 @@ describe("ChatView external-agent target", () => {
 
   it("explains why Hecate Chat cannot send with tools before workspace selection", async () => {
     const chooseAgentWorkspace = vi.fn(async () => "/tmp/hecate");
-    const { state, actions } = setup({
-      chatTarget: "agent",
-      message: "inspect repo",
-      agentWorkspace: "",
-      providerScopedModels: [
-        {
-          id: "gpt-4o-mini",
-          owned_by: "openai",
-          metadata: {
-            provider: "openai",
-            provider_kind: "cloud",
-            capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        message: "inspect repo",
+        agentWorkspace: "",
+        providerScopedModels: [
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: {
+              provider: "openai",
+              provider_kind: "cloud",
+              capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+            },
           },
-        },
-      ],
-    }, { chooseAgentWorkspace });
+        ],
+      },
+      { chooseAgentWorkspace },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText(/Hecate uses the workspace as the working directory/)).toBeTruthy();
@@ -2777,9 +3672,7 @@ describe("ChatView model target", () => {
       activeChatSession: {
         id: "s1",
         title: "Tasks",
-        messages: [
-          { id: "m1", sequence: 1, role: "assistant", content: "- [x] done\n- [ ] todo" },
-        ],
+        messages: [{ id: "m1", sequence: 1, role: "assistant", content: "- [x] done\n- [ ] todo" }],
         provider_calls: [],
       } as any,
     });
@@ -2792,33 +3685,48 @@ describe("ChatView model target", () => {
   it("keeps provider and model pickers editable for an active model chat", async () => {
     const setProviderFilter = vi.fn();
     const setModel = vi.fn();
-    const { state, actions } = setup({
-      chatTarget: "model",
-      providerFilter: "openai",
-      model: "gpt-4o-mini",
-      activeChatSessionID: "s1",
-      activeChatSession: {
-        id: "s1",
-        title: "Model switching",
-        messages: [],
-        provider_calls: [],
-      } as any,
-      settingsConfig: {
-        providers: [
-          { id: "anthropic", name: "Anthropic", kind: "cloud", credential_configured: true },
-          { id: "openai", name: "OpenAI", kind: "cloud", credential_configured: true },
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        providerFilter: "openai",
+        model: "gpt-4o-mini",
+        activeChatSessionID: "s1",
+        activeChatSession: {
+          id: "s1",
+          title: "Model switching",
+          messages: [],
+          provider_calls: [],
+        } as any,
+        settingsConfig: {
+          providers: [
+            { id: "anthropic", name: "Anthropic", kind: "cloud", credential_configured: true },
+            { id: "openai", name: "OpenAI", kind: "cloud", credential_configured: true },
+          ],
+        } as any,
+        providerPresets: [
+          { id: "anthropic", name: "Anthropic", kind: "cloud" },
+          { id: "openai", name: "OpenAI", kind: "cloud" },
+        ] as any,
+        providerScopedModels: [
+          {
+            id: "claude-sonnet-4-20250514",
+            owned_by: "anthropic",
+            metadata: { provider: "anthropic", provider_kind: "cloud" },
+          },
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: { provider: "openai", provider_kind: "cloud" },
+          },
+          {
+            id: "gpt-4.1-mini",
+            owned_by: "openai",
+            metadata: { provider: "openai", provider_kind: "cloud" },
+          },
         ],
-      } as any,
-      providerPresets: [
-        { id: "anthropic", name: "Anthropic", kind: "cloud" },
-        { id: "openai", name: "OpenAI", kind: "cloud" },
-      ] as any,
-      providerScopedModels: [
-        { id: "claude-sonnet-4-20250514", owned_by: "anthropic", metadata: { provider: "anthropic", provider_kind: "cloud" } },
-        { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
-        { id: "gpt-4.1-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
-      ],
-    }, { setProviderFilter, setModel });
+      },
+      { setProviderFilter, setModel },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -2885,7 +3793,13 @@ describe("ChatView session title", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       chatSessions: [
-        { id: "s1", title: "Previous chat", message_count: 2, provider_call_count: 0, updated_at: "2026-05-18T00:00:00Z" } as any,
+        {
+          id: "s1",
+          title: "Previous chat",
+          message_count: 2,
+          provider_call_count: 0,
+          updated_at: "2026-05-18T00:00:00Z",
+        } as any,
       ],
       activeChatSessionID: "",
       activeChatSession: null,
@@ -2901,7 +3815,12 @@ describe("ChatView session title", () => {
   it("shows the active session's title", () => {
     const { state, actions } = setup({
       chatTarget: "model",
-      activeChatSession: { id: "s1", title: "Hello world", messages: [], provider_calls: [] } as any,
+      activeChatSession: {
+        id: "s1",
+        title: "Hello world",
+        messages: [],
+        provider_calls: [],
+      } as any,
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText("Hello world")).toBeTruthy();
@@ -2915,7 +3834,15 @@ describe("ChatView session title", () => {
       settingsConfig: {
         backend: "memory",
         providers: [
-          { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+          {
+            id: "ollama",
+            name: "Ollama",
+            preset_id: "ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: false,
+          },
         ],
         policy_rules: [],
         events: [],
@@ -2964,10 +3891,15 @@ describe("ChatView session focus", () => {
     // arriving from the API) also drives that transition and stealing
     // focus on load would hijack normal page navigation.
     const selectChatSession = vi.fn(async () => undefined);
-    const { state, actions } = setup({
-      chatTarget: "model",
-      chatSessions: [{ id: "s2", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
-    }, { selectChatSession });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        chatSessions: [
+          { id: "s2", title: "Pick me", message_count: 0, provider_call_count: 0 } as any,
+        ],
+      },
+      { selectChatSession },
+    );
     const user = userEvent.setup();
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
     // Move focus elsewhere to detect the jump.
@@ -3005,13 +3937,16 @@ describe("ChatView session focus", () => {
 describe("ChatView history pagination", () => {
   it("does not show the legacy model-history pagination action for unified Hecate Chat", () => {
     const loadMoreChatSessions = vi.fn(async () => undefined);
-    const { state, actions } = setup({
-      chatTarget: "model",
-      chatSessionsHasMore: true,
-      chatSessions: [
-        { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
-      ],
-    }, { loadMoreChatSessions });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        chatSessionsHasMore: true,
+        chatSessions: [
+          { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
+        ],
+      },
+      { loadMoreChatSessions },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.queryByRole("button", { name: "Load earlier chats" })).toBeNull();
@@ -3020,13 +3955,16 @@ describe("ChatView history pagination", () => {
 
   it("does not show the legacy search pagination action for unified Hecate Chat", async () => {
     const loadMoreChatSessions = vi.fn(async () => undefined);
-    const { state, actions } = setup({
-      chatTarget: "model",
-      chatSessionsHasMore: true,
-      chatSessions: [
-        { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
-      ],
-    }, { loadMoreChatSessions });
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        chatSessionsHasMore: true,
+        chatSessions: [
+          { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
+        ],
+      },
+      { loadMoreChatSessions },
+    );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -3071,32 +4009,56 @@ describe("ChatView agent approvals", () => {
   it("renders the pending banner with rows scoped to the active session and opens the modal on Review", async () => {
     const sessionID = "a1";
     const pending = new Map<string, any>([
-      [sessionID, [{
-        approval_id: "ap-1",
-        session_id: sessionID,
-        adapter_id: "codex",
-        tool_kind: "fs",
-        tool_name: "write_file",
-        created_at: "2026-04-21T10:00:00Z",
-        expires_at: "2026-04-21T10:05:00Z",
-      }]],
-      ["other-session", [{
-        approval_id: "ap-2",
-        session_id: "other-session",
-        adapter_id: "codex",
-        tool_kind: "exec",
-        created_at: "2026-04-21T10:00:00Z",
-        expires_at: "2026-04-21T10:05:00Z",
-      }]],
+      [
+        sessionID,
+        [
+          {
+            approval_id: "ap-1",
+            session_id: sessionID,
+            adapter_id: "codex",
+            tool_kind: "fs",
+            tool_name: "write_file",
+            created_at: "2026-04-21T10:00:00Z",
+            expires_at: "2026-04-21T10:05:00Z",
+          },
+        ],
+      ],
+      [
+        "other-session",
+        [
+          {
+            approval_id: "ap-2",
+            session_id: "other-session",
+            adapter_id: "codex",
+            tool_kind: "exec",
+            created_at: "2026-04-21T10:00:00Z",
+            expires_at: "2026-04-21T10:05:00Z",
+          },
+        ],
+      ],
     ]);
     const getChatApproval = vi.fn(async () => null); // modal opens, fetch returns null → renders error
     const { state, actions } = setup(
       {
-      chatTarget: "external_agent",
+        chatTarget: "external_agent",
         activeChatSessionID: sessionID,
-        activeChatSession: { id: sessionID, title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" } as any,
+        activeChatSession: {
+          id: sessionID,
+          title: "S1",
+          adapter_id: "codex",
+          workspace: "/tmp",
+          status: "running",
+        } as any,
         pendingApprovalsBySessionID: pending,
-        chatSessions: [{ id: sessionID, title: "S1", adapter_id: "codex", status: "running", message_count: 0 } as any],
+        chatSessions: [
+          {
+            id: sessionID,
+            title: "S1",
+            adapter_id: "codex",
+            status: "running",
+            message_count: 0,
+          } as any,
+        ],
       },
       { getChatApproval },
     );
@@ -3116,24 +4078,43 @@ describe("ChatView agent approvals", () => {
   it("does not carry an external approval modal into Hecate Chat", async () => {
     const sessionID = "external-approval-session";
     const pending = new Map<string, any>([
-      [sessionID, [{
-        approval_id: "ap-external",
-        session_id: sessionID,
-        adapter_id: "codex",
-        tool_kind: "fs",
-        tool_name: "write_file",
-        created_at: "2026-04-21T10:00:00Z",
-        expires_at: "2026-04-21T10:05:00Z",
-      }]],
+      [
+        sessionID,
+        [
+          {
+            approval_id: "ap-external",
+            session_id: sessionID,
+            adapter_id: "codex",
+            tool_kind: "fs",
+            tool_name: "write_file",
+            created_at: "2026-04-21T10:00:00Z",
+            expires_at: "2026-04-21T10:05:00Z",
+          },
+        ],
+      ],
     ]);
     const getChatApproval = vi.fn(async () => null);
     const { state: externalState, actions } = setup(
       {
         chatTarget: "external_agent",
         activeChatSessionID: sessionID,
-        activeChatSession: { id: sessionID, title: "Codex", adapter_id: "codex", workspace: "/tmp", status: "running" } as any,
+        activeChatSession: {
+          id: sessionID,
+          title: "Codex",
+          adapter_id: "codex",
+          workspace: "/tmp",
+          status: "running",
+        } as any,
         pendingApprovalsBySessionID: pending,
-        chatSessions: [{ id: sessionID, title: "Codex", adapter_id: "codex", status: "running", message_count: 0 } as any],
+        chatSessions: [
+          {
+            id: sessionID,
+            title: "Codex",
+            adapter_id: "codex",
+            status: "running",
+            message_count: 0,
+          } as any,
+        ],
       },
       { getChatApproval },
     );
@@ -3147,7 +4128,13 @@ describe("ChatView agent approvals", () => {
       {
         chatTarget: "agent",
         activeChatSessionID: "hecate-session",
-        activeChatSession: { id: "hecate-session", title: "Hecate", runtime_kind: "agent", workspace: "/tmp", status: "completed" } as any,
+        activeChatSession: {
+          id: "hecate-session",
+          title: "Hecate",
+          runtime_kind: "agent",
+          workspace: "/tmp",
+          status: "completed",
+        } as any,
         pendingApprovalsBySessionID: pending,
       },
       { getChatApproval },

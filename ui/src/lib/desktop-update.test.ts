@@ -126,7 +126,10 @@ describe("useDesktopUpdate", () => {
     enterTauriRuntime();
     let resolveDownload: (() => void) | null = null;
     const downloadAndInstall = vi.fn(
-      () => new Promise<void>((resolve) => { resolveDownload = resolve; }),
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDownload = resolve;
+        }),
     );
     checkMock.mockResolvedValue({
       version: "0.1.0-alpha.24",
@@ -134,13 +137,17 @@ describe("useDesktopUpdate", () => {
     });
     const { result } = renderHook(() => useDesktopUpdate());
     await waitFor(() => expect(result.current.update).not.toBeNull());
-    act(() => { void result.current.installAndRestart(); });
+    act(() => {
+      void result.current.installAndRestart();
+    });
     await waitFor(() => expect(result.current.installing).toBe(true));
     expect(downloadAndInstall).toHaveBeenCalledTimes(1);
     // Resolve the download — installing flips back only on error;
     // on success the plugin relaunches and the renderer terminates.
     // We simulate the success path by resolving without exception.
-    act(() => { resolveDownload?.(); });
+    act(() => {
+      resolveDownload?.();
+    });
   });
 
   it("only calls check() once under React StrictMode (no double-fire on dev remount)", async () => {
@@ -159,7 +166,9 @@ describe("useDesktopUpdate", () => {
     let onEventCb: ((e: unknown) => void) | null = null;
     const downloadAndInstall = vi.fn((cb?: (e: unknown) => void) => {
       onEventCb = cb ?? null;
-      return new Promise<void>(() => { /* never resolves */ });
+      return new Promise<void>(() => {
+        /* never resolves */
+      });
     });
     checkMock.mockResolvedValue({
       version: "0.1.0-alpha.24",
@@ -167,14 +176,22 @@ describe("useDesktopUpdate", () => {
     });
     const { result } = renderHook(() => useDesktopUpdate());
     await waitFor(() => expect(result.current.update).not.toBeNull());
-    act(() => { void result.current.installAndRestart(); });
+    act(() => {
+      void result.current.installAndRestart();
+    });
     await waitFor(() => expect(onEventCb).not.toBeNull());
 
     // Started fires the total length; Progress events accumulate.
-    act(() => { onEventCb?.({ event: "Started", data: { contentLength: 1000 } }); });
-    act(() => { onEventCb?.({ event: "Progress", data: { chunkLength: 250 } }); });
+    act(() => {
+      onEventCb?.({ event: "Started", data: { contentLength: 1000 } });
+    });
+    act(() => {
+      onEventCb?.({ event: "Progress", data: { chunkLength: 250 } });
+    });
     await waitFor(() => expect(result.current.progress).toBe(0.25));
-    act(() => { onEventCb?.({ event: "Progress", data: { chunkLength: 500 } }); });
+    act(() => {
+      onEventCb?.({ event: "Progress", data: { chunkLength: 500 } });
+    });
     await waitFor(() => expect(result.current.progress).toBe(0.75));
   });
 
@@ -255,7 +272,9 @@ describe("useDesktopUpdate", () => {
     await waitFor(() => expect(checkMock).toHaveBeenCalled());
 
     // Manual trigger while the automatic check is still pending.
-    act(() => { void result.current.checkNow(); });
+    act(() => {
+      void result.current.checkNow();
+    });
     // Auto check should still be the only network call.
     expect(checkMock).toHaveBeenCalledTimes(1);
 

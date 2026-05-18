@@ -27,7 +27,7 @@ test.describe("Usage lazy-fetch", () => {
     // most-recent wins) before navigating.
     let summaryCount = 0;
     let eventsCount = 0;
-    await page.route("/hecate/v1/usage/summary*", async route => {
+    await page.route("/hecate/v1/usage/summary*", async (route) => {
       summaryCount += 1;
       await route.fulfill({
         status: 200,
@@ -44,7 +44,7 @@ test.describe("Usage lazy-fetch", () => {
         }),
       });
     });
-    await page.route("/hecate/v1/usage/events*", async route => {
+    await page.route("/hecate/v1/usage/events*", async (route) => {
       eventsCount += 1;
       await route.fulfill({
         status: 200,
@@ -53,8 +53,9 @@ test.describe("Usage lazy-fetch", () => {
       });
     });
     // Expose counters to the page-level tests via window-style refs.
-    (page as unknown as { usageRouteCounts: { summary: () => number; events: () => number } })
-      .usageRouteCounts = { summary: () => summaryCount, events: () => eventsCount };
+    (
+      page as unknown as { usageRouteCounts: { summary: () => number; events: () => number } }
+    ).usageRouteCounts = { summary: () => summaryCount, events: () => eventsCount };
   });
 
   test("does not fetch /usage/{summary,events} during boot", async ({ page }) => {
@@ -65,16 +66,22 @@ test.describe("Usage lazy-fetch", () => {
     await page.waitForSelector(".hecate-activitybar");
     await page.waitForSelector(".hecate-activitybar [aria-label^='Chats']");
 
-    const counts = (page as unknown as { usageRouteCounts: { summary: () => number; events: () => number } }).usageRouteCounts;
+    const counts = (
+      page as unknown as { usageRouteCounts: { summary: () => number; events: () => number } }
+    ).usageRouteCounts;
     expect(counts.summary()).toBe(0);
     expect(counts.events()).toBe(0);
   });
 
-  test("fetches /usage/{summary,events} on first UsageView mount, caches across re-visits", async ({ page }) => {
+  test("fetches /usage/{summary,events} on first UsageView mount, caches across re-visits", async ({
+    page,
+  }) => {
     await page.goto("/");
     await page.waitForSelector(".hecate-activitybar");
 
-    const counts = (page as unknown as { usageRouteCounts: { summary: () => number; events: () => number } }).usageRouteCounts;
+    const counts = (
+      page as unknown as { usageRouteCounts: { summary: () => number; events: () => number } }
+    ).usageRouteCounts;
 
     // First mount fires both fetches once each.
     await page.locator(".hecate-activitybar [aria-label^='Usage']").click();

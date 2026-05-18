@@ -1,13 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
-  applyTaskRunPatch, cancelTaskRun, createTask, deleteTask, getModels, getProviders,
-  getTaskApprovals, getTaskRunArtifacts, getTaskRunEvents,
-  getTaskRuns, getTaskRunSteps, getTasks, resolveTaskApproval, revertTaskRunPatch,
-  retryTaskRun, retryTaskRunFromTurn, resumeTaskRun, resumeTaskRunRaisingCeiling,
-  startTask, streamTaskRun,
+  applyTaskRunPatch,
+  cancelTaskRun,
+  createTask,
+  deleteTask,
+  getModels,
+  getProviders,
+  getTaskApprovals,
+  getTaskRunArtifacts,
+  getTaskRunEvents,
+  getTaskRuns,
+  getTaskRunSteps,
+  getTasks,
+  resolveTaskApproval,
+  revertTaskRunPatch,
+  retryTaskRun,
+  retryTaskRunFromTurn,
+  resumeTaskRun,
+  resumeTaskRunRaisingCeiling,
+  startTask,
+  streamTaskRun,
 } from "../../lib/api";
-import { useEnsureProviderPresetsLoaded, useProvidersAndModels } from "../../app/state/providersAndModels";
+import {
+  useEnsureProviderPresetsLoaded,
+  useProvidersAndModels,
+} from "../../app/state/providersAndModels";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderRecord } from "../../types/provider";
 import type {
@@ -44,7 +62,15 @@ export function streamTurnCostKey(turnIndex: number | undefined): number | null 
 
 function TaskStartState({ loading, onNewTask }: { loading: boolean; onNewTask: () => void }) {
   return (
-    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+      }}
+    >
       <div style={{ maxWidth: 460, textAlign: "center" }}>
         <div style={{ fontSize: 15, color: "var(--t0)", fontWeight: 600 }}>
           {loading ? "Loading tasks…" : "Start a task"}
@@ -112,8 +138,14 @@ export function TasksView({
 
   const streamCursorRef = useRef(0);
 
-  const selectedTask = useMemo(() => tasks.find(t => t.id === selectedTaskID) ?? null, [tasks, selectedTaskID]);
-  const selectedRun = useMemo(() => runs.find(r => r.id === selectedRunID) ?? null, [runs, selectedRunID]);
+  const selectedTask = useMemo(
+    () => tasks.find((t) => t.id === selectedTaskID) ?? null,
+    [tasks, selectedTaskID],
+  );
+  const selectedRun = useMemo(
+    () => runs.find((r) => r.id === selectedRunID) ?? null,
+    [runs, selectedRunID],
+  );
   const selectedTaskIDRef = useRef(selectedTaskID);
 
   useEffect(() => {
@@ -129,50 +161,79 @@ export function TasksView({
     streamCursorRef.current = 0;
   }, []);
 
-  const loadRunDetail = useCallback(async (taskID: string, runID: string) => {
-    if (!taskID || !runID) { resetRunDetail(); return; }
-    const [stepsRes, artifactsRes, eventsRes] = await Promise.all([
-      getTaskRunSteps(taskID, runID),
-      getTaskRunArtifacts(taskID, runID),
-      getTaskRunEvents(taskID, runID, 0),
-    ]);
-    setSteps(stepsRes.data ?? []);
-    setArtifacts(artifactsRes.data ?? []);
-    setRunEvents((eventsRes.data ?? []).slice().sort((left, right) => left.sequence - right.sequence));
-  }, [resetRunDetail]);
+  const loadRunDetail = useCallback(
+    async (taskID: string, runID: string) => {
+      if (!taskID || !runID) {
+        resetRunDetail();
+        return;
+      }
+      const [stepsRes, artifactsRes, eventsRes] = await Promise.all([
+        getTaskRunSteps(taskID, runID),
+        getTaskRunArtifacts(taskID, runID),
+        getTaskRunEvents(taskID, runID, 0),
+      ]);
+      setSteps(stepsRes.data ?? []);
+      setArtifacts(artifactsRes.data ?? []);
+      setRunEvents(
+        (eventsRes.data ?? []).slice().sort((left, right) => left.sequence - right.sequence),
+      );
+    },
+    [resetRunDetail],
+  );
 
-  const loadTaskDetail = useCallback(async (taskID: string, preferredRunID = "") => {
-    if (!taskID) return;
-    const [runsRes, approvalsRes] = await Promise.all([
-      getTaskRuns(taskID),
-      getTaskApprovals(taskID),
-    ]);
-    const nextRuns = runsRes.data ?? [];
-    setRuns(nextRuns);
-    setApprovals(approvalsRes.data ?? []);
-    const nextRunID = (preferredRunID && nextRuns.some(r => r.id === preferredRunID) ? preferredRunID : "") || nextRuns[0]?.id || "";
-    setSelectedRunID(nextRunID);
-    if (nextRunID) await loadRunDetail(taskID, nextRunID);
-    else resetRunDetail();
-  }, [loadRunDetail, resetRunDetail]);
+  const loadTaskDetail = useCallback(
+    async (taskID: string, preferredRunID = "") => {
+      if (!taskID) return;
+      const [runsRes, approvalsRes] = await Promise.all([
+        getTaskRuns(taskID),
+        getTaskApprovals(taskID),
+      ]);
+      const nextRuns = runsRes.data ?? [];
+      setRuns(nextRuns);
+      setApprovals(approvalsRes.data ?? []);
+      const nextRunID =
+        (preferredRunID && nextRuns.some((r) => r.id === preferredRunID) ? preferredRunID : "") ||
+        nextRuns[0]?.id ||
+        "";
+      setSelectedRunID(nextRunID);
+      if (nextRunID) await loadRunDetail(taskID, nextRunID);
+      else resetRunDetail();
+    },
+    [loadRunDetail, resetRunDetail],
+  );
 
-  const loadTasks = useCallback(async (preferredTaskID = "", preferredRunID = "") => {
-    // single-user: always authenticated
-    setLoading(true);
-    try {
-      const res = await getTasks(30);
-      const nextTasks = res.data ?? [];
-      setTasks(nextTasks);
-      const currentTaskID = selectedTaskIDRef.current;
-      const preservedTaskID = currentTaskID && nextTasks.some(t => t.id === currentTaskID) ? currentTaskID : "";
-      const nextTaskID = (preferredTaskID && nextTasks.some(t => t.id === preferredTaskID) ? preferredTaskID : "") || preservedTaskID || nextTasks[0]?.id || "";
-      setSelectedTaskID(nextTaskID);
-      if (nextTaskID) await loadTaskDetail(nextTaskID, preferredRunID);
-    } catch { /* silently ignore */ }
-    finally { setLoading(false); }
-  }, [loadTaskDetail]);
+  const loadTasks = useCallback(
+    async (preferredTaskID = "", preferredRunID = "") => {
+      // single-user: always authenticated
+      setLoading(true);
+      try {
+        const res = await getTasks(30);
+        const nextTasks = res.data ?? [];
+        setTasks(nextTasks);
+        const currentTaskID = selectedTaskIDRef.current;
+        const preservedTaskID =
+          currentTaskID && nextTasks.some((t) => t.id === currentTaskID) ? currentTaskID : "";
+        const nextTaskID =
+          (preferredTaskID && nextTasks.some((t) => t.id === preferredTaskID)
+            ? preferredTaskID
+            : "") ||
+          preservedTaskID ||
+          nextTasks[0]?.id ||
+          "";
+        setSelectedTaskID(nextTaskID);
+        if (nextTaskID) await loadTaskDetail(nextTaskID, preferredRunID);
+      } catch {
+        /* silently ignore */
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadTaskDetail],
+  );
 
-  useEffect(() => { void loadTasks(); }, [loadTasks]);
+  useEffect(() => {
+    void loadTasks();
+  }, [loadTasks]);
 
   useEffect(() => {
     if (!focusRequest?.taskID) return;
@@ -186,8 +247,12 @@ export function TasksView({
     // blocking the whole page — a missing provider catalog just
     // means the picker shows raw provider ids instead of pretty
     // names, and a missing model list shows "no models match".
-    getModels().then(res => setAvailableModels(res.data ?? [])).catch(() => {});
-    getProviders().then(res => setAvailableProviders(res.data ?? [])).catch(() => {});
+    getModels()
+      .then((res) => setAvailableModels(res.data ?? []))
+      .catch(() => {});
+    getProviders()
+      .then((res) => setAvailableProviders(res.data ?? []))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -199,12 +264,13 @@ export function TasksView({
     setStreamState("connecting");
 
     void streamTaskRun(
-      selectedTaskID, selectedRunID,
+      selectedTaskID,
+      selectedRunID,
       ({ payload }) => {
         setStreamState("live");
         streamCursorRef.current = payload.data.sequence ?? streamCursorRef.current;
-        setRuns(cur => {
-          const others = cur.filter(r => r.id !== payload.data.run.id);
+        setRuns((cur) => {
+          const others = cur.filter((r) => r.id !== payload.data.run.id);
           return [payload.data.run, ...others];
         });
         setSteps(payload.data.steps ?? []);
@@ -217,7 +283,7 @@ export function TasksView({
         // entry (legitimate free tier / cached turn).
         const turnCostKey = streamTurnCostKey(payload.data.turn?.turn_index);
         if (payload.data.turn && turnCostKey !== null) {
-          setStreamTurnCosts(prev => {
+          setStreamTurnCosts((prev) => {
             const next = new Map(prev);
             next.set(turnCostKey, payload.data.turn!.cost_micros_usd ?? 0);
             return next;
@@ -236,8 +302,8 @@ export function TasksView({
         }
         const eventType = payload.data.event_type;
         if (eventType && payload.data.sequence > 0) {
-          setRunEvents(cur => {
-            if (cur.some(event => event.sequence === payload.data.sequence)) {
+          setRunEvents((cur) => {
+            if (cur.some((event) => event.sequence === payload.data.sequence)) {
               return cur;
             }
             return [
@@ -255,21 +321,25 @@ export function TasksView({
             ];
           });
         }
-        setTasks(cur => cur.map(t => t.id === selectedTaskID ? { ...t, status: payload.data.run.status } : t));
+        setTasks((cur) =>
+          cur.map((t) => (t.id === selectedTaskID ? { ...t, status: payload.data.run.status } : t)),
+        );
       },
       streamCursorRef.current,
       controller.signal,
-    ).then(() => {
-      if (!controller.signal.aborted) {
-        setStreamState("closed");
-        void loadTaskDetail(selectedTaskID, selectedRunID);
-      }
-    }).catch((err) => {
-      if (!controller.signal.aborted) {
-        setStreamState("error");
-        console.error(err);
-      }
-    });
+    )
+      .then(() => {
+        if (!controller.signal.aborted) {
+          setStreamState("closed");
+          void loadTaskDetail(selectedTaskID, selectedRunID);
+        }
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          setStreamState("error");
+          console.error(err);
+        }
+      });
 
     return () => controller.abort();
   }, [loadTaskDetail, selectedRunID, selectedTaskID]);
@@ -289,7 +359,7 @@ export function TasksView({
       // SSE state if one occurs.
       if (err instanceof ApiError && err.status === 404) {
         setNotice({ tone: "error", message: "That task no longer exists. Refreshing." });
-        setTasks(cur => cur.filter(t => t.id !== taskID));
+        setTasks((cur) => cur.filter((t) => t.id !== taskID));
         if (selectedTaskID === taskID) {
           setSelectedTaskID("");
           resetRunDetail();
@@ -304,10 +374,17 @@ export function TasksView({
     setSelectedRunID(runID);
     streamCursorRef.current = 0;
     setNotice(null);
-    try { await loadRunDetail(selectedTaskID, runID); } catch { /* ignore */ }
+    try {
+      await loadRunDetail(selectedTaskID, runID);
+    } catch {
+      /* ignore */
+    }
   }
 
-  async function handleResolveApproval(approval: TaskApprovalRecord, decision: "approve" | "reject") {
+  async function handleResolveApproval(
+    approval: TaskApprovalRecord,
+    decision: "approve" | "reject",
+  ) {
     if (!selectedTaskID) return;
     setBusyAction(decision);
     try {
@@ -316,7 +393,9 @@ export function TasksView({
       await loadTaskDetail(selectedTaskID, approval.run_id);
     } catch (err) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "failed" });
-    } finally { setBusyAction(""); }
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleCancelRun() {
@@ -325,8 +404,11 @@ export function TasksView({
     try {
       await cancelTaskRun(selectedTaskID, selectedRunID);
       await loadTaskDetail(selectedTaskID, selectedRunID);
-    } catch { /* ignore */ }
-    finally { setBusyAction(""); }
+    } catch {
+      /* ignore */
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleRetryRun() {
@@ -335,8 +417,11 @@ export function TasksView({
     try {
       const res = await retryTaskRun(selectedTaskID, selectedRunID);
       await loadTasks(selectedTaskID, res.data.id);
-    } catch { /* ignore */ }
-    finally { setBusyAction(""); }
+    } catch {
+      /* ignore */
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleResumeRun() {
@@ -345,8 +430,11 @@ export function TasksView({
     try {
       const res = await resumeTaskRun(selectedTaskID, selectedRunID);
       await loadTasks(selectedTaskID, res.data.id);
-    } catch { /* ignore */ }
-    finally { setBusyAction(""); }
+    } catch {
+      /* ignore */
+    } finally {
+      setBusyAction("");
+    }
   }
 
   // Raise the per-task cost ceiling and resume in one click. Only
@@ -361,11 +449,19 @@ export function TasksView({
     setBusyAction("resume-raise");
     try {
       const res = await resumeTaskRunRaisingCeiling(selectedTaskID, selectedRunID, budgetMicrosUSD);
-      setNotice({ tone: "success", message: `Ceiling raised to $${(budgetMicrosUSD / 1_000_000).toFixed(3)} and resumed (run #${res.data.number}).` });
+      setNotice({
+        tone: "success",
+        message: `Ceiling raised to $${(budgetMicrosUSD / 1_000_000).toFixed(3)} and resumed (run #${res.data.number}).`,
+      });
       await loadTasks(selectedTaskID, res.data.id);
     } catch (err) {
-      setNotice({ tone: "error", message: err instanceof Error ? err.message : "raise & resume failed" });
-    } finally { setBusyAction(""); }
+      setNotice({
+        tone: "error",
+        message: err instanceof Error ? err.message : "raise & resume failed",
+      });
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleApplyPatch(artifactID: string) {
@@ -376,8 +472,13 @@ export function TasksView({
       setNotice({ tone: "success", message: "Patch applied." });
       await loadRunDetail(selectedTaskID, selectedRunID);
     } catch (err) {
-      setNotice({ tone: "error", message: err instanceof Error ? err.message : "patch apply failed" });
-    } finally { setBusyAction(""); }
+      setNotice({
+        tone: "error",
+        message: err instanceof Error ? err.message : "patch apply failed",
+      });
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleRevertPatch(artifactID: string) {
@@ -388,8 +489,13 @@ export function TasksView({
       setNotice({ tone: "success", message: "Patch reverted." });
       await loadRunDetail(selectedTaskID, selectedRunID);
     } catch (err) {
-      setNotice({ tone: "error", message: err instanceof Error ? err.message : "patch revert failed" });
-    } finally { setBusyAction(""); }
+      setNotice({
+        tone: "error",
+        message: err instanceof Error ? err.message : "patch revert failed",
+      });
+    } finally {
+      setBusyAction("");
+    }
   }
 
   // Retry-from-turn-N: re-issue the LLM call at turn N with the prior
@@ -401,20 +507,33 @@ export function TasksView({
     if (!selectedTaskID || !selectedRunID) return;
     setBusyAction("retry-from-turn");
     try {
-      const res = await retryTaskRunFromTurn(selectedTaskID, selectedRunID, turn, reason || undefined);
+      const res = await retryTaskRunFromTurn(
+        selectedTaskID,
+        selectedRunID,
+        turn,
+        reason || undefined,
+      );
       const reasonSuffix = reason ? ` — ${reason}` : "";
-      setNotice({ tone: "success", message: `Retrying from turn ${turn}${reasonSuffix} (run #${res.data.number}).` });
+      setNotice({
+        tone: "success",
+        message: `Retrying from turn ${turn}${reasonSuffix} (run #${res.data.number}).`,
+      });
       await loadTasks(selectedTaskID, res.data.id);
     } catch (err) {
-      setNotice({ tone: "error", message: err instanceof Error ? err.message : "retry-from-turn failed" });
-    } finally { setBusyAction(""); }
+      setNotice({
+        tone: "error",
+        message: err instanceof Error ? err.message : "retry-from-turn failed",
+      });
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleDeleteTask(taskID: string) {
     setBusyAction("delete:" + taskID);
     try {
       await deleteTask(taskID);
-      const nextTasks = tasks.filter(t => t.id !== taskID);
+      const nextTasks = tasks.filter((t) => t.id !== taskID);
       setTasks(nextTasks);
       if (selectedTaskID === taskID) {
         const next = nextTasks[0]?.id ?? "";
@@ -424,7 +543,9 @@ export function TasksView({
       }
     } catch (err) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "delete failed" });
-    } finally { setBusyAction(""); }
+    } finally {
+      setBusyAction("");
+    }
   }
 
   async function handleCreateTask(payload: CreateTaskPayload) {
@@ -435,8 +556,13 @@ export function TasksView({
       setNewTaskOpen(false);
       await loadTasks(created.data.id, started.data.id);
     } catch (err) {
-      setNotice({ tone: "error", message: err instanceof Error ? err.message : "failed to create task" });
-    } finally { setBusyAction(""); }
+      setNotice({
+        tone: "error",
+        message: err instanceof Error ? err.message : "failed to create task",
+      });
+    } finally {
+      setBusyAction("");
+    }
   }
 
   return (
@@ -477,7 +603,9 @@ export function TasksView({
           onRetryRun={() => void handleRetryRun()}
           onResumeRun={() => void handleResumeRun()}
           onRetryFromTurn={(turn, reason) => void handleRetryFromTurn(turn, reason)}
-          onResumeRaisingCeiling={(budgetMicrosUSD) => void handleResumeRaisingCeiling(budgetMicrosUSD)}
+          onResumeRaisingCeiling={(budgetMicrosUSD) =>
+            void handleResumeRaisingCeiling(budgetMicrosUSD)
+          }
           onApplyPatch={(artifactID) => void handleApplyPatch(artifactID)}
           onRevertPatch={(artifactID) => void handleRevertPatch(artifactID)}
           onOpenTrace={onOpenTrace}

@@ -16,7 +16,15 @@
 // `RetentionRunResult` so the caller can route success / failure
 // without the slice importing notice state.
 
-import { createContext, useCallback, useContext, useMemo, useReducer, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import { getRetentionRuns, runRetention as runRetentionRequest } from "../../lib/api";
@@ -34,9 +42,7 @@ export type RetentionState = {
   runs: RetentionRunData[];
 };
 
-export type RetentionRunResult =
-  | { ok: true; run: RetentionRunData }
-  | { ok: false; error: string };
+export type RetentionRunResult = { ok: true; run: RetentionRunData } | { ok: false; error: string };
 
 export type RetentionActions = {
   setSubsystems: (value: string) => void;
@@ -93,7 +99,10 @@ function reducer(state: RetentionState, action: Action): RetentionState {
 
 const RetentionContext = createContext<RetentionContextValue | null>(null);
 
-export function RetentionProvider({ children, initialState: seededState }: {
+export function RetentionProvider({
+  children,
+  initialState: seededState,
+}: {
   children: ReactNode;
   initialState?: Partial<RetentionState>;
 }) {

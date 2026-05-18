@@ -70,7 +70,10 @@ export function useCoordinatorOverrides(): CoordinatorOverrides | null {
 // Helpers each coordinator hook calls to merge its real return value
 // with any test-provided override. Coordinators that return plain
 // objects with stable shapes — every coordinator in `coordinators/`.
-export function applyOverride<T extends object>(real: T, override: CoordinatorActionsOverride | undefined): T {
+export function applyOverride<T extends object>(
+  real: T,
+  override: CoordinatorActionsOverride | undefined,
+): T {
   if (!override) return real;
   return { ...real, ...(override as Partial<T>) };
 }

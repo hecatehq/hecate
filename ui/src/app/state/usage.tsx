@@ -5,7 +5,16 @@
 // re-fetch. A full page reload resets the slice and the next mount
 // re-fetches.
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import { getUsageEvents, getUsageSummary } from "../../lib/api";
@@ -53,7 +62,10 @@ function reducer(state: UsageState, action: Action): UsageState {
 
 const UsageContext = createContext<UsageContextValue | null>(null);
 
-export function UsageProvider({ children, initialState: seededState }: {
+export function UsageProvider({
+  children,
+  initialState: seededState,
+}: {
   children: ReactNode;
   initialState?: Partial<UsageState>;
 }) {
@@ -116,15 +128,14 @@ export function useEnsureUsageLoaded(): void {
     inFlight.current = true;
     void (async () => {
       try {
-        const [summary, events] = await Promise.all([
-          getUsageSummary(""),
-          getUsageEvents(20),
-        ]);
+        const [summary, events] = await Promise.all([getUsageSummary(""), getUsageEvents(20)]);
         actions.setSummary(summary.data);
         actions.setEvents(events.data);
         actions.markLoaded();
       } catch (err) {
-        warn("usage.ensureLoaded.failed", { err: err instanceof Error ? err.message : String(err) });
+        warn("usage.ensureLoaded.failed", {
+          err: err instanceof Error ? err.message : String(err),
+        });
       } finally {
         inFlight.current = false;
       }

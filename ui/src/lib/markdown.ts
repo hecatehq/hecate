@@ -134,7 +134,7 @@ function isTableRow(line: string): boolean {
 function isTableSeparator(line: string): boolean {
   if (!line.includes("|")) return false;
   const cells = splitTableRow(line);
-  return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell.trim()));
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
 }
 
 function splitTableRow(line: string): string[] {
@@ -143,7 +143,7 @@ function splitTableRow(line: string): string[] {
     .replace(/^\|/, "")
     .replace(/\|$/, "")
     .split("|")
-    .map(cell => cell.trim());
+    .map((cell) => cell.trim());
 }
 
 export function parseInlineNodes(text: string): InlineNode[] {
@@ -154,7 +154,8 @@ export function parseInlineNodes(text: string): InlineNode[] {
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) nodes.push({ t: "text", v: text.slice(last, m.index) });
     if (m[0].startsWith("[")) nodes.push({ t: "link", v: m[2], href: m[3] });
-    else if (m[0].startsWith("http://") || m[0].startsWith("https://")) nodes.push({ t: "link", v: m[0], href: m[0] });
+    else if (m[0].startsWith("http://") || m[0].startsWith("https://"))
+      nodes.push({ t: "link", v: m[0], href: m[0] });
     else if (m[0].startsWith("**")) nodes.push({ t: "bold", v: m[4] });
     else if (m[0].startsWith("`")) nodes.push({ t: "code", v: m[6] });
     else nodes.push({ t: "italic", v: m[5] });

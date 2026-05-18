@@ -31,7 +31,11 @@ export function humanizeChatError(raw: string): string {
   if (/workspace (is )?(required|missing)|choose a workspace|workspace path/i.test(raw)) {
     return "Choose a workspace before using Hecate Chat tools or External Agent.";
   }
-  if (/tool.?calling.*(unknown|none|unavailable|not supported)|model.*does not support.*tools?/i.test(raw)) {
+  if (
+    /tool.?calling.*(unknown|none|unavailable|not supported)|model.*does not support.*tools?/i.test(
+      raw,
+    )
+  ) {
     return "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.";
   }
   const explicitModel = raw.match(/no provider supports explicit model ["“]?([^"”]+)["”]?/i);
@@ -41,7 +45,9 @@ export function humanizeChatError(raw: string): string {
   if (/no routable model|no route/i.test(raw)) {
     return "No routable model is available. Choose another model or open Connections to add a provider, discover models, or check provider health.";
   }
-  if (/authentication required|please (run .*login|log in)|not signed in|unauthenticated/i.test(raw)) {
+  if (
+    /authentication required|please (run .*login|log in)|not signed in|unauthenticated/i.test(raw)
+  ) {
     return "The selected runtime is not signed in. Open Connections to repair or test readiness.";
   }
   if (/credit balance is too low|billing|payment required|insufficient credits/i.test(raw)) {
@@ -89,7 +95,11 @@ export function buildAssistantToolCallMessage(
   };
 }
 
-export function buildSyntheticChatResult(headers: RuntimeHeaders, selectedModel: string, content: string): ChatResponse {
+export function buildSyntheticChatResult(
+  headers: RuntimeHeaders,
+  selectedModel: string,
+  content: string,
+): ChatResponse {
   return {
     id: headers.requestId || "stream",
     model: headers.resolvedModel || selectedModel,
@@ -98,7 +108,12 @@ export function buildSyntheticChatResult(headers: RuntimeHeaders, selectedModel:
   };
 }
 
-export function defaultModelForProvider(provider: ProviderFilter, models: ModelResponse["data"], providers: ProviderStatusResponse["data"], presets: ProviderPresetRecord[]): string {
+export function defaultModelForProvider(
+  provider: ProviderFilter,
+  models: ModelResponse["data"],
+  providers: ProviderStatusResponse["data"],
+  presets: ProviderPresetRecord[],
+): string {
   if (provider === "auto") {
     return "";
   }
@@ -111,10 +126,20 @@ export function defaultModelForProvider(provider: ProviderFilter, models: ModelR
   }
 
   if (providerRecord) {
-    return scopedModels.find((entry) => entry.metadata?.default)?.id ?? scopedModels[0]?.id ?? providerRecord.models?.[0] ?? "";
+    return (
+      scopedModels.find((entry) => entry.metadata?.default)?.id ??
+      scopedModels[0]?.id ??
+      providerRecord.models?.[0] ??
+      ""
+    );
   }
 
-  return scopedModels.find((entry) => entry.metadata?.default)?.id ?? scopedModels[0]?.id ?? preset?.default_model ?? "";
+  return (
+    scopedModels.find((entry) => entry.metadata?.default)?.id ??
+    scopedModels[0]?.id ??
+    preset?.default_model ??
+    ""
+  );
 }
 
 export function defaultProviderForChat(
@@ -122,7 +147,9 @@ export function defaultProviderForChat(
   configuredProviders: ConfiguredStateResponse["data"]["providers"],
   providers: ProviderStatusResponse["data"],
 ): ProviderFilter {
-  const configuredUsable = configuredProviders.filter((provider) => provider.kind !== "cloud" || provider.credential_configured);
+  const configuredUsable = configuredProviders.filter(
+    (provider) => provider.kind !== "cloud" || provider.credential_configured,
+  );
   const configuredSource = configuredUsable.length > 0 ? configuredUsable : configuredProviders;
   const configuredIDs = new Set(configuredSource.map((provider) => provider.id));
 
@@ -138,15 +165,23 @@ export function defaultProviderForChat(
   })?.metadata?.provider;
   if (firstModelProvider) return firstModelProvider;
 
-  const providerWithReportedModels = providers.find((provider) =>
-    (configuredIDs.size === 0 || configuredIDs.has(provider.name)) && (provider.models?.length ?? 0) > 0
+  const providerWithReportedModels = providers.find(
+    (provider) =>
+      (configuredIDs.size === 0 || configuredIDs.has(provider.name)) &&
+      (provider.models?.length ?? 0) > 0,
   )?.name;
   if (providerWithReportedModels) return providerWithReportedModels;
 
   return configuredSource[0]?.id ?? providers[0]?.name ?? "auto";
 }
 
-export function isModelValidForProvider(model: string, provider: ProviderFilter, models: ModelResponse["data"], providers: ProviderStatusResponse["data"], presets: ProviderPresetRecord[]): boolean {
+export function isModelValidForProvider(
+  model: string,
+  provider: ProviderFilter,
+  models: ModelResponse["data"],
+  providers: ProviderStatusResponse["data"],
+  presets: ProviderPresetRecord[],
+): boolean {
   if (!model || provider === "auto") {
     return true;
   }
@@ -180,7 +215,9 @@ export function approvalRecordToPending(row: ChatApprovalRecord): PendingAgentAp
   };
 }
 
-export function renderChatSessionSummary(session: ChatSessionRecord): ChatSessionsResponse["data"][number] {
+export function renderChatSessionSummary(
+  session: ChatSessionRecord,
+): ChatSessionsResponse["data"][number] {
   return {
     id: session.id,
     title: session.title,
@@ -201,4 +238,3 @@ export function renderChatSessionSummary(session: ChatSessionRecord): ChatSessio
     updated_at: session.updated_at,
   };
 }
-

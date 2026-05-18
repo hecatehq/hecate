@@ -134,7 +134,9 @@ describe("BrandAvatar", () => {
   });
 
   it("keeps unknown unboxed brand fallbacks aligned", () => {
-    render(<BrandAvatar brand="unknown-provider" fallback="Unknown provider" boxed={false} size={32} />);
+    render(
+      <BrandAvatar brand="unknown-provider" fallback="Unknown provider" boxed={false} size={32} />,
+    );
     const fallback = screen.getByText("U").parentElement;
     expect(fallback).toHaveStyle({ height: "32px", width: "32px" });
   });
@@ -357,11 +359,24 @@ describe("ConfirmModal", () => {
 
   it("uses btn-primary by default and btn-danger when danger=true", () => {
     const { rerender } = render(
-      <ConfirmModal title="t" message="m" confirmLabel="OK" onConfirm={() => {}} onClose={() => {}} />,
+      <ConfirmModal
+        title="t"
+        message="m"
+        confirmLabel="OK"
+        onConfirm={() => {}}
+        onClose={() => {}}
+      />,
     );
     expect(screen.getByRole("button", { name: "OK" }).className).toContain("btn-primary");
     rerender(
-      <ConfirmModal title="t" message="m" confirmLabel="OK" danger onConfirm={() => {}} onClose={() => {}} />,
+      <ConfirmModal
+        title="t"
+        message="m"
+        confirmLabel="OK"
+        danger
+        onConfirm={() => {}}
+        onClose={() => {}}
+      />,
     );
     expect(screen.getByRole("button", { name: "OK" }).className).toContain("btn-danger");
   });
@@ -371,9 +386,21 @@ describe("ConfirmModal", () => {
 
 describe("ModelPicker", () => {
   const models: ModelRecord[] = [
-    { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } },
-    { id: "gpt-4o", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: false } },
-    { id: "claude-sonnet-4-6", owned_by: "anthropic", metadata: { provider: "anthropic", provider_kind: "cloud", default: false } },
+    {
+      id: "gpt-4o-mini",
+      owned_by: "openai",
+      metadata: { provider: "openai", provider_kind: "cloud", default: true },
+    },
+    {
+      id: "gpt-4o",
+      owned_by: "openai",
+      metadata: { provider: "openai", provider_kind: "cloud", default: false },
+    },
+    {
+      id: "claude-sonnet-4-6",
+      owned_by: "anthropic",
+      metadata: { provider: "anthropic", provider_kind: "cloud", default: false },
+    },
   ];
 
   it("opens on trigger click and lists models flat (no section headers)", async () => {
@@ -483,12 +510,7 @@ describe("ModelPicker", () => {
       ["anthropic", "Add an API key for Anthropic in Connections"],
     ]);
     render(
-      <ModelPicker
-        value=""
-        onChange={onChange}
-        models={models}
-        disabledProviders={disabled}
-      />,
+      <ModelPicker value="" onChange={onChange} models={models} disabledProviders={disabled} />,
     );
     await user.click(screen.getByRole("button"));
     const menu = document.querySelector(".dropdown-menu")!;
@@ -568,7 +590,14 @@ describe("ProviderPicker", () => {
     // The previous fallback chain was `selected?.name ?? value ?? emptyLabel`.
     // `??` treats "" as defined, so an empty value rendered a blank trigger.
     // Pin emptyLabel as the fallback so the trigger never goes blank.
-    render(<ProviderPicker value="" onChange={() => {}} options={options} emptyLabel="select provider" />);
+    render(
+      <ProviderPicker
+        value=""
+        onChange={() => {}}
+        options={options}
+        emptyLabel="select provider"
+      />,
+    );
     expect(screen.getByRole("button").textContent).toContain("select provider");
   });
 
@@ -582,14 +611,28 @@ describe("ProviderPicker", () => {
     // no longer exists in the current options list. Showing the raw
     // stale id ("stale-anthropic-id") looks like a bug; emptyLabel is
     // the honest state — pick again.
-    render(<ProviderPicker value="stale-anthropic-id" onChange={() => {}} options={options} emptyLabel="pick one" />);
+    render(
+      <ProviderPicker
+        value="stale-anthropic-id"
+        onChange={() => {}}
+        options={options}
+        emptyLabel="pick one"
+      />,
+    );
     const trigger = screen.getByRole("button").textContent || "";
     expect(trigger).toContain("pick one");
     expect(trigger).not.toContain("stale-anthropic-id");
   });
 
   it("renders emptyLabel when options is empty", () => {
-    render(<ProviderPicker value="" onChange={() => {}} options={[]} emptyLabel="no providers configured" />);
+    render(
+      <ProviderPicker
+        value=""
+        onChange={() => {}}
+        options={[]}
+        emptyLabel="no providers configured"
+      />,
+    );
     expect(screen.getByRole("button").textContent).toContain("no providers configured");
   });
 
@@ -753,12 +796,7 @@ describe("ChipInput", () => {
   it("excludes already-chipped values from the suggestion list", async () => {
     const user = userEvent.setup();
     render(
-      <ChipInput
-        values={["openai"]}
-        onChange={() => {}}
-        options={options}
-        ariaLabel="providers"
-      />,
+      <ChipInput values={["openai"]} onChange={() => {}} options={options} ariaLabel="providers" />,
     );
     const input = screen.getByLabelText("providers");
     await user.click(input);
@@ -774,13 +812,7 @@ describe("ChipInput", () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
-      <ChipInput
-        values={[]}
-        onChange={onChange}
-        options={options}
-        freeText
-        ariaLabel="reasons"
-      />,
+      <ChipInput values={[]} onChange={onChange} options={options} freeText ariaLabel="reasons" />,
     );
     const input = screen.getByLabelText("reasons");
     await user.click(input);

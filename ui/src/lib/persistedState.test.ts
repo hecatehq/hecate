@@ -78,9 +78,7 @@ describe("usePersistedState (parse rejection)", () => {
 
   it("logs via lib/log warn on shape mismatch", () => {
     window.localStorage.setItem("k", "garbage");
-    renderHook(() =>
-      usePersistedState("k", () => null, "fallback"),
-    );
+    renderHook(() => usePersistedState("k", () => null, "fallback"));
     expect(logWarnMock).toHaveBeenCalledWith(expect.stringContaining("dropped malformed k"));
   });
 
@@ -151,7 +149,10 @@ describe("usePersistedState (write failures)", () => {
     });
     const { result } = renderHook(() => usePersistedState("k", parseStoredString, ""));
     expect(() => act(() => result.current[1]("next"))).not.toThrow();
-    expect(logWarnMock).toHaveBeenCalledWith(expect.stringContaining("write failed for k"), expect.any(Error));
+    expect(logWarnMock).toHaveBeenCalledWith(
+      expect.stringContaining("write failed for k"),
+      expect.any(Error),
+    );
     setItemSpy.mockRestore();
   });
 });

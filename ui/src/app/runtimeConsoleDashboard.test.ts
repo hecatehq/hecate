@@ -30,7 +30,7 @@ const emptyPrev = {
   settingsConfig: null,
 };
 
-function setupAllResolved(overrides: Record<string, unknown> = {}) {
+function setupAllResolved() {
   vi.mocked(api.getHealth).mockResolvedValue({ status: "ok", time: "2026-05-05T00:00:00Z" });
   vi.mocked(api.getSession).mockResolvedValue({ object: "session", data: { role: "operator" } });
   vi.mocked(api.getModels).mockResolvedValue({ object: "list", data: [] });
@@ -46,7 +46,6 @@ function setupAllResolved(overrides: Record<string, unknown> = {}) {
     object: "runtime_stats",
     data: { agent_adapter_approval_mode: "prompt" } as never,
   });
-  Object.assign(api, overrides);
 }
 
 beforeEach(() => {
@@ -72,11 +71,24 @@ describe("resolveDashboardSnapshot", () => {
     });
     vi.mocked(api.getAgentAdapters).mockResolvedValue({
       object: "list",
-      data: [{ id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available" }],
+      data: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+        },
+      ],
     });
     vi.mocked(api.getRuntimeStats).mockResolvedValue({
       object: "runtime_stats",
-      data: { agent_adapter_approval_mode: "auto", rtk_available: true, rtk_path: "/usr/local/bin/rtk" } as never,
+      data: {
+        agent_adapter_approval_mode: "auto",
+        rtk_available: true,
+        rtk_path: "/usr/local/bin/rtk",
+      } as never,
     });
 
     const snapshot = await resolveDashboardSnapshot({
@@ -96,7 +108,16 @@ describe("resolveDashboardSnapshot", () => {
     vi.mocked(api.getAgentAdapters).mockRejectedValue(new Error("network"));
     const previous = {
       ...emptyPrev,
-      agentAdapters: [{ id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available" }],
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+        },
+      ],
     };
 
     const snapshot = await resolveDashboardSnapshot({
@@ -111,10 +132,19 @@ describe("resolveDashboardSnapshot", () => {
     vi.mocked(api.getChatSessions).mockResolvedValue({
       object: "list",
       data: [
-        { id: "ac1", title: "old", adapter_id: "codex", workspace: "/repo", status: "running", message_count: 0 },
+        {
+          id: "ac1",
+          title: "old",
+          adapter_id: "codex",
+          workspace: "/repo",
+          status: "running",
+          message_count: 0,
+        },
       ],
     });
-    vi.mocked(api.getChatSession).mockRejectedValue(new ApiError("not found", 404, "chat session not found"));
+    vi.mocked(api.getChatSession).mockRejectedValue(
+      new ApiError("not found", 404, "chat session not found"),
+    );
 
     const snapshot = await resolveDashboardSnapshot({
       activeChatSessionID: "ac1",
@@ -129,7 +159,14 @@ describe("resolveDashboardSnapshot", () => {
     vi.mocked(api.getChatSessions).mockResolvedValue({
       object: "list",
       data: [
-        { id: "ac1", title: "current", adapter_id: "codex", workspace: "/repo", status: "running", message_count: 0 },
+        {
+          id: "ac1",
+          title: "current",
+          adapter_id: "codex",
+          workspace: "/repo",
+          status: "running",
+          message_count: 0,
+        },
       ],
     });
     vi.mocked(api.getChatSession).mockRejectedValue(new Error("network"));
@@ -193,7 +230,12 @@ describe("resolveDashboardSnapshot", () => {
     const previous = {
       ...emptyPrev,
       providers: [{ name: "openai" } as never],
-      settingsConfig: { backend: "memory", providers: [{ name: "openai" } as never], policy_rules: [], events: [] } as never,
+      settingsConfig: {
+        backend: "memory",
+        providers: [{ name: "openai" } as never],
+        policy_rules: [],
+        events: [],
+      } as never,
     };
     vi.mocked(api.getProviders).mockResolvedValue({
       object: "list",

@@ -17,7 +17,11 @@ import type { SelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ModelRecord } from "../../types/model";
-import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../../types/provider";
+import type {
+  ConfiguredProviderRecord,
+  ProviderPresetRecord,
+  ProviderRecord,
+} from "../../types/provider";
 import { Icon, Icons, InlineError } from "../shared/ui";
 
 import {
@@ -104,8 +108,13 @@ export function ChatComposer(props: ChatComposerProps) {
   const settings = useSettings();
   const chatTarget = useChatTarget();
   const { actions: settingsActions } = useWiredSettingsActions();
-  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
-  const agentAdapterActions = useAgentAdapterActions({ setNoticeMessage: settingsActions.setNoticeMessage });
+  const chatActions = useChatActions({
+    chatTarget,
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
+  const agentAdapterActions = useAgentAdapterActions({
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
   // Pull the slice fields the composer reads. Destructured to keep the
   // rest of the component readable.
   const message = runtime.state.message;
@@ -166,9 +175,9 @@ export function ChatComposer(props: ChatComposerProps) {
   const modKey = isMac ? "⌘" : "Ctrl";
   const [modEnterMode, setModEnterMode] = usePersistedState<boolean>(
     "hecate.shiftEnterMode",
-    (raw) => raw === "1" ? true : raw === "0" ? false : null,
+    (raw) => (raw === "1" ? true : raw === "0" ? false : null),
     false,
-    { serialize: (v) => v ? "1" : "0" },
+    { serialize: (v) => (v ? "1" : "0") },
   );
   const formRef = useRef<HTMLFormElement>(null);
   const messageHistoryCursorRef = useRef<number | null>(null);
@@ -250,7 +259,10 @@ export function ChatComposer(props: ChatComposerProps) {
     const modPressed = isMac ? e.metaKey : e.ctrlKey;
     if (modEnterMode) {
       // ⌘/Ctrl+Enter sends; plain Enter is a newline (default behaviour)
-      if (modPressed) { e.preventDefault(); formRef.current?.requestSubmit(); }
+      if (modPressed) {
+        e.preventDefault();
+        formRef.current?.requestSubmit();
+      }
     } else {
       // Enter sends; Shift+Enter or ⌘/Ctrl+Enter inserts a newline
       if (e.shiftKey || modPressed) return;
@@ -267,14 +279,23 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   function toggleModEnterMode() {
-    setModEnterMode(v => !v);
+    setModEnterMode((v) => !v);
   }
 
   if (showClaudeCodeEmptyPreflight) return null;
   if (!composerVisible && !messageControlsVisible && !chatError && !selectedModelIssue) return null;
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} style={{ borderTop: "1px solid var(--border)", padding: "10px 12px", background: "var(--bg1)", flexShrink: 0 }}>
+    <form
+      ref={formRef}
+      onSubmit={handleSubmit}
+      style={{
+        borderTop: "1px solid var(--border)",
+        padding: "10px 12px",
+        background: "var(--bg1)",
+        flexShrink: 0,
+      }}
+    >
       {chatError && (
         <div style={{ marginBottom: 8 }}>
           <ChatErrorPanel
@@ -303,261 +324,397 @@ export function ChatComposer(props: ChatComposerProps) {
         </div>
       )}
       {composerVisible && (
-      <>
-      {isExternalAgentChat && claudeCodePreflight && !showClaudeCodeEmptyPreflight && (
-        <ClaudeCodePreflightCard
-          state={claudeCodePreflight}
-          loading={selectedAgentHealthLoading}
-          onCopyInstall={() => void runtime.actions.copyCommand("npx -y @anthropic-ai/claude-code --version")}
-          onCopySetup={() => void runtime.actions.copyCommand(claudeCodeSetupTokenCommand(selectedAgent?.claude_code_cli))}
-          onOpenSetup={openClaudeCodeSetup}
-          onTest={() => void agentAdapterActions.probeAgentAdapter("claude_code")}
-        />
-      )}
-      {composerRepair && (
-        <ChatSetupRepairNotice
-          repair={composerRepair}
-          actionBusy={composerRepair.action === "enable_tools" && capabilitySaving}
-          actionDisabled={composerRepair.action === "enable_tools" && (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving)}
-          actionTitle={composerRepair.action === "enable_tools" && selectedCapabilityProvider
-            ? `Enable tools for ${selectedCapabilityProvider}/${selectedCapabilityModel}`
-            : undefined}
-          onAction={(repair) => {
-            if (repair.action === "choose_workspace") {
-              void chooseWorkspace();
-            } else if (repair.action === "enable_tools") {
-              void enableToolsForSelectedModel();
-            } else if (repair.action === "open_agent_setup") {
-              openClaudeCodeSetup();
-            } else if (repair.action === "open_connections") {
-              onNavigate?.("connections");
-            }
-          }}
-        />
-      )}
-      {activeQueuedChatMessages.length > 0 && (
-        <div
-          aria-label="Queued messages"
-          style={{
-            maxWidth: 820,
-            margin: "0 auto 8px",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--bg2)",
-            padding: "7px 9px",
-            display: "grid",
-            gap: 6,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <span style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              Queued next
-            </span>
-            <span style={{ color: "var(--t3)", fontSize: 11 }}>
-              will send when the active run finishes
-            </span>
-          </div>
-          {activeQueuedChatMessages.map((queued, index) => (
+        <>
+          {isExternalAgentChat && claudeCodePreflight && !showClaudeCodeEmptyPreflight && (
+            <ClaudeCodePreflightCard
+              state={claudeCodePreflight}
+              loading={selectedAgentHealthLoading}
+              onCopyInstall={() =>
+                void runtime.actions.copyCommand("npx -y @anthropic-ai/claude-code --version")
+              }
+              onCopySetup={() =>
+                void runtime.actions.copyCommand(
+                  claudeCodeSetupTokenCommand(selectedAgent?.claude_code_cli),
+                )
+              }
+              onOpenSetup={openClaudeCodeSetup}
+              onTest={() => void agentAdapterActions.probeAgentAdapter("claude_code")}
+            />
+          )}
+          {composerRepair && (
+            <ChatSetupRepairNotice
+              repair={composerRepair}
+              actionBusy={composerRepair.action === "enable_tools" && capabilitySaving}
+              actionDisabled={
+                composerRepair.action === "enable_tools" &&
+                (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving)
+              }
+              actionTitle={
+                composerRepair.action === "enable_tools" && selectedCapabilityProvider
+                  ? `Enable tools for ${selectedCapabilityProvider}/${selectedCapabilityModel}`
+                  : undefined
+              }
+              onAction={(repair) => {
+                if (repair.action === "choose_workspace") {
+                  void chooseWorkspace();
+                } else if (repair.action === "enable_tools") {
+                  void enableToolsForSelectedModel();
+                } else if (repair.action === "open_agent_setup") {
+                  openClaudeCodeSetup();
+                } else if (repair.action === "open_connections") {
+                  onNavigate?.("connections");
+                }
+              }}
+            />
+          )}
+          {activeQueuedChatMessages.length > 0 && (
             <div
-              key={queued.id}
+              aria-label="Queued messages"
               style={{
+                maxWidth: 820,
+                margin: "0 auto 8px",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                background: "var(--bg2)",
+                padding: "7px 9px",
                 display: "grid",
-                gridTemplateColumns: "auto minmax(0, 1fr) auto",
-                alignItems: "center",
-                gap: 8,
-                color: "var(--t0)",
-                fontSize: 12,
+                gap: 6,
               }}
             >
-              <span style={{ color: "var(--teal)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-                #{index + 1}
-              </span>
-              <textarea
-                aria-label={`Queued message ${index + 1}`}
-                className="queued-chat-message-input"
-                value={queued.content}
-                onChange={(event) => chat.actions.updateQueuedChatMessage(queued.id, event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) event.preventDefault();
-                }}
-                rows={Math.min(4, Math.max(1, queued.content.split("\n").length))}
+              <div
                 style={{
-                  minWidth: 0,
-                  width: "100%",
-                  resize: "vertical",
-                  borderRadius: "var(--radius-sm)",
-                  color: "var(--t0)",
-                  font: "inherit",
-                  padding: "3px 6px",
-                  outline: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
                 }}
-              />
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                aria-label={`Remove queued message ${index + 1}`}
-                onClick={() => chat.actions.removeQueuedChatMessage(queued.id)}
-                style={{ padding: "2px 6px", fontFamily: "var(--font-mono)", fontSize: 10 }}
               >
-                remove
-              </button>
+                <span
+                  style={{
+                    color: "var(--t2)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  Queued next
+                </span>
+                <span style={{ color: "var(--t3)", fontSize: 11 }}>
+                  will send when the active run finishes
+                </span>
+              </div>
+              {activeQueuedChatMessages.map((queued, index) => (
+                <div
+                  key={queued.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "auto minmax(0, 1fr) auto",
+                    alignItems: "center",
+                    gap: 8,
+                    color: "var(--t0)",
+                    fontSize: 12,
+                  }}
+                >
+                  <span
+                    style={{ color: "var(--teal)", fontFamily: "var(--font-mono)", fontSize: 10 }}
+                  >
+                    #{index + 1}
+                  </span>
+                  <textarea
+                    aria-label={`Queued message ${index + 1}`}
+                    className="queued-chat-message-input"
+                    value={queued.content}
+                    onChange={(event) =>
+                      chat.actions.updateQueuedChatMessage(queued.id, event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) event.preventDefault();
+                    }}
+                    rows={Math.min(4, Math.max(1, queued.content.split("\n").length))}
+                    style={{
+                      minWidth: 0,
+                      width: "100%",
+                      resize: "vertical",
+                      borderRadius: "var(--radius-sm)",
+                      color: "var(--t0)",
+                      font: "inherit",
+                      padding: "3px 6px",
+                      outline: "none",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-label={`Remove queued message ${index + 1}`}
+                    onClick={() => chat.actions.removeQueuedChatMessage(queued.id)}
+                    style={{ padding: "2px 6px", fontFamily: "var(--font-mono)", fontSize: 10 }}
+                  >
+                    remove
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      )}
-      {messageControlsVisible && (
-        <div
-          aria-label={isExternalAgentChat ? "External agent message controls" : "Hecate message controls"}
-          style={{
-            maxWidth: 820,
-            margin: "0 auto 8px",
-            display: "flex",
-            justifyContent: "flex-start",
-            flexWrap: "wrap",
-            gap: 6,
-          }}
-        >
-          {isExternalAgentChat ? (
-            <ExternalAgentConfigControls
-              session={activeChatSession}
-              onChange={chatActions.setChatConfigOption}
-              placement="composer"
-            />
-          ) : hecateAgentModelLocked ? (
-            <LockedHecateModelSnapshot
-              provider={providerLabelForHecateChat(hecateChatProviderValue, settings.state.config?.providers, providerPresets, providers)}
-              model={hecateChatModelValue}
-            />
-          ) : (
-            <>
-              <HecateProviderConfigControl
-                value={providerFilter}
-                onChange={v => chatActions.selectProviderRoute(v as typeof providerFilter)}
-                options={hecateProviderOptions}
-              />
-              <HecateModelConfigControl
-                value={model}
-                onChange={chat.actions.setModel}
-                models={selectableModels}
-                presets={providerPresets}
-                showProvider={false}
-                disabledProviders={hecateDisabledProviderReasons}
-              />
-            </>
           )}
-        </div>
-      )}
-      <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
-        <textarea
-          ref={textareaRef}
-          aria-label="Message"
-          value={message}
-          onChange={e => handleMessageChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={modEnterMode ? `Message… (${modKey}+Enter to send)` : "Message… (Shift+Enter for newline)"}
-          rows={1}
-          style={{
-            width: "100%", background: "var(--bg3)", border: "1px solid var(--border)",
-            borderRadius: "var(--radius)", color: "var(--t0)", fontFamily: "var(--font-sans)",
-            fontSize: 13, padding: "10px 44px 10px 12px", outline: "none", resize: "none",
-            lineHeight: 1.5, transition: "border-color 0.1s", minHeight: 42, maxHeight: 160, overflowY: "auto",
-          }}
-          onInput={e => {
-            const el = e.target as HTMLTextAreaElement;
-            el.style.height = "auto";
-            el.style.height = Math.min(el.scrollHeight, 160) + "px";
-          }}
-          onFocus={e => (e.target.style.borderColor = "var(--teal)")}
-          onBlur={e => (e.target.style.borderColor = "var(--border)")}
-        />
-        {agentBusy && !queueingMessage ? (
-          <button type="button"
-            className="btn btn-danger"
-            aria-label="Stop current run"
-            disabled={chatCancelling}
-            title={chatCancelling ? "Stopping..." : "Stop current run"}
-            onClick={chatActions.cancelAgentChat}
-            style={{
-              position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
-              width: 28, height: 28, borderRadius: "var(--radius-sm)",
-              padding: 0,
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-            <Icon d={Icons.stop} size={13} fill="currentColor" strokeWidth={0} />
-          </button>
-        ) : (
-          <button type="submit"
-            aria-label={queueingMessage ? "Queue message" : "Send message"}
-            disabled={sendDisabled}
-            title={queueingMessage ? "Queue this message after the active run finishes" : "Send message"}
-            style={{
-              position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
-              width: 28, height: 28, borderRadius: "var(--radius-sm)",
-              background: !sendDisabled ? "var(--teal)" : "var(--bg4)",
-              border: "none", cursor: !sendDisabled ? "pointer" : "default",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              transition: "background 0.1s",
-              color: !sendDisabled ? "var(--bg0)" : "var(--t3)",
-            }}>
-            <Icon d={Icons.send} size={14} />
-          </button>
-        )}
-      </div>
-      {agentBusy && (
-        <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--amber)", fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.45, display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
-          <span>
-            {isExternalAgentChat
-              ? "External Agent is still working. New messages will queue until it finishes."
-              : "Hecate Chat is still working on this task. New messages will queue until the active task finishes."}
-          </span>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            {onOpenTask && activeHecateTaskID && (
+          {messageControlsVisible && (
+            <div
+              aria-label={
+                isExternalAgentChat ? "External agent message controls" : "Hecate message controls"
+              }
+              style={{
+                maxWidth: 820,
+                margin: "0 auto 8px",
+                display: "flex",
+                justifyContent: "flex-start",
+                flexWrap: "wrap",
+                gap: 6,
+              }}
+            >
+              {isExternalAgentChat ? (
+                <ExternalAgentConfigControls
+                  session={activeChatSession}
+                  onChange={chatActions.setChatConfigOption}
+                  placement="composer"
+                />
+              ) : hecateAgentModelLocked ? (
+                <LockedHecateModelSnapshot
+                  provider={providerLabelForHecateChat(
+                    hecateChatProviderValue,
+                    settings.state.config?.providers,
+                    providerPresets,
+                    providers,
+                  )}
+                  model={hecateChatModelValue}
+                />
+              ) : (
+                <>
+                  <HecateProviderConfigControl
+                    value={providerFilter}
+                    onChange={(v) => chatActions.selectProviderRoute(v as typeof providerFilter)}
+                    options={hecateProviderOptions}
+                  />
+                  <HecateModelConfigControl
+                    value={model}
+                    onChange={chat.actions.setModel}
+                    models={selectableModels}
+                    presets={providerPresets}
+                    showProvider={false}
+                    disabledProviders={hecateDisabledProviderReasons}
+                  />
+                </>
+              )}
+            </div>
+          )}
+          <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
+            <textarea
+              ref={textareaRef}
+              aria-label="Message"
+              value={message}
+              onChange={(e) => handleMessageChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                modEnterMode
+                  ? `Message… (${modKey}+Enter to send)`
+                  : "Message… (Shift+Enter for newline)"
+              }
+              rows={1}
+              style={{
+                width: "100%",
+                background: "var(--bg3)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius)",
+                color: "var(--t0)",
+                fontFamily: "var(--font-sans)",
+                fontSize: 13,
+                padding: "10px 44px 10px 12px",
+                outline: "none",
+                resize: "none",
+                lineHeight: 1.5,
+                transition: "border-color 0.1s",
+                minHeight: 42,
+                maxHeight: 160,
+                overflowY: "auto",
+              }}
+              onInput={(e) => {
+                const el = e.target as HTMLTextAreaElement;
+                el.style.height = "auto";
+                el.style.height = Math.min(el.scrollHeight, 160) + "px";
+              }}
+              onFocus={(e) => (e.target.style.borderColor = "var(--teal)")}
+              onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
+            />
+            {agentBusy && !queueingMessage ? (
               <button
                 type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
-                style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", color: "var(--amber)" }}
+                className="btn btn-danger"
+                aria-label="Stop current run"
+                disabled={chatCancelling}
+                title={chatCancelling ? "Stopping..." : "Stop current run"}
+                onClick={chatActions.cancelAgentChat}
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: 28,
+                  height: 28,
+                  borderRadius: "var(--radius-sm)",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
               >
-                Open task
+                <Icon d={Icons.stop} size={13} fill="currentColor" strokeWidth={0} />
               </button>
+            ) : (
+              <button
+                type="submit"
+                aria-label={queueingMessage ? "Queue message" : "Send message"}
+                disabled={sendDisabled}
+                title={
+                  queueingMessage
+                    ? "Queue this message after the active run finishes"
+                    : "Send message"
+                }
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: 28,
+                  height: 28,
+                  borderRadius: "var(--radius-sm)",
+                  background: !sendDisabled ? "var(--teal)" : "var(--bg4)",
+                  border: "none",
+                  cursor: !sendDisabled ? "pointer" : "default",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "background 0.1s",
+                  color: !sendDisabled ? "var(--bg0)" : "var(--t3)",
+                }}
+              >
+                <Icon d={Icons.send} size={14} />
+              </button>
+            )}
+          </div>
+          {agentBusy && (
+            <div
+              style={{
+                maxWidth: 820,
+                margin: "6px auto 0",
+                color: "var(--amber)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                lineHeight: 1.45,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+              }}
+            >
+              <span>
+                {isExternalAgentChat
+                  ? "External Agent is still working. New messages will queue until it finishes."
+                  : "Hecate Chat is still working on this task. New messages will queue until the active task finishes."}
+              </span>
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}
+              >
+                {onOpenTask && activeHecateTaskID && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      padding: "2px 6px",
+                      color: "var(--amber)",
+                    }}
+                  >
+                    Open task
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
+                  title={
+                    chatCancelling
+                      ? "Stopping..."
+                      : isExternalAgentChat
+                        ? "Stop external agent"
+                        : "Stop active task"
+                  }
+                  onClick={chatActions.cancelAgentChat}
+                  disabled={chatCancelling}
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    padding: "2px 6px",
+                    color: "var(--danger)",
+                  }}
+                >
+                  Stop
+                </button>
+              </span>
+            </div>
+          )}
+          {isAgentChat && chatCancelling && (
+            <div
+              style={{
+                maxWidth: 820,
+                margin: "6px auto 0",
+                color: "var(--t3)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+              }}
+            >
+              Stopping...
+            </div>
+          )}
+          <div
+            style={{
+              maxWidth: 820,
+              margin: "3px auto 0",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              justifyContent: "space-between",
+            }}
+          >
+            {isExternalAgentChat ? (
+              <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                External agents run as your OS user in the selected workspace — no sandbox
+              </span>
+            ) : isHecateAgentChat ? (
+              <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                Hecate Agent runs through task approvals and per-call sandboxing in the selected
+                workspace.
+              </span>
+            ) : (
+              <span />
             )}
             <button
               type="button"
-              className="btn btn-ghost btn-sm"
-              aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
-              title={chatCancelling ? "Stopping..." : isExternalAgentChat ? "Stop external agent" : "Stop active task"}
-              onClick={chatActions.cancelAgentChat}
-              disabled={chatCancelling}
-              style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", color: "var(--danger)" }}
+              onClick={toggleModEnterMode}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--t3)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+              }}
             >
-              Stop
+              {modEnterMode ? `${modKey}+↵ to send` : "↵ to send"}
             </button>
-          </span>
-        </div>
-      )}
-      {isAgentChat && chatCancelling && (
-        <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-          Stopping...
-        </div>
-      )}
-      <div style={{ maxWidth: 820, margin: "3px auto 0", display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
-        {isExternalAgentChat ? (
-          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-            External agents run as your OS user in the selected workspace — no sandbox
-          </span>
-        ) : isHecateAgentChat ? (
-          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-            Hecate Agent runs through task approvals and per-call sandboxing in the selected workspace.
-          </span>
-        ) : <span />}
-        <button type="button" onClick={toggleModEnterMode} style={{
-          fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)",
-          background: "none", border: "none", cursor: "pointer", padding: 0,
-        }}>
-          {modEnterMode ? `${modKey}+↵ to send` : "↵ to send"}
-        </button>
-      </div>
-      </>
+          </div>
+        </>
       )}
     </form>
   );
@@ -601,9 +758,18 @@ export function ChatErrorPanel({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--red)" }}>{diagnostic.title}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--red)" }}>
+          {diagnostic.title}
+        </span>
         {label && (
-          <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--red)" }}>
+          <span
+            style={{
+              marginLeft: "auto",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--red)",
+            }}
+          >
             {label}
           </span>
         )}
@@ -611,11 +777,14 @@ export function ChatErrorPanel({
       <div style={{ fontSize: 12, color: "var(--t0)", lineHeight: 1.45 }}>{message}</div>
       {recommendedAction && (
         <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.45, marginTop: 5 }}>
-          {provider ? `${provider}: ` : ""}{recommendedAction}
+          {provider ? `${provider}: ` : ""}
+          {recommendedAction}
         </div>
       )}
       {(requestID || traceID) && (
-        <div style={{ marginTop: 7, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <div
+          style={{ marginTop: 7, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
+        >
           {requestID && (
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
               request <span style={{ color: "var(--t1)" }}>{compactID(requestID, [], 10)}</span>
@@ -690,27 +859,39 @@ export function SelectedModelReadinessNotice({
   onUseSuggestedModel?: (model: string) => void;
 }) {
   return (
-    <div style={{
-      margin: compact ? "14px auto 0" : "0 auto",
-      maxWidth: compact ? 560 : 820,
-      border: "1px solid rgba(245, 191, 79, 0.32)",
-      borderRadius: "var(--radius)",
-      background: "rgba(245, 191, 79, 0.06)",
-      padding: 12,
-      textAlign: "left",
-    }}>
+    <div
+      style={{
+        margin: compact ? "14px auto 0" : "0 auto",
+        maxWidth: compact ? 560 : 820,
+        border: "1px solid rgba(245, 191, 79, 0.32)",
+        borderRadius: "var(--radius)",
+        background: "rgba(245, 191, 79, 0.06)",
+        padding: 12,
+        textAlign: "left",
+      }}
+    >
       {!compact && (
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "var(--amber)", marginBottom: 4 }}>
               {issue.title}
             </div>
-            <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.5 }}>
-              {issue.message}
-            </div>
+            <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.5 }}>{issue.message}</div>
           </div>
           {onOpenProviders && (
-            <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenProviders} style={{ flexShrink: 0 }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={onOpenProviders}
+              style={{ flexShrink: 0 }}
+            >
               Open Connections
             </button>
           )}
@@ -726,15 +907,32 @@ export function SelectedModelReadinessNotice({
           )}
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 10 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+          gap: 8,
+          marginTop: 10,
+        }}
+      >
         {selectedModelNoticeDetails(issue.details, compact).map((detail) => (
           <InfoChip key={detail.label} label={detail.label} value={detail.value} />
         ))}
       </div>
       {compact ? (
         <>
-          <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
-            {issue.steps.slice(0, 2).map((step) => <li key={step}>{step}</li>)}
+          <ul
+            style={{
+              margin: "10px 0 0",
+              paddingLeft: 18,
+              color: "var(--t3)",
+              fontSize: 11,
+              lineHeight: 1.55,
+            }}
+          >
+            {issue.steps.slice(0, 2).map((step) => (
+              <li key={step}>{step}</li>
+            ))}
           </ul>
           {issue.suggestedModel && onUseSuggestedModel && (
             <button
@@ -748,8 +946,18 @@ export function SelectedModelReadinessNotice({
           )}
         </>
       ) : (
-        <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
-          {issue.steps.map((step) => <li key={step}>{step}</li>)}
+        <ul
+          style={{
+            margin: "10px 0 0",
+            paddingLeft: 18,
+            color: "var(--t3)",
+            fontSize: 11,
+            lineHeight: 1.55,
+          }}
+        >
+          {issue.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
         </ul>
       )}
     </div>
@@ -763,18 +971,51 @@ function selectedModelNoticeDetails(
   if (!compact) {
     return details;
   }
-  const priorityLabels = new Set(["Selected model", "Provider route", "Discovered models", "Health", "Blocked by", "Last error"]);
+  const priorityLabels = new Set([
+    "Selected model",
+    "Provider route",
+    "Discovered models",
+    "Health",
+    "Blocked by",
+    "Last error",
+  ]);
   const selected = details.filter((detail) => priorityLabels.has(detail.label));
   return selected.length > 0 ? selected : details;
 }
 
 function InfoChip({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--bg3)", padding: "7px 8px", minWidth: 0 }}>
-      <div style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg3)",
+        padding: "7px 8px",
+        minWidth: 0,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}
+      >
         {label}
       </div>
-      <div title={value} style={{ marginTop: 3, fontSize: 11, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <div
+        title={value}
+        style={{
+          marginTop: 3,
+          fontSize: 11,
+          color: "var(--t1)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
         {value}
       </div>
     </div>
@@ -811,8 +1052,9 @@ export function repairActionIcon(repair: ChatSetupRepairState) {
 
 export function compactID(id: string, prefixes: string[], length: number): string {
   const trimmed = id.trim();
-  const withoutPrefix = prefixes.reduce((current, prefix) => (
-    current.startsWith(prefix) ? current.slice(prefix.length) : current
-  ), trimmed);
+  const withoutPrefix = prefixes.reduce(
+    (current, prefix) => (current.startsWith(prefix) ? current.slice(prefix.length) : current),
+    trimmed,
+  );
   return withoutPrefix.slice(0, length);
 }

@@ -387,6 +387,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Lint
+        run: bun run lint
+
+      - name: Format check
+        run: bun run format:check
+
       # Build first so typecheck failures fail-fast (the build script is
       # `tsgo -b && vite build` — no point running tests on a TS-broken
       # tree). We don't need a separate `bun run typecheck` step: the

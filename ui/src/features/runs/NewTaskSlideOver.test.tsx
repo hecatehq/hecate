@@ -100,11 +100,13 @@ describe("NewTaskSlideOver submit", () => {
     render();
     await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
     await user.click(screen.getByRole("button", { name: /queue task/i }));
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
-      execution_kind: "shell",
-      shell_command: "echo hi",
-      prompt: "echo hi",
-    }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_kind: "shell",
+        shell_command: "echo hi",
+        prompt: "echo hi",
+      }),
+    );
   });
 
   it("submits a git payload with `git ${command}` as the fallback prompt", async () => {
@@ -114,11 +116,13 @@ describe("NewTaskSlideOver submit", () => {
     await user.click(screen.getByRole("button", { name: "Git" }));
     await user.type(screen.getByPlaceholderText(/status/i), "log --oneline");
     await user.click(screen.getByRole("button", { name: /queue task/i }));
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
-      execution_kind: "git",
-      git_command: "log --oneline",
-      prompt: "git log --oneline",
-    }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_kind: "git",
+        git_command: "log --oneline",
+        prompt: "git log --oneline",
+      }),
+    );
   });
 
   it("submits a file payload with the chosen operation and content", async () => {
@@ -129,12 +133,14 @@ describe("NewTaskSlideOver submit", () => {
     await user.type(screen.getByPlaceholderText(/\/path\/to\/file/i), "/tmp/note.txt");
     await user.type(screen.getByPlaceholderText(/file content/i), "hello");
     await user.click(screen.getByRole("button", { name: /queue task/i }));
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
-      execution_kind: "file",
-      file_path: "/tmp/note.txt",
-      file_content: "hello",
-      file_operation: "write",
-    }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_kind: "file",
+        file_path: "/tmp/note.txt",
+        file_content: "hello",
+        file_operation: "write",
+      }),
+    );
   });
 
   it("includes working_directory only when filled", async () => {
@@ -144,9 +150,11 @@ describe("NewTaskSlideOver submit", () => {
     await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
     await user.type(screen.getByPlaceholderText("/Users/alice/dev/project"), "/tmp");
     await user.click(screen.getByRole("button", { name: /queue task/i }));
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
-      working_directory: "/tmp",
-    }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        working_directory: "/tmp",
+      }),
+    );
   });
 
   it("omits working_directory when blank — the gateway treats absence as 'workspace root'", async () => {
@@ -167,16 +175,38 @@ describe("NewTaskSlideOver submit", () => {
     const { render, user } = setup({
       onCreate,
       models: [
-        { id: "gpt-5.4-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } },
-        { id: "ministral-3:latest", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local", default: true } },
+        {
+          id: "gpt-5.4-mini",
+          owned_by: "openai",
+          metadata: { provider: "openai", provider_kind: "cloud", default: true },
+        },
+        {
+          id: "ministral-3:latest",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", default: true },
+        },
       ],
       providers: [
         { name: "openai", kind: "cloud", healthy: true, status: "ready" },
         { name: "ollama", kind: "local", healthy: true, status: "ready" },
       ],
       providerPresets: [
-        { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", default_model: "gpt-5.4-mini" },
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", default_model: "ministral-3:latest" },
+        {
+          id: "openai",
+          name: "OpenAI",
+          kind: "cloud",
+          protocol: "openai",
+          base_url: "https://api.openai.com/v1",
+          default_model: "gpt-5.4-mini",
+        },
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+          default_model: "ministral-3:latest",
+        },
       ],
     });
     render();
@@ -186,11 +216,13 @@ describe("NewTaskSlideOver submit", () => {
     await user.click(screen.getByRole("option", { name: /Ollama/i }));
     await user.click(screen.getByRole("button", { name: /queue task/i }));
 
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
-      execution_kind: "agent_loop",
-      requested_provider: "ollama",
-      requested_model: "ministral-3:latest",
-    }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_kind: "agent_loop",
+        requested_provider: "ollama",
+        requested_model: "ministral-3:latest",
+      }),
+    );
   });
 
   it("submits the explicitly selected model from the model picker", async () => {
@@ -198,12 +230,34 @@ describe("NewTaskSlideOver submit", () => {
     const { render, user } = setup({
       onCreate,
       models: [
-        { id: "gpt-5.4-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } },
-        { id: "ministral-3:latest", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local", default: false } },
+        {
+          id: "gpt-5.4-mini",
+          owned_by: "openai",
+          metadata: { provider: "openai", provider_kind: "cloud", default: true },
+        },
+        {
+          id: "ministral-3:latest",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", default: false },
+        },
       ],
       providerPresets: [
-        { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", default_model: "gpt-5.4-mini" },
-        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", default_model: "ministral-3:latest" },
+        {
+          id: "openai",
+          name: "OpenAI",
+          kind: "cloud",
+          protocol: "openai",
+          base_url: "https://api.openai.com/v1",
+          default_model: "gpt-5.4-mini",
+        },
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+          default_model: "ministral-3:latest",
+        },
       ],
     });
     render();
@@ -213,22 +267,28 @@ describe("NewTaskSlideOver submit", () => {
     await user.click(screen.getByRole("option", { name: /ministral-3:latest/i }));
     await user.click(screen.getByRole("button", { name: /queue task/i }));
 
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
-      execution_kind: "agent_loop",
-      requested_model: "ministral-3:latest",
-    }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        execution_kind: "agent_loop",
+        requested_model: "ministral-3:latest",
+      }),
+    );
   });
 
   it("prefills workspace from the shared agent workspace default", async () => {
     const onCreate = vi.fn();
     const { render, user } = setup({ onCreate, defaultWorkspace: "/Users/me/dev/hecate" });
     render();
-    expect(screen.getByPlaceholderText("/Users/alice/dev/project")).toHaveValue("/Users/me/dev/hecate");
+    expect(screen.getByPlaceholderText("/Users/alice/dev/project")).toHaveValue(
+      "/Users/me/dev/hecate",
+    );
     await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
     await user.click(screen.getByRole("button", { name: /queue task/i }));
-    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
-      working_directory: "/Users/me/dev/hecate",
-    }));
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        working_directory: "/Users/me/dev/hecate",
+      }),
+    );
   });
 
   it("Enter key in shell command field submits when valid", async () => {
@@ -339,10 +399,26 @@ describe("NewTaskSlideOver model warnings (agent_loop)", () => {
   // a non-blocking ⚠ — operators can still pick if they know what
   // they're doing, but the visual cue saves a wasted run.
   const mixedModels = [
-    { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } },
-    { id: "smollm2:135m", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local", default: false } },
-    { id: "qwen2.5-coder:7b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local", default: false } },
-    { id: "nomic-embed-text", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local", default: false } },
+    {
+      id: "gpt-4o-mini",
+      owned_by: "openai",
+      metadata: { provider: "openai", provider_kind: "cloud", default: true },
+    },
+    {
+      id: "smollm2:135m",
+      owned_by: "ollama",
+      metadata: { provider: "ollama", provider_kind: "local", default: false },
+    },
+    {
+      id: "qwen2.5-coder:7b",
+      owned_by: "ollama",
+      metadata: { provider: "ollama", provider_kind: "local", default: false },
+    },
+    {
+      id: "nomic-embed-text",
+      owned_by: "ollama",
+      metadata: { provider: "ollama", provider_kind: "local", default: false },
+    },
   ];
 
   it("flags non-tool-capable models on the agent_loop tab", async () => {
@@ -350,7 +426,9 @@ describe("NewTaskSlideOver model warnings (agent_loop)", () => {
     render();
     await user.click(screen.getByRole("button", { name: "Agent loop" }));
     // Open the model picker so rows render.
-    const modelTrigger = screen.getAllByRole("button").find(b => b.textContent?.includes("model") || b.textContent?.includes("gpt-4o-mini"));
+    const modelTrigger = screen
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes("model") || b.textContent?.includes("gpt-4o-mini"));
     if (modelTrigger) await user.click(modelTrigger);
     // smollm2 + nomic-embed should each have an aria-labeled
     // warning icon; gpt-4o-mini and qwen2.5-coder must not.
@@ -362,7 +440,9 @@ describe("NewTaskSlideOver model warnings (agent_loop)", () => {
     const { render, user } = setup({ models: mixedModels });
     render();
     // Default kind is shell. Open the model picker.
-    const modelTrigger = screen.getAllByRole("button").find(b => b.textContent?.includes("model") || b.textContent?.includes("gpt-4o-mini"));
+    const modelTrigger = screen
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes("model") || b.textContent?.includes("gpt-4o-mini"));
     if (modelTrigger) await user.click(modelTrigger);
     // No warning icons should render for non-agent_loop tasks.
     expect(screen.queryAllByLabelText(/Likely doesn't support tool-calling/i)).toHaveLength(0);
@@ -373,9 +453,7 @@ describe("NewTaskSlideOver model warnings (agent_loop)", () => {
 // fills the prompt (so submit isn't blocked), and clicks the
 // "Add MCP server" button. Returns the test handles for further
 // assertions / interactions on the row that just got added.
-async function gotoAgentLoopAndAddMCPRow(
-  user: ReturnType<typeof userEvent.setup>,
-) {
+async function gotoAgentLoopAndAddMCPRow(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Agent loop" }));
   await user.type(screen.getByPlaceholderText(/describe the task/i), "do the thing");
   await user.click(screen.getByRole("button", { name: /add mcp server/i }));
@@ -445,8 +523,14 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     await gotoAgentLoopAndAddMCPRow(user);
     await user.type(screen.getByPlaceholderText(/^name \(e\.g\. filesystem\)/i), "fs");
     await user.type(screen.getByPlaceholderText(/^command \(e\.g\. npx\)/i), "npx");
-    await user.type(screen.getByPlaceholderText(/^args \(space-separated/i), "-y @mcp/server-fs /workspace");
-    await user.type(screen.getByPlaceholderText(/^env \(KEY=VALUE per line/i), "TOKEN=abc{enter}DEBUG=1");
+    await user.type(
+      screen.getByPlaceholderText(/^args \(space-separated/i),
+      "-y @mcp/server-fs /workspace",
+    );
+    await user.type(
+      screen.getByPlaceholderText(/^env \(KEY=VALUE per line/i),
+      "TOKEN=abc{enter}DEBUG=1",
+    );
     await user.click(screen.getByRole("button", { name: /queue task/i }));
     expect(onCreate).toHaveBeenCalled();
     const payload = onCreate.mock.calls[0][0];
@@ -472,7 +556,10 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     await user.type(screen.getByPlaceholderText(/^name \(e\.g\. filesystem\)/i), "remote");
     const transportGroup = screen.getByRole("group", { name: /server 1 transport/i });
     await user.click(within(transportGroup).getByRole("button", { name: /^HTTP$/i }));
-    await user.type(screen.getByPlaceholderText(/^url \(e\.g\. https/i), "https://api.example.com/mcp");
+    await user.type(
+      screen.getByPlaceholderText(/^url \(e\.g\. https/i),
+      "https://api.example.com/mcp",
+    );
     await user.type(
       screen.getByPlaceholderText(/^headers \(KEY=VALUE/i),
       "Authorization=Bearer xyz{enter}X-Trace=on",

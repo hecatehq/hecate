@@ -2,11 +2,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getModels, getProviders, getTasks } from "../../lib/api";
-import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import { streamTurnCostKey, TasksView } from "./TasksView";
 
-vi.mock("../../lib/api", async importOriginal => {
+vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
     ...actual,

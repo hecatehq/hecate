@@ -78,7 +78,11 @@ function useSettingsConfigSetter(): SettingsConfigSetter {
   return useMemo(
     () => (next) => {
       if (typeof next === "function") {
-        settings.actions.updateConfig(next as (current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null);
+        settings.actions.updateConfig(
+          next as (
+            current: ConfiguredStateResponse["data"] | null,
+          ) => ConfiguredStateResponse["data"] | null,
+        );
       } else {
         settings.actions.setConfig(next);
       }
@@ -92,7 +96,10 @@ export function useWiredDashboardActions() {
   const setSettingsConfig = useSettingsConfigSetter();
   const { actions: settingsActions, loadDashboardRef } = useWiredSettingsActions();
   const chatTarget = useChatTarget();
-  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
+  const chatActions = useChatActions({
+    chatTarget,
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
   const dashboardActions = useDashboardActions({
     settingsConfig: settings.state.config,
     setSettingsConfig,
@@ -110,7 +117,10 @@ export function useWiredProviderActions() {
   const setSettingsConfig = useSettingsConfigSetter();
   const { actions: settingsActions, loadDashboardRef } = useWiredSettingsActions();
   const chatTarget = useChatTarget();
-  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
+  const chatActions = useChatActions({
+    chatTarget,
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
   const dashboardActions = useDashboardActions({
     settingsConfig: settings.state.config,
     setSettingsConfig,

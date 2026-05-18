@@ -1,4 +1,8 @@
-import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../types/provider";
+import type {
+  ConfiguredProviderRecord,
+  ProviderPresetRecord,
+  ProviderRecord,
+} from "../types/provider";
 
 const PROVIDER_ICON_COLORS: Record<string, string> = {
   anthropic: "var(--brand-anthropic)",
@@ -38,7 +42,7 @@ export function resolvedBaseURL(
   presets?: ProviderPresetRecord[],
 ): string {
   if (cp?.base_url) return cp.base_url;
-  return presets?.find(p => p.id === name)?.base_url ?? "";
+  return presets?.find((p) => p.id === name)?.base_url ?? "";
 }
 
 export function providerDotColor(enabled: boolean, healthy: boolean): "green" | "amber" | "red" {
@@ -57,12 +61,14 @@ export function providerDisplayName(
   presets: ProviderPresetRecord[] = [],
   runtimeProviders: ProviderRecord[] = [],
 ): string {
-  const configured = configuredProviders.find(provider => provider.id === providerID);
+  const configured = configuredProviders.find((provider) => provider.id === providerID);
   const presetID = configured?.preset_id || providerID;
   const canonicalID = presetID.toLowerCase();
-  return presets.find(preset => preset.id === presetID)?.name
-    || PROVIDER_DISPLAY_NAMES[canonicalID]
-    || runtimeProviders.find(provider => provider.name === providerID)?.name
-    || configured?.name
-    || providerID;
+  return (
+    presets.find((preset) => preset.id === presetID)?.name ||
+    PROVIDER_DISPLAY_NAMES[canonicalID] ||
+    runtimeProviders.find((provider) => provider.name === providerID)?.name ||
+    configured?.name ||
+    providerID
+  );
 }

@@ -60,9 +60,8 @@ export function useFloatingMenu<
   WrapEl extends HTMLElement = HTMLDivElement,
   TriggerEl extends HTMLElement = HTMLButtonElement,
 >(options: FloatingMenuOptions = {}): FloatingMenu<WrapEl, TriggerEl> {
-  const portalSelector = options.portalSelector === undefined
-    ? DEFAULT_PORTAL_SELECTOR
-    : options.portalSelector;
+  const portalSelector =
+    options.portalSelector === undefined ? DEFAULT_PORTAL_SELECTOR : options.portalSelector;
   const closeOn = options.closeOn ?? "mousedown";
   // Mirror onClose to a ref so the outside-click effect doesn't
   // re-bind on every render when the consumer passes a fresh

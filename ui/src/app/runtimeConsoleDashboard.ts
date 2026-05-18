@@ -12,10 +12,7 @@ import {
 } from "../lib/api";
 import type { HealthResponse, RuntimeStatsResponse, SessionResponse } from "../types/runtime";
 import type { ModelResponse } from "../types/model";
-import type {
-  ConfiguredStateResponse,
-  ProviderStatusResponse,
-} from "../types/provider";
+import type { ConfiguredStateResponse, ProviderStatusResponse } from "../types/provider";
 import type { AgentAdapterRecord } from "../types/agent-adapter";
 import type { ChatSessionRecord, ChatSessionsResponse } from "../types/chat";
 
@@ -89,9 +86,7 @@ export async function resolveDashboardSnapshot(args: {
   onEssentials?: (essentials: DashboardEssentials) => void;
 }): Promise<DashboardSnapshot> {
   const results = await loadDashboardResults({
-    onEssentials: args.onEssentials
-      ? (essentials) => args.onEssentials!(essentials)
-      : undefined,
+    onEssentials: args.onEssentials ? (essentials) => args.onEssentials!(essentials) : undefined,
     previousSettingsConfig: args.previous.settingsConfig,
   });
   const health = requireFulfilledDashboardResult(results.health);
@@ -99,16 +94,22 @@ export async function resolveDashboardSnapshot(args: {
   const models = resolveModelsResult(results.models);
   const providers = resolveDashboardResult(results.providers, args.previous.providers);
   const agentAdapters = resolveDashboardResult(results.agentAdapters, args.previous.agentAdapters);
-  const settingsConfig = resolveDashboardResult(results.settingsConfig, args.previous.settingsConfig);
-  const agentAdapterApprovalMode = results.runtimeStats.status === "fulfilled"
-    ? (results.runtimeStats.value.data.agent_adapter_approval_mode ?? "")
-    : "";
-  const rtkAvailable = results.runtimeStats.status === "fulfilled"
-    ? Boolean(results.runtimeStats.value.data.rtk_available)
-    : false;
-  const rtkPath = results.runtimeStats.status === "fulfilled"
-    ? (results.runtimeStats.value.data.rtk_path ?? "")
-    : "";
+  const settingsConfig = resolveDashboardResult(
+    results.settingsConfig,
+    args.previous.settingsConfig,
+  );
+  const agentAdapterApprovalMode =
+    results.runtimeStats.status === "fulfilled"
+      ? (results.runtimeStats.value.data.agent_adapter_approval_mode ?? "")
+      : "";
+  const rtkAvailable =
+    results.runtimeStats.status === "fulfilled"
+      ? Boolean(results.runtimeStats.value.data.rtk_available)
+      : false;
+  const rtkPath =
+    results.runtimeStats.status === "fulfilled"
+      ? (results.runtimeStats.value.data.rtk_path ?? "")
+      : "";
   const chatState = await resolveChatDashboardState({
     activeSessionID: args.activeChatSessionID,
     previousSessions: args.previous.chatSessions,
@@ -154,12 +155,13 @@ async function loadDashboardResults(opts: {
 
   if (opts.onEssentials) {
     opts.onEssentials({
-      health: health.status === "fulfilled"
-        ? health.value
-        // Surface a synthetic "down" health so the gate can still
-        // render the shell with an error banner instead of hanging
-        // on the loading state.
-        : { status: "down", time: new Date().toISOString() } as HealthResponse,
+      health:
+        health.status === "fulfilled"
+          ? health.value
+          : // Surface a synthetic "down" health so the gate can still
+            // render the shell with an error banner instead of hanging
+            // on the loading state.
+            ({ status: "down", time: new Date().toISOString() } as HealthResponse),
       sessionInfo: session.status === "fulfilled" ? session.value.data : null,
       settingsConfig: resolveDashboardResult(settingsConfig, opts.previousSettingsConfig),
     });
@@ -171,10 +173,14 @@ async function loadDashboardResults(opts: {
   // settingsConfig having at least one configured provider, which
   // we already know after wave 1 — no need for the prior third
   // sequential wave.
-  const initialReject = <T,>(): PromiseSettledResult<T> => ({ status: "rejected", reason: new Error("uninitialized") });
+  const initialReject = <T>(): PromiseSettledResult<T> => ({
+    status: "rejected",
+    reason: new Error("uninitialized"),
+  });
   let models: PromiseSettledResult<ModelResponse> = initialReject();
   let providers: PromiseSettledResult<ProviderStatusResponse> = initialReject();
-  let agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }> = initialReject();
+  let agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }> =
+    initialReject();
   let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
   let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
 
@@ -182,25 +188,65 @@ async function loadDashboardResults(opts: {
   // fall back to the previous snapshot when this wave's fetch rejected
   // so a transient failure doesn't make us drop providers (the secondary
   // wave below decides whether to refresh getProviders() based on this).
-  const resolvedSettingsConfig = resolveDashboardResult(settingsConfig, opts.previousSettingsConfig);
+  const resolvedSettingsConfig = resolveDashboardResult(
+    settingsConfig,
+    opts.previousSettingsConfig,
+  );
   const configured = resolvedSettingsConfig?.providers ?? [];
   const secondary: Promise<unknown>[] = [
-    getModels().then(r => { models = { status: "fulfilled", value: r }; }, e => { models = { status: "rejected", reason: e }; }),
-    getAgentAdapters().then(r => { agentAdapters = { status: "fulfilled", value: r }; }, e => { agentAdapters = { status: "rejected", reason: e }; }),
-    getChatSessions().then(r => { chatSessions = { status: "fulfilled", value: r }; }, e => { chatSessions = { status: "rejected", reason: e }; }),
-    getRuntimeStats().then(r => { runtimeStats = { status: "fulfilled", value: r }; }, e => { runtimeStats = { status: "rejected", reason: e }; }),
+    getModels().then(
+      (r) => {
+        models = { status: "fulfilled", value: r };
+      },
+      (e) => {
+        models = { status: "rejected", reason: e };
+      },
+    ),
+    getAgentAdapters().then(
+      (r) => {
+        agentAdapters = { status: "fulfilled", value: r };
+      },
+      (e) => {
+        agentAdapters = { status: "rejected", reason: e };
+      },
+    ),
+    getChatSessions().then(
+      (r) => {
+        chatSessions = { status: "fulfilled", value: r };
+      },
+      (e) => {
+        chatSessions = { status: "rejected", reason: e };
+      },
+    ),
+    getRuntimeStats().then(
+      (r) => {
+        runtimeStats = { status: "fulfilled", value: r };
+      },
+      (e) => {
+        runtimeStats = { status: "rejected", reason: e };
+      },
+    ),
   ];
   if (configured.length > 0) {
-    secondary.push(getProviders().then(
-      r => { providers = { status: "fulfilled", value: r }; },
-      e => { providers = { status: "rejected", reason: e }; },
-    ));
+    secondary.push(
+      getProviders().then(
+        (r) => {
+          providers = { status: "fulfilled", value: r };
+        },
+        (e) => {
+          providers = { status: "rejected", reason: e };
+        },
+      ),
+    );
   } else if (settingsConfig.status === "fulfilled") {
     // We confirmed zero configured providers from a fresh fetch —
     // publish an empty list. On settingsConfig failure, leave
     // providers as initialReject() so resolveDashboardResult in
     // resolveDashboardSnapshot keeps previous.providers.
-    providers = { status: "fulfilled", value: { object: "list", data: [] } as ProviderStatusResponse };
+    providers = {
+      status: "fulfilled",
+      value: { object: "list", data: [] } as ProviderStatusResponse,
+    };
   }
   await Promise.all(secondary);
 
@@ -230,10 +276,7 @@ function resolveModelsResult(result: PromiseSettledResult<ModelResponse>): Model
   return [];
 }
 
-function resolveDashboardResult<T>(
-  result: PromiseSettledResult<{ data: T }>,
-  previous: T,
-): T {
+function resolveDashboardResult<T>(result: PromiseSettledResult<{ data: T }>, previous: T): T {
   if (result.status === "fulfilled") {
     return result.value.data;
   }
@@ -259,9 +302,10 @@ async function resolveChatDashboardState(args: {
   }
 
   const sessions = args.result.value.data ?? [];
-  const activeSessionID = args.activeSessionID && sessions.some((entry) => entry.id === args.activeSessionID)
-    ? args.activeSessionID
-    : "";
+  const activeSessionID =
+    args.activeSessionID && sessions.some((entry) => entry.id === args.activeSessionID)
+      ? args.activeSessionID
+      : "";
 
   if (!activeSessionID) {
     return { sessions, activeSessionID, activeSession: null };

@@ -37,7 +37,7 @@ export function CopyableID({ text, compact = false }: { text: string; compact?: 
   return (
     <button
       type="button"
-      onClick={async e => {
+      onClick={async (e) => {
         e.stopPropagation();
         if (!navigator.clipboard?.writeText) return;
         try {
@@ -64,7 +64,9 @@ export function CopyableID({ text, compact = false }: { text: string; compact?: 
         minWidth: 0,
       }}
     >
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {label}
+      </span>
       <Icon d={copied ? Icons.check : Icons.copy} size={11} />
     </button>
   );

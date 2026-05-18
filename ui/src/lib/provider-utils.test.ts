@@ -4,16 +4,48 @@ import { providerDisplayName, providerDotColor, resolvedBaseURL } from "./provid
 import type { ConfiguredProviderRecord, ProviderPresetRecord } from "../types/provider";
 
 const presets: ProviderPresetRecord[] = [
-  { id: "openai",   name: "OpenAI",   kind: "cloud", protocol: "openai",   base_url: "https://api.openai.com/v1",   description: "" },
-  { id: "llamacpp", name: "llama.cpp", kind: "local", protocol: "openai",  base_url: "http://127.0.0.1:8080/v1",    description: "" },
-  { id: "localai",  name: "LocalAI",  kind: "local", protocol: "openai",   base_url: "http://127.0.0.1:8080/v1",    description: "" },
-  { id: "ollama",   name: "Ollama",   kind: "local", protocol: "openai",   base_url: "http://127.0.0.1:11434/v1",   description: "" },
+  {
+    id: "openai",
+    name: "OpenAI",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.openai.com/v1",
+    description: "",
+  },
+  {
+    id: "llamacpp",
+    name: "llama.cpp",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:8080/v1",
+    description: "",
+  },
+  {
+    id: "localai",
+    name: "LocalAI",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:8080/v1",
+    description: "",
+  },
+  {
+    id: "ollama",
+    name: "Ollama",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:11434/v1",
+    description: "",
+  },
 ];
 
 function makeCP(name: string, base_url?: string): ConfiguredProviderRecord {
   return {
-    id: name, name, kind: "cloud", protocol: "openai",
-    base_url: base_url ?? "", credential_configured: true,
+    id: name,
+    name,
+    kind: "cloud",
+    protocol: "openai",
+    base_url: base_url ?? "",
+    credential_configured: true,
   };
 }
 

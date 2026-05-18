@@ -1,4 +1,8 @@
-import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentAdapterSetupCommandStatus } from "../../types/agent-adapter";
+import type {
+  AgentAdapterHealthRecord,
+  AgentAdapterRecord,
+  AgentAdapterSetupCommandStatus,
+} from "../../types/agent-adapter";
 import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { Icon, Icons } from "../shared/ui";
 
@@ -15,26 +19,50 @@ export type ClaudeCodePreflightState = {
   cliSignedIn: boolean;
 };
 
-export function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecord[]; selectedID?: string }) {
-  const ordered = adapters
-    .slice()
-    .sort((a, b) => {
-      if (a.id === selectedID) return -1;
-      if (b.id === selectedID) return 1;
-      if (a.available !== b.available) return a.available ? 1 : -1;
-      return a.name.localeCompare(b.name);
-    });
+export function AgentSetupHints({
+  adapters,
+  selectedID,
+}: {
+  adapters: AgentAdapterRecord[];
+  selectedID?: string;
+}) {
+  const ordered = adapters.slice().sort((a, b) => {
+    if (a.id === selectedID) return -1;
+    if (b.id === selectedID) return 1;
+    if (a.available !== b.available) return a.available ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
 
   if (ordered.length === 0) {
     return (
-      <div style={{ margin: "14px auto 0", maxWidth: 520, borderTop: "1px solid var(--border)", paddingTop: 12, fontSize: 12, color: "var(--t2)", lineHeight: 1.5 }}>
+      <div
+        style={{
+          margin: "14px auto 0",
+          maxWidth: 520,
+          borderTop: "1px solid var(--border)",
+          paddingTop: 12,
+          fontSize: 12,
+          color: "var(--t2)",
+          lineHeight: 1.5,
+        }}
+      >
         No agent adapters are registered by this Hecate build.
       </div>
     );
   }
 
   return (
-    <div style={{ margin: "16px auto 0", maxWidth: 620, textAlign: "left", border: "1px solid var(--border)", borderRadius: "var(--radius)", background: "var(--bg2)", overflow: "hidden" }}>
+    <div
+      style={{
+        margin: "16px auto 0",
+        maxWidth: 620,
+        textAlign: "left",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        background: "var(--bg2)",
+        overflow: "hidden",
+      }}
+    >
       {ordered.map((adapter, index) => {
         const hint = agentSetupHint(adapter);
         return (
@@ -68,14 +96,39 @@ function ExternalAgentSetupSummary({
     <>
       <div style={{ minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: adapter.available ? "var(--green)" : "var(--red)", display: "inline-flex", flexShrink: 0 }}>
+          <span
+            style={{
+              color: adapter.available ? "var(--green)" : "var(--red)",
+              display: "inline-flex",
+              flexShrink: 0,
+            }}
+          >
             <Icon d={adapter.available ? Icons.check : Icons.x} size={11} />
           </span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--t1)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {adapter.name}
           </span>
         </div>
-        <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div
+          style={{
+            marginTop: 3,
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--t3)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           {hint.label}
         </div>
       </div>
@@ -86,20 +139,42 @@ function ExternalAgentSetupSummary({
         {!adapter.available && hint.commands.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 7 }}>
             {hint.commands.map((command) => (
-              <CopyCommandLink key={command.command} command={command.command} label={command.label} />
+              <CopyCommandLink
+                key={command.command}
+                command={command.command}
+                label={command.label}
+              />
             ))}
           </div>
         )}
         {!adapter.available && adapter.error && (
-          <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div
+            style={{
+              marginTop: 6,
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--t3)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {adapter.error}
           </div>
         )}
-        {hint.note && (
-          <div style={{ marginTop: 5, color: "var(--t3)" }}>{hint.note}</div>
-        )}
+        {hint.note && <div style={{ marginTop: 5, color: "var(--t3)" }}>{hint.note}</div>}
         {adapter.docs_url && (
-          <a href={adapter.docs_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", marginTop: 5, color: "var(--teal)", textDecoration: "none" }}>
+          <a
+            href={adapter.docs_url}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: "inline-flex",
+              marginTop: 5,
+              color: "var(--teal)",
+              textDecoration: "none",
+            }}
+          >
             setup docs
           </a>
         )}
@@ -151,7 +226,9 @@ export function claudeCodePreflightState(
   const adapterInstalled = adapter.available && health?.status !== "not_installed";
   const tokenVerified = hasSavedCredential && health?.status === "ready";
   const tokenStatus: ClaudeCodePreflightState["tokenStatus"] = hasSavedCredential
-    ? (health?.status === "auth_required" || health?.status === "error" ? "invalid" : "saved_needs_check")
+    ? health?.status === "auth_required" || health?.status === "error"
+      ? "invalid"
+      : "saved_needs_check"
     : "not_saved";
   if (tokenVerified) {
     return null;
@@ -162,14 +239,20 @@ export function claudeCodePreflightState(
     return {
       title: "Set up Claude Code before sending",
       body: "Install Claude Code, then paste the one-time token printed in Terminal by `claude setup-token`.",
-      detail: health?.hint || adapter.error || "Hecate can manage the ACP launcher, but the Claude Code CLI still needs to be installed and signed in.",
+      detail:
+        health?.hint ||
+        adapter.error ||
+        "Hecate can manage the ACP launcher, but the Claude Code CLI still needs to be installed and signed in.",
       blockSend: true,
       tone: "amber",
       ...base,
     };
   }
 
-  if (health?.status === "auth_required" || (adapter.auth_status === "unauthenticated" && hasSavedCredential)) {
+  if (
+    health?.status === "auth_required" ||
+    (adapter.auth_status === "unauthenticated" && hasSavedCredential)
+  ) {
     return {
       title: "Claude Code needs sign-in",
       body: "Hecate has a Claude Code token saved, but the adapter still reports authentication required. Generate a fresh token and save it here.",
@@ -215,14 +298,24 @@ export function claudeCodePreflightState(
 }
 
 function ClaudeCodeSetupFacts({ state }: { state: ClaudeCodePreflightState }) {
-  const tokenLabel = state.tokenStatus === "not_saved"
-    ? "token not saved"
-    : state.tokenStatus === "invalid"
-      ? "token invalid"
-      : "token saved, needs check";
+  const tokenLabel =
+    state.tokenStatus === "not_saved"
+      ? "token not saved"
+      : state.tokenStatus === "invalid"
+        ? "token invalid"
+        : "token saved, needs check";
   const tokenColor = state.tokenStatus === "invalid" ? "var(--danger)" : "var(--amber)";
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, marginTop: 5 }}>
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        marginTop: 5,
+      }}
+    >
       <span style={{ color: state.adapterInstalled ? "var(--teal)" : "var(--t3)" }}>
         adapter {state.adapterInstalled ? "installed" : "not installed"}
       </span>
@@ -265,11 +358,16 @@ export function ClaudeCodePreflightCard({
         gap: 8,
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
         <div style={{ minWidth: 0 }}>
-          <div style={{ color, fontWeight: 700, fontSize: 12 }}>
-            {state.title}
-          </div>
+          <div style={{ color, fontWeight: 700, fontSize: 12 }}>{state.title}</div>
           <div style={{ color: "var(--t1)", fontSize: 12, lineHeight: 1.45, marginTop: 3 }}>
             {state.body}
           </div>
@@ -280,7 +378,12 @@ export function ClaudeCodePreflightCard({
           )}
           <ClaudeCodeSetupFacts state={state} />
         </div>
-        <button type="button" className="btn btn-primary btn-sm" onClick={onOpenSetup} style={{ flexShrink: 0 }}>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={onOpenSetup}
+          style={{ flexShrink: 0 }}
+        >
           Open setup
         </button>
       </div>
@@ -314,22 +417,29 @@ export function ClaudeCodeSetupEmptyPanel(props: {
   const tokenCommand = claudeCodeSetupTokenCommand(commandStatus);
   const canSave = props.tokenDraft.trim().length > 0 && !props.tokenSaving;
   return (
-    <div style={{
-      margin: "18px auto 0",
-      maxWidth: 620,
-      textAlign: "left",
-      border: "1px solid var(--border)",
-      borderRadius: "var(--radius)",
-      background: "var(--bg2)",
-      overflow: "hidden",
-    }} data-testid="claude-code-preflight">
+    <div
+      style={{
+        margin: "18px auto 0",
+        maxWidth: 620,
+        textAlign: "left",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        background: "var(--bg2)",
+        overflow: "hidden",
+      }}
+      data-testid="claude-code-preflight"
+    >
       <ClaudeCodeSetupRow
         label="Install"
         title="Prepare Claude Code"
         detail="Hecate can run Claude Code through npx; a global `claude` install also works."
         command="npx -y @anthropic-ai/claude-code --version"
         done={claudeInstalled}
-        statusText={claudeInstalled ? `Available${commandStatus?.command ? ` via ${commandStatus.command}` : ""}` : undefined}
+        statusText={
+          claudeInstalled
+            ? `Available${commandStatus?.command ? ` via ${commandStatus.command}` : ""}`
+            : undefined
+        }
       />
       <ClaudeCodeSetupRow
         label="Auth"
@@ -337,29 +447,39 @@ export function ClaudeCodeSetupEmptyPanel(props: {
         detail="Copy this command into Terminal. After you click Authorize in the browser, return to Terminal and copy the token printed there. It is shown only once."
         command={tokenCommand}
       />
-      <div style={{
-        padding: "10px 12px",
-        borderTop: "1px solid var(--border)",
-        display: "grid",
-        gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
-        gap: 10,
-        alignItems: "start",
-      }}>
+      <div
+        style={{
+          padding: "10px 12px",
+          borderTop: "1px solid var(--border)",
+          display: "grid",
+          gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
+          gap: 10,
+          alignItems: "start",
+        }}
+      >
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ color: "var(--amber)", display: "inline-flex", flexShrink: 0 }}>
               <Icon d={Icons.keys} size={11} />
             </span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)" }}>
-              Save token
-            </span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)" }}>Save token</span>
           </div>
-          <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+          <div
+            style={{
+              marginTop: 3,
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--t3)",
+            }}
+          >
             CLAUDE_CODE_OAUTH_TOKEN
           </div>
         </div>
         <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
-          <div>Paste the token from Terminal here. If you closed Terminal or missed the token, run the token command again to generate a fresh one.</div>
+          <div>
+            Paste the token from Terminal here. If you closed Terminal or missed the token, run the
+            token command again to generate a fresh one.
+          </div>
           <div style={{ marginTop: 4, color: "var(--t3)" }}>
             Save validates the token with Claude Code before Hecate stores it.
           </div>
@@ -389,10 +509,20 @@ export function ClaudeCodeSetupEmptyPanel(props: {
             }}
           />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-            <button type="button" className="btn btn-primary btn-sm" onClick={props.onSaveToken} disabled={!canSave}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={props.onSaveToken}
+              disabled={!canSave}
+            >
               {props.tokenSaving ? "Checking auth..." : "Save"}
             </button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={props.onTest} disabled={props.loading}>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={props.onTest}
+              disabled={props.loading}
+            >
               {props.loading ? "Checking auth..." : "Check auth"}
             </button>
           </div>
@@ -427,24 +557,32 @@ function ClaudeCodeSetupRow({
   }
 
   return (
-    <div style={{
-      padding: "10px 12px",
-      borderTop: label === "Install" ? 0 : "1px solid var(--border)",
-      display: "grid",
-      gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
-      gap: 10,
-      alignItems: "start",
-    }}>
+    <div
+      style={{
+        padding: "10px 12px",
+        borderTop: label === "Install" ? 0 : "1px solid var(--border)",
+        display: "grid",
+        gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
+        gap: 10,
+        alignItems: "start",
+      }}
+    >
       <div style={{ minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: done ? "var(--green)" : "var(--teal)", display: "inline-flex", flexShrink: 0 }}>
+          <span
+            style={{
+              color: done ? "var(--green)" : "var(--teal)",
+              display: "inline-flex",
+              flexShrink: 0,
+            }}
+          >
             <Icon d={done ? Icons.check : Icons.terminal} size={11} />
           </span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)" }}>
-            {title}
-          </span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)" }}>{title}</span>
         </div>
-        <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+        <div
+          style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}
+        >
           {label}
         </div>
       </div>
@@ -523,7 +661,9 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
       return {
         label: adapter.command || adapter.id,
         action: "Install the adapter command and test it in Settings.",
-        commands: adapter.command ? [{ label: "Check", command: `${adapter.command} --version` }] : [],
+        commands: adapter.command
+          ? [{ label: "Check", command: `${adapter.command} --version` }]
+          : [],
       };
   }
 }

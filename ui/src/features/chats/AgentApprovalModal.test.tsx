@@ -157,12 +157,14 @@ describe("AgentApprovalModal", () => {
   });
 
   it("flips the decision to deny and selects a reject option when available", async () => {
-    const { fetchApproval, onResolve, onCancel, onClose } = setup(approvalRecord({
-      acp_options: [
-        { option_id: "approve_once", kind: "allow_once", name: "Approve once" },
-        { option_id: "reject_once", kind: "reject_once", name: "Reject once" },
-      ],
-    }));
+    const { fetchApproval, onResolve, onCancel, onClose } = setup(
+      approvalRecord({
+        acp_options: [
+          { option_id: "approve_once", kind: "allow_once", name: "Approve once" },
+          { option_id: "reject_once", kind: "reject_once", name: "Reject once" },
+        ],
+      }),
+    );
     render(
       <AgentApprovalModal
         sessionID="s"
@@ -180,13 +182,19 @@ describe("AgentApprovalModal", () => {
     // when fetchApproval's call is observed but its promise
     // microtask hasn't flushed yet (CI flake).
     await user.click(await screen.findByTestId("agent-approval-modal-decision-deny"));
-    expect(screen.getByTestId("agent-approval-modal-option-approve_once").querySelector("input")).toBeDisabled();
+    expect(
+      screen.getByTestId("agent-approval-modal-option-approve_once").querySelector("input"),
+    ).toBeDisabled();
     await user.click(screen.getByTestId("agent-approval-modal-submit"));
     await waitFor(() =>
-      expect(onResolve).toHaveBeenCalledWith("s", "ap-1", expect.objectContaining({
-        decision: "deny",
-        selected_option: "reject_once",
-      })),
+      expect(onResolve).toHaveBeenCalledWith(
+        "s",
+        "ap-1",
+        expect.objectContaining({
+          decision: "deny",
+          selected_option: "reject_once",
+        }),
+      ),
     );
   });
 

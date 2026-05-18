@@ -56,8 +56,9 @@ function AppConsole() {
   );
 
   const workspaces = getAvailableWorkspaces();
-  const activeWorkspace: WorkspaceID =
-    workspaces.some(w => w.id === preferredWorkspace) ? preferredWorkspace : "overview";
+  const activeWorkspace: WorkspaceID = workspaces.some((w) => w.id === preferredWorkspace)
+    ? preferredWorkspace
+    : "overview";
 
   function handleSelectWorkspace(id: WorkspaceID) {
     // Workspace views are lazy chunks. Mark navigation as a transition
@@ -81,7 +82,9 @@ function AppConsole() {
     return installTauriDocumentMarkers();
   }, []);
 
-  return <ConsoleShell activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} />;
+  return (
+    <ConsoleShell activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} />
+  );
 }
 
 export function installTauriDocumentMarkers(): () => void {
@@ -152,15 +155,7 @@ function editableTarget(target: EventTarget | null): HTMLInputElement | HTMLText
 }
 
 function isTextInput(input: HTMLInputElement): boolean {
-  return [
-    "",
-    "email",
-    "password",
-    "search",
-    "tel",
-    "text",
-    "url",
-  ].includes(input.type);
+  return ["", "email", "password", "search", "tel", "text", "url"].includes(input.type);
 }
 
 async function pasteIntoEditable(target: HTMLInputElement | HTMLTextAreaElement) {

@@ -88,8 +88,16 @@ describe("useEnsureUsageLoaded", () => {
   it("inflight ref blocks re-firing while the first fetch is pending", async () => {
     let resolveSummary: (value: unknown) => void = () => undefined;
     let resolveEvents: (value: unknown) => void = () => undefined;
-    getUsageSummaryMock.mockReturnValue(new Promise(r => { resolveSummary = r; }));
-    getUsageEventsMock.mockReturnValue(new Promise(r => { resolveEvents = r; }));
+    getUsageSummaryMock.mockReturnValue(
+      new Promise((r) => {
+        resolveSummary = r;
+      }),
+    );
+    getUsageEventsMock.mockReturnValue(
+      new Promise((r) => {
+        resolveEvents = r;
+      }),
+    );
 
     // Single hook instance; multiple re-renders while the first
     // fetch is still pending. The inflight ref must prevent a second

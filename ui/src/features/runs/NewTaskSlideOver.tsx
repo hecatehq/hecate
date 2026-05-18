@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderPresetRecord, ProviderRecord } from "../../types/provider";
-import { Icon, Icons, ModelPicker, ProviderPicker, SlideOver, type ProviderOption } from "../shared/ui";
+import {
+  Icon,
+  Icons,
+  ModelPicker,
+  ProviderPicker,
+  SlideOver,
+  type ProviderOption,
+} from "../shared/ui";
 
 export type ExecutionKind = "shell" | "git" | "file" | "agent_loop";
 
@@ -12,7 +19,15 @@ const KIND_LABELS: Record<ExecutionKind, string> = {
   agent_loop: "Agent loop",
 };
 
-function KindTab({ kind, selected, onClick }: { kind: ExecutionKind; selected: boolean; onClick: () => void }) {
+function KindTab({
+  kind,
+  selected,
+  onClick,
+}: {
+  kind: ExecutionKind;
+  selected: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
@@ -94,8 +109,8 @@ type McpServerFormEntry = {
   transport: McpServerTransport;
   // stdio transport
   command: string;
-  argsRaw: string;    // whitespace-separated tokens
-  envRaw: string;     // KEY=VALUE per line
+  argsRaw: string; // whitespace-separated tokens
+  envRaw: string; // KEY=VALUE per line
   // http transport
   url: string;
   headersRaw: string; // KEY=VALUE per line — same parser as envRaw
@@ -160,9 +175,9 @@ export function NewTaskSlideOver({
   // re-derive on every keystroke in the form fields.
   const providerOptions = useMemo<ProviderOption[]>(() => {
     return providers
-      .filter(p => p.healthy && p.name)
-      .map(p => {
-        const preset = providerPresets.find(pp => pp.id === p.name);
+      .filter((p) => p.healthy && p.name)
+      .map((p) => {
+        const preset = providerPresets.find((pp) => pp.id === p.name);
         return {
           id: p.name,
           name: preset?.name || p.name,
@@ -180,7 +195,7 @@ export function NewTaskSlideOver({
   // it, so this doesn't fight the picker's internal filter.
   const scopedModels = useMemo(() => {
     if (taskProvider === "auto") return models;
-    return models.filter(m => m.metadata?.provider === taskProvider);
+    return models.filter((m) => m.metadata?.provider === taskProvider);
   }, [models, taskProvider]);
   const effectiveTaskModel = useMemo(() => {
     if (taskModel) return taskModel;
@@ -196,7 +211,7 @@ export function NewTaskSlideOver({
   function handleProviderChange(next: string) {
     setTaskProvider(next);
     if (next !== "auto" && taskModel) {
-      const stillValid = models.some(m => m.id === taskModel && m.metadata?.provider === next);
+      const stillValid = models.some((m) => m.id === taskModel && m.metadata?.provider === next);
       if (!stillValid) setTaskModel("");
     }
   }
@@ -211,19 +226,20 @@ export function NewTaskSlideOver({
   // produces the friendlier runtime error we already ship.
   const noToolsWarnings = useMemo<Map<string, string>>(() => {
     if (taskKind !== "agent_loop") return new Map();
-    const noToolsHint = "Likely doesn't support tool-calling — agent_loop runs will fail. Try qwen2.5-coder, gpt-4o-mini, or claude-sonnet.";
+    const noToolsHint =
+      "Likely doesn't support tool-calling — agent_loop runs will fail. Try qwen2.5-coder, gpt-4o-mini, or claude-sonnet.";
     const patterns: RegExp[] = [
-      /^smollm/i,        // Ollama smollm / smollm2 (any size) — chat-only
-      /^tinyllama/i,     // Ollama tinyllama
-      /^gemma:2b/i,      // small Gemma — no native tool support
+      /^smollm/i, // Ollama smollm / smollm2 (any size) — chat-only
+      /^tinyllama/i, // Ollama tinyllama
+      /^gemma:2b/i, // small Gemma — no native tool support
       /^phi:?[12](\.|:|$)/i, // phi:1, phi:2 (phi3+ does support tools)
-      /^llama2/i,        // base llama2 — no native function calling
-      /embed/i,          // embeddings models (nomic-embed-text, text-embedding-ada-002, etc.)
-      /^all-minilm/i,    // sentence-transformers
+      /^llama2/i, // base llama2 — no native function calling
+      /embed/i, // embeddings models (nomic-embed-text, text-embedding-ada-002, etc.)
+      /^all-minilm/i, // sentence-transformers
     ];
     const out = new Map<string, string>();
     for (const m of models) {
-      if (patterns.some(p => p.test(m.id))) out.set(m.id, noToolsHint);
+      if (patterns.some((p) => p.test(m.id))) out.set(m.id, noToolsHint);
     }
     return out;
   }, [models, taskKind]);
@@ -241,7 +257,7 @@ export function NewTaskSlideOver({
 
   useEffect(() => {
     if (!open) return;
-    setTaskWorkingDir(current => {
+    setTaskWorkingDir((current) => {
       const currentTrimmed = current.trim();
       if (currentTrimmed === "" || currentTrimmed === lastDefaultWorkspace) {
         return normalizedDefaultWorkspace;
@@ -252,10 +268,10 @@ export function NewTaskSlideOver({
   }, [lastDefaultWorkspace, normalizedDefaultWorkspace, open]);
 
   function updateMcpServer(index: number, patch: Partial<McpServerFormEntry>) {
-    setMcpServers(prev => prev.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)));
+    setMcpServers((prev) => prev.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)));
   }
   function addMcpServer() {
-    setMcpServers(prev => [
+    setMcpServers((prev) => [
       ...prev,
       {
         name: "",
@@ -270,7 +286,7 @@ export function NewTaskSlideOver({
     ]);
   }
   function removeMcpServer(index: number) {
-    setMcpServers(prev => prev.filter((_, i) => i !== index));
+    setMcpServers((prev) => prev.filter((_, i) => i !== index));
   }
 
   function formIsValid(): boolean {
@@ -282,9 +298,8 @@ export function NewTaskSlideOver({
   }
 
   function submit() {
-    const command = taskKind === "shell" ? taskCommand.trim()
-      : taskKind === "git" ? taskGitCommand.trim()
-      : "";
+    const command =
+      taskKind === "shell" ? taskCommand.trim() : taskKind === "git" ? taskGitCommand.trim() : "";
     const filePath = taskKind === "file" ? taskFilePath.trim() : "";
     if (taskKind === "shell" && !command) return;
     if (taskKind === "git" && !command) return;
@@ -304,9 +319,11 @@ export function NewTaskSlideOver({
     const mcpPayload =
       taskKind === "agent_loop"
         ? mcpServers
-            .filter(e => e.name.trim() !== "" || e.command.trim() !== "" || e.url.trim() !== "")
-            .map(e => {
-              const base: NonNullable<CreateTaskPayload["mcp_servers"]>[number] = { name: e.name.trim() };
+            .filter((e) => e.name.trim() !== "" || e.command.trim() !== "" || e.url.trim() !== "")
+            .map((e) => {
+              const base: NonNullable<CreateTaskPayload["mcp_servers"]>[number] = {
+                name: e.name.trim(),
+              };
               if (e.transport === "stdio") {
                 base.command = e.command.trim();
                 if (e.argsRaw.trim() !== "") base.args = e.argsRaw.trim().split(/\s+/);
@@ -329,26 +346,38 @@ export function NewTaskSlideOver({
         : [];
 
     onCreate({
-      prompt: taskPrompt.trim() || (taskKind === "shell" ? command : taskKind === "git" ? `git ${command}` : filePath),
+      prompt:
+        taskPrompt.trim() ||
+        (taskKind === "shell" ? command : taskKind === "git" ? `git ${command}` : filePath),
       execution_kind: taskKind,
       ...(taskKind === "shell" ? { shell_command: command } : {}),
       ...(taskKind === "git" ? { git_command: command } : {}),
-      ...(taskKind === "file" ? { file_path: filePath, file_content: taskFileContent, file_operation: taskFileOp } : {}),
+      ...(taskKind === "file"
+        ? { file_path: filePath, file_content: taskFileContent, file_operation: taskFileOp }
+        : {}),
       ...(taskWorkingDir.trim() ? { working_directory: taskWorkingDir.trim() } : {}),
       ...(effectiveTaskModel ? { requested_model: effectiveTaskModel } : {}),
       ...(taskProvider !== "auto" ? { requested_provider: taskProvider } : {}),
       ...(taskInPlace ? { workspace_mode: "in_place" } : {}),
-      ...(taskKind === "agent_loop" && taskSystemPrompt.trim() ? { system_prompt: taskSystemPrompt.trim() } : {}),
+      ...(taskKind === "agent_loop" && taskSystemPrompt.trim()
+        ? { system_prompt: taskSystemPrompt.trim() }
+        : {}),
       ...(taskKind === "agent_loop" && parseFloat(taskBudgetUSD) > 0
         ? { budget_micros_usd: Math.round(parseFloat(taskBudgetUSD) * 1_000_000) }
         : {}),
       ...(mcpPayload.length > 0 ? { mcp_servers: mcpPayload } : {}),
     });
-    setTaskPrompt(""); setTaskCommand(""); setTaskGitCommand(""); setTaskWorkingDir(normalizedDefaultWorkspace);
-    setTaskFilePath(""); setTaskFileContent(""); setTaskFileOp("write");
+    setTaskPrompt("");
+    setTaskCommand("");
+    setTaskGitCommand("");
+    setTaskWorkingDir(normalizedDefaultWorkspace);
+    setTaskFilePath("");
+    setTaskFileContent("");
+    setTaskFileOp("write");
     setTaskSystemPrompt("");
     setTaskBudgetUSD("");
-    setTaskProvider("auto"); setTaskModel("");
+    setTaskProvider("auto");
+    setTaskModel("");
     setTaskInPlace(false);
     setMcpServers([]);
   }
@@ -362,143 +391,306 @@ export function NewTaskSlideOver({
       width={480}
       footer={
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }}
+          <button
+            className="btn btn-primary"
+            style={{ flex: 1, justifyContent: "center" }}
             disabled={!formIsValid() || busyAction === "create"}
             onClick={submit}
-            type="button">
+            type="button"
+          >
             <Icon d={Icons.send} size={14} /> {busyAction === "create" ? "Creating…" : "Queue task"}
           </button>
-          <button className="btn" onClick={onClose} type="button">Cancel</button>
+          <button className="btn" onClick={onClose} type="button">
+            Cancel
+          </button>
         </div>
-      }>
+      }
+    >
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
-          <div>
-            <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 6, fontFamily: "var(--font-mono)" }}>EXECUTION KIND</label>
-            <div style={{ display: "flex", gap: 4, background: "var(--bg2)", borderRadius: "var(--radius)", padding: 3, border: "1px solid var(--border)" }}>
-              {(["shell", "git", "file", "agent_loop"] as ExecutionKind[]).map(k => (
-                <KindTab key={k} kind={k} selected={taskKind === k} onClick={() => setTaskKind(k)} />
-              ))}
-            </div>
+        <div>
+          <label
+            style={{
+              fontSize: 11,
+              color: "var(--t2)",
+              display: "block",
+              marginBottom: 6,
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            EXECUTION KIND
+          </label>
+          <div
+            style={{
+              display: "flex",
+              gap: 4,
+              background: "var(--bg2)",
+              borderRadius: "var(--radius)",
+              padding: 3,
+              border: "1px solid var(--border)",
+            }}
+          >
+            {(["shell", "git", "file", "agent_loop"] as ExecutionKind[]).map((k) => (
+              <KindTab key={k} kind={k} selected={taskKind === k} onClick={() => setTaskKind(k)} />
+            ))}
           </div>
+        </div>
 
-          {taskKind === "shell" && (
-            <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>SHELL COMMAND <span style={{ color: "var(--red)" }}>*</span></label>
-              <div style={{ display: "flex", alignItems: "center", background: "var(--bg0)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "0 10px" }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--t3)", marginRight: 6 }}>$</span>
-                <input
-                  className="input"
-                  aria-label="Shell command"
-                  style={{ border: "none", background: "transparent", padding: "7px 0", flex: 1 }}
-                  placeholder="ls -la / echo hello"
-                  value={taskCommand}
-                  onChange={e => setTaskCommand(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && formIsValid() && submit()}
-                />
-              </div>
-              <div style={{ fontSize: 10, color: "var(--amber)", fontFamily: "var(--font-mono)", marginTop: 4 }}>
-                Shell execution requires approval before running.
-              </div>
-            </div>
-          )}
-
-          {taskKind === "git" && (
-            <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>GIT COMMAND <span style={{ color: "var(--red)" }}>*</span></label>
-              <div style={{ display: "flex", alignItems: "center", background: "var(--bg0)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "0 10px" }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--t3)", marginRight: 6 }}>git</span>
-                <input
-                  className="input"
-                  aria-label="Git command"
-                  style={{ border: "none", background: "transparent", padding: "7px 0", flex: 1 }}
-                  placeholder="status / log --oneline -5"
-                  value={taskGitCommand}
-                  onChange={e => setTaskGitCommand(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && formIsValid() && submit()}
-                />
-              </div>
-            </div>
-          )}
-
-          {taskKind === "file" && (
-            <>
-              <div>
-                <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>OPERATION</label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {["write", "append"].map(op => (
-                    <label key={op} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: taskFileOp === op ? "var(--t0)" : "var(--t2)", cursor: "pointer" }}>
-                      <input type="radio" aria-label={`File operation: ${op}`} checked={taskFileOp === op} onChange={() => setTaskFileOp(op)} style={{ accentColor: "var(--teal)" }} />
-                      {op}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>FILE PATH <span style={{ color: "var(--red)" }}>*</span></label>
-                <input
-                  className="input"
-                  aria-label="File path"
-                  placeholder="/path/to/file.txt"
-                  value={taskFilePath}
-                  onChange={e => setTaskFilePath(e.target.value)}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>CONTENT</label>
-                <textarea
-                  className="input"
-                  aria-label="File content"
-                  placeholder="File content…"
-                  rows={4}
-                  style={{ resize: "vertical" }}
-                  value={taskFileContent}
-                  onChange={e => setTaskFileContent(e.target.value)}
-                />
-              </div>
-            </>
-          )}
-
-          {taskKind === "agent_loop" && (
-            <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>PROMPT <span style={{ color: "var(--red)" }}>*</span></label>
-              <textarea
-                className="input"
-                aria-label="Agent loop prompt"
-                placeholder="Describe the task…"
-                rows={4}
-                style={{ resize: "vertical" }}
-                value={taskPrompt}
-                onChange={e => setTaskPrompt(e.target.value)}
-              />
-            </div>
-          )}
-
-          {(taskKind === "shell" || taskKind === "git" || taskKind === "agent_loop") && (
-            <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>WORKSPACE</label>
+        {taskKind === "shell" && (
+          <div>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                display: "block",
+                marginBottom: 4,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              SHELL COMMAND <span style={{ color: "var(--red)" }}>*</span>
+            </label>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                background: "var(--bg0)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                padding: "0 10px",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  color: "var(--t3)",
+                  marginRight: 6,
+                }}
+              >
+                $
+              </span>
               <input
                 className="input"
-                aria-label="Workspace path"
-                placeholder="/Users/alice/dev/project"
-                value={taskWorkingDir}
-                onChange={e => setTaskWorkingDir(e.target.value)}
+                aria-label="Shell command"
+                style={{ border: "none", background: "transparent", padding: "7px 0", flex: 1 }}
+                placeholder="ls -la / echo hello"
+                value={taskCommand}
+                onChange={(e) => setTaskCommand(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && formIsValid() && submit()}
               />
-              {/* In-place toggle: skip the temp-dir clone and run
+            </div>
+            <div
+              style={{
+                fontSize: 10,
+                color: "var(--amber)",
+                fontFamily: "var(--font-mono)",
+                marginTop: 4,
+              }}
+            >
+              Shell execution requires approval before running.
+            </div>
+          </div>
+        )}
+
+        {taskKind === "git" && (
+          <div>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                display: "block",
+                marginBottom: 4,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              GIT COMMAND <span style={{ color: "var(--red)" }}>*</span>
+            </label>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                background: "var(--bg0)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                padding: "0 10px",
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  color: "var(--t3)",
+                  marginRight: 6,
+                }}
+              >
+                git
+              </span>
+              <input
+                className="input"
+                aria-label="Git command"
+                style={{ border: "none", background: "transparent", padding: "7px 0", flex: 1 }}
+                placeholder="status / log --oneline -5"
+                value={taskGitCommand}
+                onChange={(e) => setTaskGitCommand(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && formIsValid() && submit()}
+              />
+            </div>
+          </div>
+        )}
+
+        {taskKind === "file" && (
+          <>
+            <div>
+              <label
+                style={{
+                  fontSize: 11,
+                  color: "var(--t2)",
+                  display: "block",
+                  marginBottom: 4,
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                OPERATION
+              </label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["write", "append"].map((op) => (
+                  <label
+                    key={op}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 12,
+                      color: taskFileOp === op ? "var(--t0)" : "var(--t2)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      aria-label={`File operation: ${op}`}
+                      checked={taskFileOp === op}
+                      onChange={() => setTaskFileOp(op)}
+                      style={{ accentColor: "var(--teal)" }}
+                    />
+                    {op}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label
+                style={{
+                  fontSize: 11,
+                  color: "var(--t2)",
+                  display: "block",
+                  marginBottom: 4,
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                FILE PATH <span style={{ color: "var(--red)" }}>*</span>
+              </label>
+              <input
+                className="input"
+                aria-label="File path"
+                placeholder="/path/to/file.txt"
+                value={taskFilePath}
+                onChange={(e) => setTaskFilePath(e.target.value)}
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  fontSize: 11,
+                  color: "var(--t2)",
+                  display: "block",
+                  marginBottom: 4,
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                CONTENT
+              </label>
+              <textarea
+                className="input"
+                aria-label="File content"
+                placeholder="File content…"
+                rows={4}
+                style={{ resize: "vertical" }}
+                value={taskFileContent}
+                onChange={(e) => setTaskFileContent(e.target.value)}
+              />
+            </div>
+          </>
+        )}
+
+        {taskKind === "agent_loop" && (
+          <div>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                display: "block",
+                marginBottom: 4,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              PROMPT <span style={{ color: "var(--red)" }}>*</span>
+            </label>
+            <textarea
+              className="input"
+              aria-label="Agent loop prompt"
+              placeholder="Describe the task…"
+              rows={4}
+              style={{ resize: "vertical" }}
+              value={taskPrompt}
+              onChange={(e) => setTaskPrompt(e.target.value)}
+            />
+          </div>
+        )}
+
+        {(taskKind === "shell" || taskKind === "git" || taskKind === "agent_loop") && (
+          <div>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                display: "block",
+                marginBottom: 4,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              WORKSPACE
+            </label>
+            <input
+              className="input"
+              aria-label="Workspace path"
+              placeholder="/Users/alice/dev/project"
+              value={taskWorkingDir}
+              onChange={(e) => setTaskWorkingDir(e.target.value)}
+            />
+            {/* In-place toggle: skip the temp-dir clone and run
                   directly in the source path. Default off (safer
                   isolated clone). When on, the path entered above
                   must be an absolute, existing directory or the run
                   will fail before starting with a clear error. */}
-              <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: taskInPlace ? "var(--t0)" : "var(--t2)", cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={taskInPlace}
-                  onChange={e => setTaskInPlace(e.target.checked)}
-                  style={{ accentColor: "var(--teal)" }}
-                />
-                Run directly in this workspace
-              </label>
-              {/* Workspace preview — always visible so the operator
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginTop: 8,
+                fontSize: 12,
+                color: taskInPlace ? "var(--t0)" : "var(--t2)",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={taskInPlace}
+                onChange={(e) => setTaskInPlace(e.target.checked)}
+                style={{ accentColor: "var(--teal)" }}
+              />
+              Run directly in this workspace
+            </label>
+            {/* Workspace preview — always visible so the operator
                   knows up-front where writes will land. The
                   isolated-clone path uses ${TMPDIR}/hecate-workspaces/
                   {task_id}/{run_id}; we render the pattern rather
@@ -506,228 +698,284 @@ export function NewTaskSlideOver({
                   exist until create-time. The in-place case
                   reflects the actual entered path so the operator
                   can sanity-check before submitting. */}
-              <WorkspacePreview workingDir={taskWorkingDir} inPlace={taskInPlace} />
-            </div>
-          )}
+            <WorkspacePreview workingDir={taskWorkingDir} inPlace={taskInPlace} />
+          </div>
+        )}
 
-          {taskKind !== "agent_loop" && (
-            <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>DESCRIPTION <span style={{ color: "var(--t3)" }}>(optional)</span></label>
-              <input
-                className="input"
-                aria-label="Task description"
-                placeholder="Human-readable description…"
-                value={taskPrompt}
-                onChange={e => setTaskPrompt(e.target.value)}
-              />
-            </div>
-          )}
+        {taskKind !== "agent_loop" && (
+          <div>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                display: "block",
+                marginBottom: 4,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              DESCRIPTION <span style={{ color: "var(--t3)" }}>(optional)</span>
+            </label>
+            <input
+              className="input"
+              aria-label="Task description"
+              placeholder="Human-readable description…"
+              value={taskPrompt}
+              onChange={(e) => setTaskPrompt(e.target.value)}
+            />
+          </div>
+        )}
 
-          {taskKind === "agent_loop" && (
-            <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>
-                SYSTEM PROMPT <span style={{ color: "var(--t3)" }}>(optional, narrowest layer)</span>
-              </label>
-              <textarea
-                className="input"
-                aria-label="System prompt"
-                placeholder="Per-task agent directives. Stacks under global / tenant / workspace CLAUDE.md|AGENTS.md."
-                rows={3}
-                style={{ resize: "vertical" }}
-                value={taskSystemPrompt}
-                onChange={e => setTaskSystemPrompt(e.target.value)}
-              />
-            </div>
-          )}
+        {taskKind === "agent_loop" && (
+          <div>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                display: "block",
+                marginBottom: 4,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              SYSTEM PROMPT <span style={{ color: "var(--t3)" }}>(optional, narrowest layer)</span>
+            </label>
+            <textarea
+              className="input"
+              aria-label="System prompt"
+              placeholder="Per-task agent directives. Stacks under global / tenant / workspace CLAUDE.md|AGENTS.md."
+              rows={3}
+              style={{ resize: "vertical" }}
+              value={taskSystemPrompt}
+              onChange={(e) => setTaskSystemPrompt(e.target.value)}
+            />
+          </div>
+        )}
 
-          {taskKind === "agent_loop" && (
-            <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>
-                COST CEILING (USD) <span style={{ color: "var(--t3)" }}>(optional, fails the run on overage)</span>
-              </label>
-              <input
-                className="input"
-                aria-label="Cost ceiling in USD"
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="2.50"
-                value={taskBudgetUSD}
-                onChange={e => setTaskBudgetUSD(e.target.value)}
-              />
-            </div>
-          )}
+        {taskKind === "agent_loop" && (
+          <div>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                display: "block",
+                marginBottom: 4,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              COST CEILING (USD){" "}
+              <span style={{ color: "var(--t3)" }}>(optional, fails the run on overage)</span>
+            </label>
+            <input
+              className="input"
+              aria-label="Cost ceiling in USD"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="2.50"
+              value={taskBudgetUSD}
+              onChange={(e) => setTaskBudgetUSD(e.target.value)}
+            />
+          </div>
+        )}
 
-          {taskKind === "agent_loop" && (
-            <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>
-                MCP SERVERS <span style={{ color: "var(--t3)" }}>(optional, exposes external tools as mcp__&lt;name&gt;__&lt;tool&gt;)</span>
-              </label>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {mcpServers.map((entry, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      border: "1px solid var(--border)",
-                      borderRadius: "var(--radius-sm)",
-                      padding: 8,
-                      background: "var(--bg0)",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 6,
-                    }}
-                  >
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input
-                        className="input"
-                        aria-label={`MCP server ${i + 1} name`}
-                        placeholder="name (e.g. filesystem)"
-                        value={entry.name}
-                        onChange={e => updateMcpServer(i, { name: e.target.value })}
-                        style={{ flex: 1 }}
-                      />
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        style={{ padding: "3px 6px" }}
-                        onClick={() => removeMcpServer(i)}
-                        title="Remove this server"
-                        aria-label={`Remove MCP server ${entry.name || i + 1}`}
-                        type="button"
-                      >
-                        <Icon d={Icons.x} size={12} />
-                      </button>
-                    </div>
-                    {/* Transport pill — stdio (subprocess) vs http
+        {taskKind === "agent_loop" && (
+          <div>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                display: "block",
+                marginBottom: 4,
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              MCP SERVERS{" "}
+              <span style={{ color: "var(--t3)" }}>
+                (optional, exposes external tools as mcp__&lt;name&gt;__&lt;tool&gt;)
+              </span>
+            </label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {mcpServers.map((entry, i) => (
+                <div
+                  key={i}
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: 8,
+                    background: "var(--bg0)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <input
+                      className="input"
+                      aria-label={`MCP server ${i + 1} name`}
+                      placeholder="name (e.g. filesystem)"
+                      value={entry.name}
+                      onChange={(e) => updateMcpServer(i, { name: e.target.value })}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: "3px 6px" }}
+                      onClick={() => removeMcpServer(i)}
+                      title="Remove this server"
+                      aria-label={`Remove MCP server ${entry.name || i + 1}`}
+                      type="button"
+                    >
+                      <Icon d={Icons.x} size={12} />
+                    </button>
+                  </div>
+                  {/* Transport pill — stdio (subprocess) vs http
                         (remote MCP). Switching between them swaps
                         the field set below. We keep both sides'
                         state around so flipping back doesn't lose
                         the operator's typing. */}
-                    <PillToggle
-                      ariaLabel={`Server ${i + 1} transport`}
-                      options={[
-                        { value: "stdio", label: "stdio" },
-                        { value: "http", label: "HTTP" },
-                      ]}
-                      value={entry.transport}
-                      onChange={v => updateMcpServer(i, { transport: v as McpServerTransport })}
-                    />
-                    {entry.transport === "stdio" && (
-                      <>
-                        <input
-                          className="input"
-                          aria-label={`MCP server ${i + 1} command`}
-                          placeholder="command (e.g. npx)"
-                          value={entry.command}
-                          onChange={e => updateMcpServer(i, { command: e.target.value })}
-                        />
-                        <input
-                          className="input"
-                          aria-label={`MCP server ${i + 1} args`}
-                          placeholder="args (space-separated, e.g. -y @modelcontextprotocol/server-filesystem /workspace)"
-                          value={entry.argsRaw}
-                          onChange={e => updateMcpServer(i, { argsRaw: e.target.value })}
-                        />
-                        <textarea
-                          className="input"
-                          aria-label={`MCP server ${i + 1} environment`}
-                          placeholder="env (KEY=VALUE per line — encrypted at rest when a settings key is configured; $VAR_NAME refers to gateway env)"
-                          rows={2}
-                          style={{ resize: "vertical" }}
-                          value={entry.envRaw}
-                          onChange={e => updateMcpServer(i, { envRaw: e.target.value })}
-                        />
-                      </>
-                    )}
-                    {entry.transport === "http" && (
-                      <>
-                        <input
-                          className="input"
-                          aria-label={`MCP server ${i + 1} URL`}
-                          placeholder="url (e.g. https://api.example.com/mcp)"
-                          value={entry.url}
-                          onChange={e => updateMcpServer(i, { url: e.target.value })}
-                        />
-                        <textarea
-                          className="input"
-                          aria-label={`MCP server ${i + 1} headers`}
-                          placeholder="headers (KEY=VALUE per line, e.g. Authorization=Bearer $GITHUB_TOKEN — same secret rules as env)"
-                          rows={2}
-                          style={{ resize: "vertical" }}
-                          value={entry.headersRaw}
-                          onChange={e => updateMcpServer(i, { headersRaw: e.target.value })}
-                        />
-                      </>
-                    )}
-                    {/* Approval policy: auto (default) dispatches
+                  <PillToggle
+                    ariaLabel={`Server ${i + 1} transport`}
+                    options={[
+                      { value: "stdio", label: "stdio" },
+                      { value: "http", label: "HTTP" },
+                    ]}
+                    value={entry.transport}
+                    onChange={(v) => updateMcpServer(i, { transport: v as McpServerTransport })}
+                  />
+                  {entry.transport === "stdio" && (
+                    <>
+                      <input
+                        className="input"
+                        aria-label={`MCP server ${i + 1} command`}
+                        placeholder="command (e.g. npx)"
+                        value={entry.command}
+                        onChange={(e) => updateMcpServer(i, { command: e.target.value })}
+                      />
+                      <input
+                        className="input"
+                        aria-label={`MCP server ${i + 1} args`}
+                        placeholder="args (space-separated, e.g. -y @modelcontextprotocol/server-filesystem /workspace)"
+                        value={entry.argsRaw}
+                        onChange={(e) => updateMcpServer(i, { argsRaw: e.target.value })}
+                      />
+                      <textarea
+                        className="input"
+                        aria-label={`MCP server ${i + 1} environment`}
+                        placeholder="env (KEY=VALUE per line — encrypted at rest when a settings key is configured; $VAR_NAME refers to gateway env)"
+                        rows={2}
+                        style={{ resize: "vertical" }}
+                        value={entry.envRaw}
+                        onChange={(e) => updateMcpServer(i, { envRaw: e.target.value })}
+                      />
+                    </>
+                  )}
+                  {entry.transport === "http" && (
+                    <>
+                      <input
+                        className="input"
+                        aria-label={`MCP server ${i + 1} URL`}
+                        placeholder="url (e.g. https://api.example.com/mcp)"
+                        value={entry.url}
+                        onChange={(e) => updateMcpServer(i, { url: e.target.value })}
+                      />
+                      <textarea
+                        className="input"
+                        aria-label={`MCP server ${i + 1} headers`}
+                        placeholder="headers (KEY=VALUE per line, e.g. Authorization=Bearer $GITHUB_TOKEN — same secret rules as env)"
+                        rows={2}
+                        style={{ resize: "vertical" }}
+                        value={entry.headersRaw}
+                        onChange={(e) => updateMcpServer(i, { headersRaw: e.target.value })}
+                      />
+                    </>
+                  )}
+                  {/* Approval policy: auto (default) dispatches
                         immediately; require_approval pauses every
                         tool call until the operator approves;
                         block refuses every call (the LLM sees a
                         tool error and can pick a different path). */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-                      <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>APPROVAL</span>
-                      <PillToggle
-                        ariaLabel={`Server ${i + 1} approval policy`}
-                        options={[
-                          { value: "auto", label: "auto" },
-                          { value: "require_approval", label: "require approval" },
-                          { value: "block", label: "block" },
-                        ]}
-                        value={entry.approvalPolicy}
-                        onChange={v => updateMcpServer(i, { approvalPolicy: v as McpApprovalPolicy })}
-                      />
-                    </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                    <span
+                      style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}
+                    >
+                      APPROVAL
+                    </span>
+                    <PillToggle
+                      ariaLabel={`Server ${i + 1} approval policy`}
+                      options={[
+                        { value: "auto", label: "auto" },
+                        { value: "require_approval", label: "require approval" },
+                        { value: "block", label: "block" },
+                      ]}
+                      value={entry.approvalPolicy}
+                      onChange={(v) =>
+                        updateMcpServer(i, { approvalPolicy: v as McpApprovalPolicy })
+                      }
+                    />
                   </div>
-                ))}
-                <button
-                  className="btn btn-ghost btn-sm"
-                  style={{ alignSelf: "flex-start" }}
-                  onClick={addMcpServer}
-                  type="button"
-                >
-                  Add MCP server
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>PROVIDER & MODEL</label>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <ProviderPicker
-                value={taskProvider}
-                onChange={handleProviderChange}
-                options={providerOptions}
-                includeAuto
-                autoLabel="Any provider"
-              />
-              <ModelPicker
-                value={effectiveTaskModel}
-                onChange={setTaskModel}
-                models={scopedModels}
-                presets={providerPresets}
-                // Hide the per-row provider suffix when a specific
-                // provider is already pinned — every row would carry
-                // the same suffix.
-                showProvider={taskProvider === "auto"}
-                // Non-blocking ⚠ marker on models that probably
-                // can't tool-call (agent_loop only). The runtime
-                // error message we ship is friendly, but flagging
-                // up-front saves a wasted run.
-                modelWarnings={noToolsWarnings}
-              />
+                </div>
+              ))}
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ alignSelf: "flex-start" }}
+                onClick={addMcpServer}
+                type="button"
+              >
+                Add MCP server
+              </button>
             </div>
           </div>
+        )}
 
-          {errorMessage && (
-            <div style={{ fontSize: 12, color: "var(--red)", fontFamily: "var(--font-mono)" }}>{errorMessage}</div>
-          )}
+        <div>
+          <label
+            style={{
+              fontSize: 11,
+              color: "var(--t2)",
+              display: "block",
+              marginBottom: 4,
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            PROVIDER & MODEL
+          </label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <ProviderPicker
+              value={taskProvider}
+              onChange={handleProviderChange}
+              options={providerOptions}
+              includeAuto
+              autoLabel="Any provider"
+            />
+            <ModelPicker
+              value={effectiveTaskModel}
+              onChange={setTaskModel}
+              models={scopedModels}
+              presets={providerPresets}
+              // Hide the per-row provider suffix when a specific
+              // provider is already pinned — every row would carry
+              // the same suffix.
+              showProvider={taskProvider === "auto"}
+              // Non-blocking ⚠ marker on models that probably
+              // can't tool-call (agent_loop only). The runtime
+              // error message we ship is friendly, but flagging
+              // up-front saves a wasted run.
+              modelWarnings={noToolsWarnings}
+            />
+          </div>
+        </div>
+
+        {errorMessage && (
+          <div style={{ fontSize: 12, color: "var(--red)", fontFamily: "var(--font-mono)" }}>
+            {errorMessage}
+          </div>
+        )}
       </div>
     </SlideOver>
   );
 }
 
 function defaultModelID(models: ModelRecord[]): string {
-  return models.find(m => m.metadata?.default)?.id || models[0]?.id || "";
+  return models.find((m) => m.metadata?.default)?.id || models[0]?.id || "";
 }
 
 // WorkspacePreview tells the operator where writes will land on
@@ -744,20 +992,41 @@ function WorkspacePreview({ workingDir, inPlace }: { workingDir: string; inPlace
   if (inPlace) {
     if (!trimmed) {
       return (
-        <div style={{ fontSize: 10, color: "var(--red)", fontFamily: "var(--font-mono)", marginTop: 4 }}>
+        <div
+          style={{
+            fontSize: 10,
+            color: "var(--red)",
+            fontFamily: "var(--font-mono)",
+            marginTop: 4,
+          }}
+        >
           ⚠ Direct workspace mode needs an absolute workspace path — the run will fail without it.
         </div>
       );
     }
     if (!isAbs) {
       return (
-        <div style={{ fontSize: 10, color: "var(--red)", fontFamily: "var(--font-mono)", marginTop: 4 }}>
+        <div
+          style={{
+            fontSize: 10,
+            color: "var(--red)",
+            fontFamily: "var(--font-mono)",
+            marginTop: 4,
+          }}
+        >
           ⚠ In-place mode needs an absolute path — relative paths are rejected.
         </div>
       );
     }
     return (
-      <div style={{ fontSize: 10, color: "var(--amber)", fontFamily: "var(--font-mono)", marginTop: 4 }}>
+      <div
+        style={{
+          fontSize: 10,
+          color: "var(--amber)",
+          fontFamily: "var(--font-mono)",
+          marginTop: 4,
+        }}
+      >
         Workspace: <span style={{ color: "var(--t1)" }}>{trimmed}</span> · writes land here directly
       </div>
     );
@@ -769,7 +1038,8 @@ function WorkspacePreview({ workingDir, inPlace }: { workingDir: string; inPlace
       <span style={{ color: "var(--t2)" }}>{"${TMPDIR}/hecate-workspaces/<task_id>/<run_id>"}</span>
       {trimmed && (
         <>
-          {" "}· cloned from <span style={{ color: "var(--t2)" }}>{trimmed}</span>
+          {" "}
+          · cloned from <span style={{ color: "var(--t2)" }}>{trimmed}</span>
         </>
       )}
     </div>
@@ -829,7 +1099,7 @@ function PillToggle<T extends string>({
         border: "1px solid var(--border)",
       }}
     >
-      {options.map(opt => {
+      {options.map((opt) => {
         const selected = value === opt.value;
         return (
           <button

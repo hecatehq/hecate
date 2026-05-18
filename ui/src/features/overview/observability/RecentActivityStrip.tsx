@@ -51,7 +51,8 @@ export function RecentActivityStrip({ traces, labelsByRequestID, latencyByReques
         display: "flex",
         flexDirection: "column",
         gap: 6,
-      }}>
+      }}
+    >
       <div style={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "center" }}>
         {ordered.map((t) => {
           // Map dot color from raw fields rather than reusing
@@ -70,29 +71,51 @@ export function RecentActivityStrip({ traces, labelsByRequestID, latencyByReques
               title={`${t.request_id} · ${provider}/${model}${latency != null ? ` · ${latency}ms` : ""}`}
               style={{
                 display: "inline-block",
-                width: 6, height: 6, borderRadius: "50%",
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
                 background: color,
               }}
             />
           );
         })}
       </div>
-      <div style={{
-        display: "flex", flexWrap: "wrap", gap: 12,
-        fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t2)",
-      }}>
-        <span><span style={{ color: "var(--t3)" }}>p50</span> {formatMs(p50)}</span>
-        <span><span style={{ color: "var(--t3)" }}>p95</span> {formatMs(p95)}</span>
-        <span><span style={{ color: "var(--t3)" }}>errors</span> <span style={{ color: errorCount > 0 ? "var(--red)" : "var(--t2)" }}>{errorCount}</span> / {traces.length}</span>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          color: "var(--t2)",
+        }}
+      >
+        <span>
+          <span style={{ color: "var(--t3)" }}>p50</span> {formatMs(p50)}
+        </span>
+        <span>
+          <span style={{ color: "var(--t3)" }}>p95</span> {formatMs(p95)}
+        </span>
+        <span>
+          <span style={{ color: "var(--t3)" }}>errors</span>{" "}
+          <span style={{ color: errorCount > 0 ? "var(--red)" : "var(--t2)" }}>{errorCount}</span> /{" "}
+          {traces.length}
+        </span>
         {recoveredCount > 0 && (
-          <span><span style={{ color: "var(--t3)" }}>recovered</span> <span style={{ color: "var(--amber)" }}>{recoveredCount}</span></span>
+          <span>
+            <span style={{ color: "var(--t3)" }}>recovered</span>{" "}
+            <span style={{ color: "var(--amber)" }}>{recoveredCount}</span>
+          </span>
         )}
       </div>
     </div>
   );
 }
 
-function traceLatency(t: TraceListItem, latencyByRequestID?: Map<string, number>): number | undefined {
+function traceLatency(
+  t: TraceListItem,
+  latencyByRequestID?: Map<string, number>,
+): number | undefined {
   return latencyByRequestID?.get(t.request_id) ?? t.duration_ms;
 }
 

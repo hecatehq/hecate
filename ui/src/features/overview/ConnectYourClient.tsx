@@ -71,7 +71,7 @@ export function ConnectYourClient({ gatewayURL, token }: Props) {
     <div className="card" style={{ padding: 0 }}>
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         style={{
           width: "100%",
           padding: "12px 14px",
@@ -97,14 +97,14 @@ export function ConnectYourClient({ gatewayURL, token }: Props) {
       {open && (
         <div style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
           <p style={{ margin: 0, color: "var(--t2)", fontSize: 12, lineHeight: 1.5 }}>
-            Point any OpenAI- or Anthropic-compatible client at this gateway.
-            The snippets use your admin token; for production, mint a dedicated
-            API key on the Access tab and substitute it for the token below.
+            Point any OpenAI- or Anthropic-compatible client at this gateway. The snippets use your
+            admin token; for production, mint a dedicated API key on the Access tab and substitute
+            it for the token below.
           </p>
 
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <div style={{ display: "flex", gap: 4 }}>
-              {TABS.map(tab => (
+              {TABS.map((tab) => (
                 <button
                   key={tab.id}
                   type="button"
@@ -120,7 +120,7 @@ export function ConnectYourClient({ gatewayURL, token }: Props) {
             {token && (
               <button
                 type="button"
-                onClick={() => setTokenVisible(v => !v)}
+                onClick={() => setTokenVisible((v) => !v)}
                 className="btn btn-ghost btn-sm"
                 style={{ marginLeft: "auto", fontSize: 11 }}
                 aria-pressed={tokenVisible}

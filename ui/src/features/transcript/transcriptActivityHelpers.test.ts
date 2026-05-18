@@ -21,7 +21,9 @@ import {
   terminalStatusLabel,
 } from "./transcriptActivityHelpers";
 
-function activity(overrides: Partial<ChatActivityRecord> & Pick<ChatActivityRecord, "type" | "title">): ChatActivityRecord {
+function activity(
+  overrides: Partial<ChatActivityRecord> & Pick<ChatActivityRecord, "type" | "title">,
+): ChatActivityRecord {
   return {
     status: "completed",
     ...overrides,
@@ -30,12 +32,15 @@ function activity(overrides: Partial<ChatActivityRecord> & Pick<ChatActivityReco
 
 describe("formatDiffStatSummary", () => {
   it("returns the 'N files changed' line when present", () => {
-    const stat = "src/foo.ts | 3 +-\nsrc/bar.ts | 2 +-\n2 files changed, 4 insertions(+), 1 deletion(-)";
+    const stat =
+      "src/foo.ts | 3 +-\nsrc/bar.ts | 2 +-\n2 files changed, 4 insertions(+), 1 deletion(-)";
     expect(formatDiffStatSummary(stat)).toMatch(/^2 files changed/);
   });
 
   it("matches the singular 'file changed' form", () => {
-    expect(formatDiffStatSummary("foo.ts | 3 +-\n1 file changed, 2 insertions(+)")).toMatch(/^1 file changed/);
+    expect(formatDiffStatSummary("foo.ts | 3 +-\n1 file changed, 2 insertions(+)")).toMatch(
+      /^1 file changed/,
+    );
   });
 
   it("falls back to the first non-empty line when no summary is present", () => {
@@ -73,9 +78,7 @@ describe("parseDiffStatRows", () => {
   });
 
   it("trims path and change whitespace", () => {
-    expect(parseDiffStatRows("  foo.ts  |  3 +-  ")).toEqual([
-      { path: "foo.ts", change: "3 +-" },
-    ]);
+    expect(parseDiffStatRows("  foo.ts  |  3 +-  ")).toEqual([{ path: "foo.ts", change: "3 +-" }]);
   });
 });
 
@@ -92,7 +95,9 @@ describe("fileChangesActivity", () => {
 
 describe("isTerminalActivity", () => {
   it("returns true when the row has terminal: true regardless of type", () => {
-    expect(isTerminalActivity(activity({ type: "tool_call", title: "Ran tool", terminal: true }))).toBe(true);
+    expect(
+      isTerminalActivity(activity({ type: "tool_call", title: "Ran tool", terminal: true })),
+    ).toBe(true);
   });
 
   it("returns true for type 'completed' / 'failed' / 'cancelled' / 'run_result' even without the flag", () => {
@@ -126,9 +131,9 @@ describe("pickTerminalActivityIndex", () => {
   });
 
   it("returns -1 when no terminal-shaped row exists", () => {
-    expect(pickTerminalActivityIndex([
-      activity({ type: "tool_call", title: "Ran tool" }),
-    ])).toBe(-1);
+    expect(pickTerminalActivityIndex([activity({ type: "tool_call", title: "Ran tool" })])).toBe(
+      -1,
+    );
   });
 });
 
@@ -159,7 +164,7 @@ describe("compactAgentActivities", () => {
       activity({ type: "failed", title: "Failed", terminal: true }),
     ];
     const out = compactAgentActivities(items);
-    expect(out.map(r => r.type)).toEqual(["tool_call", "failed"]);
+    expect(out.map((r) => r.type)).toEqual(["tool_call", "failed"]);
   });
 
   it("collapses repeated 'thinking' agent-turn rows into a single 'model_turns' summary", () => {
@@ -199,8 +204,11 @@ describe("compactDetailActivities", () => {
       activity({ type: "output", title: "stdout" }),
       activity({ type: "changed_files", title: "Files" }),
     ];
-    expect(compactDetailActivities(items, false).map(r => r.type))
-      .toEqual(["artifact", "output", "changed_files"]);
+    expect(compactDetailActivities(items, false).map((r) => r.type)).toEqual([
+      "artifact",
+      "output",
+      "changed_files",
+    ]);
   });
 
   it("drops changed_files rows when diffStat is provided (it'd duplicate)", () => {
@@ -208,7 +216,7 @@ describe("compactDetailActivities", () => {
       activity({ type: "artifact", title: "Snapshot" }),
       activity({ type: "changed_files", title: "Files" }),
     ];
-    expect(compactDetailActivities(items, true).map(r => r.type)).toEqual(["artifact"]);
+    expect(compactDetailActivities(items, true).map((r) => r.type)).toEqual(["artifact"]);
   });
 });
 
@@ -218,7 +226,7 @@ describe("orderVisibleActivities", () => {
       activity({ type: "tool_call", title: "B", created_at: "2026-01-01T00:00:02Z" }),
       activity({ type: "tool_call", title: "A", created_at: "2026-01-01T00:00:01Z" }),
     ];
-    expect(orderVisibleActivities(items).map(r => r.title)).toEqual(["A", "B"]);
+    expect(orderVisibleActivities(items).map((r) => r.title)).toEqual(["A", "B"]);
   });
 
   it("falls back to phase order when timestamps tie", () => {
@@ -229,7 +237,11 @@ describe("orderVisibleActivities", () => {
       activity({ type: "started", title: "started", created_at: time }),
       activity({ type: "approval", title: "approval", created_at: time }),
     ];
-    expect(orderVisibleActivities(items).map(r => r.type)).toEqual(["started", "approval", "tool_call"]);
+    expect(orderVisibleActivities(items).map((r) => r.type)).toEqual([
+      "started",
+      "approval",
+      "tool_call",
+    ]);
   });
 
   it("uses insertion order as the final tiebreaker", () => {
@@ -238,55 +250,77 @@ describe("orderVisibleActivities", () => {
       activity({ type: "tool_call", title: "first", created_at: time }),
       activity({ type: "tool_call", title: "second", created_at: time }),
     ];
-    expect(orderVisibleActivities(items).map(r => r.title)).toEqual(["first", "second"]);
+    expect(orderVisibleActivities(items).map((r) => r.title)).toEqual(["first", "second"]);
   });
 });
 
 describe("activityDisplay", () => {
   it("renders 'Waiting for approval' for a pending approval", () => {
-    expect(activityDisplay(activity({ type: "approval", title: "Approval", status: "pending" })).title)
-      .toBe("Waiting for approval");
+    expect(
+      activityDisplay(activity({ type: "approval", title: "Approval", status: "pending" })).title,
+    ).toBe("Waiting for approval");
   });
 
   it("renders 'Approval granted' once approved", () => {
-    expect(activityDisplay(activity({ type: "approval", title: "Approval", status: "approved" })).title)
-      .toBe("Approval granted");
+    expect(
+      activityDisplay(activity({ type: "approval", title: "Approval", status: "approved" })).title,
+    ).toBe("Approval granted");
   });
 
   it("humanizes a known tool_call name", () => {
-    expect(activityDisplay(activity({ type: "tool_call", title: "shell_exec" })).title).toBe("Ran shell");
+    expect(activityDisplay(activity({ type: "tool_call", title: "shell_exec" })).title).toBe(
+      "Ran shell",
+    );
   });
 
   it("falls back to 'Used tool' for opaque call ids", () => {
-    expect(activityDisplay(activity({ type: "tool_call", title: "call_abc123def456" })).title).toBe("Used tool");
+    expect(activityDisplay(activity({ type: "tool_call", title: "call_abc123def456" })).title).toBe(
+      "Used tool",
+    );
   });
 
   it("renders the model-turn summary for collapsed model_turns rows", () => {
-    expect(activityDisplay(activity({ type: "model_turns", title: "Thinking", detail: "3 model turns completed" }))).toEqual({
+    expect(
+      activityDisplay(
+        activity({ type: "model_turns", title: "Thinking", detail: "3 model turns completed" }),
+      ),
+    ).toEqual({
       title: "Thinking",
       detail: "3 model turns completed",
     });
   });
 
   it("renders the files_changed summary directly", () => {
-    expect(activityDisplay(activity({ type: "files_changed", title: "Files changed", detail: "2 files changed" }))).toEqual({
+    expect(
+      activityDisplay(
+        activity({ type: "files_changed", title: "Files changed", detail: "2 files changed" }),
+      ),
+    ).toEqual({
       title: "Files changed",
       detail: "2 files changed",
     });
   });
 
   it("renders 'Starting agent' for the canonical start-row title", () => {
-    expect(activityDisplay(activity({ type: "started", title: "Starting Hecate Agent" })).title).toBe("Starting agent");
+    expect(
+      activityDisplay(activity({ type: "started", title: "Starting Hecate Agent" })).title,
+    ).toBe("Starting agent");
   });
 
   it("renders 'Backing task' for task_run rows with a human status", () => {
-    const out = activityDisplay(activity({ type: "task_run", title: "Task run", status: "running" }));
+    const out = activityDisplay(
+      activity({ type: "task_run", title: "Task run", status: "running" }),
+    );
     expect(out.title).toBe("Backing task");
     expect(out.detail).toMatch(/running/);
   });
 
   it("passes through unknown activity titles unchanged", () => {
-    expect(activityDisplay(activity({ type: "custom_kind", title: "Custom title", detail: "and detail" }))).toEqual({
+    expect(
+      activityDisplay(
+        activity({ type: "custom_kind", title: "Custom title", detail: "and detail" }),
+      ),
+    ).toEqual({
       title: "Custom title",
       detail: "and detail",
     });
@@ -309,13 +343,25 @@ describe("activityLinePrefix", () => {
 
 describe("isOutputArtifactActivity", () => {
   it("matches stdout / stderr / git-stdout / git-stderr in title, detail, or kind", () => {
-    expect(isOutputArtifactActivity(activity({ type: "artifact", title: "stdout snapshot" }))).toBe(true);
-    expect(isOutputArtifactActivity(activity({ type: "artifact", title: "Capture", detail: "stderr stream" }))).toBe(true);
-    expect(isOutputArtifactActivity(activity({ type: "artifact", title: "Capture", kind: "git-stdout" }))).toBe(true);
+    expect(isOutputArtifactActivity(activity({ type: "artifact", title: "stdout snapshot" }))).toBe(
+      true,
+    );
+    expect(
+      isOutputArtifactActivity(
+        activity({ type: "artifact", title: "Capture", detail: "stderr stream" }),
+      ),
+    ).toBe(true);
+    expect(
+      isOutputArtifactActivity(
+        activity({ type: "artifact", title: "Capture", kind: "git-stdout" }),
+      ),
+    ).toBe(true);
   });
 
   it("returns false for unrelated artifacts", () => {
-    expect(isOutputArtifactActivity(activity({ type: "artifact", title: "Snapshot of diff" }))).toBe(false);
+    expect(
+      isOutputArtifactActivity(activity({ type: "artifact", title: "Snapshot of diff" })),
+    ).toBe(false);
   });
 });
 
@@ -329,7 +375,9 @@ describe("terminalAgentActivity", () => {
   });
 
   it("returns undefined when there's no terminal-shaped row", () => {
-    expect(terminalAgentActivity([activity({ type: "tool_call", title: "Ran tool" })])).toBeUndefined();
+    expect(
+      terminalAgentActivity([activity({ type: "tool_call", title: "Ran tool" })]),
+    ).toBeUndefined();
   });
 });
 
@@ -351,25 +399,33 @@ describe("terminalStatusLabel", () => {
 
 describe("detailSummaryLabel", () => {
   it("labels output-only buckets as 'Output'", () => {
-    expect(detailSummaryLabel([activity({ type: "output", title: "stdout" })])).toBe("Output · 1 item");
+    expect(detailSummaryLabel([activity({ type: "output", title: "stdout" })])).toBe(
+      "Output · 1 item",
+    );
   });
 
   it("labels artifact-only buckets as 'Artifacts'", () => {
-    expect(detailSummaryLabel([
-      activity({ type: "artifact", title: "snapshot" }),
-      activity({ type: "final_answer", title: "answer" }),
-    ])).toBe("Artifacts · 2 items");
+    expect(
+      detailSummaryLabel([
+        activity({ type: "artifact", title: "snapshot" }),
+        activity({ type: "final_answer", title: "answer" }),
+      ]),
+    ).toBe("Artifacts · 2 items");
   });
 
   it("labels mixed buckets as 'Output and artifacts'", () => {
-    expect(detailSummaryLabel([
-      activity({ type: "output", title: "stdout" }),
-      activity({ type: "artifact", title: "snapshot" }),
-    ])).toBe("Output and artifacts · 2 items");
+    expect(
+      detailSummaryLabel([
+        activity({ type: "output", title: "stdout" }),
+        activity({ type: "artifact", title: "snapshot" }),
+      ]),
+    ).toBe("Output and artifacts · 2 items");
   });
 
   it("falls back to 'More details' when neither category matches", () => {
-    expect(detailSummaryLabel([activity({ type: "changed_files", title: "Files" })])).toBe("More details · 1 item");
+    expect(detailSummaryLabel([activity({ type: "changed_files", title: "Files" })])).toBe(
+      "More details · 1 item",
+    );
   });
 });
 
@@ -405,12 +461,22 @@ describe("isActiveAgentActivity", () => {
   });
 
   it("returns true when needs_action is set even if status is not active", () => {
-    expect(isActiveAgentActivity(activity({ type: "approval", title: "x", status: "completed", needs_action: true }))).toBe(true);
+    expect(
+      isActiveAgentActivity(
+        activity({ type: "approval", title: "x", status: "completed", needs_action: true }),
+      ),
+    ).toBe(true);
   });
 
   it("returns false for completed / failed / cancelled when needs_action is false", () => {
-    expect(isActiveAgentActivity(activity({ type: "tool_call", title: "x", status: "completed" }))).toBe(false);
-    expect(isActiveAgentActivity(activity({ type: "tool_call", title: "x", status: "failed" }))).toBe(false);
-    expect(isActiveAgentActivity(activity({ type: "tool_call", title: "x", status: "cancelled" }))).toBe(false);
+    expect(
+      isActiveAgentActivity(activity({ type: "tool_call", title: "x", status: "completed" })),
+    ).toBe(false);
+    expect(
+      isActiveAgentActivity(activity({ type: "tool_call", title: "x", status: "failed" })),
+    ).toBe(false);
+    expect(
+      isActiveAgentActivity(activity({ type: "tool_call", title: "x", status: "cancelled" })),
+    ).toBe(false);
   });
 });

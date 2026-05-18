@@ -17,7 +17,7 @@ const CHAT_AGENT_OPTIONS = [
   { id: "cursor_agent", label: "Cursor" },
 ] as const;
 
-export type ChatAgentOptionID = typeof CHAT_AGENT_OPTIONS[number]["id"];
+export type ChatAgentOptionID = (typeof CHAT_AGENT_OPTIONS)[number]["id"];
 
 export function NewChatAgentButton({
   value,
@@ -34,7 +34,10 @@ export function NewChatAgentButton({
   onChange: (value: ChatAgentOptionID) => void;
   onCreate: () => void;
 }) {
-  const { open, setOpen, toggle, wrapRef, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
+  const { open, setOpen, toggle, wrapRef, triggerRef, menuRef } = useFloatingMenu<
+    HTMLDivElement,
+    HTMLButtonElement
+  >();
   // Anchor is the inline-block group around the trigger; the
   // floating menu positions against it (not the trigger itself) so
   // the menu width matches the visual button group, not just the
@@ -42,7 +45,8 @@ export function NewChatAgentButton({
   const anchorRef = useRef<HTMLDivElement>(null);
   const floatingStyle = useFloatingDropdownStyle(anchorRef, open, "left");
   const selected = chatAgentOption(value, adapters);
-  const selectedAdapter = selected.id === "hecate" ? undefined : adapters.find((item) => item.id === selected.id);
+  const selectedAdapter =
+    selected.id === "hecate" ? undefined : adapters.find((item) => item.id === selected.id);
   const selectedHealth = selected.id === "hecate" ? undefined : healthByID.get(selected.id);
   const selectedStatus = chatAgentOptionStatus(selected.id, selectedAdapter, selectedHealth);
   const options = chatAgentPickerOptions(adapters, healthByID, disableUnavailable, 17);
@@ -61,7 +65,12 @@ export function NewChatAgentButton({
       triggerRef.current?.focus();
       return;
     }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
       event.preventDefault();
       focusDropdownItem(menuRef.current, event.key);
     }
@@ -158,12 +167,22 @@ export function NewChatAgentButton({
               >
                 {option.icon}
                 <span style={{ display: "grid", flex: 1, minWidth: 0 }}>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span
+                    style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
                     {option.label}
                   </span>
                 </span>
                 {option.statusLabel && (
-                  <span style={{ color: option.statusColor || "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                  <span
+                    style={{
+                      color: option.statusColor || "var(--t3)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 9,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                    }}
+                  >
                     · {option.statusLabel}
                   </span>
                 )}
@@ -192,7 +211,12 @@ export function ChatAgentPicker({
   onChange: (value: ChatAgentOptionID) => void;
 }) {
   const selected = chatAgentOption(value, adapters);
-  const options = chatAgentPickerOptions(adapters, healthByID, disableUnavailable, compact ? 16 : 18);
+  const options = chatAgentPickerOptions(
+    adapters,
+    healthByID,
+    disableUnavailable,
+    compact ? 16 : 18,
+  );
 
   return (
     <DropdownPicker
@@ -200,22 +224,31 @@ export function ChatAgentPicker({
       value={selected.id}
       options={options}
       onChange={onChange}
-      triggerIcon={<BrandAvatar brand={selected.id} fallback={selected.label} boxed={false} size={compact ? 16 : 18} />}
+      triggerIcon={
+        <BrandAvatar
+          brand={selected.id}
+          fallback={selected.label}
+          boxed={false}
+          size={compact ? 16 : 18}
+        />
+      }
       triggerMinWidth={0}
       menuMinWidth={230}
-      buttonStyle={compact
-        ? {
-          background: "transparent",
-          border: 0,
-          borderRadius: 6,
-          color: "var(--teal)",
-          fontSize: 11,
-          justifyContent: "flex-start",
-          minHeight: 24,
-          padding: "2px 4px",
-          width: "auto",
-        }
-        : { color: "var(--teal)", justifyContent: "space-between", width: "100%" }}
+      buttonStyle={
+        compact
+          ? {
+              background: "transparent",
+              border: 0,
+              borderRadius: 6,
+              color: "var(--teal)",
+              fontSize: 11,
+              justifyContent: "flex-start",
+              minHeight: 24,
+              padding: "2px 4px",
+              width: "auto",
+            }
+          : { color: "var(--teal)", justifyContent: "space-between", width: "100%" }
+      }
     />
   );
 }
@@ -227,7 +260,8 @@ function chatAgentPickerOptions(
   iconSize: number,
 ): DropdownPickerOption<ChatAgentOptionID>[] {
   return CHAT_AGENT_OPTIONS.map((option) => {
-    const adapter = option.id === "hecate" ? undefined : adapters.find((item) => item.id === option.id);
+    const adapter =
+      option.id === "hecate" ? undefined : adapters.find((item) => item.id === option.id);
     const health = option.id === "hecate" ? undefined : healthByID.get(option.id);
     const status = chatAgentOptionStatus(option.id, adapter, health);
     const disabled = disableUnavailable && !status.ready;
@@ -243,7 +277,10 @@ function chatAgentPickerOptions(
   });
 }
 
-export function chatAgentOption(value: string, adapters: AgentAdapterRecord[]): { id: ChatAgentOptionID; label: string; title: string } {
+export function chatAgentOption(
+  value: string,
+  adapters: AgentAdapterRecord[],
+): { id: ChatAgentOptionID; label: string; title: string } {
   if (value === "codex" || value === "claude_code" || value === "cursor_agent") {
     const hardcoded = CHAT_AGENT_OPTIONS.find((option) => option.id === value);
     const adapter = adapters.find((item) => item.id === value);
@@ -253,7 +290,11 @@ export function chatAgentOption(value: string, adapters: AgentAdapterRecord[]): 
       title: adapter?.description || adapter?.command || hardcoded?.label || value,
     };
   }
-  return { id: "hecate", label: "Hecate", title: "Chat with Hecate; enable tools to use Hecate's task runtime." };
+  return {
+    id: "hecate",
+    label: "Hecate",
+    title: "Chat with Hecate; enable tools to use Hecate's task runtime.",
+  };
 }
 
 export function chatAgentOptionStatus(
@@ -268,18 +309,45 @@ export function chatAgentOptionStatus(
     return { label: "ready", color: "var(--teal)", title: health.path || "Ready", ready: true };
   }
   if (health?.status === "auth_required") {
-    return { label: "auth", color: "var(--amber)", title: health.hint || health.error || "Authentication required", ready: false };
+    return {
+      label: "auth",
+      color: "var(--amber)",
+      title: health.hint || health.error || "Authentication required",
+      ready: false,
+    };
   }
   if (health?.status === "error") {
-    return { label: "error", color: "var(--red)", title: health.error || "Probe failed", ready: false };
+    return {
+      label: "error",
+      color: "var(--red)",
+      title: health.error || "Probe failed",
+      ready: false,
+    };
   }
   if (!adapter?.available) {
-    return { label: "setup", color: "var(--amber)", title: adapter?.error || `${CHAT_AGENT_OPTIONS.find((option) => option.id === optionID)?.label || "Agent"} is not installed`, ready: false };
+    return {
+      label: "setup",
+      color: "var(--amber)",
+      title:
+        adapter?.error ||
+        `${CHAT_AGENT_OPTIONS.find((option) => option.id === optionID)?.label || "Agent"} is not installed`,
+      ready: false,
+    };
   }
   if (adapter.auth_status && adapter.auth_status !== "ok") {
-    return { label: "auth", color: "var(--amber)", title: adapter.auth_error || `Auth status: ${adapter.auth_status}`, ready: false };
+    return {
+      label: "auth",
+      color: "var(--amber)",
+      title: adapter.auth_error || `Auth status: ${adapter.auth_status}`,
+      ready: false,
+    };
   }
-  return { label: "ready", color: "var(--teal)", title: adapter.path || adapter.command || "Ready", ready: true };
+  return {
+    label: "ready",
+    color: "var(--teal)",
+    title: adapter.path || adapter.command || "Ready",
+    ready: true,
+  };
 }
 
 export function HecateToolsToggle({
@@ -294,7 +362,9 @@ export function HecateToolsToggle({
   const toolsOnTitle = toolsDisabledForModel
     ? "Tools are disabled for this model in Connections. Enable them there or turn tools off for direct model chat."
     : "Use Hecate's task runtime with tools, approvals, artifacts, and telemetry.";
-  const title = enabled ? toolsOnTitle : "Chat directly with the selected model. No task run or tools.";
+  const title = enabled
+    ? toolsOnTitle
+    : "Chat directly with the selected model. No task run or tools.";
   return (
     <div
       role="group"
@@ -311,7 +381,14 @@ export function HecateToolsToggle({
         padding: "0 5px 0 11px",
       }}
     >
-      <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10, whiteSpace: "nowrap" }}>
+      <span
+        style={{
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          whiteSpace: "nowrap",
+        }}
+      >
         tools:
       </span>
       <button
@@ -348,7 +425,11 @@ export function ExternalAgentConfigControls({
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
   placement?: "header" | "composer";
 }) {
-  if (!session?.id || session.runtime_kind !== "external_agent" || !session.config_options?.length) {
+  if (
+    !session?.id ||
+    session.runtime_kind !== "external_agent" ||
+    !session.config_options?.length
+  ) {
     return null;
   }
   const controls = prioritizeAgentConfigOptions(session.config_options)
@@ -388,7 +469,11 @@ export function ExternalAgentSettingsControls({
   session: { id?: string; runtime_kind?: string; config_options?: ChatConfigOptionRecord[] } | null;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
 }) {
-  if (!session?.id || session.runtime_kind !== "external_agent" || !session.config_options?.length) {
+  if (
+    !session?.id ||
+    session.runtime_kind !== "external_agent" ||
+    !session.config_options?.length
+  ) {
     return null;
   }
   const controls = prioritizeAgentConfigOptions(session.config_options);
@@ -579,11 +664,7 @@ function ExternalAgentSettingsControl({
 }) {
   if (agentConfigOptionIsText(option)) {
     return (
-      <ExternalAgentTextConfigControl
-        sessionID={sessionID}
-        option={option}
-        onChange={onChange}
-      />
+      <ExternalAgentTextConfigControl sessionID={sessionID} option={option} onChange={onChange} />
     );
   }
   return (
@@ -626,7 +707,9 @@ function ExternalAgentTextConfigControl({
   const cleanDraft = draft.trim();
   const cleanCurrent = (option.current_value ?? "").trim();
   const changed = cleanDraft !== cleanCurrent;
-  const label = agentConfigOptionIsInstructions(option) ? "System prompt / instructions" : (option.name || option.id);
+  const label = agentConfigOptionIsInstructions(option)
+    ? "System prompt / instructions"
+    : option.name || option.id;
 
   useEffect(() => {
     setDraft(option.current_value ?? "");
@@ -657,11 +740,10 @@ function ExternalAgentTextConfigControl({
       }}
     >
       <div style={{ display: "grid", gap: 4 }}>
-        <div style={{ color: "var(--t0)", fontSize: 12, fontWeight: 650 }}>
-          {label}
-        </div>
+        <div style={{ color: "var(--t0)", fontSize: 12, fontWeight: 650 }}>{label}</div>
         <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.45 }}>
-          {option.description || "Adapter-provided text setting for future turns in this external-agent session."}
+          {option.description ||
+            "Adapter-provided text setting for future turns in this external-agent session."}
         </div>
       </div>
       <textarea
@@ -716,16 +798,24 @@ function prioritizeAgentConfigOptions(options: ChatConfigOptionRecord[]): ChatCo
 
 function agentConfigOptionIsText(option: ChatConfigOptionRecord): boolean {
   const type = option.type.toLowerCase();
-  return type === "text" || type === "textarea" || type === "string" || type === "prompt" || type === "multiline";
+  return (
+    type === "text" ||
+    type === "textarea" ||
+    type === "string" ||
+    type === "prompt" ||
+    type === "multiline"
+  );
 }
 
 function agentConfigOptionIsInstructions(option: ChatConfigOptionRecord): boolean {
   const key = `${option.id} ${option.name} ${option.category ?? ""}`.toLowerCase();
-  return key.includes("system_prompt")
-    || key.includes("system prompt")
-    || key.includes("agent_instructions")
-    || key.includes("agent instructions")
-    || key.includes("instructions");
+  return (
+    key.includes("system_prompt") ||
+    key.includes("system prompt") ||
+    key.includes("agent_instructions") ||
+    key.includes("agent instructions") ||
+    key.includes("instructions")
+  );
 }
 
 function agentConfigOptionLabel(option: ChatConfigOptionRecord): string {
@@ -749,7 +839,8 @@ export function LockedHecateModelSnapshot({
   provider: string;
   model: string;
 }) {
-  const title = "Provider and model are fixed for this Hecate Agent task. Turn tools off for direct model chat, or start a new chat to use a different tools-enabled model.";
+  const title =
+    "Provider and model are fixed for this Hecate Agent task. Turn tools off for direct model chat, or start a new chat to use a different tools-enabled model.";
   const lockedStyle = {
     ...externalAgentComposerControlStyle,
     color: "var(--t2)",
@@ -771,7 +862,14 @@ export function LockedHecateModelSnapshot({
         style={{ ...lockedStyle, minWidth: 150, maxWidth: 260 }}
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-          <span style={{ color: "var(--t3)", fontSize: 10, textTransform: "lowercase", whiteSpace: "nowrap" }}>
+          <span
+            style={{
+              color: "var(--t3)",
+              fontSize: 10,
+              textTransform: "lowercase",
+              whiteSpace: "nowrap",
+            }}
+          >
             provider
           </span>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -788,7 +886,14 @@ export function LockedHecateModelSnapshot({
         style={{ ...lockedStyle, minWidth: 150, maxWidth: 300 }}
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-          <span style={{ color: "var(--t3)", fontSize: 10, textTransform: "lowercase", whiteSpace: "nowrap" }}>
+          <span
+            style={{
+              color: "var(--t3)",
+              fontSize: 10,
+              textTransform: "lowercase",
+              whiteSpace: "nowrap",
+            }}
+          >
             model
           </span>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

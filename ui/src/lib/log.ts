@@ -58,9 +58,7 @@ async function dispatch(level: Level, message: string, args: unknown[]): Promise
     consoleFallback(level, message, args);
     return;
   }
-  const combined = args.length === 0
-    ? message
-    : `${message} ${args.map(formatArg).join(" ")}`;
+  const combined = args.length === 0 ? message : `${message} ${args.map(formatArg).join(" ")}`;
   try {
     if (level === "info") await mod.info(combined);
     else if (level === "warn") await mod.warn(combined);

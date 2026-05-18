@@ -48,9 +48,26 @@ export function ChatHeader(props: Props) {
   } = props;
 
   return (
-    <div style={{ height: "var(--topbar-h)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 12px", gap: 8, flexShrink: 0, background: "var(--bg1)" }}>
+    <div
+      style={{
+        height: "var(--topbar-h)",
+        borderBottom: "1px solid var(--border)",
+        display: "flex",
+        alignItems: "center",
+        padding: "0 12px",
+        gap: 8,
+        flexShrink: 0,
+        background: "var(--bg1)",
+      }}
+    >
       {!sidebarOpen && (
-        <button className="btn btn-ghost btn-sm" onClick={onOpenSidebar} title="Open chats" aria-label="Open chats sidebar" type="button">
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={onOpenSidebar}
+          title="Open chats"
+          aria-label="Open chats sidebar"
+          type="button"
+        >
           <Icon d={Icons.chevR} size={13} />
         </button>
       )}
@@ -63,7 +80,16 @@ export function ChatHeader(props: Props) {
         style={{ flexShrink: 0 }}
       />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--t0)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           {title}
         </div>
         {subline && (
@@ -83,27 +109,32 @@ export function ChatHeader(props: Props) {
           </div>
         )}
       </div>
-      {isExternalAgentChat && (() => {
-        if (!activeChatSession || !activeChatSession.max_turns_per_session) return null;
-        const turnsUsed = activeChatSession.turns_used ?? 0;
-        const maxTurns = activeChatSession.max_turns_per_session;
-        const atLimit = turnsUsed >= maxTurns;
-        return (
-          <span
-            data-testid="agent-chat-turns-badge"
-            style={{
-              flexShrink: 0,
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              color: atLimit ? "var(--amber)" : "var(--t3)",
-              whiteSpace: "nowrap",
-            }}
-            title={atLimit ? "Turn limit reached — start a new chat to continue" : `${turnsUsed} of ${maxTurns} turns used`}
-          >
-            {turnsUsed}/{maxTurns} turns
-          </span>
-        );
-      })()}
+      {isExternalAgentChat &&
+        (() => {
+          if (!activeChatSession || !activeChatSession.max_turns_per_session) return null;
+          const turnsUsed = activeChatSession.turns_used ?? 0;
+          const maxTurns = activeChatSession.max_turns_per_session;
+          const atLimit = turnsUsed >= maxTurns;
+          return (
+            <span
+              data-testid="agent-chat-turns-badge"
+              style={{
+                flexShrink: 0,
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: atLimit ? "var(--amber)" : "var(--t3)",
+                whiteSpace: "nowrap",
+              }}
+              title={
+                atLimit
+                  ? "Turn limit reached — start a new chat to continue"
+                  : `${turnsUsed} of ${maxTurns} turns used`
+              }
+            >
+              {turnsUsed}/{maxTurns} turns
+            </span>
+          );
+        })()}
       {isAgentChat && (
         <div
           aria-label="Chat header actions"
