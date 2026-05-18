@@ -109,17 +109,12 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
     }
   }
 
-  // refreshProviders re-fetches /hecate/v1/providers/status (runtime health) and
-  // /v1/models (model catalog) for the ProvidersView auto-poll so local
-  // provider model lists converge within ~30 s of starting Ollama / LM
-  // Studio. Skipped when no providers are configured — the providers
-  // tab renders its empty state, there's nothing to converge.
+  // refreshProviders re-fetches /hecate/v1/providers/status (runtime health)
+  // and /v1/models (model catalog) for explicit refreshes and the
+  // Connections auto-poll. Do not gate this on captured settings state:
+  // provider rows can be created by another slice between renders, and a
+  // stale closure here leaves the UI stuck on PENDING until a full reload.
   async function refreshProviders() {
-    // Gate the fetch on settingsConfig so a zero-provider boot
-    // doesn't trip a 200-with-empty-list round trip on every chat-
-    // workspace mount. The slice's refreshProviders unconditionally
-    // fetches once called.
-    if ((params.settingsConfig?.providers?.length ?? 0) === 0) return;
     await providersAndModels.actions.refreshProviders();
   }
 

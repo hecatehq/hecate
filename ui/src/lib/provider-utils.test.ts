@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { providerDotColor, resolvedBaseURL } from "./provider-utils";
+import { providerDisplayName, providerDotColor, resolvedBaseURL } from "./provider-utils";
 import type { ConfiguredProviderRecord, ProviderPresetRecord } from "../types/provider";
 
 const presets: ProviderPresetRecord[] = [
@@ -49,5 +49,20 @@ describe("providerDotColor", () => {
 
   it("returns amber when enabled but unhealthy", () => {
     expect(providerDotColor(true, false)).toBe("amber");
+  });
+});
+
+describe("providerDisplayName", () => {
+  it("uses preset names when available", () => {
+    expect(providerDisplayName("ollama", [], presets)).toBe("Ollama");
+  });
+
+  it("falls back to canonical names before lower-case configured names", () => {
+    expect(providerDisplayName("ollama", [makeCP("ollama")], [])).toBe("Ollama");
+    expect(providerDisplayName("lmstudio", [makeCP("lmstudio")], [])).toBe("LM Studio");
+  });
+
+  it("keeps custom provider names when no canonical name exists", () => {
+    expect(providerDisplayName("my-local", [makeCP("my-local")], [])).toBe("my-local");
   });
 });

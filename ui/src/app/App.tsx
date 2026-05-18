@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect } from "react";
+import { startTransition, useEffect, useLayoutEffect } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
 import { ApprovalsProvider } from "./state/approvals";
@@ -12,7 +12,7 @@ import { UsageProvider } from "./state/usage";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriRuntime } from "../lib/tauri";
 
-const WORKSPACE_STORAGE_KEY = "hecate.workspace.v2";
+const WORKSPACE_STORAGE_KEY = "hecate.workspace";
 
 // Derive the validity guard from the single AppShell tuple so a new
 // workspace doesn't silently fail the parse here.
@@ -60,7 +60,10 @@ function AppConsole() {
     workspaces.some(w => w.id === preferredWorkspace) ? preferredWorkspace : "overview";
 
   function handleSelectWorkspace(id: WorkspaceID) {
-    setPreferredWorkspace(id);
+    // Workspace views are lazy chunks. Mark navigation as a transition
+    // so React keeps the current view visible while the next chunk is
+    // fetched instead of flashing the Suspense fallback for a frame.
+    startTransition(() => setPreferredWorkspace(id));
   }
 
   useEffect(() => {

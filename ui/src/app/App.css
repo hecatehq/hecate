@@ -127,6 +127,21 @@ html[data-tauri-os="macos"] .hecate-shell {
   overflow: hidden;
 }
 
+.workspace-fallback {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.workspace-fallback__label {
+  color: var(--t3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 /* Status bar dots — use -lo variants for contrast against --teal background */
 .hecate-statusbar .dot-green { background: var(--green-lo); box-shadow: 0 0 5px var(--green-lo); }
 .hecate-statusbar .dot-red   { background: var(--red-lo);   box-shadow: 0 0 5px var(--red-lo);   }

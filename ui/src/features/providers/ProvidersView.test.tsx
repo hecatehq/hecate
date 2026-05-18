@@ -505,9 +505,29 @@ describe("ProvidersView table renders", () => {
     const user = userEvent.setup();
 
     render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+    await waitFor(() => expect(refreshProviders).toHaveBeenCalledTimes(1));
+    refreshProviders.mockClear();
     await user.click(screen.getByRole("button", { name: "Refresh providers" }));
 
     expect(refreshProviders).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes provider readiness when configured providers are shown", async () => {
+    const refreshProviders = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local" })],
+      },
+      providers: [],
+    });
+    const actions = { ...createRuntimeConsoleActions(), refreshProviders };
+
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+
+    await waitFor(() => expect(refreshProviders).toHaveBeenCalledTimes(1));
   });
 
   it("renders external-agent readiness and grants in the Connections workspace", async () => {

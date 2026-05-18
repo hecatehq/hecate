@@ -16,6 +16,22 @@ const PROVIDER_ICON_COLORS: Record<string, string> = {
   localai: "var(--t2)",
 };
 
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  gemini: "Google Gemini",
+  mistral: "Mistral",
+  groq: "Groq",
+  deepseek: "DeepSeek",
+  perplexity: "Perplexity",
+  together_ai: "Together AI",
+  xai: "xAI",
+  ollama: "Ollama",
+  lmstudio: "LM Studio",
+  llamacpp: "llama.cpp",
+  localai: "LocalAI",
+};
+
 export function resolvedBaseURL(
   name: string,
   cp?: ConfiguredProviderRecord,
@@ -43,8 +59,10 @@ export function providerDisplayName(
 ): string {
   const configured = configuredProviders.find(provider => provider.id === providerID);
   const presetID = configured?.preset_id || providerID;
+  const canonicalID = presetID.toLowerCase();
   return presets.find(preset => preset.id === presetID)?.name
-    || configured?.name
+    || PROVIDER_DISPLAY_NAMES[canonicalID]
     || runtimeProviders.find(provider => provider.name === providerID)?.name
+    || configured?.name
     || providerID;
 }
