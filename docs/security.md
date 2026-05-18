@@ -53,9 +53,18 @@ Review broad grants carefully, especially workspace-wide or adapter-wide grants 
 Hecate stores local configuration and operational state on disk.
 
 - Provider credentials and settings are local to the gateway data directory / desktop app data directory.
+- Persisted provider, agent-adapter, and MCP literal credentials are encrypted
+  with a gateway-local AES-GCM control-plane key. By default that bootstrap key
+  is generated on first run, stored as `hecate.bootstrap.json` with `0600`
+  permissions, and validated on every startup.
+- This protects against accidental disclosure from the settings database, but
+  it is not a vault boundary: a process running as the same OS user that can
+  read both the database and bootstrap key can decrypt stored credentials.
 - Do not commit `.env`, SQLite databases, release keys, update signing keys, or platform credential files.
 - External agent credentials belong to the underlying CLI account. Hecate can probe and surface auth failures, but it does not own those accounts.
 - If you expose Hecate beyond loopback while provider credentials are configured, anyone who can reach the gateway may be able to spend those credentials.
+- Future hardening should move the bootstrap key into the OS keychain where
+  available and preserve file-backed bootstrap for headless/Docker deployments.
 
 ## Native app and sidecars
 
