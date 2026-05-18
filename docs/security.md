@@ -55,8 +55,9 @@ Hecate stores local configuration and operational state on disk.
 - Provider credentials and settings are local to the gateway data directory / desktop app data directory.
 - Persisted provider, agent-adapter, and MCP literal credentials are encrypted
   with a gateway-local AES-GCM control-plane key. By default that bootstrap key
-  is generated on first run, stored as `hecate.bootstrap.json` with `0600`
-  permissions, and validated on every startup.
+  is generated on first run, stored as `hecate.bootstrap.json`, and validated on
+  every startup. POSIX platforms create and repair the file with `0600`
+  permissions.
 - If Hecate cannot validate or secure `hecate.bootstrap.json`, startup fails
   closed. The desktop app startup screen and `gateway.log` include the affected
   path; fix ownership, ACLs, or POSIX mode bits so the file is private, or unset

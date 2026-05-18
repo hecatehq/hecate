@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -24,14 +22,6 @@ func TestResolveGeneratesAndPersistsOnFirstRun(t *testing.T) {
 	// to exactly 32 bytes.
 	if len(b.ControlPlaneSecretKey) != 44 {
 		t.Errorf("ControlPlaneSecretKey length = %d, want 44 (base64 of 32 bytes)", len(b.ControlPlaneSecretKey))
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("file mode = %o, want 0600", info.Mode().Perm())
 	}
 
 	raw, err := os.ReadFile(path)
@@ -178,137 +168,20 @@ func TestResolveRejectsWrongLengthPersistedSecret(t *testing.T) {
 	}
 }
 
-func TestResolveRepairsLooseExistingFilePermissions(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "hecate.bootstrap.json")
-	b := Bootstrap{
-		ControlPlaneSecretKey: testBootstrapKey(0xef),
-	}
-	raw, err := json.Marshal(b)
-	if err != nil {
-		t.Fatalf("marshal fixture: %v", err)
-	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	if _, err := Resolve(path, ""); err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("file mode = %o, want 0600", info.Mode().Perm())
-	}
-}
-
-func TestResolveAcceptsStricterExistingFilePermissions(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "hecate.bootstrap.json")
-	b := Bootstrap{
-		ControlPlaneSecretKey: testBootstrapKey(0xef),
-	}
-	raw, err := json.Marshal(b)
-	if err != nil {
-		t.Fatalf("marshal fixture: %v", err)
-	}
-	if err := os.WriteFile(path, raw, 0o400); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	if _, err := Resolve(path, ""); err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Mode().Perm() != 0o400 {
-		t.Fatalf("file mode = %o, want 0400", info.Mode().Perm())
-	}
-}
-
-func TestResolveRepairsLoosePermissionsWhenEnvOverridesFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "hecate.bootstrap.json")
-	b := Bootstrap{
-		ControlPlaneSecretKey: testBootstrapKey(0xef),
-	}
-	raw, err := json.Marshal(b)
-	if err != nil {
-		t.Fatalf("marshal fixture: %v", err)
-	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-
-	if _, err := Resolve(path, testBootstrapKey(0xab)); err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("file mode = %o, want 0600", info.Mode().Perm())
-	}
-}
-
-func TestResolveEnvOverrideReplacesLooseFileInsteadOfRewritingInPlace(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows replace behavior depends on open-handle sharing modes")
-	}
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "hecate.bootstrap.json")
-	oldSecret := testBootstrapKey(0xef)
-	b := Bootstrap{
-		ControlPlaneSecretKey: oldSecret,
-	}
-	raw, err := json.Marshal(b)
-	if err != nil {
-		t.Fatalf("marshal fixture: %v", err)
-	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-	oldHandle, err := os.Open(path)
-	if err != nil {
-		t.Fatalf("open old file: %v", err)
-	}
-	defer oldHandle.Close()
-
-	newSecret := testBootstrapKey(0xab)
-	if _, err := Resolve(path, newSecret); err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	oldHandleRaw, err := io.ReadAll(oldHandle)
-	if err != nil {
-		t.Fatalf("read old handle: %v", err)
-	}
-	var oldHandleDisk Bootstrap
-	if err := json.Unmarshal(oldHandleRaw, &oldHandleDisk); err != nil {
-		t.Fatalf("decode old handle: %v", err)
-	}
-	if oldHandleDisk.ControlPlaneSecretKey != oldSecret {
-		t.Fatalf("old handle secret = %q, want original secret", oldHandleDisk.ControlPlaneSecretKey)
-	}
-
-	raw, err = os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read replacement: %v", err)
-	}
-	var replacement Bootstrap
-	if err := json.Unmarshal(raw, &replacement); err != nil {
-		t.Fatalf("decode replacement: %v", err)
-	}
-	if replacement.ControlPlaneSecretKey != newSecret {
-		t.Fatalf("replacement secret = %q, want env override", replacement.ControlPlaneSecretKey)
-	}
-}
-
 func testBootstrapKey(fill byte) string {
 	return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{fill}, 32))
+}
+
+func writeBootstrapFixture(t *testing.T, path, key string, mode os.FileMode) {
+	t.Helper()
+	b := Bootstrap{
+		ControlPlaneSecretKey: key,
+	}
+	raw, err := json.Marshal(b)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	if err := os.WriteFile(path, raw, mode); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
 }
