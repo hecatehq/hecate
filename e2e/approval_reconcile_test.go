@@ -226,12 +226,11 @@ func injectChatSession(t *testing.T, dbPath string) string {
 	sessionID := "chat_e2e_" + fmt.Sprintf("%d", now.UnixNano())
 	_, err = db.Exec(
 		`INSERT INTO hecate_chat_sessions (
-			id, title, runtime_kind, adapter_id, driver_kind, native_session_id, workspace, workspace_branch,
+			id, title, agent_id, driver_kind, native_session_id, workspace, workspace_branch,
 			status, task_id, latest_run_id, provider, model, capabilities, config_options, turns_used, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sessionID,
 		"reconcile smoke",
-		"external_agent",
 		"codex",
 		"acp",
 		"native_e2e",
