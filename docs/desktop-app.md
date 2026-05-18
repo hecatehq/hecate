@@ -37,8 +37,13 @@ PR branch.
 
 What works:
 
-- Sidecar lifecycle (spawn, healthz wait, kill on exit; `pgrep hecate` is
-  empty after `cmd+Q`).
+- Sidecar lifecycle: spawn, `/healthz` wait on startup; on quit (red-X,
+  `cmd+Q`, or menu Quit) the app asks the gateway to drain via
+  `POST /hecate/v1/system/shutdown`, polls `/healthz` until it stops
+  responding (12 s deadline), then exits — same code path as
+  `SIGINT`/`SIGTERM` from a terminal. `pgrep hecate` is empty afterward
+  in both paths. When agent runs are in-flight, a native confirmation
+  dialog appears first.
 - Runtime discovery file for ACP bridges (`hecate.runtime.json`) written by the
   sidecar gateway on successful startup and removed on app exit.
 - Same-origin loading of the embedded gateway UI from the sidecar port.
@@ -170,9 +175,15 @@ the ones likely to bite an operator:
   right-click → Open the first time. Windows is unsigned regardless;
   click "More info" on the SmartScreen warning. Document in release
   notes when shipping an unsigned build.
-- **Quitting via `cmd+Q` (macOS) — not the red close button.** The window
-  close button hides the window on macOS; only quitting kills the gateway
-  child. We'll fix this when a tray mode lands; until then, document.
+- **Window close and `cmd+Q` both quit cleanly.** The red-X, `cmd+Q`, and
+  the menu "Quit Hecate" item all funnel through the same path: if any
+  agent runs are in-flight, a native confirmation dialog appears ("X
+  tasks still running. Quitting Hecate will stop them.") with
+  Quit anyway / Keep running. On confirm — or when there are no
+  running tasks — the gateway is asked to drain (`POST
+  /hecate/v1/system/shutdown`, same code path as `SIGINT`/`SIGTERM`)
+  before the app exits, so MCP subprocesses are torn down cleanly and
+  no run is left stuck in `running`.
 - **Data dir is platform-specific.** Settings saved on macOS don't migrate
   to a Linux build of the same version. Multi-machine users keep separate
   config per platform.
