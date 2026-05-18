@@ -343,7 +343,9 @@ By default, `GATEWAY_TRACE_BODY_MODE=metadata` records only message shape:
 roles, content byte counts, content-block counts, tool-call counts, model, and
 finish reasons. It does not record prompt or response text. This is the
 recommended mode for routine local debugging because it preserves request shape
-without storing operator data in traces.
+without storing operator data in traces. Metadata capture is capped to the
+first 128 request messages or response choices and sets a `truncated` attribute
+when the event omits additional entries.
 
 `GATEWAY_TRACE_BODY_MODE=redacted_text` records size-capped text snapshots after
 heuristic secret redaction. This mode is for short-lived debugging in trusted

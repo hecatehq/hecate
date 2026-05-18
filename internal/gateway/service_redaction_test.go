@@ -138,3 +138,81 @@ func TestCaptureResponseBodyRedactedTextModeMasksContent(t *testing.T) {
 		t.Fatalf("redacted_text mode missing redacted content: %s", rawChoices)
 	}
 }
+
+func TestCaptureRequestBodyMetadataModeCapsMessageCount(t *testing.T) {
+	t.Parallel()
+
+	trace := profiler.NewTrace("req-1", nil)
+	service := &Service{
+		traceBodyMode:     traceBodyModeMetadata,
+		traceBodyMaxBytes: 4096,
+	}
+	messages := make([]types.Message, traceBodyMaxItems+2)
+	for i := range messages {
+		messages[i] = types.Message{Role: "user", Content: "hello"}
+	}
+	service.captureRequestBody(trace, types.ChatRequest{
+		Model:    "gpt-test",
+		Messages: messages,
+	})
+
+	attrs := trace.Events()[0].Attributes
+	if attrs["message_count"] != traceBodyMaxItems+2 {
+		t.Fatalf("message_count = %v, want %d", attrs["message_count"], traceBodyMaxItems+2)
+	}
+	if attrs["messages_captured"] != traceBodyMaxItems {
+		t.Fatalf("messages_captured = %v, want %d", attrs["messages_captured"], traceBodyMaxItems)
+	}
+	if attrs["truncated"] != true {
+		t.Fatalf("truncated = %v, want true", attrs["truncated"])
+	}
+	rawMessages := attrs["messages"].(string)
+	var captured []struct {
+		Role string `json:"role"`
+	}
+	if err := json.Unmarshal([]byte(rawMessages), &captured); err != nil {
+		t.Fatalf("decode messages: %v", err)
+	}
+	if len(captured) != traceBodyMaxItems {
+		t.Fatalf("captured len = %d, want %d", len(captured), traceBodyMaxItems)
+	}
+}
+
+func TestCaptureResponseBodyMetadataModeCapsChoiceCount(t *testing.T) {
+	t.Parallel()
+
+	trace := profiler.NewTrace("req-1", nil)
+	service := &Service{
+		traceBodyMode:     traceBodyModeMetadata,
+		traceBodyMaxBytes: 4096,
+	}
+	choices := make([]types.ChatChoice, traceBodyMaxItems+2)
+	for i := range choices {
+		choices[i] = types.ChatChoice{Message: types.Message{Role: "assistant", Content: "hello"}}
+	}
+	service.captureResponseBody(trace, &types.ChatResponse{
+		Model:   "gpt-test",
+		Choices: choices,
+	})
+
+	attrs := trace.Events()[0].Attributes
+	if attrs["choice_count"] != traceBodyMaxItems+2 {
+		t.Fatalf("choice_count = %v, want %d", attrs["choice_count"], traceBodyMaxItems+2)
+	}
+	if attrs["choices_captured"] != traceBodyMaxItems {
+		t.Fatalf("choices_captured = %v, want %d", attrs["choices_captured"], traceBodyMaxItems)
+	}
+	if attrs["truncated"] != true {
+		t.Fatalf("truncated = %v, want true", attrs["truncated"])
+	}
+	rawChoices := attrs["choices"].(string)
+	var captured []struct {
+		Role string `json:"role"`
+	}
+	if err := json.Unmarshal([]byte(rawChoices), &captured); err != nil {
+		t.Fatalf("decode choices: %v", err)
+	}
+	if len(captured) != traceBodyMaxItems {
+		t.Fatalf("captured len = %d, want %d", len(captured), traceBodyMaxItems)
+	}
+}
