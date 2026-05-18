@@ -102,6 +102,9 @@ func save(path string, b Bootstrap) error {
 	if err != nil {
 		return err
 	}
+	if err := secureExistingFileForWrite(path); err != nil {
+		return err
+	}
 	// 0o600 because the file holds the encryption key. Anything more
 	// permissive lets a co-located service decrypt provider credentials.
 	if err := os.WriteFile(path, data, 0o600); err != nil {
@@ -115,10 +118,32 @@ func secureExistingFile(path string) error {
 	if err != nil {
 		return err
 	}
-	if info.Mode().Perm() == 0o600 {
+	if !modeExposesSharedPermissions(info.Mode().Perm()) {
 		return nil
 	}
 	return chmodOwnerOnly(path)
+}
+
+func secureExistingFileForWrite(path string) error {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	mode := info.Mode().Perm()
+	if mode == 0o600 {
+		return nil
+	}
+	if !modeExposesSharedPermissions(mode) && mode&0o200 != 0 {
+		return nil
+	}
+	return chmodOwnerOnly(path)
+}
+
+func modeExposesSharedPermissions(mode os.FileMode) bool {
+	return mode&0o077 != 0
 }
 
 func chmodOwnerOnly(path string) error {
