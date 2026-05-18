@@ -186,13 +186,17 @@ Values in `env` (stdio) and `headers` (HTTP) are stored in one of three forms. S
 | Form                  | Example            | Behavior                                                                                                                                                   |
 | --------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Process-env reference | `$GITHUB_TOKEN`    | Resolved from Hecate's process environment at subprocess spawn time. The reference is what's stored on the task; the token itself never hits the database. |
-| Encrypted literal     | `enc:<base64>`     | AES-GCM encrypted with `GATEWAY_CONTROL_PLANE_SECRET_KEY`. Decrypted at spawn time.                                                                        |
+| Encrypted literal     | `enc:<base64>`     | AES-GCM encrypted with the startup-resolved control-plane key. Decrypted at spawn time.                                                                    |
 | Bare literal          | `secret-token-xyz` | Stored as-is. Acceptable for non-secret values.                                                                                                            |
 
 Behavior of the API layer:
 
 - **On create**: any value that is NOT a `$VAR_NAME` reference and NOT already `enc:<base64>` gets auto-encrypted to `enc:...` if a settings encryption key is configured, or stored bare if not.
 - **On render** (`GET /hecate/v1/tasks/...`): `$VAR_NAME` values come back verbatim; everything else (encrypted ciphertext, bare literals) is replaced with `[redacted]`. Stored secrets cannot leak through the task API.
+
+The control-plane key comes from `GATEWAY_CONTROL_PLANE_SECRET_KEY` when set,
+or from the bootstrap key file otherwise. See
+[`security.md`](security.md#bootstrap-key-today) for the local storage model.
 
 If a value arrives as `enc:...` and no settings encryption key is configured, the run fails fast at spawn time with a clear error rather than forwarding ciphertext to the subprocess.
 
@@ -253,7 +257,7 @@ Order matters and is enforced by the handler: runner first, cache second. Closin
 | `initialize` handshake fails                                    | Run fails at start. For stdio servers, the error message includes the captured stderr — usually pinpoints missing deps, bad args, or auth failures the upstream prints before exiting. |
 | Tool call returns `isError: true`                               | The agent loop forwards the upstream's error text as a tool message with `is_error: true`. The LLM gets a chance to retry or pick a different tool; the run does NOT fail.             |
 | Transport closed mid-run (subprocess died, HTTP server hung up) | The cache evicts the entry; the call returns a transport error to the loop, which surfaces it as a tool error on the next turn. The next task respawns.                                |
-| `enc:` value arrives without `GATEWAY_CONTROL_PLANE_SECRET_KEY` | Run fails fast at spawn time with a clear error.                                                                                                                                       |
+| `enc:` value cannot be decrypted with the startup-resolved key  | Run fails fast at spawn time with a clear error.                                                                                                                                       |
 
 Bring-up (initialize + tools/list) gets one bounded retry with a 500ms backoff, rebuilding the transport from scratch between attempts. Absorbs ordinary flakiness — slow-booting subprocess, brief network blip, transient 5xx — without hiding real failures: a permanent broken config (missing binary, bad args, auth rejected) fails twice and surfaces the same diagnostic, just delayed by ~500ms. Cancellation aborts the retry promptly rather than waiting out the backoff, so runner shutdown stays responsive.
 

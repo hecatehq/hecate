@@ -53,26 +53,70 @@ Review broad grants carefully, especially workspace-wide or adapter-wide grants 
 Hecate stores local configuration and operational state on disk.
 
 - Provider credentials and settings are local to the gateway data directory / desktop app data directory.
-- Persisted provider, agent-adapter, and MCP literal credentials are encrypted
-  with a gateway-local AES-GCM control-plane key. By default that bootstrap key
-  is generated on first run, stored as `hecate.bootstrap.json`, and validated on
-  every startup. POSIX platforms create and repair the file with `0600`
-  permissions.
-- If Hecate cannot validate or secure `hecate.bootstrap.json`, startup fails
-  closed. The desktop app startup screen and `gateway.log` include the affected
-  path; fix ownership, ACLs, or POSIX mode bits so the file is private, or unset
-  an invalid `GATEWAY_CONTROL_PLANE_SECRET_KEY` override.
-- On Windows, the file-backed bootstrap path uses Go's cross-platform file-mode
-  APIs and does not rewrite existing DACLs. Treat the OS account and data
-  directory ACL as part of the local operator boundary on Windows.
-- This protects against accidental disclosure from the settings database, but
-  it is not a vault boundary: a process running as the same OS user that can
-  read both the database and bootstrap key can decrypt stored credentials.
 - Do not commit `.env`, SQLite databases, release keys, update signing keys, or platform credential files.
 - External agent credentials belong to the underlying CLI account. Hecate can probe and surface auth failures, but it does not own those accounts.
 - If you expose Hecate beyond loopback while provider credentials are configured, anyone who can reach the gateway may be able to spend those credentials.
-- Future hardening should move the bootstrap key into the OS keychain where
-  available and preserve file-backed bootstrap for headless/Docker deployments.
+
+### Bootstrap key today
+
+Persisted provider, agent-adapter, and MCP literal credentials are encrypted
+with a gateway-local AES-GCM control-plane key. Hecate resolves that key at
+startup:
+
+1. If `GATEWAY_CONTROL_PLANE_SECRET_KEY` is set, Hecate validates and uses that
+   base64-encoded 32-byte key.
+2. Otherwise Hecate loads `hecate.bootstrap.json` from the data directory, or
+   from `GATEWAY_BOOTSTRAP_FILE` when that path is set.
+3. If no bootstrap file exists, Hecate generates a new key and writes the file.
+
+The file-backed bootstrap path is intentionally local and boring:
+
+- POSIX platforms create the bootstrap file with `0600` permissions and repair
+  broader group/world modes on startup. Stricter owner-only modes such as
+  `0400` are accepted.
+- Windows uses Go's cross-platform file-mode APIs for the file-backed path, but
+  those APIs do not rewrite existing DACLs. Treat the OS account and data
+  directory ACL as part of the local operator boundary on Windows.
+- Docker and headless installs keep using the file-backed path by default. If
+  you mount the data directory or `GATEWAY_BOOTSTRAP_FILE` separately, keep the
+  host-side permissions private to the operator or service account.
+
+If Hecate cannot validate or secure the bootstrap source, startup fails closed.
+The desktop app startup screen and `gateway.log` include the affected path or
+environment override; fix ownership, ACLs, POSIX mode bits, or unset an invalid
+`GATEWAY_CONTROL_PLANE_SECRET_KEY` override before restarting.
+
+This protects against accidental disclosure from the settings database alone,
+but it is not a vault boundary. A process running as the same OS user that can
+read both the database and bootstrap key can decrypt stored credentials.
+
+Back up the settings database and bootstrap key together when you want stored
+credentials to survive a restore. If the bootstrap key is deleted, lost, or
+changed while keeping the old database, existing encrypted credentials cannot be
+decrypted; restore the old key or re-enter the provider, adapter, and MCP
+credentials.
+
+### Key storage roadmap
+
+The file-backed key is good enough for the local operator console today, but
+desktop builds should eventually prefer OS-backed storage:
+
+- macOS: store the bootstrap key in Keychain, scoped to the signed Hecate app
+  or current user, with the file-backed path kept for explicit overrides and
+  non-desktop launches.
+- Windows: store the key in Credential Manager or a DPAPI/CNG-protected secret
+  bound to the current user profile. Do not claim DACL hardening for existing
+  files until Hecate actively manages those ACLs.
+- Linux desktop: use Secret Service/libsecret when a user session service is
+  available, with file-backed bootstrap as the fallback for servers, CI, Docker,
+  and minimal window managers.
+
+The migration should be explicit in metadata: record which key source is in
+use, import an existing file-backed key into the OS key store on first eligible
+desktop launch, keep migration idempotent, and preserve `GATEWAY_BOOTSTRAP_FILE`
+and `GATEWAY_CONTROL_PLANE_SECRET_KEY` as operator-controlled escape hatches.
+Tests should cover missing keychain items, locked or unavailable keychains,
+idempotent migration, fallback behavior, and recovery messaging.
 
 ## Native app and sidecars
 
