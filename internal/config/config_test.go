@@ -41,6 +41,23 @@ func TestLoadFromEnvUsesCurrentOpenAIDefaultModel(t *testing.T) {
 		t.Fatalf("default model = %q, want gpt-5.4-mini", cfg.Router.DefaultModel)
 	}
 }
+
+func TestLoadFromEnvTraceBodyModeDefaultsToMetadata(t *testing.T) {
+	cfg := LoadFromEnv()
+	if cfg.Server.TraceBodyMode != "metadata" {
+		t.Fatalf("TraceBodyMode = %q, want metadata", cfg.Server.TraceBodyMode)
+	}
+}
+
+func TestLoadFromEnvTraceBodyModeOverride(t *testing.T) {
+	t.Setenv("GATEWAY_TRACE_BODY_MODE", "redacted_text")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.TraceBodyMode != "redacted_text" {
+		t.Fatalf("TraceBodyMode = %q, want redacted_text", cfg.Server.TraceBodyMode)
+	}
+}
+
 func TestLoadFromEnvOTelSharedDefaults(t *testing.T) {
 	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4318")
 	t.Setenv("GATEWAY_OTEL_HEADERS", "x-api-key=secret,tenant=local")
@@ -138,6 +155,19 @@ func TestValidateRejectsInvalidOTelMetricsExemplarFilter(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER") {
 		t.Fatalf("Validate() error = %q, want GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", err)
+	}
+}
+
+func TestValidateRejectsInvalidTraceBodyMode(t *testing.T) {
+	t.Setenv("GATEWAY_TRACE_BODY_MODE", "raw")
+	cfg := LoadFromEnv()
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid trace body mode error")
+	}
+	if !strings.Contains(err.Error(), "GATEWAY_TRACE_BODY_MODE") {
+		t.Fatalf("Validate() error = %q, want GATEWAY_TRACE_BODY_MODE", err)
 	}
 }
 

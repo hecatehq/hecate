@@ -165,6 +165,7 @@ Behavior to know:
 Trace body capture is configured separately from OTLP export:
 
 - `GATEWAY_TRACE_BODIES`
+- `GATEWAY_TRACE_BODY_MODE`
 - `GATEWAY_TRACE_BODY_MAX_BYTES`
 
 ## Trace Context Propagation
@@ -333,12 +334,22 @@ Provider execution also emits attempt-level metrics. These are intentionally
 separate from finalized chat metrics: retries and failed attempts are visible
 even when a later provider recovers the request.
 
-When `GATEWAY_TRACE_BODIES=true`, the gateway also records redacted, size-capped trace events named:
+When `GATEWAY_TRACE_BODIES=true`, the gateway also records trace events named:
 
 - `request.body.captured`
 - `response.body.captured`
 
-These events contain truncated message or choice snapshots and are intended for local debugging and carefully controlled observability setups, not blanket production payload capture.
+By default, `GATEWAY_TRACE_BODY_MODE=metadata` records only message shape:
+roles, content byte counts, content-block counts, tool-call counts, model, and
+finish reasons. It does not record prompt or response text. This is the
+recommended mode for routine local debugging because it preserves request shape
+without storing operator data in traces.
+
+`GATEWAY_TRACE_BODY_MODE=redacted_text` records size-capped text snapshots after
+heuristic secret redaction. This mode is for short-lived debugging in trusted
+local or tightly controlled observability setups. Redaction is best effort; it
+is not a data-loss-prevention boundary. `GATEWAY_TRACE_BODY_MAX_BYTES` only
+applies in `redacted_text` mode.
 
 ### Orchestrator Spans
 

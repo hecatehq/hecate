@@ -150,10 +150,14 @@ type ServerConfig struct {
 	// Set via GATEWAY_CHAT_IDLE_TIMEOUT.
 	ChatIdleTimeout time.Duration
 
-	// TraceBodyCapture enables recording (redacted) request and response bodies
-	// in the distributed trace.  Off by default; enable via GATEWAY_TRACE_BODIES=true.
+	// TraceBodyCapture enables recording request and response body diagnostics
+	// in the distributed trace. Off by default; enable via GATEWAY_TRACE_BODIES=true.
 	TraceBodyCapture bool
+	// TraceBodyMode controls whether body diagnostics contain metadata only
+	// (default) or redacted text snapshots. Set via GATEWAY_TRACE_BODY_MODE.
+	TraceBodyMode string
 	// TraceBodyMaxBytes caps each captured body at this many bytes (default 4096).
+	// Only applies when TraceBodyMode is "redacted_text".
 	TraceBodyMaxBytes int
 
 	// RateLimit controls per-API-key request throttling.
@@ -377,6 +381,7 @@ func LoadFromEnv() Config {
 			ChatIdleTimeout:                getEnvDuration("GATEWAY_CHAT_IDLE_TIMEOUT", 0),
 			TaskMaxConcurrentPerTenant:     getEnvInt("GATEWAY_TASK_MAX_CONCURRENT_PER_TENANT", 0),
 			TraceBodyCapture:               getEnvBool("GATEWAY_TRACE_BODIES", false),
+			TraceBodyMode:                  getEnv("GATEWAY_TRACE_BODY_MODE", "metadata"),
 			TraceBodyMaxBytes:              getEnvInt("GATEWAY_TRACE_BODY_MAX_BYTES", 4096),
 			RateLimit: RateLimitConfig{
 				Enabled:           getEnvBool("GATEWAY_RATE_LIMIT_ENABLED", false),
@@ -564,6 +569,11 @@ func (c Config) Validate() error {
 	case "", "trace_based", "tracebased", "sampled", "always_on", "alwayson", "always_off", "alwaysoff":
 	default:
 		errs = append(errs, fmt.Errorf("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER must be one of trace_based, always_on, or always_off"))
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Server.TraceBodyMode)) {
+	case "", "metadata", "redacted_text":
+	default:
+		errs = append(errs, fmt.Errorf("GATEWAY_TRACE_BODY_MODE must be one of metadata or redacted_text"))
 	}
 
 	return errors.Join(errs...)
