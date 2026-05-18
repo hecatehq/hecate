@@ -16,6 +16,7 @@ import { useContext, type SyntheticEvent } from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import {
+  ApiError,
   type ChatMessage,
   cancelChatSession as cancelChatSessionRequest,
   chatCompletionsStream,
@@ -97,6 +98,10 @@ function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null)
     return { provider: message.provider ?? "", model: message.model ?? "" };
   }
   return { provider: session.provider ?? "", model: session.model ?? "" };
+}
+
+function chatGuardError(message: string, code: string, operatorAction: string): ApiError {
+  return new ApiError(message, 400, code, { operatorAction });
 }
 
 export { chatSessionIsExternal, chatSessionIsBusy };
@@ -544,7 +549,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     if (defaultChatTarget === "external_agent") {
       const workspace = agentWorkspace.trim();
       if (!workspace) {
-        startNewChat();
+        setChatErrorState(chatGuardError(
+          "Choose a workspace before starting an external-agent chat.",
+          "chat.workspace_required",
+          "Choose a workspace, then start the chat again.",
+        ));
         return;
       }
       setChatLoading(true);
@@ -571,11 +580,19 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const runtimeKind = defaultChatTarget === "model" ? "model" : "agent";
     const workspace = agentWorkspace.trim();
     if (runtimeKind === "agent" && !workspace) {
-      startNewChat();
+      setChatErrorState(chatGuardError(
+        "Choose a workspace before starting a Hecate chat with tools.",
+        "chat.workspace_required",
+        "Choose a workspace, or turn tools off for direct model chat.",
+      ));
       return;
     }
     if (!model) {
-      startNewChat();
+      setChatErrorState(chatGuardError(
+        "Choose a model before starting this chat.",
+        "chat.model_required",
+        "Open Connections or choose a model from the composer.",
+      ));
       return;
     }
     setChatLoading(true);

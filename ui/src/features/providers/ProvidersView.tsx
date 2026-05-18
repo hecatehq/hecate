@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
 import { useWiredDashboardActions, useWiredProviderActions } from "../../app/state/coordinators/wired";
@@ -82,13 +82,18 @@ export function ProvidersView() {
   // /hecate/v1/providers/status + /v1/models are no-op network calls; skip them.
   const hasProviders = (settingsConfig?.providers?.length ?? 0) > 0;
   const shouldPoll = hasProviders || addProviderOpen;
+  const refreshProvidersRef = useRef(dashboardActions.refreshProviders);
+  useEffect(() => {
+    refreshProvidersRef.current = dashboardActions.refreshProviders;
+  }, [dashboardActions.refreshProviders]);
   useEffect(() => {
     if (!shouldPoll) return;
+    void refreshProvidersRef.current();
     const id = setInterval(() => {
-      void dashboardActions.refreshProviders();
+      void refreshProvidersRef.current();
     }, PROVIDER_POLL_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [dashboardActions.refreshProviders, shouldPoll]);
+  }, [shouldPoll]);
 
   // Reset pending key when the selected provider changes.
   useEffect(() => {

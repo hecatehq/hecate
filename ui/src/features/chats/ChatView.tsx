@@ -15,14 +15,13 @@ import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
-import type { LocalProviderDiscoveryRecord } from "../../types/provider";
+import type { LocalProviderDiscoveryRecord, ProviderFilter } from "../../types/provider";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
 import { AddProviderModal } from "../providers/AddProviderModal";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEmptyState } from "./ChatEmptyState";
 import { ChatHeader } from "./ChatHeader";
-import { ChatNoActiveState } from "./ChatNoActiveState";
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
 import { ChatSidebar, sidebarSessionAgentLabel, sidebarSessionBrand } from "./ChatSidebar";
 import { ChatTranscript, buildTranscriptItems, type VisibleChatMessage } from "./ChatTranscript";
@@ -122,7 +121,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [rtkOnboardingDismissed, setRTKOnboardingDismissed] = useState(false);
   const [draftChatOpen, setDraftChatOpen] = useState(() => Boolean(
-    state.message.trim()
+    !state.activeChatSessionID
+    || state.message.trim()
     || state.chatError
     || state.pendingToolCalls.length > 0
     || state.streamingContent,
@@ -149,11 +149,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const externalAgentHasConfigControls = Boolean(isExternalAgentChat && state.activeChatSession?.config_options?.length);
   const instructionsAvailable = isHecateChat;
   const activeSessionID = state.activeChatSessionID;
-  // With zero chats, always show the chat canvas (which renders
-  // ChatEmptyState — onboarding when no providers, composer when ready).
-  // The "No chats yet" placeholder only adds friction here and leaves
-  // new users with nowhere to go.
-  const chatCanvasActive = Boolean(activeSessionID || draftChatOpen || state.chatSessions.length === 0);
+  // The Chats workspace always shows a working canvas. When no
+  // persisted session is active, the canvas represents a draft chat.
+  // That avoids a passive "select something" screen during startup
+  // and while switching between saved sessions.
   const activeQueuedChatMessages = activeSessionID
     ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
     : [];
@@ -337,14 +336,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     ? Boolean(hecateChatModelValue)
     : Boolean(state.model) && !modelRouteUnavailable && !selectedModelIssue;
   const showHeaderWorkspaceButton = isExternalAgentChat || isHecateAgentChat;
-  const showClaudeCodeEmptyPreflight = chatCanvasActive
-    && isExternalAgentChat
+  const showClaudeCodeEmptyPreflight = isExternalAgentChat
     && visibleMessages.length === 0
     && state.pendingToolCalls.length === 0
     && !streaming
     && Boolean(claudeCodePreflight?.blockSend);
-  const showRTKOnboardingHint = chatCanvasActive
-    && isHecateChat
+  const showRTKOnboardingHint = isHecateChat
     && !chatSettingsOpen
     && !rtkOnboardingDismissed
     && !state.activeChatSessionID
@@ -364,9 +361,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     anyAgentAvailable: availableAgents.length > 0,
     claudeCodeSetupRequired: Boolean(claudeCodePreflight?.blockSend),
   });
-  const composerVisible = chatCanvasActive && (isExternalAgentChat || (isHecateChat && hecateChatModelReady)) && !showClaudeCodeEmptyPreflight;
-  const hecateHasMessageControls = chatCanvasActive && isHecateChat && (hecateAgentModelLocked || hasConfiguredProviders || selectableModels.length > 0);
-  const messageControlsVisible = chatCanvasActive && (externalAgentHasConfigControls || hecateHasMessageControls);
+  const composerVisible = (isExternalAgentChat || (isHecateChat && hecateChatModelReady)) && !showClaudeCodeEmptyPreflight;
+  const hecateHasMessageControls = isHecateChat && (hecateAgentModelLocked || hasConfiguredProviders || selectableModels.length > 0);
+  const messageControlsVisible = externalAgentHasConfigControls || hecateHasMessageControls;
   const composerRepair = composerVisible && !emptyStateAlreadyShowsRepair(chatSetupRepair, visibleMessages.length)
     ? composerVisibleRepair(chatSetupRepair)
     : null;
@@ -426,18 +423,20 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   useEffect(() => {
     if (activeSessionID) {
       setDraftChatOpen(false);
+      return;
     }
+    setDraftChatOpen(true);
   }, [activeSessionID]);
 
   useEffect(() => {
-    if (!focusComposerAfterNewChatRef.current || !chatCanvasActive) return;
+    if (!focusComposerAfterNewChatRef.current) return;
     const frame = requestAnimationFrame(() => {
       if (!textareaRef.current) return;
       textareaRef.current.focus();
       focusComposerAfterNewChatRef.current = false;
     });
     return () => cancelAnimationFrame(frame);
-  }, [chatCanvasActive, composerVisible, messageControlsVisible]);
+  }, [composerVisible, messageControlsVisible]);
 
   useEffect(() => {
     setWorkspacePathValue(state.agentWorkspace);
@@ -490,12 +489,16 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         seenBaseURLs.add(baseURL);
         return true;
       });
-    if (addable.length === 0) return;
+    if (addable.length === 0) {
+      setQuickLocalError("No detected local providers are available to add. They may already be configured or share an endpoint with an existing provider.");
+      return;
+    }
 
     setQuickAddingProviders(true);
     setQuickLocalError("");
     let createdCount = 0;
     let firstError: unknown = null;
+    const createdDiscoveries: LocalProviderDiscoveryRecord[] = [];
     try {
       for (const discovery of addable) {
         const preset = state.providerPresets.find(p => p.id === discovery.preset_id);
@@ -508,6 +511,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             protocol: preset?.protocol ?? "openai",
           }, { refresh: false });
           createdCount++;
+          createdDiscoveries.push(discovery);
         } catch (error) {
           firstError ??= error;
         }
@@ -517,6 +521,16 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           await actions.loadDashboard();
         } catch (error) {
           firstError ??= error;
+        }
+        const hasModels = (discovery: LocalProviderDiscoveryRecord) =>
+          (discovery.model_count ?? discovery.models?.length ?? 0) > 0;
+        const isHealthy = (discovery: LocalProviderDiscoveryRecord) =>
+          discovery.status === "running" || discovery.http_available;
+        const preferred = createdDiscoveries.find(discovery => isHealthy(discovery) && hasModels(discovery))
+          ?? createdDiscoveries.find(hasModels)
+          ?? createdDiscoveries[0];
+        if (preferred?.preset_id) {
+          actions.setProviderFilter(preferred.preset_id as ProviderFilter);
         }
       }
       if (firstError) {
@@ -576,35 +590,26 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
 
       {/* Chats main */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, position: "relative" }}>
-        {chatCanvasActive && (
-          <ChatHeader
-            sidebarOpen={sidebarOpen}
-            onOpenSidebar={() => setSidebarOpen(true)}
-            brand={activeHeaderBrand}
-            fallback={activeHeaderFallback}
-            title={activeTitle || (state.chatSessions.length === 0 ? "New chat" : "Select a chat")}
-            subline={activeHeaderSubline}
-            sublineHoverTitle={isExternalAgentChat ? formatAgentSessionTitle(state.activeChatSession, selectedAgent) : activeHeaderSubline}
-            isAgentChat={isAgentChat}
-            isExternalAgentChat={isExternalAgentChat}
-            showWorkspaceButton={showHeaderWorkspaceButton}
-            workspacePath={state.agentWorkspace}
-            chatSettingsOpen={chatSettingsOpen}
-            onChooseWorkspace={() => void chooseWorkspace()}
-            onToggleChatSettings={() => setChatSettingsOpen((open) => !open)}
-            activeChatSession={state.activeChatSession}
-          />
-        )}
+        <ChatHeader
+          sidebarOpen={sidebarOpen}
+          onOpenSidebar={() => setSidebarOpen(true)}
+          brand={activeHeaderBrand}
+          fallback={activeHeaderFallback}
+          title={activeTitle || (!activeSessionID || draftChatOpen ? "New chat" : "Select a chat")}
+          subline={activeHeaderSubline}
+          sublineHoverTitle={isExternalAgentChat ? formatAgentSessionTitle(state.activeChatSession, selectedAgent) : activeHeaderSubline}
+          isAgentChat={isAgentChat}
+          isExternalAgentChat={isExternalAgentChat}
+          showWorkspaceButton={showHeaderWorkspaceButton}
+          workspacePath={state.agentWorkspace}
+          chatSettingsOpen={chatSettingsOpen}
+          onChooseWorkspace={() => void chooseWorkspace()}
+          onToggleChatSettings={() => setChatSettingsOpen((open) => !open)}
+          activeChatSession={state.activeChatSession}
+        />
 
         <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
-        {!chatCanvasActive ? (
-          <ChatNoActiveState
-            agentLabel={chatAgentOption(newChatAgentID, state.agentAdapters).label}
-            hasSessions={state.chatSessions.length > 0}
-          />
-        ) : (
-          <>
         {isAgentChat && workspaceEntryOpen && (
           <div style={{ borderBottom: "1px solid var(--border)", padding: "10px 14px", background: "var(--bg2)", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>WORKSPACE PATH</span>
@@ -755,10 +760,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           onOpenTask={onOpenTask}
           onOpenTrace={onOpenTrace}
         />
-        </>
-        )}
           </div>
-        {chatCanvasActive && isAgentChat && chatSettingsOpen && (
+        {isAgentChat && chatSettingsOpen && (
           <ChatSettingsPanel
             showHecateControls={isHecateChat}
             toolsEnabled={isHecateAgentChat}
@@ -945,4 +948,3 @@ function findLatestAgentUsage(session: ChatSessionRecord | null): ChatUsageRecor
 function agentUsageEmpty(usage: ChatUsageRecord): boolean {
   return !usage.reported_cost_amount && !usage.reported_cost_currency && !(usage.context_size ?? 0) && !(usage.context_used ?? 0);
 }
-

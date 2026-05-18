@@ -35,6 +35,21 @@ describe("ConsoleShell loading state", () => {
     );
     expect(screen.getByText(/connecting/i)).toBeInTheDocument();
   });
+
+  it("centers the lazy-workspace fallback instead of pinning it to the corner", () => {
+    const state = createRuntimeConsoleFixture();
+    const { container } = render(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="usage" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
+    );
+
+    const fallback = container.querySelector(".workspace-fallback");
+    expect(fallback).not.toBeNull();
+    expect(fallback).toHaveAttribute("role", "status");
+    expect(fallback).toHaveTextContent(/loading workspace/i);
+  });
 });
 
 // The overlay-titlebar strip is the macOS drag handle that wraps the

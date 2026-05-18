@@ -593,6 +593,7 @@ describe("ChatView input", () => {
     });
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
+    const setProviderFilter = vi.fn();
     const { state, actions } = setup({
       chatTarget: "model",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
@@ -604,7 +605,7 @@ describe("ChatView input", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-    }, { createProvider, loadDashboard });
+    }, { createProvider, loadDashboard, setProviderFilter });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -628,6 +629,7 @@ describe("ChatView input", () => {
       protocol: "openai",
     }), { refresh: false });
     expect(loadDashboard).toHaveBeenCalledTimes(1);
+    expect(setProviderFilter).toHaveBeenCalledWith("lmstudio");
   });
 
   it("quick-adds only selected local providers", async () => {
@@ -664,6 +666,7 @@ describe("ChatView input", () => {
     });
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
+    const setProviderFilter = vi.fn();
     const { state, actions } = setup({
       chatTarget: "model",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
@@ -675,7 +678,7 @@ describe("ChatView input", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-    }, { createProvider, loadDashboard });
+    }, { createProvider, loadDashboard, setProviderFilter });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -689,6 +692,7 @@ describe("ChatView input", () => {
       preset_id: "ollama",
     }), { refresh: false });
     expect(loadDashboard).toHaveBeenCalledTimes(1);
+    expect(setProviderFilter).toHaveBeenCalledWith("ollama");
   });
 
   it("shows one-click local provider onboarding from Hecate Agent chat", async () => {
@@ -712,8 +716,10 @@ describe("ChatView input", () => {
     });
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
+    const setProviderFilter = vi.fn();
     const { state, actions } = setup({
       chatTarget: "agent",
+      providerFilter: "lmstudio",
       agentWorkspace: "/tmp/hecate",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
       providerPresets: [
@@ -723,7 +729,7 @@ describe("ChatView input", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-    }, { createProvider, loadDashboard });
+    }, { createProvider, loadDashboard, setProviderFilter });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(await screen.findByText("Detected locally")).toBeTruthy();
@@ -738,6 +744,7 @@ describe("ChatView input", () => {
       base_url: "http://127.0.0.1:11434/v1",
     }), { refresh: false });
     expect(loadDashboard).toHaveBeenCalledTimes(1);
+    expect(setProviderFilter).toHaveBeenCalledWith("ollama");
   });
 
   it("quick-add skips duplicate local provider endpoints", async () => {
@@ -774,6 +781,7 @@ describe("ChatView input", () => {
     });
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
+    const setProviderFilter = vi.fn();
     const { state, actions } = setup({
       chatTarget: "model",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
@@ -785,7 +793,7 @@ describe("ChatView input", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-    }, { createProvider, loadDashboard });
+    }, { createProvider, loadDashboard, setProviderFilter });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -798,6 +806,7 @@ describe("ChatView input", () => {
       base_url: "http://127.0.0.1:8080/v1",
     }), { refresh: false });
     expect(loadDashboard).toHaveBeenCalledTimes(1);
+    expect(setProviderFilter).toHaveBeenCalledWith("llamacpp");
   });
 
   it("quick-add refreshes dashboard after partial provider creation failures", async () => {
@@ -838,6 +847,7 @@ describe("ChatView input", () => {
       }
     });
     const loadDashboard = vi.fn(async () => undefined);
+    const setProviderFilter = vi.fn();
     const { state, actions } = setup({
       chatTarget: "model",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
@@ -849,7 +859,7 @@ describe("ChatView input", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-    }, { createProvider, loadDashboard });
+    }, { createProvider, loadDashboard, setProviderFilter });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -857,6 +867,7 @@ describe("ChatView input", () => {
 
     expect(createProvider).toHaveBeenCalledTimes(2);
     expect(loadDashboard).toHaveBeenCalledTimes(1);
+    expect(setProviderFilter).toHaveBeenCalledWith("ollama");
     expect(screen.getByText("LM Studio endpoint already exists")).toBeTruthy();
   });
 
@@ -2863,10 +2874,27 @@ describe("ChatView session title", () => {
       message: "",
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
-    // The bare ChatNoActiveState placeholder is gone — new users land
-    // directly on the chat canvas with its empty state + composer.
+    // New users land directly on the chat canvas with its empty
+    // state + composer, not a passive "pick something first" panel.
     // (Sidebar still shows "No chats yet" — that's a different surface.)
     expect(screen.queryByText(/Start your first .* chat from the sidebar/)).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Message" })).not.toBeNull();
+  });
+
+  it("shows a draft chat canvas on start when chat history exists but none is active", () => {
+    const { state, actions } = setup({
+      chatTarget: "model",
+      chatSessions: [
+        { id: "s1", title: "Previous chat", message_count: 2, provider_call_count: 0, updated_at: "2026-05-18T00:00:00Z" } as any,
+      ],
+      activeChatSessionID: "",
+      activeChatSession: null,
+      message: "",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.queryByText("No chat selected")).toBeNull();
+    expect(screen.getByText("New chat")).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Message" })).not.toBeNull();
   });
 

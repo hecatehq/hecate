@@ -187,17 +187,8 @@ export function ConsoleShell({
 // or the cold cache after a deploy.
 function WorkspaceFallback() {
   return (
-    <div
-      style={{
-        padding: 16,
-        fontSize: 11,
-        color: "var(--t3)",
-        fontFamily: "var(--font-mono)",
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-      }}
-    >
-      Loading…
+    <div className="workspace-fallback" role="status" aria-live="polite">
+      <span className="workspace-fallback__label">Loading workspace…</span>
     </div>
   );
 }
