@@ -73,6 +73,20 @@ func (e *erroringLLM) Chat(_ context.Context, _ types.ChatRequest) (*types.ChatR
 	return nil, e.err
 }
 
+type firstResponseThenErrorLLM struct {
+	first *types.ChatResponse
+	err   error
+	calls atomic.Int32
+}
+
+func (e *firstResponseThenErrorLLM) Chat(_ context.Context, _ types.ChatRequest) (*types.ChatResponse, error) {
+	idx := e.calls.Add(1)
+	if idx == 1 {
+		return e.first, nil
+	}
+	return nil, e.err
+}
+
 // stubExecutor records what task it was asked to run and returns a
 // canned ExecutionResult. Saves us from spinning up a real shell
 // sandbox in unit tests.
@@ -96,6 +110,30 @@ func makeAssistantMsg(content string, calls ...types.ToolCall) types.Message {
 func makeChatResp(msg types.Message) *types.ChatResponse {
 	return &types.ChatResponse{
 		Choices: []types.ChatChoice{{Message: msg, FinishReason: "stop"}},
+	}
+}
+
+func withResolvedRoute(resp *types.ChatResponse) *types.ChatResponse {
+	resp.Model = "ministral-3:latest"
+	resp.Route = types.RouteDecision{
+		Provider:     "ollama",
+		ProviderKind: "local",
+		Model:        "ministral-3:latest",
+		Reason:       "selected",
+	}
+	return resp
+}
+
+func assertResolvedRoute(t *testing.T, res *ExecutionResult) {
+	t.Helper()
+	if res.Provider != "ollama" {
+		t.Errorf("Provider = %q, want ollama", res.Provider)
+	}
+	if res.ProviderKind != "local" {
+		t.Errorf("ProviderKind = %q, want local", res.ProviderKind)
+	}
+	if res.Model != "ministral-3:latest" {
+		t.Errorf("Model = %q, want ministral-3:latest", res.Model)
 	}
 }
 
@@ -1693,14 +1731,7 @@ func TestAgentLoop_CostAccumulatesAcrossTurns(t *testing.T) {
 }
 
 func TestAgentLoop_ResultCapturesResolvedRoute(t *testing.T) {
-	resp := makeChatResp(makeAssistantMsg("Final answer."))
-	resp.Model = "ministral-3:latest"
-	resp.Route = types.RouteDecision{
-		Provider:     "ollama",
-		ProviderKind: "local",
-		Model:        "ministral-3:latest",
-		Reason:       "selected",
-	}
+	resp := withResolvedRoute(makeChatResp(makeAssistantMsg("Final answer.")))
 	llm := &scriptedLLM{responses: []*types.ChatResponse{resp}}
 	loop := NewAgentLoopExecutor(llm, &stubExecutor{result: &ExecutionResult{Status: "completed"}}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
@@ -1710,15 +1741,48 @@ func TestAgentLoop_ResultCapturesResolvedRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.Provider != "ollama" {
-		t.Errorf("Provider = %q, want ollama", res.Provider)
+	assertResolvedRoute(t, res)
+}
+
+func TestAgentLoop_ResultCapturesResolvedRouteWhenAwaitingApproval(t *testing.T) {
+	resp := withResolvedRoute(makeChatResp(makeAssistantMsg("I need shell access.", types.ToolCall{
+		ID: "call-1", Type: "function",
+		Function: types.ToolCallFunction{Name: "shell_exec", Arguments: `{"command":"ls"}`},
+	})))
+	llm := &scriptedLLM{responses: []*types.ChatResponse{resp}}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, []string{"shell_exec"}, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Run.Provider = "auto"
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
 	}
-	if res.ProviderKind != "local" {
-		t.Errorf("ProviderKind = %q, want local", res.ProviderKind)
+	if res.Status != "awaiting_approval" {
+		t.Fatalf("Status = %q, want awaiting_approval", res.Status)
 	}
-	if res.Model != "ministral-3:latest" {
-		t.Errorf("Model = %q, want ministral-3:latest", res.Model)
+	assertResolvedRoute(t, res)
+}
+
+func TestAgentLoop_ResultKeepsResolvedRouteOnLaterLLMFailure(t *testing.T) {
+	resp := withResolvedRoute(makeChatResp(makeAssistantMsg("", types.ToolCall{
+		ID: "call-1", Type: "function",
+		Function: types.ToolCallFunction{Name: "shell_exec", Arguments: `{"command":"ls"}`},
+	})))
+	llm := &firstResponseThenErrorLLM{first: resp, err: errors.New("provider timed out")}
+	shell := &stubExecutor{result: &ExecutionResult{Status: "completed"}}
+	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Run.Provider = "auto"
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
 	}
+	if res == nil || res.Status != "failed" {
+		t.Fatalf("result = %+v, want failed result", res)
+	}
+	assertResolvedRoute(t, res)
 }
 
 func TestAgentLoop_PerTaskCostCeilingTriggersFail(t *testing.T) {
