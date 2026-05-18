@@ -66,7 +66,7 @@ func (f *approvalsHTTPFixture) seedSession(t *testing.T, id string) {
 	if _, err := f.chatMgmt.Create(context.Background(), chat.Session{
 		ID:        id,
 		Title:     "test session",
-		AdapterID: "codex",
+		AgentID:   "codex",
 		Workspace: "/tmp/w",
 	}); err != nil {
 		t.Fatalf("seed session: %v", err)

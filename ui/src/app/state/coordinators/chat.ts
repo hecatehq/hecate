@@ -45,7 +45,12 @@ import {
   deriveChatSessionTitle,
   renderChatSessionSummary,
 } from "../../runtimeConsoleChatHelpers";
-import { type ChatTarget, type QueuedChatMessage } from "../_shared";
+import {
+  type ChatExecutionMode,
+  type ChatTarget,
+  type QueuedChatMessage,
+  chatTargetToExecutionMode,
+} from "../_shared";
 import { useApprovals } from "../approvals";
 import { useChat } from "../chat";
 import { useProvidersAndModels } from "../providersAndModels";
@@ -69,7 +74,7 @@ export type UseChatActionsParams = {
 };
 
 function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
-  return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
+  return Boolean(session?.agent_id && session.agent_id !== "hecate");
 }
 
 function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
@@ -92,14 +97,14 @@ function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null)
   }
   const segments = [...(session.segments ?? [])].reverse();
   const segment = segments.find(
-    (item) => item.runtime_kind === "agent" || item.runtime_kind === "model",
+    (item) => item.execution_mode === "hecate_task" || item.execution_mode === "direct_model",
   );
   if (segment?.provider || segment?.model) {
     return { provider: segment.provider ?? "", model: segment.model ?? "" };
   }
   const messages = [...(session.messages ?? [])].reverse();
   const message = messages.find(
-    (item) => item.runtime_kind === "agent" || item.runtime_kind === "model",
+    (item) => item.execution_mode === "hecate_task" || item.execution_mode === "direct_model",
   );
   if (message?.provider || message?.model) {
     return { provider: message.provider ?? "", model: message.model ?? "" };
@@ -310,27 +315,27 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
   function buildQueuedChatMessage(
     content: string,
-    runtimeKind: ChatTarget,
+    executionMode: ChatExecutionMode,
     sessionID: string,
   ): QueuedChatMessage {
     return {
       id: `queued-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       session_id: sessionID,
       content,
-      runtime_kind: runtimeKind,
+      execution_mode: executionMode,
       provider_filter: providerFilter,
       model,
       workspace: agentWorkspace.trim(),
       system_prompt: systemPrompt,
-      adapter_id: agentAdapterID,
+      agent_id: agentAdapterID,
       created_at: new Date().toISOString(),
     };
   }
 
-  function queueChatMessage(content: string, runtimeKind: ChatTarget, sessionID: string) {
+  function queueChatMessage(content: string, executionMode: ChatExecutionMode, sessionID: string) {
     setQueuedChatMessages((current) => [
       ...current,
-      buildQueuedChatMessage(content, runtimeKind, sessionID),
+      buildQueuedChatMessage(content, executionMode, sessionID),
     ]);
     setMessage("");
   }
@@ -364,28 +369,22 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const content = (queued?.content ?? message).trim();
     if (!content) return;
 
-    const turnRuntimeKind =
-      queued?.runtime_kind ??
-      (params.chatTarget === "external_agent"
-        ? "external_agent"
-        : params.chatTarget === "agent"
-          ? "agent"
-          : "model");
+    const turnExecutionMode = queued?.execution_mode ?? chatTargetToExecutionMode(params.chatTarget);
     if (!queued && activeChatSessionID && chatSessionIsBusy(activeChatSession)) {
-      queueChatMessage(content, turnRuntimeKind, activeChatSessionID);
+      queueChatMessage(content, turnExecutionMode, activeChatSessionID);
       return;
     }
 
     setChatLoading(true);
     clearChatErrorState();
     setRuntimeHeaders(null);
-    const isExternalAgent = turnRuntimeKind === "external_agent";
-    const isModelTurn = turnRuntimeKind === "model";
+    const isExternalAgent = turnExecutionMode === "external_agent";
+    const isModelTurn = turnExecutionMode === "direct_model";
     const turnProviderFilter = queued?.provider_filter ?? providerFilter;
     const turnModel = queued?.model ?? model;
     const turnWorkspace = queued?.workspace ?? agentWorkspace.trim();
     const turnSystemPrompt = queued?.system_prompt ?? systemPrompt;
-    const turnAdapterID = queued?.adapter_id ?? agentAdapterID;
+    const turnAgentID = queued?.agent_id ?? agentAdapterID;
     setStreamingContent(
       isExternalAgent
         ? "Starting external agent..."
@@ -414,8 +413,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         sessionID = "";
         setActiveChatSessionID("");
       }
-      if (sessionID && activeChatSession?.runtime_kind) {
-        const activeExternal = activeChatSession.runtime_kind === "external_agent";
+      if (sessionID && activeChatSession?.agent_id) {
+        const activeExternal = activeChatSession.agent_id !== "hecate";
         if (activeExternal !== isExternalAgent) {
           sessionID = "";
           setActiveChatSessionID("");
@@ -425,13 +424,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       if (!sessionID) {
         const created = await createChatSessionRequest({
           title: deriveChatSessionTitle(content),
-          runtime_kind: turnRuntimeKind,
-          ...(isExternalAgent
-            ? { adapter_id: turnAdapterID }
-            : {
+          agent_id: isExternalAgent ? turnAgentID : "hecate",
+          ...(!isExternalAgent
+            ? {
                 provider: turnProviderFilter === "auto" ? "" : turnProviderFilter,
                 model: turnModel,
-              }),
+              }
+            : {}),
           ...(!isModelTurn ? { workspace: turnWorkspace } : {}),
           ...(!isExternalAgent ? { rtk_enabled: hecateRTKEnabled } : {}),
         });
@@ -450,7 +449,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
                 ...(prev.messages ?? []),
                 {
                   id: `pending-agent-user-${Date.now()}`,
-                  runtime_kind: turnRuntimeKind,
+                  execution_mode: turnExecutionMode,
                   provider: !isExternalAgent
                     ? turnProviderFilter === "auto"
                       ? ""
@@ -508,12 +507,12 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       });
       const updated = await createChatMessageRequest(sessionID, {
         content: pendingContent,
-        runtime_kind: turnRuntimeKind,
+        execution_mode: turnExecutionMode,
         ...(!isExternalAgent
           ? { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel }
           : {}),
         ...(!isExternalAgent ? { system_prompt: turnSystemPrompt } : {}),
-        ...(turnRuntimeKind === "agent" ? { workspace: turnWorkspace } : {}),
+        ...(turnExecutionMode === "hecate_task" ? { workspace: turnWorkspace } : {}),
       });
       applyChatSession(updated.data);
     } catch (submitError) {
@@ -629,8 +628,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         const adapter = agentAdapters.find((item) => item.id === agentAdapterID);
         const created = await createChatSessionRequest({
           title: adapter ? `${adapter.name} chat` : "External agent chat",
-          runtime_kind: "external_agent",
-          adapter_id: agentAdapterID,
+          agent_id: agentAdapterID,
           workspace,
         });
         setActiveChatSessionID(created.data.id);
@@ -647,9 +645,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       return;
     }
 
-    const runtimeKind = defaultChatTarget === "model" ? "model" : "agent";
+    const executionMode = chatTargetToExecutionMode(defaultChatTarget);
     const workspace = agentWorkspace.trim();
-    if (runtimeKind === "agent" && !workspace) {
+    if (executionMode === "hecate_task" && !workspace) {
       setChatErrorState(
         chatGuardError(
           "Choose a workspace before starting a Hecate chat with tools.",
@@ -673,10 +671,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     clearChatErrorState();
     try {
       const created = await createChatSessionRequest({
-        runtime_kind: runtimeKind,
+        agent_id: "hecate",
         provider: providerFilter === "auto" ? "" : providerFilter,
         model,
-        ...(runtimeKind === "agent"
+        ...(executionMode === "hecate_task"
           ? {
               workspace,
               rtk_enabled: hecateRTKEnabled,
@@ -705,8 +703,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     try {
       const payload = await getChatSession(id);
       setActiveChatSession(payload.data);
-      if (payload.data.adapter_id) {
-        setAgentAdapterID(payload.data.adapter_id);
+      if (payload.data.agent_id && payload.data.agent_id !== "hecate") {
+        setAgentAdapterID(payload.data.agent_id);
       }
       const selection = deriveHecateChatSelectionFromSession(payload.data);
       if (selection.provider) {

@@ -15,8 +15,7 @@ import (
 type Session struct {
 	ID              string
 	Title           string
-	RuntimeKind     string
-	AdapterID       string
+	AgentID         string
 	DriverKind      string
 	NativeSessionID string
 	Workspace       string
@@ -42,7 +41,7 @@ type Session struct {
 
 type Message struct {
 	ID              string
-	RuntimeKind     string
+	ExecutionMode   string
 	SegmentID       string
 	TaskID          string
 	RunID           string
@@ -52,8 +51,8 @@ type Message struct {
 	Role            string
 	Content         string
 	RawOutput       string
-	AdapterID       string
-	AdapterName     string
+	AgentID         string
+	AgentName       string
 	DriverKind      string
 	NativeSessionID string
 	Status          string
@@ -240,8 +239,8 @@ func (s *MemoryStore) Create(_ context.Context, session Session) (Session, error
 		session.Status = "idle"
 	}
 	session.Messages = append([]Message(nil), session.Messages...)
-	if session.RuntimeKind == "" {
-		session.RuntimeKind = defaultRuntimeKind(session)
+	if session.AgentID == "" {
+		session.AgentID = DefaultAgentID
 	}
 	s.sessions[session.ID] = session
 	return cloneSession(session), nil
@@ -360,12 +359,22 @@ func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.Co
 	return out
 }
 
+const (
+	DefaultAgentID             = "hecate"
+	ExecutionModeDirectModel   = "direct_model"
+	ExecutionModeHecateTask    = "hecate_task"
+	ExecutionModeExternalAgent = "external_agent"
+)
+
 func hydrateMessageRuntimeFromSession(message *Message, session Session) {
-	if message.RuntimeKind == "" {
-		message.RuntimeKind = normalizeMessageRuntimeKind(session)
+	if message.ExecutionMode == "" {
+		message.ExecutionMode = defaultMessageExecutionMode(session)
 	}
-	if message.TaskID == "" && message.RuntimeKind != "model" && shouldHydrateMessageTaskID(message) {
+	if message.TaskID == "" && message.ExecutionMode == ExecutionModeHecateTask && shouldHydrateMessageTaskID(message) {
 		message.TaskID = session.TaskID
+	}
+	if message.AgentID == "" {
+		message.AgentID = session.AgentID
 	}
 	if message.Provider == "" {
 		message.Provider = session.Provider
@@ -395,16 +404,12 @@ func shouldHydrateMessageTaskID(message *Message) bool {
 	return strings.HasPrefix(strings.TrimSpace(message.SegmentID), "task:")
 }
 
-func normalizeMessageRuntimeKind(session Session) string {
-	if session.RuntimeKind != "" {
-		return session.RuntimeKind
+func defaultMessageExecutionMode(session Session) string {
+	if session.AgentID != "" && session.AgentID != DefaultAgentID {
+		return ExecutionModeExternalAgent
 	}
-	return defaultRuntimeKind(session)
-}
-
-func defaultRuntimeKind(session Session) string {
-	if session.AdapterID != "" {
-		return "external_agent"
+	if session.TaskID != "" {
+		return ExecutionModeHecateTask
 	}
-	return "agent"
+	return ExecutionModeDirectModel
 }

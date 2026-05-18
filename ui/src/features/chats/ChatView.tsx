@@ -160,8 +160,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const focusComposerAfterNewChatRef = useRef(false);
 
   const activeSessionIsExternal = Boolean(
-    state.activeChatSession?.runtime_kind === "external_agent" ||
-    state.activeChatSession?.adapter_id,
+    state.activeChatSession?.agent_id && state.activeChatSession.agent_id !== "hecate",
   );
   const activeSessionIsHecate = Boolean(state.activeChatSession && !activeSessionIsExternal);
   const isHecateChat =
@@ -187,7 +186,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const messages: VisibleChatMessage[] = (state.activeChatSession?.messages ?? []).map(
     (m, index) => ({
       id: m.id || `agent-message-${index}`,
-      runtime_kind: m.runtime_kind,
+      execution_mode: m.execution_mode,
       segment_id: m.segment_id,
       task_id: m.task_id,
       run_id: m.run_id,
@@ -197,8 +196,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       role: m.role,
       content: m.content,
       created_at: m.created_at,
-      agent_adapter_id: m.adapter_id,
-      agent_adapter_name: m.adapter_name,
+      agent_id: m.agent_id,
+      agent_name: m.agent_name,
       agent_status: m.status,
       cost_mode: m.cost_mode,
       provider: m.provider,
@@ -236,7 +235,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     state.chatErrorCode,
     state.chatErrorStatus ?? undefined,
   );
-  const activeAgentAdapterID = state.activeChatSession?.adapter_id || state.agentAdapterID;
+  const activeAgentAdapterID =
+    state.activeChatSession?.agent_id && state.activeChatSession.agent_id !== "hecate"
+      ? state.activeChatSession.agent_id
+      : state.agentAdapterID;
   const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === activeAgentAdapterID);
   const selectedAgentHealth = activeAgentAdapterID
     ? (state.agentAdapterHealthByID.get(activeAgentAdapterID) ?? null)
@@ -1030,7 +1032,9 @@ function formatAgentSessionLabel(
 ): string {
   const agentName =
     adapter?.name ||
-    (session?.adapter_id ? chatAgentOption(session.adapter_id, []).label : "External agent");
+    (session?.agent_id && session.agent_id !== "hecate"
+      ? chatAgentOption(session.agent_id, []).label
+      : "External agent");
   if (!session) {
     return adapter?.available ? `${agentName} · New session` : `${agentName} · Not ready`;
   }

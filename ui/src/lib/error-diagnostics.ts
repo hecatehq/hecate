@@ -75,9 +75,14 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
     action: "Start a new chat or switch back to the runtime that created this session.",
     tone: "warning",
   },
-  "chat.runtime_kind_invalid": {
-    title: "Unsupported chat runtime",
-    action: "Use one of the supported chat modes: model, agent, or external_agent.",
+  "chat.agent_id_invalid": {
+    title: "Unsupported agent",
+    action: "Choose Hecate or a configured external agent from the chat sidebar.",
+    tone: "warning",
+  },
+  "chat.execution_mode_invalid": {
+    title: "Unsupported chat mode",
+    action: "Use direct model chat, Hecate tools, or an external agent.",
     tone: "warning",
   },
   "chat.adapter_not_found": {

@@ -18,7 +18,7 @@ import { compactID } from "./ChatComposer";
 
 export type VisibleChatMessage = {
   id: string;
-  runtime_kind?: string;
+  execution_mode?: string;
   segment_id?: string;
   task_id?: string;
   run_id?: string;
@@ -29,8 +29,8 @@ export type VisibleChatMessage = {
   content: string | null;
   created_at?: string;
   produced_by_call_id?: string;
-  agent_adapter_id?: string;
-  agent_adapter_name?: string;
+  agent_id?: string;
+  agent_name?: string;
   agent_status?: string;
   cost_mode?: string;
   provider?: string;
@@ -168,12 +168,12 @@ export function ChatTranscript({
             : "";
           const agentModel = isHecateAgentChat
             ? m.model || activeChatSession?.model || "Hecate Agent"
-            : m.agent_adapter_name || m.agent_adapter_id;
+            : m.agent_name || m.agent_id;
           const agentRuntime =
             role === "assistant"
               ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.native_session_id)
               : "";
-          const taskID = m.runtime_kind === "agent" ? m.task_id : "";
+          const taskID = m.execution_mode === "hecate_task" ? m.task_id : "";
           const taskRunID = taskID ? m.run_id : "";
           const traceRequestID = m.request_id;
           const traceID = m.trace_id;
@@ -234,7 +234,7 @@ export function ChatTranscript({
                 // internal/agentadapters/auth_status.go and this UI
                 // handler.
                 role === "assistant" &&
-                m.agent_adapter_id === "claude_code" &&
+                m.agent_id === "claude_code" &&
                 typeof m.error === "string" &&
                 m.error.includes("claude_code_auth_required")
                   ? {
@@ -394,7 +394,7 @@ function fallbackSegmentID(message: VisibleChatMessage): string {
 function segmentFromMessage(message: VisibleChatMessage, segmentID: string): ChatSegmentRecord {
   return {
     id: segmentID,
-    runtime_kind: message.runtime_kind || "model",
+    execution_mode: message.execution_mode || "direct_model",
     provider: message.provider,
     model: message.model,
     task_id: message.task_id,
@@ -500,8 +500,8 @@ function describeChatSegment(segment: ChatSegmentRecord): {
 } {
   const model = segment.model || "selected model";
   const provider = segment.provider && segment.provider !== "auto" ? segment.provider : "";
-  switch (segment.runtime_kind) {
-    case "agent": {
+  switch (segment.execution_mode) {
+    case "hecate_task": {
       const meta = [
         provider,
         segment.task_id ? formatTaskLinkLabel(segment.task_id) : "",
@@ -543,8 +543,8 @@ function describeChatSegment(segment: ChatSegmentRecord): {
 }
 
 function messageBrand(message: VisibleChatMessage, isHecateAgentChat: boolean): string | undefined {
-  if (message.agent_adapter_id) return message.agent_adapter_id;
-  if (message.agent_adapter_name) return message.agent_adapter_name;
+  if (message.agent_id) return message.agent_id;
+  if (message.agent_name) return message.agent_name;
   if (isHecateAgentChat) return message.provider || message.model || "hecate";
   return message.provider || message.model;
 }

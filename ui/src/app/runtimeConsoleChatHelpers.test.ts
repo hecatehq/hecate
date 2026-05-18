@@ -289,7 +289,7 @@ describe("renderChatSessionSummary", () => {
     const session: ChatSessionRecord = {
       id: "ac1",
       title: "agent t",
-      adapter_id: "codex",
+      agent_id: "codex",
       driver_kind: "acp",
       native_session_id: "n1",
       workspace: "/repo",
@@ -302,7 +302,7 @@ describe("renderChatSessionSummary", () => {
     };
     const out = renderChatSessionSummary(session);
     expect(out.message_count).toBe(2);
-    expect(out.adapter_id).toBe("codex");
+    expect(out.agent_id).toBe("codex");
     expect(out.workspace_branch).toBe("main");
     expect(out.status).toBe("running");
   });

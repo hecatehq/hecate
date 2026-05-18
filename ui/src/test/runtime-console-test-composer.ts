@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef } from "react";
 import {
   type ChatTarget,
   type HecateChatTarget,
+  executionModeToChatTarget,
   normalizeStoredHecateChatTarget,
 } from "../app/state/_shared";
 import { buildLocalProviderIssue } from "../lib/provider-issues";
@@ -41,7 +42,7 @@ import type { ChatSessionRecord } from "../types/chat";
 import type { ConfiguredStateResponse } from "../types/provider";
 
 function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
-  return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
+  return Boolean(session?.agent_id && session.agent_id !== "hecate");
 }
 
 function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
@@ -59,10 +60,12 @@ function deriveHecateChatTargetFromSession(session: ChatSessionRecord | null): H
   if (!session) return "agent";
   const messages = session.messages ?? [];
   for (let i = messages.length - 1; i >= 0; i--) {
-    const target = normalizeStoredHecateChatTarget(messages[i]?.runtime_kind ?? "");
+    const target = normalizeStoredHecateChatTarget(
+      executionModeToChatTarget(messages[i]?.execution_mode ?? ""),
+    );
     if (target) return target;
   }
-  return normalizeStoredHecateChatTarget(session.runtime_kind ?? "") || "agent";
+  return "agent";
 }
 
 export { humanizeChatError };

@@ -577,22 +577,21 @@ type AgentAdapterCredentialResponseItem struct {
 }
 
 type CreateChatSessionRequest struct {
-	Title       string `json:"title,omitempty"`
-	RuntimeKind string `json:"runtime_kind,omitempty"`
-	AdapterID   string `json:"adapter_id,omitempty"`
-	Provider    string `json:"provider,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Workspace   string `json:"workspace"`
-	RTKEnabled  bool   `json:"rtk_enabled,omitempty"`
+	Title      string `json:"title,omitempty"`
+	AgentID    string `json:"agent_id,omitempty"`
+	Provider   string `json:"provider,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Workspace  string `json:"workspace"`
+	RTKEnabled bool   `json:"rtk_enabled,omitempty"`
 }
 
 type CreateChatMessageRequest struct {
-	Content      string `json:"content"`
-	RuntimeKind  string `json:"runtime_kind,omitempty"`
-	Provider     string `json:"provider,omitempty"`
-	Model        string `json:"model,omitempty"`
-	SystemPrompt string `json:"system_prompt,omitempty"`
-	Workspace    string `json:"workspace,omitempty"`
+	Content       string `json:"content"`
+	ExecutionMode string `json:"execution_mode,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	Model         string `json:"model,omitempty"`
+	SystemPrompt  string `json:"system_prompt,omitempty"`
+	Workspace     string `json:"workspace,omitempty"`
 }
 
 type UpdateChatSessionRequest struct {
@@ -610,8 +609,7 @@ type SetAgentChatSettingsRequest struct {
 type ChatSessionSummaryItem struct {
 	ID              string                  `json:"id"`
 	Title           string                  `json:"title"`
-	RuntimeKind     string                  `json:"runtime_kind"`
-	AdapterID       string                  `json:"adapter_id,omitempty"`
+	AgentID         string                  `json:"agent_id"`
 	DriverKind      string                  `json:"driver_kind,omitempty"`
 	NativeSessionID string                  `json:"native_session_id,omitempty"`
 	TaskID          string                  `json:"task_id,omitempty"`
@@ -631,8 +629,7 @@ type ChatSessionSummaryItem struct {
 type ChatSessionItem struct {
 	ID                   string                       `json:"id"`
 	Title                string                       `json:"title"`
-	RuntimeKind          string                       `json:"runtime_kind"`
-	AdapterID            string                       `json:"adapter_id,omitempty"`
+	AgentID              string                       `json:"agent_id"`
 	DriverKind           string                       `json:"driver_kind,omitempty"`
 	NativeSessionID      string                       `json:"native_session_id,omitempty"`
 	TaskID               string                       `json:"task_id,omitempty"`
@@ -657,22 +654,22 @@ type ChatSessionItem struct {
 }
 
 type ChatSegmentItem struct {
-	ID           string `json:"id"`
-	RuntimeKind  string `json:"runtime_kind"`
-	Provider     string `json:"provider,omitempty"`
-	Model        string `json:"model,omitempty"`
-	TaskID       string `json:"task_id,omitempty"`
-	LatestRunID  string `json:"latest_run_id,omitempty"`
-	Workspace    string `json:"workspace,omitempty"`
-	Status       string `json:"status,omitempty"`
-	MessageCount int    `json:"message_count"`
-	StartedAt    string `json:"started_at,omitempty"`
-	UpdatedAt    string `json:"updated_at,omitempty"`
+	ID            string `json:"id"`
+	ExecutionMode string `json:"execution_mode"`
+	Provider      string `json:"provider,omitempty"`
+	Model         string `json:"model,omitempty"`
+	TaskID        string `json:"task_id,omitempty"`
+	LatestRunID   string `json:"latest_run_id,omitempty"`
+	Workspace     string `json:"workspace,omitempty"`
+	Status        string `json:"status,omitempty"`
+	MessageCount  int    `json:"message_count"`
+	StartedAt     string `json:"started_at,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
 }
 
 type ChatMessageItem struct {
 	ID              string                  `json:"id"`
-	RuntimeKind     string                  `json:"runtime_kind,omitempty"`
+	ExecutionMode   string                  `json:"execution_mode,omitempty"`
 	SegmentID       string                  `json:"segment_id,omitempty"`
 	TaskID          string                  `json:"task_id,omitempty"`
 	RunID           string                  `json:"run_id,omitempty"`
@@ -682,8 +679,8 @@ type ChatMessageItem struct {
 	Role            string                  `json:"role"`
 	Content         string                  `json:"content"`
 	RawOutput       string                  `json:"raw_output,omitempty"`
-	AdapterID       string                  `json:"adapter_id,omitempty"`
-	AdapterName     string                  `json:"adapter_name,omitempty"`
+	AgentID         string                  `json:"agent_id,omitempty"`
+	AgentName       string                  `json:"agent_name,omitempty"`
 	DriverKind      string                  `json:"driver_kind,omitempty"`
 	NativeSessionID string                  `json:"native_session_id,omitempty"`
 	Status          string                  `json:"status,omitempty"`

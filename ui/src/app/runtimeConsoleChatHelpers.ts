@@ -221,8 +221,7 @@ export function renderChatSessionSummary(
   return {
     id: session.id,
     title: session.title,
-    runtime_kind: session.runtime_kind,
-    adapter_id: session.adapter_id,
+    agent_id: session.agent_id,
     driver_kind: session.driver_kind,
     native_session_id: session.native_session_id,
     task_id: session.task_id,

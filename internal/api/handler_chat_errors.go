@@ -10,15 +10,15 @@ import (
 	"github.com/hecate/agent-runtime/internal/gateway"
 )
 
-func writeAgentChatWorkspaceRequired(w http.ResponseWriter, runtimeKind string) {
-	WriteErrorDetails(w, http.StatusBadRequest, errCodeWorkspaceRequired, fmt.Sprintf("workspace is required for %s chat", agentChatRuntimeLabel(runtimeKind)), ErrorDetails{
+func writeAgentChatWorkspaceRequired(w http.ResponseWriter, mode string) {
+	WriteErrorDetails(w, http.StatusBadRequest, errCodeWorkspaceRequired, fmt.Sprintf("workspace is required for %s chat", chatExecutionModeLabel(mode)), ErrorDetails{
 		UserMessage:    "Choose a workspace before starting this chat mode.",
 		OperatorAction: "Use the workspace picker in Chats. Hecate Agent and External Agent sessions need a real workspace path.",
 	})
 }
 
-func writeAgentChatModelRequired(w http.ResponseWriter, runtimeKind string) {
-	WriteErrorDetails(w, http.StatusBadRequest, errCodeModelRequired, fmt.Sprintf("model is required for %s chat", agentChatRuntimeLabel(runtimeKind)), ErrorDetails{
+func writeAgentChatModelRequired(w http.ResponseWriter, mode string) {
+	WriteErrorDetails(w, http.StatusBadRequest, errCodeModelRequired, fmt.Sprintf("model is required for %s chat", chatExecutionModeLabel(mode)), ErrorDetails{
 		UserMessage:    "Choose a model before sending this message.",
 		OperatorAction: "Use the model picker in the chat header, or add a provider that reports at least one model.",
 	})
@@ -83,10 +83,17 @@ func modelReadinessErrorDetails(readiness gateway.ProviderModelReadiness) ErrorD
 	return details
 }
 
-func writeAgentChatRuntimeKindInvalid(w http.ResponseWriter) {
-	WriteErrorDetails(w, http.StatusBadRequest, errCodeRuntimeKindInvalid, "runtime_kind must be model, agent, or external_agent", ErrorDetails{
+func writeChatAgentIDInvalid(w http.ResponseWriter) {
+	WriteErrorDetails(w, http.StatusBadRequest, errCodeAgentIDInvalid, "agent_id must be hecate or a configured external agent id", ErrorDetails{
+		UserMessage:    "This chat agent is not supported by the current API.",
+		OperatorAction: "Use hecate, codex, claude_code, or cursor_agent.",
+	})
+}
+
+func writeChatExecutionModeInvalid(w http.ResponseWriter) {
+	WriteErrorDetails(w, http.StatusBadRequest, errCodeExecutionModeInvalid, "execution_mode must be direct_model, hecate_task, or external_agent", ErrorDetails{
 		UserMessage:    "This chat mode is not supported by the current API.",
-		OperatorAction: "Use one of: model, agent, or external_agent.",
+		OperatorAction: "Use one of: direct_model, hecate_task, or external_agent.",
 	})
 }
 
@@ -128,11 +135,11 @@ func writeHecateAgentBusy(w http.ResponseWriter, session chat.Session, runStatus
 	})
 }
 
-func agentChatRuntimeLabel(runtimeKind string) string {
-	switch runtimeKind {
-	case "agent":
+func chatExecutionModeLabel(mode string) string {
+	switch mode {
+	case chat.ExecutionModeHecateTask:
 		return "Hecate Agent"
-	case "external_agent":
+	case chat.ExecutionModeExternalAgent:
 		return "External Agent"
 	default:
 		return "model"

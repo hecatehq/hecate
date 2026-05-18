@@ -21,8 +21,7 @@ export type PersistedContentBlock = {
 export type ChatSessionSummaryRecord = {
   id: string;
   title: string;
-  runtime_kind?: "external_agent" | "agent" | "model" | string;
-  adapter_id?: string;
+  agent_id?: string;
   driver_kind?: string;
   native_session_id?: string;
   task_id?: string;
@@ -41,7 +40,7 @@ export type ChatSessionSummaryRecord = {
 
 export type ChatMessageRecord = {
   id: string;
-  runtime_kind?: "external_agent" | "agent" | "model" | string;
+  execution_mode?: "external_agent" | "hecate_task" | "direct_model" | string;
   segment_id?: string;
   task_id?: string;
   run_id?: string;
@@ -51,8 +50,8 @@ export type ChatMessageRecord = {
   role: "user" | "assistant";
   content: string;
   raw_output?: string;
-  adapter_id?: string;
-  adapter_name?: string;
+  agent_id?: string;
+  agent_name?: string;
   driver_kind?: string;
   native_session_id?: string;
   status?: string;
@@ -76,7 +75,7 @@ export type ChatMessageRecord = {
 
 export type ChatSegmentRecord = {
   id: string;
-  runtime_kind: "external_agent" | "agent" | "model" | string;
+  execution_mode: "external_agent" | "hecate_task" | "direct_model" | string;
   provider?: string;
   model?: string;
   task_id?: string;
@@ -146,8 +145,7 @@ export type ChatConfigOptionRecord = {
 export type ChatSessionRecord = {
   id: string;
   title: string;
-  runtime_kind?: "external_agent" | "agent" | "model" | string;
-  adapter_id?: string;
+  agent_id?: string;
   driver_kind?: string;
   native_session_id?: string;
   task_id?: string;

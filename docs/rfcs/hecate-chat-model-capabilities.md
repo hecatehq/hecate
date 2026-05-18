@@ -63,7 +63,7 @@ The staged implementation keeps runtime boundaries explicit. Once a Hecate
 Agent chat has a backing task, its provider/model picker renders the session
 snapshot read-only while tools are enabled. Turning tools off uses the normal
 direct model chat path and the current draft provider/model selection. Agent
-chat messages now carry their own `runtime_kind`, `segment_id`, provider/model
+chat messages now carry their own `execution_mode`, `segment_id`, provider/model
 snapshot, capability snapshot, and task/run linkage so a single transcript can
 explain mixed direct-model and task-backed stretches without relying on the
 current header state. Re-enabling tools after direct-model turns creates a new
@@ -138,10 +138,12 @@ overwrite an explicit operator override.
 
 ## Hecate Agent Sessions
 
-Agent Chat sessions gain a `runtime_kind`:
+Agent Chat sessions use a stable `agent_id` for ownership, while each message
+records the execution mode that produced that turn:
 
 ```ts
-type ChatRuntimeKind = "model" | "agent" | "external_agent";
+type ChatAgentID = "hecate" | "codex" | "claude_code" | "cursor_agent" | string;
+type ChatExecutionMode = "direct_model" | "hecate_task" | "external_agent";
 ```
 
 Hecate Chat sessions also store:
@@ -155,15 +157,14 @@ Hecate Chat sessions also store:
 - `workspace`
 - `workspace_branch`
 
-Each message carries its own runtime snapshot: `runtime_kind`, `segment_id`,
+Each message carries its own runtime snapshot: `execution_mode`, `segment_id`,
 provider/model, capabilities, workspace, and optional task/run linkage. The
 session response also exposes derived segment metadata so the UI can render
 clear transcript boundaries when a chat moves from direct model turns to
 Hecate Agent tool-backed turns and back again.
 
-External Agent sessions keep their adapter fields. Existing sessions without
-`runtime_kind` default to `external_agent` when `adapter_id` is present and
-`model` otherwise.
+External Agent sessions store their adapter id in `agent_id`. Hecate Chat
+sessions use `agent_id="hecate"`.
 
 ### Agent profiles
 
@@ -192,7 +193,7 @@ creation time. Profile edits should not silently rewrite historical sessions.
 
 ### First prompt
 
-For `runtime_kind="agent"` the first user message:
+For `execution_mode="hecate_task"` the first user message:
 
 1. Validates that tools are not explicitly disabled for the selected model
    (`tool_calling!="none"`). Unknown models are allowed by default for now;
@@ -371,9 +372,9 @@ Memory and SQLite must persist:
 - automatic probe results
 - Hecate Agent profiles
 - selected `agent_profile_id`
-- `runtime_kind`
+- `agent_id`
 - Hecate Agent task/run linkage fields on chat sessions
-- per-message `runtime_kind`, `segment_id`, provider/model, capability
+- per-message `execution_mode`, `segment_id`, provider/model, capability
   snapshot, and task/run linkage
 - derived API segment metadata from the persisted message snapshots
 - workspace mode snapshot on Hecate Agent sessions
@@ -433,8 +434,8 @@ Done in the core bridge:
 - streamed assistant text from the backing task updates the chat transcript
   before the run reaches a terminal state when the provider route supports SSE
 - direct model turns and Hecate Agent turns share one Agent Chat transcript
-  using `runtime_kind="model"` / `runtime_kind="agent"` message
-  snapshots
+  using `execution_mode="direct_model"` / `execution_mode="hecate_task"`
+  message snapshots
 - turning tools back on after a direct model segment creates a new task-backed
   segment in the same transcript
 - Hecate Chat queues prompts locally while the active task-backed segment is

@@ -43,15 +43,16 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	runtimeKind := normalizeAgentChatRuntimeKind(req.RuntimeKind, req.AdapterID)
-	if !isValidAgentChatRuntimeKind(runtimeKind) {
-		writeAgentChatRuntimeKindInvalid(w)
+	agentID := normalizeChatAgentID(req.AgentID)
+	if !h.isValidChatAgentID(agentID) {
+		writeChatAgentIDInvalid(w)
 		return
 	}
+	isExternalAgent := agentID != chat.DefaultAgentID
 	workspace := strings.TrimSpace(req.Workspace)
-	if runtimeKind != "model" {
+	if isExternalAgent {
 		if workspace == "" {
-			writeAgentChatWorkspaceRequired(w, runtimeKind)
+			writeAgentChatWorkspaceRequired(w, chat.ExecutionModeExternalAgent)
 			return
 		}
 		var err error
@@ -71,19 +72,19 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	session := chat.Session{
 		ID:              newChatID("chat"),
 		Title:           title,
-		RuntimeKind:     runtimeKind,
+		AgentID:         agentID,
 		Workspace:       workspace,
 		WorkspaceBranch: workspaceBranch,
 		RTKEnabled:      req.RTKEnabled,
 	}
 	var err error
 	var externalAdapter agentadapters.Adapter
-	switch runtimeKind {
-	case "model":
+	switch {
+	case agentID == chat.DefaultAgentID:
 		provider := strings.TrimSpace(req.Provider)
 		model := strings.TrimSpace(req.Model)
 		if model == "" {
-			writeAgentChatModelRequired(w, "model")
+			writeAgentChatModelRequired(w, chat.ExecutionModeDirectModel)
 			return
 		}
 		caps, err := h.resolveModelCapabilities(r.Context(), provider, model)
@@ -97,10 +98,10 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 		session.Provider = provider
 		session.Model = model
 		session.Capabilities = caps
-	case "external_agent":
-		adapter, ok := agentadapters.BuiltInByID(strings.TrimSpace(req.AdapterID))
+	default:
+		adapter, ok := agentadapters.BuiltInByID(agentID)
 		if !ok {
-			writeAgentChatAdapterNotFound(w, req.AdapterID)
+			writeAgentChatAdapterNotFound(w, agentID)
 			return
 		}
 		if h.agentChatRunner == nil {
@@ -111,40 +112,18 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 		if session.Title == "" {
 			session.Title = adapter.Name + " chat"
 		}
-		session.AdapterID = adapter.ID
 		session.DriverKind = agentadapters.DriverKindACP
-	case "agent":
-		provider := strings.TrimSpace(req.Provider)
-		model := strings.TrimSpace(req.Model)
-		if model == "" {
-			writeAgentChatModelRequired(w, "agent")
-			return
-		}
-		caps, err := h.resolveModelCapabilities(r.Context(), provider, model)
-		if err != nil {
-			writeAgentChatModelResolutionError(w, err)
-			return
-		}
-		if session.Title == "" {
-			session.Title = "Hecate Agent chat"
-		}
-		session.Provider = provider
-		session.Model = model
-		session.Capabilities = caps
-	default:
-		writeAgentChatRuntimeKindInvalid(w)
-		return
 	}
 	session, err = h.agentChat.Create(r.Context(), session)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if runtimeKind == "external_agent" {
+	if isExternalAgent {
 		prepareCtx, cancel := context.WithTimeout(r.Context(), agentChatPrepareTimeout)
 		result, prepareErr := h.agentChatRunner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
 			SessionID:               session.ID,
-			AdapterID:               session.AdapterID,
+			AdapterID:               session.AgentID,
 			Workspace:               session.Workspace,
 			PreviousNativeSessionID: session.NativeSessionID,
 		})
@@ -171,26 +150,19 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(session, h.agentChatSnapshotConfig())})
 }
 
-func normalizeAgentChatRuntimeKind(runtimeKind, adapterID string) string {
-	runtimeKind = strings.TrimSpace(runtimeKind)
-	switch runtimeKind {
-	case "":
-		if strings.TrimSpace(adapterID) != "" {
-			return "external_agent"
-		}
-		return "model"
-	default:
-		return runtimeKind
+func normalizeChatAgentID(agentID string) string {
+	if agentID = strings.TrimSpace(agentID); agentID != "" {
+		return agentID
 	}
+	return chat.DefaultAgentID
 }
 
-func isValidAgentChatRuntimeKind(runtimeKind string) bool {
-	switch runtimeKind {
-	case "model", "agent", "external_agent":
+func (h *Handler) isValidChatAgentID(agentID string) bool {
+	if agentID == chat.DefaultAgentID {
 		return true
-	default:
-		return false
 	}
+	_, ok := agentadapters.BuiltInByID(agentID)
+	return ok
 }
 
 func (h *Handler) HandleChatSession(w http.ResponseWriter, r *http.Request) {
@@ -338,7 +310,7 @@ func (h *Handler) HandleCancelChatSession(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
-	if renderAgentChatRuntimeKind(session) == "agent" && h.taskStore != nil && h.taskRunner != nil && session.TaskID != "" && session.LatestRunID != "" {
+	if isHecateChatSession(session) && h.taskStore != nil && h.taskRunner != nil && session.TaskID != "" && session.LatestRunID != "" {
 		task, found, err := h.taskStore.GetTask(r.Context(), session.TaskID)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -412,7 +384,7 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
-	if renderAgentChatRuntimeKind(session) != "external_agent" {
+	if !isExternalChatSession(session) {
 		WriteError(w, http.StatusConflict, errCodeRuntimeMismatch, "agent chat config options are only available for external-agent sessions")
 		return
 	}
@@ -458,7 +430,7 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
-	if renderAgentChatRuntimeKind(session) == "external_agent" {
+	if isExternalChatSession(session) {
 		WriteError(w, http.StatusConflict, errCodeRuntimeMismatch, "Hecate Chat settings are not available for external-agent sessions")
 		return
 	}
@@ -529,7 +501,7 @@ func writeAgentChatConfigOptionError(w http.ResponseWriter, session chat.Session
 			OperatorAction: "Try again, or restart the adapter if it stays stuck.",
 		})
 	default:
-		WriteErrorDetails(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(agentChatAdapterName(session.AdapterID), err), ErrorDetails{
+		WriteErrorDetails(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(agentChatAdapterName(session.AgentID), err), ErrorDetails{
 			UserMessage:    "The external agent could not change that control.",
 			OperatorAction: "Check the adapter status, then retry the control change.",
 		})
@@ -542,6 +514,14 @@ func agentChatAdapterName(adapterID string) string {
 		return "Agent adapter"
 	}
 	return adapter.Name
+}
+
+func isExternalChatSession(session chat.Session) bool {
+	return session.AgentID != "" && session.AgentID != chat.DefaultAgentID
+}
+
+func isHecateChatSession(session chat.Session) bool {
+	return !isExternalChatSession(session)
 }
 
 func agentChatConfigOptionSetRequest(sessionID, configID string, rawValue any) (agentadapters.SetSessionConfigOptionRequest, error) {
@@ -616,31 +596,31 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
-	turnRuntimeKind := normalizeAgentChatTurnRuntimeKind(req.RuntimeKind, session)
-	switch turnRuntimeKind {
-	case "model":
+	executionMode := normalizeChatExecutionMode(req.ExecutionMode, session)
+	switch executionMode {
+	case chat.ExecutionModeDirectModel:
 		h.handleCreateModelChatMessage(w, r, session, req)
 		return
-	case "agent":
-		if renderAgentChatRuntimeKind(session) == "external_agent" {
+	case chat.ExecutionModeHecateTask:
+		if isExternalChatSession(session) {
 			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run Hecate Agent turns")
 			return
 		}
 		h.handleCreateHecateChatMessage(w, r, session, req)
 		return
-	case "external_agent":
-		if renderAgentChatRuntimeKind(session) != "external_agent" {
+	case chat.ExecutionModeExternalAgent:
+		if !isExternalChatSession(session) {
 			writeAgentChatRuntimeMismatch(w, "Hecate Chat sessions cannot run external-agent turns")
 			return
 		}
 	default:
-		writeAgentChatRuntimeKindInvalid(w)
+		writeChatExecutionModeInvalid(w)
 		return
 	}
 
-	adapter, ok := agentadapters.BuiltInByID(session.AdapterID)
+	adapter, ok := agentadapters.BuiltInByID(session.AgentID)
 	if !ok {
-		writeAgentChatAdapterNotFound(w, session.AdapterID)
+		writeAgentChatAdapterNotFound(w, session.AgentID)
 		return
 	}
 	assistantID := newChatID("msg")
@@ -661,10 +641,11 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 	defer cancel()
 
 	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
-		ID:        newChatID("msg"),
-		Role:      "user",
-		Content:   content,
-		CreatedAt: time.Now().UTC(),
+		ID:            newChatID("msg"),
+		ExecutionMode: chat.ExecutionModeExternalAgent,
+		Role:          "user",
+		Content:       content,
+		CreatedAt:     time.Now().UTC(),
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -676,21 +657,22 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		telemetry.AttrHecateRunStatus: "running",
 	}))
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
-		ID:          assistantID,
-		RunID:       runID,
-		RequestID:   RequestIDFromContext(r.Context()),
-		TraceID:     trace.TraceID,
-		SpanID:      trace.RootSpanID(),
-		Role:        "assistant",
-		Content:     "",
-		AdapterID:   adapter.ID,
-		AdapterName: adapter.Name,
-		DriverKind:  agentadapters.DriverKindACP,
-		Status:      "running",
-		CostMode:    adapter.CostMode,
-		Workspace:   session.Workspace,
-		CreatedAt:   time.Now().UTC(),
-		StartedAt:   startedAt,
+		ID:            assistantID,
+		ExecutionMode: chat.ExecutionModeExternalAgent,
+		RunID:         runID,
+		RequestID:     RequestIDFromContext(r.Context()),
+		TraceID:       trace.TraceID,
+		SpanID:        trace.RootSpanID(),
+		Role:          "assistant",
+		Content:       "",
+		AgentID:       adapter.ID,
+		AgentName:     adapter.Name,
+		DriverKind:    agentadapters.DriverKindACP,
+		Status:        "running",
+		CostMode:      adapter.CostMode,
+		Workspace:     session.Workspace,
+		CreatedAt:     time.Now().UTC(),
+		StartedAt:     startedAt,
 		Activities: []chat.Activity{
 			newChatActivity("running", "running", "Running", "Waiting for ACP output"),
 		},
@@ -899,12 +881,15 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
 }
 
-func normalizeAgentChatTurnRuntimeKind(runtimeKind string, session chat.Session) string {
-	runtimeKind = strings.TrimSpace(runtimeKind)
-	if runtimeKind != "" {
-		return runtimeKind
+func normalizeChatExecutionMode(mode string, session chat.Session) string {
+	mode = strings.TrimSpace(mode)
+	if mode != "" {
+		return mode
 	}
-	return renderAgentChatRuntimeKind(session)
+	if isExternalChatSession(session) {
+		return chat.ExecutionModeExternalAgent
+	}
+	return chat.ExecutionModeDirectModel
 }
 
 func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest) {
@@ -948,15 +933,15 @@ func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Re
 
 	segmentID := modelSegmentID(session, provider, model)
 	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
-		ID:           newChatID("msg"),
-		RuntimeKind:  "model",
-		SegmentID:    segmentID,
-		Provider:     provider,
-		Model:        model,
-		Capabilities: caps,
-		Role:         "user",
-		Content:      content,
-		CreatedAt:    startedAt,
+		ID:            newChatID("msg"),
+		ExecutionMode: chat.ExecutionModeDirectModel,
+		SegmentID:     segmentID,
+		Provider:      provider,
+		Model:         model,
+		Capabilities:  caps,
+		Role:          "user",
+		Content:       content,
+		CreatedAt:     startedAt,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -965,21 +950,21 @@ func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Re
 	h.agentChatLive.publishSession(updated)
 
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
-		ID:           assistantID,
-		RuntimeKind:  "model",
-		SegmentID:    segmentID,
-		RunID:        runID,
-		RequestID:    RequestIDFromContext(r.Context()),
-		Provider:     provider,
-		Model:        model,
-		Capabilities: caps,
-		Role:         "assistant",
-		Content:      "",
-		Status:       "running",
-		CostMode:     "hecate",
-		Workspace:    session.Workspace,
-		CreatedAt:    startedAt,
-		StartedAt:    startedAt,
+		ID:            assistantID,
+		ExecutionMode: chat.ExecutionModeDirectModel,
+		SegmentID:     segmentID,
+		RunID:         runID,
+		RequestID:     RequestIDFromContext(r.Context()),
+		Provider:      provider,
+		Model:         model,
+		Capabilities:  caps,
+		Role:          "assistant",
+		Content:       "",
+		Status:        "running",
+		CostMode:      "hecate",
+		Workspace:     session.Workspace,
+		CreatedAt:     startedAt,
+		StartedAt:     startedAt,
 		Activities: []chat.Activity{
 			newChatActivity("model_request", "running", "Model request", "Waiting for provider response"),
 		},
@@ -1045,7 +1030,6 @@ func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if inc, incErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
-		item.RuntimeKind = "model"
 		item.Provider = provider
 		item.Model = model
 		item.Capabilities = caps
@@ -1086,7 +1070,7 @@ func agentChatModelHistory(session chat.Session, systemPrompt, content string) [
 func modelSegmentID(session chat.Session, provider, model string) string {
 	for i := len(session.Messages) - 1; i >= 0; i-- {
 		message := session.Messages[i]
-		if message.RuntimeKind != "model" {
+		if message.ExecutionMode != chat.ExecutionModeDirectModel {
 			break
 		}
 		if message.Provider == provider && message.Model == model && message.SegmentID != "" {

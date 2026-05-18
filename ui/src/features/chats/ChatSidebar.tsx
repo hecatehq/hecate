@@ -62,8 +62,8 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
     title: s.title,
     message_count: s.message_count,
     provider_call_count: 0,
-    last_provider: s.runtime_kind === "external_agent" || s.adapter_id ? s.adapter_id : s.provider,
-    last_model: s.runtime_kind === "external_agent" || s.adapter_id ? s.status : s.model,
+    last_provider: s.agent_id && s.agent_id !== "hecate" ? s.agent_id : s.provider,
+    last_model: s.agent_id && s.agent_id !== "hecate" ? s.status : s.model,
     agent_brand: sidebarSessionBrand(s),
     agent_label: sidebarSessionAgentLabel(s, agentAdapters),
     status_label: s.status,
@@ -386,10 +386,10 @@ export function filterSidebarSessions(sessions: SidebarSession[], query: string)
 }
 
 export function sidebarSessionBrand(session: ChatSessionRecord): string | undefined {
-  if (session.runtime_kind === "external_agent" || session.adapter_id) {
-    return session.adapter_id;
+  if (session.agent_id && session.agent_id !== "hecate") {
+    return session.agent_id;
   }
-  if (session.runtime_kind === "agent") {
+  if (session.agent_id === "hecate") {
     return "hecate";
   }
   return session.provider || session.model;
@@ -399,10 +399,10 @@ export function sidebarSessionAgentLabel(
   session: ChatSessionRecord,
   adapters: AgentAdapterRecord[],
 ): string | undefined {
-  if (session.runtime_kind === "external_agent" || session.adapter_id) {
-    return chatAgentOption(session.adapter_id || "", adapters).label;
+  if (session.agent_id && session.agent_id !== "hecate") {
+    return chatAgentOption(session.agent_id || "", adapters).label;
   }
-  if (session.runtime_kind === "agent") {
+  if (session.agent_id === "hecate") {
     return "Hecate";
   }
   return session.provider || session.model;

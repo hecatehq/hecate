@@ -421,13 +421,14 @@ export function ExternalAgentConfigControls({
   onChange,
   placement = "header",
 }: {
-  session: { id?: string; runtime_kind?: string; config_options?: ChatConfigOptionRecord[] } | null;
+  session: { id?: string; agent_id?: string; config_options?: ChatConfigOptionRecord[] } | null;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
   placement?: "header" | "composer";
 }) {
   if (
     !session?.id ||
-    session.runtime_kind !== "external_agent" ||
+    !session.agent_id ||
+    session.agent_id === "hecate" ||
     !session.config_options?.length
   ) {
     return null;
@@ -466,12 +467,13 @@ export function ExternalAgentSettingsControls({
   session,
   onChange,
 }: {
-  session: { id?: string; runtime_kind?: string; config_options?: ChatConfigOptionRecord[] } | null;
+  session: { id?: string; agent_id?: string; config_options?: ChatConfigOptionRecord[] } | null;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
 }) {
   if (
     !session?.id ||
-    session.runtime_kind !== "external_agent" ||
+    !session.agent_id ||
+    session.agent_id === "hecate" ||
     !session.config_options?.length
   ) {
     return null;

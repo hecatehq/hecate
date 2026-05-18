@@ -330,12 +330,12 @@ function FixtureSyncer({ state }: { state: RuntimeConsoleFixtureState }) {
     chatActionsRef.current.setChatError(state.chatError);
     chatActionsRef.current.setModelFilter(state.modelFilter);
     chatActionsRef.current.setProviderFilter(state.providerFilter);
-    // Legacy fixture compat: the old viewmodel exposed `chatTarget`
-    // as a derived field while the chat slice owns defaultChatTarget +
+    // Fixture compat: tests still provide `chatTarget` as a derived
+    // field while the chat slice owns defaultChatTarget +
     // chatTargetBySessionID. The derivation rule is:
     //   - if active session is external_agent → "external_agent"
     //   - else if active session has a per-session override → that
-    //   - else session.runtime_kind (or message tail)
+    //   - else the message execution-mode tail
     //   - else defaultChatTarget
     // Tests pin the *derived* field. We map it back: when there's an
     // active session and the test wants "model" or "agent", set the

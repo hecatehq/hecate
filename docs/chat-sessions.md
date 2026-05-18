@@ -85,7 +85,7 @@ Hecate Agent turns. Those records can point at a runtime when tools are enabled,
 but they can also store direct model segments:
 
 - **Model** segments call the gateway/router directly and store user/assistant
-  messages with `runtime_kind="model"`. They do not create Tasks.
+  messages with `execution_mode="direct_model"`. They do not create Tasks.
 - **Hecate Agent** sessions map one chat session to one visible
   `agent_loop` task-backed segment. The first tool-enabled prompt creates the
   task; follow-up prompts continue the latest terminal run when the previous

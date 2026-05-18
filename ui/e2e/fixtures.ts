@@ -370,17 +370,17 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       }
       if (method === "POST") {
         const body = JSON.parse(request.postData() || "{}");
-        const runtimeKind = body.runtime_kind || (body.adapter_id ? "external_agent" : "agent");
-        const adapter = MOCK_AGENT_ADAPTERS.find((item) => item.id === body.adapter_id);
+        const isExternalAgentID = Boolean(body.agent_id && body.agent_id !== "hecate");
+        const runtimeKind = body.execution_mode || (isExternalAgentID ? "external_agent" : "hecate_task");
+        const adapter = MOCK_AGENT_ADAPTERS.find((item) => item.id === body.agent_id);
         const isExternal = runtimeKind === "external_agent";
         const session = {
           id: `chat-e2e-${chatSequence++}`,
           title:
             body.title ||
             (isExternal ? `${adapter?.name || "External agent"} chat` : "Hecate chat"),
-          runtime_kind: runtimeKind,
-          adapter_id: body.adapter_id || "",
-          adapter_name: adapter?.name || "",
+          agent_id: body.agent_id || "hecate",
+          agent_name: adapter?.name || "",
           driver_kind: isExternal ? "acp" : "",
           native_session_id: isExternal ? `native-${chatSequence}` : "",
           provider: body.provider || "auto",
@@ -470,28 +470,29 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     if (parts[1] === "messages" && method === "POST" && parts.length === 2) {
       const body = JSON.parse(request.postData() || "{}");
       const content = String(body.content || "");
-      const runtimeKind = body.runtime_kind || session.runtime_kind || "agent";
+      const runtimeKind =
+        body.execution_mode || (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "hecate_task");
       session.messages.push(
         {
           id: `agent-msg-user-${chatSequence}`,
-          runtime_kind: runtimeKind,
+          execution_mode: runtimeKind,
           role: "user",
           content,
           created_at: now(),
         },
         {
           id: `agent-msg-assistant-${chatSequence}`,
-          runtime_kind: runtimeKind,
+          execution_mode: runtimeKind,
           role: "assistant",
           content:
-            runtimeKind === "model"
+            runtimeKind === "direct_model"
               ? `Direct response to: ${content}`
               : `Agent response to: ${content}`,
           status: "completed",
           provider: body.provider || session.provider,
           model: body.model || session.model,
           workspace: session.workspace,
-          run_id: runtimeKind === "model" ? `model_run_${chatSequence}` : `run_${chatSequence}`,
+          run_id: runtimeKind === "direct_model" ? `model_run_${chatSequence}` : `run_${chatSequence}`,
           request_id: `req_${chatSequence}`,
           trace_id: `trace_${chatSequence}`,
           cost_mode: runtimeKind === "external_agent" ? "external" : "hecate",
@@ -499,7 +500,6 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
         },
       );
       chatSequence += 1;
-      session.runtime_kind = runtimeKind;
       session.provider = body.provider || session.provider;
       session.model = body.model || session.model;
       session.status = "completed";

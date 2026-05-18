@@ -192,8 +192,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "chat_1",
                 title: "Claude Code chat",
-                runtime_kind: "external_agent",
-                adapter_id: "claude_code",
+                agent_id: "claude_code",
                 driver_kind: "acp",
                 native_session_id: "native_1",
                 workspace: "/tmp/hecate-project",
@@ -218,8 +217,7 @@ describe("useRuntimeConsole", () => {
     });
 
     expect(createBody).toMatchObject({
-      runtime_kind: "external_agent",
-      adapter_id: "claude_code",
+      agent_id: "claude_code",
       workspace: "/tmp/hecate-project",
     });
     expect(result.current.state.activeChatSessionID).toBe("chat_1");
@@ -243,7 +241,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "chat_hecate",
                 title: "Hecate Agent chat",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 provider: "",
                 model: "gpt-4o-mini",
                 workspace: "/tmp/hecate",
@@ -258,8 +256,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "a1",
                 title: "Codex chat",
-                runtime_kind: "external_agent",
-                adapter_id: "codex",
+                agent_id: "codex",
                 workspace: "/tmp/hecate",
                 status: "idle",
                 message_count: 0,
@@ -273,8 +270,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "a1",
               title: "Codex chat",
-              runtime_kind: "external_agent",
-              adapter_id: "codex",
+              agent_id: "codex",
               workspace: "/tmp/hecate",
               status: "idle",
               messages: [],
@@ -293,13 +289,13 @@ describe("useRuntimeConsole", () => {
     });
 
     expect(createBody).toMatchObject({
-      runtime_kind: "agent",
+      agent_id: "hecate",
       model: "gpt-4o-mini",
       workspace: "/tmp/hecate",
     });
     expect(createBody).not.toHaveProperty("adapter_id");
     expect(result.current.state.activeChatSessionID).toBe("chat_hecate");
-    expect(result.current.state.activeChatSession?.runtime_kind).toBe("agent");
+    expect(result.current.state.activeChatSession?.agent_id).toBe("hecate");
   });
 
   it("creates a Hecate chat session from the default model when no model is preselected", async () => {
@@ -360,7 +356,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "chat_ollama",
                 title: "Hecate Agent chat",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 provider: "ollama",
                 model: "llama3.1:8b",
                 workspace: "/tmp/hecate",
@@ -383,7 +379,7 @@ describe("useRuntimeConsole", () => {
     });
 
     expect(createBody).toMatchObject({
-      runtime_kind: "agent",
+      agent_id: "hecate",
       provider: "ollama",
       model: "llama3.1:8b",
       workspace: "/tmp/hecate",
@@ -554,7 +550,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "a1",
                 title: "Hecate",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "completed",
                 workspace: "/workspace",
                 rtk_enabled: false,
@@ -568,7 +564,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "a1",
               title: "Hecate",
-              runtime_kind: "agent",
+              agent_id: "hecate",
               status: "completed",
               workspace: "/workspace",
               rtk_enabled: false,
@@ -584,7 +580,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "a1",
               title: "Hecate",
-              runtime_kind: "agent",
+              agent_id: "hecate",
               status: "completed",
               workspace: "/workspace",
               rtk_enabled: true,
@@ -623,7 +619,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "a1",
                 title: "Still exists",
-                adapter_id: "codex",
+                agent_id: "codex",
                 status: "running",
                 message_count: 2,
               },
@@ -1112,7 +1108,7 @@ describe("useRuntimeConsole", () => {
         "/hecate/v1/chat/sessions": () => {
           const data = sessions.map((s) => ({
             ...s,
-            runtime_kind: "model",
+            agent_id: "hecate",
             status: "completed",
             message_count: 0,
             created_at: "2026-04-20T00:00:00Z",
@@ -1133,19 +1129,19 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "sess_42",
                 title: "Existing",
-                runtime_kind: "model",
+                agent_id: "hecate",
                 status: "completed",
                 messages: [
                   {
                     id: "msg_u",
-                    runtime_kind: "model",
+                    agent_id: "hecate",
                     role: "user",
                     content: "hi",
                     created_at: "2026-04-20T00:00:00Z",
                   },
                   {
                     id: "msg_a",
-                    runtime_kind: "model",
+                    agent_id: "hecate",
                     role: "assistant",
                     content: "hello",
                     status: "completed",
@@ -1190,7 +1186,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "a1",
                 title: "Agent",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "completed",
                 workspace: "/workspace",
                 provider: "openai",
@@ -1206,7 +1202,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "a1",
               title: "Agent",
-              runtime_kind: "agent",
+              agent_id: "hecate",
               status: "completed",
               workspace: "/workspace",
               provider: "openai",
@@ -1227,7 +1223,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "a1",
               title: "Agent",
-              runtime_kind: "agent",
+              agent_id: "hecate",
               status: "completed",
               workspace: "/workspace",
               provider: "openai",
@@ -1235,14 +1231,14 @@ describe("useRuntimeConsole", () => {
               messages: [
                 {
                   id: "u1",
-                  runtime_kind: "agent",
+                  agent_id: "hecate",
                   role: "user",
                   content: "inspect the repo",
                   created_at: "2026-04-20T00:00:01Z",
                 },
                 {
                   id: "a1",
-                  runtime_kind: "agent",
+                  agent_id: "hecate",
                   role: "assistant",
                   content: "done",
                   status: "completed",
@@ -1273,7 +1269,7 @@ describe("useRuntimeConsole", () => {
 
       expect(postedBody).toMatchObject({
         content: "inspect the repo",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         system_prompt: "Prefer small, reviewable diffs.",
         workspace: "/workspace",
       });
@@ -1294,7 +1290,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "a1",
                 title: "Agent",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: sessionStatus,
                 workspace: "/workspace",
                 provider: "openai",
@@ -1310,7 +1306,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "a1",
               title: "Agent",
-              runtime_kind: "agent",
+              agent_id: "hecate",
               status: sessionStatus,
               workspace: "/workspace",
               provider: "openai",
@@ -1332,7 +1328,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "a1",
               title: "Agent",
-              runtime_kind: "agent",
+              agent_id: "hecate",
               status: "completed",
               workspace: "/workspace",
               provider: "openai",
@@ -1340,7 +1336,7 @@ describe("useRuntimeConsole", () => {
               messages: [
                 {
                   id: "u1",
-                  runtime_kind: "agent",
+                  agent_id: "hecate",
                   role: "user",
                   content: "after this",
                   created_at: "2026-04-20T00:00:01Z",
@@ -1392,12 +1388,12 @@ describe("useRuntimeConsole", () => {
             id: "queued_restore",
             session_id: "a1",
             content: "keep this after refresh",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             provider_filter: "auto",
             model: "ministral-3:latest",
             workspace: "/workspace",
             system_prompt: "",
-            adapter_id: "codex",
+            agent_id: "hecate",
             created_at: "2026-04-20T00:00:01Z",
           },
         ]),
@@ -1411,7 +1407,7 @@ describe("useRuntimeConsole", () => {
                 {
                   id: "a1",
                   title: "Agent",
-                  runtime_kind: "agent",
+                  agent_id: "hecate",
                   status: "running",
                   workspace: "/workspace",
                   message_count: 0,
@@ -1424,7 +1420,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "a1",
                 title: "Agent",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "running",
                 workspace: "/workspace",
                 messages: [],
@@ -1461,12 +1457,12 @@ describe("useRuntimeConsole", () => {
             id: "queued_restore",
             session_id: "a1",
             content: "keep this after refresh",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             provider_filter: "auto",
             model: "ministral-3:latest",
             workspace: "/workspace",
             system_prompt: "",
-            adapter_id: "codex",
+            agent_id: "hecate",
             created_at: "2026-04-20T00:00:01Z",
           },
         ]),
@@ -1487,7 +1483,7 @@ describe("useRuntimeConsole", () => {
                 {
                   id: "a1",
                   title: "Agent",
-                  runtime_kind: "agent",
+                  agent_id: "hecate",
                   status: "running",
                   workspace: "/workspace",
                   message_count: 0,
@@ -1500,7 +1496,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "a1",
                 title: "Agent",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "running",
                 workspace: "/workspace",
                 messages: [],
@@ -1536,24 +1532,24 @@ describe("useRuntimeConsole", () => {
             id: "queued_keep",
             session_id: "a1",
             content: "keep",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             provider_filter: "auto",
             model: "ministral-3:latest",
             workspace: "/workspace",
             system_prompt: "",
-            adapter_id: "codex",
+            agent_id: "hecate",
             created_at: "2026-04-20T00:00:01Z",
           },
           {
             id: "queued_drop",
             session_id: "missing",
             content: "drop",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             provider_filter: "auto",
             model: "ministral-3:latest",
             workspace: "/workspace",
             system_prompt: "",
-            adapter_id: "codex",
+            agent_id: "hecate",
             created_at: "2026-04-20T00:00:02Z",
           },
         ]),
@@ -1567,7 +1563,7 @@ describe("useRuntimeConsole", () => {
                 {
                   id: "a1",
                   title: "Agent",
-                  runtime_kind: "agent",
+                  agent_id: "hecate",
                   status: "running",
                   workspace: "/workspace",
                   message_count: 0,
@@ -1609,7 +1605,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "a1",
                 title: "Busy chat",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "running",
                 workspace: "/workspace",
                 message_count: 0,
@@ -1617,7 +1613,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "a2",
                 title: "Idle chat",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "completed",
                 workspace: "/workspace",
                 message_count: 0,
@@ -1631,7 +1627,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "a1",
               title: "Busy chat",
-              runtime_kind: "agent",
+              agent_id: "hecate",
               status: "running",
               workspace: "/workspace",
               messages: [],
@@ -1647,7 +1643,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "a2",
               title: "Idle chat",
-              runtime_kind: "agent",
+              agent_id: "hecate",
               status: "completed",
               workspace: "/workspace",
               messages: [],
@@ -1710,7 +1706,7 @@ describe("useRuntimeConsole", () => {
         data: {
           id,
           title: id,
-          runtime_kind: "agent",
+          agent_id: "hecate",
           status,
           workspace: "/workspace",
           provider: "openai",
@@ -1730,7 +1726,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "a1",
                 title: "Idle chat",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "completed",
                 workspace: "/workspace",
                 message_count: 0,
@@ -1738,7 +1734,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "a2",
                 title: "Busy chat",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "running",
                 workspace: "/workspace",
                 message_count: 0,
@@ -1814,7 +1810,7 @@ describe("useRuntimeConsole", () => {
         data: {
           id,
           title: id,
-          runtime_kind: "agent",
+          agent_id: "hecate",
           status: "completed",
           workspace: "/workspace",
           provider: "openai",
@@ -1889,7 +1885,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "mixed_chat",
                 title: "Mixed",
-                runtime_kind: "model",
+                agent_id: "hecate",
                 status: "completed",
                 workspace: "/workspace",
                 provider: "ollama",
@@ -1897,7 +1893,7 @@ describe("useRuntimeConsole", () => {
                 segments: [
                   {
                     id: "model:first",
-                    runtime_kind: "model",
+                    execution_mode: "direct_model",
                     provider: "ollama",
                     model: "smollm2:135m",
                     status: "completed",
@@ -1905,7 +1901,7 @@ describe("useRuntimeConsole", () => {
                   },
                   {
                     id: "task:task_tools",
-                    runtime_kind: "agent",
+                    execution_mode: "hecate_task",
                     provider: "ollama",
                     model: "qwen2.5-coder",
                     task_id: "task_tools",
@@ -1998,7 +1994,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "sess_a",
                 title: "Keep",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "completed",
                 workspace: "/workspace",
                 message_count: 0,
@@ -2006,7 +2002,7 @@ describe("useRuntimeConsole", () => {
               {
                 id: "sess_b",
                 title: "Delete me",
-                runtime_kind: "agent",
+                agent_id: "hecate",
                 status: "running",
                 workspace: "/workspace",
                 message_count: 0,
@@ -2024,7 +2020,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "sess_b",
               title: "Delete me",
-              runtime_kind: "agent",
+              agent_id: "hecate",
               status: "running",
               workspace: "/workspace",
               messages: [],
@@ -2067,8 +2063,7 @@ describe("useRuntimeConsole", () => {
             data: {
               id: "agent_a",
               title: "Renamed agent chat",
-              runtime_kind: "external_agent",
-              adapter_id: "codex",
+              agent_id: "codex",
               workspace: "/tmp/workspace",
               status: "idle",
               messages: [],
@@ -2085,8 +2080,7 @@ describe("useRuntimeConsole", () => {
                 {
                   id: "agent_a",
                   title: "Old agent title",
-                  runtime_kind: "external_agent",
-                  adapter_id: "codex",
+                  agent_id: "codex",
                   workspace: "/tmp/workspace",
                   status: "idle",
                   message_count: 0,
@@ -2101,8 +2095,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "agent_a",
                 title: "Old agent title",
-                runtime_kind: "external_agent",
-                adapter_id: "codex",
+                agent_id: "codex",
                 workspace: "/tmp/workspace",
                 status: "idle",
                 messages: [],
@@ -2147,8 +2140,7 @@ describe("useRuntimeConsole", () => {
       const seededSession = {
         id: "a1",
         title: "Repo work",
-        runtime_kind: "agent",
-        adapter_id: "hecate",
+        agent_id: "hecate",
         workspace: "/workspace",
         task_id: "task_42",
         latest_run_id: "run_99",
@@ -2245,8 +2237,7 @@ describe("useRuntimeConsole", () => {
       const seededSession = {
         id: "a1",
         title: "Repo work",
-        runtime_kind: "agent",
-        adapter_id: "hecate",
+        agent_id: "hecate",
         workspace: "/workspace",
         task_id: "task_42",
         latest_run_id: "run_99",
@@ -2339,8 +2330,7 @@ describe("useRuntimeConsole", () => {
       const seededSession = {
         id: "a1",
         title: "Repo work",
-        runtime_kind: "agent",
-        adapter_id: "hecate",
+        agent_id: "hecate",
         workspace: "/workspace",
         task_id: "task_42",
         latest_run_id: "run_99",
@@ -2442,8 +2432,7 @@ describe("useRuntimeConsole", () => {
       const seededSession = {
         id: "a1",
         title: "Repo work",
-        runtime_kind: "agent",
-        adapter_id: "hecate",
+        agent_id: "hecate",
         workspace: "/workspace",
         task_id: "task_42",
         latest_run_id: "run_99",
@@ -2539,8 +2528,7 @@ describe("useRuntimeConsole", () => {
       const sessionA = {
         id: "a1",
         title: "A",
-        runtime_kind: "agent",
-        adapter_id: "hecate",
+        agent_id: "hecate",
         workspace: "/workspace",
         task_id: "task_42",
         latest_run_id: "run_99",
@@ -2574,8 +2562,7 @@ describe("useRuntimeConsole", () => {
       const sessionB = {
         id: "a2",
         title: "B",
-        runtime_kind: "agent",
-        adapter_id: "hecate",
+        agent_id: "hecate",
         workspace: "/workspace",
         status: "completed",
         message_count: 0,
@@ -2686,7 +2673,7 @@ describe("useRuntimeConsole", () => {
             jsonResponse({
               object: "chat_sessions",
               data: [
-                { id: "a1", title: "S1", adapter_id: "codex", status: "running", message_count: 0 },
+                { id: "a1", title: "S1", agent_id: "codex", status: "running", message_count: 0 },
               ],
             }),
           "/hecate/v1/chat/sessions/a1": () =>
@@ -2695,7 +2682,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "a1",
                 title: "S1",
-                adapter_id: "codex",
+                agent_id: "codex",
                 workspace: "/tmp",
                 status: "running",
               },
@@ -2740,7 +2727,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "a1",
                 title: "A",
-                adapter_id: "codex",
+                agent_id: "codex",
                 workspace: "/tmp",
                 status: "running",
               },
@@ -2751,7 +2738,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "b1",
                 title: "B",
-                adapter_id: "codex",
+                agent_id: "codex",
                 workspace: "/tmp",
                 status: "running",
               },
@@ -2811,7 +2798,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "a1",
                 title: "A",
-                adapter_id: "codex",
+                agent_id: "codex",
                 workspace: "/tmp",
                 status: "running",
               },
@@ -2822,7 +2809,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "b1",
                 title: "B",
-                adapter_id: "codex",
+                agent_id: "codex",
                 workspace: "/tmp",
                 status: "running",
               },
@@ -2902,7 +2889,7 @@ describe("useRuntimeConsole", () => {
               data: {
                 id: "a1",
                 title: "S1",
-                adapter_id: "codex",
+                agent_id: "codex",
                 workspace: "/tmp",
                 status: "running",
               },
@@ -2955,7 +2942,7 @@ describe("useRuntimeConsole", () => {
                 {
                   id: "g1",
                   scope: "session",
-                  adapter_id: "codex",
+                  agent_id: "codex",
                   tool_kind: "fs",
                   decision: "approve",
                   granted_by: "operator",
@@ -2964,7 +2951,7 @@ describe("useRuntimeConsole", () => {
                 {
                   id: "g2",
                   scope: "workspace_tool",
-                  adapter_id: "codex",
+                  agent_id: "codex",
                   tool_kind: "exec",
                   decision: "approve",
                   granted_by: "operator",

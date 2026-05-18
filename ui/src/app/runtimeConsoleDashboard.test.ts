@@ -135,7 +135,7 @@ describe("resolveDashboardSnapshot", () => {
         {
           id: "ac1",
           title: "old",
-          adapter_id: "codex",
+          agent_id: "codex",
           workspace: "/repo",
           status: "running",
           message_count: 0,
@@ -162,7 +162,7 @@ describe("resolveDashboardSnapshot", () => {
         {
           id: "ac1",
           title: "current",
-          adapter_id: "codex",
+          agent_id: "codex",
           workspace: "/repo",
           status: "running",
           message_count: 0,
@@ -175,7 +175,7 @@ describe("resolveDashboardSnapshot", () => {
       activeChatSession: {
         id: "ac1",
         title: "stale",
-        adapter_id: "codex",
+        agent_id: "codex",
         workspace: "/repo",
         status: "running",
       },

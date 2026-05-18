@@ -21,7 +21,6 @@ const hecateAgentPollInterval = 250 * time.Millisecond
 
 func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest) {
 	content := strings.TrimSpace(req.Content)
-	session.RuntimeKind = "agent"
 	if workspace := strings.TrimSpace(req.Workspace); workspace != "" {
 		resolved, err := agentadapters.ValidateWorkspace(workspace)
 		if err != nil {
@@ -32,7 +31,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		session.WorkspaceBranch = workspaceGitBranch(resolved)
 	}
 	if strings.TrimSpace(session.Workspace) == "" {
-		writeAgentChatWorkspaceRequired(w, "agent")
+		writeAgentChatWorkspaceRequired(w, chat.ExecutionModeHecateTask)
 		return
 	}
 	if provider := strings.TrimSpace(req.Provider); provider != "" {
@@ -101,16 +100,16 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	}
 	messageSnapshot := hecateAgentMessageSnapshot(messageSnapshotSession, caps, segmentID)
 	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
-		ID:           userID,
-		RuntimeKind:  messageSnapshot.RuntimeKind,
-		SegmentID:    messageSnapshot.SegmentID,
-		TaskID:       messageSnapshot.TaskID,
-		Provider:     messageSnapshot.Provider,
-		Model:        messageSnapshot.Model,
-		Capabilities: messageSnapshot.Capabilities,
-		Role:         "user",
-		Content:      content,
-		CreatedAt:    startedAt,
+		ID:            userID,
+		ExecutionMode: messageSnapshot.ExecutionMode,
+		SegmentID:     messageSnapshot.SegmentID,
+		TaskID:        messageSnapshot.TaskID,
+		Provider:      messageSnapshot.Provider,
+		Model:         messageSnapshot.Model,
+		Capabilities:  messageSnapshot.Capabilities,
+		Role:          "user",
+		Content:       content,
+		CreatedAt:     startedAt,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -119,23 +118,23 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	h.agentChatLive.publishSession(updated)
 
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
-		ID:           assistantID,
-		RuntimeKind:  messageSnapshot.RuntimeKind,
-		SegmentID:    messageSnapshot.SegmentID,
-		TaskID:       messageSnapshot.TaskID,
-		RequestID:    RequestIDFromContext(r.Context()),
-		TraceID:      trace.TraceID,
-		SpanID:       trace.RootSpanID(),
-		Provider:     messageSnapshot.Provider,
-		Model:        messageSnapshot.Model,
-		Capabilities: messageSnapshot.Capabilities,
-		Role:         "assistant",
-		Content:      "",
-		Status:       "running",
-		CostMode:     "hecate",
-		Workspace:    session.Workspace,
-		CreatedAt:    startedAt,
-		StartedAt:    startedAt,
+		ID:            assistantID,
+		ExecutionMode: messageSnapshot.ExecutionMode,
+		SegmentID:     messageSnapshot.SegmentID,
+		TaskID:        messageSnapshot.TaskID,
+		RequestID:     RequestIDFromContext(r.Context()),
+		TraceID:       trace.TraceID,
+		SpanID:        trace.RootSpanID(),
+		Provider:      messageSnapshot.Provider,
+		Model:         messageSnapshot.Model,
+		Capabilities:  messageSnapshot.Capabilities,
+		Role:          "assistant",
+		Content:       "",
+		Status:        "running",
+		CostMode:      "hecate",
+		Workspace:     session.Workspace,
+		CreatedAt:     startedAt,
+		StartedAt:     startedAt,
 		Activities: []chat.Activity{
 			newChatActivity("started", "running", "Starting Hecate Agent", "Creating or continuing the backing task run"),
 		},
@@ -171,14 +170,13 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	segmentID = "task:" + task.ID
 	messageSnapshot = hecateAgentMessageSnapshot(chat.Session{
 		ID:           session.ID,
-		RuntimeKind:  session.RuntimeKind,
 		TaskID:       task.ID,
 		Provider:     session.Provider,
 		Model:        session.Model,
 		Capabilities: caps,
 	}, caps, segmentID)
 	if userUpdated, userUpdateErr := h.agentChat.UpdateMessage(r.Context(), session.ID, userID, func(message *chat.Message) {
-		message.RuntimeKind = messageSnapshot.RuntimeKind
+		message.ExecutionMode = messageSnapshot.ExecutionMode
 		message.SegmentID = messageSnapshot.SegmentID
 		message.TaskID = messageSnapshot.TaskID
 		message.Provider = messageSnapshot.Provider
@@ -188,7 +186,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		h.agentChatLive.publishSession(userUpdated)
 	}
 	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *chat.Message) {
-		message.RuntimeKind = messageSnapshot.RuntimeKind
+		message.ExecutionMode = messageSnapshot.ExecutionMode
 		message.SegmentID = messageSnapshot.SegmentID
 		message.TaskID = messageSnapshot.TaskID
 		message.RunID = run.ID
@@ -204,7 +202,6 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		h.agentChatLive.publishSession(updated)
 	}
 	updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
-		item.RuntimeKind = "agent"
 		item.TaskID = task.ID
 		item.LatestRunID = run.ID
 		item.Provider = session.Provider
@@ -323,17 +320,13 @@ func hecateAgentSegmentID(session chat.Session) string {
 }
 
 func hecateAgentMessageSnapshot(session chat.Session, caps types.ModelCapabilities, segmentID string) chat.Message {
-	runtimeKind := session.RuntimeKind
-	if runtimeKind == "" {
-		runtimeKind = "agent"
-	}
 	return chat.Message{
-		RuntimeKind:  runtimeKind,
-		SegmentID:    segmentID,
-		TaskID:       session.TaskID,
-		Provider:     session.Provider,
-		Model:        session.Model,
-		Capabilities: caps,
+		ExecutionMode: chat.ExecutionModeHecateTask,
+		SegmentID:     segmentID,
+		TaskID:        session.TaskID,
+		Provider:      session.Provider,
+		Model:         session.Model,
+		Capabilities:  caps,
 	}
 }
 
@@ -359,7 +352,7 @@ func shouldStartNewHecateAgentSegment(session chat.Session, provider, model stri
 		if strings.TrimSpace(message.Content) == "" && message.Role == "assistant" {
 			continue
 		}
-		if message.RuntimeKind != "agent" {
+		if message.ExecutionMode != chat.ExecutionModeHecateTask {
 			return true
 		}
 		if provider != "" && strings.TrimSpace(message.Provider) != "" && strings.TrimSpace(message.Provider) != provider {
