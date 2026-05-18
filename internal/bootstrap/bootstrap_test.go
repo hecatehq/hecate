@@ -128,6 +128,16 @@ func TestResolveRejectsInvalidEnvSecret(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsWrongLengthEnvSecret(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hecate.bootstrap.json")
+
+	shortKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xab}, 31))
+	if _, err := Resolve(path, shortKey); err == nil {
+		t.Fatal("Resolve() error = nil, want wrong-length env secret error")
+	}
+}
+
 func TestResolveRepairsLooseExistingFilePermissions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hecate.bootstrap.json")
@@ -143,6 +153,32 @@ func TestResolveRepairsLooseExistingFilePermissions(t *testing.T) {
 	}
 
 	if _, err := Resolve(path, ""); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("file mode = %o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestResolveRepairsLoosePermissionsWhenEnvOverridesFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hecate.bootstrap.json")
+	b := Bootstrap{
+		ControlPlaneSecretKey: testBootstrapKey(0xef),
+	}
+	raw, err := json.Marshal(b)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	if _, err := Resolve(path, testBootstrapKey(0xab)); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	info, err := os.Stat(path)
