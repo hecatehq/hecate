@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type { TaskRecord } from "../../types/task";
 import { Badge, Icon, Icons } from "../shared/ui";
 
@@ -29,32 +31,52 @@ function taskKindLabel(task: TaskRecord): string {
 }
 
 export function TaskList({ tasks, selectedTaskID, loading, busyAction, onSelect, onDelete, onNewTask, onRefresh }: Props) {
+  const [actionTaskID, setActionTaskID] = useState("");
+
   function activateTask(id: string) {
     onSelect(id);
   }
 
   return (
-    <div style={{ width: 300, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0 }}>
-      <div style={{ padding: 8, borderBottom: "1px solid var(--border)", display: "flex", gap: 6, background: "var(--bg1)" }}>
-        <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: "center" }} onClick={onNewTask} type="button">
-          <Icon d={Icons.plus} size={13} /> New task
+    <div style={{ width: 220, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg1)" }}>
+      <div style={{ height: "var(--topbar-h)", padding: "0 8px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+        <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: "center", minHeight: 30 }} onClick={onNewTask} type="button">
+          New task
         </button>
         <button className="btn btn-ghost btn-sm" onClick={onRefresh} title="Refresh" aria-label="Refresh tasks" type="button">
           <Icon d={Icons.refresh} size={13} />
         </button>
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
-        {loading && <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)" }}>Loading…</div>}
+        {loading && tasks.length === 0 && (
+          <div style={{ minHeight: 120, display: "grid", placeItems: "center", padding: "16px 12px", textAlign: "center", fontSize: 12, color: "var(--t3)" }}>
+            Loading tasks…
+          </div>
+        )}
         {!loading && tasks.length === 0 && (
           <div style={{ padding: "24px 12px", textAlign: "center", fontSize: 12, color: "var(--t3)" }}>No tasks yet. Create one above.</div>
         )}
-        {tasks.map(t => (
+        {tasks.map(t => {
+          const showActions = actionTaskID === t.id;
+          return (
           <div
             key={t.id}
             role="button"
             tabIndex={0}
             aria-current={selectedTaskID === t.id ? "true" : undefined}
             aria-label={`Task ${t.title || t.prompt || "Untitled task"}`}
+            onMouseEnter={() => setActionTaskID(t.id)}
+            onMouseLeave={e => {
+              const nextTarget = e.relatedTarget;
+              if (nextTarget instanceof Node && e.currentTarget.contains(nextTarget)) return;
+              setActionTaskID(current => current === t.id ? "" : current);
+            }}
+            onFocus={() => setActionTaskID(t.id)}
+            onBlur={e => {
+              const nextTarget = e.relatedTarget;
+              if (nextTarget instanceof Node && e.currentTarget.contains(nextTarget)) return;
+              setActionTaskID(current => current === t.id ? "" : current);
+            }}
             onClick={() => activateTask(t.id)}
             onKeyDown={e => {
               if (e.target !== e.currentTarget) return;
@@ -107,10 +129,17 @@ export function TaskList({ tasks, selectedTaskID, loading, busyAction, onSelect,
               {t.status !== "running" && (
                 <button
                   className="btn btn-ghost btn-sm"
-                  style={{ padding: "1px 3px", color: "var(--red)" }}
+                  style={{
+                    padding: "1px 3px",
+                    color: "var(--red)",
+                    opacity: showActions ? 1 : 0,
+                    visibility: showActions ? "visible" : "hidden",
+                    transition: "opacity 0.12s",
+                  }}
                   title="Delete"
                   aria-label={`Delete task ${t.title || t.prompt || t.id}`}
                   type="button"
+                  tabIndex={showActions ? 0 : -1}
                   disabled={busyAction === "delete:" + t.id}
                   onClick={e => { e.stopPropagation(); onDelete(t.id); }}
                 >
@@ -126,25 +155,25 @@ export function TaskList({ tasks, selectedTaskID, loading, busyAction, onSelect,
                 {taskKindLabel(t)}
               </div>
             )}
-            <div style={{ fontSize: 10, color: "var(--t2)", fontFamily: "var(--font-mono)", marginTop: 2, display: "flex", gap: 8, alignItems: "baseline", overflow: "hidden" }}>
-              <span style={{ flexShrink: 0 }}>
-                {t.latest_run_id ? `run: ${t.latest_run_id.slice(0, 8)}` : "not started"}
-              </span>
-              {/* Model + provider from the most recent run. Empty
-                  string omits — pre-LLM tasks (shell/git/file kinds
-                  with no model routing) would otherwise render an
-                  ugly "·  / " on every row. */}
-              {(t.latest_model || t.latest_provider) && (
+            {(t.latest_model || t.latest_provider) && (
+              <div style={{ fontSize: 10, color: "var(--t2)", fontFamily: "var(--font-mono)", marginTop: 2, display: "flex", gap: 8, alignItems: "baseline", overflow: "hidden" }}>
+                {/* Model + provider from the most recent run. Empty
+                    string omits — pre-LLM tasks (shell/git/file kinds
+                    with no model routing) would otherwise render an
+                    ugly " / " on every row. Run ids live in Task
+                    Detail, where they can be copied without turning
+                    the task list into an id ledger. */}
                 <span
                   title={t.latest_provider ? `${t.latest_model || ""} via ${t.latest_provider}` : t.latest_model}
                   style={{ color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
-                  · {t.latest_model || ""}
+                  {t.latest_model || ""}
                   {t.latest_provider && <span style={{ color: "var(--t3)" }}> / {t.latest_provider}</span>}
                 </span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        ))}
+        );
+        })}
       </div>
     </div>
   );

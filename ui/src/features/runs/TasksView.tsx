@@ -42,6 +42,33 @@ export function streamTurnCostKey(turnIndex: number | undefined): number | null 
   return Math.trunc(turnIndex) + 1;
 }
 
+function TaskStartState({ loading, onNewTask }: { loading: boolean; onNewTask: () => void }) {
+  return (
+    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ maxWidth: 460, textAlign: "center" }}>
+        <div style={{ fontSize: 15, color: "var(--t0)", fontWeight: 600 }}>
+          {loading ? "Loading tasks…" : "Start a task"}
+        </div>
+        <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.6, marginTop: 8 }}>
+          {loading
+            ? "Checking the task runtime for recent work."
+            : "Use Hecate's task runtime for shell commands, Git operations, file work, or agent-loop runs with approvals and artifacts."}
+        </div>
+        {!loading && (
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={onNewTask}
+            style={{ marginTop: 18, justifyContent: "center" }}
+          >
+            New task
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function TasksView({
   focusRequest,
   onOpenChat,
@@ -87,6 +114,11 @@ export function TasksView({
 
   const selectedTask = useMemo(() => tasks.find(t => t.id === selectedTaskID) ?? null, [tasks, selectedTaskID]);
   const selectedRun = useMemo(() => runs.find(r => r.id === selectedRunID) ?? null, [runs, selectedRunID]);
+  const selectedTaskIDRef = useRef(selectedTaskID);
+
+  useEffect(() => {
+    selectedTaskIDRef.current = selectedTaskID;
+  }, [selectedTaskID]);
 
   const resetRunDetail = useCallback(() => {
     setSteps([]);
@@ -131,7 +163,9 @@ export function TasksView({
       const res = await getTasks(30);
       const nextTasks = res.data ?? [];
       setTasks(nextTasks);
-      const nextTaskID = (preferredTaskID && nextTasks.some(t => t.id === preferredTaskID) ? preferredTaskID : "") || nextTasks[0]?.id || "";
+      const currentTaskID = selectedTaskIDRef.current;
+      const preservedTaskID = currentTaskID && nextTasks.some(t => t.id === currentTaskID) ? currentTaskID : "";
+      const nextTaskID = (preferredTaskID && nextTasks.some(t => t.id === preferredTaskID) ? preferredTaskID : "") || preservedTaskID || nextTasks[0]?.id || "";
       setSelectedTaskID(nextTaskID);
       if (nextTaskID) await loadTaskDetail(nextTaskID, preferredRunID);
     } catch { /* silently ignore */ }
@@ -449,11 +483,13 @@ export function TasksView({
           onOpenTrace={onOpenTrace}
         />
       ) : (
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ textAlign: "center", color: "var(--t3)", fontSize: 12 }}>
-            {loading ? "Loading…" : "Select a task to inspect."}
-          </div>
-        </div>
+        <TaskStartState
+          loading={loading}
+          onNewTask={() => {
+            setDefaultTaskWorkspace(readStoredAgentWorkspace());
+            setNewTaskOpen(true);
+          }}
+        />
       )}
 
       <NewTaskSlideOver

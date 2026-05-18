@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -39,7 +39,20 @@ describe("TaskList", () => {
   it("shows the loading state when loading is true and no tasks", () => {
     const { render } = setup({ tasks: [], loading: true });
     render();
-    expect(screen.getByText(/loading/i)).toBeTruthy();
+    expect(screen.getByText(/loading tasks/i)).toBeTruthy();
+  });
+
+  it("keeps existing rows visible during refresh instead of flashing a list loading state", () => {
+    const { render } = setup({ loading: true });
+    render();
+    expect(screen.getByText("List the working directory")).toBeTruthy();
+    expect(screen.queryByText(/loading tasks/i)).toBeNull();
+  });
+
+  it("uses the same sidebar width as the chat list", () => {
+    const { render } = setup();
+    const { container } = render();
+    expect((container.firstElementChild as HTMLElement).style.width).toBe("220px");
   });
 
   it("shows the empty state when not loading and no tasks", () => {
@@ -48,14 +61,13 @@ describe("TaskList", () => {
     expect(screen.getByText(/no tasks yet/i)).toBeTruthy();
   });
 
-  it("renders task title, kind badge, step count, and short run id", () => {
+  it("renders task title, kind badge, and step count without exposing run ids in the list", () => {
     const { render } = setup();
     render();
     expect(screen.getByText("List the working directory")).toBeTruthy();
     expect(screen.getByText("shell")).toBeTruthy();
     expect(screen.getByText(/2 steps/)).toBeTruthy();
-    // Run id is truncated to 8 chars in the list row.
-    expect(screen.getByText(/run: run-abcd/)).toBeTruthy();
+    expect(screen.queryByText(/run abcdef12/)).toBeNull();
   });
 
   it("renders the kind label preview ($ ls -la for shell tasks)", () => {
@@ -105,9 +117,30 @@ describe("TaskList", () => {
     const onDelete = vi.fn();
     const { render, user } = setup({ onSelect, onDelete });
     render();
-    await user.click(screen.getByRole("button", { name: /delete task list the working directory/i }));
+    const row = screen.getByRole("button", { name: /^Task List the working directory$/ });
+    await user.hover(row);
+    const deleteButton = await screen.findByRole("button", { name: /delete task list the working directory/i }) as HTMLButtonElement;
+    await user.click(deleteButton);
     expect(onDelete).toHaveBeenCalledWith("task-1");
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("keeps the delete action visually hidden until the row is hovered or focused", async () => {
+    const { render, user } = setup();
+    render();
+    const row = screen.getByRole("button", { name: /^Task List the working directory$/ });
+    expect(screen.queryByRole("button", { name: /delete task list the working directory/i })).toBeNull();
+
+    await user.hover(row);
+    expect(await screen.findByRole("button", { name: /delete task list the working directory/i })).toBeTruthy();
+
+    await user.unhover(row);
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /delete task list the working directory/i })).toBeNull();
+    });
+
+    fireEvent.focus(row);
+    expect(await screen.findByRole("button", { name: /delete task list the working directory/i })).toBeTruthy();
   });
 
   it("hides the delete button while a task is running", () => {
@@ -119,14 +152,16 @@ describe("TaskList", () => {
   it("disables the delete button while that task's delete is in flight", () => {
     const { render } = setup({ busyAction: "delete:task-1" });
     render();
-    expect((screen.getByTitle("Delete") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.focus(screen.getByRole("button", { name: /^Task List the working directory$/ }));
+    expect((screen.getByRole("button", { name: /delete task list the working directory/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("'New task' button calls onNewTask", async () => {
+  it("'New task' button calls onNewTask without an inline plus label", async () => {
     const onNewTask = vi.fn();
     const { render, user } = setup({ onNewTask });
     render();
-    await user.click(screen.getByRole("button", { name: /new task/i }));
+    const button = screen.getByRole("button", { name: "New task" });
+    await user.click(button);
     expect(onNewTask).toHaveBeenCalled();
   });
 
@@ -138,10 +173,10 @@ describe("TaskList", () => {
     expect(onRefresh).toHaveBeenCalled();
   });
 
-  it("shows 'not started' when the task has no latest_run_id", () => {
+  it("does not show a run placeholder when the task has no latest_run_id", () => {
     const { render } = setup({ tasks: [makeTask({ latest_run_id: undefined })] });
     render();
-    expect(screen.getByText(/not started/i)).toBeTruthy();
+    expect(screen.queryByText(/not started/i)).toBeNull();
   });
 
   it("renders the file path as the kind label for file tasks", () => {

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/task";
 import { formatDurationRange, formatLocaleDateTime, formatLocaleTime, formatMicrosUSD } from "../../lib/format";
-import { Badge, BrandAvatar, Dot, Icon, Icons, Modal } from "../shared/ui";
+import { providerDisplayName } from "../../lib/provider-utils";
+import { Badge, BrandAvatar, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
 
 import { AgentConversationView } from "./TaskAgentConversation";
@@ -296,6 +297,15 @@ export function TaskDetail({
   const conversationArtifact = artifacts.find(a => a.kind === "agent_conversation") ?? null;
   const previewPatch = artifacts.find(a => a.id === previewPatchID && a.kind === "patch") ?? null;
   const pendingApprovals = approvals.filter(a => a.status === "pending");
+  const requestedAutoProvider = run?.provider?.toLowerCase() === "auto";
+  const resolvedProviderID = run?.provider && !requestedAutoProvider ? run.provider : "";
+  const routeProviderLabel = resolvedProviderID ? providerDisplayName(resolvedProviderID) : requestedAutoProvider ? "Auto route" : "";
+  const routeBrand = resolvedProviderID || run?.model || "";
+  const showRunStopControl = Boolean(
+    run &&
+      (run.status === "queued" || run.status === "running" || run.status === "awaiting_approval") &&
+      pendingApprovals.length === 0,
+  );
   const visibleEvents = events.filter(isVisibleRunEvent);
 
   useEffect(() => {
@@ -385,8 +395,15 @@ export function TaskDetail({
           <RunCostBadge run={run} />
         ) : null}
         <div style={{ display: "flex", gap: 6 }}>
-          {(run?.status === "queued" || run?.status === "running" || run?.status === "awaiting_approval") && (
-            <button className="btn btn-danger btn-sm" disabled={busyAction === "cancel"} onClick={onCancelRun}>Cancel</button>
+          {showRunStopControl && (
+            <button
+              className="btn btn-danger btn-sm"
+              disabled={busyAction === "cancel"}
+              onClick={onCancelRun}
+              title={run?.status === "awaiting_approval" ? "Stop the whole run without making an approval decision." : "Stop the running task run."}
+            >
+              Stop run
+            </button>
           )}
           {(run?.status === "failed" || run?.status === "cancelled") && (
             <>
@@ -417,10 +434,10 @@ export function TaskDetail({
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", background: "var(--bg1)" }}>
             <div className="kicker" style={{ marginBottom: 8 }}>Run overview</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 10 }}>
-              {(run.provider || run.model) && (
+              {(routeProviderLabel || run.model) && (
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                  <BrandAvatar brand={run.provider || run.model} fallback={run.provider || run.model} size={22} />
-                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{run.provider || "provider auto"}</span>
+                  <BrandAvatar brand={routeBrand || routeProviderLabel} fallback={routeProviderLabel || run.model} size={22} />
+                  {routeProviderLabel && <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{routeProviderLabel}</span>}
                   {run.model && (
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {run.model}
@@ -438,6 +455,9 @@ export function TaskDetail({
               {([
                 ["Model", run.model || "—"],
                 ["Duration", formatDurationRange(run.started_at, run.finished_at) || "—"],
+                ["Run ID", run.id
+                  ? <CopyableID text={run.id} compact />
+                  : "—"],
                 // Request ID becomes a clickable trace link when both
                 // the run carries a request_id and the parent wired an
                 // onOpenTrace callback. Otherwise it's plain text — same
@@ -1061,4 +1081,3 @@ function StepDetail({ step }: { step: TaskStepRecord }) {
     </div>
   );
 }
-

@@ -10,6 +10,7 @@ import {
   ChipInput,
   CodeBlock,
   ConfirmModal,
+  CopyableID,
   CopyBtn,
   Dot,
   Icon,
@@ -172,6 +173,25 @@ describe("CopyBtn", () => {
     render(<CopyBtn text="hello" />);
     fireEvent.click(screen.getByRole("button"));
     expect(writeText).toHaveBeenCalledWith("hello");
+  });
+});
+
+describe("CopyableID", () => {
+  it("renders a compact label while copying the full id", () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<CopyableID text="run_full_identifier_123" compact />);
+    expect(screen.getByText("run_full_i…er_123")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /copy run_full_identifier_123/i }));
+    expect(writeText).toHaveBeenCalledWith("run_full_identifier_123");
+  });
+
+  it("keeps short ids unmodified", () => {
+    render(<CopyableID text="run_123" compact />);
+    expect(screen.getByText("run_123")).toBeTruthy();
   });
 });
 

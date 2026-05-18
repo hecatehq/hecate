@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -735,6 +735,58 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.queryByText(/turn/i)).toBeNull();
   });
 
+  it("labels the broad run interrupt as Stop run for active runs", async () => {
+    const { render, user, props } = setup({
+      run: makeRun({ status: "running" }),
+    });
+    render();
+
+    expect(screen.queryByRole("button", { name: /^cancel$/i })).toBeNull();
+    const stop = screen.getByRole("button", { name: /stop run/i });
+    await user.click(stop);
+
+    expect(props.onCancelRun).toHaveBeenCalledOnce();
+  });
+
+  it("renders canonical routed provider names in the run overview", () => {
+    const { render } = setup({
+      run: makeRun({ provider: "ollama", provider_kind: "local", model: "ministral-3:latest" }),
+    });
+    render();
+
+    expect(screen.getByText("Ollama")).toBeTruthy();
+    expect(screen.getAllByText("ministral-3:latest").length).toBeGreaterThan(0);
+  });
+
+  it("does not render auto route hints as a fake provider name", () => {
+    const { render } = setup({
+      run: makeRun({ provider: "auto", model: "ministral-3:latest" }),
+    });
+    render();
+
+    expect(screen.queryByText("provider auto")).toBeNull();
+    expect(screen.getByText("Auto route")).toBeTruthy();
+  });
+
+  it("hides the broad run stop action when an approval decision is visible", () => {
+    const approval = {
+      id: "approval-1",
+      task_id: "task-1",
+      run_id: "run-1",
+      kind: "shell_command",
+      status: "pending",
+      reason: "Needs explicit shell approval",
+    } as any;
+    const { render } = setup({
+      approvals: [approval],
+      run: makeRun({ status: "awaiting_approval" }),
+    });
+    render();
+
+    expect(screen.queryByRole("button", { name: /stop run/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /deny/i })).toBeTruthy();
+  });
+
   it("renders approval metadata and actions in the top-level callout", async () => {
     const onResolveApproval = vi.fn();
     const approval = {
@@ -1250,6 +1302,20 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     const button = screen.getByRole("button", { name: "req_abc_123" });
     await user.click(button);
     expect(onOpenTrace).toHaveBeenCalledWith("req_abc_123");
+  });
+
+  it("shows the full run id in the run panel and copies it", async () => {
+    const run = makeRun({ id: "run_full_identifier_123" });
+    const { render } = setup({ run, runs: [run], selectedRunID: run.id });
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render();
+    expect(screen.getByText("run_full_i…er_123")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /copy run_full_identifier_123/i }));
+    expect(writeText).toHaveBeenCalledWith("run_full_identifier_123");
   });
 
   it("renders Request ID as plain text when onOpenTrace is not wired", () => {
