@@ -40,6 +40,21 @@ function deriveHecateChatTargetFromSession(session: ChatSessionRecord | null): H
   return "agent";
 }
 
+function hecateTaskStatusIsActive(status?: string): boolean {
+  return status === "queued" || status === "running" || status === "awaiting_approval";
+}
+
+function sessionHasActiveHecateTaskSegment(session: ChatSessionRecord | null): boolean {
+  if (!session) return false;
+  if (session.task_id && hecateTaskStatusIsActive(session.status)) return true;
+  return (session.segments ?? []).some(
+    (segment) =>
+      segment.execution_mode === "hecate_task" &&
+      Boolean(segment.task_id) &&
+      hecateTaskStatusIsActive(segment.status),
+  );
+}
+
 // chatTarget gates several views' route/copy decisions. The active
 // agent-chat session forces a target via its agent_id
 // shape; the per-session map override (used by Hecate Chat to flip
@@ -54,6 +69,7 @@ export function useChatTarget(): ChatTarget {
   if (overrides?.derivedChatTarget) return overrides.derivedChatTarget;
   if (state.activeChatSessionID && state.activeChatSession) {
     if (chatSessionIsExternal(state.activeChatSession)) return "external_agent";
+    if (sessionHasActiveHecateTaskSegment(state.activeChatSession)) return "agent";
     return (
       state.chatTargetBySessionID.get(state.activeChatSessionID) ??
       deriveHecateChatTargetFromSession(state.activeChatSession)

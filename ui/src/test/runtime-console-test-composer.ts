@@ -56,6 +56,21 @@ function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
   );
 }
 
+function hecateTaskStatusIsActive(status?: string): boolean {
+  return status === "queued" || status === "running" || status === "awaiting_approval";
+}
+
+function sessionHasActiveHecateTaskSegment(session: ChatSessionRecord | null): boolean {
+  if (!session) return false;
+  if (session.task_id && hecateTaskStatusIsActive(session.status)) return true;
+  return (session.segments ?? []).some(
+    (segment) =>
+      segment.execution_mode === "hecate_task" &&
+      Boolean(segment.task_id) &&
+      hecateTaskStatusIsActive(segment.status),
+  );
+}
+
 function deriveHecateChatTargetFromSession(session: ChatSessionRecord | null): HecateChatTarget {
   if (!session) return "agent";
   const messages = session.messages ?? [];
@@ -196,8 +211,10 @@ export function useRuntimeConsole() {
     activeChatSessionID && activeChatSession
       ? chatSessionIsExternal(activeChatSession)
         ? "external_agent"
-        : (chatTargetBySessionID.get(activeChatSessionID) ??
-          deriveHecateChatTargetFromSession(activeChatSession))
+        : sessionHasActiveHecateTaskSegment(activeChatSession)
+          ? "agent"
+          : (chatTargetBySessionID.get(activeChatSessionID) ??
+            deriveHecateChatTargetFromSession(activeChatSession))
       : defaultChatTarget;
 
   // Forward-dependency ref. The cycle is dashboard.loadDashboard
