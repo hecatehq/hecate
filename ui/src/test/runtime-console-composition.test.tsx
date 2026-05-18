@@ -1410,6 +1410,7 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
       expect(result.current.state.queuedChatMessages[0].session_id).toBe("a1");
       expect(result.current.state.queuedChatMessages[0].content).toBe("after this");
+      expect(result.current.state.queuedChatMessages[0].agent_id).toBe("hecate");
 
       sessionStatus = "completed";
       await act(async () => {

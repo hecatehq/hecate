@@ -150,6 +150,32 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	}
 }
 
+func TestHecateAgentChatCreateDefaultsTitle(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-hecate-agent-title",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "ready"},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, handler)
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		`{"agent_id":"hecate","provider":"openai","model":"gpt-4o-mini"}`)
+	if session.Data.Title != "Hecate Chat" {
+		t.Fatalf("title = %q, want Hecate Chat", session.Data.Title)
+	}
+}
+
 func findTaskRunItem(items []TaskRunItem, id string) TaskRunItem {
 	for _, item := range items {
 		if item.ID == id {
