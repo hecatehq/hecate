@@ -39,7 +39,11 @@ const APP_LOG_FILE: &str = "app";
 fn set_update_badge(window: tauri::WebviewWindow, visible: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let label = if visible { Some("•".to_string()) } else { None };
+        let label = if visible {
+            Some("•".to_string())
+        } else {
+            None
+        };
         window.set_badge_label(label).map_err(|e| e.to_string())
     }
     #[cfg(not(target_os = "macos"))]
@@ -88,6 +92,21 @@ fn build_diagnostics_report(app: &tauri::AppHandle) -> String {
         os = std::env::consts::OS,
         arch = std::env::consts::ARCH,
     )
+}
+
+fn startup_failure_hint(message: &str) -> Option<&'static str> {
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("bootstrap key setup failed")
+        || lower.contains("bootstrap secret init failed")
+        || lower.contains("secure bootstrap file")
+        || lower.contains("persist bootstrap file")
+        || lower.contains("control-plane secret key")
+    {
+        return Some(
+            "Open the data directory, check hecate.bootstrap.json, and fix ownership or permissions so Hecate can secure it as 0600. If GATEWAY_CONTROL_PLANE_SECRET_KEY is set, it must be base64 for exactly 32 bytes.",
+        );
+    }
+    None
 }
 
 fn open_path(path: &Path) -> Result<(), String> {
@@ -341,6 +360,7 @@ pub fn run() {
                         log::error!("hecate gateway startup failed: {e}");
                         let payload = serde_json::json!({
                             "message": e,
+                            "hint": startup_failure_hint(&e),
                             "logPath": diagnostics.log_path.display().to_string(),
                             "dataDir": diagnostics.data_dir.display().to_string(),
                         });
@@ -376,7 +396,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{remaining_splash_delay, MIN_SPLASH_DURATION};
+    use super::{remaining_splash_delay, startup_failure_hint, MIN_SPLASH_DURATION};
     use std::time::Duration;
 
     #[test]
@@ -394,5 +414,16 @@ mod tests {
             remaining_splash_delay(MIN_SPLASH_DURATION + Duration::from_millis(1)),
             None,
         );
+    }
+
+    #[test]
+    fn test_startup_failure_hint_recognizes_bootstrap_failures() {
+        let hint = startup_failure_hint(
+            "gateway exited before becoming healthy. Bootstrap key setup failed.",
+        )
+        .expect("bootstrap startup failure should include an operator hint");
+
+        assert!(hint.contains("hecate.bootstrap.json"));
+        assert!(hint.contains("0600"));
     }
 }

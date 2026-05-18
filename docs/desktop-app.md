@@ -47,7 +47,9 @@ What works:
 - Per-platform writable data dir (`~/Library/Application Support/sh.hecate.app/`,
   `%APPDATA%\sh.hecate.app\`, `~/.local/share/sh.hecate.app/`).
 - Sidecar stderr piped to `<data_dir>/gateway.log` (truncated per launch);
-  the startup splash shows failures with the log and data-directory paths.
+  the startup splash shows failures with the log and data-directory paths, and
+  adds a bootstrap-key recovery hint when startup fails before the gateway
+  serves the web UI.
 - Startup splash fonts are vendored for offline startup; their OFL license
   texts live next to the font files under `tauri/splash/fonts/`.
 - Window size and position persistence across launches.

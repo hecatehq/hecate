@@ -307,6 +307,10 @@
             <div class="failure-label">Error</div>
             <div class="failure-value" id="failure-message"></div>
           </div>
+          <div class="failure-row" id="failure-hint-row" hidden>
+            <div class="failure-label">Hint</div>
+            <div class="failure-value" id="failure-hint"></div>
+          </div>
           <div class="failure-row">
             <div class="failure-label">Gateway log</div>
             <div class="failure-value" id="failure-log-path"></div>
@@ -510,8 +514,13 @@
       })();
 
       const renderStartupFailure = (details) => {
+        details = details || {};
         document.getElementById("status").style.display = "none";
         document.getElementById("failure-message").textContent = details.message || "Unknown startup failure.";
+        const hint = details.hint || "";
+        const hintRow = document.getElementById("failure-hint-row");
+        document.getElementById("failure-hint").textContent = hint;
+        hintRow.hidden = hint === "";
         document.getElementById("failure-log-path").textContent = details.logPath || "Not available.";
         document.getElementById("failure-data-dir").textContent = details.dataDir || "Not available.";
         document.getElementById("failure-panel").classList.add("is-visible");

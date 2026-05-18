@@ -20,7 +20,7 @@
 //      for calling child.kill() when the app exits.
 
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
@@ -194,6 +194,61 @@ pub fn remove_gateway_state(path: &std::path::Path) {
     }
 }
 
+fn gateway_log_tail(path: &Path) -> Option<String> {
+    const MAX_TAIL_BYTES: usize = 8192;
+
+    let data = std::fs::read(path).ok()?;
+    if data.is_empty() {
+        return None;
+    }
+    let start = data.len().saturating_sub(MAX_TAIL_BYTES);
+    let tail = String::from_utf8_lossy(&data[start..]).trim().to_string();
+    if tail.is_empty() {
+        None
+    } else {
+        Some(tail)
+    }
+}
+
+fn gateway_log_last_line(log: &str) -> Option<&str> {
+    log.lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+}
+
+fn classify_gateway_log(log: &str) -> Option<&'static str> {
+    let lower = log.to_ascii_lowercase();
+    if lower.contains("bootstrap secret init failed")
+        || lower.contains("secure bootstrap file")
+        || lower.contains("persist bootstrap file")
+        || lower.contains("control-plane secret key")
+    {
+        return Some(
+            "Bootstrap key setup failed. Hecate requires hecate.bootstrap.json to contain a valid 32-byte base64 key and be secured with 0600 permissions.",
+        );
+    }
+    None
+}
+
+fn startup_failure_details(log_path: &Path) -> String {
+    let Some(log) = gateway_log_tail(log_path) else {
+        return format!("See {log_path:?} for sidecar stderr.");
+    };
+
+    let mut details = String::new();
+    if let Some(classification) = classify_gateway_log(&log) {
+        details.push_str(classification);
+        details.push(' ');
+    } else if let Some(line) = gateway_log_last_line(&log) {
+        details.push_str("Last gateway log line: ");
+        details.push_str(line);
+        details.push(' ');
+    }
+    details.push_str(&format!("See {log_path:?} for sidecar stderr."));
+    details
+}
+
 /// Spawn the hecate binary and block (async) until `/healthz` responds 200
 /// or the deadline expires. Returns the gateway base URL on success.
 pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
@@ -243,9 +298,14 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
             let _ = child.kill();
             let _ = child.wait();
             return Err(format!(
-                "gateway did not become healthy within 30 s (checked {healthz}). \
-                 See {:?} for sidecar stderr.",
-                paths.log_path
+                "gateway did not become healthy within 30 s (checked {healthz}). {}",
+                startup_failure_details(&paths.log_path)
+            ));
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            return Err(format!(
+                "gateway exited before becoming healthy ({status}). {}",
+                startup_failure_details(&paths.log_path)
             ));
         }
         match client.get(&healthz).send().await {
@@ -263,7 +323,10 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{free_port, paths_for_data_dir, resolve_env_binary_path, sidecar_binary_names};
+    use super::{
+        free_port, paths_for_data_dir, resolve_env_binary_path, sidecar_binary_names,
+        startup_failure_details,
+    };
     use std::fs;
     use std::net::TcpListener;
     use std::path::PathBuf;
@@ -312,6 +375,24 @@ mod tests {
         assert_eq!(paths.data_dir, data_dir);
         assert_eq!(paths.log_path, paths.data_dir.join("gateway.log"));
         assert_eq!(paths.state_path, paths.data_dir.join("hecate.runtime.json"));
+    }
+
+    #[test]
+    fn test_sidecar_startup_failure_details_classifies_bootstrap_log() {
+        let path = temp_path("gateway.log");
+        fs::write(
+            &path,
+            "time=2026-05-18T00:00:00Z level=ERROR msg=\"bootstrap secret init failed\" path=/tmp/hecate.bootstrap.json hint=\"Hecate requires hecate.bootstrap.json to contain a valid 32-byte base64 key and be secured with 0600 permissions\" error=\"secure bootstrap file: permission denied\"\n",
+        )
+        .expect("write gateway log fixture");
+
+        let details = startup_failure_details(&path);
+
+        assert!(details.contains("Bootstrap key setup failed"));
+        assert!(details.contains("0600 permissions"));
+        assert!(!details.contains("Last gateway log line"));
+
+        let _ = fs::remove_file(path);
     }
 
     #[test]

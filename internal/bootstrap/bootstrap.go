@@ -107,7 +107,7 @@ func save(path string, b Bootstrap) error {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return err
 	}
-	return os.Chmod(path, 0o600)
+	return chmodOwnerOnly(path)
 }
 
 func secureExistingFile(path string) error {
@@ -118,7 +118,14 @@ func secureExistingFile(path string) error {
 	if info.Mode().Perm() == 0o600 {
 		return nil
 	}
-	return os.Chmod(path, 0o600)
+	return chmodOwnerOnly(path)
+}
+
+func chmodOwnerOnly(path string) error {
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("set permissions to 0600 so only the operator can read it: %w", err)
+	}
+	return nil
 }
 
 func randomBase64(n int) (string, error) {

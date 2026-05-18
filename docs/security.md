@@ -57,6 +57,10 @@ Hecate stores local configuration and operational state on disk.
   with a gateway-local AES-GCM control-plane key. By default that bootstrap key
   is generated on first run, stored as `hecate.bootstrap.json` with `0600`
   permissions, and validated on every startup.
+- If Hecate cannot validate or secure `hecate.bootstrap.json`, startup fails
+  closed. The desktop app startup screen and `gateway.log` include the affected
+  path; fix ownership/permissions so the file can be set to `0600`, or unset an
+  invalid `GATEWAY_CONTROL_PLANE_SECRET_KEY` override.
 - This protects against accidental disclosure from the settings database, but
   it is not a vault boundary: a process running as the same OS user that can
   read both the database and bootstrap key can decrypt stored credentials.
