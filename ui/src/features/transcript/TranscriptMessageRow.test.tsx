@@ -180,7 +180,7 @@ describe("TranscriptMessageRow", () => {
     expect(screen.queryByText(/reported by adapter/)).toBeNull();
   });
 
-  it("renders the Hecate Agent timing summary when timing is present", () => {
+  it("renders the Hecate Chat timing summary when timing is present", () => {
     const timing: ChatTimingRecord = {
       total_ms: 12_400,
       queue_ms: 120,
@@ -194,7 +194,7 @@ describe("TranscriptMessageRow", () => {
       bottleneck_ms: 8_500,
     };
     render(<TranscriptMessageRow {...baseProps} agentTiming={timing} />);
-    expect(screen.getByLabelText("Hecate Agent timing summary")).toBeInTheDocument();
+    expect(screen.getByLabelText("Hecate Chat timing summary")).toBeInTheDocument();
     expect(screen.getByText(/bottleneck · model 8\.5s/)).toBeInTheDocument();
     expect(screen.getByText(/total 12s/)).toBeInTheDocument();
     expect(screen.getByText(/2 turns · 1 tool/)).toBeInTheDocument();

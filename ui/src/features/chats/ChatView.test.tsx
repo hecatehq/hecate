@@ -920,7 +920,7 @@ describe("ChatView input", () => {
     expect(setProviderFilter).toHaveBeenCalledWith("ollama");
   });
 
-  it("shows one-click local provider onboarding from Hecate Agent chat", async () => {
+  it("shows one-click local provider onboarding from Hecate Chat", async () => {
     vi.mocked(discoverLocalProviders).mockResolvedValueOnce({
       object: "local_provider_discovery",
       data: [
@@ -1203,7 +1203,7 @@ describe("ChatView input", () => {
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
 
-  it("enables Hecate Agent when tools are not explicitly disabled for the model", async () => {
+  it("enables Hecate Chat tools when tools are not explicitly disabled for the model", async () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       message: "inspect this repo",
@@ -1240,7 +1240,7 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(false);
   });
 
-  it("keeps provider and model pickers editable after a task-backed Hecate Agent segment completes", () => {
+  it("keeps provider and model pickers editable after a task-backed Hecate Chat segment completes", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       message: "continue",
@@ -1506,7 +1506,7 @@ describe("ChatView input", () => {
     expect(provider.textContent).not.toContain("ollama");
   });
 
-  it("locks provider and model while a task-backed Hecate Agent segment is active", () => {
+  it("locks provider and model while a task-backed Hecate Chat segment is active", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       message: "continue",
@@ -1566,7 +1566,7 @@ describe("ChatView input", () => {
     expect(fixedProvider.disabled).toBe(true);
     expect(fixedModel.disabled).toBe(true);
     expect(screen.queryByText("smollm2:135m")).toBeNull();
-    expect(screen.queryByText(/Tools are disabled for this model/)).toBeNull();
+    expect(screen.queryByText(/Tools are unavailable for this model/)).toBeNull();
     expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
     expect(screen.getByText(/Hecate Chat is still working on this task/)).toBeTruthy();
@@ -1736,7 +1736,7 @@ describe("ChatView input", () => {
     expect(screen.queryByDisplayValue("not in this chat")).toBeNull();
   });
 
-  it("shows the Hecate Agent sandbox reminder only when tools are enabled", () => {
+  it("shows the tools sandbox reminder only when task-backed tools are available", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       providerScopedModels: [
@@ -1754,20 +1754,17 @@ describe("ChatView input", () => {
     });
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(
-      screen.getByText(/Hecate Agent runs through task approvals and per-call sandboxing/),
-    ).toBeTruthy();
+    expect(screen.getByText(/Tools use task approvals and per-call sandboxing/)).toBeTruthy();
 
     rerender(
       withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }),
     );
-    expect(
-      screen.queryByText(/Hecate Agent runs through task approvals and per-call sandboxing/),
-    ).toBeNull();
+    expect(screen.queryByText(/Tools use task approvals and per-call sandboxing/)).toBeNull();
   });
 
-  it("blocks Hecate Agent sends when tools are explicitly disabled for the model", async () => {
+  it("keeps Hecate Chat sendable when tools are explicitly unavailable for the model", async () => {
     const upsertModelCapabilityOverride = vi.fn(async () => true);
+    const submitChat = vi.fn(async () => undefined);
     const { state, actions } = setup(
       {
         chatTarget: "agent",
@@ -1793,13 +1790,13 @@ describe("ChatView input", () => {
           },
         ],
       },
-      { upsertModelCapabilityOverride },
+      { submitChat, upsertModelCapabilityOverride },
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByText(/Tools are disabled for this model/)).toBeTruthy();
+    expect(screen.getByText(/Tools are unavailable for this model/)).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
-    expect(send.disabled).toBe(true);
+    expect(send.disabled).toBe(false);
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Enable tools" }));
@@ -1811,9 +1808,11 @@ describe("ChatView input", () => {
         note: "Tools enabled from Hecate Chat.",
       }),
     );
+    await user.click(send);
+    expect(submitChat).toHaveBeenCalled();
   });
 
-  it("opens the backing task from the Hecate Agent assistant turn, not the header", async () => {
+  it("opens the backing task from the Hecate Chat assistant turn, not the header", async () => {
     const onOpenTask = vi.fn();
     const { state, actions } = setup({
       chatTarget: "agent",
@@ -2021,7 +2020,7 @@ describe("ChatView input", () => {
     expect(screen.getAllByText(/direct model chat/)).toHaveLength(2);
   });
 
-  it("renders projected Hecate Agent task run activity in the transcript", () => {
+  it("renders projected Hecate Chat task run activity in the transcript", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       activeChatSessionID: "chat_1",
@@ -2105,7 +2104,7 @@ describe("ChatView input", () => {
     expect(screen.queryByText("Run completed")).toBeNull();
   });
 
-  it("resolves projected Hecate Agent task approvals from the chat banner", async () => {
+  it("resolves projected Hecate Chat task approvals from the chat banner", async () => {
     const resolveTaskApproval = vi.fn(async () => true);
     const onOpenTask = vi.fn();
     const { state, actions } = setup(
@@ -2174,7 +2173,7 @@ describe("ChatView input", () => {
     });
   });
 
-  it("does not keep stale resolved Hecate Agent task approvals actionable", () => {
+  it("does not keep stale resolved Hecate Chat task approvals actionable", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       activeChatSessionID: "chat_1",

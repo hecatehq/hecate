@@ -48,7 +48,7 @@ export type ChatComposerProps = {
   isAgentChat: boolean;
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
-  isHecateAgentChat: boolean;
+  hecateTaskToolsAvailable: boolean;
   activeSessionID: string;
 
   // Cross-region ref. ChatView owns creation so onSelectSession can
@@ -135,7 +135,7 @@ export function ChatComposer(props: ChatComposerProps) {
     isAgentChat,
     isHecateChat,
     isExternalAgentChat,
-    isHecateAgentChat,
+    hecateTaskToolsAvailable,
     activeSessionID,
     textareaRef,
     composerVisible,
@@ -690,10 +690,9 @@ export function ChatComposer(props: ChatComposerProps) {
               <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
                 External agents run as your OS user in the selected workspace — no sandbox
               </span>
-            ) : isHecateAgentChat ? (
+            ) : hecateTaskToolsAvailable ? (
               <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-                Hecate Agent runs through task approvals and per-call sandboxing in the selected
-                workspace.
+                Tools use task approvals and per-call sandboxing in the selected workspace.
               </span>
             ) : (
               <span />

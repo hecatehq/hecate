@@ -60,14 +60,14 @@ describe("humanizeChatError", () => {
   });
 
   it("rewrites common chat runtime failures into operator-actionable copy", () => {
-    expect(humanizeChatError("Hecate Agent is already running for this chat session.")).toBe(
+    expect(humanizeChatError("Hecate Chat is already running for this chat session.")).toBe(
       "Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.",
     );
     expect(humanizeChatError("workspace is required")).toBe(
       "Choose a workspace before using Hecate Chat tools or External Agent.",
     );
     expect(humanizeChatError("model does not support tools")).toBe(
-      "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.",
+      "This model is not marked as tool-capable. Send directly, test it, or enable tools in Connections → Model capabilities.",
     );
     expect(
       humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'),

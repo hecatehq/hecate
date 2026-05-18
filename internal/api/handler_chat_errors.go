@@ -13,7 +13,7 @@ import (
 func writeAgentChatWorkspaceRequired(w http.ResponseWriter, mode string) {
 	WriteErrorDetails(w, http.StatusBadRequest, errCodeWorkspaceRequired, fmt.Sprintf("workspace is required for %s chat", chatExecutionModeLabel(mode)), ErrorDetails{
 		UserMessage:    "Choose a workspace before starting this chat mode.",
-		OperatorAction: "Use the workspace picker in Chats. Hecate Agent and External Agent sessions need a real workspace path.",
+		OperatorAction: "Use the workspace picker in Chats. Task-backed Hecate Chat and External Agent sessions need a real workspace path.",
 	})
 }
 
@@ -138,7 +138,7 @@ func writeHecateAgentBusy(w http.ResponseWriter, session chat.Session, runStatus
 func chatExecutionModeLabel(mode string) string {
 	switch mode {
 	case chat.ExecutionModeHecateTask:
-		return "Hecate Agent"
+		return "task-backed Hecate Chat"
 	case chat.ExecutionModeExternalAgent:
 		return "External Agent"
 	default:

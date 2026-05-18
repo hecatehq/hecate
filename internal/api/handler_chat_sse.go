@@ -54,9 +54,9 @@ func agentChatTraceAttrs(session chat.Session, adapter agentadapters.Adapter, ru
 }
 
 // hecateAgentChatTraceAttrs mirrors agentChatTraceAttrs for Hecate-owned
-// agent_loop chats. The backing task/run trace carries the detailed queue,
+// task-backed chats. The backing task/run trace carries the detailed queue,
 // model, tool, approval, and artifact timings; these attrs make the chat
-// wrapper itself visible in the same agent-chat dashboards.
+// wrapper itself visible in the same chat dashboards.
 func hecateAgentChatTraceAttrs(session chat.Session, taskID, runID, messageID string, attrs map[string]any) map[string]any {
 	out := map[string]any{
 		telemetry.AttrHecateChatSessionID:    session.ID,
@@ -65,7 +65,7 @@ func hecateAgentChatTraceAttrs(session chat.Session, taskID, runID, messageID st
 		telemetry.AttrHecateRunID:            runID,
 		telemetry.AttrHecateExecutionKind:    "chat",
 		telemetry.AttrHecateAgentAdapterID:   "hecate",
-		telemetry.AttrHecateAgentAdapterName: "Hecate Agent",
+		telemetry.AttrHecateAgentAdapterName: "Hecate Chat",
 		telemetry.AttrHecateAgentDriverKind:  "hecate",
 		telemetry.AttrHecateWorkspacePath:    session.Workspace,
 		telemetry.AttrGenAIProviderName:      session.Provider,

@@ -1,4 +1,6 @@
 import type { SelectedModelIssue } from "./provider-issues";
+import type { ModelRecord } from "../types/model";
+import type { ProviderFilter } from "../types/provider";
 
 export type ChatSetupTarget = "model" | "agent" | "external_agent";
 
@@ -112,9 +114,9 @@ export function resolveChatSetupRepairState({
   if (target === "agent" && toolsDisabledForModel) {
     return {
       kind: "tools_disabled",
-      title: "Tools are disabled for this model",
+      title: "Tools are unavailable for this model",
       message:
-        "Turn tools off for direct chat, or enable tool-calling for this provider/model in Connections.",
+        "You can still chat normally. Hecate will send this turn directly to the selected model unless you enable tool support in Connections.",
       action: "enable_tools",
       actionLabel: "Enable tools",
       tone: "amber",
@@ -137,4 +139,23 @@ function workspaceRepair(): ChatSetupRepairState {
     actionLabel: "Choose workspace",
     tone: "amber",
   };
+}
+
+export function modelSelectionHasNoToolCalling({
+  models,
+  providerFilter,
+  model,
+}: {
+  models: ModelRecord[];
+  providerFilter: ProviderFilter;
+  model: string;
+}): boolean {
+  if (!model) return false;
+  const matches = models.filter((entry) => {
+    if (entry.id !== model) return false;
+    if (!providerFilter || providerFilter === "auto") return true;
+    return entry.metadata?.provider === providerFilter;
+  });
+  if (matches.length === 0) return false;
+  return matches.every((entry) => entry.metadata?.capabilities?.tool_calling === "none");
 }

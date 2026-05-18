@@ -45,11 +45,15 @@ import {
   deriveChatSessionTitle,
   renderChatSessionSummary,
 } from "../../runtimeConsoleChatHelpers";
+import { modelSelectionHasNoToolCalling } from "../../../lib/chat-setup-readiness";
 import {
   type ChatExecutionMode,
+  type HecateChatTarget,
   type ChatTarget,
   type QueuedChatMessage,
   chatTargetToExecutionMode,
+  executionModeToChatTarget,
+  normalizeStoredHecateChatTarget,
 } from "../_shared";
 import { useApprovals } from "../approvals";
 import { useChat } from "../chat";
@@ -58,6 +62,7 @@ import { useRuntime } from "../runtime";
 import { useUsage } from "../usage";
 import type { RuntimeHeaders } from "../../../types/runtime";
 import type { ProviderFilter } from "../../../types/provider";
+import type { ModelRecord } from "../../../types/model";
 import type {
   ChatActivityRecord,
   ChatApprovalRecord,
@@ -114,6 +119,27 @@ function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null)
 
 function chatGuardError(message: string, code: string, operatorAction: string): ApiError {
   return new ApiError(message, 400, code, { operatorAction });
+}
+
+function effectiveHecateExecutionMode({
+  requested,
+  models,
+  providerFilter,
+  model,
+}: {
+  requested: ChatExecutionMode;
+  models: ModelRecord[];
+  providerFilter: ProviderFilter;
+  model: string;
+}): ChatExecutionMode {
+  if (requested !== "hecate_task") return requested;
+  return modelSelectionHasNoToolCalling({ models, providerFilter, model })
+    ? "direct_model"
+    : requested;
+}
+
+function hecateTargetForExecutionMode(mode: ChatExecutionMode): HecateChatTarget {
+  return normalizeStoredHecateChatTarget(executionModeToChatTarget(mode)) || "agent";
 }
 
 export { chatSessionIsExternal, chatSessionIsBusy };
@@ -369,8 +395,16 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const content = (queued?.content ?? message).trim();
     if (!content) return;
 
-    const turnExecutionMode =
+    const turnProviderFilter = queued?.provider_filter ?? providerFilter;
+    const turnModel = queued?.model ?? model;
+    const requestedExecutionMode =
       queued?.execution_mode ?? chatTargetToExecutionMode(params.chatTarget);
+    const turnExecutionMode = effectiveHecateExecutionMode({
+      requested: requestedExecutionMode,
+      models,
+      providerFilter: turnProviderFilter,
+      model: turnModel,
+    });
     if (!queued && activeChatSessionID && chatSessionIsBusy(activeChatSession)) {
       queueChatMessage(content, turnExecutionMode, activeChatSessionID);
       return;
@@ -381,8 +415,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setRuntimeHeaders(null);
     const isExternalAgent = turnExecutionMode === "external_agent";
     const isModelTurn = turnExecutionMode === "direct_model";
-    const turnProviderFilter = queued?.provider_filter ?? providerFilter;
-    const turnModel = queued?.model ?? model;
     const turnWorkspace = queued?.workspace ?? agentWorkspace.trim();
     const turnSystemPrompt = queued?.system_prompt ?? systemPrompt;
     const turnAgentID = queued?.agent_id ?? agentAdapterID;
@@ -391,7 +423,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ? "Starting external agent..."
         : isModelTurn
           ? "Waiting for model output..."
-          : "Starting Hecate Agent...",
+          : "Starting Hecate Chat tools...",
     );
     let streamAbort: AbortController | null = null;
     let streamPromise: Promise<void> | null = null;
@@ -439,6 +471,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         setActiveChatSessionID(sessionID);
         applyChatSession(created.data);
       }
+      if (!isExternalAgent && sessionID) {
+        setChatTargetBySessionID((current) => {
+          const next = new Map(current);
+          next.set(sessionID, hecateTargetForExecutionMode(turnExecutionMode));
+          return next;
+        });
+      }
 
       const pendingContent = content;
       setMessage("");
@@ -483,7 +522,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
                       ? "External agent is running..."
                       : isModelTurn
                         ? "Model is responding..."
-                        : "Hecate Agent is running..."),
+                        : "Hecate Chat tools are running..."),
                 );
               }
               return;
@@ -646,7 +685,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       return;
     }
 
-    const executionMode = chatTargetToExecutionMode(defaultChatTarget);
+    const requestedExecutionMode = chatTargetToExecutionMode(defaultChatTarget);
+    const executionMode = effectiveHecateExecutionMode({
+      requested: requestedExecutionMode,
+      models,
+      providerFilter,
+      model,
+    });
     const workspace = agentWorkspace.trim();
     if (executionMode === "hecate_task" && !workspace) {
       setChatErrorState(
@@ -685,7 +730,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       setActiveChatSessionID(created.data.id);
       setChatTargetBySessionID((current) => {
         const next = new Map(current);
-        next.set(created.data.id, defaultChatTarget);
+        next.set(created.data.id, hecateTargetForExecutionMode(executionMode));
         return next;
       });
       applyChatSession(created.data);

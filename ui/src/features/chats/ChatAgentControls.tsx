@@ -359,12 +359,16 @@ export function HecateToolsToggle({
   toolsDisabledForModel: boolean;
   onChange: (enabled: boolean) => void;
 }) {
+  const effectiveEnabled = enabled && !toolsDisabledForModel;
   const toolsOnTitle = toolsDisabledForModel
-    ? "Tools are disabled for this model in Connections. Enable them there or turn tools off for direct model chat."
+    ? "Tools are unavailable for this model. Messages will send as direct model chat unless you enable tool support in Connections."
     : "Use Hecate's task runtime with tools, approvals, artifacts, and telemetry.";
-  const title = enabled
-    ? toolsOnTitle
-    : "Chat directly with the selected model. No task run or tools.";
+  const title =
+    enabled && toolsDisabledForModel
+      ? toolsOnTitle
+      : effectiveEnabled
+        ? toolsOnTitle
+        : "Chat directly with the selected model. No task run or tools.";
   return (
     <div
       role="group"
@@ -394,8 +398,8 @@ export function HecateToolsToggle({
       <button
         type="button"
         className="btn btn-ghost btn-sm"
-        aria-label={enabled ? "tools on" : "tools off"}
-        aria-pressed={enabled}
+        aria-label={effectiveEnabled ? "tools on" : "tools off"}
+        aria-pressed={effectiveEnabled}
         onClick={() => onChange(!enabled)}
         title={title}
         style={{
@@ -405,12 +409,12 @@ export function HecateToolsToggle({
           padding: "3px 9px",
           fontFamily: "var(--font-mono)",
           fontSize: 10,
-          background: enabled ? "var(--teal-bg)" : "var(--bg3)",
-          color: enabled ? (toolsDisabledForModel ? "var(--amber)" : "var(--teal)") : "var(--t1)",
+          background: effectiveEnabled ? "var(--teal-bg)" : "var(--bg3)",
+          color: enabled && toolsDisabledForModel ? "var(--amber)" : "var(--t1)",
           justifyContent: "center",
         }}
       >
-        {enabled ? "on" : "off"}
+        {effectiveEnabled ? "on" : "off"}
       </button>
     </div>
   );
@@ -842,7 +846,7 @@ export function LockedHecateModelSnapshot({
   model: string;
 }) {
   const title =
-    "Provider and model are fixed for this Hecate Agent task. Turn tools off for direct model chat, or start a new chat to use a different tools-enabled model.";
+    "Provider and model are fixed for this task-backed turn. For direct model chat, disable tools, or start a new chat to use a different tools-enabled model.";
   const lockedStyle = {
     ...externalAgentComposerControlStyle,
     color: "var(--t2)",

@@ -51,7 +51,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		caps = resolved
 	}
 	if !modelcaps.ToolCapable(caps) {
-		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelCapability, "Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Connections.", ErrorDetails{
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelCapability, "Tools are unavailable for this model. Send as direct model chat or enable tools in Connections.", ErrorDetails{
 			Fields: map[string]any{
 				"provider":     session.Provider,
 				"model":        session.Model,
@@ -136,7 +136,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		CreatedAt:     startedAt,
 		StartedAt:     startedAt,
 		Activities: []chat.Activity{
-			newChatActivity("started", "running", "Starting Hecate Agent", "Creating or continuing the backing task run"),
+			newChatActivity("started", "running", "Starting Hecate Chat tools", "Creating or continuing the backing task run"),
 		},
 	})
 	if err != nil {
@@ -374,7 +374,7 @@ func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session cha
 		now := time.Now().UTC()
 		title := strings.TrimSpace(session.Title)
 		if title == "" {
-			title = "Hecate Agent chat"
+			title = "Hecate Chat"
 		}
 		task := types.Task{
 			ID:                 newTaskID(),
@@ -663,17 +663,17 @@ func humanHecateAgentRunStatus(status string) string {
 func hecateAgentFallbackOutput(status, taskID, runID, errorText string) string {
 	switch status {
 	case "awaiting_approval":
-		return fmt.Sprintf("Hecate Agent is awaiting approval in task `%s`, run `%s`.", taskID, runID)
+		return fmt.Sprintf("Hecate Chat is awaiting approval in task `%s`, run `%s`.", taskID, runID)
 	case "queued", "running":
-		return fmt.Sprintf("Hecate Agent task `%s` is still %s.", taskID, status)
+		return fmt.Sprintf("Hecate Chat task `%s` is still %s.", taskID, status)
 	case "failed":
 		if strings.TrimSpace(errorText) != "" {
 			return errorText
 		}
-		return "Hecate Agent run failed."
+		return "Hecate Chat run failed."
 	case "cancelled":
-		return "Hecate Agent run cancelled."
+		return "Hecate Chat run cancelled."
 	default:
-		return "Hecate Agent run completed."
+		return "Hecate Chat run completed."
 	}
 }

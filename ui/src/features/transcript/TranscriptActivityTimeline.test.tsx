@@ -347,7 +347,7 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText(/builtin\.agent_loop/)).toBeNull();
   });
 
-  it("summarizes Hecate Agent task internals without duplicate terminal rows", () => {
+  it("summarizes Hecate Chat task internals without duplicate terminal rows", () => {
     const activities: ChatActivityRecord[] = [
       {
         type: "tool_call",
@@ -391,7 +391,7 @@ describe("TranscriptActivityTimeline", () => {
 
   it("renders expanded activity rows in chronological order instead of grouping tools first", () => {
     const activities: ChatActivityRecord[] = [
-      { type: "started", title: "Starting Hecate Agent", status: "running" },
+      { type: "started", title: "Starting Hecate Chat tools", status: "running" },
       {
         type: "task_run",
         title: "Backing task",

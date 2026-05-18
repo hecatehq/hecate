@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveChatSetupRepairState } from "./chat-setup-readiness";
+import {
+  modelSelectionHasNoToolCalling,
+  resolveChatSetupRepairState,
+} from "./chat-setup-readiness";
 
 describe("resolveChatSetupRepairState", () => {
   const base = {
@@ -53,7 +56,7 @@ describe("resolveChatSetupRepairState", () => {
     });
   });
 
-  it("blocks Hecate Agent when tools are disabled for the selected model", () => {
+  it("warns when tools are unavailable for the selected model", () => {
     const repair = resolveChatSetupRepairState({
       ...base,
       target: "agent",
@@ -63,11 +66,11 @@ describe("resolveChatSetupRepairState", () => {
     expect(repair).toMatchObject({
       kind: "tools_disabled",
       action: "enable_tools",
-      title: "Tools are disabled for this model",
+      title: "Tools are unavailable for this model",
     });
   });
 
-  it("requires a workspace for task-backed Hecate Agent chats", () => {
+  it("requires a workspace for task-backed Hecate Chat", () => {
     const repair = resolveChatSetupRepairState({
       ...base,
       target: "agent",
@@ -109,5 +112,53 @@ describe("resolveChatSetupRepairState", () => {
       action: "open_agent_setup",
       actionLabel: "Open setup",
     });
+  });
+});
+
+describe("modelSelectionHasNoToolCalling", () => {
+  it("returns true when the explicit provider/model selection has no tool support", () => {
+    expect(
+      modelSelectionHasNoToolCalling({
+        model: "llama3.1:8b",
+        providerFilter: "ollama",
+        models: [
+          {
+            id: "llama3.1:8b",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              capabilities: { tool_calling: "none" },
+            },
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps auto provider usable when any matching route supports tools", () => {
+    expect(
+      modelSelectionHasNoToolCalling({
+        model: "shared-model",
+        providerFilter: "auto",
+        models: [
+          {
+            id: "shared-model",
+            owned_by: "provider-a",
+            metadata: {
+              provider: "provider-a",
+              capabilities: { tool_calling: "none" },
+            },
+          },
+          {
+            id: "shared-model",
+            owned_by: "provider-b",
+            metadata: {
+              provider: "provider-b",
+              capabilities: { tool_calling: "basic" },
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 });
