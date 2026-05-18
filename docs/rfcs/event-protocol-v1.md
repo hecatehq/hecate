@@ -27,11 +27,11 @@ run-like execution id or use a separate chat-event protocol.
 
 The frontend-safe v1 candidate is deliberately smaller than the full design:
 
-| Status | Event groups |
-|---|---|
-| Candidate core | `run.*`, `turn.*`, `assistant.text_*`, `assistant.final_answer`, generic `tool.*`, `tool.shell.*`, `approval.*`, `cost.*`, `policy.*`, `error.*`, `gap.*` |
-| Depends on artifact RFC | `artifact.*`, `tool.edit.*`, `tool.multi_edit.*`, artifact ids on terminal tool events |
-| Experimental / not v1 core | `assistant.thinking_*`, streamed tool-input deltas, sub-agent fan-out, multi-modal output, conversation branching |
+| Status                     | Event groups                                                                                                                                              |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate core             | `run.*`, `turn.*`, `assistant.text_*`, `assistant.final_answer`, generic `tool.*`, `tool.shell.*`, `approval.*`, `cost.*`, `policy.*`, `error.*`, `gap.*` |
+| Depends on artifact RFC    | `artifact.*`, `tool.edit.*`, `tool.multi_edit.*`, artifact ids on terminal tool events                                                                    |
+| Experimental / not v1 core | `assistant.thinking_*`, streamed tool-input deltas, sub-agent fan-out, multi-modal output, conversation branching                                         |
 
 Frontend work should only depend on the **candidate core** until the
 implementation ships golden fixtures and contract tests. Experimental events may
@@ -97,17 +97,17 @@ Every event on the wire is a single JSON object:
 }
 ```
 
-| Field | Type | Notes |
-|---|---|---|
-| `schema_version` | string | Currently `"1"`. Bumped on breaking changes; additive changes within `1.x` add fields without bumping. |
-| `event_id` | ULID | Globally unique. Sortable by creation. Stable across replay. |
-| `run_id` | ULID | Always present for this protocol. Anchors the event to a single agent-runtime run. |
-| `task_id` | ULID | Present when the run belongs to a task. |
-| `session_id` | ULID | Present when the run belongs to a chat session. |
-| `sequence` | uint64 | Monotonic per `run_id`. Starts at 0. Resumable streams use this as the cursor. |
-| `occurred_at` | RFC3339 nano | Server clock. Not user-trustworthy; use `sequence` for ordering. |
-| `type` | string | Dotted name. See taxonomy below. Always lowercase, snake_case segments. |
-| `data` | object | Type-specific payload. Always an object, never null. May be `{}` for events with no payload. |
+| Field            | Type         | Notes                                                                                                  |
+| ---------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| `schema_version` | string       | Currently `"1"`. Bumped on breaking changes; additive changes within `1.x` add fields without bumping. |
+| `event_id`       | ULID         | Globally unique. Sortable by creation. Stable across replay.                                           |
+| `run_id`         | ULID         | Always present for this protocol. Anchors the event to a single agent-runtime run.                     |
+| `task_id`        | ULID         | Present when the run belongs to a task.                                                                |
+| `session_id`     | ULID         | Present when the run belongs to a chat session.                                                        |
+| `sequence`       | uint64       | Monotonic per `run_id`. Starts at 0. Resumable streams use this as the cursor.                         |
+| `occurred_at`    | RFC3339 nano | Server clock. Not user-trustworthy; use `sequence` for ordering.                                       |
+| `type`           | string       | Dotted name. See taxonomy below. Always lowercase, snake_case segments.                                |
+| `data`           | object       | Type-specific payload. Always an object, never null. May be `{}` for events with no payload.           |
 
 ### Wire transport
 
@@ -141,19 +141,19 @@ A frontend that doesn't recognize a `type` should display the event as opaque (r
 
 Top-level groups, by category:
 
-| Group | Purpose |
-|---|---|
-| [`run.*`](#run-lifecycle) | Run-level lifecycle: queued, started, finished. |
-| [`turn.*`](#turn-lifecycle) | Per-turn boundaries inside an `agent_loop` run. |
-| [`assistant.*`](#assistant-output) | Streaming model output: text, thinking, tool-call proposals, final answer. |
-| [`user.*`](#user-input) | Operator/user input into the conversation. |
-| [`tool.*`](#tool-calls) | Tool invocation lifecycle. Subgroups per tool kind. |
-| [`approval.*`](#approvals) | Approval requests + resolutions. |
-| [`artifact.*`](#artifacts) | Patch/file/output artifact lifecycle. Experimental until artifact storage is candidate-stable. |
-| [`cost.*`](#usage-and-task-cost-ceiling) | Token + USD totals as they accrue. |
-| [`policy.*`](#policy) | Policy gate decisions. |
-| [`error.*`](#errors) | Recoverable + unrecoverable errors not tied to a tool. |
-| [`gap.*`](#gaps) | Stream-integrity markers (pruned events, missing turns). |
+| Group                                    | Purpose                                                                                        |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [`run.*`](#run-lifecycle)                | Run-level lifecycle: queued, started, finished.                                                |
+| [`turn.*`](#turn-lifecycle)              | Per-turn boundaries inside an `agent_loop` run.                                                |
+| [`assistant.*`](#assistant-output)       | Streaming model output: text, thinking, tool-call proposals, final answer.                     |
+| [`user.*`](#user-input)                  | Operator/user input into the conversation.                                                     |
+| [`tool.*`](#tool-calls)                  | Tool invocation lifecycle. Subgroups per tool kind.                                            |
+| [`approval.*`](#approvals)               | Approval requests + resolutions.                                                               |
+| [`artifact.*`](#artifacts)               | Patch/file/output artifact lifecycle. Experimental until artifact storage is candidate-stable. |
+| [`cost.*`](#usage-and-task-cost-ceiling) | Token + USD totals as they accrue.                                                             |
+| [`policy.*`](#policy)                    | Policy gate decisions.                                                                         |
+| [`error.*`](#errors)                     | Recoverable + unrecoverable errors not tied to a tool.                                         |
+| [`gap.*`](#gaps)                         | Stream-integrity markers (pruned events, missing turns).                                       |
 
 The remainder of the doc gives `data` shapes for each.
 
@@ -330,7 +330,7 @@ They are not part of the v1 candidate core because visibility, retention, and
 provider-policy rules are still unsettled. Implementations that experiment with
 these events must gate them behind config and keep them hidden by default.
 
-`assistant.tool_call_proposed` — model emitted a tool-call request. The tool hasn't run yet; this is the agent's *intent*. The corresponding `tool.invoked` event follows once the runtime decides to dispatch.
+`assistant.tool_call_proposed` — model emitted a tool-call request. The tool hasn't run yet; this is the agent's _intent_. The corresponding `tool.invoked` event follows once the runtime decides to dispatch.
 
 ```json
 {
@@ -555,14 +555,17 @@ A `file_write` of an existing path emits `tool.edit.proposed` (it's an edit). On
 The conversation's sticky todo list. Overwrites the prior list in full.
 
 ```json
-{ "type": "tool.todo_write.updated", "data": {
+{
+  "type": "tool.todo_write.updated",
+  "data": {
     "tool_call_id": "call_01JXMZ...",
     "todos": [
-      { "content": "Read usage store",       "status": "completed" },
-      { "content": "Add generic key type",      "status": "in_progress" },
-      { "content": "Update governor_test.go",   "status": "pending" }
+      { "content": "Read usage store", "status": "completed" },
+      { "content": "Add generic key type", "status": "in_progress" },
+      { "content": "Update governor_test.go", "status": "pending" }
     ]
-}}
+  }
+}
 ```
 
 Frontends render this as a sticky panel that updates in place.
@@ -657,43 +660,52 @@ This is the single most important architectural call in the protocol. Without it
 ### Artifact lifecycle events
 
 ```json
-{ "type": "artifact.created", "data": {
+{
+  "type": "artifact.created",
+  "data": {
     "artifact_id": "art_01JXMZ...",
     "kind": "patch",
     "size_bytes": 412,
     "summary": "internal/governor/usage.go: 1 hunk, +1/-1",
     "created_by_event_id": "evt_01JXMZ..."
-}}
+  }
+}
 ```
 
 ```json
-{ "type": "artifact.referenced", "data": {
+{
+  "type": "artifact.referenced",
+  "data": {
     "artifact_id": "art_01JXMZ...",
     "by_event_id": "evt_01JXMZ...",
     "relation": "consumed"
-}}
+  }
+}
 ```
 
 ```json
-{ "type": "artifact.updated", "data": {
+{
+  "type": "artifact.updated",
+  "data": {
     "artifact_id": "art_01JXMZ...",
     "field": "status",
     "old_value": "proposed",
     "new_value": "applied"
-}}
+  }
+}
 ```
 
 ### Artifact kinds
 
-| Kind | Body shape | Used by |
-|---|---|---|
-| `patch` | unified diff (text/x-diff) | `tool.edit.*`, `tool.multi_edit.*`, `tool.file_write.*` |
-| `file_snapshot` | raw file bytes + path + revision | `tool.file_read.*` (large files); checkpoints |
-| `command_output` | stdout + stderr + exit metadata (text/plain) | `tool.shell.*` |
-| `fetched_resource` | response body + headers + URL | `tool.http.*`, `tool.web_fetch.*` |
-| `search_results` | structured JSON | `tool.web_search.*` |
-| `image` | binary + mime | `user.attachment` (image inputs) |
-| `tool_result_blob` | opaque bytes + mime | `tool.completed` with `kind=mcp` for non-text MCP results |
+| Kind               | Body shape                                   | Used by                                                   |
+| ------------------ | -------------------------------------------- | --------------------------------------------------------- |
+| `patch`            | unified diff (text/x-diff)                   | `tool.edit.*`, `tool.multi_edit.*`, `tool.file_write.*`   |
+| `file_snapshot`    | raw file bytes + path + revision             | `tool.file_read.*` (large files); checkpoints             |
+| `command_output`   | stdout + stderr + exit metadata (text/plain) | `tool.shell.*`                                            |
+| `fetched_resource` | response body + headers + URL                | `tool.http.*`, `tool.web_fetch.*`                         |
+| `search_results`   | structured JSON                              | `tool.web_search.*`                                       |
+| `image`            | binary + mime                                | `user.attachment` (image inputs)                          |
+| `tool_result_blob` | opaque bytes + mime                          | `tool.completed` with `kind=mcp` for non-text MCP results |
 
 ### Patch artifact (the important one)
 
@@ -723,6 +735,7 @@ GET /hecate/v1/artifacts/art_01JXMZH...
 ### Why this matters
 
 Once edits are artifacts:
+
 - **Review UX is trivial.** A frontend lists `kind=patch, run_id=X, status=proposed` and renders apply/reject buttons.
 - **"What did the agent change?" is a single query.** No `git diff` arithmetic.
 - **Revert is a real operation.** The runtime owns the inverse, not the frontend.

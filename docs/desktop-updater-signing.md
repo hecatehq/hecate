@@ -58,10 +58,10 @@ travel through GitHub Secrets in its encrypted form.
 In the repo: **Settings → Secrets and variables → Actions → New
 repository secret**. Add two:
 
-| Secret | Value | Source |
-|---|---|---|
-| `TAURI_UPDATER_PRIVATE_KEY` | full contents of `~/.tauri/hecate-updater.key` | step 1 |
-| `TAURI_UPDATER_PRIVATE_KEY_PASSWORD` | the password from step 1 | step 1 |
+| Secret                               | Value                                          | Source |
+| ------------------------------------ | ---------------------------------------------- | ------ |
+| `TAURI_UPDATER_PRIVATE_KEY`          | full contents of `~/.tauri/hecate-updater.key` | step 1 |
+| `TAURI_UPDATER_PRIVATE_KEY_PASSWORD` | the password from step 1                       | step 1 |
 
 The release workflow's tauri-action step picks these up and uses
 them to sign the platform bundles (`.app.tar.gz`, `.AppImage`,
@@ -160,7 +160,7 @@ After the next tagged release with both secrets configured and
      "pub_date": "...",
      "platforms": {
        "darwin-aarch64": { "signature": "...", "url": "..." },
-       "linux-x86_64":   { "signature": "...", "url": "..." },
+       "linux-x86_64": { "signature": "...", "url": "..." },
        "windows-x86_64": { "signature": "...", "url": "..." }
      }
    }

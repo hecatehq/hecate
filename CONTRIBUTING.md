@@ -11,24 +11,24 @@ provider credentials. Contributions land easier when they read like that.
 
 The `docs-ai/` tree mirrors the operating loop:
 
-| Directory | What's there |
-|---|---|
-| [`docs-ai/core/`](docs-ai/core/) | Project context, engineering standards, workflow, verification ladders |
-| [`docs-ai/tasks/`](docs-ai/tasks/) | Planning, implementation, debugging, refactoring, code-review shapes |
+| Directory                            | What's there                                                                                                                                                            |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs-ai/core/`](docs-ai/core/)     | Project context, engineering standards, workflow, verification ladders                                                                                                  |
+| [`docs-ai/tasks/`](docs-ai/tasks/)   | Planning, implementation, debugging, refactoring, code-review shapes                                                                                                    |
 | [`docs-ai/skills/`](docs-ai/skills/) | Area depth (`backend/`, `ui/`, `providers/`) and posture skills (`architect/` for plan-first, `tester/` for evidence-over-assumptions, `devops/` for delivery surfaces) |
 
 ## Verification
 
 Run before opening a PR:
 
-| Surface | Command | When |
-|---|---|---|
-| Backend build | `go build ./...` | Always |
-| Backend tests | `go test -race -timeout 10m ./...` | Required for runtime/backend changes |
-| Backend focused | `go test -race -count=1 ./<package>/...` | During iteration |
-| UI typecheck | `cd ui && bun run typecheck` | After any UI edit |
-| UI tests | `cd ui && bun run test` | Before committing UI changes |
-| E2E | `go test -tags e2e ./e2e/...` | When touching the api → orchestrator → providers chain |
+| Surface         | Command                                  | When                                                   |
+| --------------- | ---------------------------------------- | ------------------------------------------------------ |
+| Backend build   | `go build ./...`                         | Always                                                 |
+| Backend tests   | `go test -race -timeout 10m ./...`       | Required for runtime/backend changes                   |
+| Backend focused | `go test -race -count=1 ./<package>/...` | During iteration                                       |
+| UI typecheck    | `cd ui && bun run typecheck`             | After any UI edit                                      |
+| UI tests        | `cd ui && bun run test`                  | Before committing UI changes                           |
+| E2E             | `go test -tags e2e ./e2e/...`            | When touching the api → orchestrator → providers chain |
 
 The race suite is the floor for runtime/backend changes — not a
 nice-to-have. UI tests use `bun run test` (never `bun test`, which skips
@@ -42,8 +42,8 @@ Slash-command shortcuts available in Claude Code: `/race` and
 [Conventional Commits](https://www.conventionalcommits.org/). Use
 `feat`, `fix`, `test`, `docs`, `chore`, or `refactor` with a scope.
 
-- Subject under ~72 chars, focused on *what changed*.
-- Body (separated by blank line) explains the *why*, rejected
+- Subject under ~72 chars, focused on _what changed_.
+- Body (separated by blank line) explains the _why_, rejected
   alternatives, and migration notes when relevant.
 - Pure-markdown changes: append `[skip ci]` to the subject (CI's
   `paths-ignore` already catches `**/*.md`; the marker is

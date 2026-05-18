@@ -15,10 +15,10 @@ Protocol reference: [Agent Client Protocol](https://agentclientprotocol.com/).
 
 ACP appears in Hecate in two different places:
 
-| Direction | What Hecate does | User-facing surface | Doc |
-|---|---|---|---|
-| **Hecate as an ACP agent** | `hecate-acp` is launched by an editor ACP host and translates editor sessions into Hecate task-runtime work. | Zed, JetBrains, VS Code/Cursor extensions, other ACP hosts. | This page |
-| **Hecate as an ACP client/operator** | The Chats view launches ACP-compatible coding-agent adapters such as Codex and Claude Code, then supervises their local process/session. | Hecate **Chats** agent picker. | [External agent adapters](external-agent-adapters.md) |
+| Direction                            | What Hecate does                                                                                                                         | User-facing surface                                         | Doc                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------- |
+| **Hecate as an ACP agent**           | `hecate-acp` is launched by an editor ACP host and translates editor sessions into Hecate task-runtime work.                             | Zed, JetBrains, VS Code/Cursor extensions, other ACP hosts. | This page                                             |
+| **Hecate as an ACP client/operator** | The Chats view launches ACP-compatible coding-agent adapters such as Codex and Claude Code, then supervises their local process/session. | Hecate **Chats** agent picker.                              | [External agent adapters](external-agent-adapters.md) |
 
 This is similar to the MCP documentation split by direction, but ACP currently
 uses two separate pages because the operator jobs are different: editor setup vs
@@ -102,13 +102,13 @@ fallback for independently launched ACP hosts.
 ACP hosts always start `hecate-acp`; they do not start the gateway. Start
 Hecate first using whichever distribution fits your setup:
 
-| Setup | How to start Hecate | Bridge config |
-|---|---|---|
-| Native app | Open the Hecate desktop app | Omit `HECATE_GATEWAY_URL`; the bridge discovers the dynamic sidecar URL from `hecate.runtime.json`. |
-| Release tarball | Run `./hecate` from the unpacked tarball | Usually omit `HECATE_GATEWAY_URL`; default fallback is `http://127.0.0.1:8765`. Set it only if you changed the port or URL. |
-| Source checkout | Run `just dev` | Usually omit `HECATE_GATEWAY_URL`; the bridge checks `.data/hecate.runtime.json` and then falls back to `http://127.0.0.1:8765`. |
-| Docker / Compose | Run `docker compose up` or `docker run -p 8765:8765 ...` | Set `HECATE_GATEWAY_URL=http://127.0.0.1:8765` in the editor config unless the bridge is running inside the same container. |
-| Reverse proxy | Run Hecate behind your proxy | Set `HECATE_GATEWAY_URL` to the proxy URL. |
+| Setup            | How to start Hecate                                      | Bridge config                                                                                                                    |
+| ---------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Native app       | Open the Hecate desktop app                              | Omit `HECATE_GATEWAY_URL`; the bridge discovers the dynamic sidecar URL from `hecate.runtime.json`.                              |
+| Release tarball  | Run `./hecate` from the unpacked tarball                 | Usually omit `HECATE_GATEWAY_URL`; default fallback is `http://127.0.0.1:8765`. Set it only if you changed the port or URL.      |
+| Source checkout  | Run `just dev`                                           | Usually omit `HECATE_GATEWAY_URL`; the bridge checks `.data/hecate.runtime.json` and then falls back to `http://127.0.0.1:8765`. |
+| Docker / Compose | Run `docker compose up` or `docker run -p 8765:8765 ...` | Set `HECATE_GATEWAY_URL=http://127.0.0.1:8765` in the editor config unless the bridge is running inside the same container.      |
+| Reverse proxy    | Run Hecate behind your proxy                             | Set `HECATE_GATEWAY_URL` to the proxy URL.                                                                                       |
 
 The runtime discovery file contains the active `base_url`, for example:
 
@@ -332,17 +332,17 @@ examples in this document.
 
 Known ACP client surfaces in the wider ecosystem include:
 
-| Client | Status | Notes |
-|---|---|---|
-| Zed | Native | Custom `agent_servers` in `settings.json`, plus ACP registry support. |
-| JetBrains IDEs | Native via AI Assistant | Custom agents in `~/.jetbrains/acp.json`, plus curated registry support. |
-| VS Code | Extension | ACP client extensions can spawn `hecate-acp` with `agent_servers`; not smoke-tested by Hecate yet. |
-| Cursor | Extension | Same config as VS Code when an ACP client extension is available or installed from VSIX; not smoke-tested by Hecate yet. |
-| Neovim | Plugin | ACP support through plugins such as CodeCompanion / avante.nvim. |
-| Emacs | Plugin | ACP support through `agent-shell`. |
-| Obsidian | Plugin | ACP side-panel plugin for agent threads. |
-| marimo | Native / app-level | Listed in the ACP ecosystem for notebook-style workflows. |
-| Browser / web apps | Library / adapter | Possible through ACP client libraries, but Hecate has not tested this path. |
+| Client             | Status                  | Notes                                                                                                                    |
+| ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Zed                | Native                  | Custom `agent_servers` in `settings.json`, plus ACP registry support.                                                    |
+| JetBrains IDEs     | Native via AI Assistant | Custom agents in `~/.jetbrains/acp.json`, plus curated registry support.                                                 |
+| VS Code            | Extension               | ACP client extensions can spawn `hecate-acp` with `agent_servers`; not smoke-tested by Hecate yet.                       |
+| Cursor             | Extension               | Same config as VS Code when an ACP client extension is available or installed from VSIX; not smoke-tested by Hecate yet. |
+| Neovim             | Plugin                  | ACP support through plugins such as CodeCompanion / avante.nvim.                                                         |
+| Emacs              | Plugin                  | ACP support through `agent-shell`.                                                                                       |
+| Obsidian           | Plugin                  | ACP side-panel plugin for agent threads.                                                                                 |
+| marimo             | Native / app-level      | Listed in the ACP ecosystem for notebook-style workflows.                                                                |
+| Browser / web apps | Library / adapter       | Possible through ACP client libraries, but Hecate has not tested this path.                                              |
 
 Treat anything outside Zed and JetBrains as "bring your own host config" until
 Hecate has smoke tests or packaged examples for that client.
@@ -366,12 +366,12 @@ for that behavior.
 
 ## Configuration
 
-| Variable | Default | Meaning |
-|---|---:|---|
-| `HECATE_GATEWAY_URL` | auto-discover, then `http://127.0.0.1:8765` | Gateway base URL the bridge talks to. Set explicitly to bypass runtime-state discovery. |
-| `HECATE_AGENT_NAME` | `Hecate` | Agent display name advertised during initialize. |
-| `HECATE_WORKSPACE_MODE` | `auto` | Workspace ownership. `auto` (default) follows ACP capability negotiation. `hecate-owned` forces the gateway host to own file writes and terminal execution. `editor-owned` requires the editor to own them via reverse-RPC and fails the handshake when the editor cannot. |
-| `HECATE_APPROVAL_ROUTE` | `editor` | `editor` sends approval gates to ACP `session/request_permission`; other values leave approvals for the Hecate operator UI. |
+| Variable                |                                     Default | Meaning                                                                                                                                                                                                                                                                    |
+| ----------------------- | ------------------------------------------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HECATE_GATEWAY_URL`    | auto-discover, then `http://127.0.0.1:8765` | Gateway base URL the bridge talks to. Set explicitly to bypass runtime-state discovery.                                                                                                                                                                                    |
+| `HECATE_AGENT_NAME`     |                                    `Hecate` | Agent display name advertised during initialize.                                                                                                                                                                                                                           |
+| `HECATE_WORKSPACE_MODE` |                                      `auto` | Workspace ownership. `auto` (default) follows ACP capability negotiation. `hecate-owned` forces the gateway host to own file writes and terminal execution. `editor-owned` requires the editor to own them via reverse-RPC and fails the handshake when the editor cannot. |
+| `HECATE_APPROVAL_ROUTE` |                                    `editor` | `editor` sends approval gates to ACP `session/request_permission`; other values leave approvals for the Hecate operator UI.                                                                                                                                                |
 
 `HECATE_WORKSPACE_MODE` resolves at `initialize` time. In `auto` mode the bridge
 picks `editor-owned` when the editor declares `clientCapabilities.fs.readTextFile`,
@@ -397,13 +397,13 @@ Chats.
 `hecate-acp` as its default `service.name`, even when it inherits collector
 endpoint settings from the gateway environment.
 
-| Variable | Meaning |
-|---|---|
-| `HECATE_ACP_OTEL_TRACES_ENABLED` | Enable bridge trace export. Falls back to `GATEWAY_OTEL_TRACES_ENABLED`. |
-| `HECATE_ACP_OTEL_ENDPOINT` / `HECATE_ACP_OTEL_TRACES_ENDPOINT` | Shared or trace-specific collector endpoint. Falls back to `GATEWAY_OTEL_ENDPOINT` / `GATEWAY_OTEL_TRACES_ENDPOINT`. |
-| `HECATE_ACP_OTEL_TRANSPORT` / `HECATE_ACP_OTEL_TRACES_TRANSPORT` | `http` or `grpc`. Falls back to the gateway OTel transport variables. |
-| `HECATE_ACP_OTEL_HEADERS` / `HECATE_ACP_OTEL_TRACES_HEADERS` | Comma-separated `key=value` headers for OTLP export. |
-| `HECATE_ACP_OTEL_SERVICE_NAME` | Optional service-name override. Defaults to `hecate-acp`. |
+| Variable                                                         | Meaning                                                                                                              |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `HECATE_ACP_OTEL_TRACES_ENABLED`                                 | Enable bridge trace export. Falls back to `GATEWAY_OTEL_TRACES_ENABLED`.                                             |
+| `HECATE_ACP_OTEL_ENDPOINT` / `HECATE_ACP_OTEL_TRACES_ENDPOINT`   | Shared or trace-specific collector endpoint. Falls back to `GATEWAY_OTEL_ENDPOINT` / `GATEWAY_OTEL_TRACES_ENDPOINT`. |
+| `HECATE_ACP_OTEL_TRANSPORT` / `HECATE_ACP_OTEL_TRACES_TRANSPORT` | `http` or `grpc`. Falls back to the gateway OTel transport variables.                                                |
+| `HECATE_ACP_OTEL_HEADERS` / `HECATE_ACP_OTEL_TRACES_HEADERS`     | Comma-separated `key=value` headers for OTLP export.                                                                 |
+| `HECATE_ACP_OTEL_SERVICE_NAME`                                   | Optional service-name override. Defaults to `hecate-acp`.                                                            |
 
 When enabled, the bridge emits `acp.rpc` spans for JSON-RPC calls and
 `acp.gateway.request` spans for gateway HTTP calls. It also injects W3C

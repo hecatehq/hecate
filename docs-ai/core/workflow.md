@@ -74,6 +74,6 @@ corrections that the operator explicitly requests.
 
 **No plan, phase, or release labels in commit messages or code comments.** No `P0`, no `Phase 2`, no `#15`, no `Milestone N`. The plan lives in chat; the repo record is permanent. This applies equally to commit subjects, commit bodies, and code comments.
 
-**Subject focuses on *what changed*.** Body explains *why*, the rejected alternatives, migration/compat notes, and follow-ups when relevant.
+**Subject focuses on _what changed_.** Body explains _why_, the rejected alternatives, migration/compat notes, and follow-ups when relevant.
 
 **Trivial changes** (typo fixes, dependency bumps) may be subject-only. Substantial changes carry a body — the operator reading the diff in 6 months needs the context.

@@ -56,10 +56,10 @@ headlessly, and eventually provides a TUI for common operator workflows.
 
 The terminal distribution has two executables:
 
-| Binary | Purpose |
-|---|---|
-| `hecate` | Main runtime and CLI executable: starts the gateway service today and hosts future CLI/TUI commands. |
-| `hecate-acp` | Stdio ACP bridge launched by Zed, JetBrains, VS Code/Cursor extensions, and other ACP hosts. |
+| Binary       | Purpose                                                                                              |
+| ------------ | ---------------------------------------------------------------------------------------------------- |
+| `hecate`     | Main runtime and CLI executable: starts the gateway service today and hosts future CLI/TUI commands. |
+| `hecate-acp` | Stdio ACP bridge launched by Zed, JetBrains, VS Code/Cursor extensions, and other ACP hosts.         |
 
 `hecate-acp` stays a separate binary even if `hecate` grows helper commands
 such as `hecate acp doctor` or `hecate acp config zed`. ACP hosts naturally
@@ -68,32 +68,32 @@ package, debug, and version.
 
 ## Current State
 
-| Surface | State |
-|---|---|
-| Release archive | Ships `hecate`, `hecate-acp`, `LICENSE`, and `README.md`. |
-| Docker image | Ships both binaries; entrypoint runs the gateway. |
-| Desktop app | Bundles both binaries as sidecars. |
-| `hecate-acp` | Implemented but experimental editor bridge. |
-| Terminal TUI | Not implemented. |
+| Surface                 | State                                                                 |
+| ----------------------- | --------------------------------------------------------------------- |
+| Release archive         | Ships `hecate`, `hecate-acp`, `LICENSE`, and `README.md`.             |
+| Docker image            | Ships both binaries; entrypoint runs the gateway.                     |
+| Desktop app             | Bundles both binaries as sidecars.                                    |
+| `hecate-acp`            | Implemented but experimental editor bridge.                           |
+| Terminal TUI            | Not implemented.                                                      |
 | Terminal setup commands | Not implemented beyond existing gateway startup and release binaries. |
-| Homebrew | Not published yet. |
+| Homebrew                | Not published yet.                                                    |
 
 ## Proposed Commands
 
 The command surface should be explicit while the TUI is young:
 
-| Command | Behavior |
-|---|---|
-| `hecate serve` | Start the gateway without the TUI. Keep the embedded web UI available on the configured HTTP address. |
-| `hecate tui` | Start or attach to a gateway and open the terminal operator UI. |
-| `hecate doctor` | Check data directory, port binding, SQLite, provider readiness, external-agent readiness, `hecate-acp`, and OTel export configuration. |
-| `hecate version` | Print Hecate version, build metadata, and companion compatibility information. |
-| `hecate acp doctor` | Check that `hecate-acp` can reach the active gateway and complete the bridge startup path. |
-| `hecate acp config zed` | Print a ready-to-paste local Zed ACP server config. |
-| `hecate acp config jetbrains` | Print a ready-to-paste local JetBrains ACP config. |
-| `hecate acp config vscode` | Print a ready-to-paste VS Code/Cursor ACP-host config once the supported host shape is known. |
-| `hecate-acp` | Run the ACP stdio bridge. This remains the editor-facing executable. |
-| `hecate-acp --version` | Print bridge version and compatible gateway version. |
+| Command                       | Behavior                                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `hecate serve`                | Start the gateway without the TUI. Keep the embedded web UI available on the configured HTTP address.                                  |
+| `hecate tui`                  | Start or attach to a gateway and open the terminal operator UI.                                                                        |
+| `hecate doctor`               | Check data directory, port binding, SQLite, provider readiness, external-agent readiness, `hecate-acp`, and OTel export configuration. |
+| `hecate version`              | Print Hecate version, build metadata, and companion compatibility information.                                                         |
+| `hecate acp doctor`           | Check that `hecate-acp` can reach the active gateway and complete the bridge startup path.                                             |
+| `hecate acp config zed`       | Print a ready-to-paste local Zed ACP server config.                                                                                    |
+| `hecate acp config jetbrains` | Print a ready-to-paste local JetBrains ACP config.                                                                                     |
+| `hecate acp config vscode`    | Print a ready-to-paste VS Code/Cursor ACP-host config once the supported host shape is known.                                          |
+| `hecate-acp`                  | Run the ACP stdio bridge. This remains the editor-facing executable.                                                                   |
+| `hecate-acp --version`        | Print bridge version and compatible gateway version.                                                                                   |
 
 The default `hecate` behavior should not flip to TUI until the TUI is useful
 for normal alpha operation. A safe migration path is:
@@ -107,11 +107,11 @@ for normal alpha operation. A safe migration path is:
 
 The TUI needs a concrete gateway lifecycle story.
 
-| Mode | Command shape | Lifecycle |
-|---|---|---|
-| TUI-owned gateway | `hecate tui` | Pick a loopback port, start the gateway as an owned child process or in-process runtime, write runtime discovery state, and stop it on TUI exit unless configured to keep running. |
-| Attach mode | `hecate tui --connect http://127.0.0.1:8765` | Connect to an already-running gateway and do not own its lifecycle. |
-| Headless gateway | `hecate serve` | Start only the gateway; used by scripts, services, Docker, and operators who prefer the browser UI. |
+| Mode              | Command shape                                | Lifecycle                                                                                                                                                                          |
+| ----------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TUI-owned gateway | `hecate tui`                                 | Pick a loopback port, start the gateway as an owned child process or in-process runtime, write runtime discovery state, and stop it on TUI exit unless configured to keep running. |
+| Attach mode       | `hecate tui --connect http://127.0.0.1:8765` | Connect to an already-running gateway and do not own its lifecycle.                                                                                                                |
+| Headless gateway  | `hecate serve`                               | Start only the gateway; used by scripts, services, Docker, and operators who prefer the browser UI.                                                                                |
 
 The preferred implementation is child-process ownership, matching the desktop
 sidecar model. That gives clearer logs, crash boundaries, and shutdown
@@ -123,15 +123,15 @@ port collision, and runtime-state cleanup.
 The TUI should not clone the full React app at first. It should cover the
 workflows that make a terminal install self-contained:
 
-| Area | First useful TUI capability |
-|---|---|
-| Startup | Show gateway URL, data directory, storage backend, version, and trace/export status. |
-| Connections | Show configured providers, detected local providers, model counts, credential state, route blockers, and external-agent readiness. |
-| Chats | Start Hecate Chat and External Agent sessions, stream transcript output, show route/run/trace metadata, queue prompts, and show reported external-agent usage. |
-| Approvals | Render pending task and external-agent approvals; approve, deny, or cancel without opening the browser UI. |
-| Tasks | List tasks/runs, show status, and open a run timeline. Deep patch review can stay browser-first initially. |
-| Observability | Show recent requests, trace IDs, provider/model selection, and final outcome. Deep route reports can stay browser-first initially. |
-| Settings | Show key runtime settings and diagnostics. Full editing can stay browser-first until the TUI patterns settle. |
+| Area          | First useful TUI capability                                                                                                                                    |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Startup       | Show gateway URL, data directory, storage backend, version, and trace/export status.                                                                           |
+| Connections   | Show configured providers, detected local providers, model counts, credential state, route blockers, and external-agent readiness.                             |
+| Chats         | Start Hecate Chat and External Agent sessions, stream transcript output, show route/run/trace metadata, queue prompts, and show reported external-agent usage. |
+| Approvals     | Render pending task and external-agent approvals; approve, deny, or cancel without opening the browser UI.                                                     |
+| Tasks         | List tasks/runs, show status, and open a run timeline. Deep patch review can stay browser-first initially.                                                     |
+| Observability | Show recent requests, trace IDs, provider/model selection, and final outcome. Deep route reports can stay browser-first initially.                             |
+| Settings      | Show key runtime settings and diagnostics. Full editing can stay browser-first until the TUI patterns settle.                                                  |
 
 The TUI must use the same HTTP/SSE API as the React UI. It should not get a
 special in-process backdoor. If the TUI needs an operation, the product API
@@ -254,12 +254,12 @@ Future:
 Terminal distribution should keep the same env-driven runtime configuration as
 other launch modes:
 
-| Variable | Meaning |
-|---|---|
-| `GATEWAY_ADDRESS` | Gateway bind address for headless mode. Defaults to `127.0.0.1:8765`. |
-| `GATEWAY_DATA_DIR` | Runtime state, SQLite database, logs, and runtime discovery state. |
-| `HECATE_GATEWAY_URL` | Explicit gateway URL for helper processes such as `hecate-acp`. |
-| `HECATE_AGENT_ADAPTERS_DIR` | Managed external-agent ACP launcher cache. |
+| Variable                    | Meaning                                                               |
+| --------------------------- | --------------------------------------------------------------------- |
+| `GATEWAY_ADDRESS`           | Gateway bind address for headless mode. Defaults to `127.0.0.1:8765`. |
+| `GATEWAY_DATA_DIR`          | Runtime state, SQLite database, logs, and runtime discovery state.    |
+| `HECATE_GATEWAY_URL`        | Explicit gateway URL for helper processes such as `hecate-acp`.       |
+| `HECATE_AGENT_ADAPTERS_DIR` | Managed external-agent ACP launcher cache.                            |
 
 Open question: should the TUI have its own config file for preferences such as
 keybindings, compact mode, and theme? The first implementation can keep

@@ -115,15 +115,15 @@ Three things bound the loop:
 
 The agent gets seven tools by default. None require operator config beyond the approval policies; `http_request` reads the network policy from env.
 
-| Tool | What it does | Policy |
-|---|---|---|
-| `shell_exec` | Run a shell command in the workspace | Gated by `shell_exec` or `all_tools` policy (default on); executed in a per-call `sh` subprocess with env sanitisation + output cap + wall-clock timeout, optionally wrapped by `bwrap` / `sandbox-exec` for OS-level fs+net confinement (see [`sandbox.md`](sandbox.md)) |
-| `git_exec` | Run a git command in the workspace | Gated by `git_exec` or `all_tools` policy (default on) |
-| `file_write` | Write or append a file under the workspace | Gated by `file_write` or `all_tools` policy (default on) |
-| `file_edit` | Replace exact text in an existing workspace file | Gated by `file_write` or `all_tools` policy (default on) |
-| `read_file` | Read a file under the workspace (8 KiB cap, binary detection) | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve within the sandbox root |
-| `list_dir` | List entries under a workspace path | Ungated unless `all_tools` is set. Path must resolve within the sandbox root |
-| `http_request` | Make an outbound HTTP request | Gated by `network_egress` or `all_tools` policy; SSRF guards (private-IP block, scheme allowlist, optional host allowlist) |
+| Tool           | What it does                                                  | Policy                                                                                                                                                                                                                                                                    |
+| -------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shell_exec`   | Run a shell command in the workspace                          | Gated by `shell_exec` or `all_tools` policy (default on); executed in a per-call `sh` subprocess with env sanitisation + output cap + wall-clock timeout, optionally wrapped by `bwrap` / `sandbox-exec` for OS-level fs+net confinement (see [`sandbox.md`](sandbox.md)) |
+| `git_exec`     | Run a git command in the workspace                            | Gated by `git_exec` or `all_tools` policy (default on)                                                                                                                                                                                                                    |
+| `file_write`   | Write or append a file under the workspace                    | Gated by `file_write` or `all_tools` policy (default on)                                                                                                                                                                                                                  |
+| `file_edit`    | Replace exact text in an existing workspace file              | Gated by `file_write` or `all_tools` policy (default on)                                                                                                                                                                                                                  |
+| `read_file`    | Read a file under the workspace (8 KiB cap, binary detection) | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve within the sandbox root                                                                                                                                                                |
+| `list_dir`     | List entries under a workspace path                           | Ungated unless `all_tools` is set. Path must resolve within the sandbox root                                                                                                                                                                                              |
+| `http_request` | Make an outbound HTTP request                                 | Gated by `network_egress` or `all_tools` policy; SSRF guards (private-IP block, scheme allowlist, optional host allowlist)                                                                                                                                                |
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
 
@@ -269,16 +269,16 @@ The conversation viewer in the run-replay UI shows a `↻ retry from here` butto
 
 Env vars that affect agent_loop runs:
 
-| Variable | Default | What it does |
-|---|---|---|
-| `GATEWAY_TASK_AGENT_LOOP_MAX_TURNS` | `8` | Hard ceiling on LLM round-trips per run |
-| `GATEWAY_TASK_AGENT_SYSTEM_PROMPT` | `""` | Global (broadest) layer of the three-layer system prompt |
-| `GATEWAY_TASK_HTTP_TIMEOUT` | `30s` | Timeout for the `http_request` tool |
-| `GATEWAY_TASK_HTTP_MAX_RESPONSE_BYTES` | `262144` (256 KiB) | Response size cap for `http_request` |
-| `GATEWAY_TASK_HTTP_ALLOW_PRIVATE_IPS` | `false` | When `false`, blocks loopback / RFC1918 / link-local destinations |
-| `GATEWAY_TASK_HTTP_ALLOWED_HOSTS` | `""` | Comma-separated exact-host allowlist; empty = all public hosts |
-| `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false` | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true` |
-| `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` | `""` | Same exact-host allowlist, applied to shell_exec / git_exec command URLs |
+| Variable                               | Default            | What it does                                                                                                      |
+| -------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `GATEWAY_TASK_AGENT_LOOP_MAX_TURNS`    | `8`                | Hard ceiling on LLM round-trips per run                                                                           |
+| `GATEWAY_TASK_AGENT_SYSTEM_PROMPT`     | `""`               | Global (broadest) layer of the three-layer system prompt                                                          |
+| `GATEWAY_TASK_HTTP_TIMEOUT`            | `30s`              | Timeout for the `http_request` tool                                                                               |
+| `GATEWAY_TASK_HTTP_MAX_RESPONSE_BYTES` | `262144` (256 KiB) | Response size cap for `http_request`                                                                              |
+| `GATEWAY_TASK_HTTP_ALLOW_PRIVATE_IPS`  | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                 |
+| `GATEWAY_TASK_HTTP_ALLOWED_HOSTS`      | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                    |
+| `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true` |
+| `GATEWAY_TASK_SHELL_ALLOWED_HOSTS`     | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                          |
 
 For `GATEWAY_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `file_write` gates both full-file writes and exact-match `file_edit` calls. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 

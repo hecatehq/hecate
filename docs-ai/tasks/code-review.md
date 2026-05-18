@@ -7,7 +7,7 @@ Structured rubric for reviewing changes — your own or another agent's.
 For each pass, ask:
 
 1. **Correctness.** Does the change do what it claims? Are edge cases handled? Are errors classified correctly (`IsClientError`, `IsBudgetExceeded`, `IsRateLimited`, `IsDenied`, or a new class if needed)?
-2. **Maintainability.** Is the change readable? Do comments explain *why*, not *what*? Is naming consistent with the surrounding code? Will the next reader understand the trade-off without `git blame`?
+2. **Maintainability.** Is the change readable? Do comments explain _why_, not _what_? Is naming consistent with the surrounding code? Will the next reader understand the trade-off without `git blame`?
 3. **Architecture fit.** Does it respect the rings (`pkg/types/` → `internal/api/` → `internal/providers/`, with imports inward only)? Does it mirror the storage tier rule (memory + sqlite)? Does it duplicate what should be shared, or share what should be duplicated (the api↔providers parallel-struct rule)?
 4. **Test coverage.** Does it test the seam? The error path? The cross-boundary wire shape? For UI: data-to-UI transformation and conditional rendering of critical states? Streaming wire shape? Storage scoping?
 5. **Security risk.** Local-only assumptions; loopback/same-origin behavior; sandbox boundary; SSRF guards on `http_request`; secrets in env vs in code.

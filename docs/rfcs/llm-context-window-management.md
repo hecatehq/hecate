@@ -111,11 +111,11 @@ implementation should pick one and update the API/docs in the same PR.
 
 Recommended defaults:
 
-| Level | Default | Effect |
-|---|---|---|
-| Soft warning | 80% of model limit | Add warning to response metadata, trace, and UI. Call proceeds. |
-| Hard cap | 95% of model limit | Refuse before provider call with a structured Hecate error. |
-| Unknown limit | 32K fallback | Warn that the limit is estimated. |
+| Level         | Default            | Effect                                                          |
+| ------------- | ------------------ | --------------------------------------------------------------- |
+| Soft warning  | 80% of model limit | Add warning to response metadata, trace, and UI. Call proceeds. |
+| Hard cap      | 95% of model limit | Refuse before provider call with a structured Hecate error.     |
+| Unknown limit | 32K fallback       | Warn that the limit is estimated.                               |
 
 Structured error sketch:
 
@@ -214,14 +214,14 @@ UI:
 
 ## Implementation Plan
 
-| PR | Scope |
-|---|---|
-| 1 | Add model context limit field to capability records and provider/model API responses. |
-| 2 | Add token estimator over `ContextPacket` items with unit tests. |
-| 3 | Add soft warning + hard cap for Hecate Chat direct-model and tools-on runs. |
-| 4 | Surface context usage in Chat and Task Detail. |
-| 5 | Add opt-in fitting policy for task-backed Hecate Chat runs. |
-| 6 | Add summarization as a separate, evaluated feature. |
+| PR  | Scope                                                                                 |
+| --- | ------------------------------------------------------------------------------------- |
+| 1   | Add model context limit field to capability records and provider/model API responses. |
+| 2   | Add token estimator over `ContextPacket` items with unit tests.                       |
+| 3   | Add soft warning + hard cap for Hecate Chat direct-model and tools-on runs.           |
+| 4   | Surface context usage in Chat and Task Detail.                                        |
+| 5   | Add opt-in fitting policy for task-backed Hecate Chat runs.                           |
+| 6   | Add summarization as a separate, evaluated feature.                                   |
 
 PRs 1-4 are the practical beta target. PRs 5-6 are useful but should not block
 basic context visibility.
@@ -249,4 +249,3 @@ basic context visibility.
   Recommendation: yes, but only after summarization has its own evals.
 - Should operators configure thresholds globally or per model/profile?
   Recommendation: global defaults first, profile-level overrides later.
-

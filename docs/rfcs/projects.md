@@ -34,16 +34,16 @@ Raw paths are not stable enough to be the durable identity:
 
 ## Terminology
 
-| Term | Meaning |
-|---|---|
-| Project | Durable Hecate object representing a codebase or work area. Identified by `project_id`. Owns defaults, memories, history grouping, and context sources. |
-| Workspace | Concrete filesystem root used for execution. A project can have one or more workspaces over time. |
-| Chat | Conversation attached to an optional project and, when running, a concrete workspace. |
-| Task | Durable runtime object attached to an optional project and a concrete workspace mode. |
-| Run | One execution attempt under a task. Runs never define project identity by themselves. |
-| Agent profile | Reusable agent configuration for Hecate Chat or an external agent: model/adapter controls, tools, memory sources, system instructions, and safety posture. |
-| Preset | Template for creating or updating a project default or agent profile. Presets are not used directly at runtime once applied. |
-| Context packet | A snapshot of what Hecate assembled for a model/agent call, including project and workspace metadata. |
+| Term           | Meaning                                                                                                                                                    |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project        | Durable Hecate object representing a codebase or work area. Identified by `project_id`. Owns defaults, memories, history grouping, and context sources.    |
+| Workspace      | Concrete filesystem root used for execution. A project can have one or more workspaces over time.                                                          |
+| Chat           | Conversation attached to an optional project and, when running, a concrete workspace.                                                                      |
+| Task           | Durable runtime object attached to an optional project and a concrete workspace mode.                                                                      |
+| Run            | One execution attempt under a task. Runs never define project identity by themselves.                                                                      |
+| Agent profile  | Reusable agent configuration for Hecate Chat or an external agent: model/adapter controls, tools, memory sources, system instructions, and safety posture. |
+| Preset         | Template for creating or updating a project default or agent profile. Presets are not used directly at runtime once applied.                               |
+| Context packet | A snapshot of what Hecate assembled for a model/agent call, including project and workspace metadata.                                                      |
 
 ## Goals
 
@@ -143,12 +143,12 @@ Project memory should be the default durable memory scope.
 
 Memory layers:
 
-| Layer | Persistence | Scope | Promotion |
-|---|---|---|---|
-| Global memory | Durable | Whole local Hecate instance | Explicit only |
-| Project memory | Durable | One `project_id` | Explicit save from chat/task |
-| Chat/session memory | Session-local | One chat/session | Never auto-promoted |
-| Current context | Per request | One model/agent call | Not memory |
+| Layer               | Persistence   | Scope                       | Promotion                    |
+| ------------------- | ------------- | --------------------------- | ---------------------------- |
+| Global memory       | Durable       | Whole local Hecate instance | Explicit only                |
+| Project memory      | Durable       | One `project_id`            | Explicit save from chat/task |
+| Chat/session memory | Session-local | One chat/session            | Never auto-promoted          |
+| Current context     | Per request   | One model/agent call        | Not memory                   |
 
 This keeps short-lived conversation facts out of project memory unless the operator or assistant explicitly saves them.
 
@@ -167,11 +167,11 @@ which local/external memory sources participate for a specific agent.
 
 Projects, profiles, and presets have separate jobs:
 
-| Object | Job | Runtime role |
-|---|---|---|
-| Project | Durable identity for a codebase/work area. Owns defaults, history grouping, and project memory. | Active runtime scope. |
-| Agent profile | Saved configuration for an agent in a project or globally: Hecate/Codex/Claude/Cursor, model/adapter controls, tools, approvals, memory sources, system prompt, RTK. | Active runtime configuration. |
-| Preset | Reusable template such as "code review", "implementation", "docs", "safe external agent", or "fast local model". | Applied to create/update a profile or project default; not a live scope. |
+| Object        | Job                                                                                                                                                                  | Runtime role                                                             |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Project       | Durable identity for a codebase/work area. Owns defaults, history grouping, and project memory.                                                                      | Active runtime scope.                                                    |
+| Agent profile | Saved configuration for an agent in a project or globally: Hecate/Codex/Claude/Cursor, model/adapter controls, tools, approvals, memory sources, system prompt, RTK. | Active runtime configuration.                                            |
+| Preset        | Reusable template such as "code review", "implementation", "docs", "safe external agent", or "fast local model".                                                     | Applied to create/update a profile or project default; not a live scope. |
 
 In other words: a project can choose a default agent profile, and a profile can
 be created from a preset. After application, Hecate should persist the resolved

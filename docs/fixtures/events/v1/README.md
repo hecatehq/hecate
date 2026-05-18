@@ -8,8 +8,8 @@ checkable before implementation starts.
 
 ## Layout
 
-| Path | Meaning |
-|---|---|
+| Path          | Meaning                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------- |
 | `core/*.json` | Candidate-core v1 event examples that frontend, CLI, and ACP prototypes may use as golden inputs. |
 
 Experimental event ideas from

@@ -106,15 +106,15 @@ authenticates to Apple's notary service using your Apple ID + an
 In the repo: **Settings → Secrets and variables → Actions → New repository
 secret**. Add all seven:
 
-| Secret | Value | Source |
-|---|---|---|
-| `APPLE_CERTIFICATE` | base64 of the `.p12` | step 2.6 above |
-| `APPLE_CERTIFICATE_PASSWORD` | the `.p12` export password | step 2.1 above |
-| `APPLE_SIGNING_IDENTITY` | full identity name | from Keychain, e.g. `Developer ID Application: Sergey Rubanov (XXXXXXXXXX)` |
-| `APPLE_ID` | your Apple ID email | the email you sign into developer.apple.com with |
-| `APPLE_PASSWORD` | app-specific password | step 3.3 above |
-| `APPLE_TEAM_ID` | 10-char Team ID | step 4 above |
-| `KEYCHAIN_PASSWORD` | any random string | `openssl rand -hex 32 | pbcopy` |
+| Secret                       | Value                      | Source                                                                      |
+| ---------------------------- | -------------------------- | --------------------------------------------------------------------------- | ------- |
+| `APPLE_CERTIFICATE`          | base64 of the `.p12`       | step 2.6 above                                                              |
+| `APPLE_CERTIFICATE_PASSWORD` | the `.p12` export password | step 2.1 above                                                              |
+| `APPLE_SIGNING_IDENTITY`     | full identity name         | from Keychain, e.g. `Developer ID Application: Sergey Rubanov (XXXXXXXXXX)` |
+| `APPLE_ID`                   | your Apple ID email        | the email you sign into developer.apple.com with                            |
+| `APPLE_PASSWORD`             | app-specific password      | step 3.3 above                                                              |
+| `APPLE_TEAM_ID`              | 10-char Team ID            | step 4 above                                                                |
+| `KEYCHAIN_PASSWORD`          | any random string          | `openssl rand -hex 32                                                       | pbcopy` |
 
 `KEYCHAIN_PASSWORD` is for a **temporary keychain** tauri-action creates on
 the macOS runner just for the duration of the build, so the imported `.p12`
@@ -207,6 +207,7 @@ KEYCHAIN_PASSWORD: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && se
 
 If the literal value is empty in the workflow log (tauri-action's
 keychain-setup step prints it as `***`), one of:
+
 - The secret isn't set in the repo.
 - The job didn't satisfy the gate (not the macOS leg, or
   `inputs.tagName` was empty — i.e., a PR-validation run, which is

@@ -156,15 +156,15 @@ For errors that should surface before a run is created (bad config, missing requ
 
 ## Test helper cheat-sheet
 
-| Helper | File | Use for |
-|---|---|---|
-| `testRoundTripperFunc` | `internal/providers/provider_test_helpers_test.go` | Stub HTTP transport for provider tests |
-| `newAnthropicTestProvider` | `internal/providers/tooluse_test.go` | Anthropic provider with cached caps (skips discovery) |
-| `newTestHTTPHandler` / `*WithConfig` / `*ForProviders` | `internal/api/server_test.go` | In-process gateway handler |
-| `fakeUpstreamCapturing` | `e2e/gateway_test.go` | E2E: capture what gateway forwarded to upstream |
-| `hecateServer` | `e2e/gateway_test.go` | E2E: spawn the real binary on a free port |
-| `startHecateProcess` | `e2e/ollama_test.go` | E2E: shared hecate binary for the Ollama suite (TestMain-driven) |
-| `autoPreconfiguredEnv` | `e2e/gateway_test.go` | Inject `PROVIDER_<NAME>_PRECONFIGURED=1` for every `PROVIDER_<NAME>_*` env var; both spawn helpers call it so test sites don't repeat the gate |
+| Helper                                                 | File                                               | Use for                                                                                                                                        |
+| ------------------------------------------------------ | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `testRoundTripperFunc`                                 | `internal/providers/provider_test_helpers_test.go` | Stub HTTP transport for provider tests                                                                                                         |
+| `newAnthropicTestProvider`                             | `internal/providers/tooluse_test.go`               | Anthropic provider with cached caps (skips discovery)                                                                                          |
+| `newTestHTTPHandler` / `*WithConfig` / `*ForProviders` | `internal/api/server_test.go`                      | In-process gateway handler                                                                                                                     |
+| `fakeUpstreamCapturing`                                | `e2e/gateway_test.go`                              | E2E: capture what gateway forwarded to upstream                                                                                                |
+| `hecateServer`                                         | `e2e/gateway_test.go`                              | E2E: spawn the real binary on a free port                                                                                                      |
+| `startHecateProcess`                                   | `e2e/ollama_test.go`                               | E2E: shared hecate binary for the Ollama suite (TestMain-driven)                                                                               |
+| `autoPreconfiguredEnv`                                 | `e2e/gateway_test.go`                              | Inject `PROVIDER_<NAME>_PRECONFIGURED=1` for every `PROVIDER_<NAME>_*` env var; both spawn helpers call it so test sites don't repeat the gate |
 
 ## Backend gotchas
 

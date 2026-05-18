@@ -11,11 +11,11 @@
 Chats exposes one agent picker. Hecate-owned execution is nested inside the
 Hecate Chat choice as a tools-enabled mode:
 
-| UI surface | Runtime mode | Who owns execution |
-|---|---|---|
-| Hecate, tools off | Model | A selected provider/model answers directly through the gateway. |
-| Hecate, tools on | Hecate Agent | Hecate creates and continues a visible `agent_loop` task with Hecate tools, approvals, artifacts, and telemetry. |
-| Codex / Claude Code / Cursor | External Agent | The adapter owns the native session; Hecate supervises it. |
+| UI surface                   | Runtime mode   | Who owns execution                                                                                               |
+| ---------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Hecate, tools off            | Model          | A selected provider/model answers directly through the gateway.                                                  |
+| Hecate, tools on             | Hecate Agent   | Hecate creates and continues a visible `agent_loop` task with Hecate tools, approvals, artifacts, and telemetry. |
+| Codex / Claude Code / Cursor | External Agent | The adapter owns the native session; Hecate supervises it.                                                       |
 
 Use **Hecate Agent** as the product name. "Model + tools" is only an
 internal shorthand for the implementation idea; it should not appear in the UI
@@ -241,11 +241,11 @@ Tasks. The chat setup should not hide this behind an implementation default.
 
 The UI should support:
 
-| Mode | Meaning | Default |
-|---|---|---|
-| Shared workspace | Run directly in the selected local workspace. | Default for Hecate Chat tools-on segments while the product is local-first. |
-| Isolated clone | Create an isolated task workspace from a repo/base branch when available. | Optional when repo metadata is configured. |
-| Read-only review | Allow reads and analysis, block writes unless the operator explicitly switches mode or approves a writable profile. | Useful for reviewer profiles. |
+| Mode             | Meaning                                                                                                             | Default                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Shared workspace | Run directly in the selected local workspace.                                                                       | Default for Hecate Chat tools-on segments while the product is local-first. |
+| Isolated clone   | Create an isolated task workspace from a repo/base branch when available.                                           | Optional when repo metadata is configured.                                  |
+| Read-only review | Allow reads and analysis, block writes unless the operator explicitly switches mode or approves a writable profile. | Useful for reviewer profiles.                                               |
 
 The session stores both the chosen workspace path and workspace mode. The
 backing task should receive the same mode fields as a task created directly
@@ -264,14 +264,14 @@ blocked on approval.
 Chats should subscribe to the backing task-run stream and project task events
 into the shared transcript/activity UI:
 
-| Task-run source | Chat rendering |
-|---|---|
-| `run.*` | run started, queued, completed, failed, cancelled |
-| `turn.*` | thinking / model turn progress |
-| `tool.*` | tool started, running, output, failed |
-| `approval.*` | approval requested/resolved |
-| `artifact.*` | final answer, patch, stdout/stderr, conversation snapshot |
-| `gap.*` / `error.*` | stream gap or runtime error |
+| Task-run source     | Chat rendering                                            |
+| ------------------- | --------------------------------------------------------- |
+| `run.*`             | run started, queued, completed, failed, cancelled         |
+| `turn.*`            | thinking / model turn progress                            |
+| `tool.*`            | tool started, running, output, failed                     |
+| `approval.*`        | approval requested/resolved                               |
+| `artifact.*`        | final answer, patch, stdout/stderr, conversation snapshot |
+| `gap.*` / `error.*` | stream gap or runtime error                               |
 
 This is projection, not a second event system. The source of truth stays the
 task run event log and task artifacts.

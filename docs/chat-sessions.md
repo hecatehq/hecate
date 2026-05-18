@@ -157,4 +157,3 @@ capped previews of the backing Task's non-empty stdout/stderr artifacts plus an
 **Open task output** escape hatch for the full capture. Empty streams stay
 hidden there; open the Task view when you need to confirm whether stderr was
 captured but empty.
-

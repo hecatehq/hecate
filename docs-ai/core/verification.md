@@ -4,13 +4,13 @@ How "done" is determined. Treat the floors as floors, not nice-to-haves.
 
 ## Backend verification ladder
 
-| Step | Command | When |
-|---|---|---|
-| Build | `go build ./...` | Always, before claiming done |
-| Vet | `go vet ./...` or targeted packages | Go backend/runtime changes; use targeted vet during iteration |
-| Focused tests | `/test-affected` (or `go test -race -count=1 ./<package>/...`) | During iteration |
-| Race suite | `go test -race -timeout 10m ./...` (or `/race`) | **Floor** for runtime/backend changes |
-| E2E | `go test -tags e2e ./e2e/...` | When the change crosses the api → orchestrator → providers/sandbox/mcp chain |
+| Step          | Command                                                        | When                                                                         |
+| ------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Build         | `go build ./...`                                               | Always, before claiming done                                                 |
+| Vet           | `go vet ./...` or targeted packages                            | Go backend/runtime changes; use targeted vet during iteration                |
+| Focused tests | `/test-affected` (or `go test -race -count=1 ./<package>/...`) | During iteration                                                             |
+| Race suite    | `go test -race -timeout 10m ./...` (or `/race`)                | **Floor** for runtime/backend changes                                        |
+| E2E           | `go test -tags e2e ./e2e/...`                                  | When the change crosses the api → orchestrator → providers/sandbox/mcp chain |
 
 Run `go vet` for Go changes before claiming done. Targeted vet is fine while
 iterating, for example `go vet ./internal/api ./internal/gateway`; use
@@ -23,15 +23,16 @@ E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and 
 
 ## UI verification ladder
 
-| Step | Command | When |
-|---|---|---|
-| Type check | `cd ui && bun run typecheck` | First sanity check after any `.ts`/`.tsx` edit (`tsgo -b`, fast) |
-| Lint | `cd ui && bun run lint` | Before claiming done; also covered by `just ui-lint` and CI |
-| Format check | `cd ui && bun run format:check` | Before claiming done; also covered by `just ui-format-check` and CI |
-| Tests | `cd ui && bun run test` | Before claiming done — vitest |
-| Watch mode | `cd ui && bun run test:watch` | During iteration |
-| Snapshot update | `cd ui && bun run test -- -u` | When a UI shape change is intentional |
-| Format | `cd ui && bun run format` | Intentional formatting-only cleanup; review the diff |
+| Step              | Command                         | When                                                                  |
+| ----------------- | ------------------------------- | --------------------------------------------------------------------- |
+| Type check        | `cd ui && bun run typecheck`    | First sanity check after any `.ts`/`.tsx` edit (`tsgo -b`, fast)      |
+| Lint              | `cd ui && bun run lint`         | Before claiming done; also covered by `just ui-lint` and CI           |
+| Format check      | `cd ui && bun run format:check` | Before claiming done; also covered by `just ui-format-check` and CI   |
+| Docs format check | `just docs-format-check`        | Markdown / `.mdc` changes; also covered by `just verify` and Links CI |
+| Tests             | `cd ui && bun run test`         | Before claiming done — vitest                                         |
+| Watch mode        | `cd ui && bun run test:watch`   | During iteration                                                      |
+| Snapshot update   | `cd ui && bun run test -- -u`   | When a UI shape change is intentional                                 |
+| Format            | `cd ui && bun run format`       | Intentional formatting-only cleanup; review the diff                  |
 
 **Never `bun test`** — it skips the testing-library DOM setup and panics on `document[isPrepared]`. Always `bun run test`.
 
@@ -40,6 +41,9 @@ churn separate from behavior changes unless the requested task is explicitly a
 formatting cleanup. The shared `.oxlintrc.json` enables React, accessibility,
 Vitest, import, TypeScript, Unicorn, and Oxc rules; rule disables should stay
 specific and justified by current app architecture or tracked migration debt.
+Markdown and `.mdc` docs are also formatted with Oxfmt through
+`just docs-format-check` / `just docs-format`. Lychee still owns link and
+fragment validation; Oxfmt only normalizes text formatting.
 
 When updating snapshots, review the diff carefully. Accidental snapshot churn is the most common silent regression vector.
 

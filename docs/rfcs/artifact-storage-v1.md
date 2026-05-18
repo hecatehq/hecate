@@ -82,9 +82,9 @@ Why this shape:
 
 Backend expectations:
 
-| Backend | Candidate behavior |
-|---|---|
-| `memory` | Metadata + bodies in process memory. Test/dev only. |
+| Backend  | Candidate behavior                                                   |
+| -------- | -------------------------------------------------------------------- |
+| `memory` | Metadata + bodies in process memory. Test/dev only.                  |
 | `sqlite` | Metadata + small bodies in SQLite; large bodies on local filesystem. |
 
 Default: `memory`, matching every other Hecate subsystem. Set
@@ -316,11 +316,11 @@ Transitions are persisted as `artifact.updated` events (see event protocol). The
 
 Three caps, all configurable. Defaults chosen to keep a typical workstation under 1 GiB after a week of active use.
 
-| Cap | Env | Default | Behavior on hit |
-|---|---|---|---|
-| Per-artifact bytes | `GATEWAY_ARTIFACTS_MAX_BYTES` | `10485760` (10 MiB) | Body truncated to limit; producing tool event carries `truncated: true` and `original_size_bytes`. |
-| Per-task aggregate | `GATEWAY_ARTIFACTS_MAX_PER_TASK_BYTES` | `104857600` (100 MiB) | New artifact creation rejected with `429 quota_exceeded`; `gap.artifact_capped` event emitted. |
-| Per-data-dir aggregate | `GATEWAY_ARTIFACTS_MAX_TOTAL_BYTES` | `5368709120` (5 GiB) | Retention worker prunes oldest unpinned artifacts ahead of schedule. |
+| Cap                    | Env                                    | Default               | Behavior on hit                                                                                    |
+| ---------------------- | -------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------- |
+| Per-artifact bytes     | `GATEWAY_ARTIFACTS_MAX_BYTES`          | `10485760` (10 MiB)   | Body truncated to limit; producing tool event carries `truncated: true` and `original_size_bytes`. |
+| Per-task aggregate     | `GATEWAY_ARTIFACTS_MAX_PER_TASK_BYTES` | `104857600` (100 MiB) | New artifact creation rejected with `429 quota_exceeded`; `gap.artifact_capped` event emitted.     |
+| Per-data-dir aggregate | `GATEWAY_ARTIFACTS_MAX_TOTAL_BYTES`    | `5368709120` (5 GiB)  | Retention worker prunes oldest unpinned artifacts ahead of schedule.                               |
 
 The per-artifact cap is the most user-visible: long shell commands get their output snipped. The truncation strategy is "head-keep" (preserve the start, drop the tail), since the start usually has the command and early output a model needs to interpret what happened. Reversible via a `GATEWAY_ARTIFACTS_TRUNCATE_STRATEGY=tail|head|both` knob (head = keep head, default).
 
@@ -516,10 +516,10 @@ Neither dedupe attempts cross-run sharing in v1 — a patch produced by run A is
 
 Artifacts inherit the project's existing retention worker pattern. New subsystem name: `artifacts`. New env-var prefix: `GATEWAY_RETENTION_ARTIFACTS_*`.
 
-| Env | Default | Effect |
-|---|---|---|
-| `GATEWAY_RETENTION_ARTIFACTS_MAX_AGE` | `168h` (7 days) | Unpinned artifacts older than this are marked `deleted_at`. |
-| `GATEWAY_RETENTION_ARTIFACTS_MAX_COUNT` | `100000` | When unpinned count exceeds, oldest are pruned first. |
+| Env                                           | Default              | Effect                                                                |
+| --------------------------------------------- | -------------------- | --------------------------------------------------------------------- |
+| `GATEWAY_RETENTION_ARTIFACTS_MAX_AGE`         | `168h` (7 days)      | Unpinned artifacts older than this are marked `deleted_at`.           |
+| `GATEWAY_RETENTION_ARTIFACTS_MAX_COUNT`       | `100000`             | When unpinned count exceeds, oldest are pruned first.                 |
 | `GATEWAY_RETENTION_ARTIFACTS_MAX_TOTAL_BYTES` | `5368709120` (5 GiB) | When sum of `size_bytes` exceeds, oldest unpinned pruned until under. |
 
 Pruning order on each pass:
@@ -560,16 +560,16 @@ Candidate rules:
 
 New metrics (all under `hecate.artifacts.*`):
 
-| Instrument | Type | Labels | Meaning |
-|---|---|---|---|
-| `hecate.artifacts.created_total` | counter | `kind` | Artifact create calls. |
-| `hecate.artifacts.bytes_stored_total` | counter | `kind`, `encoding` | Raw bytes added to storage. |
-| `hecate.artifacts.pruned_total` | counter | `kind`, `reason` | Reasons: `age`, `count_cap`, `bytes_cap`, `parent_run_pruned`, `manual_delete`. |
-| `hecate.artifacts.bytes_freed_total` | counter | `kind`, `reason` | Bytes released by prune. |
-| `hecate.artifacts.storage_bytes` | gauge | `location` | Current bytes in `inline` and `filesystem`. Sampled by retention worker. |
-| `hecate.artifacts.count` | gauge | `kind`, `status` | Current count by kind and status. |
-| `hecate.artifacts.size_bytes` | histogram | `kind` | Size distribution of created artifacts. Buckets: `[256, 1k, 4k, 16k, 64k, 256k, 1m, 4m, 16m]`. |
-| `hecate.artifacts.fetch_duration_ms` | histogram | `path` (`metadata` / `raw`), `cache_hit` | Latency of GET endpoints. |
+| Instrument                            | Type      | Labels                                   | Meaning                                                                                        |
+| ------------------------------------- | --------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `hecate.artifacts.created_total`      | counter   | `kind`                                   | Artifact create calls.                                                                         |
+| `hecate.artifacts.bytes_stored_total` | counter   | `kind`, `encoding`                       | Raw bytes added to storage.                                                                    |
+| `hecate.artifacts.pruned_total`       | counter   | `kind`, `reason`                         | Reasons: `age`, `count_cap`, `bytes_cap`, `parent_run_pruned`, `manual_delete`.                |
+| `hecate.artifacts.bytes_freed_total`  | counter   | `kind`, `reason`                         | Bytes released by prune.                                                                       |
+| `hecate.artifacts.storage_bytes`      | gauge     | `location`                               | Current bytes in `inline` and `filesystem`. Sampled by retention worker.                       |
+| `hecate.artifacts.count`              | gauge     | `kind`, `status`                         | Current count by kind and status.                                                              |
+| `hecate.artifacts.size_bytes`         | histogram | `kind`                                   | Size distribution of created artifacts. Buckets: `[256, 1k, 4k, 16k, 64k, 256k, 1m, 4m, 16m]`. |
+| `hecate.artifacts.fetch_duration_ms`  | histogram | `path` (`metadata` / `raw`), `cache_hit` | Latency of GET endpoints.                                                                      |
 
 Spans:
 

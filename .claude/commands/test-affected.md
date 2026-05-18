@@ -22,5 +22,6 @@ For UI changes, run `cd ui && bun run test` (vitest already runs only what's tou
 For e2e changes (`e2e/*.go`), run `go test -tags e2e -count=1 ./e2e/...` instead — the e2e build tag matters.
 
 Skip this and use `/race` when:
+
 - changes touch shared types in `pkg/types/` (every consumer transitively affected)
 - you're at "ready to commit" and want full confidence

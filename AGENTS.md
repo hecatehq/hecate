@@ -16,14 +16,14 @@ guidance live in [`docs-ai/`](docs-ai/README.md).
 
 ## Where guidance lives
 
-| Surface | What it carries |
-|---|---|
-| [`docs-ai/`](docs-ai/README.md) | Canonical agent guidance — project context, conventions, workflow, verification, task shapes, area + posture skills |
-| `AGENTS.md` (this) and `ui/AGENTS.md`, `internal/providers/AGENTS.md` | Codebase map per area |
-| [`CLAUDE.md`](CLAUDE.md) | Thin Claude Code adapter pointing to `docs-ai/` |
-| [`.cursor/rules/`](.cursor/rules/) | Thin Cursor adapter pointing to `docs-ai/` |
-| [`.claude/commands/`](.claude/commands/) | Claude Code slash commands: `/race`, `/test-affected` |
-| [`docs/`](docs/) | Long-form references (architecture, runtime API, events, telemetry) |
+| Surface                                                               | What it carries                                                                                                     |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| [`docs-ai/`](docs-ai/README.md)                                       | Canonical agent guidance — project context, conventions, workflow, verification, task shapes, area + posture skills |
+| `AGENTS.md` (this) and `ui/AGENTS.md`, `internal/providers/AGENTS.md` | Codebase map per area                                                                                               |
+| [`CLAUDE.md`](CLAUDE.md)                                              | Thin Claude Code adapter pointing to `docs-ai/`                                                                     |
+| [`.cursor/rules/`](.cursor/rules/)                                    | Thin Cursor adapter pointing to `docs-ai/`                                                                          |
+| [`.claude/commands/`](.claude/commands/)                              | Claude Code slash commands: `/race`, `/test-affected`                                                               |
+| [`docs/`](docs/)                                                      | Long-form references (architecture, runtime API, events, telemetry)                                                 |
 
 When in doubt: read [`docs-ai/core/project-context.md`](docs-ai/core/project-context.md) and [`docs-ai/core/workflow.md`](docs-ai/core/workflow.md).
 
@@ -109,7 +109,7 @@ touches request handling, persistence, or tool execution.
 
 Full standards: [`docs-ai/core/engineering-standards.md`](docs-ai/core/engineering-standards.md).
 
-- **Comments explain *why***, not what. State the trade-off.
+- **Comments explain _why_**, not what. State the trade-off.
 - **Pointer vs value for optional fields**: pointer when zero is a valid
   distinct value (`Seed *int`, `ParallelToolCalls *bool`); value with
   `omitempty` when zero == API default (`PresencePenalty float64`).
@@ -130,14 +130,14 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 ## Recipes
 
-| Task | Where |
-|---|---|
-| Add a passthrough wire field (the seven-step chain — most-redone task here) | [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md) |
-| Add an MCP tool / persisted run-event type / test helper cheat-sheet | [`docs-ai/skills/backend/SKILL.md`](docs-ai/skills/backend/SKILL.md) |
-| UI recipes (SSE-driven state field, paired pickers, snapshot refresh) | [`docs-ai/skills/ui/SKILL.md`](docs-ai/skills/ui/SKILL.md) |
-| Native desktop app (sidecar lifecycle, bundling, Tauri commands) | [`docs-ai/skills/tauri/SKILL.md`](docs-ai/skills/tauri/SKILL.md) |
-| Cut a release tag | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`docs-ai/tasks/release.md`](docs-ai/tasks/release.md) |
-| Stamp Tauri version files | `bun scripts/stamp-version.ts` (or `just tauri-version`) — syncs Cargo.toml, package.json, tauri.conf.json to current git tag |
+| Task                                                                        | Where                                                                                                                                                                            |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add a passthrough wire field (the seven-step chain — most-redone task here) | [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md)                                                                                                         |
+| Add an MCP tool / persisted run-event type / test helper cheat-sheet        | [`docs-ai/skills/backend/SKILL.md`](docs-ai/skills/backend/SKILL.md)                                                                                                             |
+| UI recipes (SSE-driven state field, paired pickers, snapshot refresh)       | [`docs-ai/skills/ui/SKILL.md`](docs-ai/skills/ui/SKILL.md)                                                                                                                       |
+| Native desktop app (sidecar lifecycle, bundling, Tauri commands)            | [`docs-ai/skills/tauri/SKILL.md`](docs-ai/skills/tauri/SKILL.md)                                                                                                                 |
+| Cut a release tag                                                           | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`docs-ai/tasks/release.md`](docs-ai/tasks/release.md) |
+| Stamp Tauri version files                                                   | `bun scripts/stamp-version.ts` (or `just tauri-version`) — syncs Cargo.toml, package.json, tauri.conf.json to current git tag                                                    |
 
 ## Gotchas
 
@@ -155,18 +155,18 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 ## Canonical docs
 
-| Doc | Covers |
-|---|---|
-| [`docs/architecture.md`](docs/architecture.md) | Request flow, lease semantics, storage tier matrix |
-| [`docs/agent-runtime.md`](docs/agent-runtime.md) | `agent_loop` tools, system prompt layers, cost model, retry-from-turn |
-| [`docs/runtime-api.md`](docs/runtime-api.md) | Task / run / step / approval endpoints, queue + lease |
-| [`docs/events.md`](docs/events.md) | Every event type at `/hecate/v1/events` with payload shapes |
-| [`docs/telemetry.md`](docs/telemetry.md) | OTel spans + metrics, OTLP wiring, status & gaps |
-| [`docs/security.md`](docs/security.md) | Local-first threat model, workspace safety, approvals, secrets, advisories |
-| [`docs/providers.md`](docs/providers.md) | Provider catalog, configuration |
-| [`docs/mcp.md`](docs/mcp.md) | MCP server: tools, transport, configure |
+| Doc                                                                  | Covers                                                                            |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`docs/architecture.md`](docs/architecture.md)                       | Request flow, lease semantics, storage tier matrix                                |
+| [`docs/agent-runtime.md`](docs/agent-runtime.md)                     | `agent_loop` tools, system prompt layers, cost model, retry-from-turn             |
+| [`docs/runtime-api.md`](docs/runtime-api.md)                         | Task / run / step / approval endpoints, queue + lease                             |
+| [`docs/events.md`](docs/events.md)                                   | Every event type at `/hecate/v1/events` with payload shapes                       |
+| [`docs/telemetry.md`](docs/telemetry.md)                             | OTel spans + metrics, OTLP wiring, status & gaps                                  |
+| [`docs/security.md`](docs/security.md)                               | Local-first threat model, workspace safety, approvals, secrets, advisories        |
+| [`docs/providers.md`](docs/providers.md)                             | Provider catalog, configuration                                                   |
+| [`docs/mcp.md`](docs/mcp.md)                                         | MCP server: tools, transport, configure                                           |
 | [`docs/external-agent-adapters.md`](docs/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, and Cursor Agent |
-| [`docs/acp.md`](docs/acp.md) | Hecate as an ACP agent: `hecate-acp` bridge for editor agent panels |
-| [`docs/deployment.md`](docs/deployment.md) | Compose profiles, image pinning, lost-token recovery |
-| [`docs/development.md`](docs/development.md) | Local build, testing, screenshot tooling, `[skip ci]` convention |
-| [`docs/desktop-app.md`](docs/desktop-app.md) | Native Tauri 2.x app: distribution, current state, roadmap, footguns |
+| [`docs/acp.md`](docs/acp.md)                                         | Hecate as an ACP agent: `hecate-acp` bridge for editor agent panels               |
+| [`docs/deployment.md`](docs/deployment.md)                           | Compose profiles, image pinning, lost-token recovery                              |
+| [`docs/development.md`](docs/development.md)                         | Local build, testing, screenshot tooling, `[skip ci]` convention                  |
+| [`docs/desktop-app.md`](docs/desktop-app.md)                         | Native Tauri 2.x app: distribution, current state, roadmap, footguns              |
