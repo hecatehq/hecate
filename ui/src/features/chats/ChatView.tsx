@@ -449,6 +449,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     composerVisible && !emptyStateAlreadyShowsRepair(chatSetupRepair, visibleMessages.length)
       ? composerVisibleRepair(chatSetupRepair)
       : null;
+  const suppressComposerChatError =
+    state.chatErrorCode === "chat.model_required" &&
+    !streaming &&
+    state.pendingToolCalls.length === 0 &&
+    emptyStateAlreadyShowsModelRepair(chatSetupRepair, visibleMessages.length);
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
   const sendDisabled =
@@ -888,6 +893,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               textareaRef={textareaRef}
               composerVisible={composerVisible}
               composerRepair={composerRepair}
+              suppressChatError={suppressComposerChatError}
               messageControlsVisible={messageControlsVisible}
               showClaudeCodeEmptyPreflight={showClaudeCodeEmptyPreflight}
               sendDisabled={sendDisabled}
@@ -1032,6 +1038,18 @@ function emptyStateAlreadyShowsRepair(
   // owns the capability-write busy/disabled state. Other empty-chat repairs
   // already render the same copy and CTA in ChatEmptyState.
   return repair.action !== "enable_tools";
+}
+
+function emptyStateAlreadyShowsModelRepair(
+  repair: ChatSetupRepairState | null,
+  visibleMessageCount: number,
+): boolean {
+  if (!repair || visibleMessageCount > 0) return false;
+  return (
+    repair.kind === "no_provider" ||
+    repair.kind === "no_routable_model" ||
+    repair.kind === "selected_model_not_ready"
+  );
 }
 
 function isQuickAddableLocalProvider(discovery: LocalProviderDiscoveryRecord): boolean {
