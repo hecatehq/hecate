@@ -663,7 +663,7 @@ test("empty model chat can add all detected local providers in one click", async
   await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect
-    .poll(() => created.map((body) => body.preset_id).sort())
+    .poll(() => created.map((body) => String(body.preset_id)).sort((a, b) => a.localeCompare(b)))
     .toEqual(["lmstudio", "ollama"]);
   await expect(page.getByText("Nothing runnable yet")).toBeVisible();
   await expect(
@@ -698,7 +698,7 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect
-    .poll(() => created.map((body) => body.preset_id).sort())
+    .poll(() => created.map((body) => String(body.preset_id)).sort((a, b) => a.localeCompare(b)))
     .toEqual(["lmstudio", "ollama"]);
   await expect(page.getByText("Nothing runnable yet")).toBeVisible();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);

@@ -1471,15 +1471,13 @@ describe("useRuntimeConsole", () => {
           },
         ]),
       );
-      const originalSetItem = Storage.prototype.setItem;
-      const storageSpy = vi
-        .spyOn(Storage.prototype, "setItem")
-        .mockImplementation(function (this: Storage, key, value) {
-          if (key === "hecate.queuedChatMessages") {
-            throw new DOMException("quota exceeded", "QuotaExceededError");
-          }
-          return originalSetItem.call(this, key, value);
-        });
+      const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
+      const storageSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation((key, value) => {
+        if (key === "hecate.queuedChatMessages") {
+          throw new DOMException("quota exceeded", "QuotaExceededError");
+        }
+        return originalSetItem(key, value);
+      });
       fetchMock.mockImplementation(
         defaultBackendMock({
           "/hecate/v1/chat/sessions": () =>

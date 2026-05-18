@@ -36,8 +36,9 @@ E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and 
 
 **Never `bun test`** — it skips the testing-library DOM setup and panics on `document[isPrepared]`. Always `bun run test`.
 
-UI linting uses Oxc (`oxlint`). Formatting uses Oxfmt (`oxfmt`); keep formatter
-churn separate from behavior changes unless the requested task is explicitly a
+UI linting uses Oxc (`oxlint`) with type-aware TypeScript checks via
+`oxlint-tsgolint`. Formatting uses Oxfmt (`oxfmt`); keep formatter churn
+separate from behavior changes unless the requested task is explicitly a
 formatting cleanup. The shared `.oxlintrc.json` enables React, accessibility,
 Vitest, import, TypeScript, Unicorn, and Oxc rules; rule disables should stay
 specific and justified by current app architecture or tracked migration debt.

@@ -228,17 +228,17 @@ describe("useFloatingMenu", () => {
     // While portalSelector is .portal-a, clicks in portal-a are "inside"
     // (don't close); clicks in portal-b are "outside" (do close).
     act(() => result.current.setOpen(true));
-    act(() => itemA.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    void act(() => itemA.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
     expect(result.current.open).toBe(true);
-    act(() => itemB.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    void act(() => itemB.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
     expect(result.current.open).toBe(false);
 
     // Flip the selector — the relationship inverts.
     rerender({ portalSelector: ".portal-b" });
     act(() => result.current.setOpen(true));
-    act(() => itemB.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    void act(() => itemB.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
     expect(result.current.open).toBe(true);
-    act(() => itemA.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    void act(() => itemA.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
     expect(result.current.open).toBe(false);
   });
 });
