@@ -124,6 +124,14 @@ type ExecutionResult struct {
 	LastError         string
 	OtelStatusCode    string
 	OtelStatusMessage string
+	// Provider/ProviderKind/Model capture the route that actually
+	// served the agent-loop LLM turn. The run starts with the
+	// operator's requested provider hint ("auto" is common), but the
+	// UI and resume path need the resolved provider once routing has
+	// happened.
+	Provider     string
+	ProviderKind string
+	Model        string
 	// PendingApprovals are approval records the executor produced
 	// during this run that the runner should persist. The agent loop
 	// emits these mid-loop when it pauses on a gated tool call —

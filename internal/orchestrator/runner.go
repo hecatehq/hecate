@@ -990,6 +990,9 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		telemetry.AttrHecateResult: resultKind,
 		telemetry.AttrHecateTaskID: task.ID,
 	})
+	run.Provider = firstNonEmpty(execution.Provider, run.Provider)
+	run.ProviderKind = firstNonEmpty(execution.ProviderKind, run.ProviderKind)
+	run.Model = firstNonEmpty(execution.Model, run.Model)
 	r.metrics.RecordRun(ctx, telemetry.RunMetricsRecord{
 		TaskID:        task.ID,
 		RunID:         run.ID,

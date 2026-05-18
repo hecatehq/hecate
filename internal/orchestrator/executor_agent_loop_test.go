@@ -1692,6 +1692,35 @@ func TestAgentLoop_CostAccumulatesAcrossTurns(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_ResultCapturesResolvedRoute(t *testing.T) {
+	resp := makeChatResp(makeAssistantMsg("Final answer."))
+	resp.Model = "ministral-3:latest"
+	resp.Route = types.RouteDecision{
+		Provider:     "ollama",
+		ProviderKind: "local",
+		Model:        "ministral-3:latest",
+		Reason:       "selected",
+	}
+	llm := &scriptedLLM{responses: []*types.ChatResponse{resp}}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{result: &ExecutionResult{Status: "completed"}}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Run.Provider = "auto"
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Provider != "ollama" {
+		t.Errorf("Provider = %q, want ollama", res.Provider)
+	}
+	if res.ProviderKind != "local" {
+		t.Errorf("ProviderKind = %q, want local", res.ProviderKind)
+	}
+	if res.Model != "ministral-3:latest" {
+		t.Errorf("Model = %q, want ministral-3:latest", res.Model)
+	}
+}
+
 func TestAgentLoop_PerTaskCostCeilingTriggersFail(t *testing.T) {
 	// When BudgetMicrosUSD is set and cumulative cost crosses it,
 	// the loop fails with an actionable error. Subsequent turns
