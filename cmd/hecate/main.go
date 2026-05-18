@@ -69,7 +69,7 @@ func main() {
 		slog.Error(
 			"bootstrap secret init failed",
 			slog.String("path", bootstrapPath),
-			slog.String("hint", "Hecate requires hecate.bootstrap.json to contain a valid 32-byte base64 key and be secured with 0600 permissions; fix file ownership or permissions, or unset an invalid GATEWAY_CONTROL_PLANE_SECRET_KEY"),
+			slog.String("hint", "Hecate requires hecate.bootstrap.json to contain a valid 32-byte base64 key and use private file permissions; fix ownership, ACLs, or POSIX mode bits, or unset an invalid GATEWAY_CONTROL_PLANE_SECRET_KEY"),
 			slog.Any("error", err),
 		)
 		os.Exit(1)

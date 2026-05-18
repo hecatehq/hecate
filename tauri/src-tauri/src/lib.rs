@@ -103,7 +103,7 @@ fn startup_failure_hint(message: &str) -> Option<&'static str> {
         || lower.contains("control-plane secret key")
     {
         return Some(
-            "Open the data directory, check hecate.bootstrap.json, and fix ownership or permissions so Hecate can secure it as 0600. If GATEWAY_CONTROL_PLANE_SECRET_KEY is set, it must be base64 for exactly 32 bytes.",
+            "Open the data directory, check hecate.bootstrap.json, and fix ownership, ACLs, or POSIX mode bits so the bootstrap key is private. If GATEWAY_CONTROL_PLANE_SECRET_KEY is set, it must be base64 for exactly 32 bytes.",
         );
     }
     None
@@ -424,6 +424,6 @@ mod tests {
         .expect("bootstrap startup failure should include an operator hint");
 
         assert!(hint.contains("hecate.bootstrap.json"));
-        assert!(hint.contains("0600"));
+        assert!(hint.contains("private"));
     }
 }
