@@ -124,14 +124,21 @@ func writeGoHelperBinary(t *testing.T, dir, name, source string) string {
 func TestDetectVersionParsesOutputFromNonZeroExit(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
-		t.Skip("skip shell script test on Windows")
+		t.Skip("skip helper binary exit-code test on Windows")
 	}
 	dir := t.TempDir()
-	path := filepath.Join(dir, "nonzero-adapter")
-	content := "#!/bin/sh\necho adapter 3.4.5\nexit 1\n"
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatalf("write nonzero script: %v", err)
-	}
+	path := writeGoHelperBinary(t, dir, "nonzero-adapter", `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	fmt.Println("adapter 3.4.5")
+	os.Exit(1)
+}
+`)
 	got := DetectVersion(context.Background(), path)
 	if got != "3.4.5" {
 		t.Fatalf("DetectVersion = %q, want 3.4.5 from non-zero output", got)
