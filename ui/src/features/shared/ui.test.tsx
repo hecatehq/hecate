@@ -177,7 +177,7 @@ describe("CopyBtn", () => {
 });
 
 describe("CopyableID", () => {
-  it("renders a compact label while copying the full id", () => {
+  it("renders a compact label while copying the full id", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
@@ -185,13 +185,40 @@ describe("CopyableID", () => {
     });
     render(<CopyableID text="run_full_identifier_123" compact />);
     expect(screen.getByText("run_full_i…er_123")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /copy run_full_identifier_123/i }));
+    const button = screen.getByRole("button", { name: /copy run_full_identifier_123/i });
+    fireEvent.click(button);
     expect(writeText).toHaveBeenCalledWith("run_full_identifier_123");
+    await waitFor(() => expect(button).toHaveStyle({ color: "var(--green)" }));
   });
 
   it("keeps short ids unmodified", () => {
     render(<CopyableID text="run_123" compact />);
     expect(screen.getByText("run_123")).toBeTruthy();
+  });
+
+  it("does not mark copied when the clipboard write fails", async () => {
+    const writeText = vi.fn(() => Promise.reject(new Error("clipboard denied")));
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<CopyableID text="run_full_identifier_123" compact />);
+    const button = screen.getByRole("button", { name: /copy run_full_identifier_123/i });
+    expect(button).toHaveStyle({ color: "var(--teal)" });
+    fireEvent.click(button);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("run_full_identifier_123"));
+    expect(button).toHaveStyle({ color: "var(--teal)" });
+  });
+
+  it("does not mark copied when clipboard access is unavailable", () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+    });
+    render(<CopyableID text="run_full_identifier_123" compact />);
+    const button = screen.getByRole("button", { name: /copy run_full_identifier_123/i });
+    expect(() => fireEvent.click(button)).not.toThrow();
+    expect(button).toHaveStyle({ color: "var(--teal)" });
   });
 });
 
