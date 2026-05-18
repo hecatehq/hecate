@@ -22,7 +22,7 @@ To pin to a specific release, replace `:latest` with the published tag (no `v` p
 
 ```yaml
 # docker-compose.yml
-image: ghcr.io/hecatehq/hecate:0.1.0-alpha.31
+image: ghcr.io/hecatehq/hecate:0.1.0-alpha.32
 ```
 
 Pinning is recommended for any deployment beyond local experimentation — `:latest` floats over alpha increments that may include schema or config changes.
@@ -43,8 +43,8 @@ The release workflow publishes static, single-file binaries for `linux+darwin ×
 
 ```bash
 # pick the right tarball for your OS / arch
-curl -LO https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.31/hecate_0.1.0-alpha.31_linux_amd64.tar.gz
-tar -xzf hecate_0.1.0-alpha.31_linux_amd64.tar.gz
+curl -LO https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.32/hecate_0.1.0-alpha.32_linux_amd64.tar.gz
+tar -xzf hecate_0.1.0-alpha.32_linux_amd64.tar.gz
 ./hecate
 ```
 
@@ -58,12 +58,12 @@ GATEWAY_DATA_DIR=/var/lib/hecate ./hecate
 
 For systemd, launchd, or supervisor wrappers, the only requirements are: the working directory is writable for `GATEWAY_DATA_DIR`, port 8765 is available, and `.env` (if used) sits in the working directory or is sourced into the unit file. The binary path itself can live anywhere on `$PATH`.
 
-Available tarballs for `v0.1.0-alpha.31`:
+Available tarballs for `v0.1.0-alpha.32`:
 
-- `hecate_0.1.0-alpha.31_linux_amd64.tar.gz`
-- `hecate_0.1.0-alpha.31_linux_arm64.tar.gz`
-- `hecate_0.1.0-alpha.31_darwin_amd64.tar.gz`
-- `hecate_0.1.0-alpha.31_darwin_arm64.tar.gz`
+- `hecate_0.1.0-alpha.32_linux_amd64.tar.gz`
+- `hecate_0.1.0-alpha.32_linux_arm64.tar.gz`
+- `hecate_0.1.0-alpha.32_darwin_amd64.tar.gz`
+- `hecate_0.1.0-alpha.32_darwin_arm64.tar.gz`
 
 Each tarball includes `hecate`, `hecate-acp`, `LICENSE`, and `README.md`.
 Verify integrity against `checksums.txt` published alongside the release.
