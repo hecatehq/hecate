@@ -181,7 +181,7 @@ the ones likely to bite an operator:
   tasks still running. Quitting Hecate will stop them.") with
   Quit anyway / Keep running. On confirm — or when there are no
   running tasks — the gateway is asked to drain (`POST
-  /hecate/v1/system/shutdown`, same code path as `SIGINT`/`SIGTERM`)
+/hecate/v1/system/shutdown`, same code path as `SIGINT`/`SIGTERM`)
   before the app exits, so MCP subprocesses are torn down cleanly and
   no run is left stuck in `running`.
 - **Data dir is platform-specific.** Settings saved on macOS don't migrate
