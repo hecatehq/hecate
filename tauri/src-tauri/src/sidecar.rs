@@ -22,6 +22,7 @@
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use std::{fs::File, io::Read, io::Seek, io::SeekFrom};
 
 use tauri::{AppHandle, Manager};
 
@@ -197,12 +198,19 @@ pub fn remove_gateway_state(path: &std::path::Path) {
 fn gateway_log_tail(path: &Path) -> Option<String> {
     const MAX_TAIL_BYTES: usize = 8192;
 
-    let data = std::fs::read(path).ok()?;
+    let mut file = File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    if len == 0 {
+        return None;
+    }
+    let tail_len = len.min(MAX_TAIL_BYTES as u64);
+    file.seek(SeekFrom::End(-(tail_len as i64))).ok()?;
+    let mut data = Vec::with_capacity(tail_len as usize);
+    file.take(tail_len).read_to_end(&mut data).ok()?;
     if data.is_empty() {
         return None;
     }
-    let start = data.len().saturating_sub(MAX_TAIL_BYTES);
-    let tail = String::from_utf8_lossy(&data[start..]).trim().to_string();
+    let tail = String::from_utf8_lossy(&data).trim().to_string();
     if tail.is_empty() {
         None
     } else {
@@ -219,13 +227,12 @@ fn gateway_log_last_line(log: &str) -> Option<&str> {
 
 fn classify_gateway_log(log: &str) -> Option<&'static str> {
     let lower = log.to_ascii_lowercase();
-    if lower.contains("bootstrap secret init failed")
-        || lower.contains("secure bootstrap file")
-        || lower.contains("persist bootstrap file")
+    if lower.contains("secure bootstrap file")
+        || lower.contains("set bootstrap file permissions to 0600")
         || lower.contains("control-plane secret key")
     {
         return Some(
-            "Bootstrap key setup failed. Hecate requires hecate.bootstrap.json to contain a valid 32-byte base64 key and be secured with 0600 permissions.",
+            "Bootstrap key setup failed. Hecate requires hecate.bootstrap.json to contain a valid 32-byte base64 key and use private file permissions.",
         );
     }
     None
@@ -240,7 +247,8 @@ fn startup_failure_details(log_path: &Path) -> String {
     if let Some(classification) = classify_gateway_log(&log) {
         details.push_str(classification);
         details.push(' ');
-    } else if let Some(line) = gateway_log_last_line(&log) {
+    }
+    if let Some(line) = gateway_log_last_line(&log) {
         details.push_str("Last gateway log line: ");
         details.push_str(line);
         details.push(' ');
@@ -382,15 +390,48 @@ mod tests {
         let path = temp_path("gateway.log");
         fs::write(
             &path,
-            "time=2026-05-18T00:00:00Z level=ERROR msg=\"bootstrap secret init failed\" path=/tmp/hecate.bootstrap.json hint=\"Hecate requires hecate.bootstrap.json to contain a valid 32-byte base64 key and be secured with 0600 permissions\" error=\"secure bootstrap file: permission denied\"\n",
+            "time=2026-05-18T00:00:00Z level=ERROR msg=\"bootstrap secret init failed\" path=/tmp/hecate.bootstrap.json hint=\"Hecate requires hecate.bootstrap.json to contain a valid 32-byte base64 key and use private file permissions\" error=\"secure bootstrap file: permission denied\"\n",
         )
         .expect("write gateway log fixture");
 
         let details = startup_failure_details(&path);
 
         assert!(details.contains("Bootstrap key setup failed"));
-        assert!(details.contains("0600 permissions"));
-        assert!(!details.contains("Last gateway log line"));
+        assert!(details.contains("private file permissions"));
+        assert!(details.contains("Last gateway log line"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_sidecar_startup_failure_details_keeps_generic_save_errors_unclassified() {
+        let path = temp_path("gateway.log");
+        fs::write(
+            &path,
+            "time=2026-05-18T00:00:00Z level=ERROR msg=\"bootstrap secret init failed\" path=/tmp/hecate.bootstrap.json error=\"persist bootstrap file: no space left on device\"\n",
+        )
+        .expect("write gateway log fixture");
+
+        let details = startup_failure_details(&path);
+
+        assert!(!details.contains("Bootstrap key setup failed"));
+        assert!(details.contains("Last gateway log line"));
+        assert!(details.contains("no space left on device"));
+
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_sidecar_startup_failure_details_reads_bounded_log_tail() {
+        let path = temp_path("large-gateway.log");
+        let mut data = vec![b'a'; 20 * 1024];
+        data.extend_from_slice(b"\nsmall final line\n");
+        fs::write(&path, data).expect("write large gateway log fixture");
+
+        let details = startup_failure_details(&path);
+
+        assert!(details.contains("small final line"));
+        assert!(!details.contains(&"a".repeat(20 * 1024)));
 
         let _ = fs::remove_file(path);
     }

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -102,15 +103,7 @@ func save(path string, b Bootstrap) error {
 	if err != nil {
 		return err
 	}
-	if err := secureExistingFileForWrite(path); err != nil {
-		return err
-	}
-	// 0o600 because the file holds the encryption key. Anything more
-	// permissive lets a co-located service decrypt provider credentials.
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return err
-	}
-	return chmodOwnerOnly(path)
+	return replaceBootstrapFile(path, data)
 }
 
 func secureExistingFile(path string) error {
@@ -121,34 +114,97 @@ func secureExistingFile(path string) error {
 	if !modeExposesSharedPermissions(info.Mode().Perm()) {
 		return nil
 	}
-	return chmodOwnerOnly(path)
-}
-
-func secureExistingFileForWrite(path string) error {
-	info, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	mode := info.Mode().Perm()
-	if mode == 0o600 {
-		return nil
-	}
-	if !modeExposesSharedPermissions(mode) && mode&0o200 != 0 {
-		return nil
-	}
-	return chmodOwnerOnly(path)
+	return chmodBootstrapFile(path)
 }
 
 func modeExposesSharedPermissions(mode os.FileMode) bool {
 	return mode&0o077 != 0
 }
 
-func chmodOwnerOnly(path string) error {
+func replaceBootstrapFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	keepTemp := false
+	defer func() {
+		if !keepTemp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	// CreateTemp starts with 0600 on POSIX filesystems, but keep the write
+	// path explicit so a future refactor cannot write key material before
+	// setting the intended mode bits.
+	if err := chmodBootstrapFile(tmpPath); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := replaceFile(tmpPath, path); err != nil {
+		return err
+	}
+	keepTemp = true
+	return chmodBootstrapFile(path)
+}
+
+func replaceFile(tmpPath, path string) error {
+	renameErr := os.Rename(tmpPath, path)
+	if renameErr == nil {
+		return nil
+	}
+	if runtime.GOOS != "windows" {
+		return renameErr
+	}
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return renameErr
+	} else if err != nil {
+		return err
+	}
+
+	backup, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".old-*")
+	if err != nil {
+		return err
+	}
+	backupPath := backup.Name()
+	if err := backup.Close(); err != nil {
+		_ = os.Remove(backupPath)
+		return err
+	}
+	if err := os.Remove(backupPath); err != nil {
+		return err
+	}
+	if err := os.Rename(path, backupPath); err != nil {
+		return err
+	}
+	restoreBackup := true
+	defer func() {
+		if restoreBackup {
+			_ = os.Rename(backupPath, path)
+		} else {
+			_ = os.Remove(backupPath)
+		}
+	}()
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("replace existing bootstrap file after backup: %w", err)
+	}
+	restoreBackup = false
+	return nil
+}
+
+func chmodBootstrapFile(path string) error {
 	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("set permissions to 0600 so only the operator can read it: %w", err)
+		return fmt.Errorf("set bootstrap file permissions to 0600: %w", err)
 	}
 	return nil
 }
