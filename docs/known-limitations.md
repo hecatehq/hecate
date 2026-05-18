@@ -157,8 +157,6 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   signing/notarization for the native macOS app.
 - Platforms shipped: macOS (Apple Silicon), Linux x86_64, Windows x86_64.
   macOS Intel, Linux arm64, and Windows arm64 are not yet built.
-- Closing only the window on macOS does not quit the app — the gateway
-  sidecar keeps running. Use `cmd+Q` to fully quit.
 - Per-platform data dir: settings on macOS don't migrate to a Linux
   build of the same version. Multi-machine users keep separate config
   per OS.

@@ -3074,6 +3074,113 @@ func TestMCPCacheStatsConfiguredEmpty(t *testing.T) {
 	}
 }
 
+// TestSystemShutdownReturns503WhenNotWired asserts the desktop-only
+// /system/shutdown endpoint is harmless on deployments where main.go
+// hasn't wired SetQuitFunc — Docker / systemd stop the process via
+// signal or container stop and should see a clean 503, not a panic or
+// a silent 200 that does nothing.
+func TestSystemShutdownReturns503WhenNotWired(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	client := newAPITestClient(t, handler)
+
+	recorder := client.mustRequestStatus(http.StatusServiceUnavailable, http.MethodPost, "/hecate/v1/system/shutdown", "")
+	if !strings.Contains(recorder.Body.String(), "shutdown endpoint not wired") {
+		t.Errorf("response body = %q, want a 'not wired' explanation", recorder.Body.String())
+	}
+}
+
+// TestSystemShutdownTriggersQuitFunc asserts the wired path: the
+// endpoint responds 202 and then invokes quitFunc asynchronously. Both
+// are important — the 202 lets the desktop app know the request was
+// accepted before the HTTP server tears down; the async fire lets the
+// response flush before main.go's drain begins.
+func TestSystemShutdownTriggersQuitFunc(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	fired := make(chan struct{}, 1)
+	h.SetQuitFunc(func() {
+		select {
+		case fired <- struct{}{}:
+		default:
+		}
+	})
+	server := NewServer(logger, h)
+	client := newAPITestClient(t, server)
+
+	recorder := client.mustRequestStatus(http.StatusAccepted, http.MethodPost, "/hecate/v1/system/shutdown", "")
+	if !strings.Contains(recorder.Body.String(), `"object":"system_shutdown"`) {
+		t.Errorf("response body = %q, want object=system_shutdown", recorder.Body.String())
+	}
+
+	select {
+	case <-fired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("quitFunc was not invoked within 2s after /system/shutdown returned 202")
+	}
+}
+
+// TestSystemShutdownDoesNotBlockOnFullQuitChannel asserts the endpoint
+// stays non-blocking when the production buffered=1 quit channel is
+// already full (i.e. the first signal hasn't been drained yet). The
+// Tauri close path can repost — a stuck dialog retry, a slow drain
+// poll deciding to send a second nudge — and a blocking handler would
+// pin a goroutine indefinitely. We mirror main.go's exact channel
+// shape so the test reflects the production wiring.
+func TestSystemShutdownDoesNotBlockOnFullQuitChannel(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	quit := make(chan struct{}, 1)
+	h.SetQuitFunc(func() {
+		select {
+		case quit <- struct{}{}:
+		default:
+		}
+	})
+	server := NewServer(logger, h)
+	client := newAPITestClient(t, server)
+
+	// First POST: 202 + handler eventually fires quitFunc. We deliberately
+	// do NOT drain the channel here so the second POST's send hits a full
+	// buffer.
+	client.mustRequestStatus(http.StatusAccepted, http.MethodPost, "/hecate/v1/system/shutdown", "")
+
+	// Wait for the async quitFunc fire (it sleeps 50ms before sending)
+	// so the channel is observably full before the second POST.
+	require := func() {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if len(quit) == 1 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("first POST: quit channel never reached len=1")
+	}
+	require()
+
+	// Second POST against the already-full channel: must still return 202
+	// without blocking the handler's goroutine. If select-default were
+	// missing, the async quitFunc goroutine would park forever; the
+	// 202 itself is fine (we return before firing) but the leak would
+	// matter.
+	client.mustRequestStatus(http.StatusAccepted, http.MethodPost, "/hecate/v1/system/shutdown", "")
+
+	// Settle the async fire and confirm the channel still holds exactly
+	// one signal — the second send was dropped, not buffered or blocked.
+	time.Sleep(150 * time.Millisecond)
+	if got := len(quit); got != 1 {
+		t.Fatalf("quit channel length after double-POST = %d, want 1 (second send must be dropped)", got)
+	}
+}
+
 func TestUsageSummaryReturnsCurrentUsage(t *testing.T) {
 	t.Parallel()
 

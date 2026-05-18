@@ -360,6 +360,44 @@ func (h *Handler) HandleMCPCacheStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleSystemShutdown requests an orderly process shutdown. The
+// desktop app (Tauri) calls this from its window-close handler so the
+// gateway runs the same drain path SIGINT/SIGTERM takes — retention
+// cancel, runner drain (MCP subprocess teardown), HTTP server shutdown
+// — instead of being SIGKILL'd by the child-process handle. Returns 503
+// when no quit function is wired (Docker / systemd deployments stop the
+// process via signal or container stop; the endpoint is desktop-only).
+//
+// The response is 202 Accepted: the signal is fired asynchronously
+// after a short delay so the response can flush before the HTTP server
+// stops accepting writes. Clients that need to observe the gateway
+// actually exiting should poll /healthz until it stops responding.
+func (h *Handler) HandleSystemShutdown(w http.ResponseWriter, r *http.Request) {
+	if h.quitFunc == nil {
+		WriteError(w, http.StatusServiceUnavailable, errCodeGatewayError,
+			"shutdown endpoint not wired; quit via signal (SIGINT/SIGTERM) instead")
+		return
+	}
+
+	telemetry.Info(h.logger, r.Context(), "gateway.system.shutdown.requested",
+		slog.String("event.name", "gateway.system.shutdown.requested"),
+		slog.String("remote_addr", r.RemoteAddr),
+	)
+
+	WriteJSON(w, http.StatusAccepted, struct {
+		Object string `json:"object"`
+	}{Object: "system_shutdown"})
+
+	// Fire the quit signal on a short delay so the 202 has time to
+	// flush back to the caller before the server stops accepting
+	// connections. 50ms is plenty for loopback; the drain itself
+	// runs in main.go with a 10s deadline.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		h.quitFunc()
+	}()
+}
+
 func (h *Handler) HandleRetentionRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

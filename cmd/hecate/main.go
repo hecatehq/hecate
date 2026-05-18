@@ -279,6 +279,18 @@ func main() {
 	// and tears it down on Shutdown after the runner has drained, so
 	// in-flight runs always see a live client. Zero TTL falls back to
 	// the cache's internal default (5 minutes idle eviction).
+	// quit is the desktop-app shutdown channel. The Tauri close-window
+	// handler calls POST /hecate/v1/system/shutdown which signals here,
+	// joining the same drain path SIGINT/SIGTERM take below. Buffered so
+	// the handler returns without blocking when the channel is empty;
+	// the handler's select-default also tolerates a double-fire.
+	quit := make(chan struct{}, 1)
+	handler.SetQuitFunc(func() {
+		select {
+		case quit <- struct{}{}:
+		default:
+		}
+	})
 	handler.SetMCPClientCache(orchestrator.NewAgentMCPClientCache(orchestrator.AgentMCPClientCacheOptions{
 		// TTL=0 lets the cache use its internal default (5 min).
 		// We don't expose a TTL knob today; if operators ask, add
@@ -330,12 +342,18 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
+	var shutdownTrigger string
+	select {
+	case sig := <-stop:
+		shutdownTrigger = sig.String()
+	case <-quit:
+		shutdownTrigger = "system_shutdown_endpoint"
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	logger.Info("gateway shutting down")
+	logger.Info("gateway shutting down", slog.String("trigger", shutdownTrigger))
 	retentionCancel()
 	// Stop the task runner before closing the HTTP server. The HTTP
 	// layer only enqueues jobs and is quick to drain; the long-poll

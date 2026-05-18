@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 log = "0.4"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"

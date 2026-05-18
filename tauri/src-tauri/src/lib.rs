@@ -15,11 +15,13 @@
 mod sidecar;
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 /// File name (without extension) used by tauri-plugin-log under the
@@ -59,12 +61,45 @@ const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
 /// Wrapped in Mutex<Option<…>> so the exit handler can take() it exactly once.
 struct GatewayChild(Mutex<Option<std::process::Child>>);
 
+/// Tauri managed state: the gateway base URL (e.g. http://127.0.0.1:54321).
+/// Stored after spawn_and_wait succeeds so the close-window handler can
+/// reach /hecate/v1/system/stats (to count running tasks for the
+/// confirmation prompt) and /hecate/v1/system/shutdown (to trigger a
+/// graceful drain instead of SIGKILL'ing the child). Empty until the
+/// gateway is healthy.
+struct GatewayBaseURL(Mutex<Option<String>>);
+
+impl GatewayBaseURL {
+    fn snapshot(&self) -> Option<String> {
+        self.0.lock().ok().and_then(|guard| guard.clone())
+    }
+}
+
 /// Tauri managed state: filesystem paths surfaced by native diagnostics.
 struct GatewayDiagnostics {
     data_dir: PathBuf,
     log_path: PathBuf,
     state_path: PathBuf,
 }
+
+/// Latch that flips to true the first time the operator has confirmed
+/// (or doesn't need to confirm) a quit. Window-close, cmd+Q, and the
+/// menu "Quit Hecate" item all funnel through the same async drain
+/// path; the latch keeps the drain from re-entering when app.exit()
+/// fires a second RunEvent::ExitRequested at the tail of the path.
+static QUIT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// How long to wait for the gateway to acknowledge a drain before
+/// falling back to SIGKILL'ing the child. Generous because the drain
+/// itself has a 10s budget on the Go side (see cmd/hecate/main.go's
+/// `context.WithTimeout(..., 10*time.Second)`); a hair beyond that
+/// covers HTTP round-trip jitter without leaving zombies.
+const GATEWAY_DRAIN_DEADLINE: Duration = Duration::from_secs(12);
+
+/// How long to wait between /healthz polls while draining. Short
+/// enough that a 1-2 second clean drain feels responsive; long enough
+/// not to pin a CPU.
+const GATEWAY_DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 fn build_diagnostics_report(app: &tauri::AppHandle) -> String {
     let app_log = app
@@ -201,6 +236,165 @@ fn remaining_splash_delay(elapsed: Duration) -> Option<Duration> {
     Some(MIN_SPLASH_DURATION - elapsed)
 }
 
+/// Extracts data.running_runs from a /hecate/v1/system/stats response
+/// body. Any deviation — missing field, wrong type, malformed JSON —
+/// returns 0 (the safe default when the gateway is already misbehaving
+/// and there's nothing useful to confirm about). Pure to keep the
+/// HTTP-side fetch easy to test indirectly via this seam.
+fn parse_running_runs(body: &str) -> u64 {
+    let parsed: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => return 0,
+    };
+    parsed
+        .get("data")
+        .and_then(|d| d.get("running_runs"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0)
+}
+
+/// Composes the body of the running-tasks confirmation dialog. Pulled
+/// out as a pure function so the singular/plural copy stays under test
+/// without spinning up a Tauri runtime to drive the real dialog.
+fn format_running_tasks_message(running: u64) -> String {
+    let plural = if running == 1 { "" } else { "s" };
+    let pronoun = if running == 1 { "it" } else { "them" };
+    format!("{running} task{plural} still running. Quitting Hecate will stop {pronoun}.")
+}
+
+/// Fetches GET /hecate/v1/system/stats and returns running_runs. Used
+/// by the close-window flow to decide whether to prompt before quitting
+/// — zero running runs means we can drain silently. Any error (gateway
+/// unreachable, stats endpoint unavailable, parse failure) returns 0:
+/// from the operator's perspective, if the gateway is already wedged
+/// there's nothing useful to confirm about.
+async fn fetch_running_runs(base_url: &str) -> u64 {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return 0,
+    };
+    let url = format!("{}/hecate/v1/system/stats", base_url.trim_end_matches('/'));
+    let response = match client.get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            log::debug!("fetch_running_runs: GET {url} failed: {e}");
+            return 0;
+        }
+    };
+    let text = match response.text().await {
+        Ok(s) => s,
+        Err(e) => {
+            log::debug!("fetch_running_runs: read body failed: {e}");
+            return 0;
+        }
+    };
+    parse_running_runs(&text)
+}
+
+/// POSTs /hecate/v1/system/shutdown and waits for the gateway to stop
+/// responding to /healthz (proof that the drain completed and the
+/// child is exiting). Returns Ok(()) on a clean drain, Err on timeout
+/// or HTTP error — caller falls through to SIGKILL via child.kill()
+/// in RunEvent::Exit.
+async fn drain_gateway(base_url: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .map_err(|e| format!("build http client: {e}"))?;
+
+    let base = base_url.trim_end_matches('/');
+    let shutdown_url = format!("{base}/hecate/v1/system/shutdown");
+    let response = client
+        .post(&shutdown_url)
+        .send()
+        .await
+        .map_err(|e| format!("POST {shutdown_url} failed: {e}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("POST {shutdown_url} returned {status}: {body}"));
+    }
+
+    // Poll /healthz until it stops responding — that's our signal the
+    // gateway has finished its drain and the process is exiting. The
+    // 202 above is just an ack; the actual drain runs async on the Go
+    // side.
+    let healthz_url = format!("{base}/healthz");
+    let deadline = Instant::now() + GATEWAY_DRAIN_DEADLINE;
+    while Instant::now() < deadline {
+        tokio::time::sleep(GATEWAY_DRAIN_POLL_INTERVAL).await;
+        match client.get(&healthz_url).send().await {
+            Ok(_) => continue, // still up — keep polling
+            Err(_) => return Ok(()), // gateway is gone
+        }
+    }
+    Err(format!("gateway did not exit within {GATEWAY_DRAIN_DEADLINE:?}"))
+}
+
+/// Shows a native blocking-by-callback confirmation dialog asking the
+/// operator whether to interrupt running tasks. Returns the user's
+/// choice over a oneshot channel so the caller can await it. The
+/// dialog runs on Tauri's event loop, not the calling thread, so the
+/// async runtime stays unblocked while the OS owns the UI.
+async fn confirm_quit_with_running_tasks(app: &AppHandle, running: u64) -> bool {
+    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    let tx = Arc::new(Mutex::new(Some(tx)));
+    let tx_for_dialog = tx.clone();
+    app.dialog()
+        .message(format_running_tasks_message(running))
+        .title("Quit Hecate?")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Quit anyway".into(),
+            "Keep running".into(),
+        ))
+        .show(move |confirmed| {
+            if let Ok(mut slot) = tx_for_dialog.lock() {
+                if let Some(sender) = slot.take() {
+                    let _ = sender.send(confirmed);
+                }
+            }
+        });
+    rx.await.unwrap_or(false)
+}
+
+/// Funnels every "user wants to quit" trigger (red-X close, cmd+Q,
+/// menu Quit, etc.) through the same confirmation + graceful-drain
+/// path. Idempotent against re-entry via QUIT_IN_PROGRESS — app.exit()
+/// fires RunEvent::ExitRequested again on its way out, and we'd
+/// otherwise re-prompt.
+fn handle_quit_request(app: AppHandle) {
+    if QUIT_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        let base_url = app
+            .try_state::<GatewayBaseURL>()
+            .and_then(|s| s.snapshot());
+        if let Some(ref base) = base_url {
+            let running = fetch_running_runs(base).await;
+            if running > 0 {
+                let confirmed = confirm_quit_with_running_tasks(&app, running).await;
+                if !confirmed {
+                    QUIT_IN_PROGRESS.store(false, Ordering::SeqCst);
+                    return;
+                }
+            }
+            if let Err(e) = drain_gateway(base).await {
+                // Non-fatal: RunEvent::Exit's child.kill() is the
+                // fallback. Log so operators have a breadcrumb.
+                log::warn!("graceful gateway drain failed, falling back to child.kill(): {e}");
+            }
+        } else {
+            log::debug!("quit requested before gateway base URL was ready; exiting without drain");
+        }
+        app.exit(0);
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -236,6 +430,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -322,9 +517,27 @@ pub fn run() {
                 .get_webview_window("main")
                 .expect("main window defined in tauri.conf.json");
 
+            // Intercept the close button so red-X also quits (on macOS the
+            // default leaves the app dock-resident with no window), and so
+            // running tasks get a confirmation prompt + a graceful drain
+            // instead of an instant SIGKILL of the gateway child. The
+            // ExitRequested handler in .run() below covers cmd+Q and the
+            // menu Quit item; both funnel through handle_quit_request.
+            let close_app_handle = app.handle().clone();
+            win.on_window_event(move |event| {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    handle_quit_request(close_app_handle.clone());
+                }
+            });
+
             // Seed managed state with an empty child slot. The background
             // task fills it once hecate is spawned.
             app.manage(GatewayChild(Mutex::new(None)));
+            // Seed an empty base URL slot. Filled by the spawn task once
+            // /healthz returns 200; read by handle_quit_request to reach
+            // /system/stats and /system/shutdown.
+            app.manage(GatewayBaseURL(Mutex::new(None)));
             app.manage(GatewayDiagnostics {
                 data_dir: diagnostics.data_dir.clone(),
                 log_path: diagnostics.log_path.clone(),
@@ -342,6 +555,13 @@ pub fn run() {
                         if let Some(state) = app_handle.try_state::<GatewayChild>() {
                             if let Ok(mut slot) = state.0.lock() {
                                 *slot = Some(handle.child);
+                            }
+                        }
+                        // Publish the base URL so the close-window handler
+                        // can call /system/stats and /system/shutdown.
+                        if let Some(state) = app_handle.try_state::<GatewayBaseURL>() {
+                            if let Ok(mut slot) = state.0.lock() {
+                                *slot = Some(handle.base_url.clone());
                             }
                         }
                         if let Some(delay) = remaining_splash_delay(splash_started.elapsed()) {
@@ -376,13 +596,46 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error building Hecate app")
-        .run(|app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                // Kill the hecate process so it doesn't become an orphan.
+        .run(|app_handle, event| match event {
+            // cmd+Q, menu Quit, and any other "exit requested" trigger
+            // funnels through the same drain path as the red-X button.
+            // We prevent the default exit, run the confirmation + drain
+            // off the main thread, then call app.exit() ourselves once
+            // the gateway has acknowledged. QUIT_IN_PROGRESS keeps the
+            // re-entrant ExitRequested fired by app.exit() from
+            // re-prompting.
+            RunEvent::ExitRequested { api, .. } => {
+                if !QUIT_IN_PROGRESS.load(Ordering::SeqCst) {
+                    api.prevent_exit();
+                    handle_quit_request(app_handle.clone());
+                }
+            }
+            RunEvent::Exit => {
+                // Belt-and-suspenders kill in case the graceful drain
+                // didn't complete (gateway unreachable when we asked,
+                // /system/shutdown returned non-2xx, drain deadline
+                // exceeded). Wait briefly so a child that's already
+                // exiting on its own gets to finish before we SIGKILL.
                 if let Some(state) = app_handle.try_state::<GatewayChild>() {
                     if let Ok(mut slot) = state.0.lock() {
                         if let Some(mut child) = slot.take() {
-                            let _ = child.kill();
+                            let deadline = Instant::now() + Duration::from_secs(2);
+                            let mut exited = false;
+                            while Instant::now() < deadline {
+                                match child.try_wait() {
+                                    Ok(Some(_)) => {
+                                        exited = true;
+                                        break;
+                                    }
+                                    Ok(None) => {
+                                        std::thread::sleep(Duration::from_millis(100));
+                                    }
+                                    Err(_) => break,
+                                }
+                            }
+                            if !exited {
+                                let _ = child.kill();
+                            }
                         }
                     }
                 }
@@ -390,12 +643,16 @@ pub fn run() {
                     sidecar::remove_gateway_state(&paths.state_path);
                 }
             }
+            _ => {}
         });
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{remaining_splash_delay, startup_failure_hint, MIN_SPLASH_DURATION};
+    use super::{
+        format_running_tasks_message, parse_running_runs, remaining_splash_delay,
+        startup_failure_hint, MIN_SPLASH_DURATION,
+    };
     use std::time::Duration;
 
     #[test]
@@ -433,5 +690,50 @@ mod tests {
         );
 
         assert_eq!(hint, None);
+    }
+
+    #[test]
+    fn test_parse_running_runs_well_formed_body() {
+        let body = r#"{"object":"runtime_stats","data":{"running_runs":3,"queue_depth":0}}"#;
+        assert_eq!(parse_running_runs(body), 3);
+    }
+
+    #[test]
+    fn test_parse_running_runs_zero_when_field_missing() {
+        // Stats response without the field — caller must not crash; it
+        // gets the "no running tasks, skip the prompt" default.
+        let body = r#"{"object":"runtime_stats","data":{"queue_depth":0}}"#;
+        assert_eq!(parse_running_runs(body), 0);
+    }
+
+    #[test]
+    fn test_parse_running_runs_zero_when_wrong_type() {
+        // Gateway change accidentally returns a string. We don't want to
+        // crash — fall through to the no-prompt-needed default.
+        let body = r#"{"data":{"running_runs":"three"}}"#;
+        assert_eq!(parse_running_runs(body), 0);
+    }
+
+    #[test]
+    fn test_parse_running_runs_zero_when_malformed_json() {
+        // Reverse proxy returning HTML, partial body, etc. — same
+        // graceful fallback so a wedged gateway doesn't trap the user
+        // in a stale dialog.
+        assert_eq!(parse_running_runs("<html>503</html>"), 0);
+        assert_eq!(parse_running_runs(""), 0);
+    }
+
+    #[test]
+    fn test_format_running_tasks_message_singular_uses_singular_pronoun() {
+        let message = format_running_tasks_message(1);
+        assert!(message.contains("1 task still running"), "got: {message}");
+        assert!(message.contains("stop it"), "got: {message}");
+    }
+
+    #[test]
+    fn test_format_running_tasks_message_plural_uses_plural_pronoun() {
+        let message = format_running_tasks_message(5);
+        assert!(message.contains("5 tasks still running"), "got: {message}");
+        assert!(message.contains("stop them"), "got: {message}");
     }
 }
