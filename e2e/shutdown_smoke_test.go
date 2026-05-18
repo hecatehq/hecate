@@ -61,12 +61,18 @@ func TestSystemShutdownSmokeExitsCleanly(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start gateway: %v", err)
 	}
-	// Belt-and-suspenders: if the test fails before the graceful path
-	// completes, kill the process so the test binary doesn't hang.
+	// Single Wait() goroutine — Cmd.Wait must only be called once, and
+	// cleanup needs a way to reap the process if the test Fatals before
+	// the graceful path runs. Funnel both through this channel so we
+	// never double-call Wait.
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
 	t.Cleanup(func() {
-		if cmd.ProcessState == nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
+		_ = cmd.Process.Kill() // idempotent if already exited
+		select {
+		case <-waited:
+		case <-time.After(3 * time.Second):
+			t.Logf("cleanup: cmd.Wait did not return within 3s after Kill")
 		}
 	})
 
@@ -93,12 +99,9 @@ func TestSystemShutdownSmokeExitsCleanly(t *testing.T) {
 	// the quit signal ~50ms after returning 202, then main.go's drain
 	// runs with a 10s budget; on an idle gateway the whole thing is
 	// well under a second.
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
 	const exitDeadline = 5 * time.Second
 	select {
-	case err := <-done:
+	case err := <-waited:
 		if err != nil {
 			// Non-nil error here means a non-zero exit code, a signal,
 			// or some other abnormal termination. Anything but a clean

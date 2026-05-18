@@ -103,10 +103,10 @@ the bundle is polished enough to recommend.
 
 ### Tier 1 — polish before the next alpha
 
-| Item                                 | Scope                 | Notes                                                                                                                                                                                                                           |
-| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Test the Linux + Windows bundles** | ~30 min per OS        | Download from the current alpha release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
-| **Homebrew distribution**            | Formula/cask decision | Useful for install ergonomics, especially the CLI. Does not remove the need for macOS signing/notarization for the desktop app; treat it as distribution, not trust.                                                            |
+| Item                                 | Scope                 | Notes                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Test the Linux + Windows bundles** | ~30 min per OS        | Download from the current alpha release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit (confirm the running-tasks dialog appears when an agent run is active), relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
+| **Homebrew distribution**            | Formula/cask decision | Useful for install ergonomics, especially the CLI. Does not remove the need for macOS signing/notarization for the desktop app; treat it as distribution, not trust.                                                                                                                                   |
 
 ### Tier 2 — operational gates
 
@@ -175,15 +175,7 @@ the ones likely to bite an operator:
   right-click → Open the first time. Windows is unsigned regardless;
   click "More info" on the SmartScreen warning. Document in release
   notes when shipping an unsigned build.
-- **Window close and `cmd+Q` both quit cleanly.** The red-X, `cmd+Q`, and
-  the menu "Quit Hecate" item all funnel through the same path: if any
-  agent runs are in-flight, a native confirmation dialog appears ("X
-  tasks still running. Quitting Hecate will stop them.") with
-  Quit anyway / Keep running. On confirm — or when there are no
-  running tasks — the gateway is asked to drain (`POST
-/hecate/v1/system/shutdown`, same code path as `SIGINT`/`SIGTERM`)
-  before the app exits, so MCP subprocesses are torn down cleanly and
-  no run is left stuck in `running`.
+- **Window close and `cmd+Q` both quit cleanly.** The red-X, `cmd+Q`, and the menu "Quit Hecate" item all funnel through the same path. If any agent runs are in-flight, a native confirmation dialog appears ("X tasks still running. Quitting Hecate will stop them.") with Quit anyway / Keep running. On confirm — or when there are no running tasks — the gateway is asked to drain via `POST /hecate/v1/system/shutdown` (same code path as `SIGINT`/`SIGTERM`) before the app exits, so MCP subprocesses are torn down cleanly and no run is left stuck in `running`.
 - **Data dir is platform-specific.** Settings saved on macOS don't migrate
   to a Linux build of the same version. Multi-machine users keep separate
   config per platform.
