@@ -70,7 +70,7 @@ export function resolveChatSetupRepairState({
         kind: "claude_code_setup",
         title: "Set up Claude Code",
         message:
-          "Claude Code needs an adapter-visible credential before Hecate can start a session.",
+          "Claude Code needs an adapter-visible setup token before Hecate can start a session.",
         action: "open_agent_setup",
         actionLabel: "Open setup",
         tone: "amber",

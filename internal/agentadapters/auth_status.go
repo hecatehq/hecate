@@ -27,12 +27,12 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 		if ok, checked := detectClaudeCLIAuthStatus(); ok {
 			return AuthStatusOK, ""
 		} else if checked {
-			return AuthStatusUnauthenticated, "Run `claude auth login` or use the guided setup card below to paste a token from `claude setup-token`."
+			return AuthStatusUnauthenticated, "Run `claude auth login` or use the guided setup card below to paste the setup token from `claude setup-token`."
 		}
 		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
 			return AuthStatusUnknown, "Claude Code config is present on disk, but Hecate could not verify the CLI auth status. Open Settings to refresh adapter readiness; if it fails, use the guided setup card below."
 		}
-		return AuthStatusUnknown, "Open Settings to verify Claude Code. If it reports a sign-in error, use the guided setup card below to paste a token from `claude setup-token`."
+		return AuthStatusUnknown, "Open Settings to verify Claude Code. If it reports a sign-in error, use the guided setup card below to paste the setup token from `claude setup-token`."
 	case "cursor_agent":
 		if envAny("CURSOR_API_KEY") || fileAny("${HOME}/.cursor", "${HOME}/Library/Application Support/Cursor") {
 			return AuthStatusOK, ""
@@ -66,7 +66,7 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 // heavy lifting (one click → Settings → External agents → Claude
 // Code, with the setup card scrolled into view).
 func claudeCodeAuthErrorMessage() string {
-	return "Claude Code isn't signed in. This is a separate credential from the Anthropic key in the Providers tab — Claude Code runs as its own program. Click the button below to paste a token from `claude setup-token` into the guided setup card. No restart needed. (claude_code_auth_required)"
+	return "Claude Code isn't signed in. This is separate from the Anthropic key in the Providers tab — Claude Code runs as its own program and Anthropic controls its billing/credits. Click the button below to paste the setup token from `claude setup-token` into the guided setup card. No restart needed. (claude_code_auth_required)"
 }
 
 var runClaudeAuthStatus = defaultRunClaudeAuthStatus

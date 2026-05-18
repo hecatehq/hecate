@@ -603,7 +603,7 @@ function AnthropicProviderKeyCard({
       </div>
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45, marginBottom: 12 }}>
         Used by Hecate Chat and direct Anthropic provider calls through{" "}
-        {provider.name || "Anthropic"}. This is separate from the Claude Code adapter token below.
+        {provider.name || "Anthropic"}. This is separate from the Claude Code setup token below.
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <input
@@ -984,19 +984,19 @@ function ClaudeCredentialSetup({
           >
             <Icon d={tokenVerified ? Icons.check : Icons.keys} size={12} />
             {tokenVerified
-              ? "Claude Code token verified"
+              ? "Claude Code setup token verified"
               : configured
-                ? "Claude Code token saved"
+                ? "Claude Code setup token saved"
                 : "Claude Code guided setup"}
           </div>
           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4 }}>
             {tokenVerified
-              ? "Hecate has a validated adapter token and can inject it only into Claude ACP sessions. You can still paste a replacement token below."
+              ? "Hecate has a validated setup token and injects it only into local Claude ACP sessions. Anthropic controls billing and credits for those sessions."
               : configured
-                ? "Hecate has a token saved, but Claude Code auth has not been verified yet."
+                ? "Hecate has a setup token saved, but Claude Code auth has not been verified yet."
                 : cliSignedIn
-                  ? "Claude Code is signed in for normal CLI use, but Hecate still needs its own adapter token. Run claude setup-token and paste the token here."
-                  : "Run claude setup-token, paste the token here, then Hecate injects it only into Claude ACP."}
+                  ? "Claude Code is signed in for normal CLI use, but the ACP adapter needs a setup token. Run claude setup-token and paste it here."
+                  : "Run claude setup-token and paste the setup token here. Hecate injects it only into Claude ACP."}
           </div>
           <div
             style={{
@@ -1069,13 +1069,13 @@ function ClaudeCredentialSetup({
           onChange={(event) => setToken(event.target.value)}
           placeholder={
             configured
-              ? "Paste a replacement CLAUDE_CODE_OAUTH_TOKEN"
-              : "Paste CLAUDE_CODE_OAUTH_TOKEN"
+              ? "Paste a replacement Claude Code setup token"
+              : "Paste Claude Code setup token"
           }
           type="password"
           className="input"
           style={{ flex: 1, minWidth: 180 }}
-          aria-label="Claude Code OAuth token"
+          aria-label="Claude Code setup token"
         />
         <button
           type="button"

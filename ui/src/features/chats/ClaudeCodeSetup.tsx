@@ -238,7 +238,7 @@ export function claudeCodePreflightState(
   if (!adapter.available || health?.status === "not_installed") {
     return {
       title: "Set up Claude Code before sending",
-      body: "Install Claude Code, then paste the one-time token printed in Terminal by `claude setup-token`.",
+      body: "Install Claude Code, then paste the setup token printed in Terminal by `claude setup-token`.",
       detail:
         health?.hint ||
         adapter.error ||
@@ -255,7 +255,7 @@ export function claudeCodePreflightState(
   ) {
     return {
       title: "Claude Code needs sign-in",
-      body: "Hecate has a Claude Code token saved, but the adapter still reports authentication required. Generate a fresh token and save it here.",
+      body: "Hecate has a Claude Code setup token saved, but the adapter still reports authentication required. Generate a fresh token and save it here.",
       detail: health?.hint || adapter.auth_error,
       blockSend: true,
       tone: "amber",
@@ -266,7 +266,7 @@ export function claudeCodePreflightState(
   if (adapter.auth_status === "billing") {
     return {
       title: "Claude Code billing needs attention",
-      body: "Claude Code reported a billing or subscription problem. Test the adapter, then fix the Claude account before sending.",
+      body: "Claude Code reported a billing, credit, or subscription problem. Test the adapter, then fix the Claude account before sending.",
       detail: adapter.auth_error || health?.hint || health?.error,
       blockSend: true,
       tone: "red",
@@ -276,10 +276,10 @@ export function claudeCodePreflightState(
 
   if (!hasSavedCredential) {
     return {
-      title: "Set up Claude Code token before sending",
+      title: "Set up Claude Code before sending",
       body: cliSignedIn
-        ? "Claude Code is signed in for normal CLI use, but Hecate needs its own adapter token before it can start Claude ACP sessions."
-        : "Claude Code needs an adapter-visible token before Hecate can start Claude ACP sessions.",
+        ? "Claude Code is signed in for normal CLI use, but the ACP adapter needs a setup token before Hecate can start sessions."
+        : "Claude Code needs an adapter-visible setup token before Hecate can start ACP sessions.",
       detail: adapter.auth_error || health?.hint || health?.error,
       blockSend: true,
       tone: "amber",
@@ -289,7 +289,7 @@ export function claudeCodePreflightState(
 
   return {
     title: "Check Claude Code setup before sending",
-    body: "Hecate has a Claude Code token saved, but it has not been verified by the adapter yet. Check auth or save a fresh token before sending.",
+    body: "Hecate has a Claude Code setup token saved, but it has not been verified by the adapter yet. Check auth or save a fresh token before sending.",
     detail: adapter.auth_error || health?.hint || health?.error,
     blockSend: true,
     tone: "amber",
@@ -443,8 +443,8 @@ export function ClaudeCodeSetupEmptyPanel(props: {
       />
       <ClaudeCodeSetupRow
         label="Auth"
-        title="Create an adapter token"
-        detail="Copy this command into Terminal. After you click Authorize in the browser, return to Terminal and copy the token printed there. It is shown only once."
+        title="Create a setup token"
+        detail="Copy this command into Terminal. After you click Authorize in the browser, return to Terminal and copy the setup token printed there. It is shown only once and Anthropic controls the billing/credit pool used by Claude Code."
         command={tokenCommand}
       />
       <div
@@ -472,26 +472,26 @@ export function ClaudeCodeSetupEmptyPanel(props: {
               color: "var(--t3)",
             }}
           >
-            CLAUDE_CODE_OAUTH_TOKEN
+            Claude Code setup token
           </div>
         </div>
         <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
           <div>
-            Paste the token from Terminal here. If you closed Terminal or missed the token, run the
-            token command again to generate a fresh one.
+            Paste the setup token from Terminal here. If you closed Terminal or missed the token,
+            run the token command again to generate a fresh one.
           </div>
           <div style={{ marginTop: 4, color: "var(--t3)" }}>
-            Save validates the token with Claude Code before Hecate stores it.
+            Save validates the setup token with Claude Code before Hecate stores it.
           </div>
           {props.state.detail && (
             <div style={{ marginTop: 4, color: "var(--t3)" }}>{props.state.detail}</div>
           )}
           <ClaudeCodeSetupFacts state={props.state} />
           <input
-            aria-label="Claude Code OAuth token"
+            aria-label="Claude Code setup token"
             value={props.tokenDraft}
             onChange={(event) => props.onTokenDraftChange(event.currentTarget.value)}
-            placeholder="Paste token from claude setup-token"
+            placeholder="Paste setup token from claude setup-token"
             type="password"
             spellCheck={false}
             autoComplete="off"
@@ -643,12 +643,12 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
     case "claude_code":
       return {
         label: "Claude Code",
-        action: "Install Claude Code, then create and save an adapter token.",
+        action: "Install Claude Code, then create and save a setup token.",
         commands: [
           { label: "Install", command: "npm install -g @anthropic-ai/claude-code" },
           { label: "Token", command: "claude setup-token" },
         ],
-        note: "The Claude Code adapter token is separate from normal CLI login.",
+        note: "The Claude Code setup token is separate from normal CLI login.",
       };
     case "cursor_agent":
       return {

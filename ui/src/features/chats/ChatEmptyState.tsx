@@ -114,7 +114,7 @@ export function ChatEmptyState({
                 ? "No routable model"
                 : readyTitle;
   const detail = claudeCodePreflight
-    ? "Claude Code needs its own adapter-visible credential before Hecate can start a session."
+    ? "Claude Code needs its own adapter-visible setup token before Hecate can start a session."
     : isAgentChat && selectedAgentUnavailable
       ? `Hecate could not start ${selectedAgent?.name || "the selected agent"} because its CLI is not ready in this environment.`
       : isExternalAgentChat && agentRouteUnavailable
