@@ -1045,8 +1045,8 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     const body = await route.request().postDataJSON();
     submittedTurns.push(body);
     const turn = submittedTurns.length;
-    const runtimeKind = body.execution_mode || "direct_model";
-    const isHecateAgent = runtimeKind === "hecate_task";
+    const executionMode = body.execution_mode || "direct_model";
+    const isHecateAgent = executionMode === "hecate_task";
     const agentTurn = submittedTurns.filter((t) => t.execution_mode === "hecate_task").length;
     const taskID = isHecateAgent ? `task-tools-${agentTurn}` : "";
     const runID = isHecateAgent ? `run-tools-${agentTurn}` : "";
@@ -1060,7 +1060,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     messages.push(
       {
         id: `msg-user-${turn}`,
-        execution_mode: runtimeKind,
+        execution_mode: executionMode,
         segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
         task_id: isHecateAgent ? taskID : undefined,
         provider: body.provider || "",
@@ -1071,7 +1071,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       },
       {
         id: `msg-assistant-${turn}`,
-        execution_mode: runtimeKind,
+        execution_mode: executionMode,
         segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
         task_id: isHecateAgent ? taskID : undefined,
         run_id: isHecateAgent ? runID : undefined,
@@ -1125,7 +1125,6 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
 
     session = {
       ...session,
-      execution_mode: runtimeKind,
       provider: body.provider || "",
       model: body.model,
       capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
@@ -1200,7 +1199,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
     window.localStorage.setItem("hecate.chatSessionID", "chat-busy-e2e");
     window.localStorage.setItem(
       "hecate.chatTargetBySessionID",
-      JSON.stringify({ "chat-busy-e2e": "direct_model" }),
+      JSON.stringify({ "chat-busy-e2e": "model" }),
     );
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
   });

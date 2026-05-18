@@ -602,6 +602,10 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 	executionMode := normalizeChatExecutionMode(req.ExecutionMode, session)
 	switch executionMode {
 	case chat.ExecutionModeDirectModel:
+		if isExternalChatSession(session) {
+			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run direct model turns")
+			return
+		}
 		h.handleCreateModelChatMessage(w, r, session, req)
 		return
 	case chat.ExecutionModeHecateTask:

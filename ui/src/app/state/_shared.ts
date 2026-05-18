@@ -113,17 +113,19 @@ export function parseQueuedChatMessageList(parsed: unknown): QueuedChatMessage[]
     const sessionID = typeof item.session_id === "string" ? item.session_id : "";
     const content = typeof item.content === "string" ? item.content : "";
     if (!id || !sessionID || !content.trim()) return [];
+    const executionMode =
+      item.execution_mode === "direct_model" ||
+      item.execution_mode === "hecate_task" ||
+      item.execution_mode === "external_agent"
+        ? item.execution_mode
+        : "";
+    if (!executionMode) return [];
     return [
       {
         id,
         session_id: sessionID,
         content,
-        execution_mode:
-          item.execution_mode === "direct_model" ||
-          item.execution_mode === "hecate_task" ||
-          item.execution_mode === "external_agent"
-            ? item.execution_mode
-            : "hecate_task",
+        execution_mode: executionMode,
         provider_filter:
           typeof item.provider_filter === "string"
             ? (item.provider_filter as ProviderFilter)
