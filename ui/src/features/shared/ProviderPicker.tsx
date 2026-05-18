@@ -66,8 +66,20 @@ export function ProviderPicker({
   triggerWidth?: number;
   variant?: "header" | "composer";
 }) {
-  const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
-  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left", variant === "composer" ? "up" : "down");
+  const {
+    open,
+    setOpen,
+    toggle,
+    wrapRef: ref,
+    triggerRef,
+    menuRef,
+  } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
+  const floatingStyle = useFloatingDropdownStyle(
+    triggerRef,
+    open,
+    "left",
+    variant === "composer" ? "up" : "down",
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -77,7 +89,7 @@ export function ProviderPicker({
     return () => cancelAnimationFrame(frame);
   }, [open, menuRef]);
 
-  const selected = options.find(o => o.id === value);
+  const selected = options.find((o) => o.id === value);
   // When the saved `value` doesn't resolve to any current option (the
   // provider was removed, the localStorage value is from an older
   // build, or value is the empty-string default before first
@@ -86,13 +98,11 @@ export function ProviderPicker({
   // is the honest state — pick again. The previous `?? value`
   // intermediate hop also broke the empty-string case because `??`
   // treats `""` as defined and the trigger went blank.
-  const label = includeAuto && value === autoValue
-    ? autoLabel
-    : selected?.name ?? emptyLabel;
+  const label = includeAuto && value === autoValue ? autoLabel : (selected?.name ?? emptyLabel);
   // Reserve enough horizontal room for the longest option so the
   // trigger's width never depends on the current selection.
   const widestLabel = (() => {
-    const candidates = options.map(o => o.name);
+    const candidates = options.map((o) => o.name);
     if (includeAuto) candidates.push(autoLabel);
     if (candidates.length === 0) return label;
     return candidates.reduce((a, b) => (b.length > a.length ? b : a));
@@ -105,7 +115,12 @@ export function ProviderPicker({
       triggerRef.current?.focus();
       return;
     }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
       event.preventDefault();
       focusDropdownItem(menuRef.current, event.key);
     }
@@ -128,24 +143,34 @@ export function ProviderPicker({
           width: triggerWidth,
           ...(variant === "composer"
             ? {
-              background: "var(--bg1)",
-              borderColor: "var(--border)",
-              borderRadius: "var(--radius-sm)",
-              minHeight: 34,
-              padding: "5px 10px",
-            }
+                background: "var(--bg1)",
+                borderColor: "var(--border)",
+                borderRadius: "var(--radius-sm)",
+                minHeight: 34,
+                padding: "5px 10px",
+              }
             : {}),
-        }}>
-        {variant !== "composer" && (
-          selected ? (
+        }}
+      >
+        {variant !== "composer" &&
+          (selected ? (
             <BrandAvatar brand={selected.id} fallback={selected.name} boxed={false} size={16} />
           ) : (
             <Icon d={Icons.providers} size={13} />
-          )
-        )}
+          ))}
         {triggerWidth !== undefined ? (
           // Fixed-width mode: ellipsize within the available flex slot.
-          <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }} title={label}>
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              textAlign: "left",
+            }}
+            title={label}
+          >
             {label}
           </span>
         ) : (
@@ -157,8 +182,32 @@ export function ProviderPicker({
           // becomes a no-op, which made shorter labels look centered
           // inside the wider grid cell.
           <span style={{ display: "inline-grid" }}>
-            <span aria-hidden style={{ gridColumn: 1, gridRow: 1, visibility: "hidden", whiteSpace: "nowrap", pointerEvents: "none" }}>{widestLabel}</span>
-            <span style={{ gridColumn: 1, gridRow: 1, display: "block", width: "100%", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>{label}</span>
+            <span
+              aria-hidden
+              style={{
+                gridColumn: 1,
+                gridRow: 1,
+                visibility: "hidden",
+                whiteSpace: "nowrap",
+                pointerEvents: "none",
+              }}
+            >
+              {widestLabel}
+            </span>
+            <span
+              style={{
+                gridColumn: 1,
+                gridRow: 1,
+                display: "block",
+                width: "100%",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                textAlign: "left",
+              }}
+            >
+              {label}
+            </span>
           </span>
         )}
         <Icon d={Icons.chevD} size={11} />
@@ -180,13 +229,26 @@ export function ProviderPicker({
                 role="option"
                 aria-selected={value === autoValue}
                 className={`dropdown-item ${value === autoValue ? "selected" : ""}`}
-                onClick={() => { onChange(autoValue); setOpen(false); }}>
-                <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}>{autoLabel}</span>
+                onClick={() => {
+                  onChange(autoValue);
+                  setOpen(false);
+                }}
+              >
+                <span
+                  style={{
+                    flex: 1,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    textAlign: "left",
+                  }}
+                >
+                  {autoLabel}
+                </span>
               </button>
               {options.length > 0 && <div className="dropdown-divider" />}
             </>
           )}
-          {options.map(o => {
+          {options.map((o) => {
             const disabled = !!o.disabledReason;
             // Key indicator only for cloud providers — local providers
             // don't authenticate via keys, so no icon there.
@@ -208,7 +270,8 @@ export function ProviderPicker({
                   if (disabled) return;
                   onChange(o.id);
                   setOpen(false);
-                }}>
+                }}
+              >
                 {/* Only the name dims when disabled — the key icon
                     keeps its red color, so the operator's eye lands
                     on it as the reason for the disabled state. */}
@@ -228,13 +291,15 @@ export function ProviderPicker({
                     whiteSpace: "nowrap",
                     textAlign: "left",
                     opacity: disabled ? 0.5 : 1,
-                  }}>
+                  }}
+                >
                   {o.name}
                 </span>
                 {showKey && (
                   <span
                     aria-label={o.configured ? "credentials configured" : "credentials missing"}
-                    style={{ color: keyColor, display: "inline-flex", flexShrink: 0 }}>
+                    style={{ color: keyColor, display: "inline-flex", flexShrink: 0 }}
+                  >
                     <Icon d={Icons.keys} size={11} />
                   </span>
                 )}

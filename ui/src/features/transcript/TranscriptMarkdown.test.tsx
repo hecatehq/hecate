@@ -21,7 +21,9 @@ describe("TranscriptMarkdown", () => {
   });
 
   it("renders indented fenced code blocks as code blocks", () => {
-    const { container } = render(<TranscriptMarkdown content={"- Review changes:\n  ```sh\ngit diff\n  ```"} />);
+    const { container } = render(
+      <TranscriptMarkdown content={"- Review changes:\n  ```sh\ngit diff\n  ```"} />,
+    );
     const pre = container.querySelector("pre");
     expect(pre).not.toBeNull();
     expect(pre?.textContent).toContain("git diff");
@@ -69,7 +71,9 @@ describe("TranscriptMarkdown", () => {
 
   it("preserves http(s) and mailto link hrefs", () => {
     render(<TranscriptMarkdown content="see [docs](https://example.com) and [me](mailto:x@y.z)" />);
-    expect((screen.getByText("docs") as HTMLAnchorElement).getAttribute("href")).toBe("https://example.com");
+    expect((screen.getByText("docs") as HTMLAnchorElement).getAttribute("href")).toBe(
+      "https://example.com",
+    );
     expect((screen.getByText("me") as HTMLAnchorElement).getAttribute("href")).toBe("mailto:x@y.z");
   });
 

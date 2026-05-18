@@ -74,7 +74,9 @@ describe("TranscriptDiffReview", () => {
       />,
     );
     await user.click(screen.getByText(/^files changed · /));
-    await waitFor(() => expect(screen.getByText(/Could not load changed files/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/Could not load changed files/)).toBeInTheDocument(),
+    );
   });
 
   it("loads and displays the file diff when the operator clicks Inspect", async () => {
@@ -117,7 +119,9 @@ describe("TranscriptDiffReview", () => {
     await user.click(screen.getByText(/^files changed · /));
     await waitFor(() => expect(screen.getByText("src/foo.ts")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: /^Inspect src\/foo\.ts/ }));
-    await waitFor(() => expect(screen.getByText(/Could not load that file diff/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/Could not load that file diff/)).toBeInTheDocument(),
+    );
     expect(screen.getByRole("button", { name: /^Inspect src\/foo\.ts/ })).not.toBeDisabled();
   });
 
@@ -148,7 +152,9 @@ describe("TranscriptDiffReview", () => {
     await waitFor(() => expect(screen.getByText(/diff · src\/foo\.ts/)).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: /^Inspect src\/bar\.ts/ }));
 
-    await waitFor(() => expect(screen.getByText(/Could not load that file diff/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/Could not load that file diff/)).toBeInTheDocument(),
+    );
     expect(screen.queryByText(/diff · src\/foo\.ts/)).toBeNull();
   });
 

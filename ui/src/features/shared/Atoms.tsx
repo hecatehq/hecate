@@ -13,25 +13,38 @@ import { Icon, Icons } from "./Icons";
 
 // ─── Badge ───────────────────────────────────────────────────────────────────
 
-type BadgeStatus = "queued" | "running" | "awaiting" | "done" | "failed" | "enabled" | "disabled" | "healthy" | "degraded" | "down" | "ok" | "warn" | "error";
+type BadgeStatus =
+  | "queued"
+  | "running"
+  | "awaiting"
+  | "done"
+  | "failed"
+  | "enabled"
+  | "disabled"
+  | "healthy"
+  | "degraded"
+  | "down"
+  | "ok"
+  | "warn"
+  | "error";
 export function Badge({ status, label }: { status: BadgeStatus | string; label?: string }) {
   const map: Record<string, { cls: string; text: string }> = {
-    queued:           { text: label || "queued",   cls: "badge-muted"  },
-    running:          { text: label || "running",  cls: "badge-teal"   },
-    awaiting:         { text: label || "approval", cls: "badge-amber"  },
-    awaiting_approval:{ text: label || "approval", cls: "badge-amber"  },
-    done:             { text: label || "done",     cls: "badge-green"  },
-    completed:        { text: label || "done",     cls: "badge-green"  },
-    failed:           { text: label || "failed",   cls: "badge-red"    },
-    cancelled:        { text: label || "failed",   cls: "badge-red"    },
-    enabled:          { text: label || "enabled",  cls: "badge-green"  },
-    disabled:         { text: label || "disabled", cls: "badge-muted"  },
-    healthy:          { text: label || "healthy",  cls: "badge-green"  },
-    degraded:         { text: label || "degraded", cls: "badge-amber"  },
-    down:             { text: label || "down",     cls: "badge-red"    },
-    ok:               { text: label || "ok",       cls: "badge-green"  },
-    warn:             { text: label || "warn",     cls: "badge-amber"  },
-    error:            { text: label || "error",    cls: "badge-red"    },
+    queued: { text: label || "queued", cls: "badge-muted" },
+    running: { text: label || "running", cls: "badge-teal" },
+    awaiting: { text: label || "approval", cls: "badge-amber" },
+    awaiting_approval: { text: label || "approval", cls: "badge-amber" },
+    done: { text: label || "done", cls: "badge-green" },
+    completed: { text: label || "done", cls: "badge-green" },
+    failed: { text: label || "failed", cls: "badge-red" },
+    cancelled: { text: label || "failed", cls: "badge-red" },
+    enabled: { text: label || "enabled", cls: "badge-green" },
+    disabled: { text: label || "disabled", cls: "badge-muted" },
+    healthy: { text: label || "healthy", cls: "badge-green" },
+    degraded: { text: label || "degraded", cls: "badge-amber" },
+    down: { text: label || "down", cls: "badge-red" },
+    ok: { text: label || "ok", cls: "badge-green" },
+    warn: { text: label || "warn", cls: "badge-amber" },
+    error: { text: label || "error", cls: "badge-red" },
   };
   const { text, cls } = map[status] ?? { text: label || status, cls: "badge-muted" };
   return <span className={`badge ${cls}`}>{text}</span>;
@@ -39,14 +52,32 @@ export function Badge({ status, label }: { status: BadgeStatus | string; label?:
 
 // ─── Dot ─────────────────────────────────────────────────────────────────────
 
-export function Dot({ color = "green", pulse = false }: { color?: "green" | "amber" | "red" | "muted"; pulse?: boolean }) {
+export function Dot({
+  color = "green",
+  pulse = false,
+}: {
+  color?: "green" | "amber" | "red" | "muted";
+  pulse?: boolean;
+}) {
   const cls = { green: "dot-green", amber: "dot-amber", red: "dot-red", muted: "dot-muted" }[color];
-  return <span className={`dot ${cls}`} style={pulse ? { animation: "dot-pulse 2s infinite" } : {}} />;
+  return (
+    <span className={`dot ${cls}`} style={pulse ? { animation: "dot-pulse 2s infinite" } : {}} />
+  );
 }
 
 // ─── Toggle ──────────────────────────────────────────────────────────────────
 
-export function Toggle({ on, onChange, label, ariaLabel }: { on: boolean; onChange: (v: boolean) => void; label?: string; ariaLabel?: string }) {
+export function Toggle({
+  on,
+  onChange,
+  label,
+  ariaLabel,
+}: {
+  on: boolean;
+  onChange: (v: boolean) => void;
+  label?: string;
+  ariaLabel?: string;
+}) {
   const toggle = () => onChange(!on);
   const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -62,7 +93,8 @@ export function Toggle({ on, onChange, label, ariaLabel }: { on: boolean; onChan
         aria-label={ariaLabel ?? label}
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className={`toggle ${on ? "on" : ""}`} />
+        className={`toggle ${on ? "on" : ""}`}
+      />
       {label && <span style={{ fontSize: 12, color: "var(--t1)" }}>{label}</span>}
     </label>
   );
@@ -90,12 +122,21 @@ export function CopyBtn({ text }: { text: string }) {
 export function InlineError({ message }: { message: string }) {
   if (!message) return null;
   return (
-    <div style={{
-      display: "flex", alignItems: "flex-start", gap: 8,
-      padding: "7px 10px", borderRadius: "var(--radius-sm)",
-      background: "var(--red-bg)", border: "1px solid var(--red-border)",
-      color: "var(--red)", fontSize: 12, fontFamily: "var(--font-mono)", lineHeight: 1.4,
-    }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 8,
+        padding: "7px 10px",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--red-bg)",
+        border: "1px solid var(--red-border)",
+        color: "var(--red)",
+        fontSize: 12,
+        fontFamily: "var(--font-mono)",
+        lineHeight: 1.4,
+      }}
+    >
       <span style={{ flexShrink: 0, marginTop: 1 }}>✕</span>
       <span>{message}</span>
     </div>
@@ -120,7 +161,9 @@ export function CodeBlock({ code, lang = "bash" }: { code: string; lang?: string
           {copied ? "copied" : "copy"}
         </button>
       </div>
-      <pre className="code-pre"><code>{code}</code></pre>
+      <pre className="code-pre">
+        <code>{code}</code>
+      </pre>
     </div>
   );
 }

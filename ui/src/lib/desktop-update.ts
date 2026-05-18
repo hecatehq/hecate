@@ -275,9 +275,8 @@ export function useDesktopUpdate(): {
     await runCheck({ manual: true });
   }, [runCheck]);
 
-  const progress = state.installing && state.total > 0
-    ? Math.min(1, state.downloaded / state.total)
-    : null;
+  const progress =
+    state.installing && state.total > 0 ? Math.min(1, state.downloaded / state.total) : null;
 
   return {
     update: state.update,

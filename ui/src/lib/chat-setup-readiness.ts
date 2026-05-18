@@ -69,7 +69,8 @@ export function resolveChatSetupRepairState({
       return {
         kind: "claude_code_setup",
         title: "Set up Claude Code",
-        message: "Claude Code needs an adapter-visible credential before Hecate can start a session.",
+        message:
+          "Claude Code needs an adapter-visible credential before Hecate can start a session.",
         action: "open_agent_setup",
         actionLabel: "Open setup",
         tone: "amber",
@@ -112,7 +113,8 @@ export function resolveChatSetupRepairState({
     return {
       kind: "tools_disabled",
       title: "Tools are disabled for this model",
-      message: "Turn tools off for direct chat, or enable tool-calling for this provider/model in Connections.",
+      message:
+        "Turn tools off for direct chat, or enable tool-calling for this provider/model in Connections.",
       action: "enable_tools",
       actionLabel: "Enable tools",
       tone: "amber",

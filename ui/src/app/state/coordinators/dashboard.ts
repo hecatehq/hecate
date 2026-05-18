@@ -46,12 +46,8 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
     setHecateRTKPath,
   } = runtime.actions;
   const { providers, agentAdapters } = providersAndModels.state;
-  const {
-    setProviders,
-    setModels,
-    setAgentAdapters,
-    setAgentAdapterApprovalMode,
-  } = providersAndModels.actions;
+  const { setProviders, setModels, setAgentAdapters, setAgentAdapterApprovalMode } =
+    providersAndModels.actions;
   const { activeChatSessionID, activeChatSession, chatSessions } = chat.state;
   const {
     setChatSessions,
@@ -94,7 +90,9 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
       setProviders(snapshot.providers);
       setAgentAdapters(snapshot.agentAdapters);
       setChatSessions(snapshot.chatSessions);
-      pruneQueuedChatMessagesForSessions(snapshot.chatSessions.map((session: ChatSessionRecord) => session.id));
+      pruneQueuedChatMessagesForSessions(
+        snapshot.chatSessions.map((session: ChatSessionRecord) => session.id),
+      );
       setActiveChatSessionID(snapshot.activeChatSessionID);
       setActiveChatSession(snapshot.activeChatSession);
       params.syncHecateSelectionFromSession(snapshot.activeChatSession);

@@ -20,7 +20,15 @@
 // returns discriminated Results so callers route success / error
 // to the global `notice` banner without the slice importing it.
 
-import { createContext, useCallback, useContext, useMemo, useReducer, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import {
@@ -34,11 +42,7 @@ import {
   resolveChatApproval as resolveChatApprovalRequest,
 } from "../../lib/api";
 import { approvalRecordToPending } from "../runtimeConsoleChatHelpers";
-import type {
-  ChatApprovalRecord,
-  ChatGrantRecord,
-  PendingAgentApproval,
-} from "../../types/chat";
+import type { ChatApprovalRecord, ChatGrantRecord, PendingAgentApproval } from "../../types/chat";
 
 export type ApprovalsState = {
   pendingBySessionID: Map<string, PendingAgentApproval[]>;
@@ -144,7 +148,10 @@ function reducer(state: ApprovalsState, action: Action): ApprovalsState {
 
 const ApprovalsContext = createContext<ApprovalsContextValue | null>(null);
 
-export function ApprovalsProvider({ children, initialState: seededState }: {
+export function ApprovalsProvider({
+  children,
+  initialState: seededState,
+}: {
   children: ReactNode;
   initialState?: Partial<ApprovalsState>;
 }) {
@@ -168,15 +175,21 @@ export function ApprovalsProvider({ children, initialState: seededState }: {
     dispatch({ type: "pending/setForSession", sessionID, rows });
   }, []);
 
-  const upsertPending = useCallback((event: PendingAgentApproval) => {
-    bumpVersion(event.session_id);
-    dispatch({ type: "pending/upsert", event });
-  }, [bumpVersion]);
+  const upsertPending = useCallback(
+    (event: PendingAgentApproval) => {
+      bumpVersion(event.session_id);
+      dispatch({ type: "pending/upsert", event });
+    },
+    [bumpVersion],
+  );
 
-  const removePending = useCallback((sessionID: string, approvalID: string) => {
-    bumpVersion(sessionID);
-    dispatch({ type: "pending/remove", sessionID, approvalID });
-  }, [bumpVersion]);
+  const removePending = useCallback(
+    (sessionID: string, approvalID: string) => {
+      bumpVersion(sessionID);
+      dispatch({ type: "pending/remove", sessionID, approvalID });
+    },
+    [bumpVersion],
+  );
 
   const refetchPending = useCallback(async (sessionID: string) => {
     if (!sessionID) return;
@@ -200,49 +213,61 @@ export function ApprovalsProvider({ children, initialState: seededState }: {
     }
   }, []);
 
-  const getApproval = useCallback(async (
-    sessionID: string,
-    approvalID: string,
-  ): Promise<GetApprovalResult> => {
-    try {
-      const payload = await getChatApprovalRequest(sessionID, approvalID);
-      return { ok: true, record: payload.data };
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "Failed to load approval." };
-    }
-  }, []);
+  const getApproval = useCallback(
+    async (sessionID: string, approvalID: string): Promise<GetApprovalResult> => {
+      try {
+        const payload = await getChatApprovalRequest(sessionID, approvalID);
+        return { ok: true, record: payload.data };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "Failed to load approval.",
+        };
+      }
+    },
+    [],
+  );
 
-  const resolveApproval = useCallback(async (
-    sessionID: string,
-    approvalID: string,
-    decision: ResolveChatApprovalPayload,
-  ): Promise<ApprovalActionResult> => {
-    try {
-      await resolveChatApprovalRequest(sessionID, approvalID, decision);
-      // Optimistic removal: the SSE `approval.resolved` event will
-      // also fire and remove the row, but updating immediately
-      // keeps the banner snappy when the operator closes the modal.
-      bumpVersion(sessionID);
-      dispatch({ type: "pending/remove", sessionID, approvalID });
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "Failed to resolve approval." };
-    }
-  }, [bumpVersion]);
+  const resolveApproval = useCallback(
+    async (
+      sessionID: string,
+      approvalID: string,
+      decision: ResolveChatApprovalPayload,
+    ): Promise<ApprovalActionResult> => {
+      try {
+        await resolveChatApprovalRequest(sessionID, approvalID, decision);
+        // Optimistic removal: the SSE `approval.resolved` event will
+        // also fire and remove the row, but updating immediately
+        // keeps the banner snappy when the operator closes the modal.
+        bumpVersion(sessionID);
+        dispatch({ type: "pending/remove", sessionID, approvalID });
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "Failed to resolve approval.",
+        };
+      }
+    },
+    [bumpVersion],
+  );
 
-  const cancelApproval = useCallback(async (
-    sessionID: string,
-    approvalID: string,
-  ): Promise<ApprovalActionResult> => {
-    try {
-      await cancelChatApprovalRequest(sessionID, approvalID);
-      bumpVersion(sessionID);
-      dispatch({ type: "pending/remove", sessionID, approvalID });
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "Failed to cancel approval." };
-    }
-  }, [bumpVersion]);
+  const cancelApproval = useCallback(
+    async (sessionID: string, approvalID: string): Promise<ApprovalActionResult> => {
+      try {
+        await cancelChatApprovalRequest(sessionID, approvalID);
+        bumpVersion(sessionID);
+        dispatch({ type: "pending/remove", sessionID, approvalID });
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "Failed to cancel approval.",
+        };
+      }
+    },
+    [bumpVersion],
+  );
 
   const loadGrants = useCallback(async (filter: ChatGrantFilter = {}): Promise<void> => {
     dispatch({ type: "grants/loadStart" });
@@ -261,31 +286,37 @@ export function ApprovalsProvider({ children, initialState: seededState }: {
       dispatch({ type: "grants/removed", grantID });
       return { ok: true };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "Failed to revoke grant." };
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed to revoke grant.",
+      };
     }
   }, []);
 
-  const actions = useMemo<ApprovalsActions>(() => ({
-    setPendingForSession,
-    upsertPending,
-    removePending,
-    refetchPending,
-    getApproval,
-    resolveApproval,
-    cancelApproval,
-    loadGrants,
-    deleteGrant,
-  }), [
-    setPendingForSession,
-    upsertPending,
-    removePending,
-    refetchPending,
-    getApproval,
-    resolveApproval,
-    cancelApproval,
-    loadGrants,
-    deleteGrant,
-  ]);
+  const actions = useMemo<ApprovalsActions>(
+    () => ({
+      setPendingForSession,
+      upsertPending,
+      removePending,
+      refetchPending,
+      getApproval,
+      resolveApproval,
+      cancelApproval,
+      loadGrants,
+      deleteGrant,
+    }),
+    [
+      setPendingForSession,
+      upsertPending,
+      removePending,
+      refetchPending,
+      getApproval,
+      resolveApproval,
+      cancelApproval,
+      loadGrants,
+      deleteGrant,
+    ],
+  );
 
   const value = useMemo(() => ({ state, actions }), [state, actions]);
 

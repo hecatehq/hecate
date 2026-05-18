@@ -20,9 +20,11 @@ export function useRetentionActions(params: UseRetentionActionsParams) {
   async function runRetention() {
     params.setNotice(null);
     const result = await retention.actions.runRetention();
-    params.setNotice(result.ok
-      ? { kind: "success", message: "Retention run completed." }
-      : { kind: "error", message: "Failed to run retention." });
+    params.setNotice(
+      result.ok
+        ? { kind: "success", message: "Retention run completed." }
+        : { kind: "error", message: "Failed to run retention." },
+    );
   }
 
   const overrides = useContext(CoordinatorOverridesContext);

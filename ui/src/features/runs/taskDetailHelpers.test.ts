@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  TaskActivityRecord,
-  TaskArtifactRecord,
-  TaskRecord,
-} from "../../types/task";
+import type { TaskActivityRecord, TaskArtifactRecord, TaskRecord } from "../../types/task";
 
 import {
   approvalCommandPreview,
@@ -33,7 +29,9 @@ import {
   taskBadgeStatus,
 } from "./taskDetailHelpers";
 
-function activity(overrides: Partial<TaskActivityRecord> & Pick<TaskActivityRecord, "type">): TaskActivityRecord {
+function activity(
+  overrides: Partial<TaskActivityRecord> & Pick<TaskActivityRecord, "type">,
+): TaskActivityRecord {
   return {
     id: overrides.id ?? `a_${overrides.type}`,
     ...overrides,
@@ -50,7 +48,9 @@ function task(overrides: Partial<TaskRecord> = {}): TaskRecord {
   } as TaskRecord;
 }
 
-function artifact(overrides: Partial<TaskArtifactRecord> & Pick<TaskArtifactRecord, "kind">): TaskArtifactRecord {
+function artifact(
+  overrides: Partial<TaskArtifactRecord> & Pick<TaskArtifactRecord, "kind">,
+): TaskArtifactRecord {
   return {
     id: "ar_1",
     task_id: "t_1",
@@ -115,26 +115,42 @@ describe("taskBadgeStatus", () => {
 
 describe("approvalCommandPreview", () => {
   it("formats a git command as 'git <command>'", () => {
-    expect(approvalCommandPreview(task({
-      execution_kind: "git",
-      git_command: "push --force",
-    }))).toBe("git push --force");
+    expect(
+      approvalCommandPreview(
+        task({
+          execution_kind: "git",
+          git_command: "push --force",
+        }),
+      ),
+    ).toBe("git push --force");
   });
 
   it("returns the raw shell command when present", () => {
-    expect(approvalCommandPreview(task({
-      shell_command: "rm -rf /tmp/foo",
-    }))).toBe("rm -rf /tmp/foo");
+    expect(
+      approvalCommandPreview(
+        task({
+          shell_command: "rm -rf /tmp/foo",
+        }),
+      ),
+    ).toBe("rm -rf /tmp/foo");
   });
 
   it("formats a file write as '<op> <path>' with 'write' as the default op", () => {
-    expect(approvalCommandPreview(task({
-      file_path: "/tmp/foo.txt",
-    }))).toBe("write /tmp/foo.txt");
-    expect(approvalCommandPreview(task({
-      file_operation: "delete",
-      file_path: "/tmp/foo.txt",
-    }))).toBe("delete /tmp/foo.txt");
+    expect(
+      approvalCommandPreview(
+        task({
+          file_path: "/tmp/foo.txt",
+        }),
+      ),
+    ).toBe("write /tmp/foo.txt");
+    expect(
+      approvalCommandPreview(
+        task({
+          file_operation: "delete",
+          file_path: "/tmp/foo.txt",
+        }),
+      ),
+    ).toBe("delete /tmp/foo.txt");
   });
 
   it("returns empty string when nothing useful is set", () => {
@@ -151,7 +167,10 @@ describe("describeRunEvent", () => {
     expect(describeRunEvent("run.started")).toEqual({ label: "Started", tone: "running" });
     expect(describeRunEvent("run.failed")).toEqual({ label: "Failed", tone: "failed" });
     expect(describeRunEvent("tool.completed")).toEqual({ label: "Tool done", tone: "done" });
-    expect(describeRunEvent("approval.requested")).toEqual({ label: "Approval asked", tone: "awaiting" });
+    expect(describeRunEvent("approval.requested")).toEqual({
+      label: "Approval asked",
+      tone: "awaiting",
+    });
   });
 
   it("humanizes unknown event types by un-underscoring the type name", () => {
@@ -164,12 +183,18 @@ describe("describeRunEvent", () => {
 
 describe("isVisibleRunEvent", () => {
   it("hides snapshot and run.snapshot events", () => {
-    expect(isVisibleRunEvent({ type: "snapshot" } as Parameters<typeof isVisibleRunEvent>[0])).toBe(false);
-    expect(isVisibleRunEvent({ type: "run.snapshot" } as Parameters<typeof isVisibleRunEvent>[0])).toBe(false);
+    expect(isVisibleRunEvent({ type: "snapshot" } as Parameters<typeof isVisibleRunEvent>[0])).toBe(
+      false,
+    );
+    expect(
+      isVisibleRunEvent({ type: "run.snapshot" } as Parameters<typeof isVisibleRunEvent>[0]),
+    ).toBe(false);
   });
 
   it("returns true for any other type", () => {
-    expect(isVisibleRunEvent({ type: "run.started" } as Parameters<typeof isVisibleRunEvent>[0])).toBe(true);
+    expect(
+      isVisibleRunEvent({ type: "run.started" } as Parameters<typeof isVisibleRunEvent>[0]),
+    ).toBe(true);
   });
 });
 
@@ -188,13 +213,15 @@ describe("describeRunEventNote", () => {
   });
 
   it("renders the trimmed reason on its own", () => {
-    expect(describeRunEventNote({ data: { reason: "  retried after timeout  " } }))
-      .toBe("retried after timeout");
+    expect(describeRunEventNote({ data: { reason: "  retried after timeout  " } })).toBe(
+      "retried after timeout",
+    );
   });
 
   it("joins turn and reason with em-dash separator", () => {
-    expect(describeRunEventNote({ data: { retry_from_turn: 2, reason: "operator branched" } }))
-      .toBe("turn 2 — operator branched");
+    expect(
+      describeRunEventNote({ data: { retry_from_turn: 2, reason: "operator branched" } }),
+    ).toBe("turn 2 — operator branched");
   });
 });
 
@@ -220,7 +247,7 @@ describe("buildOutputActivityIndex", () => {
       activity({ id: "3", type: "artifact", title: "snapshot" }),
     ];
     const idx = buildOutputActivityIndex(items);
-    expect(idx.all.map(a => a.id)).toEqual(["1"]);
+    expect(idx.all.map((a) => a.id)).toEqual(["1"]);
   });
 
   it("dedupes by artifact_id (or id when artifact_id is absent)", () => {
@@ -238,14 +265,12 @@ describe("buildOutputActivityIndex", () => {
       activity({ id: "3", type: "artifact", title: "stdout", step_id: "s_2" }),
     ];
     const idx = buildOutputActivityIndex(items);
-    expect(idx.byStepID.get("s_1")?.map(a => a.id)).toEqual(["1", "2"]);
-    expect(idx.byStepID.get("s_2")?.map(a => a.id)).toEqual(["3"]);
+    expect(idx.byStepID.get("s_1")?.map((a) => a.id)).toEqual(["1", "2"]);
+    expect(idx.byStepID.get("s_2")?.map((a) => a.id)).toEqual(["3"]);
   });
 
   it("skips the byStepID grouping when step_id is missing", () => {
-    const items = [
-      activity({ id: "1", type: "artifact", title: "stdout" }),
-    ];
+    const items = [activity({ id: "1", type: "artifact", title: "stdout" })];
     expect(buildOutputActivityIndex(items).byStepID.size).toBe(0);
   });
 });
@@ -257,121 +282,144 @@ describe("failedToolOutputArtifacts", () => {
   ]);
 
   it("returns nothing for non-failed tool calls", () => {
-    expect(failedToolOutputArtifacts(
-      activity({ type: "tool_call", status: "completed" }),
-      outputs,
-    )).toEqual([]);
-    expect(failedToolOutputArtifacts(
-      activity({ type: "approval", status: "failed" }),
-      outputs,
-    )).toEqual([]);
+    expect(
+      failedToolOutputArtifacts(activity({ type: "tool_call", status: "completed" }), outputs),
+    ).toEqual([]);
+    expect(
+      failedToolOutputArtifacts(activity({ type: "approval", status: "failed" }), outputs),
+    ).toEqual([]);
   });
 
   it("scopes to the failing tool call's step_id when present", () => {
-    expect(failedToolOutputArtifacts(
-      activity({ type: "tool_call", status: "failed", step_id: "s_a" }),
-      outputs,
-    )?.map(a => a.id)).toEqual(["o1"]);
+    expect(
+      failedToolOutputArtifacts(
+        activity({ type: "tool_call", status: "failed", step_id: "s_a" }),
+        outputs,
+      )?.map((a) => a.id),
+    ).toEqual(["o1"]);
   });
 
   it("falls back to all output artifacts when the step is unknown", () => {
-    expect(failedToolOutputArtifacts(
-      activity({ type: "tool_call", status: "failed" }),
-      outputs,
-    ).map(a => a.id)).toEqual(["o1", "o2"]);
+    expect(
+      failedToolOutputArtifacts(activity({ type: "tool_call", status: "failed" }), outputs).map(
+        (a) => a.id,
+      ),
+    ).toEqual(["o1", "o2"]);
   });
 });
 
 describe("outputActivityStream", () => {
   it("returns 'stdout' / 'stderr' based on the combined kind/title/path label", () => {
-    expect(outputActivityStream(activity({ type: "artifact", title: "stdout snapshot" }))).toBe("stdout");
+    expect(outputActivityStream(activity({ type: "artifact", title: "stdout snapshot" }))).toBe(
+      "stdout",
+    );
     expect(outputActivityStream(activity({ type: "artifact", kind: "git-stderr" }))).toBe("stderr");
-    expect(outputActivityStream(activity({ type: "artifact", path: "/tmp/stdout-1.log" }))).toBe("stdout");
+    expect(outputActivityStream(activity({ type: "artifact", path: "/tmp/stdout-1.log" }))).toBe(
+      "stdout",
+    );
   });
 
   it("prefers stderr over stdout when both labels match", () => {
-    expect(outputActivityStream(activity({
-      type: "artifact",
-      title: "stderr capture",
-      kind: "stdout-style",
-    }))).toBe("stderr");
+    expect(
+      outputActivityStream(
+        activity({
+          type: "artifact",
+          title: "stderr capture",
+          kind: "stdout-style",
+        }),
+      ),
+    ).toBe("stderr");
   });
 
   it("returns empty string when nothing matches", () => {
-    expect(outputActivityStream(activity({ type: "artifact", title: "snapshot of diff" }))).toBe("");
+    expect(outputActivityStream(activity({ type: "artifact", title: "snapshot of diff" }))).toBe(
+      "",
+    );
   });
 });
 
 describe("isOutputArtifactActivity", () => {
   it("delegates to outputActivityStream", () => {
     expect(isOutputArtifactActivity(activity({ type: "artifact", title: "stdout" }))).toBe(true);
-    expect(isOutputArtifactActivity(activity({ type: "artifact", title: "snapshot of diff" }))).toBe(false);
+    expect(
+      isOutputArtifactActivity(activity({ type: "artifact", title: "snapshot of diff" })),
+    ).toBe(false);
   });
 });
 
 describe("taskActivityAdvancedRows", () => {
   it("emits one row per non-empty field present", () => {
-    const rows = taskActivityAdvancedRows(activity({
-      type: "tool_call",
-      status: "completed",
-      occurred_at: "2026-05-17T00:00:00Z",
-      tool_name: "shell",
-      step_id: "s_1",
-    }));
-    expect(rows.map(r => r.label)).toContain("type");
-    expect(rows.map(r => r.label)).toContain("status");
-    expect(rows.map(r => r.label)).toContain("occurred");
-    expect(rows.map(r => r.label)).toContain("tool");
-    expect(rows.map(r => r.label)).toContain("step");
+    const rows = taskActivityAdvancedRows(
+      activity({
+        type: "tool_call",
+        status: "completed",
+        occurred_at: "2026-05-17T00:00:00Z",
+        tool_name: "shell",
+        step_id: "s_1",
+      }),
+    );
+    expect(rows.map((r) => r.label)).toContain("type");
+    expect(rows.map((r) => r.label)).toContain("status");
+    expect(rows.map((r) => r.label)).toContain("occurred");
+    expect(rows.map((r) => r.label)).toContain("tool");
+    expect(rows.map((r) => r.label)).toContain("step");
   });
 
   it("emits 'needs action' and 'terminal' only for truthy booleans", () => {
-    const both = taskActivityAdvancedRows(activity({
-      type: "approval",
-      needs_action: true,
-      terminal: true,
-    }));
-    expect(both.find(r => r.label === "needs action")?.value).toBe("yes");
-    expect(both.find(r => r.label === "terminal")?.value).toBe("yes");
+    const both = taskActivityAdvancedRows(
+      activity({
+        type: "approval",
+        needs_action: true,
+        terminal: true,
+      }),
+    );
+    expect(both.find((r) => r.label === "needs action")?.value).toBe("yes");
+    expect(both.find((r) => r.label === "terminal")?.value).toBe("yes");
 
-    const neither = taskActivityAdvancedRows(activity({
-      type: "approval",
-      needs_action: false,
-      terminal: false,
-    }));
-    expect(neither.find(r => r.label === "needs action")).toBeUndefined();
-    expect(neither.find(r => r.label === "terminal")).toBeUndefined();
+    const neither = taskActivityAdvancedRows(
+      activity({
+        type: "approval",
+        needs_action: false,
+        terminal: false,
+      }),
+    );
+    expect(neither.find((r) => r.label === "needs action")).toBeUndefined();
+    expect(neither.find((r) => r.label === "terminal")).toBeUndefined();
   });
 
   it("emits a multiline summary row when summary has any keys", () => {
-    const rows = taskActivityAdvancedRows(activity({
-      type: "tool_call",
-      summary: { tokens: 10, kind: "shell" },
-    }));
-    const summaryRow = rows.find(r => r.label === "summary");
+    const rows = taskActivityAdvancedRows(
+      activity({
+        type: "tool_call",
+        summary: { tokens: 10, kind: "shell" },
+      }),
+    );
+    const summaryRow = rows.find((r) => r.label === "summary");
     expect(summaryRow?.multiline).toBe(true);
     expect(summaryRow?.value).toContain('"tokens": 10');
   });
 
   it("omits the summary row when summary is missing or empty", () => {
     const noSummary = taskActivityAdvancedRows(activity({ type: "tool_call" }));
-    expect(noSummary.find(r => r.label === "summary")).toBeUndefined();
+    expect(noSummary.find((r) => r.label === "summary")).toBeUndefined();
 
     const emptySummary = taskActivityAdvancedRows(activity({ type: "tool_call", summary: {} }));
-    expect(emptySummary.find(r => r.label === "summary")).toBeUndefined();
+    expect(emptySummary.find((r) => r.label === "summary")).toBeUndefined();
   });
 });
 
 describe("taskActivityToTranscriptActivity", () => {
   it("maps an activity to the transcript shape", () => {
-    const out = taskActivityToTranscriptActivity(activity({
-      id: "a_1",
-      type: "tool_call",
-      status: "completed",
-      tool_name: "shell_exec",
-      occurred_at: "2026-05-17T00:00:00Z",
-      summary: { size_bytes: 42, content_preview: "hello world\n" },
-    }));
+    const out = taskActivityToTranscriptActivity(
+      activity({
+        id: "a_1",
+        type: "tool_call",
+        status: "completed",
+        tool_name: "shell_exec",
+        occurred_at: "2026-05-17T00:00:00Z",
+        summary: { size_bytes: 42, content_preview: "hello world\n" },
+      }),
+    );
     expect(out.id).toBe("a_1");
     expect(out.type).toBe("tool_call");
     expect(out.status).toBe("completed");
@@ -382,38 +430,54 @@ describe("taskActivityToTranscriptActivity", () => {
   });
 
   it("rewrites status to 'awaiting_approval' when the activity needs action", () => {
-    const out = taskActivityToTranscriptActivity(activity({
-      type: "approval",
-      status: "pending",
-      needs_action: true,
-    }));
+    const out = taskActivityToTranscriptActivity(
+      activity({
+        type: "approval",
+        status: "pending",
+        needs_action: true,
+      }),
+    );
     expect(out.status).toBe("awaiting_approval");
   });
 });
 
 describe("taskActivityArtifactSize", () => {
   it("returns the numeric summary size when present", () => {
-    expect(taskActivityArtifactSize(activity({ type: "artifact", summary: { size_bytes: 100 } }))).toBe(100);
+    expect(
+      taskActivityArtifactSize(activity({ type: "artifact", summary: { size_bytes: 100 } })),
+    ).toBe(100);
   });
 
   it("returns undefined when size_bytes is missing or non-numeric", () => {
     expect(taskActivityArtifactSize(activity({ type: "artifact" }))).toBeUndefined();
-    expect(taskActivityArtifactSize(activity({ type: "artifact", summary: { size_bytes: "100" } }))).toBeUndefined();
+    expect(
+      taskActivityArtifactSize(activity({ type: "artifact", summary: { size_bytes: "100" } })),
+    ).toBeUndefined();
   });
 });
 
 describe("taskActivityArtifactPreview", () => {
   it("returns the preview string with trailing CR/LF stripped", () => {
-    expect(taskActivityArtifactPreview(activity({
-      type: "artifact",
-      summary: { content_preview: "hello world\r\n" },
-    }))).toBe("hello world");
+    expect(
+      taskActivityArtifactPreview(
+        activity({
+          type: "artifact",
+          summary: { content_preview: "hello world\r\n" },
+        }),
+      ),
+    ).toBe("hello world");
   });
 
   it("returns undefined when preview is missing, blank, or non-string", () => {
     expect(taskActivityArtifactPreview(activity({ type: "artifact" }))).toBeUndefined();
-    expect(taskActivityArtifactPreview(activity({ type: "artifact", summary: { content_preview: "   \n" } }))).toBeUndefined();
-    expect(taskActivityArtifactPreview(activity({ type: "artifact", summary: { content_preview: 42 } }))).toBeUndefined();
+    expect(
+      taskActivityArtifactPreview(
+        activity({ type: "artifact", summary: { content_preview: "   \n" } }),
+      ),
+    ).toBeUndefined();
+    expect(
+      taskActivityArtifactPreview(activity({ type: "artifact", summary: { content_preview: 42 } })),
+    ).toBeUndefined();
   });
 });
 
@@ -434,12 +498,24 @@ describe("artifactHasBytes", () => {
 
 describe("taskActivityTitle", () => {
   it("renders approval titles based on status / needs_action", () => {
-    expect(taskActivityTitle(activity({ type: "approval", needs_action: true }))).toBe("Waiting for approval");
-    expect(taskActivityTitle(activity({ type: "approval", status: "pending" }))).toBe("Waiting for approval");
-    expect(taskActivityTitle(activity({ type: "approval", status: "awaiting_approval" }))).toBe("Waiting for approval");
-    expect(taskActivityTitle(activity({ type: "approval", status: "approved" }))).toBe("Approval granted");
-    expect(taskActivityTitle(activity({ type: "approval", status: "rejected" }))).toBe("Approval rejected");
-    expect(taskActivityTitle(activity({ type: "approval", status: "denied" }))).toBe("Approval rejected");
+    expect(taskActivityTitle(activity({ type: "approval", needs_action: true }))).toBe(
+      "Waiting for approval",
+    );
+    expect(taskActivityTitle(activity({ type: "approval", status: "pending" }))).toBe(
+      "Waiting for approval",
+    );
+    expect(taskActivityTitle(activity({ type: "approval", status: "awaiting_approval" }))).toBe(
+      "Waiting for approval",
+    );
+    expect(taskActivityTitle(activity({ type: "approval", status: "approved" }))).toBe(
+      "Approval granted",
+    );
+    expect(taskActivityTitle(activity({ type: "approval", status: "rejected" }))).toBe(
+      "Approval rejected",
+    );
+    expect(taskActivityTitle(activity({ type: "approval", status: "denied" }))).toBe(
+      "Approval rejected",
+    );
     expect(taskActivityTitle(activity({ type: "approval", status: "other" }))).toBe("Approval");
   });
 
@@ -465,40 +541,60 @@ describe("taskActivityTitle", () => {
 
 describe("taskActivitySubtitle", () => {
   it("joins parts with ' · ' separators", () => {
-    expect(taskActivitySubtitle(activity({
-      type: "approval",
-      summary: { reason: "limit exceeded" },
-      kind: "shell_command",
-    }))).toBe("limit exceeded · shell_command");
+    expect(
+      taskActivitySubtitle(
+        activity({
+          type: "approval",
+          summary: { reason: "limit exceeded" },
+          kind: "shell_command",
+        }),
+      ),
+    ).toBe("limit exceeded · shell_command");
   });
 
   it("hides internal builtin.agent_loop_* kinds", () => {
-    expect(taskActivitySubtitle(activity({
-      type: "approval",
-      summary: { reason: "auto-resolved" },
-      kind: "builtin.agent_loop_tool",
-    }))).toBe("auto-resolved");
+    expect(
+      taskActivitySubtitle(
+        activity({
+          type: "approval",
+          summary: { reason: "auto-resolved" },
+          kind: "builtin.agent_loop_tool",
+        }),
+      ),
+    ).toBe("auto-resolved");
   });
 
   it("renders tool_call rows as 'path · command'", () => {
-    expect(taskActivitySubtitle(activity({
-      type: "tool_call",
-      path: "/tmp/foo",
-      summary: { command: "ls" },
-    }))).toBe("/tmp/foo · ls");
+    expect(
+      taskActivitySubtitle(
+        activity({
+          type: "tool_call",
+          path: "/tmp/foo",
+          summary: { command: "ls" },
+        }),
+      ),
+    ).toBe("/tmp/foo · ls");
   });
 
   it("hides the 'ready' status on artifact-shaped rows", () => {
-    expect(taskActivitySubtitle(activity({
-      type: "artifact",
-      path: "foo.txt",
-      status: "ready",
-    }))).toBe("foo.txt");
-    expect(taskActivitySubtitle(activity({
-      type: "artifact",
-      path: "foo.txt",
-      status: "stored",
-    }))).toBe("foo.txt · stored");
+    expect(
+      taskActivitySubtitle(
+        activity({
+          type: "artifact",
+          path: "foo.txt",
+          status: "ready",
+        }),
+      ),
+    ).toBe("foo.txt");
+    expect(
+      taskActivitySubtitle(
+        activity({
+          type: "artifact",
+          path: "foo.txt",
+          status: "stored",
+        }),
+      ),
+    ).toBe("foo.txt · stored");
   });
 
   it("returns undefined when no parts remain", () => {

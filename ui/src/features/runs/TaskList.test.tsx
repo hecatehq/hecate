@@ -119,7 +119,9 @@ describe("TaskList", () => {
     render();
     const row = screen.getByRole("button", { name: /^Task List the working directory$/ });
     await user.hover(row);
-    const deleteButton = await screen.findByRole("button", { name: /delete task list the working directory/i }) as HTMLButtonElement;
+    const deleteButton = (await screen.findByRole("button", {
+      name: /delete task list the working directory/i,
+    })) as HTMLButtonElement;
     await user.click(deleteButton);
     expect(onDelete).toHaveBeenCalledWith("task-1");
     expect(onSelect).not.toHaveBeenCalled();
@@ -129,18 +131,26 @@ describe("TaskList", () => {
     const { render, user } = setup();
     render();
     const row = screen.getByRole("button", { name: /^Task List the working directory$/ });
-    expect(screen.queryByRole("button", { name: /delete task list the working directory/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /delete task list the working directory/i }),
+    ).toBeNull();
 
     await user.hover(row);
-    expect(await screen.findByRole("button", { name: /delete task list the working directory/i })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: /delete task list the working directory/i }),
+    ).toBeTruthy();
 
     await user.unhover(row);
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /delete task list the working directory/i })).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: /delete task list the working directory/i }),
+      ).toBeNull();
     });
 
     fireEvent.focus(row);
-    expect(await screen.findByRole("button", { name: /delete task list the working directory/i })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: /delete task list the working directory/i }),
+    ).toBeTruthy();
   });
 
   it("hides the delete button while a task is running", () => {
@@ -153,7 +163,13 @@ describe("TaskList", () => {
     const { render } = setup({ busyAction: "delete:task-1" });
     render();
     fireEvent.focus(screen.getByRole("button", { name: /^Task List the working directory$/ }));
-    expect((screen.getByRole("button", { name: /delete task list the working directory/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /delete task list the working directory/i,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 
   it("'New task' button calls onNewTask without an inline plus label", async () => {
@@ -181,7 +197,9 @@ describe("TaskList", () => {
 
   it("renders the file path as the kind label for file tasks", () => {
     const { render } = setup({
-      tasks: [makeTask({ execution_kind: "file", file_path: "/tmp/note.txt", shell_command: undefined })],
+      tasks: [
+        makeTask({ execution_kind: "file", file_path: "/tmp/note.txt", shell_command: undefined }),
+      ],
     });
     render();
     expect(screen.getByText("/tmp/note.txt")).toBeTruthy();

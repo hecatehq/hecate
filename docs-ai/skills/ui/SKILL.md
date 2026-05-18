@@ -283,11 +283,24 @@ Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-rende
 | Command | What it does | When to use |
 |---|---|---|
 | `bun run typecheck` | `tsgo -b` — fast type check, no test execution | First sanity check after edits |
+| `bun run lint` | Oxc lint checks | Before committing |
+| `bun run format:check` | Oxfmt formatting check | Before committing |
 | `bun run test` | `vitest run` — full test suite | Before committing |
 | `bun run test:watch` | watch mode | During iteration |
+| `bun run format` | Oxfmt source formatting | Formatting-only cleanup or after formatter drift |
 | `bun run dev` (or `just ui-dev` from repo root) | Vite dev server on `:5173`, proxying API to `:8765` | Live UI iteration alongside `just dev` |
 
 **Never `bun test`** — it skips testing-library DOM setup and panics with `document[isPrepared]`. Always `bun run test`.
+
+Oxc config lives at repo root in `.oxlintrc.json` and is shared by the UI and
+website. It enables the React, JSX accessibility, Vitest, import, TypeScript,
+Unicorn, and Oxc rule families, with current legacy-noise rules disabled
+explicitly. Do not loosen the config casually; if a rule is noisy, name the
+specific rule and why it is disabled.
+
+Do not mix broad Oxfmt churn into a feature diff unless the task is explicitly a
+formatting pass. When formatting is needed, run `bun run format`, then review
+the mechanical diff separately from behavior changes.
 
 ## Test patterns
 

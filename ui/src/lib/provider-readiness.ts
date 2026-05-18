@@ -1,4 +1,8 @@
-import type { ConfiguredProviderRecord, ProviderReadinessCheckRecord, ProviderRecord } from "../types/provider";
+import type {
+  ConfiguredProviderRecord,
+  ProviderReadinessCheckRecord,
+  ProviderRecord,
+} from "../types/provider";
 import { describeRoutingBlockedReason } from "./runtime-routing";
 
 export type ProviderRepairHint = {
@@ -24,18 +28,34 @@ export function providerReadinessMeaning({
   repair?: ProviderRepairHint | null;
 }): { message: string; tone: "muted" | "amber" } {
   if (configuredCount === 0) {
-    return { message: "No model providers are configured yet. Add one provider before starting Hecate Chat.", tone: "amber" };
+    return {
+      message:
+        "No model providers are configured yet. Add one provider before starting Hecate Chat.",
+      tone: "amber",
+    };
   }
   if (blockedCount > 0 && repair && repair.tone !== "muted") {
-    return { message: `${blockedCount} provider${blockedCount === 1 ? " needs" : "s need"} attention. Next: ${repair?.action || "open the provider list."}`, tone: "amber" };
+    return {
+      message: `${blockedCount} provider${blockedCount === 1 ? " needs" : "s need"} attention. Next: ${repair?.action || "open the provider list."}`,
+      tone: "amber",
+    };
   }
   if (readyCount === 0) {
-    return { message: "Providers exist, but none are ready to route chat requests yet.", tone: "amber" };
+    return {
+      message: "Providers exist, but none are ready to route chat requests yet.",
+      tone: "amber",
+    };
   }
   if (modelCount === 0) {
-    return { message: "Providers are reachable, but no models have been discovered yet.", tone: "amber" };
+    return {
+      message: "Providers are reachable, but no models have been discovered yet.",
+      tone: "amber",
+    };
   }
-  return { message: `${readyCount} provider${readyCount === 1 ? "" : "s"} ready with ${modelCount} discovered model${modelCount === 1 ? "" : "s"}.`, tone: "muted" };
+  return {
+    message: `${readyCount} provider${readyCount === 1 ? "" : "s"} ready with ${modelCount} discovered model${modelCount === 1 ? "" : "s"}.`,
+    tone: "muted",
+  };
 }
 
 export function readinessRecommendation(check: ProviderReadinessCheckRecord): string {
@@ -75,10 +95,14 @@ export function providerRepairHint({
   configuredProvider,
   runtimeProvider,
 }: {
-  configuredProvider?: Pick<ConfiguredProviderRecord, "id" | "name" | "kind" | "credential_configured">;
+  configuredProvider?: Pick<
+    ConfiguredProviderRecord,
+    "id" | "name" | "kind" | "credential_configured"
+  >;
   runtimeProvider?: ProviderRecord;
 }): ProviderRepairHint {
-  const name = configuredProvider?.name || runtimeProvider?.name || configuredProvider?.id || "Provider";
+  const name =
+    configuredProvider?.name || runtimeProvider?.name || configuredProvider?.id || "Provider";
   const isLocal = configuredProvider?.kind === "local" || runtimeProvider?.kind === "local";
   const modelCount = runtimeProvider?.model_count ?? runtimeProvider?.models?.length ?? 0;
 
@@ -97,7 +121,9 @@ export function providerRepairHint({
     return {
       title: "No models discovered",
       message: `${name} is configured, but Hecate does not have a current model-discovery result for it yet.`,
-      action: isLocal ? "Start the local provider process, pull or load a model, then refresh Connections." : "Confirm the account has model access, then refresh Connections.",
+      action: isLocal
+        ? "Start the local provider process, pull or load a model, then refresh Connections."
+        : "Confirm the account has model access, then refresh Connections.",
       actionKind: "refresh_providers",
       providerID: configuredProvider.id,
       tone: "amber",
@@ -106,11 +132,17 @@ export function providerRepairHint({
 
   if (runtimeProvider?.readiness?.status === "blocked") {
     const blockedCheck = firstBlockedReadinessCheck(runtimeProvider.readiness_checks ?? []);
-    const actionKind = actionableProviderAction(readinessActionKind(blockedCheck), configuredProvider?.id);
+    const actionKind = actionableProviderAction(
+      readinessActionKind(blockedCheck),
+      configuredProvider?.id,
+    );
     return {
       title: "Provider blocked",
       message: runtimeProvider.readiness.message || `${name} is not routable right now.`,
-      action: runtimeProvider.readiness.operator_action || firstReadinessAction(runtimeProvider.readiness_checks) || "Open Connections and inspect the blocked readiness check.",
+      action:
+        runtimeProvider.readiness.operator_action ||
+        firstReadinessAction(runtimeProvider.readiness_checks) ||
+        "Open Connections and inspect the blocked readiness check.",
       actionKind,
       providerID: configuredProvider?.id,
       tone: "amber",
@@ -119,11 +151,15 @@ export function providerRepairHint({
 
   const blockedCheck = firstBlockedReadinessCheck(runtimeProvider?.readiness_checks ?? []);
   if (blockedCheck) {
-    const actionKind = actionableProviderAction(readinessActionKind(blockedCheck), configuredProvider?.id);
+    const actionKind = actionableProviderAction(
+      readinessActionKind(blockedCheck),
+      configuredProvider?.id,
+    );
     return {
       title: readinessTitle(blockedCheck),
       message: blockedCheck.message || `${name} has a blocked readiness check.`,
-      action: readinessRecommendation(blockedCheck) || "Open Connections and inspect provider readiness.",
+      action:
+        readinessRecommendation(blockedCheck) || "Open Connections and inspect provider readiness.",
       actionKind,
       providerID: configuredProvider?.id,
       tone: "amber",
@@ -146,18 +182,26 @@ export function providerRepairHint({
     return {
       title: "No models discovered",
       message: `${name} is reachable, but Hecate has not discovered any models from it yet.`,
-      action: isLocal ? "Pull or load a model in the local provider, then refresh Connections." : "Confirm the account has model access, then refresh Connections.",
+      action: isLocal
+        ? "Pull or load a model in the local provider, then refresh Connections."
+        : "Confirm the account has model access, then refresh Connections.",
       actionKind: "refresh_providers",
       providerID: configuredProvider?.id,
       tone: "amber",
     };
   }
 
-  if (runtimeProvider?.status === "open" || runtimeProvider?.status === "unhealthy" || runtimeProvider?.healthy === false) {
+  if (
+    runtimeProvider?.status === "open" ||
+    runtimeProvider?.status === "unhealthy" ||
+    runtimeProvider?.healthy === false
+  ) {
     return {
       title: "Provider unavailable",
       message: `${name} is currently down or cooling down after failures.`,
-      action: isLocal ? "Start the local provider process and refresh Connections." : "Check the upstream endpoint, credentials, and provider status.",
+      action: isLocal
+        ? "Start the local provider process and refresh Connections."
+        : "Check the upstream endpoint, credentials, and provider status.",
       actionKind: "refresh_providers",
       providerID: configuredProvider?.id,
       tone: "amber",
@@ -185,7 +229,9 @@ export function providerRepairHint({
 }
 
 export function providerFleetRepairHint(
-  providers: Array<Pick<ConfiguredProviderRecord, "id" | "name" | "kind" | "credential_configured">>,
+  providers: Array<
+    Pick<ConfiguredProviderRecord, "id" | "name" | "kind" | "credential_configured">
+  >,
   statusByName: Map<string, ProviderRecord>,
 ): ProviderRepairHint | null {
   for (const provider of providers) {
@@ -213,7 +259,9 @@ export function providerFleetRepairHint(
   };
 }
 
-export function providerRepairActionLabel(actionKind: ProviderRepairHint["actionKind"]): string | null {
+export function providerRepairActionLabel(
+  actionKind: ProviderRepairHint["actionKind"],
+): string | null {
   switch (actionKind) {
     case "add_provider":
       return "Add provider";
@@ -236,7 +284,9 @@ function actionableProviderAction(
   return actionKind ?? (configuredProviderID ? "open_provider" : "refresh_providers");
 }
 
-function firstBlockedReadinessCheck(checks: ProviderReadinessCheckRecord[]): ProviderReadinessCheckRecord | null {
+function firstBlockedReadinessCheck(
+  checks: ProviderReadinessCheckRecord[],
+): ProviderReadinessCheckRecord | null {
   return checks.find((check) => check.status === "blocked") ?? null;
 }
 
@@ -249,7 +299,9 @@ function firstReadinessAction(checks?: ProviderReadinessCheckRecord[]): string {
   return "";
 }
 
-function readinessActionKind(check: ProviderReadinessCheckRecord | null): ProviderRepairHint["actionKind"] | null {
+function readinessActionKind(
+  check: ProviderReadinessCheckRecord | null,
+): ProviderRepairHint["actionKind"] | null {
   switch (check?.reason) {
     case "credential_missing":
     case "provider_disabled":
@@ -271,7 +323,7 @@ function titleizeReadinessName(value: string): string {
   return value
     .split("_")
     .filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
 

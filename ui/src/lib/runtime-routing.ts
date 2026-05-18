@@ -186,7 +186,9 @@ export function describeHealthStatus(status?: string): string {
   }
 }
 
-export function providerStatusTone(provider?: ProviderRecord): "healthy" | "warning" | "danger" | "neutral" {
+export function providerStatusTone(
+  provider?: ProviderRecord,
+): "healthy" | "warning" | "danger" | "neutral" {
   if (!provider) {
     return "neutral";
   }
@@ -196,14 +198,21 @@ export function providerStatusTone(provider?: ProviderRecord): "healthy" | "warn
   return healthStatusTone(provider.status);
 }
 
-export function findProvider(providers: ProviderRecord[], providerName?: string): ProviderRecord | null {
+export function findProvider(
+  providers: ProviderRecord[],
+  providerName?: string,
+): ProviderRecord | null {
   if (!providerName) {
     return null;
   }
   return providers.find((provider) => provider.name === providerName) ?? null;
 }
 
-export function countRouteHealthStatuses(route?: TraceRouteRecord | null): { healthy: number; warning: number; danger: number } {
+export function countRouteHealthStatuses(route?: TraceRouteRecord | null): {
+  healthy: number;
+  warning: number;
+  danger: number;
+} {
   const summary = { healthy: 0, warning: 0, danger: 0 };
 
   for (const candidate of route?.candidates ?? []) {
@@ -220,8 +229,13 @@ export function countRouteHealthStatuses(route?: TraceRouteRecord | null): { hea
   return summary;
 }
 
-export function describeRouteRecovery(route?: TraceRouteRecord | null, runtimeHeaders?: RuntimeHeaders | null): string {
-  const selectedCandidate = route?.candidates?.find((candidate) => candidate.outcome === "selected");
+export function describeRouteRecovery(
+  route?: TraceRouteRecord | null,
+  runtimeHeaders?: RuntimeHeaders | null,
+): string {
+  const selectedCandidate = route?.candidates?.find(
+    (candidate) => candidate.outcome === "selected",
+  );
   const fallbackFrom = runtimeHeaders?.fallbackFrom || route?.fallback_from;
 
   if (selectedCandidate?.health_status === "half_open") {

@@ -42,7 +42,10 @@ afterEach(() => {
 
 describe("useEnsureProviderPresetsLoaded", () => {
   it("fetches presets on first mount and flips providerPresetsLoaded=true", async () => {
-    const presets = { object: "list", data: [{ id: "anthropic", name: "Anthropic", kind: "cloud" }] } as any;
+    const presets = {
+      object: "list",
+      data: [{ id: "anthropic", name: "Anthropic", kind: "cloud" }],
+    } as any;
     getProviderPresetsMock.mockResolvedValue(presets);
 
     const { result } = renderHook(
@@ -120,7 +123,7 @@ describe("useEnsureProviderPresetsLoaded", () => {
     );
 
     // Give the effect a tick to (not) fire.
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 10));
     expect(getProviderPresetsMock).toHaveBeenCalledTimes(0);
     expect(result.current.state.providerPresetsLoaded).toBe(false);
 

@@ -2,7 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
-import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../test/runtime-console-fixture";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../test/runtime-console-render";
 
 // Workspace lineup is fixed. Numeric keyboard workspace switching was
@@ -11,13 +14,27 @@ import { withRuntimeConsole } from "../test/runtime-console-render";
 describe("getAvailableWorkspaces", () => {
   it("returns chats / connections / runs / overview / usage / settings", () => {
     const ws = getAvailableWorkspaces();
-    expect(ws.map(w => w.id)).toEqual(["chats", "connections", "runs", "overview", "usage", "settings"]);
-    expect(ws.map(w => w.label)).toEqual(["Chats", "Connections", "Tasks", "Observability", "Usage", "Settings"]);
+    expect(ws.map((w) => w.id)).toEqual([
+      "chats",
+      "connections",
+      "runs",
+      "overview",
+      "usage",
+      "settings",
+    ]);
+    expect(ws.map((w) => w.label)).toEqual([
+      "Chats",
+      "Connections",
+      "Tasks",
+      "Observability",
+      "Usage",
+      "Settings",
+    ]);
   });
 
   it("labels the settings workspace 'Settings'", () => {
     const ws = getAvailableWorkspaces();
-    const settings = ws.find(w => w.id === "settings");
+    const settings = ws.find((w) => w.id === "settings");
     expect(settings?.label).toBe("Settings");
   });
 });
@@ -28,10 +45,10 @@ describe("ConsoleShell loading state", () => {
   it("renders the connecting splash while health is null and no error", () => {
     const state = createRuntimeConsoleFixture({ health: null, error: "" });
     render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
     expect(screen.getByText(/connecting/i)).toBeInTheDocument();
   });
@@ -39,10 +56,10 @@ describe("ConsoleShell loading state", () => {
   it("centers the lazy-workspace fallback instead of pinning it to the corner", () => {
     const state = createRuntimeConsoleFixture();
     const { container } = render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="usage" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="usage" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
 
     const fallback = container.querySelector(".workspace-fallback");
@@ -71,15 +88,15 @@ describe("ConsoleShell titlebar", () => {
     Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
   });
 
-  it("renders the titlebar strip with data-tauri-drag-region=\"deep\" inside Tauri macOS", () => {
+  it('renders the titlebar strip with data-tauri-drag-region="deep" inside Tauri macOS', () => {
     Reflect.set(window, "__TAURI_INTERNALS__", {});
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
     const state = createRuntimeConsoleFixture();
     const { container } = render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
     const titlebar = container.querySelector(".hecate-titlebar");
     expect(titlebar).not.toBeNull();
@@ -91,10 +108,10 @@ describe("ConsoleShell titlebar", () => {
     Object.defineProperty(navigator, "platform", { configurable: true, value: "Linux x86_64" });
     const state = createRuntimeConsoleFixture();
     const { container } = render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
     expect(container.querySelector(".hecate-titlebar")).toBeNull();
   });
@@ -103,10 +120,10 @@ describe("ConsoleShell titlebar", () => {
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
     const state = createRuntimeConsoleFixture();
     const { container } = render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
     expect(container.querySelector(".hecate-titlebar")).toBeNull();
   });
@@ -119,10 +136,10 @@ describe("ConsoleShell navigation", () => {
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
     });
     render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
 
     // The Chats workspace is a `lazy()` chunk per AppShell.tsx;
@@ -131,7 +148,9 @@ describe("ConsoleShell navigation", () => {
     // (workspace nav buttons, statusbar) is not lazy and can
     // still be queried synchronously.
     expect(screen.getByRole("button", { name: "Chats" })).toBeEnabled();
-    expect(await screen.findByText(/Nothing runnable yet/i, undefined, { timeout: 30_000 })).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Nothing runnable yet/i, undefined, { timeout: 30_000 }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/No model providers configured/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeInTheDocument();
   }, 35_000);
@@ -143,10 +162,10 @@ describe("ConsoleShell navigation", () => {
       agentWorkspaceBranch: "feature/agents",
     });
     render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
 
     expect(screen.getByText("/Users/alice/dev/hecate")).toBeInTheDocument();
@@ -169,10 +188,10 @@ describe("ConsoleShell navigation", () => {
       },
     });
     render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
 
     expect(screen.getByText("/Users/alice/dev/hecate")).toBeInTheDocument();
@@ -192,16 +211,26 @@ describe("ConsoleShell navigation", () => {
         workspace_branch: "main",
         status: "completed",
         messages: [
-          { id: "msg_1", role: "assistant", content: "Earlier", usage: { context_size: 200_000, context_used: 10_000 } },
-          { id: "msg_2", role: "assistant", content: "Latest", usage: { context_size: 200_000, context_used: 42_000 } },
+          {
+            id: "msg_1",
+            role: "assistant",
+            content: "Earlier",
+            usage: { context_size: 200_000, context_used: 10_000 },
+          },
+          {
+            id: "msg_2",
+            role: "assistant",
+            content: "Latest",
+            usage: { context_size: 200_000, context_used: 42_000 },
+          },
         ],
       },
     });
     render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
 
     expect(screen.getByText("context 79% left")).toBeInTheDocument();
@@ -214,10 +243,10 @@ describe("ConsoleShell navigation", () => {
       agentWorkspaceBranch: "main",
     });
     render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
 
     expect(screen.queryByText("/Users/alice/dev/hecate")).toBeNull();
@@ -242,7 +271,10 @@ describe("ConsoleShell theme toggle", () => {
       removeListener: vi.fn(),
       dispatchEvent: vi.fn(),
     } as unknown as MediaQueryList;
-    vi.stubGlobal("matchMedia", vi.fn(() => query));
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => query),
+    );
     return query;
   }
 
@@ -262,10 +294,10 @@ describe("ConsoleShell theme toggle", () => {
     const state = createRuntimeConsoleFixture();
 
     render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="settings" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="settings" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
 
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
@@ -278,10 +310,10 @@ describe("ConsoleShell theme toggle", () => {
     const state = createRuntimeConsoleFixture();
 
     render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="settings" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="settings" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
 
     fireEvent.click(screen.getByRole("button", { name: /switch to light theme/i }));
@@ -301,11 +333,12 @@ describe("status bar version chip", () => {
   function renderWorkspace(healthOverrides: Record<string, unknown> | null) {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ object: "list", data: [] }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ object: "list", data: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
       ),
     );
     const state = createRuntimeConsoleFixture({
@@ -315,10 +348,10 @@ describe("status bar version chip", () => {
       health: healthOverrides as never,
     });
     render(
-      withRuntimeConsole(
-        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
-        { state, actions: createRuntimeConsoleActions() },
-      ),
+      withRuntimeConsole(<ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
     );
   }
 

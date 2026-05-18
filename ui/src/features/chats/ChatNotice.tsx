@@ -54,17 +54,17 @@ export function ChatNoticeHeader({
 }) {
   const vars = noticeToneVars(tone);
   return (
-    <div style={{
-      padding: "8px 12px",
-      borderBottom: `1px solid ${vars.border}`,
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-    }}>
+    <div
+      style={{
+        padding: "8px 12px",
+        borderBottom: `1px solid ${vars.border}`,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+      }}
+    >
       <Icon d={icon} size={14} />
-      <span style={{ fontWeight: 500, color: vars.fg, fontSize: 12 }}>
-        {title}
-      </span>
+      <span style={{ fontWeight: 500, color: vars.fg, fontSize: 12 }}>{title}</span>
       {action}
     </div>
   );
@@ -116,21 +116,23 @@ export function ChatNoticeInline({
 }) {
   const vars = noticeToneVars(tone);
   return (
-    <div style={{
-      maxWidth: 820,
-      margin: "0 auto 8px",
-      border: `1px solid ${vars.softBorder}`,
-      borderRadius: "var(--radius-sm)",
-      background: vars.softBg,
-      padding: "8px 10px",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 12,
-      fontSize: 12,
-      color: "var(--t2)",
-      lineHeight: 1.45,
-    }}>
+    <div
+      style={{
+        maxWidth: 820,
+        margin: "0 auto 8px",
+        border: `1px solid ${vars.softBorder}`,
+        borderRadius: "var(--radius-sm)",
+        background: vars.softBg,
+        padding: "8px 10px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        fontSize: 12,
+        color: "var(--t2)",
+        lineHeight: 1.45,
+      }}
+    >
       <span style={{ minWidth: 0 }}>
         <strong style={{ color: vars.fg, marginRight: 6 }}>{title}.</strong>
         {message}

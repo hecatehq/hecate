@@ -140,8 +140,14 @@ just test              # go test ./...
 just vet               # go vet ./...
 just test-race         # go test -race ./...
 just coverage          # go test -coverprofile + writes coverage.html
+just ui-lint           # UI oxlint checks
+just ui-format-check   # UI Oxfmt formatting check
+just ui-format         # format UI source with Oxfmt
 just ui-test           # UI unit tests (vitest)
 just ui-test-e2e       # UI end-to-end tests (Playwright)
+just website-lint      # website oxlint checks
+just website-format-check # website Oxfmt formatting check
+just website-format    # format website source with Oxfmt
 just website-build     # Astro website check + production build
 just test-acp-smoke    # ACP stdio bridge smoke against fake local upstream
 just ui-coverage       # UI coverage report (vitest --coverage)
@@ -155,6 +161,13 @@ just release vX.Y.Z    # verify, then run the release script
 The race detector is the strongest correctness check (and the slowest); CI runs it on every push. `test-acp-smoke` starts a fake OpenAI-compatible upstream, the real `hecate` runtime in gateway mode, and the real `cmd/hecate-acp` stdio bridge, then verifies model discovery, same-task continuation, SSE updates, and editor approval round-trip behavior. The Go e2e suite also includes binary-level Agent Chat approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits; `test-tauri-acp-smoke` additionally runs the bundled `hecate-acp` without `HECATE_GATEWAY_URL` and verifies native runtime discovery through `hecate.runtime.json`. Both native smokes are opt-in because they open a real GUI window.
 
 Before cutting a public tag, run `just verify` and follow the checklist in [Release](release.md).
+
+TypeScript linting uses Oxc. `just ui-lint`, `just ui-format-check`,
+`just website-lint`, and `just website-format-check` are part of `just verify`
+and CI. Formatting commands (`just ui-format`, `just website-format`) are
+available for intentional cleanup passes; review the resulting diff like any
+other code change. The shared `.oxlintrc.json` enables React, accessibility,
+Vitest, import, TypeScript, Unicorn, and Oxc rules for both UI surfaces.
 
 ## CI workflow
 
@@ -171,7 +184,12 @@ project:
 
 The main `Test` workflow starts with a path filter. Go, TypeScript, Docker,
 and Tauri Rust jobs run only when their inputs changed, while workflow edits
-force the full matrix so CI changes test themselves.
+force the full matrix so CI changes test themselves. The TypeScript job runs
+Oxc lint and Oxfmt format checks before build and Vitest, so mechanical issues
+fail before the slower unit suite.
+
+The Website workflow runs Oxc lint and Oxfmt format checks before Astro /
+TypeScript checks and the production build.
 
 Desktop packaging is intentionally gated inside `test.yml`: the
 `Tauri desktop bundles` matrix waits for the cheaper Go, TypeScript, e2e,

@@ -108,7 +108,9 @@ describe("api client", () => {
         JSON.stringify({
           id: "chatcmpl-123",
           model: "gpt-4o-mini",
-          choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: "Hello!" } }],
+          choices: [
+            { index: 0, finish_reason: "stop", message: { role: "assistant", content: "Hello!" } },
+          ],
         }),
         {
           status: 200,
@@ -176,8 +178,16 @@ describe("api client", () => {
               name: "gateway.request",
               kind: "server",
               events: [
-                { name: "request.received", timestamp: "2026-04-21T00:00:00Z", attributes: { model: "gpt-4o-mini" } },
-                { name: "response.returned", timestamp: "2026-04-21T00:00:01Z", attributes: { provider: "openai" } },
+                {
+                  name: "request.received",
+                  timestamp: "2026-04-21T00:00:00Z",
+                  attributes: { model: "gpt-4o-mini" },
+                },
+                {
+                  name: "response.returned",
+                  timestamp: "2026-04-21T00:00:01Z",
+                  attributes: { provider: "openai" },
+                },
               ],
             },
           ],
@@ -264,7 +274,12 @@ describe("api client", () => {
 
   describe("model capability API", () => {
     it("writes operator overrides to the current Hecate API namespace", async () => {
-      fetchMock.mockResolvedValue(jsonResponse({ object: "model_capability", data: { provider: "ollama", model: "qwen", tool_calling: "basic" } }));
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "model_capability",
+          data: { provider: "ollama", model: "qwen", tool_calling: "basic" },
+        }),
+      );
 
       await upsertModelCapabilityOverride({
         provider: "ollama",
@@ -292,10 +307,19 @@ describe("api client", () => {
     it("records manual probe results and clears overrides with provider/model keys", async () => {
       fetchMock.mockClear();
       fetchMock
-        .mockResolvedValueOnce(jsonResponse({ object: "model_capability", data: { provider: "ollama", model: "qwen", tool_calling: "basic" } }))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            object: "model_capability",
+            data: { provider: "ollama", model: "qwen", tool_calling: "basic" },
+          }),
+        )
         .mockResolvedValueOnce(new Response(null, { status: 204 }));
 
-      await recordModelCapabilityProbe({ provider: "ollama", model: "qwen", tool_calling: "basic" });
+      await recordModelCapabilityProbe({
+        provider: "ollama",
+        model: "qwen",
+        tool_calling: "basic",
+      });
       await deleteModelCapabilityOverride("ollama", "qwen");
 
       expect(fetchMock).toHaveBeenNthCalledWith(
@@ -439,7 +463,9 @@ describe("api client", () => {
     it("falls back to request and trace headers when the error body omits correlation IDs", async () => {
       fetchMock.mockResolvedValue(
         new Response(
-          JSON.stringify({ error: { type: "provider_unavailable", message: "provider unavailable" } }),
+          JSON.stringify({
+            error: { type: "provider_unavailable", message: "provider unavailable" },
+          }),
           {
             status: 502,
             headers: {
@@ -474,17 +500,23 @@ describe("api client", () => {
 
     it("rewrites 'Failed to fetch' network errors into actionable gateway URLs", async () => {
       fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
-      await expect(getUsageSummary("?scope=global")).rejects.toThrow(/Check that the gateway is running/);
+      await expect(getUsageSummary("?scope=global")).rejects.toThrow(
+        /Check that the gateway is running/,
+      );
     });
 
     it("rewrites 'NetworkError' substring matches the same way", async () => {
       fetchMock.mockRejectedValue(new TypeError("NetworkError when attempting to fetch resource."));
-      await expect(getUsageSummary("?scope=global")).rejects.toThrow(/Check that the gateway is running/);
+      await expect(getUsageSummary("?scope=global")).rejects.toThrow(
+        /Check that the gateway is running/,
+      );
     });
 
     it("preserves non-network error messages with the request URL prepended", async () => {
       fetchMock.mockRejectedValue(new Error("AbortError: aborted"));
-      await expect(getUsageSummary("?scope=global")).rejects.toThrow(/\/hecate\/v1\/usage\/summary.*AbortError: aborted/);
+      await expect(getUsageSummary("?scope=global")).rejects.toThrow(
+        /\/hecate\/v1\/usage\/summary.*AbortError: aborted/,
+      );
     });
   });
 
@@ -559,9 +591,7 @@ describe("api client", () => {
     });
 
     it("posts the resolve decision body", async () => {
-      fetchMock.mockResolvedValue(
-        jsonResponse({ object: "chat_approval", data: { id: "ap-1" } }),
-      );
+      fetchMock.mockResolvedValue(jsonResponse({ object: "chat_approval", data: { id: "ap-1" } }));
 
       await resolveChatApproval("sess-1", "ap-1", {
         decision: "approve",
@@ -583,9 +613,7 @@ describe("api client", () => {
     });
 
     it("posts an empty body to cancel", async () => {
-      fetchMock.mockResolvedValue(
-        jsonResponse({ object: "chat_approval", data: { id: "ap-1" } }),
-      );
+      fetchMock.mockResolvedValue(jsonResponse({ object: "chat_approval", data: { id: "ap-1" } }));
 
       await cancelChatApproval("sess-1", "ap-1");
 
@@ -628,7 +656,14 @@ describe("api client", () => {
         jsonResponse({
           object: "agent_adapter_probe",
           data: {
-            adapter: { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available" },
+            adapter: {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex-acp",
+              available: true,
+              status: "available",
+            },
             health: {
               adapter_id: "codex",
               status: "ready",
@@ -655,7 +690,14 @@ describe("api client", () => {
         jsonResponse({
           object: "agent_adapter_probe",
           data: {
-            adapter: { id: "weird id", name: "Weird", kind: "acp", command: "weird", available: false, status: "missing" },
+            adapter: {
+              id: "weird id",
+              name: "Weird",
+              kind: "acp",
+              command: "weird",
+              available: false,
+              status: "missing",
+            },
             health: { adapter_id: "weird id", status: "error", stage: "lookup", duration_ms: 0 },
           },
         }),
@@ -720,7 +762,11 @@ describe("api client", () => {
         }),
       );
 
-      const result = await setAgentAdapterCredential("claude_code", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN");
+      const result = await setAgentAdapterCredential(
+        "claude_code",
+        "claude-token",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+      );
 
       expect(fetchMock).toHaveBeenCalledWith(
         "/hecate/v1/agent-adapters/claude_code/credentials",
@@ -772,7 +818,13 @@ describe("api client", () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
           object: "chat_changed_file_diff",
-          data: { path: "src/app.go", additions: 2, deletions: 1, status: "modified", diff: "diff --git a/src/app.go b/src/app.go" },
+          data: {
+            path: "src/app.go",
+            additions: 2,
+            deletions: 1,
+            status: "modified",
+            diff: "diff --git a/src/app.go b/src/app.go",
+          },
         }),
       );
 
@@ -850,7 +902,14 @@ describe("api client", () => {
     it("maps approval.requested onto the requested-event payload", () => {
       const out = dispatchChatStreamEvent(
         "approval.requested",
-        JSON.stringify({ approval_id: "ap-1", session_id: "s", adapter_id: "codex", tool_kind: "fs", created_at: "t", expires_at: "t" }),
+        JSON.stringify({
+          approval_id: "ap-1",
+          session_id: "s",
+          adapter_id: "codex",
+          tool_kind: "fs",
+          created_at: "t",
+          expires_at: "t",
+        }),
       );
       expect(out).toEqual({
         type: "approval.requested",
@@ -868,7 +927,12 @@ describe("api client", () => {
     it("maps approval.resolved onto the resolved-event payload", () => {
       const out = dispatchChatStreamEvent(
         "approval.resolved",
-        JSON.stringify({ approval_id: "ap-1", session_id: "s", status: "resolved", path: "operator" }),
+        JSON.stringify({
+          approval_id: "ap-1",
+          session_id: "s",
+          status: "resolved",
+          path: "operator",
+        }),
       );
       expect(out?.type).toBe("approval.resolved");
     });

@@ -16,7 +16,10 @@
         try {
           var t = localStorage.getItem("hecate.theme");
           if (t !== "light" && t !== "dark") {
-            t = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+            t =
+              window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
           }
           document.documentElement.setAttribute("data-theme", t);
         } catch (_) {
@@ -25,16 +28,30 @@
       })();
     </script>
     <style>
-      html, body { margin: 0; }
-      html[data-theme="dark"], html[data-theme="dark"] body { background: oklch(0.105 0.010 245); color-scheme: dark; }
-      html[data-theme="light"], html[data-theme="light"] body { background: oklch(0.99 0.002 240); color-scheme: light; }
+      html,
+      body {
+        margin: 0;
+      }
+      html[data-theme="dark"],
+      html[data-theme="dark"] body {
+        background: oklch(0.105 0.01 245);
+        color-scheme: dark;
+      }
+      html[data-theme="light"],
+      html[data-theme="light"] body {
+        background: oklch(0.99 0.002 240);
+        color-scheme: light;
+      }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
-  </html>
+</html>

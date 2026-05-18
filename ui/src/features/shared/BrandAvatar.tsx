@@ -74,36 +74,43 @@ export function BrandAvatar({
   const accessibleTitle = title || brand || label;
 
   const IconComponent = icon?.component;
-  const glyph = icon?.image
-    ? (
-      <img
-        alt=""
-        aria-hidden="true"
-        src={icon.image}
-        style={{ display: "block", height: Math.max(14, Math.round(size * 0.6)), width: Math.max(14, Math.round(size * 0.6)) }}
-      />
-    )
-    : IconComponent
-    ? (
-      <IconComponent
-        aria-hidden="true"
-        size={Math.max(14, Math.round(size * 0.62))}
-        style={{
-          color: icon.monochrome ? MONOCHROME_ICON_COLOR : undefined,
-          display: "block",
-        }}
-      />
-    )
-    : !assistant
-    ? <span aria-hidden="true" style={{ display: "inline-flex" }}><Icon d={Icons.user} size={Math.max(15, Math.round(size * 0.56))} strokeWidth={1.8} /></span>
-    : (
-      <span
-        aria-hidden="true"
-        style={{ fontFamily: "var(--font-mono)", fontSize: Math.max(9, Math.round(size * 0.39)), fontWeight: 600, lineHeight: 1 }}
-      >
-        {label}
-      </span>
-    );
+  const glyph = icon?.image ? (
+    <img
+      alt=""
+      aria-hidden="true"
+      src={icon.image}
+      style={{
+        display: "block",
+        height: Math.max(14, Math.round(size * 0.6)),
+        width: Math.max(14, Math.round(size * 0.6)),
+      }}
+    />
+  ) : IconComponent ? (
+    <IconComponent
+      aria-hidden="true"
+      size={Math.max(14, Math.round(size * 0.62))}
+      style={{
+        color: icon.monochrome ? MONOCHROME_ICON_COLOR : undefined,
+        display: "block",
+      }}
+    />
+  ) : !assistant ? (
+    <span aria-hidden="true" style={{ display: "inline-flex" }}>
+      <Icon d={Icons.user} size={Math.max(15, Math.round(size * 0.56))} strokeWidth={1.8} />
+    </span>
+  ) : (
+    <span
+      aria-hidden="true"
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontSize: Math.max(9, Math.round(size * 0.39)),
+        fontWeight: 600,
+        lineHeight: 1,
+      }}
+    >
+      {label}
+    </span>
+  );
 
   if (!boxed) {
     return (
@@ -164,11 +171,17 @@ function normalizeBrand(brand?: string): string {
 }
 
 function baseModelBrand(normalized: string): BrandIconSpec | null {
-  if (normalized.startsWith("gpt_") || normalized.startsWith("o1") || normalized.startsWith("o3") || normalized.startsWith("o4")) {
+  if (
+    normalized.startsWith("gpt_") ||
+    normalized.startsWith("o1") ||
+    normalized.startsWith("o3") ||
+    normalized.startsWith("o4")
+  ) {
     return BRAND_ICONS.openai;
   }
   if (normalized.startsWith("claude_")) return BRAND_ICONS.claude_code;
-  if (normalized.startsWith("ministral") || normalized.startsWith("mistral_")) return BRAND_ICONS.mistral;
+  if (normalized.startsWith("ministral") || normalized.startsWith("mistral_"))
+    return BRAND_ICONS.mistral;
   if (normalized.startsWith("gemini_")) return BRAND_ICONS.gemini;
   return null;
 }

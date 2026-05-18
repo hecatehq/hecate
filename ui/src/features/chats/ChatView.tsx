@@ -7,9 +7,16 @@ import { useSettings } from "../../app/state/settings";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
 import { useChatTarget, useNewChatAgentID, useRuntimeDerivedState } from "../../app/state/derived";
-import { useWiredProviderActions, useWiredSettingsActions, useWiredDashboardActions } from "../../app/state/coordinators/wired";
+import {
+  useWiredProviderActions,
+  useWiredSettingsActions,
+  useWiredDashboardActions,
+} from "../../app/state/coordinators/wired";
 import { discoverLocalProviders } from "../../lib/api";
-import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
+import {
+  resolveChatSetupRepairState,
+  type ChatSetupRepairState,
+} from "../../lib/chat-setup-readiness";
 import { describeGatewayError } from "../../lib/error-diagnostics";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
@@ -27,14 +34,17 @@ import { ChatSidebar, sidebarSessionAgentLabel, sidebarSessionBrand } from "./Ch
 import { ChatTranscript, buildTranscriptItems, type VisibleChatMessage } from "./ChatTranscript";
 import { chatAgentOption } from "./ChatAgentControls";
 import { claudeCodePreflightState } from "./ClaudeCodeSetup";
-import { HecateTaskApprovalsBanner, activeTaskBackedHecateSegment, pendingHecateTaskApprovals } from "./HecateTaskApprovalsBanner";
+import {
+  HecateTaskApprovalsBanner,
+  activeTaskBackedHecateSegment,
+  pendingHecateTaskApprovals,
+} from "./HecateTaskApprovalsBanner";
 
 type Props = {
   onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
 };
-
 
 export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const runtime = useRuntime();
@@ -46,8 +56,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const newChatAgentID = useNewChatAgentID();
   const derived = useRuntimeDerivedState();
   const { actions: settingsActions } = useWiredSettingsActions();
-  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
-  const agentAdapterActions = useAgentAdapterActions({ setNoticeMessage: settingsActions.setNoticeMessage });
+  const chatActions = useChatActions({
+    chatTarget,
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
+  const agentAdapterActions = useAgentAdapterActions({
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
   const providerActions = useWiredProviderActions();
   const dashboardActions = useWiredDashboardActions();
   // Compose the legacy `state` and `actions` lookalikes so the JSX
@@ -120,16 +135,20 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [rtkOnboardingDismissed, setRTKOnboardingDismissed] = useState(false);
-  const [draftChatOpen, setDraftChatOpen] = useState(() => Boolean(
-    !state.activeChatSessionID
-    || state.message.trim()
-    || state.chatError
-    || state.pendingToolCalls.length > 0
-    || state.streamingContent,
-  ));
+  const [draftChatOpen, setDraftChatOpen] = useState(() =>
+    Boolean(
+      !state.activeChatSessionID ||
+      state.message.trim() ||
+      state.chatError ||
+      state.pendingToolCalls.length > 0 ||
+      state.streamingContent,
+    ),
+  );
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [workspacePathValue, setWorkspacePathValue] = useState("");
-  const [quickLocalProviders, setQuickLocalProviders] = useState<LocalProviderDiscoveryRecord[]>([]);
+  const [quickLocalProviders, setQuickLocalProviders] = useState<LocalProviderDiscoveryRecord[]>(
+    [],
+  );
   const [quickLocalLoading, setQuickLocalLoading] = useState(false);
   const [quickLocalError, setQuickLocalError] = useState("");
   const [quickAddingProviders, setQuickAddingProviders] = useState(false);
@@ -140,13 +159,21 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const focusComposerAfterNewChatRef = useRef(false);
 
-  const activeSessionIsExternal = Boolean(state.activeChatSession?.runtime_kind === "external_agent" || state.activeChatSession?.adapter_id);
+  const activeSessionIsExternal = Boolean(
+    state.activeChatSession?.runtime_kind === "external_agent" ||
+    state.activeChatSession?.adapter_id,
+  );
   const activeSessionIsHecate = Boolean(state.activeChatSession && !activeSessionIsExternal);
-  const isHecateChat = activeSessionIsHecate || (!activeSessionIsExternal && (state.chatTarget === "agent" || state.chatTarget === "model"));
+  const isHecateChat =
+    activeSessionIsHecate ||
+    (!activeSessionIsExternal && (state.chatTarget === "agent" || state.chatTarget === "model"));
   const isAgentChat = isHecateChat || state.chatTarget === "external_agent";
   const isHecateAgentChat = isHecateChat && state.chatTarget === "agent";
-  const isExternalAgentChat = activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
-  const externalAgentHasConfigControls = Boolean(isExternalAgentChat && state.activeChatSession?.config_options?.length);
+  const isExternalAgentChat =
+    activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
+  const externalAgentHasConfigControls = Boolean(
+    isExternalAgentChat && state.activeChatSession?.config_options?.length,
+  );
   const instructionsAvailable = isHecateChat;
   const activeSessionID = state.activeChatSessionID;
   // The Chats workspace always shows a working canvas. When no
@@ -157,32 +184,34 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
     : [];
   const activeTitle = state.activeChatSession?.title;
-  const messages: VisibleChatMessage[] = (state.activeChatSession?.messages ?? []).map((m, index) => ({
-    id: m.id || `agent-message-${index}`,
-    runtime_kind: m.runtime_kind,
-    segment_id: m.segment_id,
-    task_id: m.task_id,
-    run_id: m.run_id,
-    request_id: m.request_id,
-    trace_id: m.trace_id,
-    native_session_id: m.native_session_id,
-    role: m.role,
-    content: m.content,
-    created_at: m.created_at,
-    agent_adapter_id: m.adapter_id,
-    agent_adapter_name: m.adapter_name,
-    agent_status: m.status,
-    cost_mode: m.cost_mode,
-    provider: m.provider,
-    model: m.model,
-    diff_stat: m.diff_stat,
-    diff: m.diff,
-    raw_output: m.raw_output,
-    activities: m.activities,
-    usage: m.usage,
-    duration_ms: m.duration_ms,
-    error: m.error,
-  }));
+  const messages: VisibleChatMessage[] = (state.activeChatSession?.messages ?? []).map(
+    (m, index) => ({
+      id: m.id || `agent-message-${index}`,
+      runtime_kind: m.runtime_kind,
+      segment_id: m.segment_id,
+      task_id: m.task_id,
+      run_id: m.run_id,
+      request_id: m.request_id,
+      trace_id: m.trace_id,
+      native_session_id: m.native_session_id,
+      role: m.role,
+      content: m.content,
+      created_at: m.created_at,
+      agent_adapter_id: m.adapter_id,
+      agent_adapter_name: m.adapter_name,
+      agent_status: m.status,
+      cost_mode: m.cost_mode,
+      provider: m.provider,
+      model: m.model,
+      diff_stat: m.diff_stat,
+      diff: m.diff,
+      raw_output: m.raw_output,
+      activities: m.activities,
+      usage: m.usage,
+      duration_ms: m.duration_ms,
+      error: m.error,
+    }),
+  );
   const pendingTaskApprovals = isHecateChat
     ? pendingHecateTaskApprovals(state.activeChatSession)
     : [];
@@ -203,11 +232,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     isHecateChat,
   );
   const streaming = state.chatLoading;
-  const chatDiagnostic = describeGatewayError(state.chatErrorCode, state.chatErrorStatus ?? undefined);
+  const chatDiagnostic = describeGatewayError(
+    state.chatErrorCode,
+    state.chatErrorStatus ?? undefined,
+  );
   const activeAgentAdapterID = state.activeChatSession?.adapter_id || state.agentAdapterID;
   const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === activeAgentAdapterID);
   const selectedAgentHealth = activeAgentAdapterID
-    ? state.agentAdapterHealthByID.get(activeAgentAdapterID) ?? null
+    ? (state.agentAdapterHealthByID.get(activeAgentAdapterID) ?? null)
     : null;
   const selectedAgentHealthLoading = activeAgentAdapterID
     ? Boolean(state.agentAdapterHealthLoadingByID.get(activeAgentAdapterID))
@@ -223,37 +255,54 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     // unless the settings store knows about them.
     if (!providerConfigLoaded) return state.providerScopedModels;
     if (configuredProviders.length === 0) return [];
-    const ids = new Set(configuredProviders.map(c => c.id));
-    return state.providerScopedModels.filter(m => {
+    const ids = new Set(configuredProviders.map((c) => c.id));
+    return state.providerScopedModels.filter((m) => {
       const provider = m.metadata?.provider;
       return typeof provider === "string" ? ids.has(provider) : true;
     });
   })();
   const modelRouteUnavailable = providerConfigLoaded && selectableModels.length === 0;
   const hasConfiguredProviders = configuredProviders.length > 0;
-  const selectedConfiguredProvider = state.providerFilter === "auto"
-    ? configuredProviders.length === 1 ? configuredProviders[0] : undefined
-    : configuredProviders.find(provider => provider.id === state.providerFilter);
-  const selectedRuntimeProvider = state.providerFilter === "auto"
-    ? state.providers.length === 1 ? state.providers[0] : undefined
-    : state.providers.find(provider => provider.name === state.providerFilter);
-  const selectedProviderName = state.providerFilter === "auto"
-    ? "Select provider"
-    : providerDisplayName(state.providerFilter, configuredProviders, state.providerPresets, state.providers);
+  const selectedConfiguredProvider =
+    state.providerFilter === "auto"
+      ? configuredProviders.length === 1
+        ? configuredProviders[0]
+        : undefined
+      : configuredProviders.find((provider) => provider.id === state.providerFilter);
+  const selectedRuntimeProvider =
+    state.providerFilter === "auto"
+      ? state.providers.length === 1
+        ? state.providers[0]
+        : undefined
+      : state.providers.find((provider) => provider.name === state.providerFilter);
+  const selectedProviderName =
+    state.providerFilter === "auto"
+      ? "Select provider"
+      : providerDisplayName(
+          state.providerFilter,
+          configuredProviders,
+          state.providerPresets,
+          state.providers,
+        );
   const hecateProviderOptions = (() => {
     // Source the picker from the operator's configured providers
     // (the CP store), not the runtime status list. Health is not
     // a filter — a temporarily-down provider is still a valid
     // selection.
     const configured = state.settingsConfig?.providers ?? [];
-    const source = configured.length > 0
-      ? configured.map(c => ({ id: c.id, name: c.name, kind: c.kind }))
-      : state.providers
-          .filter(p => p.name)
-          .map(p => ({ id: p.name, name: p.name, kind: state.providerPresets.find(pr => pr.id === p.name)?.kind }));
+    const source =
+      configured.length > 0
+        ? configured.map((c) => ({ id: c.id, name: c.name, kind: c.kind }))
+        : state.providers
+            .filter((p) => p.name)
+            .map((p) => ({
+              id: p.name,
+              name: p.name,
+              kind: state.providerPresets.find((pr) => pr.id === p.name)?.kind,
+            }));
 
-    return source.map(p => {
-      const cfg = state.settingsConfig?.providers.find(c => c.id === p.id);
+    return source.map((p) => {
+      const cfg = state.settingsConfig?.providers.find((c) => c.id === p.id);
       // Cloud-with-no-credentials is the only "disabled"
       // reason left now that the toggle is gone — we surface it as a
       // tooltip + key icon rather than hiding the row, so the operator
@@ -265,7 +314,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         healthy: true,
         kind: p.kind,
         configured: cfg ? cfg.credential_configured : undefined,
-        disabledReason: cloudUnconfigured ? `Add an API key for ${cfg!.name || cfg!.id} in Connections` : undefined,
+        disabledReason: cloudUnconfigured
+          ? `Add an API key for ${cfg!.name || cfg!.id} in Connections`
+          : undefined,
       };
     });
   })();
@@ -279,7 +330,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     return out;
   })();
   const agentRouteUnavailable = availableAgents.length === 0;
-  const selectedAgentUnavailable = isExternalAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
+  const selectedAgentUnavailable =
+    isExternalAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
   // newChatAgentID is already computed at the top of the component
   // via useNewChatAgentID(); no need to re-derive here.
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
@@ -289,18 +341,20 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const activeHecateRunID = activeHecateAgentSegment?.latest_run_id || "";
   const hecateAgentModelLocked = isHecateChat && Boolean(activeHecateAgentSegment);
   const hecateChatProviderValue = hecateAgentModelLocked
-    ? (activeHecateAgentSegment?.provider || state.activeChatSession?.provider || "auto")
+    ? activeHecateAgentSegment?.provider || state.activeChatSession?.provider || "auto"
     : state.providerFilter;
   const hecateChatModelValue = hecateAgentModelLocked
-    ? (activeHecateAgentSegment?.model || state.activeChatSession?.model || "")
+    ? activeHecateAgentSegment?.model || state.activeChatSession?.model || ""
     : state.model;
   const activeHeaderBrand = isAgentChat
-    ? (state.activeChatSession ? sidebarSessionBrand(state.activeChatSession) : newChatAgentID)
+    ? state.activeChatSession
+      ? sidebarSessionBrand(state.activeChatSession)
+      : newChatAgentID
     : selectedConfiguredProvider?.id || selectedRuntimeProvider?.name || state.providerFilter;
   const activeHeaderFallback = isAgentChat
-    ? (state.activeChatSession
-        ? sidebarSessionAgentLabel(state.activeChatSession, state.agentAdapters)
-        : chatAgentOption(newChatAgentID, state.agentAdapters).label)
+    ? state.activeChatSession
+      ? sidebarSessionAgentLabel(state.activeChatSession, state.agentAdapters)
+      : chatAgentOption(newChatAgentID, state.agentAdapters).label
     : selectedProviderName;
   const activeHeaderSubline = buildActiveChatHeaderSubline({
     isAgentChat,
@@ -314,41 +368,53 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const latestChatUsage = isAgentChat ? findLatestAgentUsage(state.activeChatSession) : null;
   const selectedHecateModelRecord = hecateAgentModelLocked
     ? undefined
-    : selectableModels.find((entry) => entry.id === state.model && (!state.providerFilter || state.providerFilter === "auto" || entry.metadata?.provider === state.providerFilter));
-  const selectedModelIssue = !hecateAgentModelLocked && providerConfigLoaded && state.model && selectableModels.length > 0
-    ? buildSelectedModelIssue({
-        model: state.model,
-        providerFilter: state.providerFilter,
-        selectableModels,
-        configuredProvider: selectedConfiguredProvider,
-        runtimeProvider: selectedRuntimeProvider,
-      })
-    : null;
+    : selectableModels.find(
+        (entry) =>
+          entry.id === state.model &&
+          (!state.providerFilter ||
+            state.providerFilter === "auto" ||
+            entry.metadata?.provider === state.providerFilter),
+      );
+  const selectedModelIssue =
+    !hecateAgentModelLocked && providerConfigLoaded && state.model && selectableModels.length > 0
+      ? buildSelectedModelIssue({
+          model: state.model,
+          providerFilter: state.providerFilter,
+          selectableModels,
+          configuredProvider: selectedConfiguredProvider,
+          runtimeProvider: selectedRuntimeProvider,
+        })
+      : null;
   const selectedModelCapabilities = hecateAgentModelLocked
     ? state.activeChatSession?.capabilities
     : selectedHecateModelRecord?.metadata?.capabilities;
   const hecateAgentToolsDisabledForModel = selectedModelCapabilities?.tool_calling === "none";
   const selectedCapabilityProvider = hecateAgentModelLocked
     ? ""
-    : (state.providerFilter !== "auto" ? state.providerFilter : selectedHecateModelRecord?.metadata?.provider ?? "");
+    : state.providerFilter !== "auto"
+      ? state.providerFilter
+      : (selectedHecateModelRecord?.metadata?.provider ?? "");
   const selectedCapabilityModel = hecateAgentModelLocked ? "" : state.model;
-  const hecateChatModelReady = isHecateAgentChat && hecateAgentModelLocked
-    ? Boolean(hecateChatModelValue)
-    : Boolean(state.model) && !modelRouteUnavailable && !selectedModelIssue;
+  const hecateChatModelReady =
+    isHecateAgentChat && hecateAgentModelLocked
+      ? Boolean(hecateChatModelValue)
+      : Boolean(state.model) && !modelRouteUnavailable && !selectedModelIssue;
   const showHeaderWorkspaceButton = isExternalAgentChat || isHecateAgentChat;
-  const showClaudeCodeEmptyPreflight = isExternalAgentChat
-    && visibleMessages.length === 0
-    && state.pendingToolCalls.length === 0
-    && !streaming
-    && Boolean(claudeCodePreflight?.blockSend);
-  const showRTKOnboardingHint = isHecateChat
-    && !chatSettingsOpen
-    && !rtkOnboardingDismissed
-    && !state.activeChatSessionID
-    && visibleMessages.length === 0
-    && activeQueuedChatMessages.length === 0
-    && state.pendingToolCalls.length === 0
-    && state.message.trim() === "";
+  const showClaudeCodeEmptyPreflight =
+    isExternalAgentChat &&
+    visibleMessages.length === 0 &&
+    state.pendingToolCalls.length === 0 &&
+    !streaming &&
+    Boolean(claudeCodePreflight?.blockSend);
+  const showRTKOnboardingHint =
+    isHecateChat &&
+    !chatSettingsOpen &&
+    !rtkOnboardingDismissed &&
+    !state.activeChatSessionID &&
+    visibleMessages.length === 0 &&
+    activeQueuedChatMessages.length === 0 &&
+    state.pendingToolCalls.length === 0 &&
+    state.message.trim() === "";
   const chatSetupRepair = resolveChatSetupRepairState({
     target: state.chatTarget,
     hasConfiguredProviders,
@@ -361,20 +427,30 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     anyAgentAvailable: availableAgents.length > 0,
     claudeCodeSetupRequired: Boolean(claudeCodePreflight?.blockSend),
   });
-  const composerVisible = (isExternalAgentChat || (isHecateChat && hecateChatModelReady)) && !showClaudeCodeEmptyPreflight;
-  const hecateHasMessageControls = isHecateChat && (hecateAgentModelLocked || hasConfiguredProviders || selectableModels.length > 0);
+  const composerVisible =
+    (isExternalAgentChat || (isHecateChat && hecateChatModelReady)) &&
+    !showClaudeCodeEmptyPreflight;
+  const hecateHasMessageControls =
+    isHecateChat &&
+    (hecateAgentModelLocked || hasConfiguredProviders || selectableModels.length > 0);
   const messageControlsVisible = externalAgentHasConfigControls || hecateHasMessageControls;
-  const composerRepair = composerVisible && !emptyStateAlreadyShowsRepair(chatSetupRepair, visibleMessages.length)
-    ? composerVisibleRepair(chatSetupRepair)
-    : null;
+  const composerRepair =
+    composerVisible && !emptyStateAlreadyShowsRepair(chatSetupRepair, visibleMessages.length)
+      ? composerVisibleRepair(chatSetupRepair)
+      : null;
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
-  const sendDisabled = !state.message.trim()
-    || (!agentBusy && streaming)
-    || (!isAgentChat && modelRouteUnavailable)
-    || (!agentBusy && isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
-    || (!agentBusy && isExternalAgentChat && Boolean(claudeCodePreflight?.blockSend))
-    || (!agentBusy && isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
+  const sendDisabled =
+    !state.message.trim() ||
+    (!agentBusy && streaming) ||
+    (!isAgentChat && modelRouteUnavailable) ||
+    (!agentBusy &&
+      isExternalAgentChat &&
+      (!state.agentWorkspace.trim() || !selectedAgent?.available)) ||
+    (!agentBusy && isExternalAgentChat && Boolean(claudeCodePreflight?.blockSend)) ||
+    (!agentBusy &&
+      isHecateAgentChat &&
+      (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
 
   async function enableToolsForSelectedModel() {
     if (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving) {
@@ -410,7 +486,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     if (!token || claudeTokenSaving) return;
     setClaudeTokenSaving(true);
     try {
-      const saved = await actions.setAgentAdapterCredential("claude_code", token, "CLAUDE_CODE_OAUTH_TOKEN");
+      const saved = await actions.setAgentAdapterCredential(
+        "claude_code",
+        token,
+        "CLAUDE_CODE_OAUTH_TOKEN",
+      );
       if (saved) {
         setClaudeTokenDraft("");
         await actions.probeAgentAdapter("claude_code");
@@ -443,9 +523,16 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }, [state.agentWorkspace]);
 
   useEffect(() => {
-    if (!isHecateChat || !modelRouteUnavailable || hasConfiguredProviders || quickLocalProviders.length > 0 || quickLocalLoading) return;
+    if (
+      !isHecateChat ||
+      !modelRouteUnavailable ||
+      hasConfiguredProviders ||
+      quickLocalProviders.length > 0 ||
+      quickLocalLoading
+    )
+      return;
     void refreshQuickLocalProviders();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHecateChat, modelRouteUnavailable, hasConfiguredProviders]);
 
   async function chooseWorkspace() {
@@ -470,7 +557,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       const response = await discoverLocalProviders();
       setQuickLocalProviders((response.data ?? []).filter(isQuickAddableLocalProvider));
     } catch (error) {
-      setQuickLocalError(error instanceof Error ? error.message : "Failed to check local providers");
+      setQuickLocalError(
+        error instanceof Error ? error.message : "Failed to check local providers",
+      );
     } finally {
       setQuickLocalLoading(false);
     }
@@ -480,9 +569,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     if (quickAddingProviders) return;
     const seenBaseURLs = new Set<string>();
     const addable = discoveries
-      .filter(discovery => discovery.preset_id != null)
-      .filter(discovery => {
-        const preset = state.providerPresets.find(p => p.id === discovery.preset_id);
+      .filter((discovery) => discovery.preset_id != null)
+      .filter((discovery) => {
+        const preset = state.providerPresets.find((p) => p.id === discovery.preset_id);
         const baseURL = normalizeProviderBaseURL(discovery.base_url || preset?.base_url || "");
         if (!baseURL) return true;
         if (seenBaseURLs.has(baseURL)) return false;
@@ -490,7 +579,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         return true;
       });
     if (addable.length === 0) {
-      setQuickLocalError("No detected local providers are available to add. They may already be configured or share an endpoint with an existing provider.");
+      setQuickLocalError(
+        "No detected local providers are available to add. They may already be configured or share an endpoint with an existing provider.",
+      );
       return;
     }
 
@@ -501,15 +592,18 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     const createdDiscoveries: LocalProviderDiscoveryRecord[] = [];
     try {
       for (const discovery of addable) {
-        const preset = state.providerPresets.find(p => p.id === discovery.preset_id);
+        const preset = state.providerPresets.find((p) => p.id === discovery.preset_id);
         try {
-          await actions.createProvider({
-            name: preset?.name ?? discovery.name,
-            preset_id: discovery.preset_id ?? preset?.id,
-            base_url: discovery.base_url || preset?.base_url || "",
-            kind: preset?.kind ?? "local",
-            protocol: preset?.protocol ?? "openai",
-          }, { refresh: false });
+          await actions.createProvider(
+            {
+              name: preset?.name ?? discovery.name,
+              preset_id: discovery.preset_id ?? preset?.id,
+              base_url: discovery.base_url || preset?.base_url || "",
+              kind: preset?.kind ?? "local",
+              protocol: preset?.protocol ?? "openai",
+            },
+            { refresh: false },
+          );
           createdCount++;
           createdDiscoveries.push(discovery);
         } catch (error) {
@@ -526,15 +620,20 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           (discovery.model_count ?? discovery.models?.length ?? 0) > 0;
         const isHealthy = (discovery: LocalProviderDiscoveryRecord) =>
           discovery.status === "running" || discovery.http_available;
-        const preferred = createdDiscoveries.find(discovery => isHealthy(discovery) && hasModels(discovery))
-          ?? createdDiscoveries.find(hasModels)
-          ?? createdDiscoveries[0];
+        const preferred =
+          createdDiscoveries.find((discovery) => isHealthy(discovery) && hasModels(discovery)) ??
+          createdDiscoveries.find(hasModels) ??
+          createdDiscoveries[0];
         if (preferred?.preset_id) {
           actions.setProviderFilter(preferred.preset_id as ProviderFilter);
         }
       }
       if (firstError) {
-        setQuickLocalError(firstError instanceof Error ? firstError.message : "Some detected providers could not be added");
+        setQuickLocalError(
+          firstError instanceof Error
+            ? firstError.message
+            : "Some detected providers could not be added",
+        );
       }
     } finally {
       setQuickAddingProviders(false);
@@ -589,7 +688,16 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       )}
 
       {/* Chats main */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, position: "relative" }}>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          minWidth: 0,
+          position: "relative",
+        }}
+      >
         <ChatHeader
           sidebarOpen={sidebarOpen}
           onOpenSidebar={() => setSidebarOpen(true)}
@@ -597,7 +705,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           fallback={activeHeaderFallback}
           title={activeTitle || (!activeSessionID || draftChatOpen ? "New chat" : "Select a chat")}
           subline={activeHeaderSubline}
-          sublineHoverTitle={isExternalAgentChat ? formatAgentSessionTitle(state.activeChatSession, selectedAgent) : activeHeaderSubline}
+          sublineHoverTitle={
+            isExternalAgentChat
+              ? formatAgentSessionTitle(state.activeChatSession, selectedAgent)
+              : activeHeaderSubline
+          }
           isAgentChat={isAgentChat}
           isExternalAgentChat={isExternalAgentChat}
           showWorkspaceButton={showHeaderWorkspaceButton}
@@ -609,188 +721,222 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         />
 
         <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
-          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
-        {isAgentChat && workspaceEntryOpen && (
-          <div style={{ borderBottom: "1px solid var(--border)", padding: "10px 14px", background: "var(--bg2)", display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>WORKSPACE PATH</span>
-            <input
-              className="input"
-              onChange={e => setWorkspacePathValue(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  useTypedWorkspace();
-                }
-              }}
-              placeholder="/Users/alice/dev/project"
-              style={{ height: 30, minWidth: 0 }}
-              value={workspacePathValue}
-            />
-            <button className="btn btn-primary btn-sm" disabled={!workspacePathValue.trim()} onClick={useTypedWorkspace} type="button">
-              Use
-            </button>
-          </div>
-        )}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              position: "relative",
+            }}
+          >
+            {isAgentChat && workspaceEntryOpen && (
+              <div
+                style={{
+                  borderBottom: "1px solid var(--border)",
+                  padding: "10px 14px",
+                  background: "var(--bg2)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "var(--t2)",
+                    fontFamily: "var(--font-mono)",
+                    flexShrink: 0,
+                  }}
+                >
+                  WORKSPACE PATH
+                </span>
+                <input
+                  className="input"
+                  onChange={(e) => setWorkspacePathValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      useTypedWorkspace();
+                    }
+                  }}
+                  placeholder="/Users/alice/dev/project"
+                  style={{ height: 30, minWidth: 0 }}
+                  value={workspacePathValue}
+                />
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={!workspacePathValue.trim()}
+                  onClick={useTypedWorkspace}
+                  type="button"
+                >
+                  Use
+                </button>
+              </div>
+            )}
 
-        {/* External-agent approval surfaces. Both banners are agent-chat-only;
+            {/* External-agent approval surfaces. Both banners are agent-chat-only;
             the auto-mode warning is persistent for as long as the gateway
             runs in auto, the pending banner appears only when there's at
             least one pending approval for the active session. */}
-        {isExternalAgentChat && (
-          <>
-            <AgentApprovalAutoModeBanner mode={state.agentAdapterApprovalMode} />
-            {state.activeChatSessionID && (
-              <AgentApprovalsBanner
-                pending={state.pendingApprovalsBySessionID.get(state.activeChatSessionID) ?? []}
-                onSelect={(id) => setApprovalModalID(id)}
-              />
+            {isExternalAgentChat && (
+              <>
+                <AgentApprovalAutoModeBanner mode={state.agentAdapterApprovalMode} />
+                {state.activeChatSessionID && (
+                  <AgentApprovalsBanner
+                    pending={state.pendingApprovalsBySessionID.get(state.activeChatSessionID) ?? []}
+                    onSelect={(id) => setApprovalModalID(id)}
+                  />
+                )}
+              </>
             )}
-          </>
-        )}
 
-        {isHecateAgentChat && state.activeChatSession?.task_id && pendingTaskApprovals.length > 0 && (
-          <HecateTaskApprovalsBanner
-            approvals={pendingTaskApprovals}
-            taskID={state.activeChatSession.task_id}
-            runID={state.activeChatSession.latest_run_id}
-            busyID={taskApprovalBusyID}
-            onOpenTask={onOpenTask}
-            onResolve={handleResolveTaskApproval}
-          />
-        )}
+            {isHecateAgentChat &&
+              state.activeChatSession?.task_id &&
+              pendingTaskApprovals.length > 0 && (
+                <HecateTaskApprovalsBanner
+                  approvals={pendingTaskApprovals}
+                  taskID={state.activeChatSession.task_id}
+                  runID={state.activeChatSession.latest_run_id}
+                  busyID={taskApprovalBusyID}
+                  onOpenTask={onOpenTask}
+                  onResolve={handleResolveTaskApproval}
+                />
+              )}
 
-        <ChatTranscript
-          isHecateAgentChat={isHecateAgentChat}
-          activeSessionID={activeSessionID}
-          transcriptItems={transcriptItems}
-          visibleMessageCount={visibleMessages.length}
-          streaming={streaming}
-          onNavigate={onNavigate}
-          onOpenTask={onOpenTask}
-          onOpenTrace={onOpenTrace}
-          openClaudeCodeSetup={openClaudeCodeSetup}
-          emptyState={
-            <ChatEmptyState
+            <ChatTranscript
+              isHecateAgentChat={isHecateAgentChat}
+              activeSessionID={activeSessionID}
+              transcriptItems={transcriptItems}
+              visibleMessageCount={visibleMessages.length}
+              streaming={streaming}
+              onNavigate={onNavigate}
+              onOpenTask={onOpenTask}
+              onOpenTrace={onOpenTrace}
+              openClaudeCodeSetup={openClaudeCodeSetup}
+              emptyState={
+                <ChatEmptyState
+                  isAgentChat={isAgentChat}
+                  isHecateChat={isHecateChat}
+                  isExternalAgentChat={isExternalAgentChat}
+                  claudeCodePreflight={showClaudeCodeEmptyPreflight ? claudeCodePreflight : null}
+                  claudeCodePreflightLoading={selectedAgentHealthLoading}
+                  setupRepair={chatSetupRepair}
+                  modelRouteUnavailable={modelRouteUnavailable}
+                  selectedModelIssue={selectedModelIssue}
+                  agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
+                  nothingRunnable={nothingRunnable}
+                  agentAdapters={state.agentAdapters}
+                  selectedAgent={selectedAgent}
+                  selectedAgentUnavailable={selectedAgentUnavailable}
+                  hasConfiguredProviders={hasConfiguredProviders}
+                  providerPresets={state.providerPresets}
+                  quickLocalProviders={quickLocalProviders}
+                  quickLocalLoading={quickLocalLoading}
+                  quickLocalError={quickLocalError}
+                  quickAddingProviders={quickAddingProviders}
+                  onOpenProviders={() => {
+                    if (onNavigate) {
+                      onNavigate("connections");
+                    } else {
+                      setAddProviderOpen(true);
+                    }
+                  }}
+                  onUseSuggestedModel={(model) => {
+                    actions.setProviderFilter("auto");
+                    actions.setModel(model);
+                  }}
+                  onChooseWorkspace={() => void chooseWorkspace()}
+                  onOpenAgentSetup={openClaudeCodeSetup}
+                  onQuickAddLocalProviders={quickAddLocalProviders}
+                  onRefreshQuickLocalProviders={refreshQuickLocalProviders}
+                  onSwitchTarget={actions.setChatTarget}
+                  claudeCodeCLI={selectedAgent?.claude_code_cli}
+                  claudeTokenDraft={claudeTokenDraft}
+                  claudeTokenSaving={claudeTokenSaving}
+                  onClaudeTokenDraftChange={setClaudeTokenDraft}
+                  onSaveClaudeCodeToken={() => void saveClaudeCodeToken()}
+                  onTestClaudeCode={() => void actions.probeAgentAdapter("claude_code")}
+                  rtkAvailable={state.hecateRTKAvailable}
+                  rtkPath={state.hecateRTKPath}
+                  rtkEnabled={state.hecateRTKEnabled}
+                  showRTKOnboardingHint={showRTKOnboardingHint}
+                  onEnableRTK={() => void actions.setHecateRTKEnabled(true)}
+                />
+              }
+            />
+
+            <ChatComposer
               isAgentChat={isAgentChat}
               isHecateChat={isHecateChat}
               isExternalAgentChat={isExternalAgentChat}
-              claudeCodePreflight={showClaudeCodeEmptyPreflight ? claudeCodePreflight : null}
-              claudeCodePreflightLoading={selectedAgentHealthLoading}
-              setupRepair={chatSetupRepair}
-              modelRouteUnavailable={modelRouteUnavailable}
+              isHecateAgentChat={isHecateAgentChat}
+              activeSessionID={activeSessionID}
+              textareaRef={textareaRef}
+              composerVisible={composerVisible}
+              composerRepair={composerRepair}
+              messageControlsVisible={messageControlsVisible}
+              showClaudeCodeEmptyPreflight={showClaudeCodeEmptyPreflight}
+              sendDisabled={sendDisabled}
+              agentBusy={agentBusy}
+              queueingMessage={queueingMessage}
               selectedModelIssue={selectedModelIssue}
-              agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
-              nothingRunnable={nothingRunnable}
-              agentAdapters={state.agentAdapters}
+              chatDiagnostic={chatDiagnostic}
+              hecateAgentModelLocked={hecateAgentModelLocked}
+              hecateChatProviderValue={hecateChatProviderValue}
+              hecateChatModelValue={hecateChatModelValue}
+              hecateProviderOptions={hecateProviderOptions}
+              hecateDisabledProviderReasons={hecateDisabledProviderReasons}
+              selectableModels={selectableModels}
               selectedAgent={selectedAgent}
-              selectedAgentUnavailable={selectedAgentUnavailable}
-              hasConfiguredProviders={hasConfiguredProviders}
-              providerPresets={state.providerPresets}
-              quickLocalProviders={quickLocalProviders}
-              quickLocalLoading={quickLocalLoading}
-              quickLocalError={quickLocalError}
-              quickAddingProviders={quickAddingProviders}
-              onOpenProviders={() => {
-                if (onNavigate) {
-                  onNavigate("connections");
-                } else {
-                  setAddProviderOpen(true);
-                }
-              }}
-              onUseSuggestedModel={(model) => {
-                actions.setProviderFilter("auto");
-                actions.setModel(model);
-              }}
-              onChooseWorkspace={() => void chooseWorkspace()}
-              onOpenAgentSetup={openClaudeCodeSetup}
-              onQuickAddLocalProviders={quickAddLocalProviders}
-              onRefreshQuickLocalProviders={refreshQuickLocalProviders}
-              onSwitchTarget={actions.setChatTarget}
-              claudeCodeCLI={selectedAgent?.claude_code_cli}
-              claudeTokenDraft={claudeTokenDraft}
-              claudeTokenSaving={claudeTokenSaving}
-              onClaudeTokenDraftChange={setClaudeTokenDraft}
-              onSaveClaudeCodeToken={() => void saveClaudeCodeToken()}
-              onTestClaudeCode={() => void actions.probeAgentAdapter("claude_code")}
-              rtkAvailable={state.hecateRTKAvailable}
-              rtkPath={state.hecateRTKPath}
-              rtkEnabled={state.hecateRTKEnabled}
-              showRTKOnboardingHint={showRTKOnboardingHint}
-              onEnableRTK={() => void actions.setHecateRTKEnabled(true)}
+              selectedAgentHealthLoading={selectedAgentHealthLoading}
+              claudeCodePreflight={claudeCodePreflight}
+              selectedCapabilityProvider={selectedCapabilityProvider}
+              selectedCapabilityModel={selectedCapabilityModel}
+              capabilitySaving={capabilitySaving}
+              enableToolsForSelectedModel={enableToolsForSelectedModel}
+              chooseWorkspace={chooseWorkspace}
+              openClaudeCodeSetup={openClaudeCodeSetup}
+              activeHecateTaskID={activeHecateTaskID}
+              activeHecateRunID={activeHecateRunID}
+              activeQueuedChatMessages={activeQueuedChatMessages}
+              messageHistory={messageHistory}
+              onNavigate={onNavigate}
+              onOpenTask={onOpenTask}
+              onOpenTrace={onOpenTrace}
             />
-          }
-        />
-
-        <ChatComposer
-          isAgentChat={isAgentChat}
-          isHecateChat={isHecateChat}
-          isExternalAgentChat={isExternalAgentChat}
-          isHecateAgentChat={isHecateAgentChat}
-          activeSessionID={activeSessionID}
-          textareaRef={textareaRef}
-          composerVisible={composerVisible}
-          composerRepair={composerRepair}
-          messageControlsVisible={messageControlsVisible}
-          showClaudeCodeEmptyPreflight={showClaudeCodeEmptyPreflight}
-          sendDisabled={sendDisabled}
-          agentBusy={agentBusy}
-          queueingMessage={queueingMessage}
-          selectedModelIssue={selectedModelIssue}
-          chatDiagnostic={chatDiagnostic}
-          hecateAgentModelLocked={hecateAgentModelLocked}
-          hecateChatProviderValue={hecateChatProviderValue}
-          hecateChatModelValue={hecateChatModelValue}
-          hecateProviderOptions={hecateProviderOptions}
-          hecateDisabledProviderReasons={hecateDisabledProviderReasons}
-          selectableModels={selectableModels}
-          selectedAgent={selectedAgent}
-          selectedAgentHealthLoading={selectedAgentHealthLoading}
-          claudeCodePreflight={claudeCodePreflight}
-          selectedCapabilityProvider={selectedCapabilityProvider}
-          selectedCapabilityModel={selectedCapabilityModel}
-          capabilitySaving={capabilitySaving}
-          enableToolsForSelectedModel={enableToolsForSelectedModel}
-          chooseWorkspace={chooseWorkspace}
-          openClaudeCodeSetup={openClaudeCodeSetup}
-          activeHecateTaskID={activeHecateTaskID}
-          activeHecateRunID={activeHecateRunID}
-          activeQueuedChatMessages={activeQueuedChatMessages}
-          messageHistory={messageHistory}
-          onNavigate={onNavigate}
-          onOpenTask={onOpenTask}
-          onOpenTrace={onOpenTrace}
-        />
           </div>
-        {isAgentChat && chatSettingsOpen && (
-          <ChatSettingsPanel
-            showHecateControls={isHecateChat}
-            toolsEnabled={isHecateAgentChat}
-            toolsDisabledForModel={hecateAgentToolsDisabledForModel}
-            rtkEnabled={Boolean(state.hecateRTKEnabled)}
-            rtkAvailable={Boolean(state.hecateRTKAvailable)}
-            rtkPath={state.hecateRTKPath}
-            externalAgentID={isExternalAgentChat ? activeAgentAdapterID : ""}
-            taskID={state.activeChatSession?.task_id}
-            agentName={selectedAgent?.name || activeHeaderFallback}
-            model={state.model}
-            provider={selectedProviderName}
-            workspace={state.activeChatSession?.workspace || state.agentWorkspace}
-            status={state.activeChatSession?.status || ""}
-            messageCount={state.activeChatSession?.messages?.length ?? 0}
-            agentUsage={latestChatUsage}
-            usageSource={isHecateChat ? "hecate" : "adapter"}
-            externalSession={isExternalAgentChat ? state.activeChatSession : null}
-            instructionsAvailable={instructionsAvailable}
-            isHecateAgentChat={isHecateAgentChat}
-            instructionsLocked={messages.length > 0}
-            systemPrompt={state.systemPrompt}
-            onToolsChange={(enabled) => actions.setChatTarget(enabled ? "agent" : "model")}
-            onRTKChange={handleRTKChange}
-            onConfigOptionChange={actions.setChatConfigOption}
-            onSystemPromptChange={actions.setSystemPrompt}
-            onCopyCommand={actions.copyCommand}
-          />
-        )}
+          {isAgentChat && chatSettingsOpen && (
+            <ChatSettingsPanel
+              showHecateControls={isHecateChat}
+              toolsEnabled={isHecateAgentChat}
+              toolsDisabledForModel={hecateAgentToolsDisabledForModel}
+              rtkEnabled={Boolean(state.hecateRTKEnabled)}
+              rtkAvailable={Boolean(state.hecateRTKAvailable)}
+              rtkPath={state.hecateRTKPath}
+              externalAgentID={isExternalAgentChat ? activeAgentAdapterID : ""}
+              taskID={state.activeChatSession?.task_id}
+              agentName={selectedAgent?.name || activeHeaderFallback}
+              model={state.model}
+              provider={selectedProviderName}
+              workspace={state.activeChatSession?.workspace || state.agentWorkspace}
+              status={state.activeChatSession?.status || ""}
+              messageCount={state.activeChatSession?.messages?.length ?? 0}
+              agentUsage={latestChatUsage}
+              usageSource={isHecateChat ? "hecate" : "adapter"}
+              externalSession={isExternalAgentChat ? state.activeChatSession : null}
+              instructionsAvailable={instructionsAvailable}
+              isHecateAgentChat={isHecateAgentChat}
+              instructionsLocked={messages.length > 0}
+              systemPrompt={state.systemPrompt}
+              onToolsChange={(enabled) => actions.setChatTarget(enabled ? "agent" : "model")}
+              onRTKChange={handleRTKChange}
+              onConfigOptionChange={actions.setChatConfigOption}
+              onSystemPromptChange={actions.setSystemPrompt}
+              onCopyCommand={actions.copyCommand}
+            />
+          )}
         </div>
       </div>
 
@@ -813,10 +959,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           onCancel={actions.cancelChatApproval}
         />
       )}
-      <AddProviderModal
-        open={addProviderOpen}
-        onClose={() => setAddProviderOpen(false)}
-      />
+      <AddProviderModal open={addProviderOpen} onClose={() => setAddProviderOpen(false)} />
     </div>
   );
 }
@@ -843,15 +986,10 @@ function buildActiveChatHeaderSubline({
     const base = activeSession
       ? formatAgentSessionLabel(activeSession, selectedAgent)
       : `${chatAgentOption(newChatAgentID, adapters).label} · new session`;
-    return [base, activeSession?.workspace || ""]
-      .filter(Boolean)
-      .join(" · ");
+    return [base, activeSession?.workspace || ""].filter(Boolean).join(" · ");
   }
   const mode = isHecateAgentChat ? "Tools on" : "Tools off";
-  return [
-    mode,
-    activeSession?.workspace || "",
-  ].filter(Boolean).join(" · ");
+  return [mode, activeSession?.workspace || ""].filter(Boolean).join(" · ");
 }
 
 function composerVisibleRepair(repair: ChatSetupRepairState | null): ChatSetupRepairState | null {
@@ -867,7 +1005,10 @@ function composerVisibleRepair(repair: ChatSetupRepairState | null): ChatSetupRe
   }
 }
 
-function emptyStateAlreadyShowsRepair(repair: ChatSetupRepairState | null, visibleMessageCount: number): boolean {
+function emptyStateAlreadyShowsRepair(
+  repair: ChatSetupRepairState | null,
+  visibleMessageCount: number,
+): boolean {
   if (!repair || visibleMessageCount > 0) return false;
   // The tools-disabled repair needs the composer notice because that notice
   // owns the capability-write busy/disabled state. Other empty-chat repairs
@@ -875,19 +1016,21 @@ function emptyStateAlreadyShowsRepair(repair: ChatSetupRepairState | null, visib
   return repair.action !== "enable_tools";
 }
 
-
 function isQuickAddableLocalProvider(discovery: LocalProviderDiscoveryRecord): boolean {
   return discovery.http_available || discovery.command_available;
 }
-
 
 function normalizeProviderBaseURL(baseURL: string | undefined): string {
   return (baseURL ?? "").trim();
 }
 
-
-function formatAgentSessionLabel(session: ChatSessionRecord | null, adapter?: AgentAdapterRecord): string {
-  const agentName = adapter?.name || (session?.adapter_id ? chatAgentOption(session.adapter_id, []).label : "External agent");
+function formatAgentSessionLabel(
+  session: ChatSessionRecord | null,
+  adapter?: AgentAdapterRecord,
+): string {
+  const agentName =
+    adapter?.name ||
+    (session?.adapter_id ? chatAgentOption(session.adapter_id, []).label : "External agent");
   if (!session) {
     return adapter?.available ? `${agentName} · New session` : `${agentName} · Not ready`;
   }
@@ -920,7 +1063,10 @@ function titleCaseWords(value: string): string {
   return value.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function formatAgentSessionTitle(session: ChatSessionRecord | null, adapter?: AgentAdapterRecord): string {
+function formatAgentSessionTitle(
+  session: ChatSessionRecord | null,
+  adapter?: AgentAdapterRecord,
+): string {
   if (!session) {
     return adapter?.available
       ? `A new ${adapter.name} session will be created on send.`
@@ -935,7 +1081,6 @@ function formatAgentSessionTitle(session: ChatSessionRecord | null, adapter?: Ag
   return parts.join(" ");
 }
 
-
 function findLatestAgentUsage(session: ChatSessionRecord | null): ChatUsageRecord | null {
   const messages = session?.messages ?? [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -946,5 +1091,10 @@ function findLatestAgentUsage(session: ChatSessionRecord | null): ChatUsageRecor
 }
 
 function agentUsageEmpty(usage: ChatUsageRecord): boolean {
-  return !usage.reported_cost_amount && !usage.reported_cost_currency && !(usage.context_size ?? 0) && !(usage.context_used ?? 0);
+  return (
+    !usage.reported_cost_amount &&
+    !usage.reported_cost_currency &&
+    !(usage.context_size ?? 0) &&
+    !(usage.context_used ?? 0)
+  );
 }

@@ -100,7 +100,14 @@ export function AgentAdapterPicker({
   disabledReason?: string;
   triggerWidth?: number;
 }) {
-  const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
+  const {
+    open,
+    setOpen,
+    toggle,
+    wrapRef: ref,
+    triggerRef,
+    menuRef,
+  } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left");
 
   useEffect(() => {
@@ -118,7 +125,12 @@ export function AgentAdapterPicker({
       triggerRef.current?.focus();
       return;
     }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
       event.preventDefault();
       focusDropdownItem(menuRef.current, event.key);
     }
@@ -138,7 +150,9 @@ export function AgentAdapterPicker({
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
         disabled={locked}
-        onClick={() => { if (!locked) toggle(); }}
+        onClick={() => {
+          if (!locked) toggle();
+        }}
         style={{
           fontFamily: "var(--font-mono)",
           fontSize: 11,
@@ -152,7 +166,16 @@ export function AgentAdapterPicker({
         type="button"
       >
         <Icon d={Icons.terminal} size={13} />
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            textAlign: "left",
+          }}
+        >
           {label}
         </span>
         {!locked && <Icon d={Icons.chevD} size={11} />}

@@ -58,7 +58,9 @@ export const parseStoredString = (raw: string): string | null => raw;
  *
  *  Returns null on JSON parse error or when guard rejects — the
  *  hook will wipe the key and fall back. */
-export function parseStoredJSON<T>(guard: (parsed: unknown) => T | null): (raw: string) => T | null {
+export function parseStoredJSON<T>(
+  guard: (parsed: unknown) => T | null,
+): (raw: string) => T | null {
   return (raw) => {
     let parsed: unknown;
     try {

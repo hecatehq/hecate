@@ -5,9 +5,11 @@
 // this check.
 
 export function isTauriRuntime(): boolean {
-  return typeof window !== "undefined"
-    && (Object.prototype.hasOwnProperty.call(window, "__TAURI_INTERNALS__")
-      || Object.prototype.hasOwnProperty.call(window, "__TAURI__"));
+  return (
+    typeof window !== "undefined" &&
+    (Object.prototype.hasOwnProperty.call(window, "__TAURI_INTERNALS__") ||
+      Object.prototype.hasOwnProperty.call(window, "__TAURI__"))
+  );
 }
 
 // True only when running inside the Tauri runtime AND the host is

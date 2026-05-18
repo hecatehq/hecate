@@ -45,11 +45,14 @@ function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
 }
 
 function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
-  const busy = (status?: string) => status === "queued" || status === "running" || status === "awaiting_approval";
+  const busy = (status?: string) =>
+    status === "queued" || status === "running" || status === "awaiting_approval";
   if (!session) return false;
   if (busy(session.status)) return true;
   if ((session.segments ?? []).some((segment) => busy(segment.status))) return true;
-  return (session.messages ?? []).some((message) => message.role === "assistant" && busy(message.status));
+  return (session.messages ?? []).some(
+    (message) => message.role === "assistant" && busy(message.status),
+  );
 }
 
 function deriveHecateChatTargetFromSession(session: ChatSessionRecord | null): HecateChatTarget {
@@ -161,9 +164,20 @@ export function useRuntimeConsole() {
   // the functional updater form for optimistic insert/rollback.
   const setSettingsConfig = useMemo(
     () =>
-      (next: ConfiguredStateResponse["data"] | null | ((current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null)) => {
+      (
+        next:
+          | ConfiguredStateResponse["data"]
+          | null
+          | ((
+              current: ConfiguredStateResponse["data"] | null,
+            ) => ConfiguredStateResponse["data"] | null),
+      ) => {
         if (typeof next === "function") {
-          settings.actions.updateConfig(next as (current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null);
+          settings.actions.updateConfig(
+            next as (
+              current: ConfiguredStateResponse["data"] | null,
+            ) => ConfiguredStateResponse["data"] | null,
+          );
         } else {
           settings.actions.setConfig(next);
         }
@@ -175,11 +189,13 @@ export function useRuntimeConsole() {
   // routes by it, setChatTarget mutates it) and the queued-chat
   // useEffect below. Kept here so the coordinator hooks can read
   // it as a stable parameter rather than each recomputing.
-  const chatTarget: ChatTarget = activeChatSessionID && activeChatSession
-    ? (chatSessionIsExternal(activeChatSession)
+  const chatTarget: ChatTarget =
+    activeChatSessionID && activeChatSession
+      ? chatSessionIsExternal(activeChatSession)
         ? "external_agent"
-        : (chatTargetBySessionID.get(activeChatSessionID) ?? deriveHecateChatTargetFromSession(activeChatSession)))
-    : defaultChatTarget;
+        : (chatTargetBySessionID.get(activeChatSessionID) ??
+          deriveHecateChatTargetFromSession(activeChatSession))
+      : defaultChatTarget;
 
   // Forward-dependency ref. The cycle is dashboard.loadDashboard
   // (settings → providers / policy use it) → chat (loadDashboard
@@ -188,9 +204,12 @@ export function useRuntimeConsole() {
   // useSettingsActions resolve loadDashboard lazily through this
   // ref, populated after the dashboard coordinator is constructed.
   const loadDashboardRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  const loadDashboardLazy = useMemo(() => async () => {
-    await loadDashboardRef.current();
-  }, []);
+  const loadDashboardLazy = useMemo(
+    () => async () => {
+      await loadDashboardRef.current();
+    },
+    [],
+  );
 
   // Settings coordinator: tiny bundle of helpers (notice, error,
   // mutation template) all backed by the local state setters.
@@ -266,7 +285,10 @@ export function useRuntimeConsole() {
   const healthyLocalProviders = localProviders.filter((provider) => provider.healthy).length;
   const healthyCloudProviders = cloudProviders.filter((provider) => provider.healthy).length;
 
-  const visibleModels = useMemo(() => filterModelsByKind(models, modelFilter), [modelFilter, models]);
+  const visibleModels = useMemo(
+    () => filterModelsByKind(models, modelFilter),
+    [modelFilter, models],
+  );
   const providerScopedModels = useMemo(
     () => filterModelsByProvider(visibleModels, providerFilter),
     [providerFilter, visibleModels],
@@ -348,14 +370,19 @@ export function useRuntimeConsole() {
     if (model && !hasProviderEvidence) {
       return;
     }
-    const stillValid = isModelValidForProvider(model, providerFilter, models, providers, providerPresets);
+    const stillValid = isModelValidForProvider(
+      model,
+      providerFilter,
+      models,
+      providers,
+      providerPresets,
+    );
     if (stillValid) {
       return;
     }
     const nextModel = defaultModelForProvider(providerFilter, models, providers, providerPresets);
     setModel(nextModel);
   }, [model, models, providerFilter, providers, providerPresets]);
-
 
   useEffect(() => {
     if (providerFilter === "auto" || model !== "" || models.length === 0) {
@@ -410,9 +437,9 @@ export function useRuntimeConsole() {
     }
     setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
     void chatActions.submitAgentChat(next);
-  // submitAgentChat deliberately stays out of the dependency list: it
-  // reads the queued snapshot passed above, not the live composer state.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // submitAgentChat deliberately stays out of the dependency list: it
+    // reads the queued snapshot passed above, not the live composer state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeChatSession?.id,
     activeChatSession?.latest_run_id,

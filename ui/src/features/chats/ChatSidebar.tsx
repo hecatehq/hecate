@@ -43,7 +43,10 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const providersAndModels = useProvidersAndModels();
   const chatTarget = useChatTarget();
   const { actions: settingsActions } = useWiredSettingsActions();
-  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
+  const chatActions = useChatActions({
+    chatTarget,
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
   const newChatAgentID = useNewChatAgentID();
   const chatSessions = chat.state.chatSessions;
   const activeChatSessionID = chat.state.activeChatSessionID;
@@ -71,14 +74,40 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const groupedSessions = groupSidebarSessions(filteredSessions);
   const activeSessionID = activeChatSessionID;
 
-  const newChatAgentAdapter = newChatAgentID === "hecate" ? undefined : agentAdapters.find((adapter) => adapter.id === newChatAgentID);
-  const newChatAgentHealth = newChatAgentID === "hecate" ? undefined : agentAdapterHealthByID.get(newChatAgentID);
-  const newChatAgentStatus = chatAgentOptionStatus(newChatAgentID as ChatAgentOptionID, newChatAgentAdapter, newChatAgentHealth);
+  const newChatAgentAdapter =
+    newChatAgentID === "hecate"
+      ? undefined
+      : agentAdapters.find((adapter) => adapter.id === newChatAgentID);
+  const newChatAgentHealth =
+    newChatAgentID === "hecate" ? undefined : agentAdapterHealthByID.get(newChatAgentID);
+  const newChatAgentStatus = chatAgentOptionStatus(
+    newChatAgentID as ChatAgentOptionID,
+    newChatAgentAdapter,
+    newChatAgentHealth,
+  );
   const newChatAgentReady = newChatAgentStatus.ready;
 
   return (
-    <div style={{ width: 220, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg1)" }}>
-      <div style={{ height: "var(--topbar-h)", padding: "0 8px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", flexShrink: 0 }}>
+    <div
+      style={{
+        width: 220,
+        borderRight: "1px solid var(--border)",
+        display: "flex",
+        flexDirection: "column",
+        flexShrink: 0,
+        background: "var(--bg1)",
+      }}
+    >
+      <div
+        style={{
+          height: "var(--topbar-h)",
+          padding: "0 8px",
+          borderBottom: "1px solid var(--border)",
+          display: "flex",
+          alignItems: "center",
+          flexShrink: 0,
+        }}
+      >
         <div style={{ display: "flex", gap: 6, width: "100%" }}>
           <NewChatAgentButton
             value={newChatAgentID}
@@ -93,8 +122,20 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
           />
         </div>
       </div>
-      <div style={{ padding: "8px 12px 4px", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--t3)" }}>
-        Chats{sessions.length > 0 ? ` · ${filteredSessions.length}${filteredSessions.length === sessions.length ? "" : `/${sessions.length}`}` : ""}
+      <div
+        style={{
+          padding: "8px 12px 4px",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "var(--t3)",
+        }}
+      >
+        Chats
+        {sessions.length > 0
+          ? ` · ${filteredSessions.length}${filteredSessions.length === sessions.length ? "" : `/${sessions.length}`}`
+          : ""}
       </div>
       <div style={{ padding: "4px 8px 8px" }}>
         <input
@@ -108,27 +149,45 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "2px 0 6px" }}>
         {sessions.length === 0 && (
-          <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}>No chats yet</div>
+          <div
+            style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}
+          >
+            No chats yet
+          </div>
         )}
         {sessions.length > 0 && filteredSessions.length === 0 && (
-          <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}>No matching chats</div>
+          <div
+            style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}
+          >
+            No matching chats
+          </div>
         )}
         {groupedSessions.map((group) => (
           <div key={group.label}>
-            <div style={{ padding: "8px 12px 3px", fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--t3)" }}>
+            <div
+              style={{
+                padding: "8px 12px 3px",
+                fontFamily: "var(--font-mono)",
+                fontSize: 9,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "var(--t3)",
+              }}
+            >
               {group.label}
             </div>
-            {group.sessions.map(s => (
-              <div key={s.id}
+            {group.sessions.map((s) => (
+              <div
+                key={s.id}
                 role="button"
                 tabIndex={renamingId === s.id ? -1 : 0}
-                aria-current={(activeSessionID === s.id) ? "true" : undefined}
+                aria-current={activeSessionID === s.id ? "true" : undefined}
                 aria-label={`Chat ${s.title || "Untitled"}${s.agent_label ? `, ${s.agent_label}` : ""}`}
                 onClick={() => {
                   if (renamingId === s.id) return;
                   onSelectSession(s.id);
                 }}
-                onKeyDown={e => {
+                onKeyDown={(e) => {
                   if (e.target !== e.currentTarget) return;
                   if (renamingId === s.id) return;
                   if (e.key !== "Enter" && e.key !== " ") return;
@@ -136,7 +195,7 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                   onSelectSession(s.id);
                 }}
                 onFocus={() => setHoveredChatId(s.id)}
-                onBlur={e => {
+                onBlur={(e) => {
                   const nextFocus = e.relatedTarget;
                   if (!(nextFocus instanceof Node) || !e.currentTarget.contains(nextFocus)) {
                     setHoveredChatId(null);
@@ -145,28 +204,63 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                 onMouseEnter={() => setHoveredChatId(s.id)}
                 onMouseLeave={() => setHoveredChatId(null)}
                 style={{
-                  padding: "8px 12px", cursor: "pointer",
+                  padding: "8px 12px",
+                  cursor: "pointer",
                   background: activeSessionID === s.id ? "var(--teal-bg)" : "transparent",
-                  borderLeft: activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
+                  borderLeft:
+                    activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
                   transition: "background 0.1s",
-                }}>
+                }}
+              >
                 <div style={{ display: "flex", alignItems: "center", gap: 7, minHeight: 22 }}>
                   {renamingId === s.id ? (
                     <input
                       autoFocus
                       value={renameValue}
-                      onChange={e => setRenameValue(e.target.value)}
-                      onClick={e => e.stopPropagation()}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") { void chatActions.renameChatSession(s.id, renameValue); setRenamingId(null); }
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          void chatActions.renameChatSession(s.id, renameValue);
+                          setRenamingId(null);
+                        }
                         if (e.key === "Escape") setRenamingId(null);
                       }}
-                      onBlur={() => { void chatActions.renameChatSession(s.id, renameValue); setRenamingId(null); }}
-                      style={{ flex: 1, minWidth: 0, height: 18, boxSizing: "border-box", fontSize: 12, background: "var(--bg3)", border: "1px solid var(--teal)", borderRadius: "var(--radius-sm)", color: "var(--t0)", padding: "0 4px", outline: "none", fontFamily: "var(--font-sans)", lineHeight: "16px" }}
+                      onBlur={() => {
+                        void chatActions.renameChatSession(s.id, renameValue);
+                        setRenamingId(null);
+                      }}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: 18,
+                        boxSizing: "border-box",
+                        fontSize: 12,
+                        background: "var(--bg3)",
+                        border: "1px solid var(--teal)",
+                        borderRadius: "var(--radius-sm)",
+                        color: "var(--t0)",
+                        padding: "0 4px",
+                        outline: "none",
+                        fontFamily: "var(--font-sans)",
+                        lineHeight: "16px",
+                      }}
                     />
                   ) : (
                     <>
-                      <div style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: "18px", color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)", fontWeight: activeSessionID === s.id ? 500 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: 12,
+                          lineHeight: "18px",
+                          color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)",
+                          fontWeight: activeSessionID === s.id ? 500 : 400,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {s.title || "Untitled"}
                       </div>
                       {sidebarSessionTimeLabel(s.updated_at || s.created_at) && (
@@ -183,12 +277,24 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                           {sidebarSessionTimeLabel(s.updated_at || s.created_at)}
                         </span>
                       )}
-                      <div style={{ display: "flex", gap: 1, opacity: hoveredChatId === s.id ? 1 : 0, transition: "opacity 0.15s", flexShrink: 0 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 1,
+                          opacity: hoveredChatId === s.id ? 1 : 0,
+                          transition: "opacity 0.15s",
+                          flexShrink: 0,
+                        }}
+                      >
                         <button
                           className="btn btn-ghost btn-sm"
                           aria-label={`Rename chat ${s.title || "Untitled"}`}
                           type="button"
-                          onClick={e => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ""); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenamingId(s.id);
+                            setRenameValue(s.title || "");
+                          }}
                           style={{ padding: "1px 3px" }}
                           title="Rename"
                         >
@@ -198,7 +304,10 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                           className="btn btn-ghost btn-sm"
                           aria-label={`Delete chat ${s.title || "Untitled"}`}
                           type="button"
-                          onClick={e => { e.stopPropagation(); void chatActions.deleteChatSession(s.id); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void chatActions.deleteChatSession(s.id);
+                          }}
                           style={{ padding: "1px 3px", color: "var(--red)" }}
                           title="Delete"
                         >
@@ -208,7 +317,17 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                     </>
                   )}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--t3)", marginTop: 1, fontFamily: "var(--font-mono)" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 10,
+                    color: "var(--t3)",
+                    marginTop: 1,
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
                   <span>{s.message_count} msg</span>
                   {isAgentChat && s.agent_brand && renamingId !== s.id && (
                     <>
@@ -223,19 +342,21 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                       />
                     </>
                   )}
-                  {isAgentChat
-                    ? s.status_label && (
+                  {isAgentChat ? (
+                    s.status_label && (
                       <>
                         <span style={{ color: "var(--t4)" }}>·</span>
                         <span>{s.status_label}</span>
                       </>
                     )
-                    : (
-                      <>
-                        <span style={{ color: "var(--t4)" }}>·</span>
-                        <span>{s.provider_call_count} call{s.provider_call_count === 1 ? "" : "s"}</span>
-                      </>
-                    )}
+                  ) : (
+                    <>
+                      <span style={{ color: "var(--t4)" }}>·</span>
+                      <span>
+                        {s.provider_call_count} call{s.provider_call_count === 1 ? "" : "s"}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
@@ -256,7 +377,10 @@ export function filterSidebarSessions(sessions: SidebarSession[], query: string)
       session.last_model,
       session.agent_label,
       session.status_label,
-    ].filter(Boolean).join(" ").toLowerCase();
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
     return searchable.includes(needle);
   });
 }
@@ -271,7 +395,10 @@ export function sidebarSessionBrand(session: ChatSessionRecord): string | undefi
   return session.provider || session.model;
 }
 
-export function sidebarSessionAgentLabel(session: ChatSessionRecord, adapters: AgentAdapterRecord[]): string | undefined {
+export function sidebarSessionAgentLabel(
+  session: ChatSessionRecord,
+  adapters: AgentAdapterRecord[],
+): string | undefined {
   if (session.runtime_kind === "external_agent" || session.adapter_id) {
     return chatAgentOption(session.adapter_id || "", adapters).label;
   }
@@ -295,7 +422,9 @@ export function sidebarSessionTimeLabel(value?: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function groupSidebarSessions(sessions: SidebarSession[]): Array<{ label: string; sessions: SidebarSession[] }> {
+function groupSidebarSessions(
+  sessions: SidebarSession[],
+): Array<{ label: string; sessions: SidebarSession[] }> {
   const groups = new Map<string, SidebarSession[]>();
   for (const session of sessions) {
     const label = sidebarDateGroup(session.updated_at || session.created_at);

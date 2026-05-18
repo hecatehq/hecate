@@ -15,18 +15,23 @@ test("renders Settings as local maintenance", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Retention" })).toHaveCount(0);
   // Removed or relocated tabs: readiness lives in Connections, usage lives
   // in the Usage workspace, and pricing/budgeting is no longer configured.
-  for (const removed of ["Pricing", "Model capabilities", "Policy", "MCP Cache", "Tenants", "Keys", "Balances", "Clients"]) {
+  for (const removed of [
+    "Pricing",
+    "Model capabilities",
+    "Policy",
+    "MCP Cache",
+    "Tenants",
+    "Keys",
+    "Balances",
+    "Clients",
+  ]) {
     await expect(page.getByRole("button", { name: removed })).toHaveCount(0);
   }
 });
 
 test("Settings nav button uses the 'Settings' label, not 'Admin'", async ({ page }) => {
-  await expect(
-    page.locator(".hecate-activitybar [aria-label^='Settings']"),
-  ).toBeVisible();
-  await expect(
-    page.locator(".hecate-activitybar [aria-label^='Admin ']"),
-  ).toHaveCount(0);
+  await expect(page.locator(".hecate-activitybar [aria-label^='Settings']")).toBeVisible();
+  await expect(page.locator(".hecate-activitybar [aria-label^='Admin ']")).toHaveCount(0);
 });
 
 test("maintenance view shows known cleanup targets", async ({ page }) => {
@@ -37,10 +42,14 @@ test("maintenance view shows known cleanup targets", async ({ page }) => {
 
 test("maintenance 'Clean up now' fires POST request", async ({ page }) => {
   let posted = false;
-  await page.route("/hecate/v1/system/retention/run*", async route => {
+  await page.route("/hecate/v1/system/retention/run*", async (route) => {
     if (route.request().method() === "POST") {
       posted = true;
-      await route.fulfill({ status: 200, contentType: "application/json", body: '{"object":"retention_run","data":{}}' });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: '{"object":"retention_run","data":{}}',
+      });
     } else {
       await route.continue();
     }

@@ -8,9 +8,9 @@ import type {
 
 export const STEP_STATUS_COLOR: Record<string, string> = {
   completed: "var(--green)",
-  running:   "var(--teal)",
+  running: "var(--teal)",
   awaiting_approval: "var(--amber)",
-  failed:    "var(--red)",
+  failed: "var(--red)",
   cancelled: "var(--red)",
 };
 
@@ -64,8 +64,14 @@ export function approvalCommandPreview(task: TaskRecord): string {
   return "";
 }
 
-export function describeRunEvent(eventType: string): { label: string; tone: "queued" | "running" | "awaiting" | "done" | "failed" } {
-  const labels: Record<string, { label: string; tone: "queued" | "running" | "awaiting" | "done" | "failed" }> = {
+export function describeRunEvent(eventType: string): {
+  label: string;
+  tone: "queued" | "running" | "awaiting" | "done" | "failed";
+} {
+  const labels: Record<
+    string,
+    { label: string; tone: "queued" | "running" | "awaiting" | "done" | "failed" }
+  > = {
     "run.created": { label: "Run created", tone: "queued" },
     "run.queued": { label: "Queued", tone: "queued" },
     "run.started": { label: "Started", tone: "running" },
@@ -105,9 +111,7 @@ export function describeRunEventNote(event: { data?: Record<string, unknown> }):
   const d = event.data;
   if (!d) return null;
   const turn = typeof d["retry_from_turn"] === "number" ? (d["retry_from_turn"] as number) : null;
-  const reason = (
-    typeof d["reason"] === "string" ? d["reason"] : ""
-  ).trim();
+  const reason = (typeof d["reason"] === "string" ? d["reason"] : "").trim();
   if (!turn && !reason) return null;
   const parts: string[] = [];
   if (turn) parts.push(`turn ${turn}`);
@@ -117,12 +121,18 @@ export function describeRunEventNote(event: { data?: Record<string, unknown> }):
 
 export function describeApprovalKind(kind: string): string {
   switch (kind) {
-    case "shell_command":        return "Shell execution";
-    case "git_exec":             return "Git execution";
-    case "file_write":           return "File write";
-    case "network_egress":       return "Network egress";
-    case "agent_loop_tool_call": return "Agent tool call";
-    default:                     return kind.replaceAll("_", " ");
+    case "shell_command":
+      return "Shell execution";
+    case "git_exec":
+      return "Git execution";
+    case "file_write":
+      return "File write";
+    case "network_egress":
+      return "Network egress";
+    case "agent_loop_tool_call":
+      return "Agent tool call";
+    default:
+      return kind.replaceAll("_", " ");
   }
 }
 
@@ -150,7 +160,10 @@ export function buildOutputActivityIndex(activity: TaskActivityRecord[]): Output
   return { all, byStepID };
 }
 
-export function failedToolOutputArtifacts(activity: TaskActivityRecord, outputArtifacts: OutputActivityIndex): TaskActivityRecord[] {
+export function failedToolOutputArtifacts(
+  activity: TaskActivityRecord,
+  outputArtifacts: OutputActivityIndex,
+): TaskActivityRecord[] {
   if (activity.type !== "tool_call" || activity.status !== "failed") return [];
   const matchingStep = activity.step_id || "";
   if (matchingStep) {
@@ -164,13 +177,16 @@ export function isOutputArtifactActivity(activity: TaskActivityRecord): boolean 
 }
 
 export function outputActivityStream(activity: TaskActivityRecord): "stdout" | "stderr" | "" {
-  const label = `${activity.kind ?? ""} ${activity.title ?? ""} ${activity.path ?? ""}`.toLowerCase();
+  const label =
+    `${activity.kind ?? ""} ${activity.title ?? ""} ${activity.path ?? ""}`.toLowerCase();
   if (label.includes("stderr")) return "stderr";
   if (label.includes("stdout")) return "stdout";
   return "";
 }
 
-export function taskActivityAdvancedRows(activity: TaskActivityRecord): Array<{ label: string; value: string; multiline?: boolean }> {
+export function taskActivityAdvancedRows(
+  activity: TaskActivityRecord,
+): Array<{ label: string; value: string; multiline?: boolean }> {
   const rows: Array<{ label: string; value: string; multiline?: boolean }> = [
     ["type", activity.type],
     ["status", activity.status],
@@ -235,7 +251,8 @@ export function artifactHasBytes(artifact: TaskArtifactRecord): boolean {
 export function taskActivityTitle(item: TaskActivityRecord): string {
   switch (item.type) {
     case "approval":
-      if (item.needs_action || item.status === "pending" || item.status === "awaiting_approval") return "Waiting for approval";
+      if (item.needs_action || item.status === "pending" || item.status === "awaiting_approval")
+        return "Waiting for approval";
       if (item.status === "approved") return "Approval granted";
       if (item.status === "rejected" || item.status === "denied") return "Approval rejected";
       return "Approval";

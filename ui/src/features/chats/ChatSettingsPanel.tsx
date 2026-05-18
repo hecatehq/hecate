@@ -57,11 +57,17 @@ export function ChatSettingsPanel({
   systemPrompt: string;
   onToolsChange: (enabled: boolean) => void;
   onRTKChange: (enabled: boolean) => void;
-  onConfigOptionChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
+  onConfigOptionChange: (
+    sessionID: string,
+    configID: string,
+    value: string | boolean,
+  ) => Promise<boolean>;
   onSystemPromptChange: (value: string) => void;
   onCopyCommand: (command: string) => void;
 }) {
-  const externalRTK = !showHecateControls ? externalAgentRTKInfo(externalAgentID || "", rtkAvailable, rtkPath) : null;
+  const externalRTK = !showHecateControls
+    ? externalAgentRTKInfo(externalAgentID || "", rtkAvailable, rtkPath)
+    : null;
   return (
     <aside
       aria-label="Chat settings panel"
@@ -154,7 +160,11 @@ export function ChatSettingsPanel({
               }}
             >
               <ChatSettingsField label="Context" value={formatAgentContextUsage(agentUsage)} mono />
-              <ChatSettingsField label="Cost" value={formatAgentReportedCost(agentUsage) || "not reported"} mono />
+              <ChatSettingsField
+                label="Cost"
+                value={formatAgentReportedCost(agentUsage) || "not reported"}
+                mono
+              />
               <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
                 {usageSource === "hecate"
                   ? "Measured by Hecate when it controls the provider or task-backed turn. Values can be empty for local providers or older turns."
@@ -164,7 +174,9 @@ export function ChatSettingsPanel({
           </ChatSettingsSection>
         )}
         <ChatSettingsSection title="Session context">
-          <div style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+          <div
+            style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}
+          >
             {showHecateControls ? (
               <>
                 <ChatSettingsField label="Provider" value={provider || "Select provider"} />
@@ -173,7 +185,12 @@ export function ChatSettingsPanel({
             ) : (
               <ChatSettingsField label="Agent" value={agentName || "External agent"} />
             )}
-            <ChatSettingsField label="Workspace" value={workspace || "not selected"} mono title={workspace} />
+            <ChatSettingsField
+              label="Workspace"
+              value={workspace || "not selected"}
+              mono
+              title={workspace}
+            />
             <ChatSettingsField label="Status" value={status || "new chat"} />
             <ChatSettingsField label="Messages" value={String(messageCount)} mono />
             {taskID && <ChatSettingsField label="Task" value={shortID(taskID)} mono />}
@@ -187,17 +204,37 @@ export function ChatSettingsPanel({
 function ChatSettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <div className="kicker" style={{ marginBottom: 7 }}>{title}</div>
+      <div className="kicker" style={{ marginBottom: 7 }}>
+        {title}
+      </div>
       {children}
     </section>
   );
 }
 
-function ChatSettingsField({ label, value, mono, title }: { label: string; value: string; mono?: boolean; title?: string }) {
+function ChatSettingsField({
+  label,
+  value,
+  mono,
+  title,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  title?: string;
+}) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
       <span style={{ color: "var(--t3)", fontSize: 11, minWidth: 78 }}>{label}</span>
-      <span title={title} style={{ color: "var(--t1)", fontSize: 11, fontFamily: mono ? "var(--font-mono)" : "inherit", wordBreak: "break-all" }}>
+      <span
+        title={title}
+        style={{
+          color: "var(--t1)",
+          fontSize: 11,
+          fontFamily: mono ? "var(--font-mono)" : "inherit",
+          wordBreak: "break-all",
+        }}
+      >
         {value}
       </span>
     </div>
@@ -288,14 +325,42 @@ function ChatSettingsRTKRow({
       }}
     >
       <div>
-        <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Compact command output</div>
-        <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-          {available
-            ? <>RTK is installed{path ? <> at <code>{path}</code></> : ""}. Hecate can run shell and git tools as <code>rtk sh -lc &lt;command&gt;</code> for shorter output.</>
-            : <>RTK is not installed in the gateway PATH. Install it to enable compact shell/git output.</>}
-          {" "}Hecate still applies approvals, sandbox policy, limits, and timeouts.
+        <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>
+          Compact command output
         </div>
-        <div style={{ marginTop: 9, display: "grid", gap: 5, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+        <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+          {available ? (
+            <>
+              RTK is installed
+              {path ? (
+                <>
+                  {" "}
+                  at <code>{path}</code>
+                </>
+              ) : (
+                ""
+              )}
+              . Hecate can run shell and git tools as <code>rtk sh -lc &lt;command&gt;</code> for
+              shorter output.
+            </>
+          ) : (
+            <>
+              RTK is not installed in the gateway PATH. Install it to enable compact shell/git
+              output.
+            </>
+          )}{" "}
+          Hecate still applies approvals, sandbox policy, limits, and timeouts.
+        </div>
+        <div
+          style={{
+            marginTop: 9,
+            display: "grid",
+            gap: 5,
+            fontSize: 11,
+            color: "var(--t3)",
+            lineHeight: 1.45,
+          }}
+        >
           <ChatSettingsField label="Shell argv" value={shellArgv} mono />
         </div>
       </div>
@@ -332,12 +397,17 @@ type ExternalAgentRTKInfo = {
   path: string;
 };
 
-function externalAgentRTKInfo(agentID: string, available: boolean, path: string): ExternalAgentRTKInfo | null {
+function externalAgentRTKInfo(
+  agentID: string,
+  available: boolean,
+  path: string,
+): ExternalAgentRTKInfo | null {
   switch (agentID) {
     case "claude_code":
       return {
         title: "Claude Code shell hook",
-        detail: "RTK installs a Claude Code PreToolUse hook. Hecate starts Claude Code normally; Claude rewrites shell commands through its native hook.",
+        detail:
+          "RTK installs a Claude Code PreToolUse hook. Hecate starts Claude Code normally; Claude rewrites shell commands through its native hook.",
         command: "rtk init --global",
         verify: "rtk init --show",
         tier: "native hook",
@@ -347,7 +417,8 @@ function externalAgentRTKInfo(agentID: string, available: boolean, path: string)
     case "cursor_agent":
       return {
         title: "Cursor shell hook",
-        detail: "RTK installs a Cursor preToolUse hook. Hecate starts Cursor Agent normally; Cursor rewrites commands before executing them.",
+        detail:
+          "RTK installs a Cursor preToolUse hook. Hecate starts Cursor Agent normally; Cursor rewrites commands before executing them.",
         command: "rtk init --global --cursor",
         verify: "rtk init --show",
         tier: "native hook",
@@ -357,7 +428,8 @@ function externalAgentRTKInfo(agentID: string, available: boolean, path: string)
     case "codex":
       return {
         title: "Codex instructions",
-        detail: "RTK patches AGENTS.md with guidance for Codex to prefer RTK-prefixed commands. This is instruction-based rather than a guaranteed hook.",
+        detail:
+          "RTK patches AGENTS.md with guidance for Codex to prefer RTK-prefixed commands. This is instruction-based rather than a guaranteed hook.",
         command: "rtk init --codex",
         tier: "instructions",
         available,
@@ -401,16 +473,27 @@ function ChatSettingsExternalRTKRow({
       {info.path && <ChatSettingsField label="RTK path" value={info.path} mono />}
       <div style={{ display: "grid", gap: 6 }}>
         <CopyCommandRow label="Setup" command={info.command} onCopy={onCopyCommand} />
-        {info.verify && <CopyCommandRow label="Verify" command={info.verify} onCopy={onCopyCommand} />}
+        {info.verify && (
+          <CopyCommandRow label="Verify" command={info.verify} onCopy={onCopyCommand} />
+        )}
       </div>
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-        Run setup once where the external agent reads its settings, then restart that agent if RTK requires it.
+        Run setup once where the external agent reads its settings, then restart that agent if RTK
+        requires it.
       </div>
     </div>
   );
 }
 
-function CopyCommandRow({ label, command, onCopy }: { label: string; command: string; onCopy: (command: string) => void }) {
+function CopyCommandRow({
+  label,
+  command,
+  onCopy,
+}: {
+  label: string;
+  command: string;
+  onCopy: (command: string) => void;
+}) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
       <span style={{ minWidth: 48, color: "var(--t3)", fontSize: 11 }}>{label}</span>
@@ -428,7 +511,9 @@ function CopyCommandRow({ label, command, onCopy }: { label: string; command: st
           padding: "4px 7px",
         }}
       >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{command}</span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {command}
+        </span>
         <Icon d={Icons.copy} size={12} />
       </button>
     </div>

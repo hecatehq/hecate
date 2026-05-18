@@ -2,7 +2,10 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { UsageView } from "./UsageView";
-import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 
 const localSession = { label: "Local" };
@@ -20,7 +23,9 @@ describe("UsageView", () => {
     expect(screen.getByText("Usage")).toBeInTheDocument();
     expect(screen.getByText(/Cloud-provider token usage measured by Hecate/i)).toBeInTheDocument();
     expect(screen.getByText(/No cloud usage recorded yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/Local models do not spend cloud-provider tokens/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Local models do not spend cloud-provider tokens/i),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Budget guardrail/i)).toBeNull();
     expect(screen.queryByText(/balance/i)).toBeNull();
     expect(screen.queryByText(/top up/i)).toBeNull();
@@ -84,9 +89,7 @@ describe("UsageView", () => {
         backend: "memory",
         policy_rules: [],
         events: [],
-        providers: [
-          { id: "anthropic", name: "Anthropic", kind: "anthropic", enabled: true },
-        ],
+        providers: [{ id: "anthropic", name: "Anthropic", kind: "anthropic", enabled: true }],
       },
       usageEvents: [
         {
@@ -119,7 +122,12 @@ describe("UsageView", () => {
         workspace: "/tmp/project",
         status: "completed",
         messages: [
-          { id: "old", role: "assistant", content: "old", usage: { context_used: 100, context_size: 10_000 } },
+          {
+            id: "old",
+            role: "assistant",
+            content: "old",
+            usage: { context_used: 100, context_size: 10_000 },
+          },
           {
             id: "latest",
             role: "assistant",

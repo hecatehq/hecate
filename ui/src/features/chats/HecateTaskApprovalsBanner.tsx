@@ -10,7 +10,9 @@ export type HecateTaskApproval = {
   createdAt?: string;
 };
 
-export function pendingHecateTaskApprovals(session: ChatSessionRecord | null): HecateTaskApproval[] {
+export function pendingHecateTaskApprovals(
+  session: ChatSessionRecord | null,
+): HecateTaskApproval[] {
   if (!session?.task_id) return [];
   const byID = new Map<string, HecateTaskApproval>();
   for (const message of session.messages ?? []) {
@@ -23,7 +25,8 @@ export function pendingHecateTaskApprovals(session: ChatSessionRecord | null): H
         byID.delete(approvalID);
         continue;
       }
-      const pending = activity.needs_action || status === "pending" || status === "awaiting_approval";
+      const pending =
+        activity.needs_action || status === "pending" || status === "awaiting_approval";
       if (!pending) {
         byID.delete(approvalID);
         continue;
@@ -67,12 +70,15 @@ function hecateAgentSessionIsActive(status?: string): boolean {
   return status === "queued" || status === "running" || status === "awaiting_approval";
 }
 
-export function activeTaskBackedHecateSegment(session: ChatSessionRecord | null): ChatSegmentRecord | null {
+export function activeTaskBackedHecateSegment(
+  session: ChatSessionRecord | null,
+): ChatSegmentRecord | null {
   const segments = [...(session?.segments ?? [])].reverse();
-  const activeSegment = segments.find((segment) =>
-    segment.runtime_kind === "agent"
-    && Boolean(segment.task_id)
-    && hecateAgentSessionIsActive(segment.status),
+  const activeSegment = segments.find(
+    (segment) =>
+      segment.runtime_kind === "agent" &&
+      Boolean(segment.task_id) &&
+      hecateAgentSessionIsActive(segment.status),
   );
   if (activeSegment) {
     return activeSegment;
@@ -138,17 +144,21 @@ export function HecateTaskApprovalsBanner({
     >
       <ChatNoticeHeader
         tone="amber"
-        title={approvals.length === 1 ? "Approval required" : `${approvals.length} approvals required`}
-        action={onOpenTask && (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => onOpenTask(taskID, runID)}
-            style={{ marginLeft: "auto" }}
-          >
-            Open task
-          </button>
-        )}
+        title={
+          approvals.length === 1 ? "Approval required" : `${approvals.length} approvals required`
+        }
+        action={
+          onOpenTask && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => onOpenTask(taskID, runID)}
+              style={{ marginLeft: "auto" }}
+            >
+              Open task
+            </button>
+          )
+        }
       />
       {visible.map((approval) => {
         const approveBusy = busyID === `${approval.approvalID}:approve`;
@@ -168,17 +178,41 @@ export function HecateTaskApprovalsBanner({
           >
             <div style={{ minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--amber)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--amber)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {label}
                 </span>
                 {approval.createdAt && (
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--amber-lo)" }}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      color: "var(--amber-lo)",
+                    }}
+                  >
                     {formatLocaleTime(approval.createdAt)}
                   </span>
                 )}
               </div>
               {approval.detail && (
-                <div style={{ fontSize: 11, color: "var(--amber-lo)", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "var(--amber-lo)",
+                    marginTop: 3,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {approval.detail}
                 </div>
               )}
@@ -207,7 +241,15 @@ export function HecateTaskApprovalsBanner({
         );
       })}
       {overflow > 0 && (
-        <ChatNoticeRow tone="amber" style={{ padding: "7px 12px", color: "var(--amber)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+        <ChatNoticeRow
+          tone="amber"
+          style={{
+            padding: "7px 12px",
+            color: "var(--amber)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+          }}
+        >
           + {overflow} more in the backing Task
         </ChatNoticeRow>
       )}
@@ -217,12 +259,19 @@ export function HecateTaskApprovalsBanner({
 
 function describeTaskApprovalKind(kind: string): string {
   switch (kind) {
-    case "approval":             return "Approval";
-    case "shell_command":        return "Shell execution";
-    case "git_exec":             return "Git execution";
-    case "file_write":           return "File write";
-    case "network_egress":       return "Network egress";
-    case "agent_loop_tool_call": return "Agent tool call";
-    default:                     return kind.replaceAll("_", " ");
+    case "approval":
+      return "Approval";
+    case "shell_command":
+      return "Shell execution";
+    case "git_exec":
+      return "Git execution";
+    case "file_write":
+      return "File write";
+    case "network_egress":
+      return "Network egress";
+    case "agent_loop_tool_call":
+      return "Agent tool call";
+    default:
+      return kind.replaceAll("_", " ");
   }
 }

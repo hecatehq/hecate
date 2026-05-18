@@ -60,7 +60,8 @@ export function useProviderActions(params: UseProviderActionsParams) {
     await params.runSettingsMutation({
       successMessage: key === "" ? "API key cleared." : "API key saved.",
       errorMessage: key === "" ? "Failed to clear API key." : "Failed to save API key.",
-      failureDetail: key === "" ? "failed to clear provider api key" : "failed to save provider api key",
+      failureDetail:
+        key === "" ? "failed to clear provider api key" : "failed to save provider api key",
       action: async () => {
         await setProviderAPIKeyRequest(id, key);
       },
@@ -68,7 +69,15 @@ export function useProviderActions(params: UseProviderActionsParams) {
   }
 
   async function createProvider(
-    createParams: { name: string; preset_id?: string; custom_name?: string; base_url?: string; api_key?: string; kind: string; protocol: string },
+    createParams: {
+      name: string;
+      preset_id?: string;
+      custom_name?: string;
+      base_url?: string;
+      api_key?: string;
+      kind: string;
+      protocol: string;
+    },
     options: { refresh?: boolean } = {},
   ): Promise<void> {
     await createProviderRequest(createParams);
@@ -79,24 +88,28 @@ export function useProviderActions(params: UseProviderActionsParams) {
 
   async function deleteProvider(id: string): Promise<void> {
     params.resetSettingsFeedback();
-    const removedConfiguredProviderIndex = params.settingsConfig?.providers.findIndex(provider => provider.id === id) ?? -1;
-    const removedProviderStatusIndex = providers.findIndex(provider => provider.name === id);
-    const removedConfiguredProvider = removedConfiguredProviderIndex >= 0
-      ? params.settingsConfig?.providers[removedConfiguredProviderIndex]
-      : undefined;
-    const removedProviderStatus = removedProviderStatusIndex >= 0
-      ? providers[removedProviderStatusIndex]
-      : undefined;
+    const removedConfiguredProviderIndex =
+      params.settingsConfig?.providers.findIndex((provider) => provider.id === id) ?? -1;
+    const removedProviderStatusIndex = providers.findIndex((provider) => provider.name === id);
+    const removedConfiguredProvider =
+      removedConfiguredProviderIndex >= 0
+        ? params.settingsConfig?.providers[removedConfiguredProviderIndex]
+        : undefined;
+    const removedProviderStatus =
+      removedProviderStatusIndex >= 0 ? providers[removedProviderStatusIndex] : undefined;
     const previousProviderFilter = providerFilter;
     const previousModel = model;
 
-    params.setSettingsConfig(current => current
-      ? { ...current, providers: current.providers.filter(provider => provider.id !== id) }
-      : current);
-    setProviders(current => current.filter(provider => provider.name !== id));
+    params.setSettingsConfig((current) =>
+      current
+        ? { ...current, providers: current.providers.filter((provider) => provider.id !== id) }
+        : current,
+    );
+    setProviders((current) => current.filter((provider) => provider.name !== id));
     if (providerFilter === id) {
-      const remainingProviders = providers.filter(provider => provider.name !== id);
-      const remainingConfigured = params.settingsConfig?.providers.filter(provider => provider.id !== id) ?? [];
+      const remainingProviders = providers.filter((provider) => provider.name !== id);
+      const remainingConfigured =
+        params.settingsConfig?.providers.filter((provider) => provider.id !== id) ?? [];
       const nextProvider = defaultProviderForChat(models, remainingConfigured, remainingProviders);
       setProviderFilter(nextProvider);
       setModel(defaultModelForProvider(nextProvider, models, remainingProviders, providerPresets));
@@ -107,17 +120,22 @@ export function useProviderActions(params: UseProviderActionsParams) {
       params.setNoticeMessage("success", "Provider removed.");
       void params.loadDashboard();
     } catch (error) {
-      params.setSettingsConfig(current => {
+      params.setSettingsConfig((current) => {
         if (!removedConfiguredProvider) return current;
         if (!current) return current;
-        if (current.providers.some(provider => provider.id === id)) return current;
+        if (current.providers.some((provider) => provider.id === id)) return current;
         return {
           ...current,
-          providers: insertAtIndex(current.providers, removedConfiguredProvider, removedConfiguredProviderIndex),
+          providers: insertAtIndex(
+            current.providers,
+            removedConfiguredProvider,
+            removedConfiguredProviderIndex,
+          ),
         };
       });
-      setProviders(current => {
-        if (!removedProviderStatus || current.some(provider => provider.name === id)) return current;
+      setProviders((current) => {
+        if (!removedProviderStatus || current.some((provider) => provider.name === id))
+          return current;
         return insertAtIndex(current, removedProviderStatus, removedProviderStatusIndex);
       });
       setProviderFilter(previousProviderFilter);
@@ -149,38 +167,54 @@ export function useProviderActions(params: UseProviderActionsParams) {
     await params.loadDashboard();
   }
 
-  async function upsertModelCapabilityOverride(payload: ModelCapabilityUpsertPayload): Promise<boolean> {
+  async function upsertModelCapabilityOverride(
+    payload: ModelCapabilityUpsertPayload,
+  ): Promise<boolean> {
     try {
       await upsertModelCapabilityOverrideRequest(payload);
       await params.loadDashboard();
       params.setNoticeMessage("success", "Model capability override saved.");
       return true;
     } catch (error) {
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to save model capability override.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to save model capability override.",
+      );
       return false;
     }
   }
 
-  async function recordModelCapabilityProbe(payload: ModelCapabilityUpsertPayload): Promise<boolean> {
+  async function recordModelCapabilityProbe(
+    payload: ModelCapabilityUpsertPayload,
+  ): Promise<boolean> {
     try {
       await recordModelCapabilityProbeRequest(payload);
       await params.loadDashboard();
       params.setNoticeMessage("success", "Manual capability result recorded.");
       return true;
     } catch (error) {
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to record capability result.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to record capability result.",
+      );
       return false;
     }
   }
 
-  async function deleteModelCapabilityOverride(provider: string, modelName: string): Promise<boolean> {
+  async function deleteModelCapabilityOverride(
+    provider: string,
+    modelName: string,
+  ): Promise<boolean> {
     try {
       await deleteModelCapabilityOverrideRequest(provider, modelName);
       await params.loadDashboard();
       params.setNoticeMessage("success", "Model capability override cleared.");
       return true;
     } catch (error) {
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to clear model capability override.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to clear model capability override.",
+      );
       return false;
     }
   }

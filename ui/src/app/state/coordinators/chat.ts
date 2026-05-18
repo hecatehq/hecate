@@ -45,10 +45,7 @@ import {
   deriveChatSessionTitle,
   renderChatSessionSummary,
 } from "../../runtimeConsoleChatHelpers";
-import {
-  type ChatTarget,
-  type QueuedChatMessage,
-} from "../_shared";
+import { type ChatTarget, type QueuedChatMessage } from "../_shared";
 import { useApprovals } from "../approvals";
 import { useChat } from "../chat";
 import { useProvidersAndModels } from "../providersAndModels";
@@ -76,24 +73,34 @@ function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
 }
 
 function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
-  const busy = (status?: string) => status === "queued" || status === "running" || status === "awaiting_approval";
+  const busy = (status?: string) =>
+    status === "queued" || status === "running" || status === "awaiting_approval";
   if (!session) return false;
   if (busy(session.status)) return true;
   if ((session.segments ?? []).some((segment) => busy(segment.status))) return true;
-  return (session.messages ?? []).some((message) => message.role === "assistant" && busy(message.status));
+  return (session.messages ?? []).some(
+    (message) => message.role === "assistant" && busy(message.status),
+  );
 }
 
-function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null): { provider: string; model: string } {
+function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null): {
+  provider: string;
+  model: string;
+} {
   if (!session || chatSessionIsExternal(session)) {
     return { provider: "", model: "" };
   }
   const segments = [...(session.segments ?? [])].reverse();
-  const segment = segments.find((item) => item.runtime_kind === "agent" || item.runtime_kind === "model");
+  const segment = segments.find(
+    (item) => item.runtime_kind === "agent" || item.runtime_kind === "model",
+  );
   if (segment?.provider || segment?.model) {
     return { provider: segment.provider ?? "", model: segment.model ?? "" };
   }
   const messages = [...(session.messages ?? [])].reverse();
-  const message = messages.find((item) => item.runtime_kind === "agent" || item.runtime_kind === "model");
+  const message = messages.find(
+    (item) => item.runtime_kind === "agent" || item.runtime_kind === "model",
+  );
   if (message?.provider || message?.model) {
     return { provider: message.provider ?? "", model: message.model ?? "" };
   }
@@ -129,14 +136,34 @@ type ChatActionsReturn = {
   selectProviderRoute: (nextProvider: ProviderFilter) => void;
   chooseAgentWorkspace: () => Promise<boolean>;
   getChatApproval: (sessionID: string, approvalID: string) => Promise<ChatApprovalRecord | null>;
-  resolveChatApproval: (sessionID: string, approvalID: string, decision: ResolveChatApprovalPayload) => Promise<boolean>;
+  resolveChatApproval: (
+    sessionID: string,
+    approvalID: string,
+    decision: ResolveChatApprovalPayload,
+  ) => Promise<boolean>;
   cancelChatApproval: (sessionID: string, approvalID: string) => Promise<boolean>;
-  resolveTaskApproval: (taskID: string, approvalID: string, decision: ResolveTaskApprovalPayload) => Promise<boolean>;
+  resolveTaskApproval: (
+    taskID: string,
+    approvalID: string,
+    decision: ResolveTaskApprovalPayload,
+  ) => Promise<boolean>;
   deleteChatGrant: (grantID: string) => Promise<boolean>;
   listChatMessageFiles: (sessionID: string, messageID: string) => Promise<ChatChangedFileRecord[]>;
-  getChatMessageFileDiff: (sessionID: string, messageID: string, path: string) => Promise<ChatChangedFileDiffRecord | null>;
-  revertChatMessageFiles: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
-  setChatConfigOption: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
+  getChatMessageFileDiff: (
+    sessionID: string,
+    messageID: string,
+    path: string,
+  ) => Promise<ChatChangedFileDiffRecord | null>;
+  revertChatMessageFiles: (
+    sessionID: string,
+    messageID: string,
+    paths: string[],
+  ) => Promise<boolean>;
+  setChatConfigOption: (
+    sessionID: string,
+    configID: string,
+    value: string | boolean,
+  ) => Promise<boolean>;
   setHecateRTKEnabled: (enabled: boolean) => Promise<boolean>;
 };
 export type ChatActions = ChatActionsReturn;
@@ -281,7 +308,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     await submitAgentChat();
   }
 
-  function buildQueuedChatMessage(content: string, runtimeKind: ChatTarget, sessionID: string): QueuedChatMessage {
+  function buildQueuedChatMessage(
+    content: string,
+    runtimeKind: ChatTarget,
+    sessionID: string,
+  ): QueuedChatMessage {
     return {
       id: `queued-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       session_id: sessionID,
@@ -297,7 +328,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   function queueChatMessage(content: string, runtimeKind: ChatTarget, sessionID: string) {
-    setQueuedChatMessages((current) => [...current, buildQueuedChatMessage(content, runtimeKind, sessionID)]);
+    setQueuedChatMessages((current) => [
+      ...current,
+      buildQueuedChatMessage(content, runtimeKind, sessionID),
+    ]);
     setMessage("");
   }
 
@@ -305,7 +339,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setActiveChatSession(session);
     syncHecateSelectionFromSession(session);
     setAgentWorkspaceBranch(session.workspace_branch ?? "");
-    setChatSessions((current) => [renderChatSessionSummary(session), ...current.filter((entry) => entry.id !== session.id)]);
+    setChatSessions((current) => [
+      renderChatSessionSummary(session),
+      ...current.filter((entry) => entry.id !== session.id),
+    ]);
   }
 
   function syncHecateSelectionFromSession(session: ChatSessionRecord | null) {
@@ -327,7 +364,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const content = (queued?.content ?? message).trim();
     if (!content) return;
 
-    const turnRuntimeKind = queued?.runtime_kind ?? (params.chatTarget === "external_agent" ? "external_agent" : params.chatTarget === "agent" ? "agent" : "model");
+    const turnRuntimeKind =
+      queued?.runtime_kind ??
+      (params.chatTarget === "external_agent"
+        ? "external_agent"
+        : params.chatTarget === "agent"
+          ? "agent"
+          : "model");
     if (!queued && activeChatSessionID && chatSessionIsBusy(activeChatSession)) {
       queueChatMessage(content, turnRuntimeKind, activeChatSessionID);
       return;
@@ -343,7 +386,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const turnWorkspace = queued?.workspace ?? agentWorkspace.trim();
     const turnSystemPrompt = queued?.system_prompt ?? systemPrompt;
     const turnAdapterID = queued?.adapter_id ?? agentAdapterID;
-    setStreamingContent(isExternalAgent ? "Starting external agent..." : isModelTurn ? "Waiting for model output..." : "Starting Hecate Agent...");
+    setStreamingContent(
+      isExternalAgent
+        ? "Starting external agent..."
+        : isModelTurn
+          ? "Waiting for model output..."
+          : "Starting Hecate Agent...",
+    );
     let streamAbort: AbortController | null = null;
     let streamPromise: Promise<void> | null = null;
 
@@ -379,7 +428,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           runtime_kind: turnRuntimeKind,
           ...(isExternalAgent
             ? { adapter_id: turnAdapterID }
-            : { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel }),
+            : {
+                provider: turnProviderFilter === "auto" ? "" : turnProviderFilter,
+                model: turnModel,
+              }),
           ...(!isModelTurn ? { workspace: turnWorkspace } : {}),
           ...(!isExternalAgent ? { rtk_enabled: hecateRTKEnabled } : {}),
         });
@@ -399,7 +451,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
                 {
                   id: `pending-agent-user-${Date.now()}`,
                   runtime_kind: turnRuntimeKind,
-                  provider: !isExternalAgent ? (turnProviderFilter === "auto" ? "" : turnProviderFilter) : undefined,
+                  provider: !isExternalAgent
+                    ? turnProviderFilter === "auto"
+                      ? ""
+                      : turnProviderFilter
+                    : undefined,
                   model: !isExternalAgent ? turnModel : undefined,
                   role: "user",
                   content: pendingContent,
@@ -421,7 +477,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
                 .reverse()
                 .find((m) => m.role === "assistant");
               if (last?.status === "running") {
-                setStreamingContent(last.content || (isExternalAgent ? "External agent is running..." : isModelTurn ? "Model is responding..." : "Hecate Agent is running..."));
+                setStreamingContent(
+                  last.content ||
+                    (isExternalAgent
+                      ? "External agent is running..."
+                      : isModelTurn
+                        ? "Model is responding..."
+                        : "Hecate Agent is running..."),
+                );
               }
               return;
             }
@@ -446,7 +509,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       const updated = await createChatMessageRequest(sessionID, {
         content: pendingContent,
         runtime_kind: turnRuntimeKind,
-        ...(!isExternalAgent ? { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel } : {}),
+        ...(!isExternalAgent
+          ? { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel }
+          : {}),
         ...(!isExternalAgent ? { system_prompt: turnSystemPrompt } : {}),
         ...(turnRuntimeKind === "agent" ? { workspace: turnWorkspace } : {}),
       });
@@ -549,11 +614,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     if (defaultChatTarget === "external_agent") {
       const workspace = agentWorkspace.trim();
       if (!workspace) {
-        setChatErrorState(chatGuardError(
-          "Choose a workspace before starting an external-agent chat.",
-          "chat.workspace_required",
-          "Choose a workspace, then start the chat again.",
-        ));
+        setChatErrorState(
+          chatGuardError(
+            "Choose a workspace before starting an external-agent chat.",
+            "chat.workspace_required",
+            "Choose a workspace, then start the chat again.",
+          ),
+        );
         return;
       }
       setChatLoading(true);
@@ -570,7 +637,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         applyChatSession(created.data);
       } catch (error) {
         setChatErrorState(error, "failed to create external agent chat");
-        params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to create external agent chat.");
+        params.setNoticeMessage(
+          "error",
+          error instanceof Error ? error.message : "Failed to create external agent chat.",
+        );
       } finally {
         setChatLoading(false);
       }
@@ -580,19 +650,23 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const runtimeKind = defaultChatTarget === "model" ? "model" : "agent";
     const workspace = agentWorkspace.trim();
     if (runtimeKind === "agent" && !workspace) {
-      setChatErrorState(chatGuardError(
-        "Choose a workspace before starting a Hecate chat with tools.",
-        "chat.workspace_required",
-        "Choose a workspace, or turn tools off for direct model chat.",
-      ));
+      setChatErrorState(
+        chatGuardError(
+          "Choose a workspace before starting a Hecate chat with tools.",
+          "chat.workspace_required",
+          "Choose a workspace, or turn tools off for direct model chat.",
+        ),
+      );
       return;
     }
     if (!model) {
-      setChatErrorState(chatGuardError(
-        "Choose a model before starting this chat.",
-        "chat.model_required",
-        "Open Connections or choose a model from the composer.",
-      ));
+      setChatErrorState(
+        chatGuardError(
+          "Choose a model before starting this chat.",
+          "chat.model_required",
+          "Open Connections or choose a model from the composer.",
+        ),
+      );
       return;
     }
     setChatLoading(true);
@@ -602,16 +676,21 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         runtime_kind: runtimeKind,
         provider: providerFilter === "auto" ? "" : providerFilter,
         model,
-        ...(runtimeKind === "agent" ? {
-          workspace,
-          rtk_enabled: hecateRTKEnabled,
-        } : {}),
+        ...(runtimeKind === "agent"
+          ? {
+              workspace,
+              rtk_enabled: hecateRTKEnabled,
+            }
+          : {}),
       });
       setActiveChatSessionID(created.data.id);
       applyChatSession(created.data);
     } catch (error) {
       setChatErrorState(error, "failed to create Hecate chat");
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to create Hecate chat.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to create Hecate chat.",
+      );
     } finally {
       setChatLoading(false);
     }
@@ -652,7 +731,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
   function startNewChat() {
     if (activeChatSessionID) {
-      setQueuedChatMessages((current) => current.filter((item) => item.session_id !== activeChatSessionID));
+      setQueuedChatMessages((current) =>
+        current.filter((item) => item.session_id !== activeChatSessionID),
+      );
     }
     setActiveChatSessionID("");
     setActiveChatSession(null);
@@ -676,7 +757,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
       params.setNoticeMessage("success", "Agent chat deleted.");
     } catch (error) {
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to delete agent chat.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to delete agent chat.",
+      );
     }
   }
 
@@ -734,9 +818,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     // looked unresponsive on slow links and let an operator
     // double-click a duplicate request through.
     const snapshot: ChatSessionRecord | null =
-      activeChatSession && activeChatSession.task_id === taskID
-        ? activeChatSession
-        : null;
+      activeChatSession && activeChatSession.task_id === taskID ? activeChatSession : null;
     if (snapshot) {
       setActiveChatSession((current) => {
         if (!current || current.task_id !== taskID) return current;
@@ -745,7 +827,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           messages: (current.messages ?? []).map((message) => ({
             ...message,
             activities: message.activities?.map((activity) => {
-              if (activity.approval_id !== approvalID && activity.id !== `task:approval:${approvalID}`) return activity;
+              if (
+                activity.approval_id !== approvalID &&
+                activity.id !== `task:approval:${approvalID}`
+              )
+                return activity;
               return { ...activity, status, needs_action: false };
             }),
           })),
@@ -835,13 +921,19 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           }
         }
         rollbackOptimisticApproval();
-        params.setNoticeMessage("error", "Approval was already resolved upstream and the session refresh failed; reload to see the current state.");
+        params.setNoticeMessage(
+          "error",
+          "Approval was already resolved upstream and the session refresh failed; reload to see the current state.",
+        );
         return false;
       }
       // Genuine failure — roll back so the row reappears and the
       // operator can retry.
       rollbackOptimisticApproval();
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to resolve task approval.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to resolve task approval.",
+      );
       return false;
     }
   }
@@ -856,23 +948,36 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     return result.ok;
   }
 
-  async function listChatMessageFiles(sessionID: string, messageID: string): Promise<ChatChangedFileRecord[]> {
+  async function listChatMessageFiles(
+    sessionID: string,
+    messageID: string,
+  ): Promise<ChatChangedFileRecord[]> {
     try {
       const payload = await listChatMessageFilesRequest(sessionID, messageID);
       return payload.data ?? [];
     } catch (error) {
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load changed files.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to load changed files.",
+      );
       return [];
     }
   }
 
-  async function setChatConfigOption(sessionID: string, configID: string, value: string | boolean): Promise<boolean> {
+  async function setChatConfigOption(
+    sessionID: string,
+    configID: string,
+    value: string | boolean,
+  ): Promise<boolean> {
     try {
       const payload = await setChatConfigOptionRequest(sessionID, configID, value);
       applyChatSession(payload.data);
       return true;
     } catch (error) {
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to update adapter control.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to update adapter control.",
+      );
       return false;
     }
   }
@@ -888,29 +993,49 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       return true;
     } catch (error) {
       setHecateRTKEnabledState(Boolean(activeChatSession.rtk_enabled));
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to update chat settings.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to update chat settings.",
+      );
       return false;
     }
   }
 
-  async function getChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<ChatChangedFileDiffRecord | null> {
+  async function getChatMessageFileDiff(
+    sessionID: string,
+    messageID: string,
+    path: string,
+  ): Promise<ChatChangedFileDiffRecord | null> {
     try {
       const payload = await getChatMessageFileDiffRequest(sessionID, messageID, path);
       return payload.data;
     } catch (error) {
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load file diff.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to load file diff.",
+      );
       return null;
     }
   }
 
-  async function revertChatMessageFiles(sessionID: string, messageID: string, paths: string[]): Promise<boolean> {
+  async function revertChatMessageFiles(
+    sessionID: string,
+    messageID: string,
+    paths: string[],
+  ): Promise<boolean> {
     try {
       await revertChatMessageFilesRequest(sessionID, messageID, paths);
       await refreshChatSession(sessionID);
-      params.setNoticeMessage("success", paths.length > 0 ? "Selected files reverted." : "Captured diff reverted.");
+      params.setNoticeMessage(
+        "success",
+        paths.length > 0 ? "Selected files reverted." : "Captured diff reverted.",
+      );
       return true;
     } catch (error) {
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to revert changed files.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to revert changed files.",
+      );
       return false;
     }
   }
@@ -924,13 +1049,32 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
       const payload = await updateChatSessionRequest(id, nextTitle);
       setChatSessions((current) =>
-        current.map((s) => (s.id === id ? { ...s, title: payload.data.title, updated_at: payload.data.updated_at ?? s.updated_at } : s)),
+        current.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                title: payload.data.title,
+                updated_at: payload.data.updated_at ?? s.updated_at,
+              }
+            : s,
+        ),
       );
       if (activeChatSessionID === id) {
-        setActiveChatSession((current) => (current ? { ...current, title: payload.data.title, updated_at: payload.data.updated_at ?? current.updated_at } : current));
+        setActiveChatSession((current) =>
+          current
+            ? {
+                ...current,
+                title: payload.data.title,
+                updated_at: payload.data.updated_at ?? current.updated_at,
+              }
+            : current,
+        );
       }
     } catch (error) {
-      params.setNoticeMessage("error", error instanceof Error ? error.message : "Failed to rename chat.");
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to rename chat.",
+      );
     }
   }
 

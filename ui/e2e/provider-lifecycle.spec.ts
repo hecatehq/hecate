@@ -18,7 +18,10 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   // Move to Connections and add Ollama.
   await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
   await page.waitForSelector("text=Connections");
-  await page.getByRole("button", { name: /add provider/i }).first().click();
+  await page
+    .getByRole("button", { name: /add provider/i })
+    .first()
+    .click();
   const dlg = page.getByRole("dialog");
   await dlg.getByRole("button", { name: "Local", exact: true }).click();
   await dlg.getByText("Ollama", { exact: true }).click();
@@ -38,7 +41,10 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   await page.waitForSelector("text=Connections");
   await page.getByTitle("Remove Ollama").click();
   await expect(page.getByRole("dialog", { name: "Remove provider?" })).toBeVisible();
-  await page.getByRole("dialog", { name: "Remove provider?" }).getByRole("button", { name: "Remove provider", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Remove provider?" })
+    .getByRole("button", { name: "Remove provider", exact: true })
+    .click();
   await expect(page.locator("tbody tr", { hasText: "Ollama" })).toHaveCount(0);
 
   // Chats remains available after deleting the only configured provider by

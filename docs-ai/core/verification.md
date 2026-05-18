@@ -26,11 +26,20 @@ E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and 
 | Step | Command | When |
 |---|---|---|
 | Type check | `cd ui && bun run typecheck` | First sanity check after any `.ts`/`.tsx` edit (`tsgo -b`, fast) |
+| Lint | `cd ui && bun run lint` | Before claiming done; also covered by `just ui-lint` and CI |
+| Format check | `cd ui && bun run format:check` | Before claiming done; also covered by `just ui-format-check` and CI |
 | Tests | `cd ui && bun run test` | Before claiming done — vitest |
 | Watch mode | `cd ui && bun run test:watch` | During iteration |
 | Snapshot update | `cd ui && bun run test -- -u` | When a UI shape change is intentional |
+| Format | `cd ui && bun run format` | Intentional formatting-only cleanup; review the diff |
 
 **Never `bun test`** — it skips the testing-library DOM setup and panics on `document[isPrepared]`. Always `bun run test`.
+
+UI linting uses Oxc (`oxlint`). Formatting uses Oxfmt (`oxfmt`); keep formatter
+churn separate from behavior changes unless the requested task is explicitly a
+formatting cleanup. The shared `.oxlintrc.json` enables React, accessibility,
+Vitest, import, TypeScript, Unicorn, and Oxc rules; rule disables should stay
+specific and justified by current app architecture or tracked migration debt.
 
 When updating snapshots, review the diff carefully. Accidental snapshot churn is the most common silent regression vector.
 
@@ -56,6 +65,8 @@ Full matrix in [`../skills/tester/SKILL.md`](../skills/tester/SKILL.md).
 ## Done criteria — UI
 
 - `bun run typecheck` clean.
+- `bun run lint` clean.
+- `bun run format:check` clean.
 - `bun run test` clean.
 - Main workflow obvious in seconds; current state visible; labels read like product UI.
 - Loading, empty, and error states are explicit.

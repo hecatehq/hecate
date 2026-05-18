@@ -54,33 +54,47 @@ function provider(overrides: Partial<ProviderRecord> = {}): ProviderRecord {
 
 describe("humanizeChatError", () => {
   it("rewrites the missing-API-key gateway error into operator-actionable copy", () => {
-    expect(humanizeChatError("api key is required for cloud provider openai when stub mode is disabled"))
-      .toBe("openai has no API key. Open Connections and add one.");
+    expect(
+      humanizeChatError("api key is required for cloud provider openai when stub mode is disabled"),
+    ).toBe("openai has no API key. Open Connections and add one.");
   });
 
   it("rewrites common chat runtime failures into operator-actionable copy", () => {
-    expect(humanizeChatError("Hecate Agent is already running for this chat session."))
-      .toBe("Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.");
-    expect(humanizeChatError("workspace is required"))
-      .toBe("Choose a workspace before using Hecate Chat tools or External Agent.");
-    expect(humanizeChatError("model does not support tools"))
-      .toBe("This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.");
-    expect(humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'))
-      .toBe("No configured provider can route to gpt-5.4-mini. Choose another model or open Connections to repair provider readiness.");
-    expect(humanizeChatError("no routable model for selected provider"))
-      .toBe("No routable model is available. Choose another model or open Connections to add a provider, discover models, or check provider health.");
-    expect(humanizeChatError("Authentication required. Please run 'agent login' first."))
-      .toBe("The selected runtime is not signed in. Open Connections to repair or test readiness.");
-    expect(humanizeChatError("Internal error: Credit balance is too low"))
-      .toBe("The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.");
-    expect(humanizeChatError("connect: connection refused"))
-      .toBe("The selected provider is not reachable. Start the local provider app or check its endpoint URL.");
-    expect(humanizeChatError("upstream returned 401"))
-      .toBe("The selected provider rejected the request with HTTP 401. Check credentials and account access.");
-    expect(humanizeChatError("upstream returned 502"))
-      .toBe("The selected provider returned HTTP 502. Check that the provider is running and reachable.");
-    expect(humanizeChatError("upstream timeout"))
-      .toBe("The selected provider did not respond before the timeout. Check that it is running, reachable, and not overloaded.");
+    expect(humanizeChatError("Hecate Agent is already running for this chat session.")).toBe(
+      "Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.",
+    );
+    expect(humanizeChatError("workspace is required")).toBe(
+      "Choose a workspace before using Hecate Chat tools or External Agent.",
+    );
+    expect(humanizeChatError("model does not support tools")).toBe(
+      "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.",
+    );
+    expect(
+      humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'),
+    ).toBe(
+      "No configured provider can route to gpt-5.4-mini. Choose another model or open Connections to repair provider readiness.",
+    );
+    expect(humanizeChatError("no routable model for selected provider")).toBe(
+      "No routable model is available. Choose another model or open Connections to add a provider, discover models, or check provider health.",
+    );
+    expect(humanizeChatError("Authentication required. Please run 'agent login' first.")).toBe(
+      "The selected runtime is not signed in. Open Connections to repair or test readiness.",
+    );
+    expect(humanizeChatError("Internal error: Credit balance is too low")).toBe(
+      "The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.",
+    );
+    expect(humanizeChatError("connect: connection refused")).toBe(
+      "The selected provider is not reachable. Start the local provider app or check its endpoint URL.",
+    );
+    expect(humanizeChatError("upstream returned 401")).toBe(
+      "The selected provider rejected the request with HTTP 401. Check credentials and account access.",
+    );
+    expect(humanizeChatError("upstream returned 502")).toBe(
+      "The selected provider returned HTTP 502. Check that the provider is running and reachable.",
+    );
+    expect(humanizeChatError("upstream timeout")).toBe(
+      "The selected provider did not respond before the timeout. Check that it is running, reachable, and not overloaded.",
+    );
   });
 
   it("returns unrelated errors verbatim", () => {
@@ -157,7 +171,14 @@ describe("defaultModelForProvider", () => {
 
   it("falls back to the preset default when no provider record is configured", () => {
     const presets: ProviderPresetRecord[] = [
-      { id: "anthropic", name: "Anthropic", kind: "anthropic", protocol: "anthropic", base_url: "", default_model: "claude-3-5-sonnet" },
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        kind: "anthropic",
+        protocol: "anthropic",
+        base_url: "",
+        default_model: "claude-3-5-sonnet",
+      },
     ];
     expect(defaultModelForProvider("anthropic", [], [], presets)).toBe("claude-3-5-sonnet");
   });
@@ -167,11 +188,29 @@ describe("defaultProviderForChat", () => {
   it("prefers a configured provider with a discovered default model", () => {
     const models: ModelRecord[] = [
       model({ id: "smollm2", owned_by: "ollama", metadata: { provider: "ollama" } }),
-      model({ id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", default: true } }),
+      model({
+        id: "gpt-4o-mini",
+        owned_by: "openai",
+        metadata: { provider: "openai", default: true },
+      }),
     ];
     const configured = [
-      { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "", credential_configured: true },
-      { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "", credential_configured: true },
+      {
+        id: "ollama",
+        name: "Ollama",
+        kind: "local",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
+      {
+        id: "openai",
+        name: "OpenAI",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
     ];
 
     expect(defaultProviderForChat(models, configured, [])).toBe("openai");
@@ -179,12 +218,30 @@ describe("defaultProviderForChat", () => {
 
   it("ignores cloud providers without credentials when picking a default", () => {
     const models: ModelRecord[] = [
-      model({ id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", default: true } }),
+      model({
+        id: "gpt-4o-mini",
+        owned_by: "openai",
+        metadata: { provider: "openai", default: true },
+      }),
       model({ id: "llama3", owned_by: "ollama", metadata: { provider: "ollama" } }),
     ];
     const configured = [
-      { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "", credential_configured: false },
-      { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "", credential_configured: true },
+      {
+        id: "openai",
+        name: "OpenAI",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: false,
+      },
+      {
+        id: "ollama",
+        name: "Ollama",
+        kind: "local",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
     ];
 
     expect(defaultProviderForChat(models, configured, [])).toBe("ollama");
@@ -192,7 +249,14 @@ describe("defaultProviderForChat", () => {
 
   it("falls back to the configured provider when no model has been discovered yet", () => {
     const configured = [
-      { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "", credential_configured: true },
+      {
+        id: "lmstudio",
+        name: "LM Studio",
+        kind: "local",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
     ];
 
     expect(defaultProviderForChat([], configured, [])).toBe("lmstudio");

@@ -26,7 +26,10 @@ export function filterModelsByKind(models: ModelRecord[], filter: ModelFilter): 
   }
 }
 
-export function filterModelsByProvider(models: ModelRecord[], provider: ProviderFilter): ModelRecord[] {
+export function filterModelsByProvider(
+  models: ModelRecord[],
+  provider: ProviderFilter,
+): ModelRecord[] {
   if (provider === "auto") {
     return models;
   }
@@ -86,6 +89,4 @@ export {
   describeRouteRecovery,
 } from "./runtime-routing";
 
-export {
-  describeUsageScope,
-} from "./runtime-usage";
+export { describeUsageScope } from "./runtime-usage";

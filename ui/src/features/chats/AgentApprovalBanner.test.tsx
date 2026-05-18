@@ -49,7 +49,11 @@ describe("AgentApprovalsBanner", () => {
       <AgentApprovalsBanner
         pending={[
           approval({ approval_id: "ap-1", tool_name: "write_file" }),
-          approval({ approval_id: "ap-2", tool_name: "exec_command", created_at: "2026-04-21T10:01:00Z" }),
+          approval({
+            approval_id: "ap-2",
+            tool_name: "exec_command",
+            created_at: "2026-04-21T10:01:00Z",
+          }),
         ]}
         onSelect={vi.fn()}
       />,
@@ -80,7 +84,10 @@ describe("AgentApprovalsBanner", () => {
     const onSelect = vi.fn();
     render(
       <AgentApprovalsBanner
-        pending={[approval({ approval_id: "ap-1" }), approval({ approval_id: "ap-2", created_at: "2026-04-21T10:01:00Z" })]}
+        pending={[
+          approval({ approval_id: "ap-1" }),
+          approval({ approval_id: "ap-2", created_at: "2026-04-21T10:01:00Z" }),
+        ]}
         onSelect={onSelect}
       />,
     );

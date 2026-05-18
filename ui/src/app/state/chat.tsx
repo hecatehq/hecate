@@ -22,18 +22,23 @@
 // updateQueuedChatMessage, pruneQueuedChatMessagesForSessions,
 // clearChatErrorState, setChatErrorState.
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import { ApiError, type ChatMessage } from "../../lib/api";
 import { parseStoredJSON, parseStoredString, usePersistedState } from "../../lib/persistedState";
 import type { ModelFilter } from "../../types/model";
 import type { ProviderFilter } from "../../types/provider";
-import type {
-  ChatResponse,
-  ChatSessionRecord,
-  ChatSessionsResponse,
-} from "../../types/chat";
+import type { ChatResponse, ChatSessionRecord, ChatSessionsResponse } from "../../types/chat";
 import {
   type ChatTarget,
   type HecateChatTarget,
@@ -129,7 +134,10 @@ const ChatContext = createContext<ChatContextValue | null>(null);
 // initialized through usePersistedState (so localStorage-driven boot
 // paths stay covered), but every other slice field can be preloaded
 // with deterministic test data without exercising the dashboard loader.
-export function ChatProvider({ children, initialState }: {
+export function ChatProvider({
+  children,
+  initialState,
+}: {
   children: ReactNode;
   initialState?: Partial<ChatState>;
 }) {
@@ -138,7 +146,9 @@ export function ChatProvider({ children, initialState }: {
     parseStoredChatTarget,
     initialState?.defaultChatTarget ?? "agent",
   );
-  const [chatTargetBySessionID, setChatTargetBySessionID] = usePersistedState<Map<string, HecateChatTarget>>(
+  const [chatTargetBySessionID, setChatTargetBySessionID] = usePersistedState<
+    Map<string, HecateChatTarget>
+  >(
     "hecate.chatTargetBySessionID",
     parseStoredJSON(parseChatTargetsBySessionID),
     initialState?.chatTargetBySessionID ?? new Map(),
@@ -154,15 +164,21 @@ export function ChatProvider({ children, initialState }: {
     parseStoredString,
     initialState?.agentWorkspace ?? "",
   );
-  const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState(initialState?.agentWorkspaceBranch ?? "");
-  const [chatSessions, setChatSessions] = useState<ChatSessionsResponse["data"]>(initialState?.chatSessions ?? []);
+  const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState(
+    initialState?.agentWorkspaceBranch ?? "",
+  );
+  const [chatSessions, setChatSessions] = useState<ChatSessionsResponse["data"]>(
+    initialState?.chatSessions ?? [],
+  );
   const [activeChatSessionID, setActiveChatSessionID] = usePersistedState(
     "hecate.chatSessionID",
     parseStoredString,
     initialState?.activeChatSessionID ?? "",
     { shouldRemove: (v) => v === "" },
   );
-  const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(initialState?.activeChatSession ?? null);
+  const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(
+    initialState?.activeChatSession ?? null,
+  );
   const [queuedChatMessages, setQueuedChatMessages] = usePersistedState<QueuedChatMessage[]>(
     queuedChatMessagesStorageKey,
     parseStoredJSON(parseQueuedChatMessageList),
@@ -182,15 +198,27 @@ export function ChatProvider({ children, initialState }: {
   );
   const [chatLoading, setChatLoading] = useState(initialState?.chatLoading ?? false);
   const [chatCancelling, setChatCancelling] = useState(initialState?.chatCancelling ?? false);
-  const [streamingContent, setStreamingContent] = useState<string | null>(initialState?.streamingContent ?? null);
-  const [chatResult, setChatResult] = useState<ChatResponse | null>(initialState?.chatResult ?? null);
-  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>(initialState?.pendingToolCalls ?? []);
-  const [pendingThread, setPendingThread] = useState<ChatMessage[] | null>(initialState?.pendingThread ?? null);
+  const [streamingContent, setStreamingContent] = useState<string | null>(
+    initialState?.streamingContent ?? null,
+  );
+  const [chatResult, setChatResult] = useState<ChatResponse | null>(
+    initialState?.chatResult ?? null,
+  );
+  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>(
+    initialState?.pendingToolCalls ?? [],
+  );
+  const [pendingThread, setPendingThread] = useState<ChatMessage[] | null>(
+    initialState?.pendingThread ?? null,
+  );
   const [chatError, setChatError] = useState(initialState?.chatError ?? "");
   const [chatErrorCode, setChatErrorCode] = useState(initialState?.chatErrorCode ?? "");
-  const [chatErrorStatus, setChatErrorStatus] = useState<number | null>(initialState?.chatErrorStatus ?? null);
+  const [chatErrorStatus, setChatErrorStatus] = useState<number | null>(
+    initialState?.chatErrorStatus ?? null,
+  );
   const [chatErrorAction, setChatErrorAction] = useState(initialState?.chatErrorAction ?? "");
-  const [chatErrorRequestID, setChatErrorRequestID] = useState(initialState?.chatErrorRequestID ?? "");
+  const [chatErrorRequestID, setChatErrorRequestID] = useState(
+    initialState?.chatErrorRequestID ?? "",
+  );
   const [chatErrorTraceID, setChatErrorTraceID] = useState(initialState?.chatErrorTraceID ?? "");
   const [modelFilter, setModelFilter] = useState<ModelFilter>(initialState?.modelFilter ?? "all");
   // providerFilter is the lone holdout from the usePersistedState
@@ -213,7 +241,9 @@ export function ChatProvider({ children, initialState }: {
   // they do not depend on render-cycle timing is separate cleanup.
   // Until that lands, providerFilter stays on the original useState
   // + mount-read + write-on-change pattern.
-  const [providerFilter, setProviderFilter] = useState<ProviderFilter>(initialState?.providerFilter ?? "auto");
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>(
+    initialState?.providerFilter ?? "auto",
+  );
   useEffect(() => {
     const stored = window.localStorage.getItem("hecate.providerFilter");
     if (stored) setProviderFilter(stored as ProviderFilter);
@@ -233,13 +263,15 @@ export function ChatProvider({ children, initialState }: {
     setQueuedChatMessagesRef.current((current) => current.filter((item) => item.id !== id));
   }, []);
   const updateQueuedChatMessage = useCallback((id: string, content: string) => {
-    setQueuedChatMessagesRef.current((current) => current.map((item) => (
-      item.id === id ? { ...item, content } : item
-    )));
+    setQueuedChatMessagesRef.current((current) =>
+      current.map((item) => (item.id === id ? { ...item, content } : item)),
+    );
   }, []);
   const pruneQueuedChatMessagesForSessions = useCallback((sessionIDs: Iterable<string>) => {
     const valid = new Set(sessionIDs);
-    setQueuedChatMessagesRef.current((current) => current.filter((item) => valid.has(item.session_id)));
+    setQueuedChatMessagesRef.current((current) =>
+      current.filter((item) => valid.has(item.session_id)),
+    );
   }, []);
 
   const clearChatErrorState = useCallback(() => {
@@ -261,75 +293,108 @@ export function ChatProvider({ children, initialState }: {
     setChatErrorTraceID(error instanceof ApiError ? error.traceId : "");
   }, []);
 
-  const state = useMemo<ChatState>(() => ({
-    defaultChatTarget,
-    chatTargetBySessionID,
-    agentAdapterID,
-    agentWorkspace,
-    agentWorkspaceBranch,
-    chatSessions,
-    activeChatSessionID,
-    activeChatSession,
-    queuedChatMessages,
-    model,
-    systemPrompt,
-    chatLoading,
-    chatCancelling,
-    streamingContent,
-    chatResult,
-    pendingToolCalls,
-    pendingThread,
-    chatError,
-    chatErrorCode,
-    chatErrorStatus,
-    chatErrorAction,
-    chatErrorRequestID,
-    chatErrorTraceID,
-    modelFilter,
-    providerFilter,
-  }), [
-    defaultChatTarget, chatTargetBySessionID, agentAdapterID, agentWorkspace,
-    agentWorkspaceBranch, chatSessions, activeChatSessionID,
-    activeChatSession, queuedChatMessages, model, systemPrompt,
-    chatLoading, chatCancelling, streamingContent, chatResult,
-    pendingToolCalls, pendingThread, chatError, chatErrorCode,
-    chatErrorStatus, chatErrorAction, chatErrorRequestID, chatErrorTraceID,
-    modelFilter, providerFilter,
-  ]);
+  const state = useMemo<ChatState>(
+    () => ({
+      defaultChatTarget,
+      chatTargetBySessionID,
+      agentAdapterID,
+      agentWorkspace,
+      agentWorkspaceBranch,
+      chatSessions,
+      activeChatSessionID,
+      activeChatSession,
+      queuedChatMessages,
+      model,
+      systemPrompt,
+      chatLoading,
+      chatCancelling,
+      streamingContent,
+      chatResult,
+      pendingToolCalls,
+      pendingThread,
+      chatError,
+      chatErrorCode,
+      chatErrorStatus,
+      chatErrorAction,
+      chatErrorRequestID,
+      chatErrorTraceID,
+      modelFilter,
+      providerFilter,
+    }),
+    [
+      defaultChatTarget,
+      chatTargetBySessionID,
+      agentAdapterID,
+      agentWorkspace,
+      agentWorkspaceBranch,
+      chatSessions,
+      activeChatSessionID,
+      activeChatSession,
+      queuedChatMessages,
+      model,
+      systemPrompt,
+      chatLoading,
+      chatCancelling,
+      streamingContent,
+      chatResult,
+      pendingToolCalls,
+      pendingThread,
+      chatError,
+      chatErrorCode,
+      chatErrorStatus,
+      chatErrorAction,
+      chatErrorRequestID,
+      chatErrorTraceID,
+      modelFilter,
+      providerFilter,
+    ],
+  );
 
-  const actions = useMemo<ChatActions>(() => ({
-    setDefaultChatTarget,
-    setChatTargetBySessionID,
-    setAgentAdapterID,
-    setAgentWorkspace,
-    setAgentWorkspaceBranch,
-    setChatSessions,
-    setActiveChatSessionID,
-    setActiveChatSession,
-    setQueuedChatMessages,
-    setModel,
-    setSystemPrompt,
-    setChatLoading,
-    setChatCancelling,
-    setStreamingContent,
-    setChatResult,
-    setPendingToolCalls,
-    setPendingThread,
-    setModelFilter,
-    setProviderFilter,
-    setChatError,
-    removeQueuedChatMessage,
-    updateQueuedChatMessage,
-    pruneQueuedChatMessagesForSessions,
-    clearChatErrorState,
-    setChatErrorState,
-  }), [
-    setDefaultChatTarget, setChatTargetBySessionID, setAgentAdapterID,
-    setAgentWorkspace, setChatSessions, setActiveChatSessionID,
-    setQueuedChatMessages, setModel, setSystemPrompt,
-    removeQueuedChatMessage, updateQueuedChatMessage,
-    pruneQueuedChatMessagesForSessions, clearChatErrorState, setChatErrorState,
-  ]);
+  const actions = useMemo<ChatActions>(
+    () => ({
+      setDefaultChatTarget,
+      setChatTargetBySessionID,
+      setAgentAdapterID,
+      setAgentWorkspace,
+      setAgentWorkspaceBranch,
+      setChatSessions,
+      setActiveChatSessionID,
+      setActiveChatSession,
+      setQueuedChatMessages,
+      setModel,
+      setSystemPrompt,
+      setChatLoading,
+      setChatCancelling,
+      setStreamingContent,
+      setChatResult,
+      setPendingToolCalls,
+      setPendingThread,
+      setModelFilter,
+      setProviderFilter,
+      setChatError,
+      removeQueuedChatMessage,
+      updateQueuedChatMessage,
+      pruneQueuedChatMessagesForSessions,
+      clearChatErrorState,
+      setChatErrorState,
+    }),
+    [
+      setDefaultChatTarget,
+      setChatTargetBySessionID,
+      setAgentAdapterID,
+      setAgentWorkspace,
+      setChatSessions,
+      setActiveChatSessionID,
+      setQueuedChatMessages,
+      setModel,
+      setSystemPrompt,
+      removeQueuedChatMessage,
+      updateQueuedChatMessage,
+      pruneQueuedChatMessagesForSessions,
+      clearChatErrorState,
+      setChatErrorState,
+    ],
+  );
 
   const value = useMemo(() => ({ state, actions }), [state, actions]);
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

@@ -25,17 +25,35 @@ type SpanWaterfallProps = {
 };
 
 export function SpanWaterfall({
-  waterfall, expandedSpanID, setExpandedSpanID,
-  phaseFilter, setPhaseFilter, traceFetching, hasTraceDetail,
+  waterfall,
+  expandedSpanID,
+  setExpandedSpanID,
+  phaseFilter,
+  setPhaseFilter,
+  traceFetching,
+  hasTraceDetail,
 }: SpanWaterfallProps) {
   const { spans, totalMs, phases } = waterfall;
 
   if (spans.length === 0) {
     return (
-      <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
-        <div className="kicker-lg" style={{ marginBottom: 8, fontSize: 12, fontWeight: 500, color: "var(--t1)" }}>Spans</div>
+      <div
+        style={{
+          padding: "10px 12px",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+        }}
+      >
+        <div
+          className="kicker-lg"
+          style={{ marginBottom: 8, fontSize: 12, fontWeight: 500, color: "var(--t1)" }}
+        >
+          Spans
+        </div>
         <div style={{ fontSize: 12, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
-          {traceFetching && !hasTraceDetail ? "loading…" : "Span data not available for this trace."}
+          {traceFetching && !hasTraceDetail
+            ? "loading…"
+            : "Span data not available for this trace."}
         </div>
       </div>
     );
@@ -45,15 +63,42 @@ export function SpanWaterfall({
   const columns = waterfallColumns(spans);
 
   return (
-    <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
+    <div
+      style={{
+        padding: "10px 12px",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+      }}
+    >
       {/* Header — count + total */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-        <span className="kicker-lg" style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <span
+          className="kicker-lg"
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: "var(--t0)",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+          }}
+        >
           Spans ({spans.length}) · total {formatWaterfallMs(totalMs)}
         </span>
         {phases.length > 1 && (
-          <div role="group" aria-label="Phase legend" style={{ display: "flex", gap: 4, flexWrap: "wrap", marginLeft: "auto" }}>
-            {phases.map(p => {
+          <div
+            role="group"
+            aria-label="Phase legend"
+            style={{ display: "flex", gap: 4, flexWrap: "wrap", marginLeft: "auto" }}
+          >
+            {phases.map((p) => {
               const active = phaseFilter === p;
               return (
                 <button
@@ -72,8 +117,17 @@ export function SpanWaterfall({
                     fontFamily: "var(--font-mono)",
                     fontSize: 10,
                     color: "var(--t1)",
-                  }}>
-                  <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: phaseColor(p) }} />
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: 8,
+                      height: 8,
+                      borderRadius: 2,
+                      background: phaseColor(p),
+                    }}
+                  />
                   {PHASE_LABEL[p]}
                 </button>
               );
@@ -88,7 +142,8 @@ export function SpanWaterfall({
           maxHeight: "min(420px, 52vh)",
           overflowY: "auto",
           overflowX: "hidden",
-        }}>
+        }}
+      >
         <WaterfallRuler ticks={ticks} columns={columns} />
 
         {/* Span rows */}
@@ -102,7 +157,9 @@ export function SpanWaterfall({
               columns={columns}
               isExpanded={expandedSpanID === ws.span.span_id}
               isDimmed={phaseFilter !== null && ws.phase !== phaseFilter}
-              onToggle={() => setExpandedSpanID(expandedSpanID === ws.span.span_id ? null : ws.span.span_id)}
+              onToggle={() =>
+                setExpandedSpanID(expandedSpanID === ws.span.span_id ? null : ws.span.span_id)
+              }
             />
           ))}
         </div>
@@ -116,24 +173,31 @@ function WaterfallRuler({ ticks, columns }: { ticks: WaterfallTick[]; columns: s
     // Ruler sticks only inside the waterfall scroller. If it sticks
     // to the whole trace drawer, it floats at the top after the
     // waterfall itself has scrolled away.
-    <div style={{
-      position: "sticky", top: 0, zIndex: 5,
-      background: "var(--bg2)",
-      isolation: "isolate",
-      display: "grid",
-      gridTemplateColumns: columns,
-      columnGap: WATERFALL_COLUMN_GAP,
-      padding: "0 0 6px",
-      marginBottom: 6,
-    }}>
-      <div style={{
-        gridColumn: 2,
-        position: "relative",
-        height: 18,
-        borderTop: "1px solid var(--border)",
-        borderBottom: "1px solid var(--border)",
-        background: "linear-gradient(180deg, color-mix(in srgb, var(--bg3) 65%, transparent), transparent)",
-      }}>
+    <div
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 5,
+        background: "var(--bg2)",
+        isolation: "isolate",
+        display: "grid",
+        gridTemplateColumns: columns,
+        columnGap: WATERFALL_COLUMN_GAP,
+        padding: "0 0 6px",
+        marginBottom: 6,
+      }}
+    >
+      <div
+        style={{
+          gridColumn: 2,
+          position: "relative",
+          height: 18,
+          borderTop: "1px solid var(--border)",
+          borderBottom: "1px solid var(--border)",
+          background:
+            "linear-gradient(180deg, color-mix(in srgb, var(--bg3) 65%, transparent), transparent)",
+        }}
+      >
         {ticks.map((t) => (
           <Fragment key={t.pct}>
             <span
@@ -144,7 +208,9 @@ function WaterfallRuler({ ticks, columns }: { ticks: WaterfallTick[]; columns: s
                 top: 0,
                 bottom: 0,
                 width: 1,
-                background: t.edge ? "var(--border)" : "color-mix(in srgb, var(--border) 55%, transparent)",
+                background: t.edge
+                  ? "var(--border)"
+                  : "color-mix(in srgb, var(--border) 55%, transparent)",
               }}
             />
             <span
@@ -153,13 +219,21 @@ function WaterfallRuler({ ticks, columns }: { ticks: WaterfallTick[]; columns: s
                 position: "absolute",
                 left: `${t.pct}%`,
                 top: -1,
-                transform: t.pct === 0 ? "translateX(0)" : t.pct === 100 ? "translateX(-100%)" : "translateX(-50%)",
+                transform:
+                  t.pct === 0
+                    ? "translateX(0)"
+                    : t.pct === 100
+                      ? "translateX(-100%)"
+                      : "translateX(-50%)",
                 fontFamily: "var(--font-mono)",
                 fontSize: 10,
                 color: "var(--t2)",
                 lineHeight: "18px",
                 whiteSpace: "nowrap",
-              }}>{t.label}</span>
+              }}
+            >
+              {t.label}
+            </span>
           </Fragment>
         ))}
       </div>
@@ -168,7 +242,13 @@ function WaterfallRuler({ ticks, columns }: { ticks: WaterfallTick[]; columns: s
 }
 
 function SpanRow({
-  ws, totalMs, ticks, columns, isExpanded, isDimmed, onToggle,
+  ws,
+  totalMs,
+  ticks,
+  columns,
+  isExpanded,
+  isDimmed,
+  onToggle,
 }: {
   ws: WaterfallSpan;
   totalMs: number;
@@ -189,9 +269,8 @@ function SpanRow({
   // misleading "-50ms" or a silently-clamped 1ms tick.
   const safeTotalMs = Number.isFinite(totalMs) && totalMs > 0 ? totalMs : 1;
   const rawLeftPct = ws.unknownTiming ? 0 : (ws.startMs / safeTotalMs) * 100;
-  const widthPct = ws.unknownTiming || ws.negativeDuration
-    ? 1
-    : Math.max((ws.durMs / safeTotalMs) * 100, 0.5);
+  const widthPct =
+    ws.unknownTiming || ws.negativeDuration ? 1 : Math.max((ws.durMs / safeTotalMs) * 100, 0.5);
   // Sub-ms finalization spans often start at ~100% of the trace and
   // rely on the minimum visual width below. Clamp the rendered bar
   // back inside the viewport so end-of-request phases like usage and
@@ -202,8 +281,10 @@ function SpanRow({
   // Duration label inside the bar when wide enough, otherwise to its
   // right.
   const labelInside = widthPct > 12 && !ws.unknownTiming && !ws.negativeDuration;
-  const durLabel = ws.unknownTiming || ws.negativeDuration ? "?" : formatWaterfallMs(Math.max(ws.durMs, 0));
-  const barTone = ws.unknownTiming || ws.negativeDuration ? "var(--t3)" : (ws.hasError ? "var(--red)" : color);
+  const durLabel =
+    ws.unknownTiming || ws.negativeDuration ? "?" : formatWaterfallMs(Math.max(ws.durMs, 0));
+  const barTone =
+    ws.unknownTiming || ws.negativeDuration ? "var(--t3)" : ws.hasError ? "var(--red)" : color;
 
   return (
     <div>
@@ -213,8 +294,11 @@ function SpanRow({
         tabIndex={0}
         aria-label={`span ${ws.span.name}`}
         aria-expanded={isExpanded}
-        onKeyDown={e => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); }
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
         }}
         style={{
           minHeight: 24,
@@ -225,14 +309,25 @@ function SpanRow({
           cursor: "pointer",
           background: isExpanded ? "var(--bg2)" : "transparent",
           opacity,
-        }}>
+        }}
+      >
         {/* Span name column with depth indent + status dot */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 6 + ws.depth * 12, overflow: "hidden" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            paddingLeft: 6 + ws.depth * 12,
+            overflow: "hidden",
+          }}
+        >
           <span
             aria-label={ws.hasError ? "error" : "ok"}
             style={{
               flexShrink: 0,
-              width: 6, height: 6, borderRadius: "50%",
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
               background: ws.hasError ? "var(--red)" : "var(--green)",
             }}
           />
@@ -246,7 +341,8 @@ function SpanRow({
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
               flex: 1,
-            }}>
+            }}
+          >
             {ws.span.name}
           </span>
         </div>
@@ -265,7 +361,9 @@ function SpanRow({
                 top: 0,
                 bottom: 0,
                 width: 1,
-                background: t.edge ? "color-mix(in srgb, var(--border) 75%, transparent)" : "color-mix(in srgb, var(--border) 28%, transparent)",
+                background: t.edge
+                  ? "color-mix(in srgb, var(--border) 75%, transparent)"
+                  : "color-mix(in srgb, var(--border) 28%, transparent)",
               }}
             />
           ))}
@@ -286,7 +384,8 @@ function SpanRow({
               justifyContent: "flex-end",
               paddingRight: 4,
               boxSizing: "border-box",
-            }}>
+            }}
+          >
             {labelInside && (
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t0)" }}>
                 {durLabel}
@@ -297,18 +396,21 @@ function SpanRow({
 
         {/* Right-side label */}
         <div
-          title={ws.unknownTiming
-            ? "missing or unparseable timestamps"
-            : ws.negativeDuration
-              ? "end_time is before start_time (clock skew or partial trace)"
-              : undefined}
+          title={
+            ws.unknownTiming
+              ? "missing or unparseable timestamps"
+              : ws.negativeDuration
+                ? "end_time is before start_time (clock skew or partial trace)"
+                : undefined
+          }
           style={{
             fontFamily: "var(--font-mono)",
             fontSize: 10,
             color: ws.unknownTiming || ws.negativeDuration ? "var(--amber)" : "var(--t1)",
             textAlign: "right",
             whiteSpace: "nowrap",
-          }}>
+          }}
+        >
           {labelInside ? "" : durLabel}
           {ws.hasError ? " · ERR" : ""}
         </div>
@@ -333,7 +435,10 @@ function waterfallColumns(spans: WaterfallSpan[]): string {
     const estimate = 28 + ws.depth * 12 + ws.span.name.length * 7.5;
     return Math.max(max, estimate);
   }, WATERFALL_MIN_LABEL_PX);
-  const clamped = Math.min(WATERFALL_MAX_LABEL_PX, Math.max(WATERFALL_MIN_LABEL_PX, Math.ceil(labelPx)));
+  const clamped = Math.min(
+    WATERFALL_MAX_LABEL_PX,
+    Math.max(WATERFALL_MIN_LABEL_PX, Math.ceil(labelPx)),
+  );
   return `${clamped}px minmax(360px, 1fr) 72px`;
 }
 
@@ -379,7 +484,8 @@ function SpanAttributePanel({ ws }: { ws: WaterfallSpan }) {
         background: "var(--bg2)",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius-sm)",
-      }}>
+      }}
+    >
       {priority.length === 0 && rest.length === 0 ? (
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
           No attributes recorded for this span.
@@ -389,21 +495,74 @@ function SpanAttributePanel({ ws }: { ws: WaterfallSpan }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {priority.map(([k, v]) => (
               <div key={k} style={{ display: "flex", gap: 8 }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", width: 140, flexShrink: 0 }}>{k}</span>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis" }}>{String(v)}</span>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    color: "var(--t3)",
+                    width: 140,
+                    flexShrink: 0,
+                  }}
+                >
+                  {k}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    color: "var(--t1)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {String(v)}
+                </span>
               </div>
             ))}
           </div>
           {rest.length > 0 && (
             <details style={{ marginTop: priority.length ? 6 : 0 }}>
-              <summary style={{ fontSize: 10, color: "var(--t2)", cursor: "pointer", userSelect: "none", fontFamily: "var(--font-mono)" }}>
+              <summary
+                style={{
+                  fontSize: 10,
+                  color: "var(--t2)",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
                 {rest.length} more attribute{rest.length === 1 ? "" : "s"}
               </summary>
               <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
                 {rest.map(([k, v]) => (
                   <div key={k} style={{ display: "flex", gap: 8 }}>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", width: 140, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={k}>{k}</span>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(v)}</span>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10,
+                        color: "var(--t3)",
+                        width: 140,
+                        flexShrink: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={k}
+                    >
+                      {k}
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10,
+                        color: "var(--t1)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {String(v)}
+                    </span>
                   </div>
                 ))}
               </div>

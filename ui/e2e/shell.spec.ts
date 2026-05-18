@@ -36,16 +36,18 @@ test("clicking a nav button switches the active workspace", async ({ page }) => 
   );
 });
 
-test("workspace navigation keeps the current view visible while the next chunk loads", async ({ page }) => {
+test("workspace navigation keeps the current view visible while the next chunk loads", async ({
+  page,
+}) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
   await expect(page.getByText("Nothing runnable yet")).toBeVisible();
 
   let releaseUsageChunk: (() => void) | null = null;
-  const usageChunkRequested = new Promise<void>(resolve => {
-    void page.route("**/src/features/usage/UsageView.tsx*", async route => {
+  const usageChunkRequested = new Promise<void>((resolve) => {
+    void page.route("**/src/features/usage/UsageView.tsx*", async (route) => {
       resolve();
-      await new Promise<void>(release => {
+      await new Promise<void>((release) => {
         releaseUsageChunk = release;
       });
       await route.continue();
@@ -68,8 +70,8 @@ test("cold workspace loading fallback is centered in the content area", async ({
   });
 
   let releaseUsageChunk: (() => void) | null = null;
-  await page.route("**/src/features/usage/UsageView.tsx*", async route => {
-    await new Promise<void>(release => {
+  await page.route("**/src/features/usage/UsageView.tsx*", async (route) => {
+    await new Promise<void>((release) => {
       releaseUsageChunk = release;
     });
     await route.continue();

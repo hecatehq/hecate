@@ -34,26 +34,61 @@ export function DiffStatList({ diffStat }: { diffStat: string }) {
   }
 
   return (
-    <div style={{
-      display: "grid",
-      gap: 5,
-      padding: "8px 10px",
-      border: "1px solid var(--border)",
-      borderRadius: "var(--radius-sm)",
-      background: "var(--bg2)",
-    }}>
-      {rows.map(row => (
-        <div key={row.path} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 10, alignItems: "baseline" }}>
-          <span style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+    <div
+      style={{
+        display: "grid",
+        gap: 5,
+        padding: "8px 10px",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg2)",
+      }}
+    >
+      {rows.map((row) => (
+        <div
+          key={row.path}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            gap: 10,
+            alignItems: "baseline",
+          }}
+        >
+          <span
+            style={{
+              color: "var(--t1)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {row.path}
           </span>
-          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 11, whiteSpace: "nowrap" }}>
+          <span
+            style={{
+              color: "var(--t3)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+            }}
+          >
             {row.change}
           </span>
         </div>
       ))}
       {summary && (
-        <div style={{ borderTop: "1px solid var(--border)", color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11, marginTop: 2, paddingTop: 6 }}>
+        <div
+          style={{
+            borderTop: "1px solid var(--border)",
+            color: "var(--t2)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            marginTop: 2,
+            paddingTop: 6,
+          }}
+        >
           {summary}
         </div>
       )}
@@ -87,21 +122,25 @@ export function TranscriptActivityTimeline({
 
   if (primary.length === 0 && details.length === 0) return null;
 
-  const plan = primary.filter(activity => activity.type === "plan");
-  const tools = primary.filter(activity => activity.type === "tool_call");
-  const failedTools = tools.filter(activity => activity.status === "failed").length;
+  const plan = primary.filter((activity) => activity.type === "plan");
+  const tools = primary.filter((activity) => activity.type === "tool_call");
+  const failedTools = tools.filter((activity) => activity.status === "failed").length;
   const summary = [
     terminal ? terminalStatusLabel(terminal.status) : hasRunning ? "working" : "details",
-    plan.length > 0 ? `${plan.filter(item => item.status === "completed").length}/${plan.length} plan` : "",
+    plan.length > 0
+      ? `${plan.filter((item) => item.status === "completed").length}/${plan.length} plan`
+      : "",
     tools.length > 0
       ? terminal?.status === "cancelled" && failedTools > 0
         ? `${failedTools} interrupted tool${failedTools === 1 ? "" : "s"}`
         : failedTools > 0
-        ? `${failedTools} failed tool${failedTools === 1 ? "" : "s"}`
-        : `${tools.length} tool${tools.length === 1 ? "" : "s"}`
+          ? `${failedTools} failed tool${failedTools === 1 ? "" : "s"}`
+          : `${tools.length} tool${tools.length === 1 ? "" : "s"}`
       : "",
     diffStat ? "files changed" : "",
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <details
@@ -109,18 +148,27 @@ export function TranscriptActivityTimeline({
       open={open}
       style={{ marginTop: 8 }}
     >
-      <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
+      <summary
+        style={{
+          cursor: "pointer",
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--t3)",
+        }}
+      >
         {summary}
       </summary>
-      <div style={{
-        display: "grid",
-        gap: 5,
-        marginTop: 6,
-        padding: "8px 10px",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-sm)",
-        background: "var(--bg2)",
-      }}>
+      <div
+        style={{
+          display: "grid",
+          gap: 5,
+          marginTop: 6,
+          padding: "8px 10px",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          background: "var(--bg2)",
+        }}
+      >
         {primary.map((activity, index) => (
           <TimelineActivityLine
             key={activity.id || `${activity.type}-${activity.created_at ?? index}`}
@@ -129,8 +177,21 @@ export function TranscriptActivityTimeline({
           />
         ))}
         {details.length > 0 && (
-          <details style={{ borderTop: primary.length > 0 ? "1px solid var(--border)" : "none", marginTop: primary.length > 0 ? 4 : 0, paddingTop: primary.length > 0 ? 6 : 0 }}>
-            <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+          <details
+            style={{
+              borderTop: primary.length > 0 ? "1px solid var(--border)" : "none",
+              marginTop: primary.length > 0 ? 4 : 0,
+              paddingTop: primary.length > 0 ? 6 : 0,
+            }}
+          >
+            <summary
+              style={{
+                cursor: "pointer",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--t3)",
+              }}
+            >
               {detailSummaryLabel(details)}
             </summary>
             <div style={{ display: "grid", gap: 5, marginTop: 6 }}>
@@ -156,9 +217,12 @@ function TimelineActivityLine({
   activity: ChatActivityRecord;
   renderAdvancedActivity?: (activity: ChatActivityRecord) => ReactNode;
 }) {
-  const line = activity.type === "plan"
-    ? <PlanActivityLine activity={activity} />
-    : <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />;
+  const line =
+    activity.type === "plan" ? (
+      <PlanActivityLine activity={activity} />
+    ) : (
+      <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />
+    );
   const hasAdvanced = Boolean(renderAdvancedActivity?.(activity));
   const [advancedOpen, setAdvancedOpen] = useState(false);
   if (!hasAdvanced) return line;
@@ -170,17 +234,26 @@ function TimelineActivityLine({
         onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
         style={{ marginLeft: 15 }}
       >
-        <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+        <summary
+          style={{
+            cursor: "pointer",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--t3)",
+          }}
+        >
           {advancedSummaryLabel(activity)}
         </summary>
         {advancedOpen && (
-          <div style={{
-            marginTop: 6,
-            padding: "7px 9px",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--bg1)",
-          }}>
+          <div
+            style={{
+              marginTop: 6,
+              padding: "7px 9px",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--bg1)",
+            }}
+          >
             {renderAdvancedActivity?.(activity)}
           </div>
         )}
@@ -198,14 +271,41 @@ function advancedSummaryLabel(activity: ChatActivityRecord): string {
 function PlanActivityLine({ activity }: { activity: ChatActivityRecord }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
-      <span style={{ color: activity.status === "completed" ? "var(--green)" : activity.status === "in_progress" ? "var(--teal)" : "var(--t3)", flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11 }}>
+      <span
+        style={{
+          color:
+            activity.status === "completed"
+              ? "var(--green)"
+              : activity.status === "in_progress"
+                ? "var(--teal)"
+                : "var(--t3)",
+          flexShrink: 0,
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+        }}
+      >
         {activity.status === "completed" ? "x" : activity.status === "in_progress" ? ">" : "-"}
       </span>
-      <span style={{ color: "var(--t1)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span
+        style={{
+          color: "var(--t1)",
+          fontSize: 11,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
         {activity.title}
       </span>
       {activity.kind && (
-        <span style={{ color: "var(--t3)", flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 10 }}>
+        <span
+          style={{
+            color: "var(--t3)",
+            flexShrink: 0,
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+          }}
+        >
           {activity.kind}
         </span>
       )}
@@ -217,23 +317,47 @@ function ActivityLine({ activity, prefix }: { activity: ChatActivityRecord; pref
   const display = activityDisplay(activity);
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
-      <span style={{
-        width: 7,
-        height: 7,
-        borderRadius: 999,
-        background: activityStatusColor(activity.status),
-        flexShrink: 0,
-      }} />
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: 999,
+          background: activityStatusColor(activity.status),
+          flexShrink: 0,
+        }}
+      />
       {prefix && (
-        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", whiteSpace: "nowrap" }}>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--t3)",
+            whiteSpace: "nowrap",
+          }}
+        >
           {prefix}
         </span>
       )}
-      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)", whiteSpace: "nowrap" }}>
+      <span
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          color: "var(--t1)",
+          whiteSpace: "nowrap",
+        }}
+      >
         {display.title}
       </span>
       {display.detail && (
-        <span style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span
+          style={{
+            fontSize: 11,
+            color: "var(--t3)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           {display.detail}
         </span>
       )}

@@ -2,7 +2,10 @@ import { act, fireEvent, render, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ObservabilityView } from "./ObservabilityView";
-import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 
 function setViewportWidth(px: number) {
@@ -51,17 +54,20 @@ function tracesFetchHandler(traces: unknown[], detail?: unknown) {
       const parsed = new URL(url, "http://hecate.test");
       if (parsed.searchParams.has("request_id")) {
         return new Response(JSON.stringify({ object: "trace", data: detail }), {
-          status: 200, headers: { "Content-Type": "application/json" },
+          status: 200,
+          headers: { "Content-Type": "application/json" },
         });
       }
     }
     if (url.startsWith("/hecate/v1/traces")) {
       return new Response(JSON.stringify({ object: "trace_list", data: traces }), {
-        status: 200, headers: { "Content-Type": "application/json" },
+        status: 200,
+        headers: { "Content-Type": "application/json" },
       });
     }
     return new Response(JSON.stringify({ object: "list", data: [] }), {
-      status: 200, headers: { "Content-Type": "application/json" },
+      status: 200,
+      headers: { "Content-Type": "application/json" },
     });
   };
 }
@@ -71,7 +77,12 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     expect(container.textContent).toMatch(/Observability/);
@@ -85,12 +96,17 @@ describe("ObservabilityView", () => {
   it("calls /hecate/v1/system/stats and /hecate/v1/traces on mount", async () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
-      render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
     });
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map(([u]) => String(u));
-      expect(urls.some(u => u.startsWith("/hecate/v1/system/stats"))).toBe(true);
-      expect(urls.some(u => u.startsWith("/hecate/v1/traces"))).toBe(true);
+      expect(urls.some((u) => u.startsWith("/hecate/v1/system/stats"))).toBe(true);
+      expect(urls.some((u) => u.startsWith("/hecate/v1/traces"))).toBe(true);
     });
   });
 
@@ -98,19 +114,34 @@ describe("ObservabilityView", () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.startsWith("/hecate/v1/system/mcp/cache")) {
-        return new Response(JSON.stringify({
-          object: "mcp_cache_stats",
-          data: { checked_at: new Date().toISOString(), configured: true, entries: 4, in_use: 1, idle: 3 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({
+            object: "mcp_cache_stats",
+            data: {
+              checked_at: new Date().toISOString(),
+              configured: true,
+              entries: 4,
+              in_use: 1,
+              idle: 3,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
       return new Response(JSON.stringify({ object: "list", data: [] }), {
-        status: 200, headers: { "Content-Type": "application/json" },
+        status: 200,
+        headers: { "Content-Type": "application/json" },
       });
     });
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -129,19 +160,34 @@ describe("ObservabilityView", () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.startsWith("/hecate/v1/system/mcp/cache")) {
-        return new Response(JSON.stringify({
-          object: "mcp_cache_stats",
-          data: { checked_at: new Date().toISOString(), configured: false, entries: 0, in_use: 0, idle: 0 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({
+            object: "mcp_cache_stats",
+            data: {
+              checked_at: new Date().toISOString(),
+              configured: false,
+              entries: 0,
+              in_use: 0,
+              idle: 0,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
       return new Response(JSON.stringify({ object: "list", data: [] }), {
-        status: 200, headers: { "Content-Type": "application/json" },
+        status: 200,
+        headers: { "Content-Type": "application/json" },
       });
     });
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -155,28 +201,40 @@ describe("ObservabilityView", () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.startsWith("/hecate/v1/system/stats")) {
-        return new Response(JSON.stringify({
-          object: "runtime_stats",
-          data: {
-            checked_at: new Date().toISOString(),
-            queue_depth: 0,
-            queue_capacity: 128,
-            worker_count: 1,
-            in_flight_jobs: 0,
-            queued_runs: 0,
-            running_runs: 0,
-            awaiting_approval_runs: 0,
-            oldest_queued_age_seconds: 0,
-            oldest_running_age_seconds: 0,
-            store_backend: "memory",
-          },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({
+            object: "runtime_stats",
+            data: {
+              checked_at: new Date().toISOString(),
+              queue_depth: 0,
+              queue_capacity: 128,
+              worker_count: 1,
+              in_flight_jobs: 0,
+              queued_runs: 0,
+              running_runs: 0,
+              awaiting_approval_runs: 0,
+              oldest_queued_age_seconds: 0,
+              oldest_running_age_seconds: 0,
+              store_backend: "memory",
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
       if (url.startsWith("/hecate/v1/system/mcp/cache")) {
-        return new Response(JSON.stringify({
-          object: "mcp_cache_stats",
-          data: { checked_at: new Date().toISOString(), configured: false, entries: 0, in_use: 0, idle: 0 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({
+            object: "mcp_cache_stats",
+            data: {
+              checked_at: new Date().toISOString(),
+              configured: false,
+              entries: 0,
+              in_use: 0,
+              idle: 0,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
       return new Response(JSON.stringify({ object: "list", data: [] }), {
         status: 200,
@@ -187,14 +245,23 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
 
     await waitFor(() => {
-      const grid = container.querySelector('[data-testid="runtime-stats-grid"]') as HTMLElement | null;
+      const grid = container.querySelector(
+        '[data-testid="runtime-stats-grid"]',
+      ) as HTMLElement | null;
       expect(grid).toBeTruthy();
-      expect(normalizedInlineStyle(grid!, "grid-template-columns")).toBe("repeat(auto-fit,minmax(136px,1fr))");
+      expect(normalizedInlineStyle(grid!, "grid-template-columns")).toBe(
+        "repeat(auto-fit,minmax(136px,1fr))",
+      );
     });
   });
 
@@ -204,17 +271,19 @@ describe("ObservabilityView", () => {
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(
-        withRuntimeConsole(
-          <ObservabilityView onNavigate={onNavigate} />,
-          { state, actions: createRuntimeConsoleActions() },
-        ),
+        withRuntimeConsole(<ObservabilityView onNavigate={onNavigate} />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
       );
       container = result.container;
     });
     await waitFor(() => {
       expect(container.textContent).toMatch(/No traces yet/);
     });
-    const button = Array.from(container.querySelectorAll("button")).find(b => b.textContent?.includes("Open Chats"));
+    const button = Array.from(container.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Open Chats"),
+    );
     expect(button).toBeTruthy();
     fireEvent.click(button!);
     expect(onNavigate).toHaveBeenCalledWith("chats");
@@ -230,23 +299,29 @@ describe("ObservabilityView", () => {
       if (url.startsWith("/hecate/v1/traces")) {
         return tracesPromise;
       }
-      return Promise.resolve(new Response(JSON.stringify({ object: "list", data: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
+      return Promise.resolve(
+        new Response(JSON.stringify({ object: "list", data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
     });
 
     const state = createRuntimeConsoleFixture({ session: localSession });
-    const { container } = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+    const { container } = render(
+      withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     expect(container.textContent).toMatch(/Loading traces/);
     expect(container.textContent).not.toMatch(/No traces yet/);
 
     await act(async () => {
-      resolveTraces(new Response(JSON.stringify({ object: "trace_list", data: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
+      resolveTraces(
+        new Response(JSON.stringify({ object: "trace_list", data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
       await tracesPromise;
     });
 
@@ -256,29 +331,40 @@ describe("ObservabilityView", () => {
   });
 
   it("renders the table with status badges and provider/model cells", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler([
-      {
-        request_id: "req-ok",
-        started_at: new Date(Date.now() - 5000).toISOString(),
-        span_count: 1,
-        duration_ms: 12,
-        status_code: "ok",
-        route: { final_provider: "openai", final_model: "gpt-4o-mini", final_reason: "requested_model" },
-      },
-      {
-        request_id: "req-err",
-        started_at: new Date(Date.now() - 10_000).toISOString(),
-        span_count: 1,
-        duration_ms: 5,
-        status_code: "error",
-        status_message: "boom",
-        route: { final_provider: "anthropic", final_model: "claude-3" },
-      },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: "req-ok",
+          started_at: new Date(Date.now() - 5000).toISOString(),
+          span_count: 1,
+          duration_ms: 12,
+          status_code: "ok",
+          route: {
+            final_provider: "openai",
+            final_model: "gpt-4o-mini",
+            final_reason: "requested_model",
+          },
+        },
+        {
+          request_id: "req-err",
+          started_at: new Date(Date.now() - 10_000).toISOString(),
+          span_count: 1,
+          duration_ms: 5,
+          status_code: "error",
+          status_message: "boom",
+          route: { final_provider: "anthropic", final_model: "claude-3" },
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -302,25 +388,32 @@ describe("ObservabilityView", () => {
   });
 
   it("folds fallback source into the compact route column", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler([
-      {
-        request_id: "req-fallback",
-        started_at: new Date(Date.now() - 5000).toISOString(),
-        span_count: 1,
-        duration_ms: 12,
-        status_code: "ok",
-        route: {
-          final_provider: "ollama",
-          final_model: "ministral-3:latest",
-          final_reason: "provider_default_model_failover",
-          fallback_from: "openai",
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: "req-fallback",
+          started_at: new Date(Date.now() - 5000).toISOString(),
+          span_count: 1,
+          duration_ms: 12,
+          status_code: "ok",
+          route: {
+            final_provider: "ollama",
+            final_model: "ministral-3:latest",
+            final_reason: "provider_default_model_failover",
+            fallback_from: "openai",
+          },
         },
-      },
-    ]));
+      ]),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -336,17 +429,71 @@ describe("ObservabilityView", () => {
     // "+4" next to the request ID.
     const reqID = "req-shared-id";
     const startedAt = new Date().toISOString();
-    fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: reqID, trace_id: "t1", started_at: startedAt, span_count: 4, duration_ms: 1, status_code: "ok", route: { candidates: [{ provider: "lmstudio", model: "x", outcome: "skipped", skip_reason: "unsupported_model" }] } },
-      { request_id: reqID, trace_id: "t2", started_at: startedAt, span_count: 4, status_code: "ok", route: {} },
-      { request_id: reqID, trace_id: "t3", started_at: startedAt, span_count: 6, duration_ms: 17382, status_code: "ok", route: {} },
-      { request_id: reqID, trace_id: "t4", started_at: startedAt, span_count: 4, status_code: "unset", route: {} },
-      { request_id: reqID, trace_id: "t5", started_at: startedAt, span_count: 2, duration_ms: 17502, status_code: "ok", route: {} },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: reqID,
+          trace_id: "t1",
+          started_at: startedAt,
+          span_count: 4,
+          duration_ms: 1,
+          status_code: "ok",
+          route: {
+            candidates: [
+              {
+                provider: "lmstudio",
+                model: "x",
+                outcome: "skipped",
+                skip_reason: "unsupported_model",
+              },
+            ],
+          },
+        },
+        {
+          request_id: reqID,
+          trace_id: "t2",
+          started_at: startedAt,
+          span_count: 4,
+          status_code: "ok",
+          route: {},
+        },
+        {
+          request_id: reqID,
+          trace_id: "t3",
+          started_at: startedAt,
+          span_count: 6,
+          duration_ms: 17382,
+          status_code: "ok",
+          route: {},
+        },
+        {
+          request_id: reqID,
+          trace_id: "t4",
+          started_at: startedAt,
+          span_count: 4,
+          status_code: "unset",
+          route: {},
+        },
+        {
+          request_id: reqID,
+          trace_id: "t5",
+          started_at: startedAt,
+          span_count: 2,
+          duration_ms: 17502,
+          status_code: "ok",
+          route: {},
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -371,14 +518,37 @@ describe("ObservabilityView", () => {
     // rather than reading as "no provider selected".
     const reqID = "req-route-tie-break";
     const startedAt = new Date().toISOString();
-    fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: reqID, trace_id: "t-empty", started_at: startedAt, span_count: 6, duration_ms: 17382, status_code: "ok", route: {} },
-      { request_id: reqID, trace_id: "t-routed", started_at: startedAt, span_count: 4, duration_ms: 8, status_code: "ok", route: { final_provider: "ollama", final_model: "ministral-3:latest" } },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: reqID,
+          trace_id: "t-empty",
+          started_at: startedAt,
+          span_count: 6,
+          duration_ms: 17382,
+          status_code: "ok",
+          route: {},
+        },
+        {
+          request_id: reqID,
+          trace_id: "t-routed",
+          started_at: startedAt,
+          span_count: 4,
+          duration_ms: 8,
+          status_code: "ok",
+          route: { final_provider: "ollama", final_model: "ministral-3:latest" },
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -399,25 +569,34 @@ describe("ObservabilityView", () => {
     // or model fields — both are optional on the runtime type. A
     // half-populated candidate must NOT reach the rendered output as
     // literal "undefined" in the table cells or drawer header.
-    fetchMock.mockImplementation(tracesFetchHandler(
-      [{
-        request_id: "req-partial-cand",
-        started_at: new Date().toISOString(),
-        span_count: 1,
-        status_code: "ok",
-        route: { candidates: [{ outcome: "skipped", skip_reason: "unsupported_model" }] },
-      }],
-      {
-        request_id: "req-partial-cand",
-        started_at: new Date().toISOString(),
-        spans: [],
-        route: { candidates: [{ outcome: "skipped", skip_reason: "unsupported_model" }] },
-      },
-    ));
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "req-partial-cand",
+            started_at: new Date().toISOString(),
+            span_count: 1,
+            status_code: "ok",
+            route: { candidates: [{ outcome: "skipped", skip_reason: "unsupported_model" }] },
+          },
+        ],
+        {
+          request_id: "req-partial-cand",
+          started_at: new Date().toISOString(),
+          spans: [],
+          route: { candidates: [{ outcome: "skipped", skip_reason: "unsupported_model" }] },
+        },
+      ),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -434,14 +613,35 @@ describe("ObservabilityView", () => {
   });
 
   it("status filter narrows the table to error rows only", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: "ok-1", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m1" } },
-      { request_id: "err-1", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "error", route: { final_provider: "openai", final_model: "m2" } },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: "ok-1",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "ok",
+          route: { final_provider: "openai", final_model: "m1" },
+        },
+        {
+          request_id: "err-1",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "error",
+          route: { final_provider: "openai", final_model: "m2" },
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -451,7 +651,9 @@ describe("ObservabilityView", () => {
     await act(async () => {
       fireEvent.click(select);
     });
-    const errorOption = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Error")!;
+    const errorOption = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Error",
+    )!;
     await act(async () => {
       fireEvent.click(errorOption);
     });
@@ -462,14 +664,35 @@ describe("ObservabilityView", () => {
   });
 
   it("model filter starts at all models and narrows by observed traffic", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: "m1-req", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m1" } },
-      { request_id: "m2-req", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "ollama", final_model: "m2" } },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: "m1-req",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "ok",
+          route: { final_provider: "openai", final_model: "m1" },
+        },
+        {
+          request_id: "m2-req",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "ok",
+          route: { final_provider: "ollama", final_model: "m2" },
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -483,7 +706,9 @@ describe("ObservabilityView", () => {
     await act(async () => {
       fireEvent.click(select);
     });
-    const modelOption = Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("m2"))!;
+    const modelOption = Array.from(document.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("m2"),
+    )!;
     await act(async () => {
       fireEvent.click(modelOption);
     });
@@ -494,10 +719,26 @@ describe("ObservabilityView", () => {
   });
 
   it("model filter matches provider-qualified model inventory IDs to trace model names", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: "ministral-req", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "ollama", final_model: "ministral-3:latest" } },
-      { request_id: "other-req", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "gpt-4o" } },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: "ministral-req",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "ok",
+          route: { final_provider: "ollama", final_model: "ministral-3:latest" },
+        },
+        {
+          request_id: "other-req",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "ok",
+          route: { final_provider: "openai", final_model: "gpt-4o" },
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerScopedModels: [
@@ -506,7 +747,12 @@ describe("ObservabilityView", () => {
     });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -518,7 +764,9 @@ describe("ObservabilityView", () => {
     await act(async () => {
       fireEvent.click(select);
     });
-    const modelOption = Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("ollama/ministral-3:latest"))!;
+    const modelOption = Array.from(document.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("ollama/ministral-3:latest"),
+    )!;
     await act(async () => {
       fireEvent.click(modelOption);
     });
@@ -529,26 +777,35 @@ describe("ObservabilityView", () => {
   });
 
   it("row click opens the trace detail modal with the trace title", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler(
-      [{
-        request_id: "req-12345678abcd",
-        started_at: new Date().toISOString(),
-        span_count: 1,
-        duration_ms: 10,
-        status_code: "ok",
-        route: { final_provider: "openai", final_model: "gpt-4o" },
-      }],
-      {
-        request_id: "req-12345678abcd",
-        started_at: new Date().toISOString(),
-        spans: [],
-        route: { candidates: [] },
-      },
-    ));
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "req-12345678abcd",
+            started_at: new Date().toISOString(),
+            span_count: 1,
+            duration_ms: 10,
+            status_code: "ok",
+            route: { final_provider: "openai", final_model: "gpt-4o" },
+          },
+        ],
+        {
+          request_id: "req-12345678abcd",
+          started_at: new Date().toISOString(),
+          spans: [],
+          route: { candidates: [] },
+        },
+      ),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -570,23 +827,39 @@ describe("ObservabilityView", () => {
   });
 
   it("uses usage provider and model when trace route fields are missing", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: "usage-route-fallback", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: {} },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: "usage-route-fallback",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "ok",
+          route: {},
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({
       session: localSession,
-      usageEvents: [{
-        type: "usage",
-        request_id: "usage-route-fallback",
-        provider: "ollama",
-        model: "ministral-3:latest",
-        amount_micros_usd: 0,
-        amount_usd: "0",
-      }],
+      usageEvents: [
+        {
+          type: "usage",
+          request_id: "usage-route-fallback",
+          provider: "ollama",
+          model: "ministral-3:latest",
+          amount_micros_usd: 0,
+          amount_usd: "0",
+        },
+      ],
     });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -599,37 +872,57 @@ describe("ObservabilityView", () => {
 
   it("uses selected trace detail spans when list route fields are missing", async () => {
     const started = new Date().toISOString();
-    fetchMock.mockImplementation(tracesFetchHandler(
-      [{ request_id: "detail-route-fallback", started_at: started, span_count: 1, duration_ms: 1, status_code: "ok", route: {} }],
-      {
-        request_id: "detail-route-fallback",
-        started_at: started,
-        spans: [{
-          trace_id: "trace-detail",
-          span_id: "router",
-          name: "gateway.router",
-          start_time: started,
-          end_time: started,
-          attributes: {
-            "gen_ai.provider.name": "ollama",
-            "gen_ai.request.model": "ministral-3:latest",
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "detail-route-fallback",
+            started_at: started,
+            span_count: 1,
+            duration_ms: 1,
+            status_code: "ok",
+            route: {},
           },
-          events: [{
-            name: "router.selected",
-            timestamp: started,
-            attributes: {
-              "gen_ai.provider.name": "ollama",
-              "gen_ai.request.model": "ministral-3:latest",
+        ],
+        {
+          request_id: "detail-route-fallback",
+          started_at: started,
+          spans: [
+            {
+              trace_id: "trace-detail",
+              span_id: "router",
+              name: "gateway.router",
+              start_time: started,
+              end_time: started,
+              attributes: {
+                "gen_ai.provider.name": "ollama",
+                "gen_ai.request.model": "ministral-3:latest",
+              },
+              events: [
+                {
+                  name: "router.selected",
+                  timestamp: started,
+                  attributes: {
+                    "gen_ai.provider.name": "ollama",
+                    "gen_ai.request.model": "ministral-3:latest",
+                  },
+                },
+              ],
             },
-          }],
-        }],
-        route: { candidates: [] },
-      },
-    ));
+          ],
+          route: { candidates: [] },
+        },
+      ),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession, usageEvents: [] });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -637,31 +930,39 @@ describe("ObservabilityView", () => {
     });
     const row = container.querySelector("tbody tr") as HTMLElement;
     expect(row).toBeTruthy();
-    await act(async () => { fireEvent.click(row); });
+    await act(async () => {
+      fireEvent.click(row);
+    });
     await waitFor(() => {
       expect(container.textContent).toMatch(/ollama/);
       expect(container.textContent).toMatch(/ministral-3:latest/);
-      expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("ollama/ministral-3:latest · Request detail-route-fallback");
+      expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe(
+        "ollama/ministral-3:latest · Request detail-route-fallback",
+      );
     });
   });
 
   it("opens a trace detail drawer when focused by request id", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler(
-      [{
-        request_id: "req-focus-from-chat",
-        started_at: new Date().toISOString(),
-        span_count: 1,
-        duration_ms: 10,
-        status_code: "ok",
-        route: { final_provider: "ollama", final_model: "ministral-3:latest" },
-      }],
-      {
-        request_id: "req-focus-from-chat",
-        started_at: new Date().toISOString(),
-        spans: [],
-        route: { candidates: [] },
-      },
-    ));
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "req-focus-from-chat",
+            started_at: new Date().toISOString(),
+            span_count: 1,
+            duration_ms: 10,
+            status_code: "ok",
+            route: { final_provider: "ollama", final_model: "ministral-3:latest" },
+          },
+        ],
+        {
+          request_id: "req-focus-from-chat",
+          started_at: new Date().toISOString(),
+          spans: [],
+          route: { candidates: [] },
+        },
+      ),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
       render(
@@ -674,19 +975,33 @@ describe("ObservabilityView", () => {
 
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map(([u]) => String(u));
-      expect(urls.some(u => u === "/hecate/v1/traces?request_id=req-focus-from-chat")).toBe(true);
+      expect(urls.some((u) => u === "/hecate/v1/traces?request_id=req-focus-from-chat")).toBe(true);
       const dialog = document.querySelector('[role="dialog"]');
       expect(dialog?.getAttribute("aria-label")).toMatch(/ollama\/ministral-3:latest/);
     });
   });
 
   it("live mode auto-highlight does NOT auto-open the modal", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: "auto-pick", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: "auto-pick",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "ok",
+          route: { final_provider: "openai", final_model: "m" },
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
-      render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
     });
     await waitFor(() => {
       // The table truncates to 8 chars for display.
@@ -697,23 +1012,39 @@ describe("ObservabilityView", () => {
   });
 
   it("renders $0.00000 for zero-cost rows when a usage entry exists", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: "zero-cost", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: "zero-cost",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "ok",
+          route: { final_provider: "openai", final_model: "m" },
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({
       session: localSession,
-      usageEvents: [{
-        type: "usage",
-        request_id: "zero-cost",
-        amount_micros_usd: 0,
-        amount_usd: "0",
-        prompt_tokens: 5,
-        completion_tokens: 10,
-      }],
+      usageEvents: [
+        {
+          type: "usage",
+          request_id: "zero-cost",
+          amount_micros_usd: 0,
+          amount_usd: "0",
+          prompt_tokens: 5,
+          completion_tokens: 10,
+        },
+      ],
     });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
@@ -724,40 +1055,55 @@ describe("ObservabilityView", () => {
   });
 
   it("X button closes the bottom drawer and clears the selection", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler(
-      [{
-        request_id: "req-close-me",
-        started_at: new Date().toISOString(),
-        span_count: 1,
-        duration_ms: 10,
-        status_code: "ok",
-        route: { final_provider: "openai", final_model: "gpt-4o" },
-      }],
-      {
-        request_id: "req-close-me",
-        started_at: new Date().toISOString(),
-        spans: [],
-        route: { candidates: [] },
-      },
-    ));
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "req-close-me",
+            started_at: new Date().toISOString(),
+            span_count: 1,
+            duration_ms: 10,
+            status_code: "ok",
+            route: { final_provider: "openai", final_model: "gpt-4o" },
+          },
+        ],
+        {
+          request_id: "req-close-me",
+          started_at: new Date().toISOString(),
+          spans: [],
+          route: { candidates: [] },
+        },
+      ),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
       expect(container.textContent).toMatch(/req-clos/);
     });
     const row = container.querySelector("tbody tr") as HTMLElement;
-    await act(async () => { fireEvent.click(row); });
+    await act(async () => {
+      fireEvent.click(row);
+    });
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeTruthy();
     });
     // The drawer header carries an aria-label="Close" button.
-    const closeBtn = document.querySelector('[role="dialog"] button[aria-label="Close"]') as HTMLButtonElement;
+    const closeBtn = document.querySelector(
+      '[role="dialog"] button[aria-label="Close"]',
+    ) as HTMLButtonElement;
     expect(closeBtn).toBeTruthy();
-    await act(async () => { fireEvent.click(closeBtn); });
+    await act(async () => {
+      fireEvent.click(closeBtn);
+    });
     await waitFor(() => {
       expect(document.querySelector('[role="dialog"]')).toBeNull();
     });
@@ -765,28 +1111,44 @@ describe("ObservabilityView", () => {
 
   it("renders the bottom drawer (not a centered modal) on a wide viewport", async () => {
     setViewportWidth(1280);
-    fetchMock.mockImplementation(tracesFetchHandler(
-      [{
-        request_id: "req-drawer",
-        started_at: new Date().toISOString(),
-        span_count: 1,
-        duration_ms: 10,
-        status_code: "ok",
-        route: { final_provider: "openai", final_model: "gpt-4o" },
-      }],
-      { request_id: "req-drawer", started_at: new Date().toISOString(), spans: [], route: { candidates: [] } },
-    ));
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "req-drawer",
+            started_at: new Date().toISOString(),
+            span_count: 1,
+            duration_ms: 10,
+            status_code: "ok",
+            route: { final_provider: "openai", final_model: "gpt-4o" },
+          },
+        ],
+        {
+          request_id: "req-drawer",
+          started_at: new Date().toISOString(),
+          spans: [],
+          route: { candidates: [] },
+        },
+      ),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
       expect(container.textContent).toMatch(/req-draw/);
     });
     const row = container.querySelector("tbody tr") as HTMLElement;
-    await act(async () => { fireEvent.click(row); });
+    await act(async () => {
+      fireEvent.click(row);
+    });
     await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
       expect(dialog).toBeTruthy();
@@ -799,28 +1161,44 @@ describe("ObservabilityView", () => {
 
   it("falls back to Modal on a narrow viewport (< 900px)", async () => {
     setViewportWidth(800);
-    fetchMock.mockImplementation(tracesFetchHandler(
-      [{
-        request_id: "req-narrow",
-        started_at: new Date().toISOString(),
-        span_count: 1,
-        duration_ms: 10,
-        status_code: "ok",
-        route: { final_provider: "openai", final_model: "gpt-4o" },
-      }],
-      { request_id: "req-narrow", started_at: new Date().toISOString(), spans: [], route: { candidates: [] } },
-    ));
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "req-narrow",
+            started_at: new Date().toISOString(),
+            span_count: 1,
+            duration_ms: 10,
+            status_code: "ok",
+            route: { final_provider: "openai", final_model: "gpt-4o" },
+          },
+        ],
+        {
+          request_id: "req-narrow",
+          started_at: new Date().toISOString(),
+          spans: [],
+          route: { candidates: [] },
+        },
+      ),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
       expect(container.textContent).toMatch(/req-narr/);
     });
     const row = container.querySelector("tbody tr") as HTMLElement;
-    await act(async () => { fireEvent.click(row); });
+    await act(async () => {
+      fireEvent.click(row);
+    });
     await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
       expect(dialog).toBeTruthy();
@@ -835,12 +1213,20 @@ describe("ObservabilityView", () => {
     const t0 = new Date(Date.now() - 1000);
     const spans = [
       // root: 0–400ms
-      { trace_id: traceID, span_id: "root", name: "provider chain",
+      {
+        trace_id: traceID,
+        span_id: "root",
+        name: "provider chain",
         start_time: new Date(t0.getTime()).toISOString(),
         end_time: new Date(t0.getTime() + 400).toISOString(),
-        attributes: { provider: "openai" } },
+        attributes: { provider: "openai" },
+      },
       // child A: 50–300ms (longer — critical)
-      { trace_id: traceID, span_id: "child-a", parent_span_id: "root", name: "provider.openai",
+      {
+        trace_id: traceID,
+        span_id: "child-a",
+        parent_span_id: "root",
+        name: "provider.openai",
         start_time: new Date(t0.getTime() + 50).toISOString(),
         end_time: new Date(t0.getTime() + 300).toISOString(),
         attributes: { "gen_ai.provider.name": "openai", model: "gpt-4o" },
@@ -850,41 +1236,63 @@ describe("ObservabilityView", () => {
             timestamp: new Date(t0.getTime() + 55).toISOString(),
             attributes: { "gen_ai.provider.name": "openai" },
           },
-        ] },
+        ],
+      },
       // child B: 310–340ms (shorter)
-      { trace_id: traceID, span_id: "child-b", parent_span_id: "root", name: "gateway.usage",
+      {
+        trace_id: traceID,
+        span_id: "child-b",
+        parent_span_id: "root",
+        name: "gateway.usage",
         start_time: new Date(t0.getTime() + 310).toISOString(),
         end_time: new Date(t0.getTime() + 340).toISOString(),
-        attributes: { "usage.input_tokens": 100 } },
+        attributes: { "usage.input_tokens": 100 },
+      },
       // A zero-duration finalization span at the trace end should stay visible
       // instead of being clipped past the right edge by the minimum bar width.
-      { trace_id: traceID, span_id: "response", parent_span_id: "root", name: "gateway.response",
+      {
+        trace_id: traceID,
+        span_id: "response",
+        parent_span_id: "root",
+        name: "gateway.response",
         start_time: new Date(t0.getTime() + 400).toISOString(),
         end_time: new Date(t0.getTime() + 400).toISOString(),
-        attributes: { "hecate.phase": "response" } },
+        attributes: { "hecate.phase": "response" },
+      },
     ];
-    fetchMock.mockImplementation(tracesFetchHandler(
-      [{
-        request_id: "req-spans",
-        started_at: t0.toISOString(),
-        span_count: 4,
-        duration_ms: 400,
-        status_code: "ok",
-        route: { final_provider: "openai", final_model: "gpt-4o" },
-      }],
-      { request_id: "req-spans", started_at: t0.toISOString(), spans, route: { candidates: [] } },
-    ));
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "req-spans",
+            started_at: t0.toISOString(),
+            span_count: 4,
+            duration_ms: 400,
+            status_code: "ok",
+            route: { final_provider: "openai", final_model: "gpt-4o" },
+          },
+        ],
+        { request_id: "req-spans", started_at: t0.toISOString(), spans, route: { candidates: [] } },
+      ),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
       expect(container.textContent).toMatch(/req-span/);
     });
     const row = container.querySelector("tbody tr") as HTMLElement;
-    await act(async () => { fireEvent.click(row); });
+    await act(async () => {
+      fireEvent.click(row);
+    });
     await waitFor(() => {
       expect(document.body.textContent).toMatch(/Spans \(4\)/);
     });
@@ -892,8 +1300,11 @@ describe("ObservabilityView", () => {
     expect(document.body.textContent).toMatch(/provider chain/);
     expect(document.body.textContent).toMatch(/provider\.openai/);
     expect(document.body.textContent).toMatch(/gateway\.usage/);
-    expect(Array.from(document.querySelectorAll('[data-testid="span-waterfall-tick"]')).map(el => el.textContent))
-      .toEqual(["0ms", "100ms", "200ms", "300ms", "400ms"]);
+    expect(
+      Array.from(document.querySelectorAll('[data-testid="span-waterfall-tick"]')).map(
+        (el) => el.textContent,
+      ),
+    ).toEqual(["0ms", "100ms", "200ms", "300ms", "400ms"]);
     const rootBar = expectHTMLElement('[data-testid="span-waterfall-bar-root"]');
     expect(rootBar.style.left).toBe("0%");
     expect(rootBar.style.width).toBe("100%");
@@ -914,10 +1325,13 @@ describe("ObservabilityView", () => {
     expect(document.body.textContent).not.toMatch(/★/);
 
     // Click the longest child to expand its attributes inline.
-    const childARow = Array.from(document.querySelectorAll('[role="button"]'))
-      .find(el => el.getAttribute("aria-label") === "span provider.openai") as HTMLElement;
+    const childARow = Array.from(document.querySelectorAll('[role="button"]')).find(
+      (el) => el.getAttribute("aria-label") === "span provider.openai",
+    ) as HTMLElement;
     expect(childARow).toBeTruthy();
-    await act(async () => { fireEvent.click(childARow); });
+    await act(async () => {
+      fireEvent.click(childARow);
+    });
     await waitFor(() => {
       expect(document.querySelector('[data-testid="span-attrs-child-a"]')).toBeTruthy();
     });
@@ -929,35 +1343,68 @@ describe("ObservabilityView", () => {
   it("renders phase legend chips when multiple phases are present", async () => {
     const t0 = new Date(Date.now() - 1000);
     const spans = [
-      { trace_id: "t1", span_id: "a", name: "gateway.request",
+      {
+        trace_id: "t1",
+        span_id: "a",
+        name: "gateway.request",
         start_time: t0.toISOString(),
-        end_time: new Date(t0.getTime() + 50).toISOString() },
-      { trace_id: "t1", span_id: "b", parent_span_id: "a", name: "gateway.router",
+        end_time: new Date(t0.getTime() + 50).toISOString(),
+      },
+      {
+        trace_id: "t1",
+        span_id: "b",
+        parent_span_id: "a",
+        name: "gateway.router",
         start_time: new Date(t0.getTime() + 5).toISOString(),
-        end_time: new Date(t0.getTime() + 30).toISOString() },
-      { trace_id: "t1", span_id: "c", parent_span_id: "a", name: "provider.openai",
+        end_time: new Date(t0.getTime() + 30).toISOString(),
+      },
+      {
+        trace_id: "t1",
+        span_id: "c",
+        parent_span_id: "a",
+        name: "provider.openai",
         start_time: new Date(t0.getTime() + 30).toISOString(),
-        end_time: new Date(t0.getTime() + 200).toISOString() },
+        end_time: new Date(t0.getTime() + 200).toISOString(),
+      },
     ];
-    fetchMock.mockImplementation(tracesFetchHandler(
-      [{
-        request_id: "req-legend", started_at: t0.toISOString(),
-        span_count: 3, duration_ms: 200, status_code: "ok",
-        route: { final_provider: "openai", final_model: "gpt-4o" },
-      }],
-      { request_id: "req-legend", started_at: t0.toISOString(), spans, route: { candidates: [] } },
-    ));
+    fetchMock.mockImplementation(
+      tracesFetchHandler(
+        [
+          {
+            request_id: "req-legend",
+            started_at: t0.toISOString(),
+            span_count: 3,
+            duration_ms: 200,
+            status_code: "ok",
+            route: { final_provider: "openai", final_model: "gpt-4o" },
+          },
+        ],
+        {
+          request_id: "req-legend",
+          started_at: t0.toISOString(),
+          spans,
+          route: { candidates: [] },
+        },
+      ),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {
       expect(container.textContent).toMatch(/req-lege/);
     });
     const row = container.querySelector("tbody tr") as HTMLElement;
-    await act(async () => { fireEvent.click(row); });
+    await act(async () => {
+      fireEvent.click(row);
+    });
     await waitFor(() => {
       const legend = document.querySelector('[aria-label="Phase legend"]');
       expect(legend).toBeTruthy();
@@ -967,13 +1414,27 @@ describe("ObservabilityView", () => {
   });
 
   it("renders em-dash for cost when usage has no entry", async () => {
-    fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: "missing-usage", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },
-    ]));
+    fetchMock.mockImplementation(
+      tracesFetchHandler([
+        {
+          request_id: "missing-usage",
+          started_at: new Date().toISOString(),
+          span_count: 1,
+          duration_ms: 1,
+          status_code: "ok",
+          route: { final_provider: "openai", final_model: "m" },
+        },
+      ]),
+    );
     const state = createRuntimeConsoleFixture({ session: localSession, usageEvents: [] });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
+      const result = render(
+        withRuntimeConsole(<ObservabilityView />, {
+          state,
+          actions: createRuntimeConsoleActions(),
+        }),
+      );
       container = result.container;
     });
     await waitFor(() => {

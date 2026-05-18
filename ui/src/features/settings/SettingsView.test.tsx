@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
-import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
@@ -149,8 +152,22 @@ describe("Connections external-agent panel", () => {
         events: [],
       },
       providers: [
-        { name: "ollama", kind: "local", healthy: true, status: "healthy", routing_ready: true, model_count: 3 },
-        { name: "anthropic", kind: "cloud", healthy: false, status: "unhealthy", routing_ready: false, readiness: { status: "blocked", reason: "missing_credential" } },
+        {
+          name: "ollama",
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          model_count: 3,
+        },
+        {
+          name: "anthropic",
+          kind: "cloud",
+          healthy: false,
+          status: "unhealthy",
+          routing_ready: false,
+          readiness: { status: "blocked", reason: "missing_credential" },
+        },
       ],
       models: [
         { id: "llama3", owned_by: "ollama" },
@@ -164,8 +181,12 @@ describe("Connections external-agent panel", () => {
     expect(within(card).getByText("2 configured")).toBeTruthy();
     expect(within(card).getByText("Ready")).toBeTruthy();
     expect(within(card).getByText("Needs attention")).toBeTruthy();
-    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent("Next repair");
-    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent("Provider blocked");
+    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent(
+      "Next repair",
+    );
+    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent(
+      "Provider blocked",
+    );
 
     await user.click(within(card).getByRole("button", { name: "Open Connections" }));
     expect(onNavigate).toHaveBeenCalledWith("connections");
@@ -189,12 +210,14 @@ describe("Connections external-agent panel", () => {
 
     await user.click(within(row).getByRole("button", { name: "tools on" }));
 
-    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
-      provider: "ollama",
-      model: "qwen2.5-coder",
-      tool_calling: "basic",
-      note: "Tools enabled from Connections.",
-    }));
+    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        tool_calling: "basic",
+        note: "Tools enabled from Connections.",
+      }),
+    );
   });
 
   it("saves and clears model capability overrides from Connections", async () => {
@@ -222,12 +245,14 @@ describe("Connections external-agent panel", () => {
     await user.click(within(row).getByRole("button", { name: "tools off" }));
     await user.click(within(row).getByRole("button", { name: "Clear override" }));
 
-    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
-      provider: "ollama",
-      model: "local-tools",
-      tool_calling: "none",
-      note: "Tools disabled from Connections.",
-    }));
+    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "ollama",
+        model: "local-tools",
+        tool_calling: "none",
+        note: "Tools disabled from Connections.",
+      }),
+    );
     expect(deleteModelCapabilityOverride).toHaveBeenCalledWith("ollama", "local-tools");
   });
 
@@ -358,31 +383,39 @@ describe("Connections external-agent panel", () => {
 
     expect(await screen.findByTestId("anthropic-provider-key-card")).toBeTruthy();
 
-    rerender(withRuntimeConsole(<ConnectionsPanel />, { state: { ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } }, actions }));
+    rerender(
+      withRuntimeConsole(<ConnectionsPanel />, {
+        state: { ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } },
+        actions,
+      }),
+    );
 
     expect(screen.getByTestId("anthropic-provider-key-card")).toBeTruthy();
   });
 
   it("saves and clears the Anthropic provider key from Connections settings", async () => {
     const setProviderAPIKey = vi.fn(async () => undefined);
-    const { state, actions, user } = setup({
-      settingsConfig: {
-        backend: "memory",
-        providers: [
-          {
-            id: "anthropic",
-            name: "Anthropic",
-            preset_id: "anthropic",
-            kind: "cloud",
-            protocol: "anthropic",
-            base_url: "https://api.anthropic.com",
-            credential_configured: true,
-          },
-        ],
-        policy_rules: [],
-        events: [],
+    const { state, actions, user } = setup(
+      {
+        settingsConfig: {
+          backend: "memory",
+          providers: [
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              preset_id: "anthropic",
+              kind: "cloud",
+              protocol: "anthropic",
+              base_url: "https://api.anthropic.com",
+              credential_configured: true,
+            },
+          ],
+          policy_rules: [],
+          events: [],
+        },
       },
-    }, { setProviderAPIKey });
+      { setProviderAPIKey },
+    );
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
     await user.type(await screen.findByLabelText("Anthropic API key"), "sk-ant-new");
@@ -450,19 +483,24 @@ describe("Connections external-agent panel", () => {
     });
 
     it("renders the auth-required hint when the cached probe says auth is missing", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapterHealthByID: new Map([
-          ["codex", {
-            adapter_id: "codex",
-            status: "auth_required",
-            stage: "initialize",
-            path: "/usr/local/bin/codex-acp",
-            error: "Authentication required",
-            hint: "Run codex login",
-            duration_ms: 412,
-          }],
-        ]),
-      }));
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapterHealthByID: new Map([
+            [
+              "codex",
+              {
+                adapter_id: "codex",
+                status: "auth_required",
+                stage: "initialize",
+                path: "/usr/local/bin/codex-acp",
+                error: "Authentication required",
+                hint: "Run codex login",
+                duration_ms: 412,
+              },
+            ],
+          ]),
+        }),
+      );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       const detail = await screen.findByTestId("external-agents-adapter-codex-detail");
       expect(within(detail).getByText("Run codex login")).toBeTruthy();
@@ -470,81 +508,101 @@ describe("Connections external-agent panel", () => {
     });
 
     it("renders discovery auth warnings before a full probe has run", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "cursor_agent",
-            name: "Cursor Agent",
-            kind: "acp",
-            command: "cursor-agent",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "unauthenticated",
-            auth_error: "Run cursor-agent login",
-          },
-        ],
-      }));
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "cursor_agent",
+              name: "Cursor Agent",
+              kind: "acp",
+              command: "cursor-agent",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unauthenticated",
+              auth_error: "Run cursor-agent login",
+            },
+          ],
+        }),
+      );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-      expect(await screen.findByTestId("external-agents-adapter-cursor_agent-auth-warning")).toHaveTextContent("auth required");
-      expect(screen.getByTestId("external-agents-adapter-cursor_agent-auth-detail")).toHaveTextContent("Run cursor-agent login");
+      expect(
+        await screen.findByTestId("external-agents-adapter-cursor_agent-auth-warning"),
+      ).toHaveTextContent("auth required");
+      expect(
+        screen.getByTestId("external-agents-adapter-cursor_agent-auth-detail"),
+      ).toHaveTextContent("Run cursor-agent login");
     });
 
     it("shows an inline checking status while a probe is in flight", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapterHealthLoadingByID: new Map([["codex", true]]),
-      }));
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapterHealthLoadingByID: new Map([["codex", true]]),
+        }),
+      );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-      expect(await screen.findByTestId("external-agents-checking-codex")).toHaveTextContent(/checking/i);
+      expect(await screen.findByTestId("external-agents-checking-codex")).toHaveTextContent(
+        /checking/i,
+      );
     });
 
     it("shows Claude Code guided setup and saves the pasted token", async () => {
       const setAgentAdapterCredential = vi.fn(async () => true);
       const probeAgentAdapter = vi.fn(async () => null);
-      const { state, actions, user } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "unknown",
-            auth_error: "Save a Claude Code token here; Hecate validates it before storing.",
-          },
-        ],
-      }), { setAgentAdapterCredential, probeAgentAdapter });
+      const { state, actions, user } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unknown",
+              auth_error: "Save a Claude Code token here; Hecate validates it before storing.",
+            },
+          ],
+        }),
+        { setAgentAdapterCredential, probeAgentAdapter },
+      );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByTestId("claude-code-guided-setup")).toBeTruthy();
       await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
       await user.click(screen.getByRole("button", { name: "Save" }));
 
-      expect(setAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN");
+      expect(setAgentAdapterCredential).toHaveBeenCalledWith(
+        "claude_code",
+        "claude-token",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+      );
     });
 
-
-
     it("keeps Claude Code token editing visible when the adapter handshake is ready but no token is configured", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "unknown",
-          },
-        ],
-        agentAdapterHealthByID: new Map([
-          ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
-        ]),
-      }));
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unknown",
+            },
+          ],
+          agentAdapterHealthByID: new Map([
+            [
+              "claude_code",
+              { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 },
+            ],
+          ]),
+        }),
+      );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
@@ -556,23 +614,28 @@ describe("Connections external-agent panel", () => {
     });
 
     it("shows CLI sign-in separately from Hecate's adapter token", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "ok",
-          },
-        ],
-        agentAdapterHealthByID: new Map([
-          ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
-        ]),
-      }));
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "ok",
+            },
+          ],
+          agentAdapterHealthByID: new Map([
+            [
+              "claude_code",
+              { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 },
+            ],
+          ]),
+        }),
+      );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
@@ -584,25 +647,30 @@ describe("Connections external-agent panel", () => {
     });
 
     it("shows a token-verified result after Claude Code token validation passes", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "unknown",
-            credential_configured: true,
-            credential_preview: "sk-a...SwAA",
-          },
-        ],
-        agentAdapterHealthByID: new Map([
-          ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
-        ]),
-      }));
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unknown",
+              credential_configured: true,
+              credential_preview: "sk-a...SwAA",
+            },
+          ],
+          agentAdapterHealthByID: new Map([
+            [
+              "claude_code",
+              { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 },
+            ],
+          ]),
+        }),
+      );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByText("Claude Code token verified")).toBeTruthy();
@@ -613,30 +681,38 @@ describe("Connections external-agent panel", () => {
       expect(screen.getByText("Token valid.")).toBeTruthy();
       expect(screen.queryByTestId("external-agents-adapter-claude_code-auth-warning")).toBeNull();
       expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
-      expect(screen.getByPlaceholderText("Paste a replacement CLAUDE_CODE_OAUTH_TOKEN")).toBeTruthy();
+      expect(
+        screen.getByPlaceholderText("Paste a replacement CLAUDE_CODE_OAUTH_TOKEN"),
+      ).toBeTruthy();
     });
 
     it("can remove a stored Claude Code token", async () => {
       const deleteAgentAdapterCredential = vi.fn(async () => true);
-      const { state, actions, user } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            credential_configured: true,
-            credential_preview: "clau...oken",
-          },
-        ],
-      }), { deleteAgentAdapterCredential });
+      const { state, actions, user } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              credential_configured: true,
+              credential_preview: "clau...oken",
+            },
+          ],
+        }),
+        { deleteAgentAdapterCredential },
+      );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       await user.click(await screen.findByRole("button", { name: "Remove" }));
 
-      expect(deleteAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "CLAUDE_CODE_OAUTH_TOKEN");
+      expect(deleteAgentAdapterCredential).toHaveBeenCalledWith(
+        "claude_code",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+      );
     });
   });
 });

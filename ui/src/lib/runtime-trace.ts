@@ -67,7 +67,10 @@ export type TraceWaterfall = {
   phases: TraceTimelineItem["phase"][];
 };
 
-export function buildTraceTimeline(spans: TraceSpanRecord[], traceStartedAt?: string): TraceTimelineItem[] {
+export function buildTraceTimeline(
+  spans: TraceSpanRecord[],
+  traceStartedAt?: string,
+): TraceTimelineItem[] {
   const flattened: TraceTimelineItem[] = [];
   const startSource = traceStartedAt || spans[0]?.start_time || "";
   const startMs = parseISOWithSubMs(startSource);
@@ -75,7 +78,10 @@ export function buildTraceTimeline(spans: TraceSpanRecord[], traceStartedAt?: st
   for (const span of spans) {
     for (const event of span.events ?? []) {
       const currentMs = parseISOWithSubMs(event.timestamp);
-      const offsetMs = Number.isFinite(startMs) && Number.isFinite(currentMs) ? Math.max(0, currentMs - startMs) : 0;
+      const offsetMs =
+        Number.isFinite(startMs) && Number.isFinite(currentMs)
+          ? Math.max(0, currentMs - startMs)
+          : 0;
       flattened.push({
         name: event.name,
         timestamp: event.timestamp,
@@ -112,10 +118,15 @@ export function findModelInTrace(spans: TraceSpanRecord[], provider?: string): s
   for (const span of spans) {
     const spanProvider = traceStringAttr(span.attributes ?? {}, "gen_ai.provider.name");
     if (!normalizedProvider || !spanProvider || spanProvider === normalizedProvider) {
-      const spanModel = traceStringAttr(span.attributes ?? {}, "gen_ai.response.model")
-        || traceStringAttr(span.attributes ?? {}, "gen_ai.request.model");
+      const spanModel =
+        traceStringAttr(span.attributes ?? {}, "gen_ai.response.model") ||
+        traceStringAttr(span.attributes ?? {}, "gen_ai.request.model");
       if (spanModel) {
-        candidates.push({ priority: span.name === "gateway.router" ? 2 : 1, timestamp: parseISOWithSubMs(span.start_time ?? ""), model: spanModel });
+        candidates.push({
+          priority: span.name === "gateway.router" ? 2 : 1,
+          timestamp: parseISOWithSubMs(span.start_time ?? ""),
+          model: spanModel,
+        });
       }
     }
 
@@ -130,13 +141,24 @@ export function findModelInTrace(spans: TraceSpanRecord[], provider?: string): s
 
       const responseModel = traceStringAttr(attrs, "gen_ai.response.model");
       if (responseModel) {
-        candidates.push({ priority: 3, timestamp: parseISOWithSubMs(event.timestamp), model: responseModel });
+        candidates.push({
+          priority: 3,
+          timestamp: parseISOWithSubMs(event.timestamp),
+          model: responseModel,
+        });
       }
 
       const requestModel = traceStringAttr(attrs, "gen_ai.request.model");
       if (requestModel) {
-        const priority = event.name === "provider.call.finished" || event.name === "router.candidate.selected" ? 2 : 1;
-        candidates.push({ priority, timestamp: parseISOWithSubMs(event.timestamp), model: requestModel });
+        const priority =
+          event.name === "provider.call.finished" || event.name === "router.candidate.selected"
+            ? 2
+            : 1;
+        candidates.push({
+          priority,
+          timestamp: parseISOWithSubMs(event.timestamp),
+          model: requestModel,
+        });
       }
     }
   }
@@ -159,14 +181,25 @@ export function findProviderInTrace(spans: TraceSpanRecord[]): string {
   for (const span of spans) {
     const spanProvider = traceStringAttr(span.attributes ?? {}, "gen_ai.provider.name");
     if (spanProvider) {
-      candidates.push({ priority: span.name === "gateway.router" || span.name.startsWith("provider.") ? 2 : 1, timestamp: parseISOWithSubMs(span.start_time ?? ""), provider: spanProvider });
+      candidates.push({
+        priority: span.name === "gateway.router" || span.name.startsWith("provider.") ? 2 : 1,
+        timestamp: parseISOWithSubMs(span.start_time ?? ""),
+        provider: spanProvider,
+      });
     }
 
     for (const event of span.events ?? []) {
       const provider = traceStringAttr(event.attributes ?? {}, "gen_ai.provider.name");
       if (!provider) continue;
-      const selected = event.name === "router.selected" || event.name === "router.candidate.selected" || event.name.startsWith("provider.call.");
-      candidates.push({ priority: selected ? 3 : 1, timestamp: parseISOWithSubMs(event.timestamp), provider });
+      const selected =
+        event.name === "router.selected" ||
+        event.name === "router.candidate.selected" ||
+        event.name.startsWith("provider.call.");
+      candidates.push({
+        priority: selected ? 3 : 1,
+        timestamp: parseISOWithSubMs(event.timestamp),
+        provider,
+      });
     }
   }
 
@@ -286,11 +319,11 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
   // still get `unknownTiming: true` because we can't draw their bar.
   type Parsed = {
     span: TraceSpanRecord;
-    start: number;       // NaN if unparseable
-    end: number;         // NaN if unparseable
+    start: number; // NaN if unparseable
+    end: number; // NaN if unparseable
     startValid: boolean;
     endValid: boolean;
-    durMs: number;       // end - start, or NaN if either is bad
+    durMs: number; // end - start, or NaN if either is bad
   };
   const parsed: Parsed[] = spans.map((s) => {
     const startRaw = s.start_time ? parseISOWithSubMs(s.start_time) : NaN;
@@ -325,12 +358,13 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
   const startValidParsed = parsed.filter((p) => p.startValid);
   const t0 = startValidParsed.length > 0 ? Math.min(...startValidParsed.map((p) => p.start)) : 0;
   const endValidParsed = parsed.filter((p) => p.startValid && p.endValid);
-  const rawTotalMs = startValidParsed.length > 0
-    ? Math.max(
-      ...endValidParsed.map((p) => p.end - t0),
-      ...startValidParsed.map((p) => p.start - t0),
-    )
-    : 0;
+  const rawTotalMs =
+    startValidParsed.length > 0
+      ? Math.max(
+          ...endValidParsed.map((p) => p.end - t0),
+          ...startValidParsed.map((p) => p.start - t0),
+        )
+      : 0;
   const totalMs = rawTotalMs > 0 ? rawTotalMs : 1;
 
   const byID = new Map<string, TraceSpanRecord>();
@@ -422,7 +456,10 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
       let bestD = -1;
       for (const k of kids) {
         const d: number = descent(k.span_id);
-        if (d > bestD) { bestD = d; best = k; }
+        if (d > bestD) {
+          bestD = d;
+          best = k;
+        }
       }
       node = best;
     }
@@ -449,8 +486,9 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
       durMs: unknownTiming ? NaN : p.durMs,
       depth: depthOf(p.span.span_id),
       phase: tracePhaseFromSpan(p.span.name),
-      hasError: p.span.status_code === "error"
-        || (p.span.attributes?.["error"] != null && p.span.attributes?.["error"] !== ""),
+      hasError:
+        p.span.status_code === "error" ||
+        (p.span.attributes?.["error"] != null && p.span.attributes?.["error"] !== ""),
       critical: criticalIDs.has(p.span.span_id),
       unknownTiming,
       negativeDuration,

@@ -26,7 +26,16 @@
 // state (settingsConfig, providerFilter, model, settingsError).
 // Moving them now would mean dragging those slices in too.
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import {
@@ -69,9 +78,7 @@ export type AdapterCredentialResult =
   | { ok: true; isClaudeCode: boolean }
   | { ok: false; error: string };
 
-export type AdapterDeleteCredentialResult =
-  | { ok: true }
-  | { ok: false; error: string };
+export type AdapterDeleteCredentialResult = { ok: true } | { ok: false; error: string };
 
 export type ProvidersAndModelsActions = {
   setProviders: (next: SetStateAction<ProviderStatusResponse["data"]>) => void;
@@ -169,7 +176,10 @@ function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndMo
 
 const ProvidersAndModelsContext = createContext<ProvidersAndModelsContextValue | null>(null);
 
-export function ProvidersAndModelsProvider({ children, initialState: seededState }: {
+export function ProvidersAndModelsProvider({
+  children,
+  initialState: seededState,
+}: {
   children: ReactNode;
   initialState?: Partial<ProvidersAndModelsState>;
 }) {
@@ -179,11 +189,13 @@ export function ProvidersAndModelsProvider({ children, initialState: seededState
   );
 
   const setProviders = useCallback(
-    (next: SetStateAction<ProviderStatusResponse["data"]>) => dispatch({ type: "providers/set", next }),
+    (next: SetStateAction<ProviderStatusResponse["data"]>) =>
+      dispatch({ type: "providers/set", next }),
     [],
   );
   const setProviderPresets = useCallback(
-    (next: SetStateAction<ProviderPresetRecord[]>) => dispatch({ type: "providerPresets/set", next }),
+    (next: SetStateAction<ProviderPresetRecord[]>) =>
+      dispatch({ type: "providerPresets/set", next }),
     [],
   );
   const markProviderPresetsLoaded = useCallback(
@@ -239,102 +251,126 @@ export function ProvidersAndModelsProvider({ children, initialState: seededState
       dispatch({ type: "agentAdapterHealth/set", adapterID, record: payload.data.health });
       dispatch({
         type: "agentAdapters/set",
-        next: (current) => current.map((item) => (item.id === adapterID ? payload.data.adapter : item)),
+        next: (current) =>
+          current.map((item) => (item.id === adapterID ? payload.data.adapter : item)),
       });
       return { ok: true, health: payload.data.health };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "Failed to probe adapter." };
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed to probe adapter.",
+      };
     } finally {
       dispatch({ type: "agentAdapterHealthLoading/set", adapterID, loading: false });
     }
   }, []);
 
-  const setAgentAdapterCredential = useCallback(async (
-    adapterID: string,
-    value: string,
-    name?: string,
-  ): Promise<AdapterCredentialResult> => {
-    try {
-      const payload = await setAgentAdapterCredentialRequest(adapterID, value, name);
-      dispatch({
-        type: "agentAdapters/set",
-        next: (current) => current.map((item) => (item.id === adapterID
-          ? { ...item, credential_configured: payload.data.configured, credential_preview: payload.data.preview }
-          : item)),
-      });
-      const isClaudeCode = adapterID === "claude_code";
-      if (isClaudeCode && payload.data.configured) {
-        // Claude Code's credential check IS the readiness probe — the
-        // adapter validates the token at credential-set time, so a
-        // success here doubles as a healthy probe result and surfaces
-        // the green chip without a separate user action.
+  const setAgentAdapterCredential = useCallback(
+    async (adapterID: string, value: string, name?: string): Promise<AdapterCredentialResult> => {
+      try {
+        const payload = await setAgentAdapterCredentialRequest(adapterID, value, name);
         dispatch({
-          type: "agentAdapterHealth/set",
-          adapterID,
-          record: { adapter_id: adapterID, status: "ready", stage: "ready", duration_ms: 0 },
+          type: "agentAdapters/set",
+          next: (current) =>
+            current.map((item) =>
+              item.id === adapterID
+                ? {
+                    ...item,
+                    credential_configured: payload.data.configured,
+                    credential_preview: payload.data.preview,
+                  }
+                : item,
+            ),
         });
+        const isClaudeCode = adapterID === "claude_code";
+        if (isClaudeCode && payload.data.configured) {
+          // Claude Code's credential check IS the readiness probe — the
+          // adapter validates the token at credential-set time, so a
+          // success here doubles as a healthy probe result and surfaces
+          // the green chip without a separate user action.
+          dispatch({
+            type: "agentAdapterHealth/set",
+            adapterID,
+            record: { adapter_id: adapterID, status: "ready", stage: "ready", duration_ms: 0 },
+          });
+        }
+        return { ok: true, isClaudeCode };
+      } catch (error) {
+        const fallback =
+          adapterID === "claude_code"
+            ? "Failed to validate adapter credential."
+            : "Failed to save adapter credential.";
+        return { ok: false, error: error instanceof Error ? error.message : fallback };
       }
-      return { ok: true, isClaudeCode };
-    } catch (error) {
-      const fallback = adapterID === "claude_code"
-        ? "Failed to validate adapter credential."
-        : "Failed to save adapter credential.";
-      return { ok: false, error: error instanceof Error ? error.message : fallback };
-    }
-  }, []);
+    },
+    [],
+  );
 
-  const deleteAgentAdapterCredential = useCallback(async (
-    adapterID: string,
-    name: string,
-  ): Promise<AdapterDeleteCredentialResult> => {
-    try {
-      await deleteAgentAdapterCredentialRequest(adapterID, name);
-      dispatch({
-        type: "agentAdapters/set",
-        next: (current) => current.map((item) => (item.id === adapterID
-          ? { ...item, credential_configured: false, credential_preview: undefined }
-          : item)),
-      });
-      dispatch({ type: "agentAdapterHealth/clear", adapterID });
-      return { ok: true };
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : "Failed to remove adapter credential." };
-    }
-  }, []);
+  const deleteAgentAdapterCredential = useCallback(
+    async (adapterID: string, name: string): Promise<AdapterDeleteCredentialResult> => {
+      try {
+        await deleteAgentAdapterCredentialRequest(adapterID, name);
+        dispatch({
+          type: "agentAdapters/set",
+          next: (current) =>
+            current.map((item) =>
+              item.id === adapterID
+                ? { ...item, credential_configured: false, credential_preview: undefined }
+                : item,
+            ),
+        });
+        dispatch({ type: "agentAdapterHealth/clear", adapterID });
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "Failed to remove adapter credential.",
+        };
+      }
+    },
+    [],
+  );
 
-  const actions = useMemo<ProvidersAndModelsActions>(() => ({
-    setProviders,
-    setProviderPresets,
-    markProviderPresetsLoaded,
-    setModels,
-    setAgentAdapters,
-    setAgentAdapterApprovalMode,
-    setAgentAdapterHealth,
-    clearAgentAdapterHealth,
-    setAgentAdapterHealthLoading,
-    refreshProviders,
-    probeAgentAdapter,
-    setAgentAdapterCredential,
-    deleteAgentAdapterCredential,
-  }), [
-    setProviders,
-    setProviderPresets,
-    markProviderPresetsLoaded,
-    setModels,
-    setAgentAdapters,
-    setAgentAdapterApprovalMode,
-    setAgentAdapterHealth,
-    clearAgentAdapterHealth,
-    setAgentAdapterHealthLoading,
-    refreshProviders,
-    probeAgentAdapter,
-    setAgentAdapterCredential,
-    deleteAgentAdapterCredential,
-  ]);
+  const actions = useMemo<ProvidersAndModelsActions>(
+    () => ({
+      setProviders,
+      setProviderPresets,
+      markProviderPresetsLoaded,
+      setModels,
+      setAgentAdapters,
+      setAgentAdapterApprovalMode,
+      setAgentAdapterHealth,
+      clearAgentAdapterHealth,
+      setAgentAdapterHealthLoading,
+      refreshProviders,
+      probeAgentAdapter,
+      setAgentAdapterCredential,
+      deleteAgentAdapterCredential,
+    }),
+    [
+      setProviders,
+      setProviderPresets,
+      markProviderPresetsLoaded,
+      setModels,
+      setAgentAdapters,
+      setAgentAdapterApprovalMode,
+      setAgentAdapterHealth,
+      clearAgentAdapterHealth,
+      setAgentAdapterHealthLoading,
+      refreshProviders,
+      probeAgentAdapter,
+      setAgentAdapterCredential,
+      deleteAgentAdapterCredential,
+    ],
+  );
 
   const value = useMemo(() => ({ state, actions }), [state, actions]);
 
-  return <ProvidersAndModelsContext.Provider value={value}>{children}</ProvidersAndModelsContext.Provider>;
+  return (
+    <ProvidersAndModelsContext.Provider value={value}>
+      {children}
+    </ProvidersAndModelsContext.Provider>
+  );
 }
 
 export function useProvidersAndModels(): ProvidersAndModelsContextValue {
@@ -343,7 +379,10 @@ export function useProvidersAndModels(): ProvidersAndModelsContextValue {
     throw new Error("useProvidersAndModels must be used inside a <ProvidersAndModelsProvider>");
   }
   const overrides = useContext(CoordinatorOverridesContext);
-  return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.providersAndModelsSlice) };
+  return {
+    state: ctx.state,
+    actions: applyOverride(ctx.actions, overrides?.providersAndModelsSlice),
+  };
 }
 
 // useEnsureProviderPresetsLoaded fetches the provider preset
@@ -382,7 +421,9 @@ export function useEnsureProviderPresetsLoaded(when: boolean = true): void {
         actions.setProviderPresets(res.data ?? []);
         actions.markProviderPresetsLoaded();
       } catch (err) {
-        warn("providerPresets.ensureLoaded.failed", { err: err instanceof Error ? err.message : String(err) });
+        warn("providerPresets.ensureLoaded.failed", {
+          err: err instanceof Error ? err.message : String(err),
+        });
       } finally {
         inFlight.current = false;
       }

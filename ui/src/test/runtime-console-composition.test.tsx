@@ -44,7 +44,9 @@ function renderRuntimeConsoleHook(options?: Omit<RenderHookOptions<unknown>, "wr
 // stub /healthz + /hecate/v1/whoami + the dashboard fan-out and exercise the
 // hook's user-visible behavior on top of that.
 
-function defaultBackendMock(routes: Record<string, (init?: RequestInit) => Response | Promise<Response>> = {}) {
+function defaultBackendMock(
+  routes: Record<string, (init?: RequestInit) => Response | Promise<Response>> = {},
+) {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input);
     // Per-test overrides take precedence over the defaults below so a
@@ -59,34 +61,54 @@ function defaultBackendMock(routes: Record<string, (init?: RequestInit) => Respo
       });
     }
     if (url === "/v1/models") return jsonResponse({ object: "list", data: [] });
-    if (url === "/hecate/v1/providers/presets") return jsonResponse({ object: "provider_presets", data: [] });
-    if (url === "/hecate/v1/providers/status") return jsonResponse({ object: "provider_status", data: [] });
-    if (url === "/hecate/v1/settings") return jsonResponse({ object: "settings", data: { backend: "memory", providers: [], policy_rules: [], events: [] } });
-    if (url.startsWith("/hecate/v1/usage/summary")) return jsonResponse({
-      object: "usage_summary",
-      data: { key: "global", scope: "global", backend: "memory", used_micros_usd: 0, used_usd: "$0.000000" },
-    });
-    if (url.startsWith("/hecate/v1/usage/events")) return jsonResponse({ object: "usage_events", data: [] });
-    if (url === "/hecate/v1/chat/sessions") return jsonResponse({ object: "chat_sessions", data: [] });
-    if (url.startsWith("/hecate/v1/chat/sessions/") && url.endsWith("/approvals?status=pending")) return jsonResponse({ object: "list", data: [] });
-    if (url.startsWith("/hecate/v1/chat/sessions")) return jsonResponse({ object: "chat_sessions", data: [], has_more: false });
-    if (url.startsWith("/hecate/v1/system/retention/runs")) return jsonResponse({ object: "retention_runs", data: [] });
-    if (url.startsWith("/hecate/v1/observability/requests")) return jsonResponse({ object: "requests", data: [] });
-    if (url.startsWith("/hecate/v1/system/stats")) return jsonResponse({
-      object: "runtime_stats",
-      data: {
-        checked_at: "2026-04-21T10:00:00Z",
-        queue_depth: 0,
-        queue_capacity: 0,
-        worker_count: 0,
-        in_flight_jobs: 0,
-        queued_runs: 0,
-        running_runs: 0,
-        awaiting_approval_runs: 0,
-        oldest_queued_age_seconds: 0,
-        oldest_running_age_seconds: 0,
-      },
-    });
+    if (url === "/hecate/v1/providers/presets")
+      return jsonResponse({ object: "provider_presets", data: [] });
+    if (url === "/hecate/v1/providers/status")
+      return jsonResponse({ object: "provider_status", data: [] });
+    if (url === "/hecate/v1/settings")
+      return jsonResponse({
+        object: "settings",
+        data: { backend: "memory", providers: [], policy_rules: [], events: [] },
+      });
+    if (url.startsWith("/hecate/v1/usage/summary"))
+      return jsonResponse({
+        object: "usage_summary",
+        data: {
+          key: "global",
+          scope: "global",
+          backend: "memory",
+          used_micros_usd: 0,
+          used_usd: "$0.000000",
+        },
+      });
+    if (url.startsWith("/hecate/v1/usage/events"))
+      return jsonResponse({ object: "usage_events", data: [] });
+    if (url === "/hecate/v1/chat/sessions")
+      return jsonResponse({ object: "chat_sessions", data: [] });
+    if (url.startsWith("/hecate/v1/chat/sessions/") && url.endsWith("/approvals?status=pending"))
+      return jsonResponse({ object: "list", data: [] });
+    if (url.startsWith("/hecate/v1/chat/sessions"))
+      return jsonResponse({ object: "chat_sessions", data: [], has_more: false });
+    if (url.startsWith("/hecate/v1/system/retention/runs"))
+      return jsonResponse({ object: "retention_runs", data: [] });
+    if (url.startsWith("/hecate/v1/observability/requests"))
+      return jsonResponse({ object: "requests", data: [] });
+    if (url.startsWith("/hecate/v1/system/stats"))
+      return jsonResponse({
+        object: "runtime_stats",
+        data: {
+          checked_at: "2026-04-21T10:00:00Z",
+          queue_depth: 0,
+          queue_capacity: 0,
+          worker_count: 0,
+          in_flight_jobs: 0,
+          queued_runs: 0,
+          running_runs: 0,
+          awaiting_approval_runs: 0,
+          oldest_queued_age_seconds: 0,
+          oldest_running_age_seconds: 0,
+        },
+      });
     void init;
     return new Response("not found", { status: 404 });
   };
@@ -113,12 +135,15 @@ describe("useRuntimeConsole", () => {
 
   it("treats a cancelled workspace picker as a quiet no-op", async () => {
     window.localStorage.setItem("hecate.agentWorkspace", "/workspace/current");
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/workspace-dialog": () => jsonResponse({
-        object: "workspace_dialog",
-        data: { path: "", branch: "" },
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/workspace-dialog": () =>
+          jsonResponse({
+            object: "workspace_dialog",
+            data: { path: "", branch: "" },
+          }),
       }),
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -152,33 +177,38 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-project");
     let createBody: any = null;
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/agent-adapters": () => jsonResponse({
-        object: "agent_adapters",
-        data: [{ id: "claude_code", name: "Claude Code", available: true }],
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/agent-adapters": () =>
+          jsonResponse({
+            object: "agent_adapters",
+            data: [{ id: "claude_code", name: "Claude Code", available: true }],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_1",
+                title: "Claude Code chat",
+                runtime_kind: "external_agent",
+                adapter_id: "claude_code",
+                driver_kind: "acp",
+                native_session_id: "native_1",
+                workspace: "/tmp/hecate-project",
+                status: "idle",
+                config_options: [
+                  { id: "model", name: "Model", type: "select", current_value: "sonnet" },
+                ],
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
       }),
-      "/hecate/v1/chat/sessions": (init) => {
-        if (init?.method === "POST") {
-          createBody = JSON.parse(String(init.body ?? "{}"));
-          return jsonResponse({
-            object: "chat_session",
-            data: {
-              id: "chat_1",
-              title: "Claude Code chat",
-              runtime_kind: "external_agent",
-              adapter_id: "claude_code",
-              driver_kind: "acp",
-              native_session_id: "native_1",
-              workspace: "/tmp/hecate-project",
-              status: "idle",
-              config_options: [{ id: "model", name: "Model", type: "select", current_value: "sonnet" }],
-              messages: [],
-            },
-          });
-        }
-        return jsonResponse({ object: "chat_sessions", data: [] });
-      },
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -193,7 +223,9 @@ describe("useRuntimeConsole", () => {
       workspace: "/tmp/hecate-project",
     });
     expect(result.current.state.activeChatSessionID).toBe("chat_1");
-    expect(result.current.state.activeChatSession?.config_options?.[0]?.current_value).toBe("sonnet");
+    expect(result.current.state.activeChatSession?.config_options?.[0]?.current_value).toBe(
+      "sonnet",
+    );
   });
 
   it("uses the new-chat agent selection instead of the active external session", async () => {
@@ -201,34 +233,55 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");
     let createBody: any = null;
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/chat/sessions": (init) => {
-        if (init?.method === "POST") {
-          createBody = JSON.parse(String(init.body ?? "{}"));
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_hecate",
+                title: "Hecate Agent chat",
+                runtime_kind: "agent",
+                provider: "",
+                model: "gpt-4o-mini",
+                workspace: "/tmp/hecate",
+                status: "idle",
+                messages: [],
+              },
+            });
+          }
           return jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "a1",
+                title: "Codex chat",
+                runtime_kind: "external_agent",
+                adapter_id: "codex",
+                workspace: "/tmp/hecate",
+                status: "idle",
+                message_count: 0,
+              },
+            ],
+          });
+        },
+        "/hecate/v1/chat/sessions/a1": () =>
+          jsonResponse({
             object: "chat_session",
             data: {
-              id: "chat_hecate",
-              title: "Hecate Agent chat",
-              runtime_kind: "agent",
-              provider: "",
-              model: "gpt-4o-mini",
+              id: "a1",
+              title: "Codex chat",
+              runtime_kind: "external_agent",
+              adapter_id: "codex",
               workspace: "/tmp/hecate",
               status: "idle",
               messages: [],
             },
-          });
-        }
-        return jsonResponse({
-          object: "chat_sessions",
-          data: [{ id: "a1", title: "Codex chat", runtime_kind: "external_agent", adapter_id: "codex", workspace: "/tmp/hecate", status: "idle", message_count: 0 }],
-        });
-      },
-      "/hecate/v1/chat/sessions/a1": () => jsonResponse({
-        object: "chat_session",
-        data: { id: "a1", title: "Codex chat", runtime_kind: "external_agent", adapter_id: "codex", workspace: "/tmp/hecate", status: "idle", messages: [] },
+          }),
       }),
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -253,44 +306,73 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     let createBody: any = null;
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/v1/models": () => jsonResponse({
-        object: "list",
-        data: [{ id: "llama3.1:8b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local", default: true } }],
-      }),
-      "/hecate/v1/providers/status": () => jsonResponse({
-        object: "provider_status",
-        data: [{ name: "ollama", kind: "local", default_model: "llama3.1:8b", models: ["llama3.1:8b"], healthy: true }],
-      }),
-      "/hecate/v1/settings": () => jsonResponse({
-        object: "settings",
-        data: {
-          providers: [
-            { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", enabled: true, credential_configured: false },
-          ],
-          policy_rules: [], events: [],
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/v1/models": () =>
+          jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "llama3.1:8b",
+                owned_by: "ollama",
+                metadata: { provider: "ollama", provider_kind: "local", default: true },
+              },
+            ],
+          }),
+        "/hecate/v1/providers/status": () =>
+          jsonResponse({
+            object: "provider_status",
+            data: [
+              {
+                name: "ollama",
+                kind: "local",
+                default_model: "llama3.1:8b",
+                models: ["llama3.1:8b"],
+                healthy: true,
+              },
+            ],
+          }),
+        "/hecate/v1/settings": () =>
+          jsonResponse({
+            object: "settings",
+            data: {
+              providers: [
+                {
+                  id: "ollama",
+                  name: "Ollama",
+                  preset_id: "ollama",
+                  kind: "local",
+                  protocol: "openai",
+                  base_url: "http://127.0.0.1:11434/v1",
+                  enabled: true,
+                  credential_configured: false,
+                },
+              ],
+              policy_rules: [],
+              events: [],
+            },
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_ollama",
+                title: "Hecate Agent chat",
+                runtime_kind: "agent",
+                provider: "ollama",
+                model: "llama3.1:8b",
+                workspace: "/tmp/hecate",
+                status: "idle",
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
         },
       }),
-      "/hecate/v1/chat/sessions": (init) => {
-        if (init?.method === "POST") {
-          createBody = JSON.parse(String(init.body ?? "{}"));
-          return jsonResponse({
-            object: "chat_session",
-            data: {
-              id: "chat_ollama",
-              title: "Hecate Agent chat",
-              runtime_kind: "agent",
-              provider: "ollama",
-              model: "llama3.1:8b",
-              workspace: "/tmp/hecate",
-              status: "idle",
-              messages: [],
-            },
-          });
-        }
-        return jsonResponse({ object: "chat_sessions", data: [] });
-      },
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -314,14 +396,16 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     let createCalled = false;
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/chat/sessions": (init) => {
-        if (init?.method === "POST") {
-          createCalled = true;
-        }
-        return jsonResponse({ object: "chat_sessions", data: [] });
-      },
-    }));
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createCalled = true;
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -341,18 +425,27 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.model", "llama3.1:8b");
     let createCalled = false;
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/v1/models": () => jsonResponse({
-        object: "list",
-        data: [{ id: "llama3.1:8b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } }],
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/v1/models": () =>
+          jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "llama3.1:8b",
+                owned_by: "ollama",
+                metadata: { provider: "ollama", provider_kind: "local" },
+              },
+            ],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createCalled = true;
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
       }),
-      "/hecate/v1/chat/sessions": (init) => {
-        if (init?.method === "POST") {
-          createCalled = true;
-        }
-        return jsonResponse({ object: "chat_sessions", data: [] });
-      },
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -363,7 +456,9 @@ describe("useRuntimeConsole", () => {
 
     expect(createCalled).toBe(false);
     expect(result.current.state.activeChatSessionID).toBe("");
-    expect(result.current.state.chatError).toBe("Choose a workspace before using Hecate Chat tools or External Agent.");
+    expect(result.current.state.chatError).toBe(
+      "Choose a workspace before using Hecate Chat tools or External Agent.",
+    );
     expect(result.current.state.chatErrorCode).toBe("chat.workspace_required");
   });
 
@@ -371,18 +466,21 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "codex");
     let createCalled = false;
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/agent-adapters": () => jsonResponse({
-        object: "agent_adapters",
-        data: [{ id: "codex", name: "Codex", available: true }],
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/agent-adapters": () =>
+          jsonResponse({
+            object: "agent_adapters",
+            data: [{ id: "codex", name: "Codex", available: true }],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createCalled = true;
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
       }),
-      "/hecate/v1/chat/sessions": (init) => {
-        if (init?.method === "POST") {
-          createCalled = true;
-        }
-        return jsonResponse({ object: "chat_sessions", data: [] });
-      },
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -393,7 +491,9 @@ describe("useRuntimeConsole", () => {
 
     expect(createCalled).toBe(false);
     expect(result.current.state.activeChatSessionID).toBe("");
-    expect(result.current.state.chatError).toBe("Choose a workspace before using Hecate Chat tools or External Agent.");
+    expect(result.current.state.chatError).toBe(
+      "Choose a workspace before using Hecate Chat tools or External Agent.",
+    );
     expect(result.current.state.chatErrorCode).toBe("chat.workspace_required");
   });
 
@@ -401,23 +501,29 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-project");
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/agent-adapters": () => jsonResponse({
-        object: "agent_adapters",
-        data: [{ id: "claude_code", name: "Claude Code", available: true }],
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/agent-adapters": () =>
+          jsonResponse({
+            object: "agent_adapters",
+            data: [{ id: "claude_code", name: "Claude Code", available: true }],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            return jsonResponse(
+              {
+                error: {
+                  type: "chat.adapter_unavailable",
+                  message: "Claude Code could not start.",
+                },
+              },
+              502,
+            );
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
       }),
-      "/hecate/v1/chat/sessions": (init) => {
-        if (init?.method === "POST") {
-          return jsonResponse({
-            error: {
-              type: "chat.adapter_unavailable",
-              message: "Claude Code could not start.",
-            },
-          }, 502);
-        }
-        return jsonResponse({ object: "chat_sessions", data: [] });
-      },
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -428,7 +534,10 @@ describe("useRuntimeConsole", () => {
 
     expect(result.current.state.activeChatSessionID).toBe("");
     expect(result.current.state.activeChatSession).toBeNull();
-    expect(result.current.state.notice).toEqual({ kind: "error", message: "Claude Code could not start." });
+    expect(result.current.state.notice).toEqual({
+      kind: "error",
+      message: "Claude Code could not start.",
+    });
     expect(result.current.state.chatError).toContain("Claude Code could not start.");
   });
 
@@ -436,23 +545,57 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.chatSessionID", "a1");
     let settingsBody: any = null;
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/chat/sessions": () => jsonResponse({
-        object: "chat_sessions",
-        data: [{ id: "a1", title: "Hecate", runtime_kind: "agent", status: "completed", workspace: "/workspace", rtk_enabled: false, message_count: 0 }],
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": () =>
+          jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "a1",
+                title: "Hecate",
+                runtime_kind: "agent",
+                status: "completed",
+                workspace: "/workspace",
+                rtk_enabled: false,
+                message_count: 0,
+              },
+            ],
+          }),
+        "/hecate/v1/chat/sessions/a1": () =>
+          jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Hecate",
+              runtime_kind: "agent",
+              status: "completed",
+              workspace: "/workspace",
+              rtk_enabled: false,
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
+          }),
+        "/hecate/v1/chat/sessions/a1/settings": (init) => {
+          settingsBody = JSON.parse(String(init?.body ?? "{}"));
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Hecate",
+              runtime_kind: "agent",
+              status: "completed",
+              workspace: "/workspace",
+              rtk_enabled: true,
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:01Z",
+            },
+          });
+        },
       }),
-      "/hecate/v1/chat/sessions/a1": () => jsonResponse({
-        object: "chat_session",
-        data: { id: "a1", title: "Hecate", runtime_kind: "agent", status: "completed", workspace: "/workspace", rtk_enabled: false, messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
-      }),
-      "/hecate/v1/chat/sessions/a1/settings": (init) => {
-        settingsBody = JSON.parse(String(init?.body ?? "{}"));
-        return jsonResponse({
-          object: "chat_session",
-          data: { id: "a1", title: "Hecate", runtime_kind: "agent", status: "completed", workspace: "/workspace", rtk_enabled: true, messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:01Z" },
-        });
-      },
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -471,13 +614,25 @@ describe("useRuntimeConsole", () => {
 
   it("keeps the active agent chat selection when session refresh fails transiently", async () => {
     window.localStorage.setItem("hecate.chatSessionID", "a1");
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/chat/sessions": () => jsonResponse({
-        object: "chat_sessions",
-        data: [{ id: "a1", title: "Still exists", adapter_id: "codex", status: "running", message_count: 2 }],
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": () =>
+          jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "a1",
+                title: "Still exists",
+                adapter_id: "codex",
+                status: "running",
+                message_count: 2,
+              },
+            ],
+          }),
+        "/hecate/v1/chat/sessions/a1": () =>
+          jsonResponse({ error: { type: "gateway_error", message: "temporary failure" } }, 500),
       }),
-      "/hecate/v1/chat/sessions/a1": () => jsonResponse({ error: { type: "gateway_error", message: "temporary failure" } }, 500),
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -497,36 +652,85 @@ describe("useRuntimeConsole", () => {
   // provider whose runtime returned no models must settle on model="",
   // not bounce back to the gateway-wide default.
   it("leaves model empty when selecting a provider with no discovered models", async () => {
-    fetchMock.mockImplementation(defaultBackendMock({
-      "/v1/models": () => jsonResponse({
-        object: "list",
-        data: [{ id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } }],
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/v1/models": () =>
+          jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "gpt-4o-mini",
+                owned_by: "openai",
+                metadata: { provider: "openai", provider_kind: "cloud", default: true },
+              },
+            ],
+          }),
+        "/hecate/v1/providers/presets": () =>
+          jsonResponse({
+            object: "provider_presets",
+            data: [
+              {
+                id: "openai",
+                name: "OpenAI",
+                kind: "cloud",
+                protocol: "openai",
+                base_url: "https://api.openai.com",
+              },
+              {
+                id: "ollama",
+                name: "Ollama",
+                kind: "local",
+                protocol: "openai",
+                base_url: "http://127.0.0.1:11434/v1",
+              },
+            ],
+          }),
+        "/hecate/v1/providers/status": () =>
+          jsonResponse({
+            object: "provider_status",
+            data: [
+              {
+                name: "openai",
+                kind: "cloud",
+                default_model: "gpt-4o-mini",
+                models: ["gpt-4o-mini"],
+                healthy: true,
+              },
+              { name: "ollama", kind: "local", default_model: "", models: [], healthy: false },
+            ],
+          }),
+        "/hecate/v1/settings": () =>
+          jsonResponse({
+            object: "settings",
+            data: {
+              providers: [
+                {
+                  id: "openai",
+                  name: "OpenAI",
+                  preset_id: "openai",
+                  kind: "cloud",
+                  protocol: "openai",
+                  base_url: "https://api.openai.com",
+                  enabled: true,
+                  credential_configured: true,
+                },
+                {
+                  id: "ollama",
+                  name: "Ollama",
+                  preset_id: "ollama",
+                  kind: "local",
+                  protocol: "openai",
+                  base_url: "http://127.0.0.1:11434/v1",
+                  enabled: true,
+                  credential_configured: false,
+                },
+              ],
+              policy_rules: [],
+              events: [],
+            },
+          }),
       }),
-      "/hecate/v1/providers/presets": () => jsonResponse({
-        object: "provider_presets",
-        data: [
-          { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com" },
-          { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1" },
-        ],
-      }),
-      "/hecate/v1/providers/status": () => jsonResponse({
-        object: "provider_status",
-        data: [
-          { name: "openai", kind: "cloud", default_model: "gpt-4o-mini", models: ["gpt-4o-mini"], healthy: true },
-          { name: "ollama", kind: "local", default_model: "", models: [], healthy: false },
-        ],
-      }),
-      "/hecate/v1/settings": () => jsonResponse({
-        object: "settings",
-        data: {
-          providers: [
-            { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com", enabled: true, credential_configured: true },
-            { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", enabled: true, credential_configured: false },
-          ],
-          policy_rules: [], events: [],
-        },
-      }),
-    }));
+    );
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -541,7 +745,7 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.model).toBe("");
     });
     for (let i = 0; i < 5; i++) {
-      await new Promise(r => setTimeout(r, 10));
+      await new Promise((r) => setTimeout(r, 10));
       expect(result.current.state.model).toBe("");
     }
   });
@@ -580,7 +784,10 @@ describe("useRuntimeConsole", () => {
         const url = String(input);
         if (url === "/hecate/v1/settings/providers/openai/api-key" && init?.method === "PUT") {
           putBody = String(init.body ?? "");
-          return jsonResponse({ object: "settings_provider_api_key", data: { id: "openai", status: "cleared" } });
+          return jsonResponse({
+            object: "settings_provider_api_key",
+            data: { id: "openai", status: "cleared" },
+          });
         }
         return defaultBackendMock()(input, init);
       });
@@ -599,10 +806,10 @@ describe("useRuntimeConsole", () => {
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
         if (url === "/hecate/v1/settings/providers/anthropic/api-key" && init?.method === "PUT") {
-          return new Response(
-            JSON.stringify({ error: { message: "secret store is read-only" } }),
-            { status: 400, headers: { "Content-Type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ error: { message: "secret store is read-only" } }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
         }
         return defaultBackendMock()(input, init);
       });
@@ -634,7 +841,10 @@ describe("useRuntimeConsole", () => {
 
       await act(async () => {
         await result.current.actions.upsertPolicyRule({
-          id: "deny-cloud", action: "deny", reason: "local-only", provider_kinds: ["cloud"],
+          id: "deny-cloud",
+          action: "deny",
+          reason: "local-only",
+          provider_kinds: ["cloud"],
         });
       });
       await waitFor(() => expect(result.current.state.notice?.message).toBe("Policy rule saved."));
@@ -658,7 +868,9 @@ describe("useRuntimeConsole", () => {
       await act(async () => {
         await result.current.actions.deletePolicyRule("deny-cloud");
       });
-      await waitFor(() => expect(result.current.state.notice?.message).toBe("Policy rule deleted."));
+      await waitFor(() =>
+        expect(result.current.state.notice?.message).toBe("Policy rule deleted."),
+      );
       expect(deleteCalled).toBe(true);
     });
 
@@ -670,8 +882,8 @@ describe("useRuntimeConsole", () => {
         const url = String(input);
         if (url === "/hecate/v1/settings/providers/ollama" && init?.method === "DELETE") {
           deleteCalls++;
-          return new Promise<Response>(resolve => {
-            resolveDelete = response => {
+          return new Promise<Response>((resolve) => {
+            resolveDelete = (response) => {
               deleted = true;
               resolve(response);
             };
@@ -683,10 +895,31 @@ describe("useRuntimeConsole", () => {
             data: {
               backend: "memory",
               providers: [
-                { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
-                ...deleted ? [] : [{ id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false }],
+                {
+                  id: "openai",
+                  name: "OpenAI",
+                  preset_id: "openai",
+                  kind: "cloud",
+                  protocol: "openai",
+                  base_url: "https://api.openai.com/v1",
+                  credential_configured: true,
+                },
+                ...(deleted
+                  ? []
+                  : [
+                      {
+                        id: "ollama",
+                        name: "Ollama",
+                        preset_id: "ollama",
+                        kind: "local",
+                        protocol: "openai",
+                        base_url: "http://127.0.0.1:11434/v1",
+                        credential_configured: false,
+                      },
+                    ]),
               ],
-              policy_rules: [], events: [],
+              policy_rules: [],
+              events: [],
             },
           });
         }
@@ -694,8 +927,24 @@ describe("useRuntimeConsole", () => {
           return jsonResponse({
             object: "provider_status",
             data: [
-              { name: "openai", kind: "cloud", healthy: true, status: "healthy", models: ["gpt-4o-mini"] },
-              ...deleted ? [] : [{ name: "ollama", kind: "local", healthy: true, status: "healthy", models: ["llama3.1:8b"] }],
+              {
+                name: "openai",
+                kind: "cloud",
+                healthy: true,
+                status: "healthy",
+                models: ["gpt-4o-mini"],
+              },
+              ...(deleted
+                ? []
+                : [
+                    {
+                      name: "ollama",
+                      kind: "local",
+                      healthy: true,
+                      status: "healthy",
+                      models: ["llama3.1:8b"],
+                    },
+                  ]),
             ],
           });
         }
@@ -703,7 +952,12 @@ describe("useRuntimeConsole", () => {
       });
 
       const { result } = renderRuntimeConsoleHook();
-      await waitFor(() => expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]));
+      await waitFor(() =>
+        expect(result.current.state.settingsConfig?.providers.map((p) => p.id)).toEqual([
+          "openai",
+          "ollama",
+        ]),
+      );
 
       let pendingDelete: Promise<void> | undefined;
       await act(async () => {
@@ -711,16 +965,21 @@ describe("useRuntimeConsole", () => {
       });
 
       expect(deleteCalls).toBe(1);
-      expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai"]);
-      expect(result.current.state.providers.map(p => p.name)).toEqual(["openai"]);
+      expect(result.current.state.settingsConfig?.providers.map((p) => p.id)).toEqual(["openai"]);
+      expect(result.current.state.providers.map((p) => p.name)).toEqual(["openai"]);
 
       resolveDelete?.(new Response(null, { status: 204 }));
       await act(async () => {
         await pendingDelete;
       });
 
-      await waitFor(() => expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai"]));
-      expect(result.current.state.notice).toEqual({ kind: "success", message: "Provider removed." });
+      await waitFor(() =>
+        expect(result.current.state.settingsConfig?.providers.map((p) => p.id)).toEqual(["openai"]),
+      );
+      expect(result.current.state.notice).toEqual({
+        kind: "success",
+        message: "Provider removed.",
+      });
     });
 
     it("deleteProvider rolls back the optimistic removal when the request fails", async () => {
@@ -738,11 +997,36 @@ describe("useRuntimeConsole", () => {
             data: {
               backend: "memory",
               providers: [
-                { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
-                { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
-                { id: "anthropic", name: "Anthropic", preset_id: "anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com", credential_configured: true },
+                {
+                  id: "openai",
+                  name: "OpenAI",
+                  preset_id: "openai",
+                  kind: "cloud",
+                  protocol: "openai",
+                  base_url: "https://api.openai.com/v1",
+                  credential_configured: true,
+                },
+                {
+                  id: "ollama",
+                  name: "Ollama",
+                  preset_id: "ollama",
+                  kind: "local",
+                  protocol: "openai",
+                  base_url: "http://127.0.0.1:11434/v1",
+                  credential_configured: false,
+                },
+                {
+                  id: "anthropic",
+                  name: "Anthropic",
+                  preset_id: "anthropic",
+                  kind: "cloud",
+                  protocol: "anthropic",
+                  base_url: "https://api.anthropic.com",
+                  credential_configured: true,
+                },
               ],
-              policy_rules: [], events: [],
+              policy_rules: [],
+              events: [],
             },
           });
         }
@@ -750,9 +1034,27 @@ describe("useRuntimeConsole", () => {
           return jsonResponse({
             object: "provider_status",
             data: [
-              { name: "openai", kind: "cloud", healthy: true, status: "healthy", models: ["gpt-4o-mini"] },
-              { name: "ollama", kind: "local", healthy: true, status: "healthy", models: ["llama3.1:8b"] },
-              { name: "anthropic", kind: "cloud", healthy: true, status: "healthy", models: ["claude-sonnet-4-6"] },
+              {
+                name: "openai",
+                kind: "cloud",
+                healthy: true,
+                status: "healthy",
+                models: ["gpt-4o-mini"],
+              },
+              {
+                name: "ollama",
+                kind: "local",
+                healthy: true,
+                status: "healthy",
+                models: ["llama3.1:8b"],
+              },
+              {
+                name: "anthropic",
+                kind: "cloud",
+                healthy: true,
+                status: "healthy",
+                models: ["claude-sonnet-4-6"],
+              },
             ],
           });
         }
@@ -760,7 +1062,13 @@ describe("useRuntimeConsole", () => {
       });
 
       const { result } = renderRuntimeConsoleHook();
-      await waitFor(() => expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama", "anthropic"]));
+      await waitFor(() =>
+        expect(result.current.state.settingsConfig?.providers.map((p) => p.id)).toEqual([
+          "openai",
+          "ollama",
+          "anthropic",
+        ]),
+      );
       await act(async () => {
         result.current.actions.setProviderFilter("ollama");
         result.current.actions.setModel("llama3.1:8b");
@@ -770,11 +1078,22 @@ describe("useRuntimeConsole", () => {
         await result.current.actions.deleteProvider("ollama");
       });
 
-      expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama", "anthropic"]);
-      expect(result.current.state.providers.map(p => p.name)).toEqual(["openai", "ollama", "anthropic"]);
+      expect(result.current.state.settingsConfig?.providers.map((p) => p.id)).toEqual([
+        "openai",
+        "ollama",
+        "anthropic",
+      ]);
+      expect(result.current.state.providers.map((p) => p.name)).toEqual([
+        "openai",
+        "ollama",
+        "anthropic",
+      ]);
       expect(result.current.state.providerFilter).toBe("ollama");
       expect(result.current.state.model).toBe("llama3.1:8b");
-      expect(result.current.state.notice).toEqual({ kind: "error", message: "Failed to remove provider." });
+      expect(result.current.state.notice).toEqual({
+        kind: "error",
+        message: "Failed to remove provider.",
+      });
       expect(result.current.state.settingsError).toContain("provider is still referenced");
     });
   });
@@ -785,10 +1104,13 @@ describe("useRuntimeConsole", () => {
       window.localStorage.setItem("hecate.chatTarget", "model");
     });
 
-    function withSessions(sessions: Array<{ id: string; title: string }>, routes: Record<string, () => Response> = {}) {
+    function withSessions(
+      sessions: Array<{ id: string; title: string }>,
+      routes: Record<string, () => Response> = {},
+    ) {
       return defaultBackendMock({
         "/hecate/v1/chat/sessions": () => {
-          const data = sessions.map(s => ({
+          const data = sessions.map((s) => ({
             ...s,
             runtime_kind: "model",
             status: "completed",
@@ -803,24 +1125,41 @@ describe("useRuntimeConsole", () => {
     }
 
     it("selectChatSession populates activeChatSession on success", async () => {
-      fetchMock.mockImplementation(withSessions([{ id: "sess_42", title: "Existing" }], {
-        "/hecate/v1/chat/sessions/sess_42": () => jsonResponse({
-          object: "chat_session",
-          data: {
-            id: "sess_42",
-            title: "Existing",
-            runtime_kind: "model",
-            status: "completed",
-            messages: [
-              { id: "msg_u", runtime_kind: "model", role: "user", content: "hi", created_at: "2026-04-20T00:00:00Z" },
-              { id: "msg_a", runtime_kind: "model", role: "assistant", content: "hello", status: "completed", created_at: "2026-04-20T00:00:00Z" },
-            ],
-            provider: "openai",
-            model: "gpt-4o-mini",
-            created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z",
-          },
+      fetchMock.mockImplementation(
+        withSessions([{ id: "sess_42", title: "Existing" }], {
+          "/hecate/v1/chat/sessions/sess_42": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "sess_42",
+                title: "Existing",
+                runtime_kind: "model",
+                status: "completed",
+                messages: [
+                  {
+                    id: "msg_u",
+                    runtime_kind: "model",
+                    role: "user",
+                    content: "hi",
+                    created_at: "2026-04-20T00:00:00Z",
+                  },
+                  {
+                    id: "msg_a",
+                    runtime_kind: "model",
+                    role: "assistant",
+                    content: "hello",
+                    status: "completed",
+                    created_at: "2026-04-20T00:00:00Z",
+                  },
+                ],
+                provider: "openai",
+                model: "gpt-4o-mini",
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            }),
         }),
-      }));
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -847,16 +1186,18 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/chat/sessions") {
           return jsonResponse({
             object: "chat_sessions",
-            data: [{
-              id: "a1",
-              title: "Agent",
-              runtime_kind: "agent",
-              status: "completed",
-              workspace: "/workspace",
-              provider: "openai",
-              model: "gpt-4o-mini",
-              message_count: 0,
-            }],
+            data: [
+              {
+                id: "a1",
+                title: "Agent",
+                runtime_kind: "agent",
+                status: "completed",
+                workspace: "/workspace",
+                provider: "openai",
+                model: "gpt-4o-mini",
+                message_count: 0,
+              },
+            ],
           });
         }
         if (url === "/hecate/v1/chat/sessions/a1") {
@@ -892,8 +1233,21 @@ describe("useRuntimeConsole", () => {
               provider: "openai",
               model: "gpt-4o-mini",
               messages: [
-                { id: "u1", runtime_kind: "agent", role: "user", content: "inspect the repo", created_at: "2026-04-20T00:00:01Z" },
-                { id: "a1", runtime_kind: "agent", role: "assistant", content: "done", status: "completed", created_at: "2026-04-20T00:00:02Z" },
+                {
+                  id: "u1",
+                  runtime_kind: "agent",
+                  role: "user",
+                  content: "inspect the repo",
+                  created_at: "2026-04-20T00:00:01Z",
+                },
+                {
+                  id: "a1",
+                  runtime_kind: "agent",
+                  role: "assistant",
+                  content: "done",
+                  status: "completed",
+                  created_at: "2026-04-20T00:00:02Z",
+                },
               ],
               created_at: "2026-04-20T00:00:00Z",
               updated_at: "2026-04-20T00:00:02Z",
@@ -905,7 +1259,9 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      await waitFor(() => expect(result.current.state.systemPrompt).toBe("Prefer small, reviewable diffs."));
+      await waitFor(() =>
+        expect(result.current.state.systemPrompt).toBe("Prefer small, reviewable diffs."),
+      );
       await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
 
       act(() => {
@@ -934,16 +1290,18 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/chat/sessions") {
           return jsonResponse({
             object: "chat_sessions",
-            data: [{
-              id: "a1",
-              title: "Agent",
-              runtime_kind: "agent",
-              status: sessionStatus,
-              workspace: "/workspace",
-              provider: "openai",
-              model: "gpt-4o-mini",
-              message_count: 0,
-            }],
+            data: [
+              {
+                id: "a1",
+                title: "Agent",
+                runtime_kind: "agent",
+                status: sessionStatus,
+                workspace: "/workspace",
+                provider: "openai",
+                model: "gpt-4o-mini",
+                message_count: 0,
+              },
+            ],
           });
         }
         if (url === "/hecate/v1/chat/sessions/a1") {
@@ -980,7 +1338,13 @@ describe("useRuntimeConsole", () => {
               provider: "openai",
               model: "gpt-4o-mini",
               messages: [
-                { id: "u1", runtime_kind: "agent", role: "user", content: "after this", created_at: "2026-04-20T00:00:01Z" },
+                {
+                  id: "u1",
+                  runtime_kind: "agent",
+                  role: "user",
+                  content: "after this",
+                  created_at: "2026-04-20T00:00:01Z",
+                },
               ],
               created_at: "2026-04-20T00:00:00Z",
               updated_at: new Date().toISOString(),
@@ -1021,30 +1385,55 @@ describe("useRuntimeConsole", () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
-      window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify([
-        {
-          id: "queued_restore",
-          session_id: "a1",
-          content: "keep this after refresh",
-          runtime_kind: "agent",
-          provider_filter: "auto",
-          model: "ministral-3:latest",
-          workspace: "/workspace",
-          system_prompt: "",
-          adapter_id: "codex",
-          created_at: "2026-04-20T00:00:01Z",
-        },
-      ]));
-      fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/chat/sessions": () => jsonResponse({
-          object: "chat_sessions",
-          data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 }],
+      window.localStorage.setItem(
+        "hecate.queuedChatMessages",
+        JSON.stringify([
+          {
+            id: "queued_restore",
+            session_id: "a1",
+            content: "keep this after refresh",
+            runtime_kind: "agent",
+            provider_filter: "auto",
+            model: "ministral-3:latest",
+            workspace: "/workspace",
+            system_prompt: "",
+            adapter_id: "codex",
+            created_at: "2026-04-20T00:00:01Z",
+          },
+        ]),
+      );
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () =>
+            jsonResponse({
+              object: "chat_sessions",
+              data: [
+                {
+                  id: "a1",
+                  title: "Agent",
+                  runtime_kind: "agent",
+                  status: "running",
+                  workspace: "/workspace",
+                  message_count: 0,
+                },
+              ],
+            }),
+          "/hecate/v1/chat/sessions/a1": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "a1",
+                title: "Agent",
+                runtime_kind: "agent",
+                status: "running",
+                workspace: "/workspace",
+                messages: [],
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            }),
         }),
-        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
-          object: "chat_session",
-          data: { id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
-        }),
-      }));
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -1065,37 +1454,64 @@ describe("useRuntimeConsole", () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
-      window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify([
-        {
-          id: "queued_restore",
-          session_id: "a1",
-          content: "keep this after refresh",
-          runtime_kind: "agent",
-          provider_filter: "auto",
-          model: "ministral-3:latest",
-          workspace: "/workspace",
-          system_prompt: "",
-          adapter_id: "codex",
-          created_at: "2026-04-20T00:00:01Z",
-        },
-      ]));
+      window.localStorage.setItem(
+        "hecate.queuedChatMessages",
+        JSON.stringify([
+          {
+            id: "queued_restore",
+            session_id: "a1",
+            content: "keep this after refresh",
+            runtime_kind: "agent",
+            provider_filter: "auto",
+            model: "ministral-3:latest",
+            workspace: "/workspace",
+            system_prompt: "",
+            adapter_id: "codex",
+            created_at: "2026-04-20T00:00:01Z",
+          },
+        ]),
+      );
       const originalSetItem = Storage.prototype.setItem;
-      const storageSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
-        if (key === "hecate.queuedChatMessages") {
-          throw new DOMException("quota exceeded", "QuotaExceededError");
-        }
-        return originalSetItem.call(this, key, value);
-      });
-      fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/chat/sessions": () => jsonResponse({
-          object: "chat_sessions",
-          data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 }],
+      const storageSpy = vi
+        .spyOn(Storage.prototype, "setItem")
+        .mockImplementation(function (this: Storage, key, value) {
+          if (key === "hecate.queuedChatMessages") {
+            throw new DOMException("quota exceeded", "QuotaExceededError");
+          }
+          return originalSetItem.call(this, key, value);
+        });
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () =>
+            jsonResponse({
+              object: "chat_sessions",
+              data: [
+                {
+                  id: "a1",
+                  title: "Agent",
+                  runtime_kind: "agent",
+                  status: "running",
+                  workspace: "/workspace",
+                  message_count: 0,
+                },
+              ],
+            }),
+          "/hecate/v1/chat/sessions/a1": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "a1",
+                title: "Agent",
+                runtime_kind: "agent",
+                status: "running",
+                workspace: "/workspace",
+                messages: [],
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            }),
         }),
-        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
-          object: "chat_session",
-          data: { id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
-        }),
-      }));
+      );
 
       try {
         const { result } = renderRuntimeConsoleHook();
@@ -1105,7 +1521,9 @@ describe("useRuntimeConsole", () => {
           result.current.actions.updateQueuedChatMessage("queued_restore", "edited in memory");
         });
 
-        await waitFor(() => expect(storageSpy).toHaveBeenCalledWith("hecate.queuedChatMessages", expect.any(String)));
+        await waitFor(() =>
+          expect(storageSpy).toHaveBeenCalledWith("hecate.queuedChatMessages", expect.any(String)),
+        );
         expect(result.current.state.queuedChatMessages[0].content).toBe("edited in memory");
       } finally {
         storageSpy.mockRestore();
@@ -1113,43 +1531,62 @@ describe("useRuntimeConsole", () => {
     });
 
     it("prunes stored queued prompts for sessions that no longer exist", async () => {
-      window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify([
-        {
-          id: "queued_keep",
-          session_id: "a1",
-          content: "keep",
-          runtime_kind: "agent",
-          provider_filter: "auto",
-          model: "ministral-3:latest",
-          workspace: "/workspace",
-          system_prompt: "",
-          adapter_id: "codex",
-          created_at: "2026-04-20T00:00:01Z",
-        },
-        {
-          id: "queued_drop",
-          session_id: "missing",
-          content: "drop",
-          runtime_kind: "agent",
-          provider_filter: "auto",
-          model: "ministral-3:latest",
-          workspace: "/workspace",
-          system_prompt: "",
-          adapter_id: "codex",
-          created_at: "2026-04-20T00:00:02Z",
-        },
-      ]));
-      fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/chat/sessions": () => jsonResponse({
-          object: "chat_sessions",
-          data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 }],
+      window.localStorage.setItem(
+        "hecate.queuedChatMessages",
+        JSON.stringify([
+          {
+            id: "queued_keep",
+            session_id: "a1",
+            content: "keep",
+            runtime_kind: "agent",
+            provider_filter: "auto",
+            model: "ministral-3:latest",
+            workspace: "/workspace",
+            system_prompt: "",
+            adapter_id: "codex",
+            created_at: "2026-04-20T00:00:01Z",
+          },
+          {
+            id: "queued_drop",
+            session_id: "missing",
+            content: "drop",
+            runtime_kind: "agent",
+            provider_filter: "auto",
+            model: "ministral-3:latest",
+            workspace: "/workspace",
+            system_prompt: "",
+            adapter_id: "codex",
+            created_at: "2026-04-20T00:00:02Z",
+          },
+        ]),
+      );
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () =>
+            jsonResponse({
+              object: "chat_sessions",
+              data: [
+                {
+                  id: "a1",
+                  title: "Agent",
+                  runtime_kind: "agent",
+                  status: "running",
+                  workspace: "/workspace",
+                  message_count: 0,
+                },
+              ],
+            }),
         }),
-      }));
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
-      await waitFor(() => expect(result.current.state.queuedChatMessages.map((item) => item.id)).toEqual(["queued_keep"]));
+      await waitFor(() =>
+        expect(result.current.state.queuedChatMessages.map((item) => item.id)).toEqual([
+          "queued_keep",
+        ]),
+      );
       await waitFor(() => {
         const stored = JSON.parse(window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]");
         expect(stored.map((item: { id: string }) => item.id)).toEqual(["queued_keep"]);
@@ -1171,22 +1608,54 @@ describe("useRuntimeConsole", () => {
           return jsonResponse({
             object: "chat_sessions",
             data: [
-              { id: "a1", title: "Busy chat", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 },
-              { id: "a2", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 },
+              {
+                id: "a1",
+                title: "Busy chat",
+                runtime_kind: "agent",
+                status: "running",
+                workspace: "/workspace",
+                message_count: 0,
+              },
+              {
+                id: "a2",
+                title: "Idle chat",
+                runtime_kind: "agent",
+                status: "completed",
+                workspace: "/workspace",
+                message_count: 0,
+              },
             ],
           });
         }
         if (url === "/hecate/v1/chat/sessions/a1") {
           return jsonResponse({
             object: "chat_session",
-            data: { id: "a1", title: "Busy chat", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+            data: {
+              id: "a1",
+              title: "Busy chat",
+              runtime_kind: "agent",
+              status: "running",
+              workspace: "/workspace",
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
           });
         }
         if (url === "/hecate/v1/chat/sessions/a2") {
           await a2Gate;
           return jsonResponse({
             object: "chat_session",
-            data: { id: "a2", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+            data: {
+              id: "a2",
+              title: "Idle chat",
+              runtime_kind: "agent",
+              status: "completed",
+              workspace: "/workspace",
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
           });
         }
         if (url.endsWith("/messages")) {
@@ -1260,8 +1729,22 @@ describe("useRuntimeConsole", () => {
           return jsonResponse({
             object: "chat_sessions",
             data: [
-              { id: "a1", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 },
-              { id: "a2", title: "Busy chat", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 },
+              {
+                id: "a1",
+                title: "Idle chat",
+                runtime_kind: "agent",
+                status: "completed",
+                workspace: "/workspace",
+                message_count: 0,
+              },
+              {
+                id: "a2",
+                title: "Busy chat",
+                runtime_kind: "agent",
+                status: "running",
+                workspace: "/workspace",
+                message_count: 0,
+              },
             ],
           });
         }
@@ -1343,13 +1826,18 @@ describe("useRuntimeConsole", () => {
           updated_at: "2026-04-20T00:00:00Z",
         },
       });
-      fetchMock.mockImplementation(withSessions([
-        { id: "chat_a", title: "A" },
-        { id: "chat_b", title: "B" },
-      ], {
-        "/hecate/v1/chat/sessions/chat_a": () => jsonResponse(hecateSession("chat_a")),
-        "/hecate/v1/chat/sessions/chat_b": () => jsonResponse(hecateSession("chat_b")),
-      }));
+      fetchMock.mockImplementation(
+        withSessions(
+          [
+            { id: "chat_a", title: "A" },
+            { id: "chat_b", title: "B" },
+          ],
+          {
+            "/hecate/v1/chat/sessions/chat_a": () => jsonResponse(hecateSession("chat_a")),
+            "/hecate/v1/chat/sessions/chat_b": () => jsonResponse(hecateSession("chat_b")),
+          },
+        ),
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -1379,34 +1867,61 @@ describe("useRuntimeConsole", () => {
     });
 
     it("restores provider and model from the latest Hecate chat segment on selection", async () => {
-      fetchMock.mockImplementation(withSessions([{ id: "mixed_chat", title: "Mixed" }], {
-        "/v1/models": () => jsonResponse({
-          object: "list",
-          data: [
-            { id: "smollm2:135m", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
-            { id: "qwen2.5-coder", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
-          ],
+      fetchMock.mockImplementation(
+        withSessions([{ id: "mixed_chat", title: "Mixed" }], {
+          "/v1/models": () =>
+            jsonResponse({
+              object: "list",
+              data: [
+                {
+                  id: "smollm2:135m",
+                  owned_by: "ollama",
+                  metadata: { provider: "ollama", provider_kind: "local" },
+                },
+                {
+                  id: "qwen2.5-coder",
+                  owned_by: "ollama",
+                  metadata: { provider: "ollama", provider_kind: "local" },
+                },
+              ],
+            }),
+          "/hecate/v1/chat/sessions/mixed_chat": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "mixed_chat",
+                title: "Mixed",
+                runtime_kind: "model",
+                status: "completed",
+                workspace: "/workspace",
+                provider: "ollama",
+                model: "smollm2:135m",
+                segments: [
+                  {
+                    id: "model:first",
+                    runtime_kind: "model",
+                    provider: "ollama",
+                    model: "smollm2:135m",
+                    status: "completed",
+                    message_count: 2,
+                  },
+                  {
+                    id: "task:task_tools",
+                    runtime_kind: "agent",
+                    provider: "ollama",
+                    model: "qwen2.5-coder",
+                    task_id: "task_tools",
+                    status: "completed",
+                    message_count: 2,
+                  },
+                ],
+                messages: [],
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            }),
         }),
-        "/hecate/v1/chat/sessions/mixed_chat": () => jsonResponse({
-          object: "chat_session",
-          data: {
-            id: "mixed_chat",
-            title: "Mixed",
-            runtime_kind: "model",
-            status: "completed",
-            workspace: "/workspace",
-            provider: "ollama",
-            model: "smollm2:135m",
-            segments: [
-              { id: "model:first", runtime_kind: "model", provider: "ollama", model: "smollm2:135m", status: "completed", message_count: 2 },
-              { id: "task:task_tools", runtime_kind: "agent", provider: "ollama", model: "qwen2.5-coder", task_id: "task_tools", status: "completed", message_count: 2 },
-            ],
-            messages: [],
-            created_at: "2026-04-20T00:00:00Z",
-            updated_at: "2026-04-20T00:00:00Z",
-          },
-        }),
-      }));
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -1421,12 +1936,15 @@ describe("useRuntimeConsole", () => {
     });
 
     it("selectChatSession 404 clears the active agent-chat selection and surfaces an error", async () => {
-      fetchMock.mockImplementation(withSessions([{ id: "sess_gone", title: "Gone" }], {
-        "/hecate/v1/chat/sessions/sess_gone": () => new Response(
-          JSON.stringify({ error: { message: "session not found" } }),
-          { status: 404, headers: { "Content-Type": "application/json" } },
-        ),
-      }));
+      fetchMock.mockImplementation(
+        withSessions([{ id: "sess_gone", title: "Gone" }], {
+          "/hecate/v1/chat/sessions/sess_gone": () =>
+            new Response(JSON.stringify({ error: { message: "session not found" } }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            }),
+        }),
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -1447,9 +1965,10 @@ describe("useRuntimeConsole", () => {
           deleteCalls++;
           return new Response(null, { status: 204 });
         }
-        return withSessions(
-          [{ id: "sess_a", title: "Keep" }, { id: "sess_b", title: "Delete me" }],
-        )(input, init);
+        return withSessions([
+          { id: "sess_a", title: "Keep" },
+          { id: "sess_b", title: "Delete me" },
+        ])(input, init);
       });
 
       const { result } = renderRuntimeConsoleHook();
@@ -1460,7 +1979,9 @@ describe("useRuntimeConsole", () => {
       });
 
       expect(deleteCalls).toBe(1);
-      await waitFor(() => expect(result.current.state.chatSessions.map(s => s.id)).toEqual(["sess_a"]));
+      await waitFor(() =>
+        expect(result.current.state.chatSessions.map((s) => s.id)).toEqual(["sess_a"]),
+      );
       expect(result.current.state.notice?.kind).toBe("success");
       expect(result.current.state.notice?.message).toBe("Agent chat deleted.");
     });
@@ -1476,8 +1997,22 @@ describe("useRuntimeConsole", () => {
           return jsonResponse({
             object: "chat_sessions",
             data: [
-              { id: "sess_a", title: "Keep", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 },
-              { id: "sess_b", title: "Delete me", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 },
+              {
+                id: "sess_a",
+                title: "Keep",
+                runtime_kind: "agent",
+                status: "completed",
+                workspace: "/workspace",
+                message_count: 0,
+              },
+              {
+                id: "sess_b",
+                title: "Delete me",
+                runtime_kind: "agent",
+                status: "running",
+                workspace: "/workspace",
+                message_count: 0,
+              },
             ],
           });
         }
@@ -1488,7 +2023,16 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/chat/sessions/sess_b") {
           return jsonResponse({
             object: "chat_session",
-            data: { id: "sess_b", title: "Delete me", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+            data: {
+              id: "sess_b",
+              title: "Delete me",
+              runtime_kind: "agent",
+              status: "running",
+              workspace: "/workspace",
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
           });
         }
         return defaultBackendMock()(input, init);
@@ -1536,45 +2080,53 @@ describe("useRuntimeConsole", () => {
           });
         }
         return defaultBackendMock({
-          "/hecate/v1/chat/sessions": () => jsonResponse({
-            object: "chat_sessions",
-            data: [{
-              id: "agent_a",
-              title: "Old agent title",
-              runtime_kind: "external_agent",
-              adapter_id: "codex",
-              workspace: "/tmp/workspace",
-              status: "idle",
-              message_count: 0,
-              created_at: "2026-04-20T00:00:00Z",
-              updated_at: "2026-04-20T00:00:00Z",
-            }],
-          }),
-          "/hecate/v1/chat/sessions/agent_a": () => jsonResponse({
-            object: "chat_session",
-            data: {
-              id: "agent_a",
-              title: "Old agent title",
-              runtime_kind: "external_agent",
-              adapter_id: "codex",
-              workspace: "/tmp/workspace",
-              status: "idle",
-              messages: [],
-              created_at: "2026-04-20T00:00:00Z",
-              updated_at: "2026-04-20T00:00:00Z",
-            },
-          }),
+          "/hecate/v1/chat/sessions": () =>
+            jsonResponse({
+              object: "chat_sessions",
+              data: [
+                {
+                  id: "agent_a",
+                  title: "Old agent title",
+                  runtime_kind: "external_agent",
+                  adapter_id: "codex",
+                  workspace: "/tmp/workspace",
+                  status: "idle",
+                  message_count: 0,
+                  created_at: "2026-04-20T00:00:00Z",
+                  updated_at: "2026-04-20T00:00:00Z",
+                },
+              ],
+            }),
+          "/hecate/v1/chat/sessions/agent_a": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "agent_a",
+                title: "Old agent title",
+                runtime_kind: "external_agent",
+                adapter_id: "codex",
+                workspace: "/tmp/workspace",
+                status: "idle",
+                messages: [],
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            }),
         })(input, init);
       });
 
       const { result } = renderRuntimeConsoleHook();
-      await waitFor(() => expect(result.current.state.chatSessions[0]?.title).toBe("Old agent title"));
+      await waitFor(() =>
+        expect(result.current.state.chatSessions[0]?.title).toBe("Old agent title"),
+      );
 
       await act(async () => {
         await result.current.actions.renameChatSession("agent_a", "Renamed agent chat");
       });
 
-      await waitFor(() => expect(result.current.state.chatSessions[0].title).toBe("Renamed agent chat"));
+      await waitFor(() =>
+        expect(result.current.state.chatSessions[0].title).toBe("Renamed agent chat"),
+      );
       expect(result.current.state.activeChatSession?.title).toBe("Renamed agent chat");
     });
 
@@ -1644,7 +2196,10 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/chat/sessions/a1/approvals?status=pending") {
           return jsonResponse({ object: "list", data: [] });
         }
-        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+        if (
+          url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" &&
+          init?.method === "POST"
+        ) {
           resolveCalls += 1;
           return new Promise<Response>((resolve) => {
             resolveResolveCall = resolve;
@@ -1660,11 +2215,9 @@ describe("useRuntimeConsole", () => {
 
       let pendingResolve: Promise<boolean> | undefined;
       await act(async () => {
-        pendingResolve = result.current.actions.resolveTaskApproval(
-          "task_42",
-          "appr_1",
-          { decision: "approve" },
-        );
+        pendingResolve = result.current.actions.resolveTaskApproval("task_42", "appr_1", {
+          decision: "approve",
+        });
       });
 
       // The API call is in flight; the optimistic patch must already
@@ -1737,7 +2290,10 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/chat/sessions/a1/approvals?status=pending") {
           return jsonResponse({ object: "list", data: [] });
         }
-        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+        if (
+          url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" &&
+          init?.method === "POST"
+        ) {
           return new Response(JSON.stringify({ error: { message: "upstream is unhappy" } }), {
             status: 500,
             headers: { "Content-Type": "application/json" },
@@ -1752,11 +2308,9 @@ describe("useRuntimeConsole", () => {
 
       let ok: boolean | undefined;
       await act(async () => {
-        ok = await result.current.actions.resolveTaskApproval(
-          "task_42",
-          "appr_1",
-          { decision: "approve" },
-        );
+        ok = await result.current.actions.resolveTaskApproval("task_42", "appr_1", {
+          decision: "approve",
+        });
       });
 
       expect(ok).toBe(false);
@@ -1839,7 +2393,10 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/chat/sessions/a1/approvals?status=pending") {
           return jsonResponse({ object: "list", data: [] });
         }
-        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+        if (
+          url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" &&
+          init?.method === "POST"
+        ) {
           return new Response(JSON.stringify({ error: { message: "upstream is unhappy" } }), {
             status: 500,
             headers: { "Content-Type": "application/json" },
@@ -1854,11 +2411,9 @@ describe("useRuntimeConsole", () => {
 
       let ok: boolean | undefined;
       await act(async () => {
-        ok = await result.current.actions.resolveTaskApproval(
-          "task_42",
-          "appr_1",
-          { decision: "approve" },
-        );
+        ok = await result.current.actions.resolveTaskApproval("task_42", "appr_1", {
+          decision: "approve",
+        });
       });
       expect(ok).toBe(false);
 
@@ -1940,7 +2495,10 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/chat/sessions/a1/approvals?status=pending") {
           return jsonResponse({ object: "list", data: [] });
         }
-        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+        if (
+          url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" &&
+          init?.method === "POST"
+        ) {
           return new Response(JSON.stringify({ error: { message: "approval is not pending" } }), {
             status: 409,
             headers: { "Content-Type": "application/json" },
@@ -1955,11 +2513,9 @@ describe("useRuntimeConsole", () => {
 
       let ok: boolean | undefined;
       await act(async () => {
-        ok = await result.current.actions.resolveTaskApproval(
-          "task_42",
-          "appr_1",
-          { decision: "reject" },
-        );
+        ok = await result.current.actions.resolveTaskApproval("task_42", "appr_1", {
+          decision: "reject",
+        });
       });
 
       // Both API and refresh failed — the function reports failure
@@ -2041,10 +2597,16 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/chat/sessions/a2") {
           return jsonResponse({ object: "chat_session", data: sessionB });
         }
-        if (url.startsWith("/hecate/v1/chat/sessions/") && url.includes("/approvals?status=pending")) {
+        if (
+          url.startsWith("/hecate/v1/chat/sessions/") &&
+          url.includes("/approvals?status=pending")
+        ) {
           return jsonResponse({ object: "list", data: [] });
         }
-        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+        if (
+          url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" &&
+          init?.method === "POST"
+        ) {
           return new Promise<Response>((resolve) => {
             resolveResolveCall = (response) => resolve(response);
           });
@@ -2059,11 +2621,9 @@ describe("useRuntimeConsole", () => {
       // Operator clicks Approve on a1 (request hangs).
       let pendingResolve: Promise<boolean> | undefined;
       await act(async () => {
-        pendingResolve = result.current.actions.resolveTaskApproval(
-          "task_42",
-          "appr_1",
-          { decision: "approve" },
-        );
+        pendingResolve = result.current.actions.resolveTaskApproval("task_42", "appr_1", {
+          decision: "approve",
+        });
       });
       expect(result.current.state.activeChatSession?.id).toBe("a1");
 
@@ -2076,10 +2636,12 @@ describe("useRuntimeConsole", () => {
 
       // Now the API rejects. Rollback fires, but the active session
       // is a2 — the rollback must NOT pull the operator back to a1.
-      resolveResolveCall?.(new Response(JSON.stringify({ error: { message: "upstream is unhappy" } }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      }));
+      resolveResolveCall?.(
+        new Response(JSON.stringify({ error: { message: "upstream is unhappy" } }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
       const ok = await act(async () => pendingResolve!);
       expect(ok).toBe(false);
       expect(result.current.state.activeChatSession?.id).toBe("a2");
@@ -2120,20 +2682,33 @@ describe("useRuntimeConsole", () => {
 
     it("populates the pending map from the catch-up refetch when a session is selected", async () => {
       window.localStorage.setItem("hecate.chatSessionID", "a1");
-      fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/chat/sessions": () => jsonResponse({
-          object: "chat_sessions",
-          data: [{ id: "a1", title: "S1", adapter_id: "codex", status: "running", message_count: 0 }],
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () =>
+            jsonResponse({
+              object: "chat_sessions",
+              data: [
+                { id: "a1", title: "S1", adapter_id: "codex", status: "running", message_count: 0 },
+              ],
+            }),
+          "/hecate/v1/chat/sessions/a1": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "a1",
+                title: "S1",
+                adapter_id: "codex",
+                workspace: "/tmp",
+                status: "running",
+              },
+            }),
+          "/hecate/v1/chat/sessions/a1/approvals?status=pending": () =>
+            jsonResponse({
+              object: "list",
+              data: [approvalRow()],
+            }),
         }),
-        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
-          object: "chat_session",
-          data: { id: "a1", title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" },
-        }),
-        "/hecate/v1/chat/sessions/a1/approvals?status=pending": () => jsonResponse({
-          object: "list",
-          data: [approvalRow()],
-        }),
-      }));
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -2158,25 +2733,43 @@ describe("useRuntimeConsole", () => {
       // different tab). The pending entry must clear, even though we
       // never see an `approval.resolved` event for the missed transition.
       let approvalsForA: unknown[] = [approvalRow({ id: "ap-1", session_id: "a1" })];
-      fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/chat/sessions": () => jsonResponse({ object: "chat_sessions", data: [] }),
-        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
-          object: "chat_session",
-          data: { id: "a1", title: "A", adapter_id: "codex", workspace: "/tmp", status: "running" },
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () => jsonResponse({ object: "chat_sessions", data: [] }),
+          "/hecate/v1/chat/sessions/a1": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "a1",
+                title: "A",
+                adapter_id: "codex",
+                workspace: "/tmp",
+                status: "running",
+              },
+            }),
+          "/hecate/v1/chat/sessions/b1": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "b1",
+                title: "B",
+                adapter_id: "codex",
+                workspace: "/tmp",
+                status: "running",
+              },
+            }),
+          "/hecate/v1/chat/sessions/a1/approvals?status=pending": () =>
+            jsonResponse({
+              object: "list",
+              data: approvalsForA,
+            }),
+          "/hecate/v1/chat/sessions/b1/approvals?status=pending": () =>
+            jsonResponse({
+              object: "list",
+              data: [],
+            }),
         }),
-        "/hecate/v1/chat/sessions/b1": () => jsonResponse({
-          object: "chat_session",
-          data: { id: "b1", title: "B", adapter_id: "codex", workspace: "/tmp", status: "running" },
-        }),
-        "/hecate/v1/chat/sessions/a1/approvals?status=pending": () => jsonResponse({
-          object: "list",
-          data: approvalsForA,
-        }),
-        "/hecate/v1/chat/sessions/b1/approvals?status=pending": () => jsonResponse({
-          object: "list",
-          data: [],
-        }),
-      }));
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -2211,33 +2804,57 @@ describe("useRuntimeConsole", () => {
     it("ignores a stale catch-up refetch when a local approval update lands first", async () => {
       let delayARefetch = false;
       let releaseARefetch: (() => void) | undefined;
-      fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/chat/sessions": () => jsonResponse({ object: "chat_sessions", data: [] }),
-        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
-          object: "chat_session",
-          data: { id: "a1", title: "A", adapter_id: "codex", workspace: "/tmp", status: "running" },
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () => jsonResponse({ object: "chat_sessions", data: [] }),
+          "/hecate/v1/chat/sessions/a1": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "a1",
+                title: "A",
+                adapter_id: "codex",
+                workspace: "/tmp",
+                status: "running",
+              },
+            }),
+          "/hecate/v1/chat/sessions/b1": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "b1",
+                title: "B",
+                adapter_id: "codex",
+                workspace: "/tmp",
+                status: "running",
+              },
+            }),
+          "/hecate/v1/chat/sessions/a1/approvals?status=pending": () => {
+            if (!delayARefetch) {
+              return jsonResponse({ object: "list", data: [approvalRow()] });
+            }
+            return new Promise<Response>((resolve) => {
+              releaseARefetch = () =>
+                resolve(jsonResponse({ object: "list", data: [approvalRow()] }));
+            });
+          },
+          "/hecate/v1/chat/sessions/b1/approvals?status=pending": () =>
+            jsonResponse({
+              object: "list",
+              data: [],
+            }),
+          "/hecate/v1/chat/sessions/a1/approvals/ap-1/resolve": () =>
+            jsonResponse({
+              object: "chat_approval",
+              data: approvalRow({
+                status: "approved",
+                decision: "approve",
+                scope: "once",
+                path: "operator",
+              }),
+            }),
         }),
-        "/hecate/v1/chat/sessions/b1": () => jsonResponse({
-          object: "chat_session",
-          data: { id: "b1", title: "B", adapter_id: "codex", workspace: "/tmp", status: "running" },
-        }),
-        "/hecate/v1/chat/sessions/a1/approvals?status=pending": () => {
-          if (!delayARefetch) {
-            return jsonResponse({ object: "list", data: [approvalRow()] });
-          }
-          return new Promise<Response>((resolve) => {
-            releaseARefetch = () => resolve(jsonResponse({ object: "list", data: [approvalRow()] }));
-          });
-        },
-        "/hecate/v1/chat/sessions/b1/approvals?status=pending": () => jsonResponse({
-          object: "list",
-          data: [],
-        }),
-        "/hecate/v1/chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
-          object: "chat_approval",
-          data: approvalRow({ status: "approved", decision: "approve", scope: "once", path: "operator" }),
-        }),
-      }));
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -2278,21 +2895,37 @@ describe("useRuntimeConsole", () => {
 
     it("removes a pending approval when the operator resolves it (optimistic update)", async () => {
       window.localStorage.setItem("hecate.chatSessionID", "a1");
-      fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/chat/sessions": () => jsonResponse({ object: "chat_sessions", data: [] }),
-        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
-          object: "chat_session",
-          data: { id: "a1", title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" },
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/sessions": () => jsonResponse({ object: "chat_sessions", data: [] }),
+          "/hecate/v1/chat/sessions/a1": () =>
+            jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "a1",
+                title: "S1",
+                adapter_id: "codex",
+                workspace: "/tmp",
+                status: "running",
+              },
+            }),
+          "/hecate/v1/chat/sessions/a1/approvals?status=pending": () =>
+            jsonResponse({
+              object: "list",
+              data: [approvalRow()],
+            }),
+          "/hecate/v1/chat/sessions/a1/approvals/ap-1/resolve": () =>
+            jsonResponse({
+              object: "chat_approval",
+              data: approvalRow({
+                status: "resolved",
+                decision: "approve",
+                scope: "once",
+                path: "operator",
+              }),
+            }),
         }),
-        "/hecate/v1/chat/sessions/a1/approvals?status=pending": () => jsonResponse({
-          object: "list",
-          data: [approvalRow()],
-        }),
-        "/hecate/v1/chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
-          object: "chat_approval",
-          data: approvalRow({ status: "resolved", decision: "approve", scope: "once", path: "operator" }),
-        }),
-      }));
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -2315,16 +2948,35 @@ describe("useRuntimeConsole", () => {
     });
 
     it("loads grants and removes them on revoke", async () => {
-      fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/chat/grants": () => jsonResponse({
-          object: "list",
-          data: [
-            { id: "g1", scope: "session", adapter_id: "codex", tool_kind: "fs", decision: "approve", granted_by: "operator", granted_at: "2026-04-21T10:00:00Z" },
-            { id: "g2", scope: "workspace_tool", adapter_id: "codex", tool_kind: "exec", decision: "approve", granted_by: "operator", granted_at: "2026-04-21T10:01:00Z" },
-          ],
+      fetchMock.mockImplementation(
+        defaultBackendMock({
+          "/hecate/v1/chat/grants": () =>
+            jsonResponse({
+              object: "list",
+              data: [
+                {
+                  id: "g1",
+                  scope: "session",
+                  adapter_id: "codex",
+                  tool_kind: "fs",
+                  decision: "approve",
+                  granted_by: "operator",
+                  granted_at: "2026-04-21T10:00:00Z",
+                },
+                {
+                  id: "g2",
+                  scope: "workspace_tool",
+                  adapter_id: "codex",
+                  tool_kind: "exec",
+                  decision: "approve",
+                  granted_by: "operator",
+                  granted_at: "2026-04-21T10:01:00Z",
+                },
+              ],
+            }),
+          "/hecate/v1/chat/grants/g1": () => new Response(null, { status: 204 }),
         }),
-        "/hecate/v1/chat/grants/g1": () => new Response(null, { status: 204 }),
-      }));
+      );
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -2346,14 +2998,18 @@ describe("useRuntimeConsole", () => {
 describe("humanizeChatError", () => {
   it("rewrites the api-key-required message into actionable copy", async () => {
     const { humanizeChatError } = await import("./runtime-console-test-composer");
-    expect(humanizeChatError("api key is required for cloud provider openai when stub mode is disabled"))
-      .toBe("openai has no API key. Open Connections and add one.");
+    expect(
+      humanizeChatError("api key is required for cloud provider openai when stub mode is disabled"),
+    ).toBe("openai has no API key. Open Connections and add one.");
   });
 
   it("preserves the provider name verbatim including hyphens / casing", async () => {
     const { humanizeChatError } = await import("./runtime-console-test-composer");
-    expect(humanizeChatError("api key is required for cloud provider together_ai when stub mode is disabled"))
-      .toBe("together_ai has no API key. Open Connections and add one.");
+    expect(
+      humanizeChatError(
+        "api key is required for cloud provider together_ai when stub mode is disabled",
+      ),
+    ).toBe("together_ai has no API key. Open Connections and add one.");
   });
 
   it("passes unrelated errors through unchanged", async () => {
@@ -2364,28 +3020,41 @@ describe("humanizeChatError", () => {
 
   it("humanizes busy, unroutable model, and upstream provider errors", async () => {
     const { humanizeChatError } = await import("./runtime-console-test-composer");
-    expect(humanizeChatError("Hecate Agent is already running for this chat session."))
-      .toBe("Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.");
-    expect(humanizeChatError("workspace is required"))
-      .toBe("Choose a workspace before using Hecate Chat tools or External Agent.");
-    expect(humanizeChatError("tool calling support is unknown"))
-      .toBe("This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.");
-    expect(humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'))
-      .toBe("No configured provider can route to gpt-5.4-mini. Choose another model or open Connections to repair provider readiness.");
-    expect(humanizeChatError("no routable model for selected provider"))
-      .toBe("No routable model is available. Choose another model or open Connections to add a provider, discover models, or check provider health.");
-    expect(humanizeChatError("Authentication required. Please run 'agent login' first."))
-      .toBe("The selected runtime is not signed in. Open Connections to repair or test readiness.");
-    expect(humanizeChatError("Internal error: Credit balance is too low"))
-      .toBe("The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.");
-    expect(humanizeChatError("ECONNREFUSED 127.0.0.1:11434"))
-      .toBe("The selected provider is not reachable. Start the local provider app or check its endpoint URL.");
-    expect(humanizeChatError("upstream returned 401"))
-      .toBe("The selected provider rejected the request with HTTP 401. Check credentials and account access.");
-    expect(humanizeChatError("upstream returned 503"))
-      .toBe("The selected provider returned HTTP 503. Check that the provider is running and reachable.");
-    expect(humanizeChatError("upstream timeout"))
-      .toBe("The selected provider did not respond before the timeout. Check that it is running, reachable, and not overloaded.");
+    expect(humanizeChatError("Hecate Agent is already running for this chat session.")).toBe(
+      "Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.",
+    );
+    expect(humanizeChatError("workspace is required")).toBe(
+      "Choose a workspace before using Hecate Chat tools or External Agent.",
+    );
+    expect(humanizeChatError("tool calling support is unknown")).toBe(
+      "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.",
+    );
+    expect(
+      humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'),
+    ).toBe(
+      "No configured provider can route to gpt-5.4-mini. Choose another model or open Connections to repair provider readiness.",
+    );
+    expect(humanizeChatError("no routable model for selected provider")).toBe(
+      "No routable model is available. Choose another model or open Connections to add a provider, discover models, or check provider health.",
+    );
+    expect(humanizeChatError("Authentication required. Please run 'agent login' first.")).toBe(
+      "The selected runtime is not signed in. Open Connections to repair or test readiness.",
+    );
+    expect(humanizeChatError("Internal error: Credit balance is too low")).toBe(
+      "The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.",
+    );
+    expect(humanizeChatError("ECONNREFUSED 127.0.0.1:11434")).toBe(
+      "The selected provider is not reachable. Start the local provider app or check its endpoint URL.",
+    );
+    expect(humanizeChatError("upstream returned 401")).toBe(
+      "The selected provider rejected the request with HTTP 401. Check credentials and account access.",
+    );
+    expect(humanizeChatError("upstream returned 503")).toBe(
+      "The selected provider returned HTTP 503. Check that the provider is running and reachable.",
+    );
+    expect(humanizeChatError("upstream timeout")).toBe(
+      "The selected provider did not respond before the timeout. Check that it is running, reachable, and not overloaded.",
+    );
   });
 });
 
@@ -2397,12 +3066,15 @@ function jsonResponse(payload: unknown, status = 200): Response {
 }
 
 function emptyStreamResponse(): Response {
-  return new Response(new ReadableStream({
-    start(controller) {
-      controller.close();
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
     },
-  }), {
-    status: 200,
-    headers: { "Content-Type": "text/event-stream" },
-  });
+  );
 }

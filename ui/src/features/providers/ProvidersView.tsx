@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
-import { useWiredDashboardActions, useWiredProviderActions } from "../../app/state/coordinators/wired";
+import {
+  useWiredDashboardActions,
+  useWiredProviderActions,
+} from "../../app/state/coordinators/wired";
 import type { ConfiguredProviderRecord, ProviderRecord } from "../../types/provider";
 import { formatLocaleTime } from "../../lib/format";
-import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
+import {
+  providerFleetRepairHint,
+  providerReadinessMeaning,
+  providerRepairActionLabel,
+} from "../../lib/provider-readiness";
 import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
@@ -24,7 +31,8 @@ function resolveHealthBadge(
   if (!rt) return { status: "disabled", label: "Pending" };
   const status = rt.status;
   if (status === "open" || status === "unhealthy") return { status: "down", label: "Down" };
-  if (status === "degraded" || status === "half_open") return { status: "degraded", label: "Degraded" };
+  if (status === "degraded" || status === "half_open")
+    return { status: "degraded", label: "Degraded" };
   // routing_ready=false on an otherwise-healthy provider means something
   // upstream of routing isn't satisfied — usually no_models, sometimes
   // credential_missing on the very first poll. Surface the specific reason
@@ -111,7 +119,7 @@ export function ProvidersView() {
       setPendingName("");
       setPendingCustomName("");
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedID]);
 
   // Dedupe by id at the source. The backend rejects duplicate IDs at
@@ -129,8 +137,8 @@ export function ProvidersView() {
     }
     return out;
   })();
-  const statusByName = new Map(providers.map(p => [p.name, p]));
-  const configuredByID = new Map(configuredProviders.map(p => [p.id, p]));
+  const statusByName = new Map(providers.map((p) => [p.name, p]));
+  const configuredByID = new Map(configuredProviders.map((p) => [p.id, p]));
 
   const presetOrder = new Map(providerPresets.map((p, i) => [p.id, i]));
   const stableSort = (a: string, b: string) => {
@@ -139,14 +147,26 @@ export function ProvidersView() {
     return ai !== bi ? ai - bi : a.localeCompare(b);
   };
 
-  const cloudIDs = configuredProviders.filter(p => p.kind === "cloud").map(p => p.id).sort(stableSort);
-  const localIDs = configuredProviders.filter(p => p.kind !== "cloud").map(p => p.id).sort(stableSort);
-  const readyProviderCount = configuredProviders.filter(provider => isProviderRoutingReady(provider, statusByName.get(provider.id))).length;
-  const blockedProviderCount = configuredProviders.filter(provider => isProviderNeedsAttention(provider, statusByName.get(provider.id))).length;
-  const discoveredModelCount = models.length || configuredProviders.reduce((sum, provider) => {
-    const status = statusByName.get(provider.id);
-    return sum + (status?.model_count ?? status?.models?.length ?? 0);
-  }, 0);
+  const cloudIDs = configuredProviders
+    .filter((p) => p.kind === "cloud")
+    .map((p) => p.id)
+    .sort(stableSort);
+  const localIDs = configuredProviders
+    .filter((p) => p.kind !== "cloud")
+    .map((p) => p.id)
+    .sort(stableSort);
+  const readyProviderCount = configuredProviders.filter((provider) =>
+    isProviderRoutingReady(provider, statusByName.get(provider.id)),
+  ).length;
+  const blockedProviderCount = configuredProviders.filter((provider) =>
+    isProviderNeedsAttention(provider, statusByName.get(provider.id)),
+  ).length;
+  const discoveredModelCount =
+    models.length ||
+    configuredProviders.reduce((sum, provider) => {
+      const status = statusByName.get(provider.id);
+      return sum + (status?.model_count ?? status?.models?.length ?? 0);
+    }, 0);
   const fleetRepair = providerFleetRepairHint(configuredProviders, statusByName);
   const nextReadinessStep = resolveNextReadinessStep(fleetRepair);
   const readinessMeaning = providerReadinessMeaning({
@@ -174,36 +194,45 @@ export function ProvidersView() {
     }
   };
 
-  const selectedConfig = selectedID ? configuredByID.get(selectedID) ?? null : null;
+  const selectedConfig = selectedID ? (configuredByID.get(selectedID) ?? null) : null;
   const selectedStatus = selectedID ? statusByName.get(selectedID) : null;
-  const selectedPreset = selectedID ? providerPresets.find(p => p.id === selectedID) : null;
-  const deleteConfirmConfig = deleteConfirmID ? configuredByID.get(deleteConfirmID) ?? null : null;
-  const deleteConfirmPreset = deleteConfirmID ? providerPresets.find(p => p.id === deleteConfirmID) : null;
+  const selectedPreset = selectedID ? providerPresets.find((p) => p.id === selectedID) : null;
+  const deleteConfirmConfig = deleteConfirmID
+    ? (configuredByID.get(deleteConfirmID) ?? null)
+    : null;
+  const deleteConfirmPreset = deleteConfirmID
+    ? providerPresets.find((p) => p.id === deleteConfirmID)
+    : null;
   const deleteConfirmName = deleteConfirmConfig
     ? deleteConfirmPreset?.name || deleteConfirmConfig.name || deleteConfirmID || "provider"
     : "provider";
 
   const selectedHealthCounters = [
-    selectedStatus?.consecutive_failures ? `${selectedStatus.consecutive_failures} consecutive failures` : "",
+    selectedStatus?.consecutive_failures
+      ? `${selectedStatus.consecutive_failures} consecutive failures`
+      : "",
     selectedStatus?.rate_limits ? `${selectedStatus.rate_limits} rate limits` : "",
     selectedStatus?.timeouts ? `${selectedStatus.timeouts} timeouts` : "",
     selectedStatus?.server_errors ? `${selectedStatus.server_errors} server errors` : "",
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   // ── Table row renderer ───────────────────────────────────────────────────────
 
   function renderRow(id: string, isLast = false) {
     const cp = configuredByID.get(id);
     const rt = statusByName.get(id);
-    const preset = providerPresets.find(p => p.id === id);
+    const preset = providerPresets.find((p) => p.id === id);
     const displayName = preset?.name || cp?.name || id;
     const baseURL = rt?.base_url || resolvedBaseURL(id, cp ?? undefined, providerPresets);
     const modelCount = rt?.model_count ?? rt?.models?.length ?? 0;
-    const modelBadge = modelCount > 0
-      ? null
-      : cp && !rt
-        ? { status: "degraded", label: "Discovery pending" }
-        : { status: "degraded", label: "No models" };
+    const modelBadge =
+      modelCount > 0
+        ? null
+        : cp && !rt
+          ? { status: "degraded", label: "Discovery pending" }
+          : { status: "degraded", label: "No models" };
     const protocol = cp?.protocol || preset?.protocol || "—";
     const isSelected = selectedID === id;
 
@@ -213,41 +242,46 @@ export function ProvidersView() {
     // Health passes the CP credential state in so it can suppress
     // "Missing credentials" when CP knows we have a key but the runtime
     // hasn't re-probed yet — otherwise the two columns contradict.
-    const health = resolveHealthBadge(rt, (cp?.kind === "local") || !!cp?.credential_configured);
+    const health = resolveHealthBadge(rt, cp?.kind === "local" || !!cp?.credential_configured);
 
     return (
       <tr
         key={id}
-        onClick={() => setSelectedID(s => (s === id ? null : id))}
+        onClick={() => setSelectedID((s) => (s === id ? null : id))}
         role="button"
         tabIndex={0}
         aria-label={`Provider ${displayName}`}
         aria-expanded={isSelected}
-        onKeyDown={e => {
+        onKeyDown={(e) => {
           if (e.target !== e.currentTarget) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
-            setSelectedID(s => (s === id ? null : id));
+            setSelectedID((s) => (s === id ? null : id));
           }
         }}
         style={{
           background: isSelected ? "var(--teal-bg)" : undefined,
           borderBottom: isLast ? undefined : "1px solid var(--border)",
           cursor: "pointer",
-        }}>
+        }}
+      >
         {/* Name */}
         <td style={{ padding: "8px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <BrandAvatar brand={id} fallback={displayName} size={22} />
-            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>
-              {displayName}
-            </span>
+            <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>{displayName}</span>
             {cp?.custom_name && (
-              <span style={{
-                fontSize: 11, color: "var(--t3)", fontStyle: "italic",
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                minWidth: 0,
-              }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--t3)",
+                  fontStyle: "italic",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                }}
+              >
                 {cp.custom_name}
               </span>
             )}
@@ -271,10 +305,15 @@ export function ProvidersView() {
           <span
             title={baseURL || undefined}
             style={{
-              fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: "var(--t2)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
               display: "block",
-            }}>
+            }}
+          >
             {baseURL || "—"}
           </span>
         </td>
@@ -287,13 +326,16 @@ export function ProvidersView() {
         {/* Models */}
         <td
           style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}
-          title={modelCount === 0
-            ? cp && !rt
-              ? "Hecate has not received a current model-discovery result for this configured provider yet."
-              : cp?.kind === "local"
-                ? "No models discovered yet. Run `ollama pull <model>` (or your provider's equivalent) to populate this list."
-              : "No models returned by /v1/models. Check the API key is correct and that the provider's account has model access."
-            : undefined}>
+          title={
+            modelCount === 0
+              ? cp && !rt
+                ? "Hecate has not received a current model-discovery result for this configured provider yet."
+                : cp?.kind === "local"
+                  ? "No models discovered yet. Run `ollama pull <model>` (or your provider's equivalent) to populate this list."
+                  : "No models returned by /v1/models. Check the API key is correct and that the provider's account has model access."
+              : undefined
+          }
+        >
           {modelBadge ? (
             <Badge status={modelBadge.status} label={modelBadge.label} />
           ) : (
@@ -306,26 +348,26 @@ export function ProvidersView() {
         {/* Last checked */}
         <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
-            {rt?.last_checked_at
-              ? formatLocaleTime(rt.last_checked_at)
-              : "—"}
+            {rt?.last_checked_at ? formatLocaleTime(rt.last_checked_at) : "—"}
           </span>
         </td>
 
         {/* Delete */}
         <td
           style={{ padding: "8px 12px", textAlign: "right" }}
-          onClick={e => e.stopPropagation()}>
+          onClick={(e) => e.stopPropagation()}
+        >
           <button
             className="btn btn-ghost btn-sm"
             style={{ padding: "3px 6px", color: "var(--t3)" }}
             title={`Remove ${displayName}`}
             aria-label={`Remove provider ${displayName}`}
             type="button"
-            onClick={e => {
+            onClick={(e) => {
               e.stopPropagation();
               setDeleteConfirmID(id);
-            }}>
+            }}
+          >
             <Icon d={Icons.trash} size={13} />
           </button>
         </td>
@@ -333,11 +375,7 @@ export function ProvidersView() {
     );
   }
 
-  function renderTable(
-    title: string,
-    subtitle: string,
-    ids: string[],
-  ) {
+  function renderTable(title: string, subtitle: string, ids: string[]) {
     if (ids.length === 0) return null;
     return (
       <div style={{ marginBottom: 28 }}>
@@ -345,7 +383,13 @@ export function ProvidersView() {
           <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>{title}</span>
           <span style={{ fontSize: 11, color: "var(--t3)" }}>{subtitle}</span>
         </div>
-        <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
+        <div
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+            overflow: "hidden",
+          }}
+        >
           {/* table-layout: fixed + a shared colgroup pin the column
               widths so the cloud and local tables line up vertically.
               Without this each table sizes its columns by content
@@ -373,9 +417,7 @@ export function ProvidersView() {
                 <th style={{ ...thStyle, textAlign: "right" }}></th>
               </tr>
             </thead>
-            <tbody>
-              {ids.map((id, i) => renderRow(id, i === ids.length - 1))}
-            </tbody>
+            <tbody>{ids.map((id, i) => renderRow(id, i === ids.length - 1))}</tbody>
           </table>
         </div>
       </div>
@@ -386,17 +428,16 @@ export function ProvidersView() {
 
   return (
     <div style={{ height: "100%", overflow: "hidden" }}>
-
       {/* Provider tables */}
       <div style={{ height: "100%", overflowY: "auto", padding: 16 }}>
-
         {/* Header row */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
           <span style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)" }}>Connections</span>
           <button
             className="btn btn-primary btn-sm"
             style={{ marginLeft: "auto" }}
-            onClick={() => setAddProviderOpen(true)}>
+            onClick={() => setAddProviderOpen(true)}
+          >
             Add provider
           </button>
         </div>
@@ -413,11 +454,21 @@ export function ProvidersView() {
                   Model provider readiness
                 </div>
                 <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-                  Checks credentials, discovery, health, routing, and selected-model repair paths before a chat fails.
+                  Checks credentials, discovery, health, routing, and selected-model repair paths
+                  before a chat fails.
                 </div>
               </div>
               {(nextReadinessStep || readinessAction) && (
-                <div style={{ marginLeft: "auto", maxWidth: 460, display: "flex", gap: 10, alignItems: "center", justifyContent: "flex-end" }}>
+                <div
+                  style={{
+                    marginLeft: "auto",
+                    maxWidth: 460,
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                  }}
+                >
                   {nextReadinessStep && (
                     <div
                       style={{
@@ -433,7 +484,11 @@ export function ProvidersView() {
                   {readinessAction && (
                     <button
                       type="button"
-                      className={readinessAction.tone === "primary" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+                      className={
+                        readinessAction.tone === "primary"
+                          ? "btn btn-primary btn-sm"
+                          : "btn btn-ghost btn-sm"
+                      }
                       onClick={runReadinessAction}
                       style={{ whiteSpace: "nowrap" }}
                     >
@@ -450,10 +505,29 @@ export function ProvidersView() {
                 gap: 10,
               }}
             >
-              <ConnectionStat label="Configured" value={String(configuredProviders.length)} hint="provider records" />
-              <ConnectionStat label="Ready" value={String(readyProviderCount)} hint="routing-ready" tone={readyProviderCount > 0 ? "green" : "muted"} />
-              <ConnectionStat label="Needs attention" value={String(blockedProviderCount)} hint="blocked providers" tone={blockedProviderCount > 0 ? "amber" : "muted"} />
-              <ConnectionStat label="Models" value={String(discoveredModelCount)} hint="discovered" tone={discoveredModelCount > 0 ? "green" : "muted"} />
+              <ConnectionStat
+                label="Configured"
+                value={String(configuredProviders.length)}
+                hint="provider records"
+              />
+              <ConnectionStat
+                label="Ready"
+                value={String(readyProviderCount)}
+                hint="routing-ready"
+                tone={readyProviderCount > 0 ? "green" : "muted"}
+              />
+              <ConnectionStat
+                label="Needs attention"
+                value={String(blockedProviderCount)}
+                hint="blocked providers"
+                tone={blockedProviderCount > 0 ? "amber" : "muted"}
+              />
+              <ConnectionStat
+                label="Models"
+                value={String(discoveredModelCount)}
+                hint="discovered"
+                tone={discoveredModelCount > 0 ? "green" : "muted"}
+              />
             </div>
             <div
               data-testid="connections-provider-readiness-meaning"
@@ -470,41 +544,40 @@ export function ProvidersView() {
         )}
 
         {configuredProviders.length === 0 ? (
-          <div style={{
-            display: "flex", flexDirection: "column", alignItems: "center",
-            justifyContent: "center", minHeight: 280, gap: 0,
-          }}>
-            <div style={{ fontSize: 14, color: "var(--t1)", fontWeight: 500 }}>No model providers configured</div>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 280,
+              gap: 0,
+            }}
+          >
+            <div style={{ fontSize: 14, color: "var(--t1)", fontWeight: 500 }}>
+              No model providers configured
+            </div>
             <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 6 }}>
               Add a local or cloud provider to start routing requests
             </div>
             <button
               className="btn btn-primary btn-sm"
               style={{ marginTop: 16 }}
-              onClick={() => setAddProviderOpen(true)}>
+              onClick={() => setAddProviderOpen(true)}
+            >
               Add provider
             </button>
           </div>
         ) : (
           <>
-            {renderTable(
-              "Cloud providers",
-              `${cloudIDs.length} configured`,
-              cloudIDs,
-            )}
+            {renderTable("Cloud providers", `${cloudIDs.length} configured`, cloudIDs)}
 
-            {renderTable(
-              "Local inference",
-              `${localIDs.length} configured`,
-              localIDs,
-            )}
+            {renderTable("Local inference", `${localIDs.length} configured`, localIDs)}
           </>
         )}
 
         <div style={{ marginTop: configuredProviders.length === 0 ? 28 : 8 }}>
-          <ConnectionsPanel
-            showProviderSummary={false}
-          />
+          <ConnectionsPanel showProviderSummary={false} />
         </div>
       </div>
 
@@ -514,18 +587,29 @@ export function ProvidersView() {
           title={`${selectedPreset?.name || selectedConfig.name || selectedID} · ${selectedConfig.kind || "cloud"}`}
           onClose={() => setSelectedID(null)}
           footer={null}
-          width={560}>
+          width={560}
+        >
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
             {/* Header strip: brand initial + base URL */}
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <BrandAvatar brand={selectedID} fallback={selectedPreset?.name || selectedConfig.name || selectedID} size={32} />
+              <BrandAvatar
+                brand={selectedID}
+                fallback={selectedPreset?.name || selectedConfig.name || selectedID}
+                size={32}
+              />
               {selectedConfig.base_url && (
-                <span style={{
-                  fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)",
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  flex: 1, minWidth: 0,
-                }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    color: "var(--t3)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    flex: 1,
+                    minWidth: 0,
+                  }}
+                >
                   {selectedConfig.base_url}
                 </span>
               )}
@@ -533,37 +617,64 @@ export function ProvidersView() {
 
             {/* Circuit-open banner */}
             {selectedStatus?.status === "open" && selectedStatus.open_until && (
-              <div style={{
-                padding: "8px 12px", background: "var(--red-bg)",
-                borderRadius: "var(--radius-sm)",
-                fontSize: 12, color: "var(--red)", lineHeight: 1.4,
-              }}>
+              <div
+                style={{
+                  padding: "8px 12px",
+                  background: "var(--red-bg)",
+                  borderRadius: "var(--radius-sm)",
+                  fontSize: 12,
+                  color: "var(--red)",
+                  lineHeight: 1.4,
+                }}
+              >
                 Circuit open — will probe at {formatLocaleTime(selectedStatus.open_until)}
               </div>
             )}
 
             {/* Live status grid */}
-            <div style={{
-              display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12,
-              padding: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
-            }}>
-              {([
-                ["Health",   selectedStatus?.status || "unknown"],
-                ["Route",    selectedStatus?.routing_ready === false
-                  ? describeRoutingBlockedReason(selectedStatus.routing_blocked_reason)
-                  : "Ready"],
-                ["Models",   selectedStatus?.model_count ?? selectedStatus?.models?.length ?? "—"],
-                ["Checked",  selectedStatus?.last_checked_at
-                  ? formatLocaleTime(selectedStatus.last_checked_at)
-                  : "—"],
-              ] as [string, string | number][]).map(([label, val]) => (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                gap: 12,
+                padding: 12,
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+              }}
+            >
+              {(
+                [
+                  ["Health", selectedStatus?.status || "unknown"],
+                  [
+                    "Route",
+                    selectedStatus?.routing_ready === false
+                      ? describeRoutingBlockedReason(selectedStatus.routing_blocked_reason)
+                      : "Ready",
+                  ],
+                  ["Models", selectedStatus?.model_count ?? selectedStatus?.models?.length ?? "—"],
+                  [
+                    "Checked",
+                    selectedStatus?.last_checked_at
+                      ? formatLocaleTime(selectedStatus.last_checked_at)
+                      : "—",
+                  ],
+                ] as [string, string | number][]
+              ).map(([label, val]) => (
                 <div key={label}>
-                  <div className="kicker" style={{ marginBottom: 2 }}>{label}</div>
-                  <div style={{
-                    fontSize: 12, fontWeight: 500, color: "var(--t0)",
-                    fontFamily: "var(--font-mono)",
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
+                  <div className="kicker" style={{ marginBottom: 2 }}>
+                    {label}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: "var(--t0)",
+                      fontFamily: "var(--font-mono)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
                     {val}
                   </div>
                 </div>
@@ -584,14 +695,17 @@ export function ProvidersView() {
                   className="input"
                   type="text"
                   value={pendingName}
-                  onChange={e => setPendingName(e.target.value)}
+                  onChange={(e) => setPendingName(e.target.value)}
                   placeholder="My Provider"
                 />
                 <button
                   className="btn btn-primary btn-sm"
                   style={{ alignSelf: "flex-start" }}
-                  disabled={!pendingName.trim() || pendingName === (selectedConfig.name || selectedID)}
-                  onClick={() => void providerActions.setProviderName(selectedID, pendingName)}>
+                  disabled={
+                    !pendingName.trim() || pendingName === (selectedConfig.name || selectedID)
+                  }
+                  onClick={() => void providerActions.setProviderName(selectedID, pendingName)}
+                >
                   <Icon d={Icons.check} size={13} /> Save name
                 </button>
               </div>
@@ -603,20 +717,25 @@ export function ProvidersView() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <label className="kicker-lg" style={{ display: "flex", gap: 6 }}>
                 Custom name
-                <span style={{ color: "var(--t3)", fontWeight: 400, textTransform: "none" }}>optional</span>
+                <span style={{ color: "var(--t3)", fontWeight: 400, textTransform: "none" }}>
+                  optional
+                </span>
               </label>
               <input
                 className="input"
                 type="text"
                 value={pendingCustomName}
-                onChange={e => setPendingCustomName(e.target.value)}
+                onChange={(e) => setPendingCustomName(e.target.value)}
                 placeholder="e.g. Prod, Dev, Staging"
               />
               <button
                 className="btn btn-primary btn-sm"
                 style={{ alignSelf: "flex-start" }}
                 disabled={pendingCustomName === (selectedConfig.custom_name ?? "")}
-                onClick={() => void providerActions.setProviderCustomName(selectedID, pendingCustomName)}>
+                onClick={() =>
+                  void providerActions.setProviderCustomName(selectedID, pendingCustomName)
+                }
+              >
                 <Icon d={Icons.check} size={13} /> Save custom name
               </button>
             </div>
@@ -629,7 +748,7 @@ export function ProvidersView() {
                   className="input"
                   type="text"
                   value={pendingURL}
-                  onChange={e => setPendingURL(e.target.value)}
+                  onChange={(e) => setPendingURL(e.target.value)}
                   placeholder="http://localhost:11434/v1"
                   style={{ fontFamily: "var(--font-mono)" }}
                   autoFocus
@@ -637,8 +756,13 @@ export function ProvidersView() {
                 <button
                   className="btn btn-primary btn-sm"
                   style={{ alignSelf: "flex-start" }}
-                  disabled={!pendingURL.trim() || pendingURL === resolvedBaseURL(selectedID, selectedConfig ?? undefined, providerPresets)}
-                  onClick={() => void providerActions.setProviderBaseURL(selectedID, pendingURL)}>
+                  disabled={
+                    !pendingURL.trim() ||
+                    pendingURL ===
+                      resolvedBaseURL(selectedID, selectedConfig ?? undefined, providerPresets)
+                  }
+                  onClick={() => void providerActions.setProviderBaseURL(selectedID, pendingURL)}
+                >
                   <Icon d={Icons.check} size={13} /> Save URL
                 </button>
               </div>
@@ -647,7 +771,9 @@ export function ProvidersView() {
                 <label className="kicker-lg" style={{ display: "flex", gap: 6 }}>
                   API Key
                   {selectedConfig.credential_source === "env" && !pendingKey && (
-                    <span style={{ color: "var(--teal)", fontWeight: 400, textTransform: "none" }}>from env</span>
+                    <span style={{ color: "var(--teal)", fontWeight: 400, textTransform: "none" }}>
+                      from env
+                    </span>
                   )}
                 </label>
                 <input
@@ -662,27 +788,33 @@ export function ProvidersView() {
                   data-form-type="other"
                   placeholder={selectedConfig.credential_configured ? "••••••••" : "sk-…"}
                   value={pendingKey}
-                  onChange={e => setPendingKey(e.target.value)}
+                  onChange={(e) => setPendingKey(e.target.value)}
                   style={{ fontFamily: "var(--font-mono)", letterSpacing: "0.1em" }}
                   autoFocus
                 />
                 {!selectedConfig.credential_configured && (
-                  <div style={{ fontSize: 11, color: "var(--t3)" }}>Stored encrypted at rest. Never logged.</div>
+                  <div style={{ fontSize: 11, color: "var(--t3)" }}>
+                    Stored encrypted at rest. Never logged.
+                  </div>
                 )}
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
                     className="btn btn-primary btn-sm"
                     disabled={!pendingKey.trim()}
                     onClick={() =>
-                      void providerActions.setProviderAPIKey(selectedID, pendingKey).then(() => setPendingKey(""))
-                    }>
+                      void providerActions
+                        .setProviderAPIKey(selectedID, pendingKey)
+                        .then(() => setPendingKey(""))
+                    }
+                  >
                     <Icon d={Icons.check} size={13} />
                     {selectedConfig.credential_configured ? "Update API key" : "Save API key"}
                   </button>
                   {selectedConfig.credential_source === "vault" && (
                     <button
                       className="btn btn-danger btn-sm"
-                      onClick={() => void providerActions.setProviderAPIKey(selectedID, "")}>
+                      onClick={() => void providerActions.setProviderAPIKey(selectedID, "")}
+                    >
                       <Icon d={Icons.trash} size={13} /> Delete
                     </button>
                   )}
@@ -692,44 +824,88 @@ export function ProvidersView() {
 
             {/* Diagnostics — only when there's something to show */}
             {(selectedStatus?.last_error ||
-              selectedStatus?.last_error_class || selectedStatus?.discovery_source ||
+              selectedStatus?.last_error_class ||
+              selectedStatus?.discovery_source ||
               selectedHealthCounters) && (
               <details>
-                <summary style={{ fontSize: 11, color: "var(--t2)", cursor: "pointer", userSelect: "none" }}>
+                <summary
+                  style={{
+                    fontSize: 11,
+                    color: "var(--t2)",
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
                   Diagnostics
                 </summary>
-                <div style={{ marginTop: 8, padding: 10, background: "var(--bg2)", borderRadius: "var(--radius-sm)" }}>
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: 10,
+                    background: "var(--bg2)",
+                    borderRadius: "var(--radius-sm)",
+                  }}
+                >
                   {selectedStatus?.last_error && (
-                    <div style={{ fontSize: 12, color: "var(--red)", lineHeight: 1.45, marginBottom: 6 }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--red)",
+                        lineHeight: 1.45,
+                        marginBottom: 6,
+                      }}
+                    >
                       {selectedStatus.last_error}
                     </div>
                   )}
                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                     {selectedStatus?.last_error_class && (
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-                        error class: <span style={{ color: "var(--t1)" }}>{describeHealthErrorClass(selectedStatus.last_error_class)}</span>
+                      <div
+                        style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}
+                      >
+                        error class:{" "}
+                        <span style={{ color: "var(--t1)" }}>
+                          {describeHealthErrorClass(selectedStatus.last_error_class)}
+                        </span>
                       </div>
                     )}
                     {selectedStatus?.discovery_source && (
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-                        discovery: <span style={{ color: "var(--t1)" }}>{selectedStatus.discovery_source}</span>
+                      <div
+                        style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}
+                      >
+                        discovery:{" "}
+                        <span style={{ color: "var(--t1)" }}>
+                          {selectedStatus.discovery_source}
+                        </span>
                       </div>
                     )}
                     {selectedHealthCounters && (
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+                      <div
+                        style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}
+                      >
                         {selectedHealthCounters}
                       </div>
                     )}
-                    {(selectedStatus?.total_successes != null || selectedStatus?.total_failures != null) && (
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-                        totals: <span style={{ color: "var(--t1)" }}>
-                          {selectedStatus?.total_successes ?? 0} ok · {selectedStatus?.total_failures ?? 0} failed
+                    {(selectedStatus?.total_successes != null ||
+                      selectedStatus?.total_failures != null) && (
+                      <div
+                        style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}
+                      >
+                        totals:{" "}
+                        <span style={{ color: "var(--t1)" }}>
+                          {selectedStatus?.total_successes ?? 0} ok ·{" "}
+                          {selectedStatus?.total_failures ?? 0} failed
                         </span>
                       </div>
                     )}
                     {selectedStatus?.last_latency_ms != null && (
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-                        last latency: <span style={{ color: "var(--t1)" }}>{selectedStatus.last_latency_ms}ms</span>
+                      <div
+                        style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}
+                      >
+                        last latency:{" "}
+                        <span style={{ color: "var(--t1)" }}>
+                          {selectedStatus.last_latency_ms}ms
+                        </span>
                       </div>
                     )}
                   </div>
@@ -740,26 +916,50 @@ export function ProvidersView() {
             {/* Model list */}
             {selectedStatus?.models && selectedStatus.models.length > 0 && (
               <details open>
-                <summary style={{ fontSize: 11, color: "var(--t2)", cursor: "pointer", userSelect: "none" }}>
+                <summary
+                  style={{
+                    fontSize: 11,
+                    color: "var(--t2)",
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
                   Models ({selectedStatus.models.length})
                 </summary>
-                <div style={{
-                  marginTop: 8, maxHeight: 200, overflowY: "auto",
-                  border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
-                  padding: "0 10px",
-                }}>
-                  {selectedStatus.models.map(m => (
+                <div
+                  style={{
+                    marginTop: 8,
+                    maxHeight: 200,
+                    overflowY: "auto",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "0 10px",
+                  }}
+                >
+                  {selectedStatus.models.map((m) => (
                     <div
                       key={m}
                       style={{
-                        display: "flex", alignItems: "center",
-                        padding: "5px 0", borderBottom: "1px solid var(--border)",
-                      }}>
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--t0)", flex: 1 }}>
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "5px 0",
+                        borderBottom: "1px solid var(--border)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 12,
+                          color: "var(--t0)",
+                          flex: 1,
+                        }}
+                      >
                         {m}
                       </span>
                       {m === selectedConfig.default_model && (
-                        <span className="badge badge-teal" style={{ fontSize: 9 }}>default</span>
+                        <span className="badge badge-teal" style={{ fontSize: 9 }}>
+                          default
+                        </span>
                       )}
                     </div>
                   ))}
@@ -770,10 +970,7 @@ export function ProvidersView() {
         </Modal>
       )}
 
-      <AddProviderModal
-        open={addProviderOpen}
-        onClose={() => setAddProviderOpen(false)}
-      />
+      <AddProviderModal open={addProviderOpen} onClose={() => setAddProviderOpen(false)} />
 
       {deleteConfirmID && deleteConfirmConfig && (
         <ConfirmModal
@@ -781,7 +978,10 @@ export function ProvidersView() {
           title="Remove provider?"
           message={
             <>
-              Remove <span style={{ fontWeight: 600, color: "var(--t0)" }}>{deleteConfirmName}</span> from Hecate? Existing chats stay in history, but new requests will stop routing through this provider.
+              Remove{" "}
+              <span style={{ fontWeight: 600, color: "var(--t0)" }}>{deleteConfirmName}</span> from
+              Hecate? Existing chats stay in history, but new requests will stop routing through
+              this provider.
             </>
           }
           confirmLabel="Remove provider"
@@ -833,10 +1033,27 @@ function ConnectionStat({
         background: "rgba(255, 255, 255, 0.015)",
       }}
     >
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          color: "var(--t3)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: 5,
+        }}
+      >
         {label}
       </div>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 700, color: statColor(tone), lineHeight: 1 }}>
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 18,
+          fontWeight: 700,
+          color: statColor(tone),
+          lineHeight: 1,
+        }}
+      >
         {value}
       </div>
       <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 6 }}>{hint}</div>
@@ -846,9 +1063,12 @@ function ConnectionStat({
 
 function statColor(tone: ConnectionStatTone): string {
   switch (tone) {
-    case "green": return "var(--teal)";
-    case "amber": return "var(--amber)";
-    case "muted": return "var(--t3)";
+    case "green":
+      return "var(--teal)";
+    case "amber":
+      return "var(--amber)";
+    case "muted":
+      return "var(--t3)";
   }
 }
 

@@ -82,18 +82,28 @@ const initialState: RuntimeState = {
 
 function reducer(state: RuntimeState, action: Action): RuntimeState {
   switch (action.type) {
-    case "health/set":          return { ...state, health: action.value };
-    case "sessionInfo/set":     return { ...state, sessionInfo: action.value };
-    case "loading/set":         return { ...state, loading: action.value };
-    case "error/set":           return { ...state, error: action.value };
-    case "message/set":         return { ...state, message: action.value };
-    case "runtimeHeaders/set":  return { ...state, runtimeHeaders: action.value };
-    case "copiedCommand/set":   return { ...state, copiedCommand: action.value };
+    case "health/set":
+      return { ...state, health: action.value };
+    case "sessionInfo/set":
+      return { ...state, sessionInfo: action.value };
+    case "loading/set":
+      return { ...state, loading: action.value };
+    case "error/set":
+      return { ...state, error: action.value };
+    case "message/set":
+      return { ...state, message: action.value };
+    case "runtimeHeaders/set":
+      return { ...state, runtimeHeaders: action.value };
+    case "copiedCommand/set":
+      return { ...state, copiedCommand: action.value };
     case "copiedCommand/clearIf":
       return state.copiedCommand === action.matching ? { ...state, copiedCommand: "" } : state;
-    case "hecateRTKEnabled/set":   return { ...state, hecateRTKEnabled: action.value };
-    case "hecateRTKAvailable/set": return { ...state, hecateRTKAvailable: action.value };
-    case "hecateRTKPath/set":      return { ...state, hecateRTKPath: action.value };
+    case "hecateRTKEnabled/set":
+      return { ...state, hecateRTKEnabled: action.value };
+    case "hecateRTKAvailable/set":
+      return { ...state, hecateRTKAvailable: action.value };
+    case "hecateRTKPath/set":
+      return { ...state, hecateRTKPath: action.value };
   }
 }
 
@@ -104,7 +114,10 @@ const COPY_INDICATOR_MS = 1500;
 // initialState lets tests preload the slice with deterministic state
 // without exercising the dashboard loader. Production wiring leaves
 // the default; the prop ships as test-only sugar.
-export function RuntimeProvider({ children, initialState: seededState }: {
+export function RuntimeProvider({
+  children,
+  initialState: seededState,
+}: {
   children: ReactNode;
   initialState?: Partial<RuntimeState>;
 }) {
@@ -113,15 +126,33 @@ export function RuntimeProvider({ children, initialState: seededState }: {
     seededState ? { ...initialState, ...seededState } : initialState,
   );
 
-  const setHealth = useCallback((value: HealthResponse | null) => dispatch({ type: "health/set", value }), []);
-  const setSessionInfo = useCallback((value: SessionResponse["data"] | null) => dispatch({ type: "sessionInfo/set", value }), []);
+  const setHealth = useCallback(
+    (value: HealthResponse | null) => dispatch({ type: "health/set", value }),
+    [],
+  );
+  const setSessionInfo = useCallback(
+    (value: SessionResponse["data"] | null) => dispatch({ type: "sessionInfo/set", value }),
+    [],
+  );
   const setLoading = useCallback((value: boolean) => dispatch({ type: "loading/set", value }), []);
   const setError = useCallback((value: string) => dispatch({ type: "error/set", value }), []);
   const setMessage = useCallback((value: string) => dispatch({ type: "message/set", value }), []);
-  const setRuntimeHeaders = useCallback((value: RuntimeHeaders | null) => dispatch({ type: "runtimeHeaders/set", value }), []);
-  const setHecateRTKEnabled = useCallback((value: boolean) => dispatch({ type: "hecateRTKEnabled/set", value }), []);
-  const setHecateRTKAvailable = useCallback((value: boolean) => dispatch({ type: "hecateRTKAvailable/set", value }), []);
-  const setHecateRTKPath = useCallback((value: string) => dispatch({ type: "hecateRTKPath/set", value }), []);
+  const setRuntimeHeaders = useCallback(
+    (value: RuntimeHeaders | null) => dispatch({ type: "runtimeHeaders/set", value }),
+    [],
+  );
+  const setHecateRTKEnabled = useCallback(
+    (value: boolean) => dispatch({ type: "hecateRTKEnabled/set", value }),
+    [],
+  );
+  const setHecateRTKAvailable = useCallback(
+    (value: boolean) => dispatch({ type: "hecateRTKAvailable/set", value }),
+    [],
+  );
+  const setHecateRTKPath = useCallback(
+    (value: string) => dispatch({ type: "hecateRTKPath/set", value }),
+    [],
+  );
 
   const copyCommand = useCallback(async (command: string) => {
     try {
@@ -135,22 +166,32 @@ export function RuntimeProvider({ children, initialState: seededState }: {
     }
   }, []);
 
-  const actions = useMemo<RuntimeActions>(() => ({
-    setHealth,
-    setSessionInfo,
-    setLoading,
-    setError,
-    setMessage,
-    setRuntimeHeaders,
-    setHecateRTKEnabled,
-    setHecateRTKAvailable,
-    setHecateRTKPath,
-    copyCommand,
-  }), [
-    setHealth, setSessionInfo, setLoading, setError, setMessage,
-    setRuntimeHeaders, setHecateRTKEnabled, setHecateRTKAvailable,
-    setHecateRTKPath, copyCommand,
-  ]);
+  const actions = useMemo<RuntimeActions>(
+    () => ({
+      setHealth,
+      setSessionInfo,
+      setLoading,
+      setError,
+      setMessage,
+      setRuntimeHeaders,
+      setHecateRTKEnabled,
+      setHecateRTKAvailable,
+      setHecateRTKPath,
+      copyCommand,
+    }),
+    [
+      setHealth,
+      setSessionInfo,
+      setLoading,
+      setError,
+      setMessage,
+      setRuntimeHeaders,
+      setHecateRTKEnabled,
+      setHecateRTKAvailable,
+      setHecateRTKPath,
+      copyCommand,
+    ],
+  );
 
   const value = useMemo(() => ({ state, actions }), [state, actions]);
 

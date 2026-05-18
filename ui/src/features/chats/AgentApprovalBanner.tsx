@@ -25,11 +25,10 @@ export function AgentApprovalAutoModeBanner({ mode }: { mode: string }) {
     >
       <Icon d={Icons.warning} size={16} />
       <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-        <span style={{ fontWeight: 500, fontSize: 12 }}>
-          Auto-approval is on
-        </span>
+        <span style={{ fontWeight: 500, fontSize: 12 }}>Auto-approval is on</span>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--red-lo)" }}>
-          GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto — every adapter request is permitted without review.
+          GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto — every adapter request is permitted without
+          review.
         </span>
       </div>
     </ChatNoticeFrame>

@@ -29,7 +29,9 @@ export type SettingsState = {
 export type SettingsActions = {
   setConfig: (value: ConfiguredStateResponse["data"] | null) => void;
   updateConfig: (
-    updater: (current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null,
+    updater: (
+      current: ConfiguredStateResponse["data"] | null,
+    ) => ConfiguredStateResponse["data"] | null,
   ) => void;
   setError: (value: string) => void;
   setNotice: (value: NoticeState | null) => void;
@@ -46,7 +48,9 @@ type Action =
   | { type: "config/set"; value: ConfiguredStateResponse["data"] | null }
   | {
       type: "config/update";
-      updater: (current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null;
+      updater: (
+        current: ConfiguredStateResponse["data"] | null,
+      ) => ConfiguredStateResponse["data"] | null;
     }
   | { type: "error/set"; value: string }
   | { type: "notice/set"; value: NoticeState | null }
@@ -60,10 +64,14 @@ const initialState: SettingsState = {
 
 function reducer(state: SettingsState, action: Action): SettingsState {
   switch (action.type) {
-    case "config/set":    return { ...state, config: action.value };
-    case "config/update": return { ...state, config: action.updater(state.config) };
-    case "error/set":     return { ...state, error: action.value };
-    case "notice/set":    return { ...state, notice: action.value };
+    case "config/set":
+      return { ...state, config: action.value };
+    case "config/update":
+      return { ...state, config: action.updater(state.config) };
+    case "error/set":
+      return { ...state, error: action.value };
+    case "notice/set":
+      return { ...state, notice: action.value };
     case "notice/dismissIfMatching":
       return state.notice === action.notice ? { ...state, notice: null } : state;
   }
@@ -71,7 +79,10 @@ function reducer(state: SettingsState, action: Action): SettingsState {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
-export function SettingsProvider({ children, initialState: seededState }: {
+export function SettingsProvider({
+  children,
+  initialState: seededState,
+}: {
   children: ReactNode;
   initialState?: Partial<SettingsState>;
 }) {
@@ -84,7 +95,11 @@ export function SettingsProvider({ children, initialState: seededState }: {
     dispatch({ type: "config/set", value });
   }, []);
   const updateConfig = useCallback(
-    (updater: (current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null) => {
+    (
+      updater: (
+        current: ConfiguredStateResponse["data"] | null,
+      ) => ConfiguredStateResponse["data"] | null,
+    ) => {
       dispatch({ type: "config/update", updater });
     },
     [],
@@ -103,7 +118,14 @@ export function SettingsProvider({ children, initialState: seededState }: {
   }, []);
 
   const actions = useMemo<SettingsActions>(
-    () => ({ setConfig, updateConfig, setError, setNotice, dismissNotice, dismissNoticeIfMatching }),
+    () => ({
+      setConfig,
+      updateConfig,
+      setError,
+      setNotice,
+      dismissNotice,
+      dismissNoticeIfMatching,
+    }),
     [setConfig, updateConfig, setError, setNotice, dismissNotice, dismissNoticeIfMatching],
   );
   const value = useMemo(() => ({ state, actions }), [state, actions]);

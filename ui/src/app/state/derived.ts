@@ -14,11 +14,7 @@ import { CoordinatorOverridesContext } from "./coordinators/overrides";
 import { useProvidersAndModels } from "./providersAndModels";
 import { useRuntime } from "./runtime";
 import { deriveSessionState, type SessionState } from "../runtimeConsoleDashboard";
-import {
-  type ChatTarget,
-  type HecateChatTarget,
-  normalizeStoredHecateChatTarget,
-} from "./_shared";
+import { type ChatTarget, type HecateChatTarget, normalizeStoredHecateChatTarget } from "./_shared";
 import type { ChatSessionRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderRecord } from "../../types/provider";
@@ -51,8 +47,10 @@ export function useChatTarget(): ChatTarget {
   if (overrides?.derivedChatTarget) return overrides.derivedChatTarget;
   if (state.activeChatSessionID && state.activeChatSession) {
     if (chatSessionIsExternal(state.activeChatSession)) return "external_agent";
-    return state.chatTargetBySessionID.get(state.activeChatSessionID)
-      ?? deriveHecateChatTargetFromSession(state.activeChatSession);
+    return (
+      state.chatTargetBySessionID.get(state.activeChatSessionID) ??
+      deriveHecateChatTargetFromSession(state.activeChatSession)
+    );
   }
   return state.defaultChatTarget;
 }
@@ -112,7 +110,10 @@ export function useRuntimeDerivedState(): RuntimeDerivedState {
         .filter((issue): issue is LocalProviderIssue => issue !== null),
     [localProviders],
   );
-  const session = useMemo(() => deriveSessionState(runtimeState.sessionInfo), [runtimeState.sessionInfo]);
+  const session = useMemo(
+    () => deriveSessionState(runtimeState.sessionInfo),
+    [runtimeState.sessionInfo],
+  );
 
   return {
     healthyProviders: providers.filter((provider) => provider.healthy).length,

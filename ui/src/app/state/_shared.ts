@@ -89,18 +89,26 @@ export function parseQueuedChatMessageList(parsed: unknown): QueuedChatMessage[]
     const sessionID = typeof item.session_id === "string" ? item.session_id : "";
     const content = typeof item.content === "string" ? item.content : "";
     if (!id || !sessionID || !content.trim()) return [];
-    return [{
-      id,
-      session_id: sessionID,
-      content,
-      runtime_kind: normalizeStoredChatTarget(typeof item.runtime_kind === "string" ? item.runtime_kind : ""),
-      provider_filter: typeof item.provider_filter === "string" ? item.provider_filter as ProviderFilter : "auto",
-      model: typeof item.model === "string" ? item.model : "",
-      workspace: typeof item.workspace === "string" ? item.workspace : "",
-      system_prompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
-      adapter_id: typeof item.adapter_id === "string" ? item.adapter_id : "",
-      created_at: typeof item.created_at === "string" ? item.created_at : new Date().toISOString(),
-    }];
+    return [
+      {
+        id,
+        session_id: sessionID,
+        content,
+        runtime_kind: normalizeStoredChatTarget(
+          typeof item.runtime_kind === "string" ? item.runtime_kind : "",
+        ),
+        provider_filter:
+          typeof item.provider_filter === "string"
+            ? (item.provider_filter as ProviderFilter)
+            : "auto",
+        model: typeof item.model === "string" ? item.model : "",
+        workspace: typeof item.workspace === "string" ? item.workspace : "",
+        system_prompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
+        adapter_id: typeof item.adapter_id === "string" ? item.adapter_id : "",
+        created_at:
+          typeof item.created_at === "string" ? item.created_at : new Date().toISOString(),
+      },
+    ];
   });
 }
 
@@ -110,8 +118,12 @@ export function parseQueuedChatMessageList(parsed: unknown): QueuedChatMessage[]
 export function parseChatTargetsBySessionID(parsed: unknown): Map<string, HecateChatTarget> | null {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
   const entries = Object.entries(parsed as Record<string, unknown>)
-    .map(([sessionID, target]) =>
-      [sessionID, typeof target === "string" ? normalizeStoredHecateChatTarget(target) : ""] as const,
+    .map(
+      ([sessionID, target]) =>
+        [
+          sessionID,
+          typeof target === "string" ? normalizeStoredHecateChatTarget(target) : "",
+        ] as const,
     )
     .filter((entry): entry is readonly [string, HecateChatTarget] => Boolean(entry[0] && entry[1]));
   return new Map(entries);
