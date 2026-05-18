@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -38,8 +39,9 @@ type Dependencies struct {
 	Tracer          profiler.Tracer
 	Metrics         *telemetry.Metrics
 	Retention       *retention.Manager
-	// TraceBodyCapture enables recording (redacted) message bodies in traces.
+	// TraceBodyCapture enables recording message body diagnostics in traces.
 	TraceBodyCapture  bool
+	TraceBodyMode     string
 	TraceBodyMaxBytes int
 }
 
@@ -63,7 +65,13 @@ type Service struct {
 	providers         providers.Registry
 	traceBodyCapture  bool
 	traceBodyMaxBytes int
+	traceBodyMode     string
 }
+
+const (
+	traceBodyModeMetadata     = "metadata"
+	traceBodyModeRedactedText = "redacted_text"
+)
 
 type ChatResult struct {
 	Response *types.ChatResponse
@@ -175,6 +183,7 @@ func NewService(deps Dependencies) *Service {
 	if traceBodyMaxBytes <= 0 {
 		traceBodyMaxBytes = 4096
 	}
+	traceBodyMode := normalizeTraceBodyMode(deps.TraceBodyMode)
 
 	return &Service{
 		finalizer:         finalizer,
@@ -190,6 +199,7 @@ func NewService(deps Dependencies) *Service {
 		providers:         deps.Providers,
 		traceBodyCapture:  deps.TraceBodyCapture,
 		traceBodyMaxBytes: traceBodyMaxBytes,
+		traceBodyMode:     traceBodyMode,
 	}
 }
 
@@ -684,30 +694,30 @@ func validate(req types.ChatRequest) error {
 	return nil
 }
 
-// captureRequestBody records a redacted, size-capped snapshot of the request
+// captureRequestBody records a safe-by-default diagnostic snapshot of request
 // messages into the distributed trace when GATEWAY_TRACE_BODIES=true.
 func (s *Service) captureRequestBody(trace *profiler.Trace, req types.ChatRequest) {
-	type capturedMsg struct {
-		Role    string `json:"role"`
-		Content string `json:"content,omitempty"`
-		Blocks  int    `json:"blocks,omitempty"`
+	type capturedMessage struct {
+		Role         string `json:"role"`
+		Content      string `json:"content,omitempty"`
+		ContentBytes int    `json:"content_bytes,omitempty"`
+		Blocks       int    `json:"blocks,omitempty"`
+		ToolCalls    int    `json:"tool_calls,omitempty"`
 	}
-	msgs := make([]capturedMsg, 0, len(req.Messages))
+	msgs := make([]capturedMessage, 0, len(req.Messages))
 	remaining := s.traceBodyMaxBytes
 	for _, m := range req.Messages {
-		content := redactSensitiveText(m.Content)
-		if len(content) > remaining {
-			content = content[:remaining] + "…[truncated]"
-			remaining = 0
-		} else {
-			remaining -= len(content)
+		item := capturedMessage{
+			Role:         m.Role,
+			ContentBytes: len(m.Content),
+			Blocks:       len(m.ContentBlocks),
+			ToolCalls:    len(m.ToolCalls),
 		}
-		msgs = append(msgs, capturedMsg{
-			Role:    m.Role,
-			Content: content,
-			Blocks:  len(m.ContentBlocks),
-		})
-		if remaining <= 0 {
+		if s.traceBodyMode == traceBodyModeRedactedText {
+			item.Content, remaining = redactedTraceContent(m.Content, remaining)
+		}
+		msgs = append(msgs, item)
+		if s.traceBodyMode == traceBodyModeRedactedText && remaining <= 0 {
 			break
 		}
 	}
@@ -715,11 +725,12 @@ func (s *Service) captureRequestBody(trace *profiler.Trace, req types.ChatReques
 	trace.Record("request.body.captured", map[string]any{
 		"messages": string(b),
 		"model":    req.Model,
+		"mode":     s.traceBodyMode,
 	})
 }
 
-// captureResponseBody records a redacted, size-capped snapshot of the response
-// into the distributed trace when GATEWAY_TRACE_BODIES=true.
+// captureResponseBody records a safe-by-default diagnostic snapshot of the
+// response into the distributed trace when GATEWAY_TRACE_BODIES=true.
 func (s *Service) captureResponseBody(trace *profiler.Trace, resp *types.ChatResponse) {
 	if resp == nil || len(resp.Choices) == 0 {
 		return
@@ -727,26 +738,24 @@ func (s *Service) captureResponseBody(trace *profiler.Trace, resp *types.ChatRes
 	type capturedChoice struct {
 		Role         string `json:"role"`
 		Content      string `json:"content,omitempty"`
+		ContentBytes int    `json:"content_bytes,omitempty"`
 		FinishReason string `json:"finish_reason,omitempty"`
 		ToolCalls    int    `json:"tool_calls,omitempty"`
 	}
 	choices := make([]capturedChoice, 0, len(resp.Choices))
 	remaining := s.traceBodyMaxBytes
 	for _, c := range resp.Choices {
-		content := redactSensitiveText(c.Message.Content)
-		if len(content) > remaining {
-			content = content[:remaining] + "…[truncated]"
-			remaining = 0
-		} else {
-			remaining -= len(content)
-		}
-		choices = append(choices, capturedChoice{
+		item := capturedChoice{
 			Role:         c.Message.Role,
-			Content:      content,
+			ContentBytes: len(c.Message.Content),
 			FinishReason: c.FinishReason,
 			ToolCalls:    len(c.Message.ToolCalls),
-		})
-		if remaining <= 0 {
+		}
+		if s.traceBodyMode == traceBodyModeRedactedText {
+			item.Content, remaining = redactedTraceContent(c.Message.Content, remaining)
+		}
+		choices = append(choices, item)
+		if s.traceBodyMode == traceBodyModeRedactedText && remaining <= 0 {
 			break
 		}
 	}
@@ -754,7 +763,28 @@ func (s *Service) captureResponseBody(trace *profiler.Trace, resp *types.ChatRes
 	trace.Record("response.body.captured", map[string]any{
 		"choices": string(b),
 		"model":   resp.Model,
+		"mode":    s.traceBodyMode,
 	})
+}
+
+func normalizeTraceBodyMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case traceBodyModeRedactedText:
+		return traceBodyModeRedactedText
+	default:
+		return traceBodyModeMetadata
+	}
+}
+
+func redactedTraceContent(content string, remaining int) (string, int) {
+	content = redactSensitiveText(content)
+	if remaining <= 0 {
+		return "…[truncated]", 0
+	}
+	if len(content) > remaining {
+		return content[:remaining] + "…[truncated]", 0
+	}
+	return content, remaining - len(content)
 }
 
 // redactSensitiveText masks patterns that look like secrets in captured bodies.
@@ -762,5 +792,23 @@ func redactSensitiveText(s string) string {
 	// Simple heuristic: mask anything that looks like "key": "sk-..." or
 	// "authorization": "Bearer ..." — exact fields are already stripped at
 	// the HTTP layer; this is a belt-and-suspenders pass over message content.
-	return s
+	out := authorizationHeaderPattern.ReplaceAllString(s, "${1}[redacted]")
+	out = bearerTokenPattern.ReplaceAllString(out, "${1}[redacted]")
+	out = secretAssignmentPattern.ReplaceAllString(out, "${1}[redacted]")
+	out = secretJSONFieldPattern.ReplaceAllString(out, "${1}[redacted]${3}")
+	out = providerSecretPattern.ReplaceAllString(out, "[redacted]")
+	return out
 }
+
+var (
+	authorizationHeaderPattern = regexp.MustCompile(`(?i)(\bAuthorization\s*:\s*)(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{12,}`)
+	bearerTokenPattern         = regexp.MustCompile(`(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]{12,}`)
+	// Environment and dotenv-style assignments commonly show up in prompts
+	// when an operator pastes setup snippets. Keep the variable name visible
+	// so traces remain useful without retaining the secret value.
+	secretAssignmentPattern = regexp.MustCompile(`(?i)\b((?:OPENAI|ANTHROPIC|CLAUDE|CODEX|CURSOR|GITHUB|GITLAB|NPM|AWS|GOOGLE|AZURE|HECATE)?_?(?:API[_-]?KEY|AUTH[_-]?TOKEN|ACCESS[_-]?TOKEN|SECRET(?:_KEY)?|TOKEN|PASSWORD)\s*=\s*)[^\s"']+`)
+	secretJSONFieldPattern  = regexp.MustCompile(`(?i)(["']?(?:api[_-]?key|auth[_-]?token|access[_-]?token|secret(?:[_-]?key)?|token|password|authorization)["']?\s*:\s*["']?)([^"',}\s]+)(["']?)`)
+	// Provider setup tokens are often pasted as prose, not just as field
+	// values. Match long sk-* values while leaving short words untouched.
+	providerSecretPattern = regexp.MustCompile(`\bsk-[A-Za-z0-9][A-Za-z0-9._-]{16,}\b`)
+)

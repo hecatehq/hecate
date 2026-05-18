@@ -537,6 +537,7 @@ func buildGatewayDependencies(
 		Metrics:           metrics,
 		Retention:         retentionManager,
 		TraceBodyCapture:  cfg.Server.TraceBodyCapture,
+		TraceBodyMode:     cfg.Server.TraceBodyMode,
 		TraceBodyMaxBytes: cfg.Server.TraceBodyMaxBytes,
 	}
 }
