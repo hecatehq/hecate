@@ -11,6 +11,7 @@ Both sides speak [MCP spec](https://modelcontextprotocol.io/) `2025-11-25`.
 
 - [Hecate as MCP server](#hecate-as-mcp-server) — expose Hecate to Claude Desktop / Cursor / Zed
   - [What's available](#whats-available)
+  - [Local scenarios and built-in presets](#local-scenarios-and-built-in-presets)
   - [Configure it](#configure-it)
   - [Verify it locally](#verify-it-locally)
   - [Behavior notes](#behavior-notes)
@@ -49,6 +50,33 @@ Six tools — three reads and three writes:
 Together the write tools turn the MCP surface into an operator-grade control plane: list tasks → see approvals → approve/reject → create new tasks → cancel runaway runs without leaving the editor.
 
 `search_traces` and Streamable HTTP transport for the server side are tracked on the roadmap. The client-side direction — Hecate consuming external MCP servers — is shipped; see ["Hecate as MCP client"](#hecate-as-mcp-client) below.
+
+### Local scenarios and built-in presets
+
+The MCP server is a local operator surface. It is useful when an MCP-aware
+assistant should see or control Hecate without bypassing Hecate's own runtime,
+approval, and audit model.
+
+Hecate should ship a small set of built-in local MCP toolset presets as agent
+profile support matures. These presets are templates for which Hecate tools are
+exposed through the MCP server; after a preset is applied, the resolved profile
+configuration should be persisted like any other profile setting.
+
+| Preset          | Scenario                                | Tool exposure                                                                                                   | Security posture                                                                                    |
+| --------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `readonly`      | Let an editor assistant inspect Hecate. | Read-only task status, traffic summary, system health, recent errors, and workspace/Git context.                | Safe default. No state-changing tools.                                                              |
+| `operator`      | Run Hecate from an editor.              | Current control-plane surface: list/get tasks, summarize traffic, create tasks, resolve approvals, cancel runs. | Local stdio only. Writes and destructive tools rely on MCP annotations and Hecate approval gates.   |
+| `observability` | Investigate runtime behavior.           | Traffic, traces, recent errors, provider health, queue depth, and per-run diagnostics.                          | Read-heavy. Trace bodies and request metadata must follow Hecate's redaction settings.              |
+| `security`      | Review local safety posture.            | Security warnings, grants, credential/config health, bootstrap-key health, bind-address checks, revoke grants.  | Read-heavy with narrowly guarded writes. Revocation is destructive and should require confirmation. |
+| `support`       | Prepare a bug report or support bundle. | Version info, redacted config summary, recent errors, adapter/provider probes, redacted support bundle.         | Must redact secrets and sensitive request bodies before returning or writing bundle contents.       |
+
+The server currently behaves closest to `operator`: all six initial tools are
+registered, with MCP annotations distinguishing read-only, write, destructive,
+and idempotent operations. Preset-scoped tool selection is roadmap work.
+
+Remote or Streamable HTTP MCP server mode should wait for authentication,
+client identity, per-client capability scoping, and audit events. Until then,
+the intended deployment model is local stdio inside the operator boundary.
 
 #### Behavioral hints
 
