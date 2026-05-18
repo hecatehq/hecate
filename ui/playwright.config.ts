@@ -12,10 +12,11 @@ export default defineConfig({
   // state and run cleanly in parallel.
   workers: process.env.CI ? 4 : undefined,
   reporter: "list",
-  // Per-test timeout. The full local suite finishes in ~6 s with all 46
-  // specs passing, so 10 s is plenty of head-room for CI's slower runner
-  // while still surfacing genuinely stuck tests fast.
-  timeout: 10_000,
+  // Per-test timeout. The full suite now includes enough route-heavy chat
+  // scenarios that browser page creation can exceed 10s on a busy release
+  // run before any assertion code executes. Keep expectations tight below
+  // so real UI stalls still fail quickly.
+  timeout: 20_000,
   expect: { timeout: 5_000 },
   use: {
     baseURL: "http://localhost:5173",
