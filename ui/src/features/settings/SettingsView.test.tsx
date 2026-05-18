@@ -561,7 +561,8 @@ describe("Connections external-agent panel", () => {
               status: "available",
               cost_mode: "external",
               auth_status: "unknown",
-              auth_error: "Save a Claude Code token here; Hecate validates it before storing.",
+              auth_error:
+                "Save a Claude Code setup token here; Hecate validates it before storing.",
             },
           ],
         }),
@@ -570,7 +571,7 @@ describe("Connections external-agent panel", () => {
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByTestId("claude-code-guided-setup")).toBeTruthy();
-      await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
+      await user.type(screen.getByLabelText("Claude Code setup token"), "claude-token");
       await user.click(screen.getByRole("button", { name: "Save" }));
 
       expect(setAgentAdapterCredential).toHaveBeenCalledWith(
@@ -580,7 +581,7 @@ describe("Connections external-agent panel", () => {
       );
     });
 
-    it("keeps Claude Code token editing visible when the adapter handshake is ready but no token is configured", async () => {
+    it("keeps Claude Code setup token editing visible when the adapter handshake is ready but no token is configured", async () => {
       const { state, actions } = setup(
         withAdapter({
           agentAdapters: [
@@ -606,14 +607,14 @@ describe("Connections external-agent panel", () => {
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
-      expect(screen.queryByText("Claude Code token verified")).toBeNull();
+      expect(screen.queryByText("Claude Code setup token verified")).toBeNull();
       expect(screen.getByText("adapter installed")).toBeTruthy();
       expect(screen.getByText("token not saved")).toBeTruthy();
-      expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
+      expect(screen.getByLabelText("Claude Code setup token")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
     });
 
-    it("shows CLI sign-in separately from Hecate's adapter token", async () => {
+    it("shows CLI sign-in separately from Hecate's setup token", async () => {
       const { state, actions } = setup(
         withAdapter({
           agentAdapters: [
@@ -642,11 +643,11 @@ describe("Connections external-agent panel", () => {
       expect(screen.getByText("adapter installed")).toBeTruthy();
       expect(screen.getByText("token not saved")).toBeTruthy();
       expect(screen.getByText("CLI signed in")).toBeTruthy();
-      expect(screen.queryByText("Claude Code token verified")).toBeNull();
-      expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
+      expect(screen.queryByText("Claude Code setup token verified")).toBeNull();
+      expect(screen.getByLabelText("Claude Code setup token")).toBeTruthy();
     });
 
-    it("shows a token-verified result after Claude Code token validation passes", async () => {
+    it("shows a setup token verified result after Claude Code setup token validation passes", async () => {
       const { state, actions } = setup(
         withAdapter({
           agentAdapters: [
@@ -673,20 +674,20 @@ describe("Connections external-agent panel", () => {
       );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-      expect(await screen.findByText("Claude Code token verified")).toBeTruthy();
-      expect(screen.getByText(/Hecate has a validated adapter token/)).toBeTruthy();
+      expect(await screen.findByText("Claude Code setup token verified")).toBeTruthy();
+      expect(screen.getByText(/Hecate has a validated setup token/)).toBeTruthy();
       expect(screen.getByText("adapter installed")).toBeTruthy();
       expect(screen.getByText("token valid")).toBeTruthy();
       expect(screen.getByText(/Stored token/)).toBeTruthy();
       expect(screen.getByText("Token valid.")).toBeTruthy();
       expect(screen.queryByTestId("external-agents-adapter-claude_code-auth-warning")).toBeNull();
-      expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
+      expect(screen.getByLabelText("Claude Code setup token")).toBeTruthy();
       expect(
-        screen.getByPlaceholderText("Paste a replacement CLAUDE_CODE_OAUTH_TOKEN"),
+        screen.getByPlaceholderText("Paste a replacement Claude Code setup token"),
       ).toBeTruthy();
     });
 
-    it("can remove a stored Claude Code token", async () => {
+    it("can remove a stored Claude Code setup token", async () => {
       const deleteAgentAdapterCredential = vi.fn(async () => true);
       const { state, actions, user } = setup(
         withAdapter({

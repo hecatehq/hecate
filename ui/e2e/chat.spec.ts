@@ -2260,7 +2260,7 @@ test("Claude Code onboarding stays visible after a ready handshake without auth"
   await page.getByRole("button", { name: "Check auth" }).click();
   await expect(page.getByTestId("claude-code-preflight")).toBeVisible();
   await expect(
-    page.getByText(/Claude Code needs its own adapter-visible credential/),
+    page.getByText(/Claude Code needs its own adapter-visible setup token/),
   ).toBeVisible();
   await expect(page.locator("button[type='submit']")).toHaveCount(0);
 });
@@ -2278,7 +2278,7 @@ test("Claude Code onboarding stays visible when a saved token fails auth", async
   await expect(page.getByText("Set up Claude Code")).toBeVisible();
   await expect(
     page.getByText(
-      /Claude Code needs sign-in|Claude Code needs its own adapter-visible credential/,
+      /Claude Code needs sign-in|Claude Code needs its own adapter-visible setup token/,
     ),
   ).toBeVisible();
   await expect(page.locator("button[type='submit']")).toHaveCount(0);
@@ -2323,7 +2323,7 @@ test("Claude Code rejects malformed token saves before hiding onboarding", async
     healthStatus: "ready",
   });
 
-  await page.getByLabel("Claude Code OAuth token").fill("random text");
+  await page.getByLabel("Claude Code setup token").fill("random text");
   await page.getByRole("button", { name: "Save" }).click();
 
   await expect(
@@ -2495,7 +2495,7 @@ test("Claude Code valid token save clears onboarding and enables chat", async ({
   await page.getByRole("button", { name: /Chat Claude Code chat, Claude Code/ }).click();
 
   await expect(page.getByTestId("claude-code-preflight")).toBeVisible();
-  await page.getByLabel("Claude Code OAuth token").fill("sk-valid-token-1234567890");
+  await page.getByLabel("Claude Code setup token").fill("sk-valid-token-1234567890");
   await page.getByRole("button", { name: "Save" }).click();
 
   await expect(page.getByTestId("claude-code-preflight")).toHaveCount(0);

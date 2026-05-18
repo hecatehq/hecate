@@ -976,7 +976,10 @@ describe("ChatView input", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(await screen.findByText("Detected locally")).toBeTruthy();
-    expect(screen.getByText("Ollama")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Deselect Ollama" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /Add selected/i }));
@@ -2840,7 +2843,7 @@ describe("ChatView external-agent target", () => {
 
     expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
     expect(screen.getByText("Set up Claude Code")).toBeTruthy();
-    expect(screen.getByText(/adapter-visible credential before Hecate can start/)).toBeTruthy();
+    expect(screen.getByText(/adapter-visible setup token before Hecate can start/)).toBeTruthy();
     expect(document.querySelector("button[type='submit']")).toBeNull();
 
     const user = userEvent.setup();
@@ -2848,7 +2851,7 @@ describe("ChatView external-agent target", () => {
       name: /npx -y @anthropic-ai\/claude-code --version/i,
     });
     expect(installCommand).toBeTruthy();
-    await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
+    await user.type(screen.getByLabelText("Claude Code setup token"), "claude-token");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(setAgentAdapterCredential).toHaveBeenCalledWith(
       "claude_code",
@@ -2954,7 +2957,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
-    expect(screen.getByText(/adapter-visible credential/i)).toBeTruthy();
+    expect(screen.getByText(/adapter-visible setup token/i)).toBeTruthy();
   });
 
   it("keeps Claude Code setup visible when only the standalone CLI is signed in", () => {
