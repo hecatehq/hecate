@@ -5,17 +5,14 @@ import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
 import { useChatActions } from "../../app/state/coordinators/chat";
-import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
 import { useChatTarget } from "../../app/state/derived";
 import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
 import type { QueuedChatMessage } from "../../app/state/_shared";
 import { type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
-import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { usePersistedState } from "../../lib/persistedState";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
-import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ModelRecord } from "../../types/model";
 import type {
   ConfiguredProviderRecord,
@@ -31,8 +28,6 @@ import {
   LockedHecateModelSnapshot,
 } from "./ChatAgentControls";
 import { ChatNoticeInline } from "./ChatNotice";
-import { ClaudeCodePreflightCard } from "./ClaudeCodeSetup";
-import type { ClaudeCodePreflightState } from "./ClaudeCodeSetup";
 
 type HecateProviderOption = {
   id: string;
@@ -60,7 +55,6 @@ export type ChatComposerProps = {
   composerRepair: ChatSetupRepairState | null;
   suppressChatError?: boolean;
   messageControlsVisible: boolean;
-  showClaudeCodeEmptyPreflight: boolean;
   sendDisabled: boolean;
   agentBusy: boolean;
   queueingMessage: boolean;
@@ -75,10 +69,7 @@ export type ChatComposerProps = {
   hecateDisabledProviderReasons: Map<string, string>;
   selectableModels: ModelRecord[];
 
-  // Repair / preflight / capability writes.
-  selectedAgent: AgentAdapterRecord | undefined;
-  selectedAgentHealthLoading: boolean;
-  claudeCodePreflight: ClaudeCodePreflightState | null;
+  // Repair / capability writes.
   selectedCapabilityProvider: string;
   selectedCapabilityModel: string;
   capabilitySaving: boolean;
@@ -113,9 +104,6 @@ export function ChatComposer(props: ChatComposerProps) {
     chatTarget,
     setNoticeMessage: settingsActions.setNoticeMessage,
   });
-  const agentAdapterActions = useAgentAdapterActions({
-    setNoticeMessage: settingsActions.setNoticeMessage,
-  });
   // Pull the slice fields the composer reads. Destructured to keep the
   // rest of the component readable.
   const message = runtime.state.message;
@@ -143,7 +131,6 @@ export function ChatComposer(props: ChatComposerProps) {
     composerRepair,
     suppressChatError = false,
     messageControlsVisible,
-    showClaudeCodeEmptyPreflight,
     sendDisabled,
     agentBusy,
     queueingMessage,
@@ -155,9 +142,6 @@ export function ChatComposer(props: ChatComposerProps) {
     hecateProviderOptions,
     hecateDisabledProviderReasons,
     selectableModels,
-    selectedAgent,
-    selectedAgentHealthLoading,
-    claudeCodePreflight,
     selectedCapabilityProvider,
     selectedCapabilityModel,
     capabilitySaving,
@@ -285,7 +269,6 @@ export function ChatComposer(props: ChatComposerProps) {
     setModEnterMode((v) => !v);
   }
 
-  if (showClaudeCodeEmptyPreflight) return null;
   if (!composerVisible && !messageControlsVisible && !chatError && !selectedModelIssue) return null;
 
   return (
@@ -328,22 +311,6 @@ export function ChatComposer(props: ChatComposerProps) {
       )}
       {composerVisible && (
         <>
-          {isExternalAgentChat && claudeCodePreflight && !showClaudeCodeEmptyPreflight && (
-            <ClaudeCodePreflightCard
-              state={claudeCodePreflight}
-              loading={selectedAgentHealthLoading}
-              onCopyInstall={() =>
-                void runtime.actions.copyCommand("npx -y @anthropic-ai/claude-code --version")
-              }
-              onCopySetup={() =>
-                void runtime.actions.copyCommand(
-                  claudeCodeSetupTokenCommand(selectedAgent?.claude_code_cli),
-                )
-              }
-              onOpenSetup={openClaudeCodeSetup}
-              onTest={() => void agentAdapterActions.probeAgentAdapter("claude_code")}
-            />
-          )}
           {composerRepair && (
             <ChatSetupRepairNotice
               repair={composerRepair}

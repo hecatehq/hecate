@@ -15,14 +15,22 @@ Protocol reference: [Agent Client Protocol](https://agentclientprotocol.com/).
 
 ACP appears in Hecate in two different places:
 
-| Direction                            | What Hecate does                                                                                                                         | User-facing surface                                         | Doc                                                   |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------- |
-| **Hecate as an ACP agent**           | `hecate-acp` is launched by an editor ACP host and translates editor sessions into Hecate task-runtime work.                             | Zed, JetBrains, VS Code/Cursor extensions, other ACP hosts. | This page                                             |
-| **Hecate as an ACP client/operator** | The Chats view launches ACP-compatible coding-agent adapters such as Codex and Claude Code, then supervises their local process/session. | Hecate **Chats** agent picker.                              | [External agent adapters](external-agent-adapters.md) |
+| Direction                            | What Hecate does                                                                                                   | User-facing surface                                         | Doc                                                   |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- | ----------------------------------------------------- |
+| **Hecate as an ACP agent**           | `hecate-acp` is launched by an editor ACP host and translates editor sessions into Hecate task-runtime work.       | Zed, JetBrains, VS Code/Cursor extensions, other ACP hosts. | This page                                             |
+| **Hecate as an ACP client/operator** | The Chats view supervises local ACP-compatible coding-agent adapters such as Codex, Claude Code, and Cursor Agent. | Hecate **Chats** agent picker.                              | [External agent adapters](external-agent-adapters.md) |
 
 This is similar to the MCP documentation split by direction, but ACP currently
 uses two separate pages because the operator jobs are different: editor setup vs
 chatting with local coding-agent CLIs from inside Hecate.
+
+`hecate-acp` is intentionally scoped to Hecate-owned runtime work. It advertises
+gateway provider models, creates `agent_loop` tasks, continues those task runs,
+and resolves Hecate approvals. It does not expose External Agent adapter
+sessions such as Codex, Claude Code, or Cursor Agent to editor ACP hosts. The
+bridge does not call Hecate's External Agent adapter endpoints; use the Hecate
+operator console for External Agent sessions so the local account, workspace,
+approval, and billing boundary stays visible.
 
 ## Contents
 
@@ -383,7 +391,7 @@ The gateway remains the source of truth. The bridge does not invent runtime
 state that Hecate did not emit.
 
 This is separate from chat-session persistence. Chats that run
-Codex/Claude/Cursor from inside Hecate persist their own transcript and native
+Codex/Claude Code/Cursor Agent from inside Hecate persist their own transcript and native
 ACP session id in the chat-session store. See
 [External agent adapters](external-agent-adapters.md) for that behavior.
 
@@ -411,8 +419,7 @@ the orchestrator still uses the local workspace. The transport piece lands in
 a follow-up RFC.
 
 This is separate from [External agent adapters](external-agent-adapters.md),
-where Hecate itself launches Codex / Claude / Cursor-style adapters from
-Chats.
+where Hecate supervises Codex / Claude Code / Cursor Agent-style adapters from Chats.
 
 ### Bridge telemetry
 

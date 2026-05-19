@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 )
 
 // DetectAuthStatus is a lightweight dashboard hint. It deliberately avoids
-// spawning the adapter; Settings refreshes the full ACP probe when opened.
+// spawning the adapter; Connections refreshes the full ACP probe when opened.
 func DetectAuthStatus(adapter Adapter) (string, string) {
 	switch adapter.ID {
 	case "codex":
@@ -21,18 +22,18 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 		}
 		return AuthStatusUnauthenticated, "Run codex login, or set OPENAI_API_KEY for the adapter environment."
 	case "claude_code":
-		if envAny("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN") {
+		if envAny("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN") {
 			return AuthStatusOK, ""
 		}
 		if ok, checked := detectClaudeCLIAuthStatus(); ok {
 			return AuthStatusOK, ""
 		} else if checked {
-			return AuthStatusUnauthenticated, "Run `claude auth login` or use the guided setup card below to paste the setup token from `claude setup-token`."
+			return AuthStatusUnauthenticated, "Run `claude /login` in Terminal, then test Claude Code again. Hecate uses Claude Code's local auth; it does not store Claude tokens."
 		}
 		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
-			return AuthStatusUnknown, "Claude Code config is present on disk, but Hecate could not verify the CLI auth status. Open Settings to refresh adapter readiness; if it fails, use the guided setup card below."
+			return AuthStatusUnknown, "Claude Code config is present on disk. Hecate has not verified CLI auth yet. Open Connections and test Claude Code."
 		}
-		return AuthStatusUnknown, "Open Settings to verify Claude Code. If it reports a sign-in error, use the guided setup card below to paste the setup token from `claude setup-token`."
+		return AuthStatusUnknown, "Open Connections and test Claude Code. If it reports a sign-in error, run `claude /login` in Terminal."
 	case "cursor_agent":
 		if envAny("CURSOR_API_KEY") || fileAny("${HOME}/.cursor", "${HOME}/Library/Application Support/Cursor") {
 			return AuthStatusOK, ""
@@ -43,30 +44,41 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 	}
 }
 
-// claudeCodeAuthErrorMessage is the user-facing message rendered in
-// the chat when a Claude Code agent run fails because the adapter
-// couldn't sign in. Two priorities behind the wording:
+func adapterSignInHint(adapter Adapter) string {
+	switch adapter.ID {
+	case "codex":
+		return "Run codex login, or set OPENAI_API_KEY for the adapter environment."
+	case "claude_code":
+		return "Run `claude /login` in Terminal, then test Claude Code again. Hecate uses Claude Code's local auth; it does not store Claude tokens."
+	case "cursor_agent":
+		return "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment."
+	default:
+		return fmt.Sprintf("Sign in to %s, then test the adapter again.", adapter.Name)
+	}
+}
+
+func adapterAppMissingHint(adapter Adapter) string {
+	switch adapter.ID {
+	case "codex":
+		return "Install Codex CLI, then sign in with Codex."
+	case "claude_code":
+		return "Install Claude Code, then sign in with Claude Code."
+	case "cursor_agent":
+		return "Install Cursor with Agent support, then sign in with Cursor Agent."
+	default:
+		return fmt.Sprintf("Install %s, then test the adapter again.", adapter.Name)
+	}
+}
+
+// claudeCodeAuthErrorMessage is the user-facing message rendered in the chat
+// when a Claude Code agent run fails because the adapter couldn't sign in. The
+// UI pattern-matches the marker token to render the Connections shortcut.
 //
-//  1. ui/src/features/chats/ChatView.tsx pattern-matches the
-//     `claude_code_auth_required` token in this string (via
-//     .includes()) to decide whether to render an inline
-//     "Open Claude Code setup" button that deep-links to the guided
-//     setup card in Settings → External agents. Keep the token in
-//     the string verbatim — the UI handler depends on it.
-//     (TranscriptMessageRow only strips the trailing parenthetical
-//     marker from the visible copy; the match-and-render-button
-//     decision lives in ChatView.)
-//  2. Distinguish this credential from the Anthropic key in the
-//     Providers tab. Operators who paste a key into Providers tab
-//     reasonably expect Claude Code to "just work" — it doesn't,
-//     because Claude Code runs as its own subprocess with its own
-//     credentials.
-//
-// The message stays deliberately short: the UI button does the
-// heavy lifting (one click → Settings → External agents → Claude
-// Code, with the setup card scrolled into view).
+// Keep `claude_code_auth_required` verbatim. TranscriptMessageRow strips the
+// trailing marker from visible copy; ChatView uses it to decide whether to show
+// the button.
 func claudeCodeAuthErrorMessage() string {
-	return "Claude Code isn't signed in. This is separate from the Anthropic key in the Providers tab — Claude Code runs as its own program and Anthropic controls its billing/credits. Click the button below to paste the setup token from `claude setup-token` into the guided setup card. No restart needed. (claude_code_auth_required)"
+	return "Claude Code isn't signed in. This is separate from the Anthropic key in the Providers tab — Claude Code runs as its own program and uses the operator's local Claude CLI auth. Run `claude /login`, then test Claude Code in Connections. (claude_code_auth_required)"
 }
 
 var runClaudeAuthStatus = defaultRunClaudeAuthStatus
@@ -76,8 +88,8 @@ type claudeAuthStatusPayload struct {
 }
 
 func detectClaudeCLIAuthStatus() (ok bool, checked bool) {
-	out, err := runClaudeAuthStatus()
-	if err != nil || strings.TrimSpace(out) == "" {
+	out, _ := runClaudeAuthStatus()
+	if strings.TrimSpace(out) == "" {
 		return false, false
 	}
 	var payload claudeAuthStatusPayload
@@ -94,10 +106,8 @@ func defaultRunClaudeAuthStatus() (string, error) {
 	cmd.Env = sanitizedEnv(os.Environ())
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-	return stdout.String(), nil
+	err := cmd.Run()
+	return stdout.String(), err
 }
 
 func envAny(names ...string) bool {

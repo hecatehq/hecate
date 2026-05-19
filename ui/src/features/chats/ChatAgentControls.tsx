@@ -14,7 +14,7 @@ const CHAT_AGENT_OPTIONS = [
   { id: "hecate", label: "Hecate" },
   { id: "codex", label: "Codex" },
   { id: "claude_code", label: "Claude Code" },
-  { id: "cursor_agent", label: "Cursor" },
+  { id: "cursor_agent", label: "Cursor Agent" },
 ] as const;
 
 export type ChatAgentOptionID = (typeof CHAT_AGENT_OPTIONS)[number]["id"];
@@ -32,7 +32,7 @@ export function NewChatAgentButton({
   healthByID: Map<string, AgentAdapterHealthRecord>;
   disableUnavailable?: boolean;
   onChange: (value: ChatAgentOptionID) => void;
-  onCreate: () => void;
+  onCreate: (value: ChatAgentOptionID) => void;
 }) {
   const { open, setOpen, toggle, wrapRef, triggerRef, menuRef } = useFloatingMenu<
     HTMLDivElement,
@@ -51,6 +51,12 @@ export function NewChatAgentButton({
   const selectedStatus = chatAgentOptionStatus(selected.id, selectedAdapter, selectedHealth);
   const options = chatAgentPickerOptions(adapters, healthByID, disableUnavailable, 17);
   const selectedDisabled = disableUnavailable && !selectedStatus.ready;
+  const effectiveSelected = selectedDisabled ? chatAgentOption("hecate", adapters) : selected;
+
+  useEffect(() => {
+    if (!selectedDisabled || selected.id === "hecate") return;
+    onChange("hecate");
+  }, [onChange, selected.id, selectedDisabled]);
 
   useEffect(() => {
     if (!open) return;
@@ -86,16 +92,19 @@ export function NewChatAgentButton({
           overflow: "hidden",
           border: "1px solid var(--teal-border)",
           borderRadius: "var(--radius-sm)",
-          background: selectedDisabled ? "var(--bg3)" : "var(--teal)",
-          opacity: selectedDisabled ? 0.76 : undefined,
+          background: "var(--teal)",
         }}
       >
         <button
           className="btn btn-primary btn-sm"
           type="button"
-          disabled={selectedDisabled}
-          title={selectedDisabled ? selectedStatus.title : `Start a new ${selected.label} chat`}
-          onClick={onCreate}
+          title={`Start a new ${effectiveSelected.label} chat`}
+          onClick={() => {
+            if (selectedDisabled && effectiveSelected.id !== selected.id) {
+              onChange(effectiveSelected.id);
+            }
+            onCreate(effectiveSelected.id);
+          }}
           style={{
             flex: 1,
             minWidth: 0,
@@ -105,11 +114,11 @@ export function NewChatAgentButton({
             minHeight: 30,
             padding: "4px 12px",
             background: "transparent",
-            color: selectedDisabled ? "var(--t2)" : "var(--accent-fg)",
+            color: "var(--accent-fg)",
           }}
         >
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            New {selected.label} chat
+            New {effectiveSelected.label} chat
           </span>
         </button>
         <button
@@ -129,8 +138,8 @@ export function NewChatAgentButton({
             minHeight: 30,
             padding: 0,
             justifyContent: "center",
-            background: selectedDisabled ? "var(--bg4)" : "oklch(0 0 0 / 0.12)",
-            color: selectedDisabled ? "var(--t1)" : "var(--accent-fg)",
+            background: "oklch(0 0 0 / 0.12)",
+            color: "var(--accent-fg)",
           }}
         >
           <Icon d={Icons.chevD} size={12} />
@@ -270,6 +279,7 @@ function chatAgentPickerOptions(
       label: option.label,
       title: status.title,
       disabled,
+      disabledReason: disabled ? status.title : undefined,
       icon: <BrandAvatar brand={option.id} fallback={option.label} boxed={false} size={iconSize} />,
       statusLabel: status.label,
       statusColor: status.color,
@@ -306,48 +316,191 @@ export function chatAgentOptionStatus(
     return { label: "local", color: "var(--teal)", title: "Hecate Chat", ready: true };
   }
   if (health?.status === "ready") {
-    return { label: "ready", color: "var(--teal)", title: health.path || "Ready", ready: true };
+    return {
+      label: "ready",
+      color: "var(--teal)",
+      title: adapterReadyTitle(optionID, adapter, health.path),
+      ready: true,
+    };
   }
   if (health?.status === "auth_required") {
     return {
       label: "auth",
       color: "var(--amber)",
-      title: health.hint || health.error || "Authentication required",
+      title: adapterAuthSetupTitle(optionID, adapter, health.hint || health.error),
       ready: false,
     };
   }
   if (health?.status === "error") {
+    if (adapterProbeLooksLikeSetupState(health)) {
+      return {
+        label: "setup",
+        color: "var(--t3)",
+        title: adapterSetupTitle(optionID, adapter, health.hint || health.error),
+        ready: false,
+      };
+    }
     return {
-      label: "error",
-      color: "var(--red)",
-      title: health.error || "Probe failed",
+      label: "issue",
+      color: "var(--amber)",
+      title: adapterIssueTitle(optionID, adapter, health.hint || health.error),
+      ready: false,
+    };
+  }
+  if (health?.status === "not_installed") {
+    return {
+      label: "setup",
+      color: "var(--t3)",
+      title: adapterSetupTitle(optionID, adapter, health.hint || health.error),
       ready: false,
     };
   }
   if (!adapter?.available) {
     return {
       label: "setup",
-      color: "var(--amber)",
-      title:
-        adapter?.error ||
-        `${CHAT_AGENT_OPTIONS.find((option) => option.id === optionID)?.label || "Agent"} is not installed`,
+      color: "var(--t3)",
+      title: adapterSetupTitle(optionID, adapter, adapter?.error),
       ready: false,
+    };
+  }
+  if (adapter.auth_status === "billing") {
+    return {
+      label: "billing",
+      color: "var(--amber)",
+      title: adapterIssueTitle(optionID, adapter, adapter.auth_error),
+      ready: false,
+    };
+  }
+  if (adapter.auth_status === "unauthenticated") {
+    return {
+      label: "auth",
+      color: "var(--amber)",
+      title: adapterAuthSetupTitle(optionID, adapter, adapter.auth_error),
+      ready: false,
+    };
+  }
+  if (adapter.auth_status === "unknown") {
+    return {
+      label: "check",
+      color: "var(--t3)",
+      title:
+        adapter.auth_error || "Auth has not been verified yet. Test this adapter in Connections.",
+      ready: true,
     };
   }
   if (adapter.auth_status && adapter.auth_status !== "ok") {
     return {
-      label: "auth",
+      label: "issue",
       color: "var(--amber)",
-      title: adapter.auth_error || `Auth status: ${adapter.auth_status}`,
+      title: adapterIssueTitle(
+        optionID,
+        adapter,
+        adapter.auth_error || `Auth status: ${adapter.auth_status}`,
+      ),
       ready: false,
     };
   }
   return {
     label: "ready",
     color: "var(--teal)",
-    title: adapter.path || adapter.command || "Ready",
+    title: adapterAvailableTitle(optionID, adapter),
     ready: true,
   };
+}
+
+function adapterProbeLooksLikeSetupState(health: AgentAdapterHealthRecord): boolean {
+  const text = `${health.hint ?? ""} ${health.error ?? ""}`.toLowerCase();
+  return (
+    text.includes("app cli missing") ||
+    text.includes("command was not found") ||
+    text.includes("setup docs:") ||
+    text.startsWith("install ")
+  );
+}
+
+function adapterSetupTitle(
+  optionID: ChatAgentOptionID,
+  adapter: AgentAdapterRecord | undefined,
+  detail: string | undefined,
+): string {
+  const name = adapterDisplayName(optionID, adapter);
+  const cleanDetail = sanitizedAdapterDetail(detail);
+  const action = adapterLoginCommand(optionID)
+    ? `Open Connections to set up ${name}, then sign in with ${adapterLoginCommand(optionID)}.`
+    : `Open Connections to set up ${name}.`;
+  return cleanDetail ? `${action} ${cleanDetail}` : action;
+}
+
+function adapterAuthSetupTitle(
+  optionID: ChatAgentOptionID,
+  adapter: AgentAdapterRecord | undefined,
+  detail: string | undefined,
+): string {
+  const name = adapterDisplayName(optionID, adapter);
+  const command = adapterLoginCommand(optionID);
+  const action = command
+    ? `Run ${command} in Terminal, then test ${name} again in Connections.`
+    : `Open Connections to sign in to ${name}.`;
+  const cleanDetail = sanitizedAdapterDetail(detail);
+  return cleanDetail ? `${action} ${cleanDetail}` : action;
+}
+
+function adapterIssueTitle(
+  optionID: ChatAgentOptionID,
+  adapter: AgentAdapterRecord | undefined,
+  detail: string | undefined,
+): string {
+  const name = adapterDisplayName(optionID, adapter);
+  const cleanDetail = sanitizedAdapterDetail(detail);
+  return cleanDetail
+    ? `Open Connections to inspect ${name}. ${cleanDetail}`
+    : `Open Connections to inspect ${name}.`;
+}
+
+function sanitizedAdapterDetail(detail: string | undefined): string {
+  const trimmed = detail?.trim() ?? "";
+  if (!trimmed) return "";
+  if (trimmed.includes("GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES")) return "";
+  if (trimmed.startsWith("forced ")) return "";
+  return trimmed;
+}
+
+function adapterLoginCommand(optionID: ChatAgentOptionID): string {
+  switch (optionID) {
+    case "codex":
+      return "codex login";
+    case "claude_code":
+      return "claude /login";
+    case "cursor_agent":
+      return "cursor-agent login";
+    default:
+      return "";
+  }
+}
+
+function adapterDisplayName(optionID: ChatAgentOptionID, adapter?: AgentAdapterRecord): string {
+  return (
+    adapter?.name ||
+    CHAT_AGENT_OPTIONS.find((option) => option.id === optionID)?.label ||
+    "External agent"
+  );
+}
+
+function adapterReadyTitle(
+  optionID: ChatAgentOptionID,
+  adapter: AgentAdapterRecord | undefined,
+  path: string | undefined,
+): string {
+  const name = adapterDisplayName(optionID, adapter);
+  const suffix = path ? ` Path: ${path}` : "";
+  return `${name} is ready. Hecate verified adapter startup, auth, and ACP session creation.${suffix}`;
+}
+
+function adapterAvailableTitle(optionID: ChatAgentOptionID, adapter: AgentAdapterRecord): string {
+  const name = adapterDisplayName(optionID, adapter);
+  const command = adapter.path || adapter.command;
+  const suffix = command ? ` Command: ${command}` : "";
+  return `${name} is available. Hecate found the adapter and local auth looks configured; open Connections to run the full ACP readiness check.${suffix}`;
 }
 
 export function HecateToolsToggle({

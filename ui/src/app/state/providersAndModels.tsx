@@ -7,17 +7,14 @@
 //   - Low-level setters (set{Providers,ProviderPresets,Models,
 //     AgentAdapters,AgentAdapterApprovalMode}) accept the same
 //     `SetStateAction` shape as useState so the dashboard fan-out
-//     and shim coordinators (deleteProvider's rollback,
-//     credential-update merge, etc.) read identically to the
-//     pre-slice code.
+//     and shim coordinators read identically to the pre-slice code.
 //   - Map mutators for the adapter-health map and the per-adapter
 //     loading flag avoid the "rebuild the whole map in the
 //     caller" boilerplate that every probe path used.
-//   - Domain actions (refreshProviders, probeAgentAdapter,
-//     setAgentAdapterCredential, deleteAgentAdapterCredential)
-//     own the API call + the state update. They return Results
-//     so the shim wires success / error to the global notice
-//     banner without the slice importing cross-cut state.
+//   - Domain actions (refreshProviders, probeAgentAdapter) own the
+//     API call + the state update. They return Results so the shim
+//     wires success / error to the global notice banner without the
+//     slice importing cross-cut state.
 //
 // What stays in the shim: provider-CRUD coordinators
 // (setProviderAPIKey / BaseURL / Name / CustomName, createProvider,
@@ -43,8 +40,6 @@ import {
   getModels,
   getProviderPresets,
   probeAgentAdapter as probeAgentAdapterRequest,
-  setAgentAdapterCredential as setAgentAdapterCredentialRequest,
-  deleteAgentAdapterCredential as deleteAgentAdapterCredentialRequest,
 } from "../../lib/api";
 import { warn } from "../../lib/log";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
@@ -74,12 +69,6 @@ export type ProbeAdapterResult =
   | { ok: true; health: AgentAdapterHealthRecord }
   | { ok: false; error: string };
 
-export type AdapterCredentialResult =
-  | { ok: true; isClaudeCode: boolean }
-  | { ok: false; error: string };
-
-export type AdapterDeleteCredentialResult = { ok: true } | { ok: false; error: string };
-
 export type ProvidersAndModelsActions = {
   setProviders: (next: SetStateAction<ProviderStatusResponse["data"]>) => void;
   setProviderPresets: (next: SetStateAction<ProviderPresetRecord[]>) => void;
@@ -92,15 +81,6 @@ export type ProvidersAndModelsActions = {
   setAgentAdapterHealthLoading: (adapterID: string, loading: boolean) => void;
   refreshProviders: () => Promise<void>;
   probeAgentAdapter: (adapterID: string) => Promise<ProbeAdapterResult>;
-  setAgentAdapterCredential: (
-    adapterID: string,
-    value: string,
-    name?: string,
-  ) => Promise<AdapterCredentialResult>;
-  deleteAgentAdapterCredential: (
-    adapterID: string,
-    name: string,
-  ) => Promise<AdapterDeleteCredentialResult>;
 };
 
 type ProvidersAndModelsContextValue = {
@@ -265,72 +245,6 @@ export function ProvidersAndModelsProvider({
     }
   }, []);
 
-  const setAgentAdapterCredential = useCallback(
-    async (adapterID: string, value: string, name?: string): Promise<AdapterCredentialResult> => {
-      try {
-        const payload = await setAgentAdapterCredentialRequest(adapterID, value, name);
-        dispatch({
-          type: "agentAdapters/set",
-          next: (current) =>
-            current.map((item) =>
-              item.id === adapterID
-                ? {
-                    ...item,
-                    credential_configured: payload.data.configured,
-                    credential_preview: payload.data.preview,
-                  }
-                : item,
-            ),
-        });
-        const isClaudeCode = adapterID === "claude_code";
-        if (isClaudeCode && payload.data.configured) {
-          // Claude Code's credential check IS the readiness probe — the
-          // adapter validates the token at credential-set time, so a
-          // success here doubles as a healthy probe result and surfaces
-          // the green chip without a separate user action.
-          dispatch({
-            type: "agentAdapterHealth/set",
-            adapterID,
-            record: { adapter_id: adapterID, status: "ready", stage: "ready", duration_ms: 0 },
-          });
-        }
-        return { ok: true, isClaudeCode };
-      } catch (error) {
-        const fallback =
-          adapterID === "claude_code"
-            ? "Failed to validate adapter credential."
-            : "Failed to save adapter credential.";
-        return { ok: false, error: error instanceof Error ? error.message : fallback };
-      }
-    },
-    [],
-  );
-
-  const deleteAgentAdapterCredential = useCallback(
-    async (adapterID: string, name: string): Promise<AdapterDeleteCredentialResult> => {
-      try {
-        await deleteAgentAdapterCredentialRequest(adapterID, name);
-        dispatch({
-          type: "agentAdapters/set",
-          next: (current) =>
-            current.map((item) =>
-              item.id === adapterID
-                ? { ...item, credential_configured: false, credential_preview: undefined }
-                : item,
-            ),
-        });
-        dispatch({ type: "agentAdapterHealth/clear", adapterID });
-        return { ok: true };
-      } catch (error) {
-        return {
-          ok: false,
-          error: error instanceof Error ? error.message : "Failed to remove adapter credential.",
-        };
-      }
-    },
-    [],
-  );
-
   const actions = useMemo<ProvidersAndModelsActions>(
     () => ({
       setProviders,
@@ -344,8 +258,6 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterHealthLoading,
       refreshProviders,
       probeAgentAdapter,
-      setAgentAdapterCredential,
-      deleteAgentAdapterCredential,
     }),
     [
       setProviders,
@@ -359,8 +271,6 @@ export function ProvidersAndModelsProvider({
       setAgentAdapterHealthLoading,
       refreshProviders,
       probeAgentAdapter,
-      setAgentAdapterCredential,
-      deleteAgentAdapterCredential,
     ],
   );
 

@@ -11,7 +11,7 @@ export type ChatSetupRepairKind =
   | "tools_disabled"
   | "workspace_required"
   | "external_agent_unavailable"
-  | "claude_code_setup";
+  | "external_agent_setup";
 
 export type ChatSetupRepairAction =
   | "open_connections"
@@ -40,7 +40,7 @@ export function resolveChatSetupRepairState({
   selectedAgentName,
   selectedAgentAvailable,
   anyAgentAvailable,
-  claudeCodeSetupRequired,
+  externalAgentSetupRequired,
 }: {
   target: ChatSetupTarget;
   hasConfiguredProviders: boolean;
@@ -51,7 +51,7 @@ export function resolveChatSetupRepairState({
   selectedAgentName?: string;
   selectedAgentAvailable: boolean;
   anyAgentAvailable: boolean;
-  claudeCodeSetupRequired: boolean;
+  externalAgentSetupRequired: boolean;
 }): ChatSetupRepairState | null {
   if (target === "external_agent") {
     if (!anyAgentAvailable || !selectedAgentAvailable) {
@@ -67,12 +67,12 @@ export function resolveChatSetupRepairState({
         tone: "amber",
       };
     }
-    if (claudeCodeSetupRequired) {
+    if (externalAgentSetupRequired) {
+      const agent = selectedAgentName || "Selected agent";
       return {
-        kind: "claude_code_setup",
-        title: "Set up Claude Code",
-        message:
-          "Claude Code needs an adapter-visible setup token before Hecate can start a session.",
+        kind: "external_agent_setup",
+        title: `Set up ${agent}`,
+        message: `${agent} needs local CLI sign-in before Hecate can start a session.`,
         action: "open_agent_setup",
         actionLabel: "Open setup",
         tone: "amber",

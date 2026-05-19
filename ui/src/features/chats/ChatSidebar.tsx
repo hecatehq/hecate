@@ -35,7 +35,7 @@ type Props = {
   // the canvas for the composer ref.
   onSelectSession: (sessionID: string) => void;
   // New-chat creation. Gated on adapter readiness inside the sidebar.
-  onCreateChat: () => void;
+  onCreateChat: (agentID: ChatAgentOptionID) => void;
 };
 
 export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Props) {
@@ -74,18 +74,12 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const groupedSessions = groupSidebarSessions(filteredSessions);
   const activeSessionID = activeChatSessionID;
 
-  const newChatAgentAdapter =
-    newChatAgentID === "hecate"
-      ? undefined
-      : agentAdapters.find((adapter) => adapter.id === newChatAgentID);
-  const newChatAgentHealth =
-    newChatAgentID === "hecate" ? undefined : agentAdapterHealthByID.get(newChatAgentID);
-  const newChatAgentStatus = chatAgentOptionStatus(
-    newChatAgentID as ChatAgentOptionID,
-    newChatAgentAdapter,
-    newChatAgentHealth,
-  );
-  const newChatAgentReady = newChatAgentStatus.ready;
+  function statusForAgent(agentID: ChatAgentOptionID) {
+    const adapter =
+      agentID === "hecate" ? undefined : agentAdapters.find((item) => item.id === agentID);
+    const health = agentID === "hecate" ? undefined : agentAdapterHealthByID.get(agentID);
+    return chatAgentOptionStatus(agentID, adapter, health);
+  }
 
   return (
     <div
@@ -115,9 +109,10 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
             healthByID={agentAdapterHealthByID}
             disableUnavailable
             onChange={(agentID) => chatActions.setNewChatAgent(agentID)}
-            onCreate={() => {
-              if (!newChatAgentReady) return;
-              onCreateChat();
+            onCreate={(agentID) => {
+              if (!statusForAgent(agentID).ready) return;
+              if (agentID !== newChatAgentID) chatActions.setNewChatAgent(agentID);
+              onCreateChat(agentID);
             }}
           />
         </div>

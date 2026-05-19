@@ -113,6 +113,9 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 - Adapter auth and billing state belongs to the underlying CLI account. Hecate
   can probe common failures and surface friendly hints, but operators still
   need to use each agent's own login/status flow when credentials expire.
+- Readiness fixtures are diagnostic only. They can force Connections and Chats
+  status states for UI testing, but real External Agent chats still require the
+  underlying CLI and ACP adapter to start successfully.
 - Patch review is alpha-grade: Hecate captures Git diffs, exposes changed-file
   inspection, and can revert captured paths, but a full side-by-side review
   workspace is not shipped yet.

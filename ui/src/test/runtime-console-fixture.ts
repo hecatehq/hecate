@@ -188,7 +188,7 @@ export type RuntimeConsoleFixtureActions = {
   copyCommand: (command: string) => Promise<void>;
   cancelAgentChat: () => Promise<void>;
   chooseAgentWorkspace: () => Promise<boolean>;
-  createChatSession: () => Promise<void>;
+  createChatSession: (options?: { agentID?: string }) => Promise<void>;
   deleteChatSession: (id: string) => Promise<void>;
   deletePolicyRule: (id: string) => Promise<void>;
   loadDashboard: () => Promise<void>;
@@ -247,8 +247,6 @@ export type RuntimeConsoleFixtureActions = {
   ) => Promise<boolean>;
   setHecateRTKEnabled: (enabled: boolean) => Promise<boolean>;
   probeAgentAdapter: (adapterID: string) => Promise<unknown>;
-  setAgentAdapterCredential: (adapterID: string, value: string, name?: string) => Promise<boolean>;
-  deleteAgentAdapterCredential: (adapterID: string, name: string) => Promise<boolean>;
   dismissNotice: () => void;
 };
 
@@ -304,8 +302,6 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     setChatConfigOption: async () => true,
     setHecateRTKEnabled: async () => true,
     probeAgentAdapter: async () => null,
-    setAgentAdapterCredential: async () => true,
-    deleteAgentAdapterCredential: async () => true,
     dismissNotice: () => undefined,
   };
 }

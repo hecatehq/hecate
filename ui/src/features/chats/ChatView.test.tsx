@@ -55,7 +55,7 @@ describe("ChatView input", () => {
       "Hecate· local",
       "Codex· setup",
       "Claude Code· setup",
-      "Cursor· setup",
+      "Cursor Agent· setup",
     ]);
   }, 10_000);
 
@@ -2812,59 +2812,50 @@ describe("ChatView external-agent target", () => {
     expect(setNewChatAgent).toHaveBeenCalledWith("claude_code");
   });
 
-  it("shows Claude Code setup before the first send when auth is not configured", async () => {
-    const setAgentAdapterCredential = vi.fn(async () => true);
-    const probeAgentAdapter = vi.fn(async () => null);
+  it("shows Claude Code local auth repair when the adapter reports auth required", async () => {
     const onNavigate = vi.fn();
-    const { state, actions } = setup(
-      {
-        chatTarget: "external_agent",
-        agentAdapterID: "claude_code",
-        agentWorkspace: "/tmp/hecate",
-        message: "inspect repo",
-        agentAdapters: [
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "claude_code",
+      agentWorkspace: "/tmp/hecate",
+      message: "inspect repo",
+      agentAdapters: [
+        {
+          id: "claude_code",
+          name: "Claude Code",
+          kind: "acp",
+          command: "claude-agent-acp",
+          available: true,
+          status: "available",
+          auth_status: "unauthenticated",
+          auth_error: "Run `claude /login` in Terminal.",
+          cost_mode: "external",
+        },
+      ],
+      agentAdapterHealthByID: new Map([
+        [
+          "claude_code",
           {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            auth_status: "unknown",
-            credential_configured: false,
-            cost_mode: "external",
+            adapter_id: "claude_code",
+            status: "auth_required",
+            stage: "new_session",
+            duration_ms: 120,
+            hint: "Run `claude /login` in Terminal.",
           },
         ],
-      },
-      { setAgentAdapterCredential, probeAgentAdapter },
-    );
+      ]),
+    });
     render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
 
-    expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
     expect(screen.getByText("Set up Claude Code")).toBeTruthy();
-    expect(screen.getByText(/adapter-visible setup token before Hecate can start/)).toBeTruthy();
-    expect(document.querySelector("button[type='submit']")).toBeNull();
+    expect(screen.getByText(/local CLI sign-in/)).toBeTruthy();
 
     const user = userEvent.setup();
-    const installCommand = screen.getByRole("button", {
-      name: /npx -y @anthropic-ai\/claude-code --version/i,
-    });
-    expect(installCommand).toBeTruthy();
-    await user.type(screen.getByLabelText("Claude Code setup token"), "claude-token");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(setAgentAdapterCredential).toHaveBeenCalledWith(
-      "claude_code",
-      "claude-token",
-      "CLAUDE_CODE_OAUTH_TOKEN",
-    );
-    expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
-    await user.click(screen.getByRole("button", { name: "Check auth" }));
-    expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
-    expect(screen.queryByRole("button", { name: "Open Settings" })).toBeNull();
-    expect(onNavigate).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Open setup" }));
+    expect(onNavigate).toHaveBeenCalledWith("connections");
   });
 
-  it("uses the centered Claude Code setup and hides the composer for existing empty sessions", () => {
+  it("shows Claude Code setup repair in empty sessions without a token form", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "claude_code",
@@ -2889,8 +2880,8 @@ describe("ChatView external-agent target", () => {
           command: "claude-agent-acp",
           available: true,
           status: "available",
-          auth_status: "unknown",
-          credential_configured: false,
+          auth_status: "unauthenticated",
+          auth_error: "Run `claude /login` in Terminal.",
           cost_mode: "external",
         },
       ],
@@ -2898,12 +2889,40 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("Set up Claude Code")).toBeTruthy();
-    expect(screen.getAllByTestId("claude-code-preflight")).toHaveLength(1);
-    expect(document.querySelector("button[type='submit']")).toBeNull();
-    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(screen.getByText(/local CLI sign-in/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
-  it("shows Claude Code install as complete when the CLI is already present", () => {
+  it("shows Claude Code setup until the adapter probe verifies auth", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "claude_code",
+      agentWorkspace: "/tmp/hecate",
+      agentAdapters: [
+        {
+          id: "claude_code",
+          name: "Claude Code",
+          kind: "acp",
+          command: "claude-agent-acp",
+          available: true,
+          status: "available",
+          auth_status: "unauthenticated",
+          cost_mode: "external",
+        },
+      ],
+      agentAdapterHealthByID: new Map([
+        [
+          "claude_code",
+          { adapter_id: "claude_code", status: "auth_required", stage: "ready", duration_ms: 120 },
+        ],
+      ]),
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByText("Set up Claude Code")).toBeTruthy();
+  });
+
+  it("does not show Claude Code setup after the adapter probe verifies auth", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "claude_code",
@@ -2917,62 +2936,6 @@ describe("ChatView external-agent target", () => {
           available: true,
           status: "available",
           auth_status: "unknown",
-          credential_configured: false,
-          cost_mode: "external",
-          claude_code_cli: {
-            available: true,
-            command: "/opt/homebrew/bin/claude",
-            executable_path: "/opt/homebrew/bin/claude",
-          },
-        },
-      ],
-    });
-    render(withRuntimeConsole(<ChatView />, { state, actions }));
-
-    expect(screen.getByText("Available via /opt/homebrew/bin/claude")).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "npx -y @anthropic-ai/claude-code --version" }),
-    ).toBeNull();
-  });
-
-  it("keeps Claude Code setup visible until the adapter probe verifies auth", () => {
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentAdapterID: "claude_code",
-      agentWorkspace: "/tmp/hecate",
-      agentAdapters: [
-        {
-          id: "claude_code",
-          name: "Claude Code",
-          kind: "acp",
-          command: "claude-agent-acp",
-          available: true,
-          status: "available",
-          credential_configured: true,
-          cost_mode: "external",
-        },
-      ],
-    });
-    render(withRuntimeConsole(<ChatView />, { state, actions }));
-
-    expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
-    expect(screen.getByText(/adapter-visible setup token/i)).toBeTruthy();
-  });
-
-  it("keeps Claude Code setup visible when only the standalone CLI is signed in", () => {
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentAdapterID: "claude_code",
-      agentWorkspace: "/tmp/hecate",
-      agentAdapters: [
-        {
-          id: "claude_code",
-          name: "Claude Code",
-          kind: "acp",
-          command: "claude-agent-acp",
-          available: true,
-          status: "available",
-          auth_status: "ok",
           cost_mode: "external",
         },
       ],
@@ -2985,40 +2948,7 @@ describe("ChatView external-agent target", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
-    expect(screen.getByText("adapter installed")).toBeTruthy();
-    expect(screen.getByText("token not saved")).toBeTruthy();
-    expect(screen.getByText("CLI signed in")).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: /message/i })).toBeNull();
-  });
-
-  it("hides Claude Code setup after the adapter probe verifies auth", () => {
-    const { state, actions } = setup({
-      chatTarget: "external_agent",
-      agentAdapterID: "claude_code",
-      agentWorkspace: "/tmp/hecate",
-      agentAdapters: [
-        {
-          id: "claude_code",
-          name: "Claude Code",
-          kind: "acp",
-          command: "claude-agent-acp",
-          available: true,
-          status: "available",
-          credential_configured: true,
-          cost_mode: "external",
-        },
-      ],
-      agentAdapterHealthByID: new Map([
-        [
-          "claude_code",
-          { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 120 },
-        ],
-      ]),
-    });
-    render(withRuntimeConsole(<ChatView />, { state, actions }));
-
-    expect(screen.queryByTestId("claude-code-preflight")).toBeNull();
+    expect(screen.queryByText("Set up Claude Code")).toBeNull();
   });
 
   it("shows a waiting state for a running agent before transcript output arrives", () => {

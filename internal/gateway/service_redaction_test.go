@@ -16,7 +16,7 @@ func TestRedactSensitiveTextMasksCommonSecrets(t *testing.T) {
 		`Authorization: Bearer sk-valid-token-secret-1234567890`,
 		`{"api_key":"sk-json-secret-1234567890","password":"correct-horse-battery-staple"}`,
 		`OPENAI_API_KEY=sk-env-secret-1234567890`,
-		`CLAUDE_CODE_OAUTH_TOKEN=sk-claude-secret-1234567890`,
+		`ANTHROPIC_AUTH_TOKEN=sk-claude-secret-1234567890`,
 		`plain token sk-prose-secret-1234567890`,
 	}, "\n")
 
@@ -38,7 +38,7 @@ func TestRedactSensitiveTextMasksCommonSecrets(t *testing.T) {
 		`"api_key":"[redacted]"`,
 		`"password":"[redacted]"`,
 		`OPENAI_API_KEY=[redacted]`,
-		`CLAUDE_CODE_OAUTH_TOKEN=[redacted]`,
+		`ANTHROPIC_AUTH_TOKEN=[redacted]`,
 		`plain token [redacted]`,
 	} {
 		if !strings.Contains(got, want) {

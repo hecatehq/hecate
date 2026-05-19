@@ -71,8 +71,7 @@ type Handler struct {
 	// through to agentadapters.Probe; tests install a fake via
 	// SetAgentAdapterProbe so they can exercise the handler without
 	// spawning real ACP binaries.
-	agentAdapterProbe    AgentAdapterProbe
-	agentAdapterEnvProbe AgentAdapterEnvProbe
+	agentAdapterProbe AgentAdapterProbe
 	// quitFunc is wired by main.go to request an orderly process
 	// shutdown — used by HandleSystemShutdown when the desktop app's
 	// close-window confirmation flow asks the gateway to quit. nil in
@@ -306,7 +305,6 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		agentChatMetrics:    agentChatMetrics,
 		approvalConfig:      approvalCfg,
 	}
-	agentChatRunner.SetCredentialEnvProvider(h.agentAdapterCredentialEnv)
 	h.startAgentChatIdleSweeper()
 	return h
 }
@@ -413,9 +411,6 @@ func (h *Handler) SetSecretCipher(cipher secrets.Cipher) {
 	}
 	h.secretCipher = cipher
 	h.rebuildMCPHostFactory()
-	if mgr, ok := h.agentChatRunner.(*agentadapters.SessionManager); ok {
-		mgr.SetCredentialEnvProvider(h.agentAdapterCredentialEnv)
-	}
 }
 
 // SetMCPClientCache wires a SharedClientCache into the runner so MCP

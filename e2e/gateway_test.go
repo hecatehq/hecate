@@ -273,6 +273,73 @@ func postJSON(t *testing.T, url, body string, headers map[string]string) *http.R
 	return resp
 }
 
+func getJSON[T any](t *testing.T, url string) T {
+	t.Helper()
+	resp, err := http.Get(url) //nolint:noctx
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: HTTP %d — body: %s", url, resp.StatusCode, readBody(t, resp))
+	}
+	var out T
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode GET %s: %v", url, err)
+	}
+	return out
+}
+
+func postJSONDecode[T any](t *testing.T, url, body string) T {
+	t.Helper()
+	resp := postJSON(t, url, body, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST %s: HTTP %d — body: %s", url, resp.StatusCode, readBody(t, resp))
+	}
+	var out T
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode POST %s: %v", url, err)
+	}
+	return out
+}
+
+type e2eAgentAdapterList struct {
+	Data []e2eAgentAdapter `json:"data"`
+}
+
+type e2eAgentAdapterProbe struct {
+	Data struct {
+		Adapter e2eAgentAdapter       `json:"adapter"`
+		Health  e2eAgentAdapterHealth `json:"health"`
+	} `json:"data"`
+}
+
+type e2eAgentAdapter struct {
+	ID         string `json:"id"`
+	Available  bool   `json:"available"`
+	Path       string `json:"path,omitempty"`
+	AuthStatus string `json:"auth_status,omitempty"`
+	AuthError  string `json:"auth_error,omitempty"`
+}
+
+type e2eAgentAdapterHealth struct {
+	Status string `json:"status"`
+	Path   string `json:"path,omitempty"`
+	Hint   string `json:"hint,omitempty"`
+}
+
+func findE2EAdapter(t *testing.T, adapters []e2eAgentAdapter, id string) e2eAgentAdapter {
+	t.Helper()
+	for _, adapter := range adapters {
+		if adapter.ID == id {
+			return adapter
+		}
+	}
+	t.Fatalf("adapter %q not found in %+v", id, adapters)
+	return e2eAgentAdapter{}
+}
+
 func readBody(t *testing.T, resp *http.Response) string {
 	t.Helper()
 	defer resp.Body.Close()
@@ -338,6 +405,100 @@ func TestGatewayNoProviderConfiguredReturns502(t *testing.T) {
 	if resp.StatusCode == http.StatusOK {
 		t.Fatalf("expected non-200 with no provider configured, got 200")
 	}
+}
+
+func TestEnvExampleDoesNotExposeAgentAdapterFixtureOverrides(t *testing.T) {
+	t.Parallel()
+
+	content, err := os.ReadFile(filepath.Join(moduleRootDir(), ".env.example"))
+	if err != nil {
+		t.Fatalf("read .env.example: %v", err)
+	}
+	text := string(content)
+	for _, name := range []string{
+		"GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES",
+		"GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES",
+	} {
+		if strings.Contains(text, name) {
+			t.Fatalf(".env.example exposes %s; fixture-only adapter overrides must stay out of operator env templates", name)
+		}
+	}
+}
+
+func TestAgentAdapterDevOverridesDriveCatalogAndProbeOnly(t *testing.T) {
+	t.Parallel()
+
+	base := gatewayServer(t,
+		"GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES=codex=ready,claude_code=no_auth,cursor_agent=app_missing",
+	)
+
+	adapters := getJSON[e2eAgentAdapterList](t, base+"/hecate/v1/agent-adapters")
+	codex := findE2EAdapter(t, adapters.Data, "codex")
+	if !codex.Available || codex.AuthStatus != "ok" || !strings.HasPrefix(codex.Path, "dev-override://") {
+		t.Fatalf("codex catalog = %+v, want forced ready with dev override path", codex)
+	}
+	claude := findE2EAdapter(t, adapters.Data, "claude_code")
+	if !claude.Available || claude.AuthStatus != "unauthenticated" || !strings.Contains(claude.AuthError, "claude /login") {
+		t.Fatalf("claude catalog = %+v, want forced missing-auth guidance", claude)
+	}
+	cursor := findE2EAdapter(t, adapters.Data, "cursor_agent")
+	if !cursor.Available || !strings.HasPrefix(cursor.Path, "dev-override://") {
+		t.Fatalf("cursor catalog = %+v, want forced app-missing fixture path", cursor)
+	}
+
+	codexProbe := postJSONDecode[e2eAgentAdapterProbe](t, base+"/hecate/v1/agent-adapters/codex/probe", "")
+	if codexProbe.Data.Health.Status != "ready" {
+		t.Fatalf("codex probe status = %q, want ready", codexProbe.Data.Health.Status)
+	}
+	claudeProbe := postJSONDecode[e2eAgentAdapterProbe](t, base+"/hecate/v1/agent-adapters/claude_code/probe", "")
+	if claudeProbe.Data.Health.Status != "auth_required" || !strings.Contains(claudeProbe.Data.Health.Hint, "claude /login") {
+		t.Fatalf("claude probe = %+v, want auth_required with login hint", claudeProbe.Data.Health)
+	}
+	cursorProbe := postJSONDecode[e2eAgentAdapterProbe](t, base+"/hecate/v1/agent-adapters/cursor_agent/probe", "")
+	if cursorProbe.Data.Health.Status != "error" || !strings.Contains(cursorProbe.Data.Health.Hint, "Install Cursor") {
+		t.Fatalf("cursor probe = %+v, want visual app-missing setup hint", cursorProbe.Data.Health)
+	}
+	if strings.Contains(cursorProbe.Data.Health.Path, "cursor-agent") && !strings.HasPrefix(cursorProbe.Data.Health.Path, "dev-override://") {
+		t.Fatalf("cursor probe path = %q, fixture should not resolve a real adapter process", cursorProbe.Data.Health.Path)
+	}
+}
+
+func TestAgentAdapterDevOverridesDoNotBypassRealAdapterStartup(t *testing.T) {
+	t.Parallel()
+
+	base := gatewayServer(t,
+		"HOME="+t.TempDir(),
+		"PATH="+t.TempDir(),
+		"GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES=cursor_agent=ready",
+	)
+
+	probe := postJSONDecode[e2eAgentAdapterProbe](t, base+"/hecate/v1/agent-adapters/cursor_agent/probe", "")
+	if probe.Data.Health.Status != "ready" || !strings.HasPrefix(probe.Data.Health.Path, "dev-override://") {
+		t.Fatalf("probe = %+v, want forced ready dev override", probe.Data.Health)
+	}
+
+	body := fmt.Sprintf(`{"agent_id":"cursor_agent","workspace":%q}`, t.TempDir())
+	resp := postJSON(t, base+"/hecate/v1/chat/sessions", body, nil)
+	if resp.StatusCode != http.StatusOK {
+		_ = readBody(t, resp)
+		return
+	}
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		resp.Body.Close()
+		t.Fatalf("decode forced-ready chat session: %v", err)
+	}
+	resp.Body.Close()
+
+	msgResp := postJSON(t, base+"/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`, nil)
+	if msgResp.StatusCode == http.StatusOK {
+		t.Fatalf("forced-ready fixture made a real chat send succeed; dev overrides must remain visual-only")
+	}
+	_ = readBody(t, msgResp)
 }
 
 // TestGatewayFakeUpstreamNonStreamingCodex starts the gateway pointing at a

@@ -709,6 +709,129 @@ describe("AgentAdapterPicker", () => {
     await user.keyboard("{Enter}");
     expect(onChange).toHaveBeenCalledWith("claude_code");
   });
+
+  it("shows unverified auth as a non-blocking check state", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={onChange}
+        adapters={[
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "unknown",
+            auth_error: "Claude Code config is present on disk.",
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const claude = within(menu).getByText("Claude Code").closest("button") as HTMLElement;
+    expect(within(claude).getByText("check")).toBeTruthy();
+    expect(within(claude).queryByText("auth")).toBeNull();
+    expect(claude).not.toHaveAttribute("aria-disabled");
+
+    await user.click(claude);
+    expect(onChange).toHaveBeenCalledWith("claude_code");
+  });
+
+  it("shows missing adapters as setup instead of errors", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={() => {}}
+        adapters={[
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "unknown",
+          },
+        ]}
+        healthByID={
+          new Map([
+            [
+              "cursor_agent",
+              {
+                adapter_id: "cursor_agent",
+                status: "error",
+                stage: "ready",
+                error: "forced app CLI missing by GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES",
+                hint: "Install Cursor with Agent support, then sign in with Cursor Agent.",
+                duration_ms: 0,
+              },
+            ],
+          ])
+        }
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
+    expect(within(cursor).getByText("setup")).toBeTruthy();
+    expect(within(cursor).queryByText("error")).toBeNull();
+    expect(cursor.title).toContain("Install Cursor with Agent support");
+    expect(cursor).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("uses useful ready tooltips instead of showing only the executable path", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={() => {}}
+        adapters={[
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            path: "/Users/test/.local/bin/cursor-agent",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "ok",
+          },
+        ]}
+        healthByID={
+          new Map([
+            [
+              "cursor_agent",
+              {
+                adapter_id: "cursor_agent",
+                status: "ready",
+                stage: "ready",
+                path: "/Users/test/.local/bin/cursor-agent",
+                duration_ms: 80,
+              },
+            ],
+          ])
+        }
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
+    expect(cursor.title).toContain("Cursor Agent is ready");
+    expect(cursor.title).toContain("verified adapter startup, auth, and ACP session creation");
+    expect(cursor.title).toContain("/Users/test/.local/bin/cursor-agent");
+  });
 });
 
 // ─── CodeBlock ────────────────────────────────────────────────────────

@@ -18,8 +18,6 @@ export type AgentAdapterRecord = {
   version_outside_range?: boolean;
   auth_status?: "ok" | "unauthenticated" | "billing" | "unknown" | string;
   auth_error?: string;
-  credential_configured?: boolean;
-  credential_preview?: string;
   claude_code_cli?: AgentAdapterSetupCommandStatus;
 };
 
@@ -36,9 +34,8 @@ export type AgentAdapterSetupCommandStatus = {
 
 // AgentAdapterHealthRecord mirrors agentadapters.ProbeResult. Returned
 // by GET /hecate/v1/agent-adapters/{id}/health. The status string is one of
-// "ready" | "not_installed" | "auth_required" | "error"; the UI uses
-// it to colour status chips (green / amber / red / red) and to drive
-// the adapter status panel in Connections.
+// "ready" | "not_installed" | "auth_required" | "error"; the UI folds
+// this into setup, sign-in, billing, or issue states for display.
 export type AgentAdapterHealthRecord = {
   adapter_id: string;
   status: string;
@@ -60,15 +57,5 @@ export type AgentAdapterProbeResponse = {
   data: {
     adapter: AgentAdapterRecord;
     health: AgentAdapterHealthRecord;
-  };
-};
-
-export type AgentAdapterCredentialResponse = {
-  object: string;
-  data: {
-    adapter_id: string;
-    name: string;
-    configured: boolean;
-    preview?: string;
   };
 };

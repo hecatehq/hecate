@@ -156,7 +156,7 @@ type ChatActionsReturn = {
   cancelAgentChat: () => Promise<void>;
   updateToolResult: (index: number, result: string) => void;
   submitToolResults: () => Promise<void>;
-  createChatSession: () => Promise<void>;
+  createChatSession: (options?: { agentID?: string }) => Promise<void>;
   selectChatSession: (id: string) => Promise<void>;
   startNewChat: () => void;
   deleteChatSession: (id: string) => Promise<void>;
@@ -649,8 +649,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     };
   }
 
-  async function createChatSession() {
-    if (defaultChatTarget === "external_agent") {
+  async function createChatSession(options?: { agentID?: string }) {
+    const requestedAgentID = options?.agentID?.trim();
+    const createExternalAgent =
+      requestedAgentID && requestedAgentID !== "hecate"
+        ? true
+        : !requestedAgentID && defaultChatTarget === "external_agent";
+    if (createExternalAgent) {
+      const externalAgentID = requestedAgentID || agentAdapterID;
       const workspace = agentWorkspace.trim();
       if (!workspace) {
         setChatErrorState(
@@ -665,10 +671,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       setChatLoading(true);
       clearChatErrorState();
       try {
-        const adapter = agentAdapters.find((item) => item.id === agentAdapterID);
+        const adapter = agentAdapters.find((item) => item.id === externalAgentID);
         const created = await createChatSessionRequest({
           title: adapter ? `${adapter.name} chat` : "External agent chat",
-          agent_id: agentAdapterID,
+          agent_id: externalAgentID,
           workspace,
         });
         setActiveChatSessionID(created.data.id);
@@ -685,7 +691,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       return;
     }
 
-    const requestedExecutionMode = chatTargetToExecutionMode(defaultChatTarget);
+    const requestedChatTarget = requestedAgentID === "hecate" ? "agent" : defaultChatTarget;
+    const requestedExecutionMode = chatTargetToExecutionMode(requestedChatTarget);
     const executionMode = effectiveHecateExecutionMode({
       requested: requestedExecutionMode,
       models,

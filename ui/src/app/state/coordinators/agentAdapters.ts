@@ -1,8 +1,4 @@
-// Agent-adapter coordinator: probe + credential operations on
-// external agent adapters. The providersAndModels slice owns the
-// underlying state machine and returns Results; this coordinator
-// unwraps Result → boolean / record and routes errors through the
-// global notice banner.
+// Agent-adapter coordinator: readiness probes for external agent adapters.
 
 import { useContext } from "react";
 
@@ -33,40 +29,6 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     return result.health;
   }
 
-  async function setAgentAdapterCredential(
-    adapterID: string,
-    value: string,
-    name?: string,
-  ): Promise<boolean> {
-    const result = await providersAndModels.actions.setAgentAdapterCredential(
-      adapterID,
-      value,
-      name,
-    );
-    if (!result.ok) {
-      params.setNoticeMessage("error", result.error);
-      return false;
-    }
-    params.setNoticeMessage(
-      "success",
-      result.isClaudeCode ? "Claude Code verified." : "Adapter credential saved.",
-    );
-    return true;
-  }
-
-  async function deleteAgentAdapterCredential(adapterID: string, name: string): Promise<boolean> {
-    const result = await providersAndModels.actions.deleteAgentAdapterCredential(adapterID, name);
-    if (!result.ok) {
-      params.setNoticeMessage("error", result.error);
-      return false;
-    }
-    params.setNoticeMessage("success", "Adapter credential removed.");
-    return true;
-  }
-
   const overrides = useContext(CoordinatorOverridesContext);
-  return applyOverride(
-    { probeAgentAdapter, setAgentAdapterCredential, deleteAgentAdapterCredential },
-    overrides?.agentAdapters,
-  );
+  return applyOverride({ probeAgentAdapter }, overrides?.agentAdapters);
 }

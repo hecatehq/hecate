@@ -24,8 +24,6 @@ import {
   resolveChatApproval,
   recordModelCapabilityProbe,
   setChatSettings,
-  setAgentAdapterCredential,
-  deleteAgentAdapterCredential,
   setProviderAPIKey,
   setProviderBaseURL,
   streamChatSession,
@@ -745,54 +743,6 @@ describe("api client", () => {
 
       const [url] = fetchMock.mock.lastCall ?? [];
       expect(url).toBe("/hecate/v1/agent-adapters/weird%20id/refresh-launcher");
-    });
-  });
-
-  describe("agent adapter credentials", () => {
-    it("stores a named adapter credential without returning the value", async () => {
-      fetchMock.mockResolvedValue(
-        jsonResponse({
-          object: "agent_adapter_credential",
-          data: {
-            adapter_id: "claude_code",
-            name: "CLAUDE_CODE_OAUTH_TOKEN",
-            configured: true,
-            preview: "clau...oken",
-          },
-        }),
-      );
-
-      const result = await setAgentAdapterCredential(
-        "claude_code",
-        "claude-token",
-        "CLAUDE_CODE_OAUTH_TOKEN",
-      );
-
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-adapters/claude_code/credentials",
-        expect.objectContaining({
-          method: "PUT",
-          body: JSON.stringify({ name: "CLAUDE_CODE_OAUTH_TOKEN", value: "claude-token" }),
-        }),
-      );
-      expect(result.data.configured).toBe(true);
-      expect(JSON.stringify(result)).not.toContain("claude-token");
-    });
-
-    it("deletes an adapter credential by encoded name", async () => {
-      fetchMock.mockResolvedValue(
-        jsonResponse({
-          object: "agent_adapter_credential",
-          data: { adapter_id: "claude_code", name: "CLAUDE_CODE_OAUTH_TOKEN", configured: false },
-        }),
-      );
-
-      await deleteAgentAdapterCredential("claude_code", "CLAUDE_CODE_OAUTH_TOKEN");
-
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-adapters/claude_code/credentials/CLAUDE_CODE_OAUTH_TOKEN",
-        expect.objectContaining({ method: "DELETE" }),
-      );
     });
   });
 

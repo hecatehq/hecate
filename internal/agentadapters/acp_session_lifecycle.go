@@ -40,7 +40,7 @@ type acpSession struct {
 	activeDone   chan struct{}
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, extraEnv []string) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics) (*acpSession, bool, string, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, false, "", err
@@ -49,7 +49,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	cmd := exec.CommandContext(context.Background(), command, args...)
 	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
-	cmd.Env = mergeEnv(sanitizedEnv(os.Environ()), extraEnv)
+	cmd.Env = sanitizedEnv(os.Environ())
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
