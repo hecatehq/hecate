@@ -125,7 +125,7 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
 
 ## Process lifecycle
 
-- The hecate child is spawned with `stdin/stdout/stderr = null` so it doesn't inherit the Tauri terminal.
+- The hecate child is spawned with `stdin = null` and `stdout = null` so it doesn't fight the Tauri process for the terminal in dev mode; `stderr` is redirected to `<data_dir>/gateway.log` (truncated per launch) so startup failures stay diagnosable instead of vanishing.
 - The `Child` handle is stored in `GatewayChild` managed state; the gateway's base URL is stored alongside it in `GatewayBaseURL` so the close-window flow can reach the gateway HTTP surface.
 - The splash remains visible for at least 2 s before navigating to the gateway UI; keep this native-side so fast startups don't create a flash.
 - `tauri-plugin-window-state` restores size and position between launches.
