@@ -151,7 +151,7 @@ test("New chat keeps an unsent draft on the active empty chat", async ({ page })
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   // The current empty chat is still the target, so an unsent draft is
   // preserved rather than discarded.
-  await expect(page.getByRole("button", { name: /Chat Hecate chat/ })).toBeVisible();
+  await expect(page.getByText("New chat").first()).toBeVisible();
   await expect(page.locator("textarea")).toHaveValue("some prior message");
 });
 
