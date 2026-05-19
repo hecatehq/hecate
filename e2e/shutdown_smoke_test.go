@@ -15,10 +15,14 @@
 // without sending an OS signal to the child. This test exercises that
 // contract.
 //
-// Cheap (~2s) and cross-platform — runs in `just verify` alongside the
-// non-tagged e2e suite.
+// Cheap (~2s) and cross-platform. Runs in CI via the `e2e-go` job in
+// .github/workflows/test.yml, which invokes
+// `go test -tags e2e -count=1 -timeout 3m ./e2e/...` — same tag as the
+// rest of the plain-e2e suite. Not currently part of `just verify`
+// (that target only invokes the docker- and acp-tagged smokes); run
+// locally with the same command CI uses, e.g.:
 //
-// Run with: go test -tags e2e -count=1 ./e2e/ -run TestSystemShutdownSmoke
+//	go test -tags e2e -count=1 -run TestSystemShutdownSmokeExitsCleanly ./e2e/
 
 package e2e
 
