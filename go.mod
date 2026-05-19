@@ -3,7 +3,7 @@ module github.com/hecate/agent-runtime
 go 1.26.2
 
 require (
-	github.com/coder/acp-go-sdk v0.12.2
+	github.com/coder/acp-go-sdk v0.13.0
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.19.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.19.0
