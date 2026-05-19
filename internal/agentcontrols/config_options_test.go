@@ -8,7 +8,7 @@ import (
 
 func TestFromACPOptions_NormalizesSelectAndBoolean(t *testing.T) {
 	description := "pick a model"
-	category := acp.SessionConfigOptionCategoryOther("model")
+	category := acp.SessionConfigOptionCategoryModel
 	selectOptions := acp.SessionConfigSelectOptionsUngrouped{
 		{Value: acp.SessionConfigValueId("fast"), Name: "Fast"},
 		{Value: acp.SessionConfigValueId("smart"), Name: "Smart", Description: &description},
@@ -19,7 +19,7 @@ func TestFromACPOptions_NormalizesSelectAndBoolean(t *testing.T) {
 			Id:           acp.SessionConfigId("model"),
 			Name:         "Model",
 			Description:  &description,
-			Category:     &acp.SessionConfigOptionCategory{Other: &category},
+			Category:     &category,
 			CurrentValue: acp.SessionConfigValueId("fast"),
 			Options:      acp.SessionConfigSelectOptions{Ungrouped: &selectOptions},
 		}},

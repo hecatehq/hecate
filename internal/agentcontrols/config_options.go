@@ -162,10 +162,10 @@ func fromACPSelectOption(option acp.SessionConfigSelectOption, group, groupName 
 }
 
 func categoryString(category *acp.SessionConfigOptionCategory) string {
-	if category == nil || category.Other == nil {
+	if category == nil {
 		return ""
 	}
-	return string(*category.Other)
+	return string(*category)
 }
 
 func derefString(value *string) string {
