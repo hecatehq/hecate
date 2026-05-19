@@ -22,7 +22,22 @@ const (
 	StatusMissing   = "missing"
 )
 
+// adapterDiscoveryOverrideEnv is intentionally narrower than
+// adapterDevOverrideEnv: keep it for backend tests that only need catalog
+// states, while UI/dev smoke fixtures should use the dev override so catalog
+// and probe visuals stay aligned.
 const adapterDiscoveryOverrideEnv = "GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES"
+const adapterDevOverrideEnv = "GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES"
+
+const (
+	adapterDevOverrideMissing      = "missing"
+	adapterDevOverrideAvailable    = "available"
+	adapterDevOverrideReady        = "ready"
+	adapterDevOverrideAuthRequired = "auth_required"
+	adapterDevOverrideBilling      = "billing"
+	adapterDevOverrideAppMissing   = "app_missing"
+	adapterDevOverrideError        = "error"
+)
 
 const (
 	AuthStatusOK              = "ok"
@@ -268,6 +283,9 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Stat
 		status.Error = err.Error()
 		return status
 	}
+	if override, ok := adapterDevOverride(item.ID); ok {
+		return applyAdapterDevOverride(status, override)
+	}
 	if override, ok := adapterDiscoveryOverride(item.ID); ok {
 		return applyAdapterDiscoveryOverride(status, override)
 	}
@@ -311,7 +329,24 @@ func shouldProbeVersion(path string) bool {
 }
 
 func adapterDiscoveryOverride(adapterID string) (string, bool) {
-	raw := strings.TrimSpace(os.Getenv(adapterDiscoveryOverrideEnv))
+	return adapterOverride(adapterDiscoveryOverrideEnv, adapterID, normalizeAdapterDiscoveryOverride)
+}
+
+func adapterDevOverride(adapterID string) (string, bool) {
+	return adapterOverride(adapterDevOverrideEnv, adapterID, normalizeAdapterDevOverride)
+}
+
+// DevOverrideActive reports whether GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES has
+// a valid fixture for adapterID. API handlers use it to keep visual smoke-test
+// state synthetic end-to-end instead of letting a probe response "correct" the
+// catalog row from the real machine.
+func DevOverrideActive(adapterID string) bool {
+	_, ok := adapterDevOverride(adapterID)
+	return ok
+}
+
+func adapterOverride(envName, adapterID string, normalize func(string) (string, bool)) (string, bool) {
+	raw := strings.TrimSpace(os.Getenv(envName))
 	if raw == "" {
 		return "", false
 	}
@@ -326,20 +361,102 @@ func adapterDiscoveryOverride(adapterID string) (string, bool) {
 		if key == "" || value == "" {
 			continue
 		}
-		switch value {
-		case StatusAvailable, StatusMissing:
-			if key == adapterID {
-				return value, true
-			}
-			if key == "all" {
-				allOverride = value
-			}
+		normalized, ok := normalize(value)
+		if !ok {
+			continue
+		}
+		if key == adapterID {
+			return normalized, true
+		}
+		if key == "all" {
+			allOverride = normalized
 		}
 	}
 	if allOverride != "" {
 		return allOverride, true
 	}
 	return "", false
+}
+
+func normalizeAdapterDiscoveryOverride(value string) (string, bool) {
+	switch value {
+	case StatusAvailable, StatusMissing:
+		return value, true
+	default:
+		return "", false
+	}
+}
+
+func normalizeAdapterDevOverride(value string) (string, bool) {
+	switch value {
+	case "missing", "connector_missing", "acp_missing":
+		return adapterDevOverrideMissing, true
+	case "available", "unknown":
+		return adapterDevOverrideAvailable, true
+	case "ready", "ok", "auth_ok":
+		return adapterDevOverrideReady, true
+	case "auth_required", "unauthenticated", "no_auth":
+		return adapterDevOverrideAuthRequired, true
+	case "billing":
+		return adapterDevOverrideBilling, true
+	case "app_missing", "cli_missing":
+		return adapterDevOverrideAppMissing, true
+	case "error":
+		return adapterDevOverrideError, true
+	default:
+		return "", false
+	}
+}
+
+func applyAdapterDevOverride(status Status, override string) Status {
+	status.Version = ""
+	status.VersionOutsideRange = false
+	status.AuthStatus = AuthStatusUnknown
+	status.AuthError = ""
+	status.ClaudeCodeCLI = SetupCommandStatus{}
+	switch override {
+	case adapterDevOverrideMissing:
+		status.Available = false
+		status.Status = StatusMissing
+		status.Path = ""
+		status.Error = "forced ACP connector missing by " + adapterDevOverrideEnv
+	case adapterDevOverrideReady:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced ready by " + adapterDevOverrideEnv
+		status.AuthStatus = AuthStatusOK
+	case adapterDevOverrideAuthRequired:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced auth_required by " + adapterDevOverrideEnv
+		status.AuthStatus = AuthStatusUnauthenticated
+		status.AuthError = adapterSignInHint(status.Adapter)
+	case adapterDevOverrideBilling:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced billing by " + adapterDevOverrideEnv
+		status.AuthStatus = AuthStatusBilling
+		status.AuthError = "Billing or usage limit requires attention."
+	case adapterDevOverrideAppMissing:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced app CLI missing by " + adapterDevOverrideEnv
+	case adapterDevOverrideError:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced probe error by " + adapterDevOverrideEnv
+	default:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced available by " + adapterDevOverrideEnv
+	}
+	return status
 }
 
 func applyAdapterDiscoveryOverride(status Status, override string) Status {
@@ -685,35 +802,6 @@ func sanitizedEnv(env []string) []string {
 			}
 		}
 	}
-	return out
-}
-
-func mergeEnv(base []string, overrides []string) []string {
-	if len(overrides) == 0 {
-		return append([]string(nil), base...)
-	}
-	names := make(map[string]struct{}, len(overrides))
-	filteredOverrides := make([]string, 0, len(overrides))
-	for _, entry := range overrides {
-		name, value, ok := strings.Cut(entry, "=")
-		name = strings.TrimSpace(name)
-		if !ok || name == "" {
-			continue
-		}
-		names[name] = struct{}{}
-		filteredOverrides = append(filteredOverrides, name+"="+value)
-	}
-	out := make([]string, 0, len(base)+len(filteredOverrides))
-	for _, entry := range base {
-		name, _, ok := strings.Cut(entry, "=")
-		if ok {
-			if _, replace := names[name]; replace {
-				continue
-			}
-		}
-		out = append(out, entry)
-	}
-	out = append(out, filteredOverrides...)
 	return out
 }
 

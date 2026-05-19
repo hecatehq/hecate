@@ -71,8 +71,6 @@ func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/agent-adapters", handler.HandleAgentAdapters)
 	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/probe", handler.HandleAgentAdapterProbe)
 	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/refresh-launcher", handler.HandleAgentAdapterRefreshLauncher)
-	mux.HandleFunc("PUT /hecate/v1/agent-adapters/{id}/credentials", handler.HandleSetAgentAdapterCredential)
-	mux.HandleFunc("DELETE /hecate/v1/agent-adapters/{id}/credentials/{name}", handler.HandleDeleteAgentAdapterCredential)
 	mux.HandleFunc("GET /hecate/v1/agent-adapters/{id}/health", handler.HandleAgentAdapterHealth)
 	mux.HandleFunc("GET /hecate/v1/chat/sessions", handler.HandleChatSessions)
 	mux.HandleFunc("POST /hecate/v1/chat/sessions", handler.HandleCreateChatSession)

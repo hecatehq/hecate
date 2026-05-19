@@ -160,11 +160,10 @@ adapter-supplied name, recorded as `tool_kind=<adapter>:<raw>`. Frontends
 render it as "unknown tool: …" so the operator sees what the adapter is
 actually asking for, not a sanitized lie.
 
-### Default behavior + migration knob
+### Default behavior
 
-Today's behavior is auto-approve. Because External Agent Adapters are still
-alpha, v1 intentionally makes the breaking safety change now: operator-prompt
-is the default. A config var remains for explicit batch / smoke-test modes:
+Operator prompt is the default. A config var remains for explicit batch /
+smoke-test modes:
 
 ```
 GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto|prompt|deny
@@ -173,9 +172,8 @@ GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto|prompt|deny
                                        └─ auto-approve everything; danger mode, explicit only
 ```
 
-Rollout plan:
+Mode contract:
 
-- v1 lands with default `prompt`. This is a breaking alpha behavior change.
 - `auto` is available only as an explicit danger mode for batch / CI usage and
   local smoke tests.
 - `deny` is useful for audit mode and unattended runs where adapter tool use
@@ -431,7 +429,7 @@ These need resolution before this draft can become v1.0 stable.
    new state (consistency over latency), but document.
    - Status: open
 
-## Migration plan
+## Implementation status
 
 1. **Land the wire shape, persistence, and prompt-mode default** behind
    `GATEWAY_AGENT_ADAPTER_APPROVAL_MODE`. The default is `prompt`; explicit
@@ -446,9 +444,7 @@ These need resolution before this draft can become v1.0 stable.
    Operators get the new prompt flow by default.
    _(Done for alpha.)_
 
-4. **Document explicit `auto` mode.** Release notes call out the behavior
-   change from the previous alpha auto-approve stub. `mode=auto` is opt-in and
-   labeled unsafe.
+4. **Document explicit `auto` mode.** `mode=auto` is opt-in and labeled unsafe.
    _(Done for alpha.)_
 
 5. **Stable.** Telemetry confirms operators are using the surface;

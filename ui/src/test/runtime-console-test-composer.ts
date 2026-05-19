@@ -590,8 +590,6 @@ export function useRuntimeConsole() {
       setChatConfigOption: chatActions.setChatConfigOption,
       setHecateRTKEnabled: chatActions.setHecateRTKEnabled,
       probeAgentAdapter: adapterActions.probeAgentAdapter,
-      setAgentAdapterCredential: adapterActions.setAgentAdapterCredential,
-      deleteAgentAdapterCredential: adapterActions.deleteAgentAdapterCredential,
       dismissNotice: () => setNotice(null),
     },
   };

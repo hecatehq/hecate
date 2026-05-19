@@ -29,16 +29,16 @@ Pick the path closest to what you are doing.
 
 ## Runtime And Integration Docs
 
-| Doc                                                   | What it answers                                                                                                                                    |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Runtime API](runtime-api.md)                         | `/hecate/v1/tasks/*`, `/hecate/v1/chat/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints.                            |
-| [Agent runtime](agent-runtime.md)                     | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-turn.                |
-| [Events](events.md)                                   | Implemented event names, payloads, stdout/stderr stream chunks, and when each is emitted. Use this for today's `/hecate/v1/events` consumers.      |
-| [Chat sessions](chat-sessions.md)                     | Conversation persistence model behind the Chats UI, Hecate Chat segments, provider/model switching, queued prompts, and external-agent sessions.   |
-| [External agent adapters](external-agent-adapters.md) | Hecate as an ACP client/operator: use Codex, Claude Code, and Cursor Agent from Chats; install checks, persistence, troubleshooting, current gaps. |
-| [MCP integration](mcp.md)                             | Hecate as an MCP server and external MCP servers as task tools.                                                                                    |
-| [ACP bridge](acp.md)                                  | Hecate as an ACP agent for editor panels. Host setup, gateway discovery, session model, smoke test, and current gaps.                              |
-| [Sandbox](sandbox.md)                                 | Per-call subprocess execution, policy validation, env sanitisation, output cap, timeout, and OS wrappers.                                          |
+| Doc                                                   | What it answers                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Runtime API](runtime-api.md)                         | `/hecate/v1/tasks/*`, `/hecate/v1/chat/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints.                          |
+| [Agent runtime](agent-runtime.md)                     | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-turn.              |
+| [Events](events.md)                                   | Implemented event names, payloads, stdout/stderr stream chunks, and when each is emitted. Use this for today's `/hecate/v1/events` consumers.    |
+| [Chat sessions](chat-sessions.md)                     | Conversation persistence model behind the Chats UI, Hecate Chat segments, provider/model switching, queued prompts, and external-agent sessions. |
+| [External agent adapters](external-agent-adapters.md) | Use Codex, Claude Code, and Cursor Agent from Chats; install checks, credential boundaries, persistence, and troubleshooting.                    |
+| [MCP integration](mcp.md)                             | Hecate as an MCP server and external MCP servers as task tools.                                                                                  |
+| [ACP bridge](acp.md)                                  | Hecate as an ACP agent for editor panels. Host setup, gateway discovery, session model, smoke test, and current gaps.                            |
+| [Sandbox](sandbox.md)                                 | Per-call subprocess execution, policy validation, env sanitisation, output cap, timeout, and OS wrappers.                                        |
 
 ## Observability Docs
 

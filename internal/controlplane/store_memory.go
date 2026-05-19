@@ -56,18 +56,6 @@ func (s *MemoryStore) DeleteProvider(ctx context.Context, id string) error {
 	return applyDeleteProvider(ctx, &s.data, id)
 }
 
-func (s *MemoryStore) UpsertAgentAdapterCredential(ctx context.Context, credential AgentAdapterCredential) (AgentAdapterCredential, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return applyUpsertAgentAdapterCredential(ctx, &s.data, credential)
-}
-
-func (s *MemoryStore) DeleteAgentAdapterCredential(ctx context.Context, adapterID, name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return applyDeleteAgentAdapterCredential(ctx, &s.data, adapterID, name)
-}
-
 func (s *MemoryStore) UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error) {
 	rule, err := normalizePolicyRule(rule)
 	if err != nil {

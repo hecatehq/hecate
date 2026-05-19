@@ -1,6 +1,7 @@
 package agentadapters
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,14 +52,11 @@ func TestDetectAuthStatusClaudeUnknownWithoutMarker(t *testing.T) {
 	if status != AuthStatusUnknown {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnknown)
 	}
-	// The hint points at the in-app guided setup card rather than
-	// enumerating env vars. The card itself documents the env-var
-	// alternative for power users.
-	if !strings.Contains(hint, "guided setup card") {
-		t.Fatalf("hint = %q, want guided-setup card guidance", hint)
+	if !strings.Contains(hint, "Open Connections") {
+		t.Fatalf("hint = %q, want Connections guidance", hint)
 	}
-	if !strings.Contains(hint, "claude setup-token") {
-		t.Fatalf("hint = %q, want the `claude setup-token` command callout", hint)
+	if !strings.Contains(hint, "claude /login") {
+		t.Fatalf("hint = %q, want the `claude /login` command callout", hint)
 	}
 }
 
@@ -74,11 +72,9 @@ func TestDetectAuthStatusClaudeConfigIsNotEnoughForACP(t *testing.T) {
 	if status != AuthStatusUnknown {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnknown)
 	}
-	// Same in-app guidance — but mention the on-disk config so the
-	// operator understands why we still flag this as needing
-	// verification despite the file being present.
-	if !strings.Contains(hint, "could not verify the CLI auth status") || !strings.Contains(hint, "guided setup card") {
-		t.Fatalf("hint = %q, want CLI-verification guided-setup guidance", hint)
+	if !strings.Contains(hint, "has not verified CLI auth yet") ||
+		!strings.Contains(hint, "Open Connections") {
+		t.Fatalf("hint = %q, want CLI-verification Connections guidance", hint)
 	}
 }
 
@@ -100,15 +96,28 @@ func TestDetectAuthStatusClaudeReportsUnauthenticatedFromCLI(t *testing.T) {
 	if status != AuthStatusUnauthenticated {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnauthenticated)
 	}
-	if !strings.Contains(hint, "claude auth login") {
-		t.Fatalf("hint = %q, want claude auth login guidance", hint)
+	if !strings.Contains(hint, "claude /login") {
+		t.Fatalf("hint = %q, want claude /login guidance", hint)
 	}
 }
 
-func TestDetectAuthStatusClaudeUsesAdapterVisibleAuth(t *testing.T) {
+func TestDetectAuthStatusClaudeParsesStatusOutputOnNonZeroExit(t *testing.T) {
+	isolatedAuthHome(t)
+	withClaudeAuthStatus(t, `{"loggedIn":false,"authMethod":"none"}`, errors.New("exit status 1"))
+
+	status, hint := DetectAuthStatus(Adapter{ID: "claude_code"})
+	if status != AuthStatusUnauthenticated {
+		t.Fatalf("status = %q, want %q", status, AuthStatusUnauthenticated)
+	}
+	if !strings.Contains(hint, "claude /login") {
+		t.Fatalf("hint = %q, want claude /login guidance", hint)
+	}
+}
+
+func TestDetectAuthStatusClaudeUsesInheritedAnthropicAuth(t *testing.T) {
 	isolatedAuthHome(t)
 	withClaudeAuthStatus(t, `{"loggedIn":false}`, nil)
-	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-token")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "auth-token")
 
 	status, hint := DetectAuthStatus(Adapter{ID: "claude_code"})
 	if status != AuthStatusOK || hint != "" {
@@ -125,7 +134,6 @@ func isolatedAuthHome(t *testing.T) string {
 	t.Setenv("CODEX_API_KEY", "")
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	t.Setenv("CURSOR_API_KEY", "")
 	return home
 }

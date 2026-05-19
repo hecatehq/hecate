@@ -13,7 +13,6 @@ import {
 } from "../../app/state/providersAndModels";
 import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
-import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { formatLocaleDateTime } from "../../lib/format";
 import {
   providerFleetRepairHint,
@@ -96,8 +95,8 @@ function SectionHeader({
 // Grants and adapter health are lazy-loaded on panel mount — operators
 // rarely visit this surface, so we don't fetch on every dashboard
 // load. Adapter probes run automatically here because this panel is a
-// readiness panel; "Save" validates Claude Code auth before storing
-// the token, so no separate Test button is needed.
+// readiness panel; explicit probe actions let operators re-check local
+// CLI auth after installing or signing in to an external agent.
 export function ConnectionsPanel({
   onNavigate,
   showProviderSummary = true,
@@ -163,7 +162,7 @@ export function ConnectionsPanel({
   }, []);
 
   // One-shot scroll + highlight when the operator arrived here via
-  // the "Open Claude Code setup" button on a failed Claude run.
+  // an External Agent setup button on a failed agent run.
   // Chat sets `hecate.connectionsFocus` in sessionStorage before
   // navigating; we read-and-clear it so subsequent visits don't
   // re-trigger the scroll.
@@ -176,7 +175,7 @@ export function ConnectionsPanel({
   // that this build doesn't know about). Add new targets to the
   // KNOWN_FOCUS_TARGETS set when more callers wire one in.
   useEffect(() => {
-    const KNOWN_FOCUS_TARGETS = new Set(["claude-code-guided-setup"]);
+    const KNOWN_FOCUS_TARGETS = new Set(["external-agent-auth-setup"]);
     let focusTarget: string | null = null;
     try {
       const raw =
@@ -213,10 +212,8 @@ export function ConnectionsPanel({
     };
   }, []);
 
-  // Adapter status section needs a credential-write action; this
-  // also touches the runtime slice (copyCommand) — held off the
-  // runtime slice instead of the chat coordinator's setHecateRTKEnabled
-  // because it's a clipboard side-effect, not a session mutation.
+  // Adapter status uses the runtime slice for copyCommand because
+  // clipboard writes are side-effects, not session mutations.
   const copyCommand = runtime.actions.copyCommand;
 
   return (
@@ -245,8 +242,7 @@ export function ConnectionsPanel({
         agentAdapterHealthByID={agentAdapterHealthByID}
         agentAdapterHealthLoadingByID={agentAdapterHealthLoadingByID}
         copyCommand={copyCommand}
-        setAgentAdapterCredential={agentAdapterActions.setAgentAdapterCredential}
-        deleteAgentAdapterCredential={agentAdapterActions.deleteAgentAdapterCredential}
+        onProbeAdapter={(adapterID) => void probeAgentAdapter(adapterID)}
       />
 
       <SectionHeader
@@ -603,7 +599,7 @@ function AnthropicProviderKeyCard({
       </div>
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45, marginBottom: 12 }}>
         Used by Hecate Chat and direct Anthropic provider calls through{" "}
-        {provider.name || "Anthropic"}. This is separate from the Claude Code setup token below.
+        {provider.name || "Anthropic"}. This is separate from Claude Code's local CLI sign-in.
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <input
@@ -641,8 +637,8 @@ function AnthropicProviderKeyCard({
 // AdapterStatusSection lists the configured external-agent adapters.
 // The parent tab auto-runs actions.probeAgentAdapter on mount, which
 // spawns each adapter, completes the ACP handshake, and returns a
-// typed health classification. For Claude Code, that handshake is
-// also the auth check: auth failures surface as `auth_required`.
+// typed health classification. That handshake is also the auth
+// check: auth failures surface as `auth_required`.
 // Probe state is cached on the hook so leaving and returning to the
 // tab doesn't lose the last-known status.
 //
@@ -655,15 +651,13 @@ function AdapterStatusSection({
   agentAdapterHealthByID,
   agentAdapterHealthLoadingByID,
   copyCommand,
-  setAgentAdapterCredential,
-  deleteAgentAdapterCredential,
+  onProbeAdapter,
 }: {
   agentAdapters: ProvidersAndModelsState["agentAdapters"];
   agentAdapterHealthByID: ProvidersAndModelsState["agentAdapterHealthByID"];
   agentAdapterHealthLoadingByID: ProvidersAndModelsState["agentAdapterHealthLoadingByID"];
   copyCommand: (command: string) => Promise<void>;
-  setAgentAdapterCredential: (adapterID: string, value: string, name?: string) => Promise<boolean>;
-  deleteAgentAdapterCredential: (adapterID: string, name: string) => Promise<boolean>;
+  onProbeAdapter: (adapterID: string) => void;
 }) {
   if (!agentAdapters || agentAdapters.length === 0) {
     return null;
@@ -683,15 +677,8 @@ function AdapterStatusSection({
             divider={i < agentAdapters.length - 1}
             health={agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
-            onSaveCredential={(value) =>
-              setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")
-            }
-            onDeleteCredential={() =>
-              deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")
-            }
-            onCopyCommand={() =>
-              void copyCommand(claudeCodeSetupTokenCommand(adapter.claude_code_cli))
-            }
+            onCopyCommand={(command) => void copyCommand(command)}
+            onProbeAdapter={onProbeAdapter}
           />
         ))}
       </div>
@@ -704,29 +691,43 @@ function AdapterStatusRow({
   divider,
   health,
   loading,
-  onSaveCredential,
-  onDeleteCredential,
   onCopyCommand,
+  onProbeAdapter,
 }: {
   adapter: AgentAdapterRecord;
   divider: boolean;
   health: AgentAdapterHealthRecord | null;
   loading: boolean;
-  onSaveCredential: (value: string) => Promise<boolean>;
-  onDeleteCredential: () => Promise<boolean>;
-  onCopyCommand: () => void;
+  onCopyCommand: (command: string) => void;
+  onProbeAdapter: (adapterID: string) => void;
 }) {
-  // Two status sources: the dashboard's /hecate/v1/agent-adapters availability
-  // (binary discovery only) and the on-demand probe (full handshake).
-  // Probe wins when present — it's a strictly more informative signal.
-  const dashboardChip = adapter.available ? null : { tone: "amber" as const, label: "missing" };
-  const probeChip = health ? probeStatusChip(health.status) : null;
-  const chip = probeChip ?? dashboardChip;
+  // Collapse discovery, probe, and auth into one operator-facing state
+  // so adapters don't show as both "missing" and "auth unknown".
   const probeVerifiedAuth = health?.status === "ready";
   const displayAuthStatus = probeVerifiedAuth ? "ok" : adapter.auth_status;
   const displayAuthError = probeVerifiedAuth ? "" : adapter.auth_error;
-  const adapterInstalled = adapter.available && health?.status !== "not_installed";
-  const tokenVerified = Boolean(adapter.credential_configured) && probeVerifiedAuth;
+  const loginCommand = adapterLoginCommand(adapter);
+  const localAuthNeedsRepair =
+    displayAuthStatus === "unauthenticated" || health?.status === "auth_required";
+  const showLocalAuthSetup = Boolean(loginCommand) && !probeVerifiedAuth && localAuthNeedsRepair;
+  const visibleHealthError = health && shouldShowProbeError(health) ? (health.error ?? "") : "";
+  const healthPath = health?.path ?? "";
+  const state = adapterStatusState(adapter, health, displayAuthStatus, showLocalAuthSetup);
+  const detail = adapterStatusDetail(adapter, health, state, visibleHealthError, displayAuthError);
+  const showHealthDetail = Boolean(
+    detail && health && !showLocalAuthSetup && (health.hint || visibleHealthError),
+  );
+  const showAuthDetail = Boolean(detail && !health && !showLocalAuthSetup);
+  const showAuthMetadata = Boolean(
+    displayAuthStatus && displayAuthStatus === "ok" && !showLocalAuthSetup && !health,
+  );
+  const showHealthDebugMetadata = state?.kind === "ready" || state?.kind === "issue";
+  const showHealthPath = Boolean(
+    healthPath && showHealthDebugMetadata && !showLocalAuthSetup && !isDevOverridePath(healthPath),
+  );
+  const showHealthDuration = Boolean(
+    health?.duration_ms !== undefined && showHealthDebugMetadata && !showLocalAuthSetup,
+  );
 
   return (
     <div
@@ -749,17 +750,17 @@ function AdapterStatusRow({
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
             {adapter.id}
           </span>
-          {chip && (
+          {state && (
             <span
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: 10,
-                color: chipColor(chip.tone),
+                color: chipColor(state.tone),
                 textTransform: "uppercase",
                 letterSpacing: "0.04em",
               }}
             >
-              {chip.label}
+              {state.label}
             </span>
           )}
           {adapter.version_outside_range && (
@@ -774,25 +775,6 @@ function AdapterStatusRow({
               }}
             >
               outside tested range
-            </span>
-          )}
-          {displayAuthStatus && displayAuthStatus !== "ok" && (
-            <span
-              data-testid={`external-agents-adapter-${adapter.id}-auth-warning`}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                color: displayAuthStatus === "billing" ? chipColor("red") : chipColor("amber"),
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-              }}
-              title={displayAuthError || undefined}
-            >
-              {displayAuthStatus === "billing"
-                ? "billing"
-                : displayAuthStatus === "unauthenticated"
-                  ? "auth required"
-                  : "auth unknown"}
             </span>
           )}
         </div>
@@ -816,31 +798,33 @@ function AdapterStatusRow({
               version <span style={{ color: "var(--t1)" }}>{adapter.version}</span>
             </span>
           )}
-          {displayAuthStatus && (
+          {showAuthMetadata && (
             <span>
               auth <span style={{ color: "var(--t1)" }}>{displayAuthStatus}</span>
             </span>
           )}
-          {health?.path && (
+          {showHealthPath && (
             <span>
-              path <span style={{ color: "var(--t1)" }}>{health.path}</span>
+              path <span style={{ color: "var(--t1)" }}>{healthPath}</span>
             </span>
           )}
-          {health?.duration_ms !== undefined && <span>{health.duration_ms} ms</span>}
+          {showHealthDuration && health?.duration_ms !== undefined && (
+            <span>{health.duration_ms} ms</span>
+          )}
         </div>
-        {health && (health.hint || health.error) && (
+        {showHealthDetail && health && detail && (
           <div
             data-testid={`external-agents-adapter-${adapter.id}-detail`}
             style={{
               marginTop: 6,
               fontSize: 11,
-              color: chipColor(probeStatusChip(health.status)?.tone ?? "muted"),
+              color: chipColor(detail.tone),
               lineHeight: 1.4,
               wordBreak: "break-word",
             }}
           >
-            {health.hint && <div>{health.hint}</div>}
-            {health.error && (
+            {detail.message && <div>{detail.message}</div>}
+            {visibleHealthError && visibleHealthError !== detail.message && (
               <div
                 style={{
                   fontFamily: "var(--font-mono)",
@@ -849,30 +833,30 @@ function AdapterStatusRow({
                   marginTop: 2,
                 }}
               >
-                {health.error}
+                {visibleHealthError}
               </div>
             )}
           </div>
         )}
-        {!health && displayAuthError && (
+        {showAuthDetail && detail && (
           <div
             data-testid={`external-agents-adapter-${adapter.id}-auth-detail`}
-            style={{ marginTop: 6, fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}
+            style={{
+              marginTop: 6,
+              fontSize: 11,
+              color: chipColor(detail.tone),
+              lineHeight: 1.4,
+            }}
           >
-            {displayAuthError}
+            {detail.message}
           </div>
         )}
-        {adapter.id === "claude_code" && (
-          <ClaudeCredentialSetup
-            configured={Boolean(adapter.credential_configured)}
-            preview={adapter.credential_preview}
-            adapterReady={adapterInstalled}
-            tokenVerified={tokenVerified}
-            cliSignedIn={adapter.auth_status === "ok"}
-            health={health ?? undefined}
+        {showLocalAuthSetup && loginCommand && (
+          <AdapterLocalAuthSetup
+            loginCommand={loginCommand}
             onCopyCommand={onCopyCommand}
-            onSave={onSaveCredential}
-            onDelete={onDeleteCredential}
+            onTestAgain={() => onProbeAdapter(adapter.id)}
+            testing={loading}
           />
         )}
       </div>
@@ -893,73 +877,28 @@ function AdapterStatusRow({
   );
 }
 
-function ClaudeCredentialSetup({
-  configured,
-  preview,
-  adapterReady,
-  tokenVerified,
-  cliSignedIn,
-  health,
+function AdapterLocalAuthSetup({
+  loginCommand,
   onCopyCommand,
-  onSave,
-  onDelete,
+  onTestAgain,
+  testing,
 }: {
-  configured: boolean;
-  preview?: string;
-  adapterReady: boolean;
-  tokenVerified: boolean;
-  cliSignedIn: boolean;
-  health?: AgentAdapterHealthRecord;
-  onCopyCommand: () => void;
-  onSave: (value: string) => Promise<boolean>;
-  onDelete: () => Promise<boolean>;
+  loginCommand: string;
+  onCopyCommand: (command: string) => void;
+  onTestAgain: () => void;
+  testing: boolean;
 }) {
-  const [token, setToken] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [removing, setRemoving] = useState(false);
-  const tone = tokenVerified ? "green" : health?.status === "error" ? "red" : "amber";
-  const accent = chipColor(tone);
-  const border = tokenVerified
-    ? "rgba(0, 191, 179, 0.32)"
-    : tone === "red"
-      ? "rgba(239, 68, 68, 0.3)"
-      : "rgba(245, 158, 11, 0.28)";
-  const background = tokenVerified
-    ? "rgba(0, 191, 179, 0.07)"
-    : tone === "red"
-      ? "rgba(239, 68, 68, 0.07)"
-      : "rgba(245, 158, 11, 0.06)";
-  async function save() {
-    const trimmed = token.trim();
-    if (!trimmed) return;
-    setSaving(true);
-    try {
-      if (await onSave(trimmed)) {
-        setToken("");
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function remove() {
-    setRemoving(true);
-    try {
-      await onDelete();
-    } finally {
-      setRemoving(false);
-    }
-  }
+  const accent = chipColor("amber");
 
   return (
     <div
-      data-testid="claude-code-guided-setup"
+      data-testid="external-agent-auth-setup"
       style={{
         marginTop: 10,
         padding: 10,
-        border: `1px solid ${border}`,
+        border: "1px solid rgba(245, 158, 11, 0.28)",
         borderRadius: 10,
-        background,
+        background: "rgba(245, 158, 11, 0.06)",
       }}
     >
       <div
@@ -968,10 +907,9 @@ function ClaudeCredentialSetup({
           alignItems: "center",
           justifyContent: "space-between",
           gap: 10,
-          marginBottom: 8,
         }}
       >
-        <div>
+        <div style={{ minWidth: 0 }}>
           <div
             style={{
               display: "flex",
@@ -982,129 +920,159 @@ function ClaudeCredentialSetup({
               color: accent,
             }}
           >
-            <Icon d={tokenVerified ? Icons.check : Icons.keys} size={12} />
-            {tokenVerified
-              ? "Claude Code setup token verified"
-              : configured
-                ? "Claude Code setup token saved"
-                : "Claude Code guided setup"}
+            <Icon d={Icons.terminal} size={12} />
+            Local sign-in
           </div>
           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4 }}>
-            {tokenVerified
-              ? "Hecate has a validated setup token and injects it only into local Claude ACP sessions. Anthropic controls billing and credits for those sessions."
-              : configured
-                ? "Hecate has a setup token saved, but Claude Code auth has not been verified yet."
-                : cliSignedIn
-                  ? "Claude Code is signed in for normal CLI use, but the ACP adapter needs a setup token. Run claude setup-token and paste it here."
-                  : "Run claude setup-token and paste the setup token here. Hecate injects it only into Claude ACP."}
+            Run in Terminal, then test again. Hecate uses local CLI auth as your OS user and does
+            not store credentials.
           </div>
           <div
             style={{
-              marginTop: 5,
+              marginTop: 8,
               display: "flex",
               flexWrap: "wrap",
               gap: 8,
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
+              alignItems: "center",
             }}
           >
-            <span style={{ color: adapterReady ? "var(--teal)" : "var(--t3)" }}>
-              adapter {adapterReady ? "installed" : "not verified"}
-            </span>
-            <span style={{ color: tokenVerified ? "var(--teal)" : "var(--amber)" }}>
-              token {tokenVerified ? "valid" : configured ? "saved, needs check" : "not saved"}
-            </span>
-            {cliSignedIn && !tokenVerified && (
-              <span style={{ color: "var(--t3)" }}>CLI signed in</span>
-            )}
+            <code
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "rgba(0, 0, 0, 0.22)",
+                color: "var(--t0)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                padding: "4px 7px",
+              }}
+            >
+              {loginCommand}
+            </code>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => onCopyCommand(loginCommand)}
+            >
+              Copy command
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={onTestAgain}
+              disabled={testing}
+            >
+              {testing ? "Testing..." : "Test again"}
+            </button>
           </div>
         </div>
-        {!tokenVerified && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onCopyCommand}>
-            Copy command
-          </button>
-        )}
-      </div>
-      {configured && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 8,
-            fontSize: 11,
-            color: "var(--t2)",
-          }}
-        >
-          <span>
-            Stored token{" "}
-            {preview ? (
-              <span style={{ fontFamily: "var(--font-mono)", color: "var(--t1)" }}>{preview}</span>
-            ) : (
-              "configured"
-            )}
-          </span>
-          {tokenVerified && <span style={{ color: "var(--teal)" }}>Token valid.</span>}
-          {!tokenVerified && health?.status === "auth_required" && (
-            <span style={{ color: "var(--amber)" }}>
-              Token saved, but Claude still reports auth required.
-            </span>
-          )}
-          {!tokenVerified && health?.status === "error" && (
-            <span style={{ color: "var(--red)" }}>Token saved, but the auth check failed.</span>
-          )}
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => void remove()}
-            disabled={removing}
-          >
-            {removing ? "Removing..." : "Remove"}
-          </button>
-        </div>
-      )}
-      <div style={{ display: "flex", gap: 8 }}>
-        <input
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          placeholder={
-            configured
-              ? "Paste a replacement Claude Code setup token"
-              : "Paste Claude Code setup token"
-          }
-          type="password"
-          className="input"
-          style={{ flex: 1, minWidth: 180 }}
-          aria-label="Claude Code setup token"
-        />
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          onClick={() => void save()}
-          disabled={saving || token.trim() === ""}
-        >
-          {saving ? "Checking auth..." : "Save"}
-        </button>
       </div>
     </div>
   );
 }
 
-type ChipTone = "green" | "amber" | "red" | "muted";
+function isDevOverridePath(path: string): boolean {
+  return path.startsWith("dev-override://");
+}
 
-function probeStatusChip(status: string): { tone: ChipTone; label: string } | null {
-  switch (status) {
-    case "ready":
-      return { tone: "green", label: "ready" };
-    case "auth_required":
-      return { tone: "amber", label: "auth required" };
-    case "not_installed":
-      return { tone: "amber", label: "not installed" };
-    case "error":
-      return { tone: "red", label: "error" };
-    default:
-      return null;
+function shouldShowProbeError(health: AgentAdapterHealthRecord): boolean {
+  const error = health.error?.trim() ?? "";
+  if (!error) return false;
+  if (error.includes("GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES")) return false;
+  if (error.startsWith("forced ")) return false;
+  return true;
+}
+
+type ChipTone = "green" | "amber" | "red" | "muted";
+type AdapterStatusKind = "ready" | "sign_in" | "setup" | "billing" | "issue";
+type AdapterStatusState = {
+  kind: AdapterStatusKind;
+  tone: ChipTone;
+  label: string;
+};
+type AdapterStatusDetail = {
+  tone: ChipTone;
+  message: string;
+};
+
+function adapterStatusState(
+  adapter: AgentAdapterRecord,
+  health: AgentAdapterHealthRecord | null,
+  authStatus: string | undefined,
+  showLocalAuthSetup: boolean,
+): AdapterStatusState | null {
+  if (health?.status === "ready") return { kind: "ready", tone: "green", label: "ready" };
+  if (isBillingStatus(authStatus, health))
+    return { kind: "billing", tone: "amber", label: "billing" };
+  if (
+    showLocalAuthSetup ||
+    authStatus === "unauthenticated" ||
+    health?.status === "auth_required"
+  ) {
+    return { kind: "sign_in", tone: "amber", label: "sign in" };
   }
+  if (!adapter.available || health?.status === "not_installed" || isSetupProbe(health)) {
+    return { kind: "setup", tone: "muted", label: "not configured" };
+  }
+  if (health?.status === "error") {
+    return { kind: "issue", tone: "amber", label: "needs attention" };
+  }
+  if (authStatus && authStatus !== "ok" && authStatus !== "unknown") {
+    return { kind: "issue", tone: "amber", label: "needs attention" };
+  }
+  return null;
+}
+
+function adapterStatusDetail(
+  adapter: AgentAdapterRecord,
+  health: AgentAdapterHealthRecord | null,
+  state: AdapterStatusState | null,
+  visibleHealthError: string,
+  authError: string | undefined,
+): AdapterStatusDetail | null {
+  if (!state) return null;
+  if (state.kind === "ready" || state.kind === "sign_in") return null;
+
+  if (state.kind === "setup") {
+    return {
+      tone: "muted",
+      message: `Set up to use: ${health?.hint || authError || adapterSetupHint(adapter)}`,
+    };
+  }
+
+  const message = health?.hint || authError || visibleHealthError;
+  if (!message) return null;
+  return { tone: state.tone, message };
+}
+
+function isBillingStatus(
+  authStatus: string | undefined,
+  health: AgentAdapterHealthRecord | null,
+): boolean {
+  if (authStatus === "billing") return true;
+  const text = `${health?.hint ?? ""} ${health?.error ?? ""}`.toLowerCase();
+  return Boolean(health?.status === "error" && text.includes("billing"));
+}
+
+function isSetupProbe(health: AgentAdapterHealthRecord | null): boolean {
+  if (!health || health.status !== "error") return false;
+  const text = `${health.hint ?? ""} ${health.error ?? ""}`.toLowerCase();
+  return (
+    text.includes("app cli missing") ||
+    text.includes("command was not found") ||
+    text.includes("setup docs:") ||
+    text.startsWith("install ")
+  );
+}
+
+function adapterSetupHint(adapter: AgentAdapterRecord): string {
+  if (adapter.managed_package) {
+    return `Install Node/npm so Hecate can manage "${adapter.managed_package}", or install ${adapter.command} directly.`;
+  }
+  if (adapter.docs_url) {
+    return `Install ${adapter.name} and ensure ${adapter.command} is on PATH. Setup docs: ${adapter.docs_url}`;
+  }
+  return `Install ${adapter.name} and ensure ${adapter.command} is on PATH.`;
 }
 
 function chipColor(tone: ChipTone): string {
@@ -1117,6 +1085,19 @@ function chipColor(tone: ChipTone): string {
       return "var(--red)";
     case "muted":
       return "var(--t3)";
+  }
+}
+
+function adapterLoginCommand(adapter: AgentAdapterRecord): string {
+  switch (adapter.id) {
+    case "codex":
+      return "codex login";
+    case "claude_code":
+      return "claude /login";
+    case "cursor_agent":
+      return "cursor-agent login";
+    default:
+      return "";
   }
 }
 

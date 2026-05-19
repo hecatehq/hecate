@@ -9,6 +9,10 @@ import "context"
 //
 // Single-user mode: no auth, no tenant. The bridge connects to a
 // loopback gateway and forwards everything as-is.
+//
+// This interface is intentionally scoped to Hecate-owned runtime
+// operations. External Agent adapter sessions are supervised by the
+// operator console, not relayed through hecate-acp.
 type GatewayClient interface {
 	// ListModels calls GET /v1/models and returns the model IDs the
 	// gateway can serve. The bridge advertises these to the editor

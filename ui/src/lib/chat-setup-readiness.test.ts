@@ -14,7 +14,7 @@ describe("resolveChatSetupRepairState", () => {
     workspace: "/repo",
     selectedAgentAvailable: true,
     anyAgentAvailable: true,
-    claudeCodeSetupRequired: false,
+    externalAgentSetupRequired: false,
   };
 
   it("points chats without configured providers to Connections", () => {
@@ -99,16 +99,17 @@ describe("resolveChatSetupRepairState", () => {
     });
   });
 
-  it("routes Claude Code credential setup to the guided setup action", () => {
+  it("routes external-agent local auth setup to the setup action", () => {
     const repair = resolveChatSetupRepairState({
       ...base,
       target: "external_agent",
-      selectedAgentName: "Claude Code",
-      claudeCodeSetupRequired: true,
+      selectedAgentName: "Cursor Agent",
+      externalAgentSetupRequired: true,
     });
 
     expect(repair).toMatchObject({
-      kind: "claude_code_setup",
+      kind: "external_agent_setup",
+      title: "Set up Cursor Agent",
       action: "open_agent_setup",
       actionLabel: "Open setup",
     });

@@ -12,11 +12,7 @@ import type {
   ProviderPresetResponse,
   ProviderStatusResponse,
 } from "../types/provider";
-import type {
-  AgentAdapterCredentialResponse,
-  AgentAdapterProbeResponse,
-  AgentAdapterResponse,
-} from "../types/agent-adapter";
+import type { AgentAdapterProbeResponse, AgentAdapterResponse } from "../types/agent-adapter";
 import type {
   ChatApprovalRequestedEvent,
   ChatApprovalResolvedEvent,
@@ -284,27 +280,6 @@ export async function refreshAgentAdapterLauncher(
   return fetchJSON<AgentAdapterResponse>(
     `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/refresh-launcher`,
     { method: "POST" },
-  );
-}
-
-export async function setAgentAdapterCredential(
-  adapterID: string,
-  value: string,
-  name?: string,
-): Promise<AgentAdapterCredentialResponse> {
-  return fetchJSON<AgentAdapterCredentialResponse>(
-    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/credentials`,
-    { method: "PUT", body: { name, value } },
-  );
-}
-
-export async function deleteAgentAdapterCredential(
-  adapterID: string,
-  name: string,
-): Promise<AgentAdapterCredentialResponse> {
-  return fetchJSON<AgentAdapterCredentialResponse>(
-    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/credentials/${encodeURIComponent(name)}`,
-    { method: "DELETE" },
   );
 }
 

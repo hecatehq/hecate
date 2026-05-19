@@ -786,9 +786,7 @@ GET /hecate/v1/agent-adapters
       "version": "1.2.3",
       "supported_range": ">=0.1.0",
       "version_outside_range": false,
-      "auth_status": "ok",
-      "credential_configured": true,
-      "credential_preview": "clau...oken"
+      "auth_status": "ok"
     },
     {
       "id": "cursor_agent",
@@ -819,7 +817,7 @@ GET /hecate/v1/agent-adapters
       "cost_mode": "external",
       "supported_range": ">=0.1.0",
       "auth_status": "unknown",
-      "auth_error": "Run claude /status or claude login if the ACP probe reports auth or billing errors."
+      "auth_error": "Open Connections and test Claude Code. If it reports a sign-in error, run `claude /login` in Terminal."
     }
   ]
 }
@@ -836,15 +834,6 @@ shows an amber "outside tested range" chip in that case.
 `ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env
 vars and login files without spawning the adapter. Use `POST
 /hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake.
-`credential_configured` means Hecate has a stored local adapter credential
-that will be injected into that adapter process during probes and chat turns;
-the secret value is never returned, only the optional `credential_preview`.
-
-For development and e2e fixtures, `GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`
-can force discovery states such as `all=missing` or
-`claude_code=missing,codex=available`. This is discovery-only; it affects the
-catalog response and UI readiness surfaces but does not create runnable fake
-adapter processes.
 
 These are **agent adapters**, not model providers. They run ACP-compatible
 external coding agents under Hecate supervision; cost is reported as `external`
@@ -887,66 +876,6 @@ Status codes:
 - `200 OK` when the adapter id is registered; `health.status` carries
   `ready`, `not_installed`, `auth_required`, or `error`.
 - `404 not_found` when the adapter id is not registered.
-
-### `PUT /hecate/v1/agent-adapters/{id}/credentials`
-
-Stores a local adapter credential. Hecate encrypts the value with the
-startup-resolved control-plane key and injects it only into the matching
-adapter subprocess. The first guided setup uses this for Claude Code
-subscription auth: save the token from `claude setup-token` as
-`CLAUDE_CODE_OAUTH_TOKEN`, then run the adapter probe again.
-
-```json
-PUT /hecate/v1/agent-adapters/claude_code/credentials
-{
-  "name": "CLAUDE_CODE_OAUTH_TOKEN",
-  "value": "claude-oauth-token"
-}
-→ 200
-{
-  "object": "agent_adapter_credential",
-  "data": {
-    "adapter_id": "claude_code",
-    "name": "CLAUDE_CODE_OAUTH_TOKEN",
-    "configured": true,
-    "preview": "clau...oken"
-  }
-}
-```
-
-`name` may be omitted for `claude_code`; it defaults to
-`CLAUDE_CODE_OAUTH_TOKEN`. Supported credential names are intentionally
-allowlisted per adapter:
-
-- Claude Code: `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`,
-  `ANTHROPIC_AUTH_TOKEN`
-- Codex: `OPENAI_API_KEY`, `CODEX_AUTH_TOKEN`, `CODEX_API_KEY`
-- Cursor Agent: `CURSOR_API_KEY`
-
-Status codes:
-
-- `200 OK` when the credential is stored.
-- `400 invalid_request` when secret storage is not configured, the credential
-  name is unsupported, or the value is empty.
-- `404 not_found` when the adapter id is not registered.
-
-### `DELETE /hecate/v1/agent-adapters/{id}/credentials/{name}`
-
-Removes a stored adapter credential. Future probes and chat turns stop
-injecting that value.
-
-```json
-DELETE /hecate/v1/agent-adapters/claude_code/credentials/CLAUDE_CODE_OAUTH_TOKEN
-→ 200
-{
-  "object": "agent_adapter_credential",
-  "data": {
-    "adapter_id": "claude_code",
-    "name": "CLAUDE_CODE_OAUTH_TOKEN",
-    "configured": false
-  }
-}
-```
 
 ### `GET /hecate/v1/agent-adapters/{id}/health`
 

@@ -1,43 +1,49 @@
-# External agent adapters: Hecate as an ACP client
+# External agent adapters
 
-Hecate can run external coding-agent CLIs from the **Chats** view. This is for
-using Codex, Claude Code, Cursor Agent, and later similar tools through the same
-operator console used for model chat.
+Hecate can supervise external coding-agent CLIs from **Chats**. Today that means
+Codex, Claude Code, and Cursor Agent through local ACP adapters.
 
-External agents are not model providers. They are long-lived ACP agent sessions
-running in a selected workspace. Hecate supervises the adapter process, forwards
-prompts over ACP, records the normalized transcript plus raw ACP updates, and
-captures timing, workspace branch, and Git diff. Cost is still reported as
-`external`; when an adapter emits ACP `usage_update`, Hecate also records the
-reported context-window usage and optional adapter-reported cost for display.
+External agents are not Hecate model providers and they are not inside the
+`hecate` process. Hecate starts the adapter as the operator's OS user, sends
+prompts over ACP, records transcript/diagnostics, handles approvals, and shows
+Git diffs. The model gateway path is not involved; `/v1` provider routing and
+Hecate model credentials stay separate.
 
-Chat transcripts are durable when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`.
-Hecate also stores the native ACP session id. After a gateway or native-app
-restart, the next prompt asks the adapter to `session/load` that native session
-when the adapter advertises ACP load-session support. If the adapter cannot load
-the saved id, Hecate starts a fresh native session and keeps the existing
-Hecate transcript.
+With `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, Hecate keeps the transcript and the
+adapter's native ACP session id. After restart, the next prompt asks the adapter
+to `session/load` that native session when supported. If the adapter cannot load
+it, Hecate starts a fresh native session and keeps the Hecate transcript.
 
-## Relationship to the ACP bridge
-
-ACP appears in Hecate in two directions:
-
-| Direction                            | What Hecate does                                                                                                 | Where to read        |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | -------------------- |
-| **Hecate as an ACP client/operator** | Launches and supervises external ACP adapters from the **Chats** agent picker. This is the flow documented here. | This page            |
-| **Hecate as an ACP agent**           | Exposes Hecate's task runtime to external editor ACP hosts through `hecate-acp`.                                 | [ACP bridge](acp.md) |
-
-The two flows share the ACP protocol vocabulary, but they do not share a
-process model. External Agent chat sessions own the external adapter process.
-Editor ACP hosts own the `hecate-acp` bridge process.
+`hecate-acp` is a separate editor bridge for Hecate's own task runtime. It is
+not a relay to Codex, Claude Code, or Cursor Agent.
 
 ## Supported adapters
 
-| Adapter      | How Hecate starts it                                                                                                      | Auth expected by the underlying agent                                                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex        | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Codex CLI / adapter login or config                                                                                                                         |
-| Claude Code  | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code / Anthropic auth visible to the adapter: a setup token from `claude setup-token`, `ANTHROPIC_API_KEY`, or `ANTHROPIC_AUTH_TOKEN` |
-| Cursor Agent | `cursor-agent acp`                                                                                                        | `cursor-agent login` or `CURSOR_API_KEY`                                                                                                                    |
+| Adapter      | How Hecate starts it                                                                                                      | Auth expected by the underlying agent                              |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Codex        | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex auth visible to the adapter                   |
+| Claude Code  | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code / Anthropic auth visible to Claude Code |
+| Cursor Agent | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent`         |
+
+## Credential and account boundaries
+
+The selected external agent owns its model/runtime/account relationship:
+
+- Hecate does not call Claude Code SDK/API, Codex SDK/API, or Cursor Agent APIs
+  directly for External Agent sessions.
+- Hecate does not proxy, pool, resell, or bypass external-agent credentials,
+  subscriptions, credits, or vendor policy.
+- Hecate does not store External Agent credentials. The adapter reads the
+  operator's local CLI login files and environment.
+- Local CLI login files remain owned by the upstream CLI. Do not copy them
+  between users or machines.
+- Hosted or multi-user Hecate deployments must not collect or share personal
+  subscription tokens. Use vendor-supported team/project/API-key controls for
+  shared automation.
+
+This is the same practical boundary used by ACP-capable editors such as
+[Zed](https://zed.dev/docs/ai/external-agents): the client supervises a local
+adapter process, while authentication and billing stay with the provider.
 
 ## Quick start from the operator UI
 
@@ -57,17 +63,14 @@ Editor ACP hosts own the `hecate-acp` bridge process.
    Show me git status and summarize what changed.
    ```
 
-External Agent chats are intentionally separate from Hecate Chat. They do not
-use Hecate model providers or Hecate's task sandbox. The selected adapter owns
-its model/runtime/subscription; Hecate supervises the process, approvals,
-transcript, diagnostics, traces, guardrails, and Git diff review.
-For Claude Code specifically, Anthropic decides which account, API, Agent SDK
-credit, or extra-usage pool is charged. Hecate does not make Claude subscription
-usage free or convert Claude Code into a Hecate model provider.
+External Agent chats do not use Hecate model providers or Hecate's task
+sandbox. The selected adapter owns its model/runtime/account relationship;
+Hecate supervises the local process, approvals, transcript, diagnostics, traces,
+guardrails, and Git diff review.
 
 When an adapter supports ACP session configuration, Hecate surfaces those
 controls in the chat header as soon as the External Agent chat is created. The
-controls are adapter-defined: Codex / Claude Code / Cursor decide which model,
+controls are adapter-defined: Codex / Claude Code / Cursor Agent decide which model,
 mode, or reasoning selectors exist and what the labels mean. The selected
 adapter is fixed for that chat; start another chat to use a different agent.
 Hecate stores the latest reported control state with the chat session and sends
@@ -83,36 +86,16 @@ curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq
 Discovery reports command availability, tested version range, and lightweight
 auth hints (`auth_status`: `ok`, `unauthenticated`, `billing`, or `unknown`).
 
-Claude Code has one important wrinkle: a normal interactive `claude /login`
-or `~/.claude.json` config can make the standalone Claude Code CLI work while
-the ACP adapter still reports `Authentication required`. If adapter readiness
-reports an auth failure, open Connections, run `claude setup-token`, paste the
-printed setup token into the Claude Code guided setup card, and click **Save**.
-Anthropic's
-[Claude Code authentication docs](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token)
-describe this as a one-year OAuth token generated by Claude Code's own setup
-flow for CI, scripts, or other environments where browser login is unavailable.
-Hecate does not implement or impersonate Anthropic's browser OAuth flow.
+Manual setup stays in the upstream CLIs:
 
-Hecate's supported use of this token is local-only: the operator generates
-their own token, pastes it into their own local Hecate instance, and Hecate
-stores it in the local control-plane secret store. Hecate then injects it only
-into the local Claude Code ACP bridge (`claude-agent-acp`, provided by
-`@agentclientprotocol/claude-agent-acp`) as `CLAUDE_CODE_OAUTH_TOKEN`, because
-that is the environment variable the upstream adapter reads.
-`ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` also work when you want to supply
-Anthropic credentials directly.
+| Adapter      | Sign-in command      |
+| ------------ | -------------------- |
+| Codex        | `codex login`        |
+| Claude Code  | `claude /login`      |
+| Cursor Agent | `cursor-agent login` |
 
-Do not use a hosted or multi-user Hecate deployment to collect or share users'
-Claude subscription setup tokens. Do not treat this path as a way to bypass
-Anthropic billing or policy. Anthropic says that starting June 15, 2026, Agent
-SDK and `claude -p` subscription usage draws from a separate monthly Agent SDK
-credit, and Anthropic's
-[Agent SDK credit article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
-says that credit is per-user, cannot be pooled, and that teams running shared
-production automation should use the Claude Developer Platform with an API key.
-For predictable shared, automated, or production workloads, prefer Hecate's
-Anthropic provider with a Developer Platform API key.
+If an adapter readiness check reports an auth failure, run the matching command
+in Terminal, then return to Connections and test the adapter again.
 
 Connections refreshes adapter readiness when opened. You can also
 call the probe endpoint for a full spawn + ACP handshake + no-op session check:
@@ -126,7 +109,7 @@ curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/probe | jq
 For Codex and Claude, Hecate does not require `codex-acp` or
 `claude-agent-acp` to be installed on `PATH`. If the direct command is missing
 but `npx` is available, Hecate creates a small launcher in the operator cache
-directory and runs the official ACP npm package from there. Cursor still
+directory and runs the official ACP npm package from there. Cursor Agent still
 requires the Cursor Agent CLI because its ACP mode is shipped by `cursor-agent`.
 
 By default the managed launcher directory is the user cache location:
@@ -161,19 +144,6 @@ Use this order when troubleshooting:
 3. **Chat run** — send a real prompt only after discovery/probe are green. If
    the adapter still fails, open the message's raw diagnostics disclosure; the
    normalized transcript is for reading, raw ACP output is for debugging.
-
-For development and e2e smoke tests, force discovery states without changing
-your machine:
-
-```sh
-just dev-no-agent-adapters
-just dev-agent-adapters 'claude_code=missing,codex=available,cursor_agent=missing'
-```
-
-Those recipes set `GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`. The override is
-intentionally discovery-only: it lets Connections and Chats render missing /
-available states, but it does not create fake adapter processes or make a chat
-send succeed.
 
 ### Codex ACP
 
@@ -214,7 +184,7 @@ cursor-agent acp --help
 cursor-agent login
 ```
 
-Cursor can also authenticate through:
+Cursor Agent can also authenticate through:
 
 ```sh
 export CURSOR_API_KEY=...
@@ -232,7 +202,7 @@ environment that starts Hecate.
    just dev
    ```
 
-2. Open **Chats** and choose Codex, Claude Code, or Cursor from the
+2. Open **Chats** and choose Codex, Claude Code, or Cursor Agent from the
    agent picker.
 
 3. Choose an available adapter.
@@ -280,7 +250,7 @@ model.
 On Hecate shutdown, active External Agent turns are cancelled first. Hecate waits
 briefly for the ACP turn to drain, asks the native ACP session to close, and
 then kills the owned adapter process group if it is still alive. This keeps app
-quit / restart from leaving Codex, Claude, or Cursor adapter processes behind.
+quit / restart from leaving Codex, Claude Code, or Cursor Agent adapter processes behind.
 Operators can also close an External Agent chat session manually to release the external
 adapter process while keeping the Hecate chat history. Deleting a chat performs
 the same release step and then removes the persisted history.
@@ -297,22 +267,22 @@ short-circuit, mode default, or prompt-mode wait) and carries
 path with `decision` and `scope` attributes.
 
 Durable approval grants are part of the chat-session SQLite bundle. When
-`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, grants survive gateway restarts and are
+`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, grants survive Hecate server restarts and are
 listed from `GET /hecate/v1/chat/grants`; the operator can revoke them from
 Connections. Pending approvals from a dead process are not
 replayed as actionable prompts — startup reconcile marks them `timed_out` with
-`path=startup_reconcile` before the gateway accepts traffic.
+`path=startup_reconcile` before Hecate accepts traffic.
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](screenshots/chat-agent-approval.png)
 
 ![Agent approval modal with ACP options, scope choices, and audit note](screenshots/chat-agent-approval-modal.png)
 
-## Approval mode and the alpha → prompt migration
+## Approval mode
 
-`GATEWAY_AGENT_ADAPTER_APPROVAL_MODE` controls how the gateway responds to ACP
+`GATEWAY_AGENT_ADAPTER_APPROVAL_MODE` controls how Hecate responds to ACP
 `RequestPermission` from external adapters. Three values:
 
-- `prompt` (default) — the gateway records a pending row and waits for an
+- `prompt` (default) — Hecate records a pending row and waits for an
   operator decision via the Chats workspace banner / modal or the
   `/hecate/v1/chat/sessions/{id}/approvals` REST surface. Without an operator
   reviewing within `GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT` (default 5m), the
@@ -322,14 +292,6 @@ replayed as actionable prompts — startup reconcile marks them `timed_out` with
   unsupervised. Useful only for headless / CI usage where no operator is
   available; never the right setting for interactive use.
 - `deny` — every adapter request is refused.
-
-**Alpha → prompt migration.** Through the alpha cycle the effective default
-was `auto`; from this release the default is `prompt`. Operators who relied
-on the old auto-approve behaviour — typically headless / CI flows where no
-operator UI is connected — must explicitly set
-`GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto`. Without this, the first adapter
-request in a new chat will block for the full timeout and then surface as
-`Cancelled` to the adapter, looking like an inert hang.
 
 ## Runtime guardrails
 
@@ -386,7 +348,7 @@ the sweeper has closed the stale session, the request returns HTTP 422 with
 ## Stable alpha scope
 
 External agent adapters are stable enough for alpha use when the operator
-accepts the trusted-subprocess model: Codex, Claude Code, and Cursor run as
+accepts the trusted-subprocess model: Codex, Claude Code, and Cursor Agent run as
 their own runtimes in the selected workspace while Hecate supervises lifecycle,
 approvals, output capture, diagnostics, observability, guardrails, and Git diff
 inspect/revert.
@@ -398,10 +360,10 @@ inspect/revert.
   Chats UI can inspect or revert captured Git paths. A fuller review surface
   with side-by-side hunks, batch selection, and richer artifact history is
   still future work.
-- Adapter-specific ACP mappers can make Codex, Claude Code, and Cursor progress
+- Adapter-specific ACP mappers can make Codex, Claude Code, and Cursor Agent progress
   updates prettier over time. The current generic mapper plus raw diagnostics is
   sufficient for alpha stability.
 - External Agent chat is a lightweight API around opaque external runtimes.
   Future work may reuse more task-runtime primitives for artifacts, event
   history, retention, and trace correlation, but Hecate should not pretend it
-  owns the Codex / Claude / Cursor runtime loop.
+  owns the Codex / Claude Code / Cursor Agent runtime loop.

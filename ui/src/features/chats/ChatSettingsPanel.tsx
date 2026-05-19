@@ -418,9 +418,9 @@ function externalAgentRTKInfo(
       };
     case "cursor_agent":
       return {
-        title: "Cursor shell hook",
+        title: "Cursor Agent shell hook",
         detail:
-          "RTK installs a Cursor preToolUse hook. Hecate starts Cursor Agent normally; Cursor rewrites commands before executing them.",
+          "RTK installs a Cursor Agent preToolUse hook. Hecate starts Cursor Agent normally; Cursor Agent rewrites commands before executing them.",
         command: "rtk init --global --cursor",
         verify: "rtk init --show",
         tier: "native hook",

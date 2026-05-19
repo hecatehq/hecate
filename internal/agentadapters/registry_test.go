@@ -102,6 +102,61 @@ func TestStatusForAdapterHonorsDiscoveryOverrideAvailable(t *testing.T) {
 	}
 }
 
+func TestStatusForAdapterHonorsDevOverrideAuthRequired(t *testing.T) {
+	t.Setenv(adapterDevOverrideEnv, "codex=auth_required")
+
+	status, ok := StatusForAdapter(context.Background(), "codex", func(file string) (string, error) {
+		return "", errors.New("not found on PATH")
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(codex) ok = false")
+	}
+	if !status.Available || status.Status != StatusAvailable || status.Path != "dev-override://codex" {
+		t.Fatalf("status = %#v, want forced available", status)
+	}
+	if status.AuthStatus != AuthStatusUnauthenticated {
+		t.Fatalf("auth status = %q, want unauthenticated", status.AuthStatus)
+	}
+	if !strings.Contains(status.AuthError, "codex login") {
+		t.Fatalf("auth error = %q, want codex login guidance", status.AuthError)
+	}
+}
+
+func TestDevOverrideActive(t *testing.T) {
+	t.Setenv(adapterDevOverrideEnv, "all=missing,codex=ready")
+
+	if !DevOverrideActive("codex") {
+		t.Fatalf("DevOverrideActive(codex) = false, want true")
+	}
+	if !DevOverrideActive("claude_code") {
+		t.Fatalf("DevOverrideActive(claude_code) = false, want true from all=missing")
+	}
+	t.Setenv(adapterDevOverrideEnv, "fake=broken")
+	if DevOverrideActive("fake") {
+		t.Fatalf("DevOverrideActive(fake) = true for invalid override value")
+	}
+}
+
+func TestStatusForAdapterHonorsDevOverrideAppMissing(t *testing.T) {
+	t.Setenv(adapterDevOverrideEnv, "all=ready,claude_code=app_missing")
+
+	status, ok := StatusForAdapter(context.Background(), "claude_code", func(file string) (string, error) {
+		return "/usr/local/bin/" + file, nil
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(claude_code) ok = false")
+	}
+	if !status.Available || status.Status != StatusAvailable || status.Path != "dev-override://claude_code" {
+		t.Fatalf("status = %#v, want forced available app-missing fixture", status)
+	}
+	if status.AuthStatus != AuthStatusUnknown {
+		t.Fatalf("auth status = %q, want unknown for app-missing fixture", status.AuthStatus)
+	}
+	if !strings.Contains(status.Error, "app CLI missing") {
+		t.Fatalf("error = %q, want app CLI missing marker", status.Error)
+	}
+}
+
 func TestStatusForAdapterDiscoveryOverridePrefersExactMatch(t *testing.T) {
 	t.Setenv(adapterDiscoveryOverrideEnv, "all=missing,codex=available")
 
@@ -509,29 +564,6 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 	}
 	if got["GATEWAY_AUTH_TOKEN=secret"] {
 		t.Fatalf("gateway secret leaked into adapter env: %#v", env)
-	}
-}
-
-func TestMergeEnvOverridesSanitizedBase(t *testing.T) {
-	t.Parallel()
-
-	got := mergeEnv([]string{
-		"PATH=/bin",
-		"CLAUDE_CODE_OAUTH_TOKEN=old",
-		"HOME=/tmp/home",
-	}, []string{
-		"CLAUDE_CODE_OAUTH_TOKEN=new",
-		"BAD_ENTRY",
-		"CURSOR_API_KEY=cursor-token",
-	})
-	want := []string{
-		"PATH=/bin",
-		"HOME=/tmp/home",
-		"CLAUDE_CODE_OAUTH_TOKEN=new",
-		"CURSOR_API_KEY=cursor-token",
-	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("mergeEnv() = %#v, want %#v", got, want)
 	}
 }
 

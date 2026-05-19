@@ -91,10 +91,6 @@ func SetProbeMetrics(metrics *telemetry.AgentAdapterMetrics) {
 // will see no charge. The `cwd` passed to NewSession is a temporary
 // directory that's removed before Probe returns.
 func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
-	return ProbeWithEnv(ctx, adapterID, nil)
-}
-
-func ProbeWithEnv(ctx context.Context, adapterID string, extraEnv []string) (res ProbeResult) {
 	defer func() {
 		// Fire the probe counter at the very end, after every return
 		// path has converged on res.Status. Inline-defer rather than
@@ -117,6 +113,9 @@ func ProbeWithEnv(ctx context.Context, adapterID string, extraEnv []string) (res
 		res.Error = fmt.Sprintf("unknown adapter %q", adapterID)
 		res.DurationMS = elapsedMS(start)
 		return res
+	}
+	if override, ok := adapterDevOverride(adapterID); ok {
+		return probeResultForDevOverride(adapter, override, start)
 	}
 
 	path, err := resolveExecutable(adapter, exec.LookPath)
@@ -148,7 +147,7 @@ func ProbeWithEnv(ctx context.Context, adapterID string, extraEnv []string) (res
 	cmd := exec.CommandContext(context.Background(), path, args...)
 	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
-	cmd.Env = mergeEnv(sanitizedEnv(os.Environ()), extraEnv)
+	cmd.Env = sanitizedEnv(os.Environ())
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -204,7 +203,7 @@ func ProbeWithEnv(ctx context.Context, adapterID string, extraEnv []string) (res
 		res.Stderr = strings.TrimSpace(stderr.String())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
 		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
-			res.Hint = "Claude Code isn't signed in. Open the guided setup card in Settings → External agents and paste the setup token from `claude setup-token`. No restart needed."
+			res.Hint = "Claude Code isn't signed in. Run `claude /login` in Terminal, then test Claude Code again from Connections."
 		}
 		res.Error = err.Error()
 		res.DurationMS = elapsedMS(start)
@@ -222,7 +221,7 @@ func ProbeWithEnv(ctx context.Context, adapterID string, extraEnv []string) (res
 		res.Stderr = strings.TrimSpace(stderr.String())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
 		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
-			res.Hint = "Claude Code isn't signed in. Open the guided setup card in Settings → External agents and paste the setup token from `claude setup-token`. No restart needed."
+			res.Hint = "Claude Code isn't signed in. Run `claude /login` in Terminal, then test Claude Code again from Connections."
 		}
 		res.Error = err.Error()
 		res.DurationMS = elapsedMS(start)
@@ -323,6 +322,42 @@ func lookupHint(adapter Adapter) string {
 		return fmt.Sprintf("Install %s and ensure it's on PATH. Setup docs: %s", adapter.Name, adapter.DocsURL)
 	}
 	return fmt.Sprintf("Install %s and ensure it's on PATH.", adapter.Name)
+}
+
+func probeResultForDevOverride(adapter Adapter, override string, start time.Time) ProbeResult {
+	res := ProbeResult{
+		AdapterID:  adapter.ID,
+		Stage:      ProbeStageReady,
+		Path:       "dev-override://" + adapter.ID,
+		DurationMS: elapsedMS(start),
+	}
+	switch override {
+	case adapterDevOverrideMissing:
+		res.Stage = ProbeStageLookup
+		res.Status = ProbeStatusNotInstalled
+		res.Path = ""
+		res.Error = "forced ACP connector missing by " + adapterDevOverrideEnv
+		res.Hint = lookupHint(adapter)
+	case adapterDevOverrideAuthRequired:
+		res.Status = ProbeStatusAuthRequired
+		res.Error = "forced auth_required by " + adapterDevOverrideEnv
+		res.Hint = adapterSignInHint(adapter)
+	case adapterDevOverrideBilling:
+		res.Status = ProbeStatusError
+		res.Error = "forced billing by " + adapterDevOverrideEnv
+		res.Hint = "Billing or usage limit requires attention."
+	case adapterDevOverrideAppMissing:
+		res.Status = ProbeStatusError
+		res.Error = "forced app CLI missing by " + adapterDevOverrideEnv
+		res.Hint = adapterAppMissingHint(adapter)
+	case adapterDevOverrideError:
+		res.Status = ProbeStatusError
+		res.Error = "forced probe error by " + adapterDevOverrideEnv
+		res.Hint = "The adapter fixture is simulating a startup or handshake failure."
+	default:
+		res.Status = ProbeStatusReady
+	}
+	return res
 }
 
 func elapsedMS(start time.Time) int64 {

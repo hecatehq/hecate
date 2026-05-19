@@ -2,20 +2,16 @@ import { useEffect, useState } from "react";
 
 import { type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
-import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus } from "../../types/agent-adapter";
+import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 
 import { SelectedModelReadinessNotice, repairActionIcon } from "./ChatComposer";
-import { AgentSetupHints, ClaudeCodeSetupEmptyPanel } from "./ClaudeCodeSetup";
-import type { ClaudeCodePreflightState } from "./ClaudeCodeSetup";
 
 type Props = {
   isAgentChat: boolean;
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
-  claudeCodePreflight: ClaudeCodePreflightState | null;
-  claudeCodePreflightLoading: boolean;
   setupRepair: ChatSetupRepairState | null;
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
@@ -37,12 +33,6 @@ type Props = {
   onQuickAddLocalProviders: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefreshQuickLocalProviders: () => void;
   onSwitchTarget: (target: "model" | "agent" | "external_agent") => void;
-  claudeCodeCLI?: AgentAdapterSetupCommandStatus;
-  claudeTokenDraft: string;
-  claudeTokenSaving: boolean;
-  onClaudeTokenDraftChange: (value: string) => void;
-  onSaveClaudeCodeToken: () => void;
-  onTestClaudeCode: () => void;
   rtkAvailable: boolean;
   rtkPath: string;
   rtkEnabled: boolean;
@@ -54,8 +44,6 @@ export function ChatEmptyState({
   isAgentChat,
   isHecateChat,
   isExternalAgentChat,
-  claudeCodePreflight,
-  claudeCodePreflightLoading,
   setupRepair,
   modelRouteUnavailable,
   selectedModelIssue,
@@ -77,12 +65,6 @@ export function ChatEmptyState({
   onQuickAddLocalProviders,
   onRefreshQuickLocalProviders,
   onSwitchTarget,
-  claudeCodeCLI,
-  claudeTokenDraft,
-  claudeTokenSaving,
-  onClaudeTokenDraftChange,
-  onSaveClaudeCodeToken,
-  onTestClaudeCode,
   rtkAvailable,
   rtkPath,
   rtkEnabled,
@@ -98,9 +80,8 @@ export function ChatEmptyState({
   const readyDetail = isExternalAgentChat
     ? "Describe the task and Hecate will start the selected agent in this workspace."
     : "Ask a question, inspect the workspace, or describe the change you want to make.";
-  const title = claudeCodePreflight
-    ? "Set up Claude Code"
-    : isAgentChat && selectedAgentUnavailable
+  const title =
+    isAgentChat && selectedAgentUnavailable
       ? `${selectedAgent?.name || "Selected agent"} is unavailable`
       : isExternalAgentChat && agentRouteUnavailable
         ? "No available coding agent"
@@ -113,9 +94,8 @@ export function ChatEmptyState({
               : hecateModelUnavailable
                 ? "No routable model"
                 : readyTitle;
-  const detail = claudeCodePreflight
-    ? "Claude Code needs its own adapter-visible setup token before Hecate can start a session."
-    : isAgentChat && selectedAgentUnavailable
+  const detail =
+    isAgentChat && selectedAgentUnavailable
       ? `Hecate could not start ${selectedAgent?.name || "the selected agent"} because its CLI is not ready in this environment.`
       : isExternalAgentChat && agentRouteUnavailable
         ? "Hecate did not find any supported coding-agent CLI or local adapter runner in the known operator locations."
@@ -128,8 +108,7 @@ export function ChatEmptyState({
               : hecateModelUnavailable
                 ? "Add a provider with discovered models before sending through Hecate."
                 : readyDetail;
-  const emptyRepairAction =
-    setupRepairForEmpty && !claudeCodePreflight ? setupRepairForEmpty : null;
+  const emptyRepairAction = setupRepairForEmpty;
 
   function runEmptyRepairAction() {
     if (!emptyRepairAction) return;
@@ -171,18 +150,6 @@ export function ChatEmptyState({
       >
         {detail}
       </div>
-      {claudeCodePreflight && (
-        <ClaudeCodeSetupEmptyPanel
-          state={claudeCodePreflight}
-          loading={claudeCodePreflightLoading}
-          cliStatus={claudeCodeCLI}
-          tokenDraft={claudeTokenDraft}
-          tokenSaving={claudeTokenSaving}
-          onTokenDraftChange={onClaudeTokenDraftChange}
-          onSaveToken={onSaveClaudeCodeToken}
-          onTest={onTestClaudeCode}
-        />
-      )}
       {isAgentChat && (agentRouteUnavailable || selectedAgentUnavailable) && (
         <AgentSetupHints adapters={agentAdapters} selectedID={selectedAgent?.id} />
       )}
@@ -275,6 +242,254 @@ export function ChatEmptyState({
       )}
     </div>
   );
+}
+
+function AgentSetupHints({
+  adapters,
+  selectedID,
+}: {
+  adapters: AgentAdapterRecord[];
+  selectedID?: string;
+}) {
+  const ordered = adapters.slice().sort((a, b) => {
+    if (a.id === selectedID) return -1;
+    if (b.id === selectedID) return 1;
+    if (a.available !== b.available) return a.available ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+
+  if (ordered.length === 0) {
+    return (
+      <div
+        style={{
+          margin: "14px auto 0",
+          maxWidth: 520,
+          borderTop: "1px solid var(--border)",
+          paddingTop: 12,
+          fontSize: 12,
+          color: "var(--t2)",
+          lineHeight: 1.5,
+        }}
+      >
+        No agent adapters are registered by this Hecate build.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        margin: "16px auto 0",
+        maxWidth: 620,
+        textAlign: "left",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+        background: "var(--bg2)",
+        overflow: "hidden",
+      }}
+    >
+      {ordered.map((adapter, index) => {
+        const hint = agentSetupHint(adapter);
+        return (
+          <div
+            key={adapter.id}
+            style={{
+              padding: "10px 12px",
+              borderTop: index === 0 ? 0 : "1px solid var(--border)",
+              display: "grid",
+              gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
+              gap: 10,
+              alignItems: "start",
+            }}
+          >
+            <ExternalAgentSetupSummary adapter={adapter} hint={hint} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ExternalAgentSetupSummary({
+  adapter,
+  hint,
+}: {
+  adapter: AgentAdapterRecord;
+  hint: ReturnType<typeof agentSetupHint>;
+}) {
+  return (
+    <>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span
+            style={{
+              color: adapter.available ? "var(--green)" : "var(--red)",
+              display: "inline-flex",
+              flexShrink: 0,
+            }}
+          >
+            <Icon d={adapter.available ? Icons.check : Icons.x} size={11} />
+          </span>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--t1)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {adapter.name}
+          </span>
+        </div>
+        <div
+          style={{
+            marginTop: 3,
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: "var(--t3)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {hint.label}
+        </div>
+      </div>
+      <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
+        <div style={{ color: adapter.available ? "var(--green)" : "var(--t1)" }}>
+          {adapter.available ? agentReadyLabel(adapter) : hint.action}
+        </div>
+        {!adapter.available && hint.commands.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 7 }}>
+            {hint.commands.map((command) => (
+              <CopyCommandLink
+                key={command.command}
+                command={command.command}
+                label={command.label}
+              />
+            ))}
+          </div>
+        )}
+        {!adapter.available && adapter.error && (
+          <div
+            style={{
+              marginTop: 6,
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: "var(--t3)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {adapter.error}
+          </div>
+        )}
+        {hint.note && <div style={{ marginTop: 5, color: "var(--t3)" }}>{hint.note}</div>}
+        {adapter.docs_url && (
+          <a
+            href={adapter.docs_url}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: "inline-flex",
+              marginTop: 5,
+              color: "var(--teal)",
+              textDecoration: "none",
+            }}
+          >
+            setup docs
+          </a>
+        )}
+      </div>
+    </>
+  );
+}
+
+function CopyCommandLink({ command, label }: { command: string; label?: string }) {
+  async function copyCommand() {
+    try {
+      await navigator.clipboard?.writeText(command);
+    } catch {
+      // Clipboard access can be unavailable in tests or locked-down webviews.
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => void copyCommand()}
+      title={`Copy ${command}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        border: 0,
+        background: "transparent",
+        color: "var(--teal)",
+        padding: 0,
+        cursor: "pointer",
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+      }}
+    >
+      <span>{label || command}</span>
+      <Icon d={Icons.copy} size={11} />
+    </button>
+  );
+}
+
+function agentSetupHint(adapter: AgentAdapterRecord): {
+  label: string;
+  action: string;
+  commands: Array<{ label: string; command: string }>;
+  note?: string;
+} {
+  switch (adapter.id) {
+    case "codex":
+      return {
+        label: "Codex",
+        action: "Install Codex CLI, then sign in with Codex.",
+        commands: [
+          { label: "Install", command: "npm install -g @openai/codex" },
+          { label: "Auth", command: "codex login" },
+        ],
+      };
+    case "claude_code":
+      return {
+        label: "Claude Code",
+        action: "Install Claude Code, then sign in with Claude Code.",
+        commands: [
+          { label: "Install", command: "npm install -g @anthropic-ai/claude-code" },
+          { label: "Auth", command: "claude /login" },
+        ],
+        note: "Hecate uses Claude Code's local auth; it does not store Claude tokens.",
+      };
+    case "cursor_agent":
+      return {
+        label: "Cursor Agent",
+        action: "Install Cursor with Agent support, then sign in with Cursor Agent.",
+        commands: [{ label: "Auth", command: "cursor-agent login" }],
+        note: "Cursor Agent is installed with the Cursor application, not npm.",
+      };
+    default:
+      return {
+        label: adapter.command || adapter.id,
+        action: "Install the adapter command and test it in Connections.",
+        commands: adapter.command
+          ? [{ label: "Check", command: `${adapter.command} --version` }]
+          : [],
+      };
+  }
+}
+
+function agentReadyLabel(adapter: AgentAdapterRecord): string {
+  if (adapter.auth_status === "unauthenticated" || adapter.auth_status === "billing") {
+    return adapter.auth_error || `Auth status: ${adapter.auth_status}`;
+  }
+  if (adapter.version) return `Ready · ${adapter.version}`;
+  return "Ready";
 }
 
 function RTKOnboardingHint({ path, onEnable }: { path: string; onEnable: () => void }) {

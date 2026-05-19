@@ -225,8 +225,6 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
     },
     agentAdapters: {
       probeAgentAdapter: actions.probeAgentAdapter,
-      setAgentAdapterCredential: actions.setAgentAdapterCredential,
-      deleteAgentAdapterCredential: actions.deleteAgentAdapterCredential,
     },
     retention: {
       runRetention: actions.runRetention,

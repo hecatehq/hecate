@@ -128,6 +128,66 @@ func TestProbeUnknownAdapter(t *testing.T) {
 	}
 }
 
+func TestProbeHonorsDevOverrideMatrix(t *testing.T) {
+	cases := []struct {
+		name       string
+		override   string
+		wantStatus string
+		wantStage  string
+		wantHint   string
+	}{
+		{
+			name:       "connector missing",
+			override:   "codex=connector_missing",
+			wantStatus: ProbeStatusNotInstalled,
+			wantStage:  ProbeStageLookup,
+			wantHint:   "@zed-industries/codex-acp",
+		},
+		{
+			name:       "app missing",
+			override:   "codex=app_missing",
+			wantStatus: ProbeStatusError,
+			wantStage:  ProbeStageReady,
+			wantHint:   "Install Codex CLI",
+		},
+		{
+			name:       "no auth",
+			override:   "codex=no_auth",
+			wantStatus: ProbeStatusAuthRequired,
+			wantStage:  ProbeStageReady,
+			wantHint:   "codex login",
+		},
+		{
+			name:       "ready",
+			override:   "codex=ready",
+			wantStatus: ProbeStatusReady,
+			wantStage:  ProbeStageReady,
+		},
+		{
+			name:       "billing",
+			override:   "codex=billing",
+			wantStatus: ProbeStatusError,
+			wantStage:  ProbeStageReady,
+			wantHint:   "Billing",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(adapterDevOverrideEnv, tc.override)
+			res := Probe(context.Background(), "codex")
+			if res.Status != tc.wantStatus {
+				t.Fatalf("Status = %q, want %q; result = %#v", res.Status, tc.wantStatus, res)
+			}
+			if res.Stage != tc.wantStage {
+				t.Fatalf("Stage = %q, want %q", res.Stage, tc.wantStage)
+			}
+			if tc.wantHint != "" && !strings.Contains(res.Hint, tc.wantHint) {
+				t.Fatalf("Hint = %q, want substring %q", res.Hint, tc.wantHint)
+			}
+		})
+	}
+}
+
 // TestProbeRecordsCounterWithFinalStatus pins the probe-counter
 // contract: every Probe call fires exactly once, labeled with the
 // adapter id and the final classification — even on the

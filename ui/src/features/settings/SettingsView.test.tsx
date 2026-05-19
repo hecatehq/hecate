@@ -482,7 +482,7 @@ describe("Connections external-agent panel", () => {
       expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
     });
 
-    it("renders the auth-required hint when the cached probe says auth is missing", async () => {
+    it("renders compact local sign-in when the cached probe says auth is missing", async () => {
       const { state, actions } = setup(
         withAdapter({
           agentAdapterHealthByID: new Map([
@@ -502,12 +502,88 @@ describe("Connections external-agent panel", () => {
         }),
       );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-      const detail = await screen.findByTestId("external-agents-adapter-codex-detail");
-      expect(within(detail).getByText("Run codex login")).toBeTruthy();
-      expect(within(detail).getByText(/Authentication required/)).toBeTruthy();
+      const row = await screen.findByTestId("external-agents-adapter-codex");
+      expect(within(row).getByText("sign in")).toBeTruthy();
+      expect(within(row).getByText("Local sign-in")).toBeTruthy();
+      expect(within(row).getByText("codex login")).toBeTruthy();
+      expect(screen.queryByTestId("external-agents-adapter-codex-detail")).toBeNull();
+      expect(screen.queryByTestId("external-agents-adapter-codex-auth-warning")).toBeNull();
+      expect(row).not.toHaveTextContent("path /usr/local/bin/codex-acp");
+      expect(row).not.toHaveTextContent("412 ms");
+      expect(row).not.toHaveTextContent("auth unknown");
     });
 
-    it("renders discovery auth warnings before a full probe has run", async () => {
+    it("shows missing adapters as setup notifications", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex-acp",
+              managed_package: "@zed-industries/codex-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unknown",
+            },
+            {
+              id: "cursor_agent",
+              name: "Cursor Agent",
+              kind: "acp",
+              command: "cursor-agent",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unknown",
+            },
+          ],
+          agentAdapterHealthByID: new Map([
+            [
+              "codex",
+              {
+                adapter_id: "codex",
+                status: "not_installed",
+                stage: "lookup",
+                error: "codex-acp command was not found",
+                hint: 'Install Node/npm so Hecate can manage "@zed-industries/codex-acp" automatically.',
+                duration_ms: 0,
+              },
+            ],
+            [
+              "cursor_agent",
+              {
+                adapter_id: "cursor_agent",
+                status: "error",
+                stage: "ready",
+                path: "dev-override://cursor_agent",
+                error: "forced app CLI missing by GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES",
+                hint: "Install Cursor with Agent support, then sign in with Cursor Agent.",
+                duration_ms: 0,
+              },
+            ],
+          ]),
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const codex = await screen.findByTestId("external-agents-adapter-codex");
+      expect(within(codex).getByText("not configured")).toBeTruthy();
+      expect(codex).toHaveTextContent("Set up to use: Install Node/npm");
+      expect(codex).not.toHaveTextContent("not installed");
+      expect(codex).not.toHaveTextContent("auth unknown");
+      expect(codex).not.toHaveTextContent("0 ms");
+
+      const cursor = await screen.findByTestId("external-agents-adapter-cursor_agent");
+      expect(within(cursor).getByText("not configured")).toBeTruthy();
+      expect(cursor).toHaveTextContent("Set up to use: Install Cursor with Agent support");
+      expect(cursor).not.toHaveTextContent("error");
+      expect(cursor).not.toHaveTextContent("auth unknown");
+      expect(cursor).not.toHaveTextContent("dev-override://cursor_agent");
+    });
+
+    it("renders local sign-in from discovery auth before a full probe has run", async () => {
       const { state, actions } = setup(
         withAdapter({
           agentAdapters: [
@@ -526,12 +602,12 @@ describe("Connections external-agent panel", () => {
         }),
       );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-      expect(
-        await screen.findByTestId("external-agents-adapter-cursor_agent-auth-warning"),
-      ).toHaveTextContent("auth required");
-      expect(
-        screen.getByTestId("external-agents-adapter-cursor_agent-auth-detail"),
-      ).toHaveTextContent("Run cursor-agent login");
+      const row = await screen.findByTestId("external-agents-adapter-cursor_agent");
+      expect(within(row).getByText("sign in")).toBeTruthy();
+      expect(within(row).getByText("Local sign-in")).toBeTruthy();
+      expect(within(row).getByText("cursor-agent login")).toBeTruthy();
+      expect(screen.queryByTestId("external-agents-adapter-cursor_agent-auth-warning")).toBeNull();
+      expect(screen.queryByTestId("external-agents-adapter-cursor_agent-auth-detail")).toBeNull();
     });
 
     it("shows an inline checking status while a probe is in flight", async () => {
@@ -546,42 +622,7 @@ describe("Connections external-agent panel", () => {
       );
     });
 
-    it("shows Claude Code guided setup and saves the pasted token", async () => {
-      const setAgentAdapterCredential = vi.fn(async () => true);
-      const probeAgentAdapter = vi.fn(async () => null);
-      const { state, actions, user } = setup(
-        withAdapter({
-          agentAdapters: [
-            {
-              id: "claude_code",
-              name: "Claude Code",
-              kind: "acp",
-              command: "claude-agent-acp",
-              available: true,
-              status: "available",
-              cost_mode: "external",
-              auth_status: "unknown",
-              auth_error:
-                "Save a Claude Code setup token here; Hecate validates it before storing.",
-            },
-          ],
-        }),
-        { setAgentAdapterCredential, probeAgentAdapter },
-      );
-      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-
-      expect(await screen.findByTestId("claude-code-guided-setup")).toBeTruthy();
-      await user.type(screen.getByLabelText("Claude Code setup token"), "claude-token");
-      await user.click(screen.getByRole("button", { name: "Save" }));
-
-      expect(setAgentAdapterCredential).toHaveBeenCalledWith(
-        "claude_code",
-        "claude-token",
-        "CLAUDE_CODE_OAUTH_TOKEN",
-      );
-    });
-
-    it("keeps Claude Code setup token editing visible when the adapter handshake is ready but no token is configured", async () => {
+    it("does not flash Claude Code local auth guidance before readiness is verified", async () => {
       const { state, actions } = setup(
         withAdapter({
           agentAdapters: [
@@ -596,25 +637,43 @@ describe("Connections external-agent panel", () => {
               auth_status: "unknown",
             },
           ],
-          agentAdapterHealthByID: new Map([
-            [
-              "claude_code",
-              { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 },
-            ],
-          ]),
         }),
       );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-      expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
-      expect(screen.queryByText("Claude Code setup token verified")).toBeNull();
-      expect(screen.getByText("adapter installed")).toBeTruthy();
-      expect(screen.getByText("token not saved")).toBeTruthy();
-      expect(screen.getByLabelText("Claude Code setup token")).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+      expect(await screen.findByTestId("external-agents-adapter-claude_code")).toBeTruthy();
+      expect(screen.queryByText("Local sign-in")).toBeNull();
+      expect(screen.queryByText(/does not store credentials/)).toBeNull();
+      expect(screen.queryByLabelText("Claude Code credential")).toBeNull();
     });
 
-    it("shows CLI sign-in separately from Hecate's setup token", async () => {
+    it("shows Claude Code local auth guidance when discovery reports missing auth", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unauthenticated",
+              auth_error: "Run `claude /login` in Terminal.",
+            },
+          ],
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      expect(await screen.findByText("Local sign-in")).toBeTruthy();
+      expect(screen.getByText("claude /login")).toBeTruthy();
+      expect(screen.getByText(/does not store credentials/)).toBeTruthy();
+      expect(screen.queryByLabelText("Claude Code credential")).toBeNull();
+    });
+
+    it("does not show Claude Code local auth guidance after the adapter probe succeeds", async () => {
       const { state, actions } = setup(
         withAdapter({
           agentAdapters: [
@@ -639,56 +698,14 @@ describe("Connections external-agent panel", () => {
       );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-      expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
-      expect(screen.getByText("adapter installed")).toBeTruthy();
-      expect(screen.getByText("token not saved")).toBeTruthy();
-      expect(screen.getByText("CLI signed in")).toBeTruthy();
-      expect(screen.queryByText("Claude Code setup token verified")).toBeNull();
-      expect(screen.getByLabelText("Claude Code setup token")).toBeTruthy();
-    });
-
-    it("shows a setup token verified result after Claude Code setup token validation passes", async () => {
-      const { state, actions } = setup(
-        withAdapter({
-          agentAdapters: [
-            {
-              id: "claude_code",
-              name: "Claude Code",
-              kind: "acp",
-              command: "claude-agent-acp",
-              available: true,
-              status: "available",
-              cost_mode: "external",
-              auth_status: "unknown",
-              credential_configured: true,
-              credential_preview: "sk-a...SwAA",
-            },
-          ],
-          agentAdapterHealthByID: new Map([
-            [
-              "claude_code",
-              { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 },
-            ],
-          ]),
-        }),
-      );
-      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-
-      expect(await screen.findByText("Claude Code setup token verified")).toBeTruthy();
-      expect(screen.getByText(/Hecate has a validated setup token/)).toBeTruthy();
-      expect(screen.getByText("adapter installed")).toBeTruthy();
-      expect(screen.getByText("token valid")).toBeTruthy();
-      expect(screen.getByText(/Stored token/)).toBeTruthy();
-      expect(screen.getByText("Token valid.")).toBeTruthy();
+      expect(await screen.findByText("ready")).toBeTruthy();
+      expect(screen.queryByText("Local sign-in")).toBeNull();
       expect(screen.queryByTestId("external-agents-adapter-claude_code-auth-warning")).toBeNull();
-      expect(screen.getByLabelText("Claude Code setup token")).toBeTruthy();
-      expect(
-        screen.getByPlaceholderText("Paste a replacement Claude Code setup token"),
-      ).toBeTruthy();
+      expect(screen.queryByLabelText("Claude Code credential")).toBeNull();
     });
 
-    it("can remove a stored Claude Code setup token", async () => {
-      const deleteAgentAdapterCredential = vi.fn(async () => true);
+    it("copies the Claude Code sign-in command", async () => {
+      const copyCommand = vi.fn(async () => undefined);
       const { state, actions, user } = setup(
         withAdapter({
           agentAdapters: [
@@ -700,20 +717,41 @@ describe("Connections external-agent panel", () => {
               available: true,
               status: "available",
               cost_mode: "external",
-              credential_configured: true,
-              credential_preview: "clau...oken",
+              auth_status: "unauthenticated",
             },
           ],
         }),
-        { deleteAgentAdapterCredential },
+        { copyCommand },
       );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-      await user.click(await screen.findByRole("button", { name: "Remove" }));
 
-      expect(deleteAgentAdapterCredential).toHaveBeenCalledWith(
-        "claude_code",
-        "CLAUDE_CODE_OAUTH_TOKEN",
+      await user.click(await screen.findByRole("button", { name: "Copy command" }));
+      expect(copyCommand).toHaveBeenCalledWith("claude /login");
+    });
+
+    it("can retest an adapter after local sign-in", async () => {
+      const probeAgentAdapter = vi.fn(async () => null);
+      const { state, actions, user } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unauthenticated",
+            },
+          ],
+        }),
+        { probeAgentAdapter },
       );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      await user.click(await screen.findByRole("button", { name: "Test again" }));
+      expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
     });
   });
 });

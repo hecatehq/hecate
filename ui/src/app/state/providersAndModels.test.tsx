@@ -17,8 +17,6 @@ vi.mock("../../lib/api", () => ({
   getProviders: vi.fn(),
   getModels: vi.fn(),
   probeAgentAdapter: vi.fn(),
-  setAgentAdapterCredential: vi.fn(),
-  deleteAgentAdapterCredential: vi.fn(),
 }));
 
 vi.mock("../../lib/log", () => ({

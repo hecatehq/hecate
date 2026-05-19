@@ -112,25 +112,26 @@ dev *args: _go-cache
 	set +a; \
 	GOCACHE="$PWD/{{gocache}}" go run ./cmd/hecate
 
-# Run the gateway from source with external-agent discovery forced to a known
-# state. This is discovery-only: it changes Settings/Chats readiness surfaces
-# but does not create fake adapter processes. Example:
+# Run the gateway from source with external-agent adapter visuals forced to a
+# known state. This is visual-only: it changes discovery/probe readiness
+# surfaces but does not create fake adapter processes or make chat sends
+# succeed. Example:
 #   just dev-agent-adapters 'all=missing'
-#   just dev-agent-adapters 'claude_code=missing,codex=available'
+#   just dev-agent-adapters 'claude_code=no_auth,codex=ready,cursor_agent=app_missing'
 # Optional arg after the override: --reset.
 dev-agent-adapters overrides *args: _go-cache
 	needs_reset=0; \
 	for arg in {{args}}; do \
 	  case "$arg" in \
 	    --reset) needs_reset=1 ;; \
-	    *) echo "unknown argument: $arg"; echo "usage: just dev-agent-adapters '<adapter=missing|available,...>' [--reset]"; exit 2 ;; \
+	    *) echo "unknown argument: $arg"; echo "usage: just dev-agent-adapters '<adapter=missing|ready|no_auth|app_missing,...>' [--reset]"; exit 2 ;; \
 	  esac; \
 	done; \
 	if [ "$needs_reset" = "1" ]; then just reset-dev > /dev/null; else just stop; fi
 	set -a; \
 	[ -f ./.env ] && . ./.env; \
 	set +a; \
-	GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES="{{overrides}}" GOCACHE="$PWD/{{gocache}}" go run ./cmd/hecate
+	GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES="{{overrides}}" GOCACHE="$PWD/{{gocache}}" go run ./cmd/hecate
 
 # Run the gateway with all external-agent adapters shown as not installed.
 # Useful for manually testing first-run External Agent onboarding.

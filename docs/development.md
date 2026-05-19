@@ -270,27 +270,44 @@ version                 # build-time version metadata
 ## External-agent adapter smoke states
 
 External-agent onboarding depends on local tools (`codex-acp`,
-`claude-agent-acp`, `cursor-agent`) that may already be installed on your
-machine. For manual UI smoke tests and Playwright fixtures, you can force the
-discovery result without uninstalling anything:
+`claude-agent-acp`, `cursor-agent`) and the underlying agent CLIs/auth that may
+already be installed on your machine. For manual UI smoke tests and Playwright
+fixtures, you can force the visual state without uninstalling anything. These
+fixture env vars are intentionally not listed in `.env.example`; keep them in
+one-off test commands or `just` recipes instead of normal operator config.
 
 ```bash
 just dev-no-agent-adapters
 ```
 
-That starts the gateway with every external adapter reported as missing, which
-is useful for checking first-run onboarding copy.
+That starts the gateway with every external adapter connector reported as
+missing, which is useful for checking first-run onboarding copy.
 
 For finer control, pass a comma-separated override list:
 
 ```bash
-just dev-agent-adapters 'claude_code=missing,codex=available,cursor_agent=missing'
+just dev-agent-adapters 'codex=ready,claude_code=no_auth,cursor_agent=app_missing'
 ```
 
-The backing env var is `GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`. It accepts
-`all=missing` or per-adapter entries using `missing` / `available`. This is
-discovery-only: it changes Connections and Chats readiness UI, but it does not
-create fake adapter processes or make a chat send succeed.
+The backing env var is `GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES`. It accepts
+`all=...` or per-adapter entries using:
+
+- `missing` / `connector_missing` / `acp_missing` — ACP connector unavailable.
+- `app_missing` / `cli_missing` — connector exists, but the underlying agent CLI
+  is missing.
+- `no_auth` / `auth_required` / `unauthenticated` — local CLI auth missing.
+- `ready` / `ok` — startup/auth/ACP session visually ready.
+- `billing` or `error` — billing/usage-limit or generic probe failure.
+
+This is visual-only: it changes Connections and Chats readiness UI and fake
+probe results, but it does not create adapter processes or make a chat send
+succeed.
+
+There is also a narrower discovery-only fixture env var,
+`GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`, used by backend tests that only
+need catalog states (`all=missing`, `codex=available`). Prefer
+`just dev-agent-adapters` for UI work because it keeps catalog and probe visuals
+aligned.
 
 ## Capturing documentation screenshots
 

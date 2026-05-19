@@ -40,15 +40,6 @@ type ProviderSecret struct {
 	RotatedAt       time.Time `json:"rotated_at,omitempty"`
 }
 
-type AgentAdapterCredential struct {
-	AdapterID      string    `json:"adapter_id"`
-	Name           string    `json:"name"`
-	ValueEncrypted string    `json:"value_encrypted"`
-	ValuePreview   string    `json:"value_preview,omitempty"`
-	CreatedAt      time.Time `json:"created_at,omitempty"`
-	RotatedAt      time.Time `json:"rotated_at,omitempty"`
-}
-
 type AuditEvent struct {
 	Timestamp  time.Time `json:"timestamp"`
 	Actor      string    `json:"actor"`
@@ -77,7 +68,6 @@ type ModelCapabilityRecord struct {
 type State struct {
 	Providers                 []Provider                `json:"providers,omitempty"`
 	ProviderSecrets           []ProviderSecret          `json:"provider_secrets,omitempty"`
-	AgentAdapterCredentials   []AgentAdapterCredential  `json:"agent_adapter_credentials,omitempty"`
 	PolicyRules               []config.PolicyRuleConfig `json:"policy_rules,omitempty"`
 	ModelCapabilityOverrides  []ModelCapabilityRecord   `json:"model_capability_overrides,omitempty"`
 	ModelCapabilityProbeState []ModelCapabilityRecord   `json:"model_capability_probe_state,omitempty"`
@@ -91,8 +81,6 @@ type Store interface {
 	RotateProviderSecret(ctx context.Context, id string, secret ProviderSecret) (Provider, error)
 	DeleteProviderCredential(ctx context.Context, id string) (Provider, error)
 	DeleteProvider(ctx context.Context, id string) error
-	UpsertAgentAdapterCredential(ctx context.Context, credential AgentAdapterCredential) (AgentAdapterCredential, error)
-	DeleteAgentAdapterCredential(ctx context.Context, adapterID, name string) error
 	UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error)
 	DeletePolicyRule(ctx context.Context, id string) error
 	UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error)
@@ -117,7 +105,6 @@ func cloneState(state State) State {
 	out := State{
 		Providers:                 make([]Provider, 0, len(state.Providers)),
 		ProviderSecrets:           make([]ProviderSecret, 0, len(state.ProviderSecrets)),
-		AgentAdapterCredentials:   make([]AgentAdapterCredential, 0, len(state.AgentAdapterCredentials)),
 		PolicyRules:               make([]config.PolicyRuleConfig, 0, len(state.PolicyRules)),
 		ModelCapabilityOverrides:  make([]ModelCapabilityRecord, 0, len(state.ModelCapabilityOverrides)),
 		ModelCapabilityProbeState: make([]ModelCapabilityRecord, 0, len(state.ModelCapabilityProbeState)),
@@ -149,16 +136,6 @@ func cloneState(state State) State {
 			APIKeyPreview:   secret.APIKeyPreview,
 			CreatedAt:       secret.CreatedAt,
 			RotatedAt:       secret.RotatedAt,
-		})
-	}
-	for _, credential := range state.AgentAdapterCredentials {
-		out.AgentAdapterCredentials = append(out.AgentAdapterCredentials, AgentAdapterCredential{
-			AdapterID:      credential.AdapterID,
-			Name:           credential.Name,
-			ValueEncrypted: credential.ValueEncrypted,
-			ValuePreview:   credential.ValuePreview,
-			CreatedAt:      credential.CreatedAt,
-			RotatedAt:      credential.RotatedAt,
 		})
 	}
 	for _, rule := range state.PolicyRules {

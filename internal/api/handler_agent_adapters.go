@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"net/http"
 	"strings"
 
@@ -12,7 +11,7 @@ func (h *Handler) HandleAgentAdapters(w http.ResponseWriter, r *http.Request) {
 	items := agentadapters.List(r.Context())
 	data := make([]AgentAdapterResponseItem, 0, len(items))
 	for _, item := range items {
-		data = append(data, h.renderAgentAdapterItem(r.Context(), item))
+		data = append(data, renderAgentAdapterItem(item))
 	}
 
 	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
@@ -33,15 +32,9 @@ func (h *Handler) HandleAgentAdapterProbe(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "adapter not found")
 		return
 	}
-	result := h.probeAgentAdapter(ctx, id, h.agentAdapterCredentialEnv(ctx, id))
-	item := h.renderAgentAdapterItem(ctx, status)
-	if id == "claude_code" && result.Status == agentadapters.ProbeStatusReady && !item.CredentialConfigured && status.AuthStatus != agentadapters.AuthStatusOK {
-		// Claude Code can complete the ACP handshake with a normal CLI login,
-		// but chat turns still require an adapter-visible credential in
-		// Hecate's environment. Do not let a bare ready probe erase the
-		// onboarding state.
-		item.AuthStatus, item.AuthError = status.AuthStatus, status.AuthError
-	} else {
+	result := h.probeAgentAdapter(ctx, id)
+	item := renderAgentAdapterItem(status)
+	if !agentadapters.DevOverrideActive(id) {
 		item.AuthStatus, item.AuthError = authStatusFromProbe(result, item.AuthStatus, item.AuthError)
 	}
 	WriteJSON(w, http.StatusOK, AgentAdapterProbeResponse{
@@ -70,7 +63,7 @@ func (h *Handler) HandleAgentAdapterRefreshLauncher(w http.ResponseWriter, r *ht
 	}
 	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
 		Object: "agent_adapters",
-		Data:   []AgentAdapterResponseItem{h.renderAgentAdapterItem(r.Context(), status)},
+		Data:   []AgentAdapterResponseItem{renderAgentAdapterItem(status)},
 	})
 }
 
@@ -111,25 +104,6 @@ func renderAgentAdapterItem(item agentadapters.Status) AgentAdapterResponseItem 
 			Available:      item.ClaudeCodeCLI.Available,
 			Command:        item.ClaudeCodeCLI.Command,
 			ExecutablePath: item.ClaudeCodeCLI.ExecutablePath,
-		}
-	}
-	return rendered
-}
-
-func (h *Handler) renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
-	rendered := renderAgentAdapterItem(item)
-	if h == nil || h.controlPlane == nil {
-		return rendered
-	}
-	state, err := h.controlPlane.Snapshot(ctx)
-	if err != nil {
-		return rendered
-	}
-	for _, credential := range state.AgentAdapterCredentials {
-		if credential.AdapterID == item.ID {
-			rendered.CredentialConfigured = true
-			rendered.CredentialPreview = credential.ValuePreview
-			break
 		}
 	}
 	return rendered

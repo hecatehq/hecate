@@ -156,11 +156,12 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - External Agent readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.
-  To smoke-test missing/available adapter states without uninstalling local
-  tools, use `just dev-no-agent-adapters` or
-  `just dev-agent-adapters 'claude_code=missing,codex=available'`. The override
-  is discovery-only; do not write tests that expect a forced-available adapter
-  to run a real session.
+  To smoke-test adapter states without uninstalling local tools, use
+  `just dev-no-agent-adapters` or
+  `just dev-agent-adapters 'claude_code=no_auth,codex=ready,cursor_agent=app_missing'`.
+  These fixture env vars are test/development-only and intentionally absent from
+  `.env.example`; do not write tests that expect a forced-ready adapter to run a
+  real session.
 - External Agent usage is adapter-reported. Show it as helpful telemetry with the
   "reported by adapter · not enforced by Hecate" caveat, never as Hecate-enforced
   billing.

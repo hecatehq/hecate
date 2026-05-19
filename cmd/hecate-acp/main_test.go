@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/hecate/agent-runtime/internal/acp"
@@ -603,6 +604,41 @@ func TestRunInitializeOverStdio(t *testing.T) {
 	}
 	if len(result.AuthMethods) != 1 || result.AuthMethods[0].ID != "hecate-setup" || result.AuthMethods[0].Type != "terminal" || strings.Join(result.AuthMethods[0].Args, " ") != "auth setup" {
 		t.Fatalf("authMethods = %#v", result.AuthMethods)
+	}
+}
+
+func TestRunInitializeDoesNotCallAgentAdapterEndpoints(t *testing.T) {
+	t.Parallel()
+
+	var agentAdapterEndpointCalled atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"llama3.1:8b"}]}`))
+		case "/hecate/v1/agent-adapters":
+			agentAdapterEndpointCalled.Store(true)
+			http.Error(w, "unexpected external adapter access", http.StatusInternalServerError)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"0.1","clientCapabilities":{"permissions":{}}}}` + "\n")
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), input, &stdout, &stderr, bridgeConfig{
+		GatewayURL:    srv.URL,
+		AgentName:     "Hecate",
+		AgentVersion:  "test",
+		WorkspaceMode: "hecate-owned",
+		ApprovalRoute: "editor",
+	})
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if agentAdapterEndpointCalled.Load() {
+		t.Fatalf("hecate-acp called /hecate/v1/agent-adapters during initialize")
 	}
 }
 

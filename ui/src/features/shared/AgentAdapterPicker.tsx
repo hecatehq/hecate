@@ -26,7 +26,7 @@ function adapterPickerDiagnostic(
     switch (health.status) {
       case "ready":
         return {
-          title: health.path ? `Ready (${health.path})` : "Ready",
+          title: adapterReadyTitle(adapter, health.path),
           iconColor: "var(--green)",
           chipLabel: "ready",
           chipColor: "var(--teal)",
@@ -41,41 +41,95 @@ function adapterPickerDiagnostic(
       case "not_installed":
         return {
           title: health.hint || health.error || `${adapter.name} command was not found`,
-          iconColor: "var(--red)",
-          chipLabel: "missing",
-          chipColor: "var(--red)",
+          iconColor: "var(--t3)",
+          chipLabel: "setup",
+          chipColor: "var(--t3)",
         };
       case "error":
+        if (adapterProbeLooksLikeSetupState(health)) {
+          return {
+            title: health.hint || health.error || `Set up ${adapter.name} to use it`,
+            iconColor: "var(--t3)",
+            chipLabel: "setup",
+            chipColor: "var(--t3)",
+          };
+        }
         return {
           title: health.error || `${adapter.name} probe failed`,
-          iconColor: "var(--red)",
-          chipLabel: "error",
-          chipColor: "var(--red)",
+          iconColor: "var(--amber)",
+          chipLabel: "issue",
+          chipColor: "var(--amber)",
         };
     }
   }
   if (!adapter.available) {
     return {
       title: adapter.error || `${adapter.name} command was not found`,
-      iconColor: "var(--red)",
-      chipLabel: "",
-      chipColor: "",
+      iconColor: "var(--t3)",
+      chipLabel: "setup",
+      chipColor: "var(--t3)",
+    };
+  }
+  if (adapter.auth_status === "billing") {
+    return {
+      title: adapter.auth_error || "Billing or usage limit requires attention",
+      iconColor: "var(--amber)",
+      chipLabel: "billing",
+      chipColor: "var(--amber)",
+    };
+  }
+  if (adapter.auth_status === "unauthenticated") {
+    return {
+      title: adapter.auth_error || "Authentication required",
+      iconColor: "var(--amber)",
+      chipLabel: "auth",
+      chipColor: "var(--amber)",
+    };
+  }
+  if (adapter.auth_status === "unknown") {
+    return {
+      title:
+        adapter.auth_error || "Auth has not been verified yet. Test this adapter in Connections.",
+      iconColor: "var(--t3)",
+      chipLabel: "check",
+      chipColor: "var(--t3)",
     };
   }
   if (adapter.auth_status && adapter.auth_status !== "ok") {
     return {
       title: adapter.auth_error || `Auth status: ${adapter.auth_status}`,
-      iconColor: adapter.auth_status === "billing" ? "var(--red)" : "var(--amber)",
-      chipLabel: adapter.auth_status === "billing" ? "billing" : "auth",
-      chipColor: adapter.auth_status === "billing" ? "var(--red)" : "var(--amber)",
+      iconColor: "var(--amber)",
+      chipLabel: "auth",
+      chipColor: "var(--amber)",
     };
   }
   return {
-    title: adapter.path || adapter.description || adapter.name,
+    title: adapterAvailableTitle(adapter),
     iconColor: "var(--green)",
     chipLabel: "",
     chipColor: "",
   };
+}
+
+function adapterProbeLooksLikeSetupState(health: AgentAdapterHealthRecord): boolean {
+  const text = `${health.hint ?? ""} ${health.error ?? ""}`.toLowerCase();
+  return (
+    text.includes("app cli missing") ||
+    text.includes("command was not found") ||
+    text.includes("setup docs:") ||
+    text.startsWith("install ")
+  );
+}
+
+function adapterReadyTitle(adapter: AgentAdapterRecord, path: string | undefined): string {
+  const suffix = path ? ` Path: ${path}` : "";
+  return `${adapter.name} is ready. Hecate verified adapter startup, auth, and ACP session creation.${suffix}`;
+}
+
+function adapterAvailableTitle(adapter: AgentAdapterRecord): string {
+  const command = adapter.path || adapter.command;
+  const suffix = command ? ` Command: ${command}` : "";
+  return `${adapter.name} is available. Hecate found the adapter and local auth looks configured; open Connections to run the full ACP readiness check.${suffix}`;
 }
 
 export function AgentAdapterPicker({

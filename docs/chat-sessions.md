@@ -3,14 +3,14 @@
 All chat persistence in Hecate today goes through chat sessions under
 `/hecate/v1/chat/sessions`. The same store backs two session-owner categories
 in the Chats workspace: Hecate-owned chats and supervised External Agent
-sessions (Codex, Claude Code, Cursor). Hecate-owned chats can contain direct
+sessions (Codex, Claude Code, Cursor Agent). Hecate-owned chats can contain direct
 model turns and task-backed tools-on turns with a backing `agent_loop` task — see
 [agent-runtime.md](agent-runtime.md) for the runtime.
 
 The Chats workspace has one shell and an agent picker. **Hecate** is always
 first and covers both direct model chat and Hecate-owned agent execution: the
 tools toggle decides whether a prompt stays as a direct provider/model turn or
-enters the native agent task runtime. Codex, Claude Code, and Cursor entries in
+enters the native agent task runtime. Codex, Claude Code, and Cursor Agent entries in
 the same picker create **External Agent** sessions.
 
 Hecate Chat treats model/provider readiness as part of composition, not a
@@ -59,7 +59,7 @@ on, the same text becomes the per-task system prompt for the Hecate-owned
 `AGENTS.md` / `CLAUDE.md` prompts. Once a chat has messages the field is locked
 so historical segments keep the instructions they were created with; start a
 new chat to change them. External Agent chats do not use this field because
-Codex, Claude Code, and Cursor own their own prompt/configuration surface.
+Codex, Claude Code, and Cursor Agent own their own prompt/configuration surface.
 External-agent context and reported cost are intentionally shown in the active
 chat, not the Usage workspace, because those values are adapter-reported and
 only meaningful alongside the session that produced them.

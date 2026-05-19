@@ -21,7 +21,7 @@ import {
 import { describeGatewayError } from "../../lib/error-diagnostics";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
-import type { AgentAdapterRecord } from "../../types/agent-adapter";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
 import type { LocalProviderDiscoveryRecord, ProviderFilter } from "../../types/provider";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
@@ -34,7 +34,6 @@ import { ChatSettingsPanel } from "./ChatSettingsPanel";
 import { ChatSidebar, sidebarSessionAgentLabel, sidebarSessionBrand } from "./ChatSidebar";
 import { ChatTranscript, buildTranscriptItems, type VisibleChatMessage } from "./ChatTranscript";
 import { chatAgentOption } from "./ChatAgentControls";
-import { claudeCodePreflightState } from "./ClaudeCodeSetup";
 import {
   HecateTaskApprovalsBanner,
   activeTaskBackedHecateSegment,
@@ -118,7 +117,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     resolveTaskApproval: chatActions.resolveTaskApproval,
     cancelChatApproval: chatActions.cancelChatApproval,
     selectChatSession: chatActions.selectChatSession,
-    setAgentAdapterCredential: agentAdapterActions.setAgentAdapterCredential,
     setAgentWorkspace: chatActions.updateAgentWorkspace,
     setChatConfigOption: chatActions.setChatConfigOption,
     setChatTarget: chatActions.setChatTarget,
@@ -155,8 +153,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [quickAddingProviders, setQuickAddingProviders] = useState(false);
   const [taskApprovalBusyID, setTaskApprovalBusyID] = useState("");
   const [capabilitySaving, setCapabilitySaving] = useState(false);
-  const [claudeTokenDraft, setClaudeTokenDraft] = useState("");
-  const [claudeTokenSaving, setClaudeTokenSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const focusComposerAfterNewChatRef = useRef(false);
 
@@ -244,10 +240,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const selectedAgentHealth = activeAgentAdapterID
     ? (state.agentAdapterHealthByID.get(activeAgentAdapterID) ?? null)
     : null;
-  const selectedAgentHealthLoading = activeAgentAdapterID
-    ? Boolean(state.agentAdapterHealthLoadingByID.get(activeAgentAdapterID))
-    : false;
-  const claudeCodePreflight = claudeCodePreflightState(selectedAgent, selectedAgentHealth);
+  const externalAgentSetupRequired = needsExternalAgentSetup(selectedAgent, selectedAgentHealth);
   const availableAgents = state.agentAdapters.filter((adapter) => adapter.available);
   const configuredProviders = state.settingsConfig?.providers ?? [];
   const providerConfigLoaded = state.settingsConfig !== null;
@@ -411,12 +404,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     newChatAgentID,
     adapters: state.agentAdapters,
   });
-  const showClaudeCodeEmptyPreflight =
-    isExternalAgentChat &&
-    visibleMessages.length === 0 &&
-    state.pendingToolCalls.length === 0 &&
-    !streaming &&
-    Boolean(claudeCodePreflight?.blockSend);
   const showRTKOnboardingHint =
     isHecateChat &&
     !chatSettingsOpen &&
@@ -436,11 +423,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     selectedAgentName: selectedAgent?.name,
     selectedAgentAvailable: Boolean(selectedAgent?.available),
     anyAgentAvailable: availableAgents.length > 0,
-    claudeCodeSetupRequired: Boolean(claudeCodePreflight?.blockSend),
+    externalAgentSetupRequired,
   });
-  const composerVisible =
-    (isExternalAgentChat || (isHecateChat && hecateChatModelReady)) &&
-    !showClaudeCodeEmptyPreflight;
+  const composerVisible = isExternalAgentChat || (isHecateChat && hecateChatModelReady);
   const hecateHasMessageControls =
     isHecateChat &&
     (hecateAgentModelLocked || hasConfiguredProviders || selectableModels.length > 0);
@@ -463,7 +448,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     (!agentBusy &&
       isExternalAgentChat &&
       (!state.agentWorkspace.trim() || !selectedAgent?.available)) ||
-    (!agentBusy && isExternalAgentChat && Boolean(claudeCodePreflight?.blockSend)) ||
+    (!agentBusy && isExternalAgentChat && externalAgentSetupRequired) ||
     (!agentBusy &&
       isHecateAgentChat &&
       (!hecateChatModelReady ||
@@ -488,33 +473,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     }
   }
 
-  function openClaudeCodeSetup() {
+  function openAgentSetup() {
     try {
-      sessionStorage.setItem("hecate.connectionsFocus", "claude-code-guided-setup");
+      sessionStorage.setItem("hecate.connectionsFocus", "external-agent-auth-setup");
     } catch {
       // sessionStorage unavailable — navigation still
-      // works, just no auto-scroll to the guided setup card.
+      // works, just no auto-scroll to the auth setup card.
     }
     onNavigate?.("connections");
-  }
-
-  async function saveClaudeCodeToken() {
-    const token = claudeTokenDraft.trim();
-    if (!token || claudeTokenSaving) return;
-    setClaudeTokenSaving(true);
-    try {
-      const saved = await actions.setAgentAdapterCredential(
-        "claude_code",
-        token,
-        "CLAUDE_CODE_OAUTH_TOKEN",
-      );
-      if (saved) {
-        setClaudeTokenDraft("");
-        await actions.probeAgentAdapter("claude_code");
-      }
-    } finally {
-      setClaudeTokenSaving(false);
-    }
   }
 
   useEffect(() => {
@@ -695,11 +661,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             void actions.selectChatSession(sessionID);
             textareaRef.current?.focus();
           }}
-          onCreateChat={() => {
+          onCreateChat={(agentID) => {
             setDraftChatOpen(true);
             setChatSettingsOpen(false);
             focusComposerWhenReady();
-            void actions.createChatSession();
+            void actions.createChatSession({ agentID });
           }}
         />
       )}
@@ -831,14 +797,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               onNavigate={onNavigate}
               onOpenTask={onOpenTask}
               onOpenTrace={onOpenTrace}
-              openClaudeCodeSetup={openClaudeCodeSetup}
+              openClaudeCodeSetup={openAgentSetup}
               emptyState={
                 <ChatEmptyState
                   isAgentChat={isAgentChat}
                   isHecateChat={isHecateChat}
                   isExternalAgentChat={isExternalAgentChat}
-                  claudeCodePreflight={showClaudeCodeEmptyPreflight ? claudeCodePreflight : null}
-                  claudeCodePreflightLoading={selectedAgentHealthLoading}
                   setupRepair={chatSetupRepair}
                   modelRouteUnavailable={modelRouteUnavailable}
                   selectedModelIssue={selectedModelIssue}
@@ -865,16 +829,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                     actions.setModel(model);
                   }}
                   onChooseWorkspace={() => void chooseWorkspace()}
-                  onOpenAgentSetup={openClaudeCodeSetup}
+                  onOpenAgentSetup={openAgentSetup}
                   onQuickAddLocalProviders={quickAddLocalProviders}
                   onRefreshQuickLocalProviders={refreshQuickLocalProviders}
                   onSwitchTarget={actions.setChatTarget}
-                  claudeCodeCLI={selectedAgent?.claude_code_cli}
-                  claudeTokenDraft={claudeTokenDraft}
-                  claudeTokenSaving={claudeTokenSaving}
-                  onClaudeTokenDraftChange={setClaudeTokenDraft}
-                  onSaveClaudeCodeToken={() => void saveClaudeCodeToken()}
-                  onTestClaudeCode={() => void actions.probeAgentAdapter("claude_code")}
                   rtkAvailable={state.hecateRTKAvailable}
                   rtkPath={state.hecateRTKPath}
                   rtkEnabled={state.hecateRTKEnabled}
@@ -895,7 +853,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               composerRepair={composerRepair}
               suppressChatError={suppressComposerChatError}
               messageControlsVisible={messageControlsVisible}
-              showClaudeCodeEmptyPreflight={showClaudeCodeEmptyPreflight}
               sendDisabled={sendDisabled}
               agentBusy={agentBusy}
               queueingMessage={queueingMessage}
@@ -907,15 +864,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               hecateProviderOptions={hecateProviderOptions}
               hecateDisabledProviderReasons={hecateDisabledProviderReasons}
               selectableModels={selectableModels}
-              selectedAgent={selectedAgent}
-              selectedAgentHealthLoading={selectedAgentHealthLoading}
-              claudeCodePreflight={claudeCodePreflight}
               selectedCapabilityProvider={selectedCapabilityProvider}
               selectedCapabilityModel={selectedCapabilityModel}
               capabilitySaving={capabilitySaving}
               enableToolsForSelectedModel={enableToolsForSelectedModel}
               chooseWorkspace={chooseWorkspace}
-              openClaudeCodeSetup={openClaudeCodeSetup}
+              openClaudeCodeSetup={openAgentSetup}
               activeHecateTaskID={activeHecateTaskID}
               activeHecateRunID={activeHecateRunID}
               activeQueuedChatMessages={activeQueuedChatMessages}
@@ -1022,11 +976,22 @@ function composerVisibleRepair(repair: ChatSetupRepairState | null): ChatSetupRe
     case "workspace_required":
     case "tools_disabled":
     case "external_agent_unavailable":
-    case "claude_code_setup":
+    case "external_agent_setup":
       return repair;
     default:
       return null;
   }
+}
+
+function needsExternalAgentSetup(
+  adapter: AgentAdapterRecord | undefined,
+  health: AgentAdapterHealthRecord | null,
+): boolean {
+  if (!adapter) return false;
+  if (health?.status === "ready") return false;
+  if (!adapter.available || health?.status === "not_installed") return true;
+  if (health?.status === "auth_required" || health?.status === "error") return true;
+  return adapter.auth_status === "unauthenticated" || adapter.auth_status === "billing";
 }
 
 function emptyStateAlreadyShowsRepair(

@@ -187,7 +187,7 @@ test("New chat creates an external-agent session with controls before the first 
           },
           {
             id: "cursor_agent",
-            name: "Cursor",
+            name: "Cursor Agent",
             kind: "acp",
             command: "cursor-agent",
             available: true,
@@ -265,6 +265,103 @@ test("New chat creates an external-agent session with controls before the first 
     "aria-disabled",
     "true",
   );
+});
+
+test("New chat falls back to Hecate when the remembered external agent needs setup", async ({
+  page,
+}) => {
+  let createBody: any = null;
+  await page.route("/hecate/v1/agent-adapters*", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_adapters",
+        data: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: false,
+            status: "missing",
+            cost_mode: "external",
+            error: "forced app CLI missing by GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES",
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("/hecate/v1/chat/sessions", async (route) => {
+    if (route.request().method() !== "POST")
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_sessions", data: [] }),
+      });
+    createBody = JSON.parse(route.request().postData() ?? "{}");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "chat_session",
+        data: {
+          id: "hecate-fallback-e2e",
+          title: "Hecate chat",
+          agent_id: "hecate",
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          status: "created",
+          messages: [],
+        },
+      }),
+    });
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "cursor_agent");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+  });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  const newHecateChat = page.getByRole("button", { name: "New Hecate chat", exact: true });
+  await expect(newHecateChat).toBeVisible();
+  await expect(newHecateChat).toBeEnabled();
+
+  await page.getByRole("button", { name: "Choose agent for new chat" }).click();
+  const cursorOption = page.getByRole("option", { name: /Cursor Agent/ });
+  await expect(cursorOption).toHaveAttribute("aria-disabled", "true");
+  await expect(cursorOption).toHaveAttribute(
+    "title",
+    "Open Connections to set up Cursor Agent, then sign in with cursor-agent login.",
+  );
+
+  await newHecateChat.click();
+  await expect
+    .poll(() => createBody)
+    .toMatchObject({
+      agent_id: "hecate",
+    });
 });
 
 test("sidebar rename works for agent-chat sessions", async ({ page }) => {
@@ -2070,9 +2167,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
 type ClaudeAdapterFixture = {
   available?: boolean;
   authStatus?: string;
-  credentialConfigured?: boolean;
   healthStatus?: "ready" | "auth_required" | "not_installed" | "error";
-  credentialPreview?: string;
 };
 
 async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture = {}) {
@@ -2090,9 +2185,7 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
       "Run Claude Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
     cost_mode: "external",
     auth_status: fixture.authStatus ?? "unknown",
-    auth_error: fixture.authStatus === "unauthenticated" ? "Run claude auth login" : undefined,
-    credential_configured: fixture.credentialConfigured ?? false,
-    credential_preview: fixture.credentialPreview,
+    auth_error: fixture.authStatus === "unauthenticated" ? "Run claude /login" : undefined,
     claude_code_cli:
       fixture.available === false
         ? { available: false }
@@ -2112,7 +2205,7 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
           object: "agent_adapter_probe",
           data: {
             adapter:
-              status === "ready" && fixture.credentialConfigured
+              status === "ready"
                 ? { ...adapter, auth_status: "ok", auth_error: undefined }
                 : adapter,
             health: {
@@ -2235,270 +2328,49 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
   await page.getByRole("button", { name: /Chat Claude Code chat, Claude Code/ }).click();
 }
 
-test("Claude Code onboarding appears when the adapter is not installed", async ({ page }) => {
+test("Claude Code setup appears when the adapter is not installed", async ({ page }) => {
   await openClaudeExternalAgent(page, { available: false, healthStatus: "not_installed" });
 
-  await expect(page.getByText("Set up Claude Code")).toBeVisible();
-  await expect(page.getByText(/Prepare Claude Code/).first()).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "npx -y @anthropic-ai/claude-code --version" }),
-  ).toBeVisible();
-  await expect(page.locator("button[type='submit']")).toHaveCount(0);
+  await expect(page.getByText("Claude Code is unavailable")).toBeVisible();
+  await expect(page.getByText(/Install Claude Code, then sign in with Claude Code/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Install" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Auth" })).toBeVisible();
+  await page.locator("textarea").fill("hello from Claude Code");
+  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
 });
 
-test("Claude Code onboarding stays visible after a ready handshake without auth", async ({
-  page,
-}) => {
+test("Claude Code setup is cleared after a ready probe", async ({ page }) => {
   await openClaudeExternalAgent(page, {
     available: true,
     authStatus: "unknown",
-    credentialConfigured: false,
     healthStatus: "ready",
   });
 
-  await expect(page.getByTestId("claude-code-preflight")).toBeVisible();
-  await page.getByRole("button", { name: "Check auth" }).click();
-  await expect(page.getByTestId("claude-code-preflight")).toBeVisible();
-  await expect(
-    page.getByText(/Claude Code needs its own adapter-visible setup token/),
-  ).toBeVisible();
-  await expect(page.locator("button[type='submit']")).toHaveCount(0);
+  await expect(page.getByText("Set up Claude Code")).toHaveCount(0);
+  await expect(page.locator("textarea")).toBeVisible();
 });
 
-test("Claude Code onboarding stays visible when a saved token fails auth", async ({ page }) => {
+test("Claude Code setup stays visible when the probe requires local auth", async ({ page }) => {
   await openClaudeExternalAgent(page, {
     available: true,
-    authStatus: "unknown",
-    credentialConfigured: true,
-    credentialPreview: "sk-a...bad1",
+    authStatus: "unauthenticated",
     healthStatus: "auth_required",
   });
 
-  await expect(page.getByTestId("claude-code-preflight")).toBeVisible();
   await expect(page.getByText("Set up Claude Code")).toBeVisible();
-  await expect(
-    page.getByText(
-      /Claude Code needs sign-in|Claude Code needs its own adapter-visible setup token/,
-    ),
-  ).toBeVisible();
-  await expect(page.locator("button[type='submit']")).toHaveCount(0);
+  await expect(page.getByText(/Claude Code needs local CLI sign-in/)).toBeVisible();
+  await page.locator("textarea").fill("hello from Claude Code");
+  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
 });
 
-test("Claude Code onboarding stays visible when only CLI auth is verified", async ({ page }) => {
+test("Claude Code chat is enabled when local CLI auth is verified", async ({ page }) => {
   await openClaudeExternalAgent(page, {
     available: true,
     authStatus: "ok",
-    credentialConfigured: false,
     healthStatus: "ready",
   });
 
-  await expect(page.getByTestId("claude-code-preflight")).toBeVisible();
-  await expect(page.getByText("adapter installed")).toBeVisible();
-  await expect(page.getByText("token not saved")).toBeVisible();
-  await expect(page.getByText("CLI signed in")).toBeVisible();
-  await expect(page.locator("button[type='submit']")).toHaveCount(0);
-});
-
-test("Claude Code rejects malformed token saves before hiding onboarding", async ({ page }) => {
-  await page.route("/hecate/v1/agent-adapters/claude_code/credentials", async (route) => {
-    if (route.request().method() !== "PUT") return route.continue();
-    await route.fulfill({
-      status: 400,
-      contentType: "application/json",
-      body: JSON.stringify({
-        error: {
-          type: "invalid_request",
-          message:
-            "Claude Code setup tokens start with sk- and are printed by `claude setup-token`",
-          user_message:
-            "That does not look like a Claude Code setup token, so Hecate did not save it.",
-        },
-      }),
-    });
-  });
-  await openClaudeExternalAgent(page, {
-    available: true,
-    authStatus: "unknown",
-    credentialConfigured: false,
-    healthStatus: "ready",
-  });
-
-  await page.getByLabel("Claude Code setup token").fill("random text");
-  await page.getByRole("button", { name: "Save" }).click();
-
-  await expect(
-    page.getByText(/does not look like a Claude Code setup token|setup tokens start with sk-/),
-  ).toBeVisible();
-  await expect(page.getByTestId("claude-code-preflight")).toBeVisible();
-  await expect(page.locator("button[type='submit']")).toHaveCount(0);
-});
-
-test("Claude Code valid token save clears onboarding and enables chat", async ({ page }) => {
-  let saved = false;
-  await page.route("/hecate/v1/agent-adapters/claude_code/credentials", async (route) => {
-    if (route.request().method() !== "PUT") return route.continue();
-    const body = JSON.parse(route.request().postData() ?? "{}") as { value?: string };
-    if (!body.value?.startsWith("sk-")) {
-      await route.fulfill({
-        status: 400,
-        contentType: "application/json",
-        body: JSON.stringify({ error: { type: "invalid_request", message: "bad token" } }),
-      });
-      return;
-    }
-    saved = true;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        object: "agent_adapter_credential",
-        data: {
-          adapter_id: "claude_code",
-          name: "CLAUDE_CODE_OAUTH_TOKEN",
-          configured: true,
-          preview: "sk-v...7890",
-        },
-      }),
-    });
-  });
-  await page.route("/hecate/v1/agent-adapters*", async (route) => {
-    const method = route.request().method();
-    const url = route.request().url();
-    const configured = saved;
-    const adapter = {
-      id: "claude_code",
-      name: "Claude Code",
-      kind: "acp",
-      command: "claude-agent-acp",
-      managed: true,
-      managed_package: "@agentclientprotocol/claude-agent-acp",
-      available: true,
-      status: "available",
-      cost_mode: "external",
-      auth_status: configured ? "ok" : "unknown",
-      credential_configured: configured,
-      credential_preview: configured ? "sk-v...7890" : undefined,
-      claude_code_cli: { available: true, path: "/usr/local/bin/claude" },
-    };
-    if (method === "POST" && url.includes("/claude_code/probe")) {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          object: "agent_adapter_probe",
-          data: {
-            adapter,
-            health: {
-              adapter_id: "claude_code",
-              status: "ready",
-              stage: "ready",
-              path: "/usr/local/bin/claude-agent-acp",
-              duration_ms: 20,
-            },
-          },
-        }),
-      });
-      return;
-    }
-    if (method === "GET") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ object: "agent_adapters", data: [adapter] }),
-      });
-      return;
-    }
-    await route.continue();
-  });
-  const session = {
-    id: "claude-code-token-e2e",
-    title: "Claude Code chat",
-    agent_id: "claude_code",
-    agent_name: "Claude Code",
-    driver_kind: "acp",
-    native_session_id: "native-claude-token-e2e",
-    workspace: "/tmp/hecate-e2e",
-    status: "idle",
-    message_count: 0,
-    config_options: [],
-    messages: [],
-    created_at: "2026-05-14T10:00:00Z",
-    updated_at: "2026-05-14T10:00:00Z",
-  };
-  await page.route("/hecate/v1/chat/sessions*", async (route) => {
-    const method = route.request().method();
-    const path = new URL(route.request().url()).pathname;
-    if (method === "GET" && path === "/hecate/v1/chat/sessions") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ object: "chat_sessions", data: [session] }),
-      });
-      return;
-    }
-    if (
-      method === "GET" &&
-      path.startsWith("/hecate/v1/chat/sessions/claude-code-token-e2e") &&
-      !path.endsWith("/stream") &&
-      !path.endsWith("/approvals")
-    ) {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ object: "chat_session", data: session }),
-      });
-      return;
-    }
-    if (method === "GET" && path === "/hecate/v1/chat/sessions/claude-code-token-e2e/stream") {
-      await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
-      return;
-    }
-    if (method === "GET" && path === "/hecate/v1/chat/sessions/claude-code-token-e2e/approvals") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ object: "chat_approvals", data: [] }),
-      });
-      return;
-    }
-    await route.continue();
-  });
-  await page.route("/hecate/v1/chat/sessions/claude-code-token-e2e", async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.fulfill({ status: 405, body: "" });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ object: "chat_session", data: session }),
-    });
-  });
-  await page.route("/hecate/v1/chat/sessions/claude-code-token-e2e/stream", (route) =>
-    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
-  );
-  await page.route("/hecate/v1/chat/sessions/claude-code-token-e2e/approvals*", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ object: "chat_approvals", data: [] }),
-    }),
-  );
-  await page.addInitScript(() => {
-    window.localStorage.setItem("hecate.chatTarget", "external_agent");
-    window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
-    window.localStorage.setItem("hecate.chatSessionID", "claude-code-token-e2e");
-  });
-  await page.goto("/");
-  await page.waitForSelector(".hecate-activitybar");
-  await page.getByRole("button", { name: /Chat Claude Code chat, Claude Code/ }).click();
-
-  await expect(page.getByTestId("claude-code-preflight")).toBeVisible();
-  await page.getByLabel("Claude Code setup token").fill("sk-valid-token-1234567890");
-  await page.getByRole("button", { name: "Save" }).click();
-
-  await expect(page.getByTestId("claude-code-preflight")).toHaveCount(0);
+  await expect(page.getByText("Set up Claude Code")).toHaveCount(0);
   await expect(page.locator("textarea")).toBeVisible();
   await page.locator("textarea").fill("hello from Claude Code");
   await expect(page.locator("button[type='submit']")).toBeEnabled();
