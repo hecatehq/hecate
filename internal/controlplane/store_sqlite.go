@@ -175,56 +175,6 @@ func (s *SQLiteStore) DeletePolicyRule(ctx context.Context, id string) error {
 	return s.writeState(ctx, state)
 }
 
-func (s *SQLiteStore) UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	record, err = applyModelCapabilityOverride(ctx, &state, record)
-	if err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	if err := s.writeState(ctx, state); err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	return record, nil
-}
-
-func (s *SQLiteStore) DeleteModelCapabilityOverride(ctx context.Context, provider, model string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return err
-	}
-	if err := applyDeleteModelCapabilityOverride(ctx, &state, provider, model); err != nil {
-		return err
-	}
-	return s.writeState(ctx, state)
-}
-
-func (s *SQLiteStore) UpsertModelCapabilityProbe(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	record, err = applyModelCapabilityProbe(ctx, &state, record)
-	if err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	if err := s.writeState(ctx, state); err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	return record, nil
-}
-
 func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

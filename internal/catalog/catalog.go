@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/hecate/agent-runtime/internal/providers"
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 type Entry struct {
@@ -14,6 +15,7 @@ type Entry struct {
 	CredentialState      string
 	DefaultModel         string
 	Models               []string
+	ModelCapabilities    map[string]types.ModelCapabilities
 	DiscoveredModelCount int
 	DiscoverySource      string
 	RefreshedAt          string

@@ -69,11 +69,7 @@ export type ChatComposerProps = {
   hecateDisabledProviderReasons: Map<string, string>;
   selectableModels: ModelRecord[];
 
-  // Repair / capability writes.
-  selectedCapabilityProvider: string;
-  selectedCapabilityModel: string;
-  capabilitySaving: boolean;
-  enableToolsForSelectedModel: () => Promise<void> | void;
+  // Repair actions.
   chooseWorkspace: () => Promise<void> | void;
   openClaudeCodeSetup: () => void;
 
@@ -142,10 +138,6 @@ export function ChatComposer(props: ChatComposerProps) {
     hecateProviderOptions,
     hecateDisabledProviderReasons,
     selectableModels,
-    selectedCapabilityProvider,
-    selectedCapabilityModel,
-    capabilitySaving,
-    enableToolsForSelectedModel,
     chooseWorkspace,
     openClaudeCodeSetup,
     activeHecateTaskID,
@@ -314,21 +306,9 @@ export function ChatComposer(props: ChatComposerProps) {
           {composerRepair && (
             <ChatSetupRepairNotice
               repair={composerRepair}
-              actionBusy={composerRepair.action === "enable_tools" && capabilitySaving}
-              actionDisabled={
-                composerRepair.action === "enable_tools" &&
-                (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving)
-              }
-              actionTitle={
-                composerRepair.action === "enable_tools" && selectedCapabilityProvider
-                  ? `Enable tools for ${selectedCapabilityProvider}/${selectedCapabilityModel}`
-                  : undefined
-              }
               onAction={(repair) => {
                 if (repair.action === "choose_workspace") {
                   void chooseWorkspace();
-                } else if (repair.action === "enable_tools") {
-                  void enableToolsForSelectedModel();
                 } else if (repair.action === "open_agent_setup") {
                   openClaudeCodeSetup();
                 } else if (repair.action === "open_connections") {
@@ -1013,8 +993,6 @@ export function repairActionIcon(repair: ChatSetupRepairState) {
       return Icons.model;
     case "open_connections":
       return Icons.connections;
-    case "enable_tools":
-      return Icons.providers;
   }
   return Icons.providers;
 }

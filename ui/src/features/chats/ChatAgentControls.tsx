@@ -514,7 +514,7 @@ export function HecateToolsToggle({
 }) {
   const effectiveEnabled = enabled && !toolsDisabledForModel;
   const toolsOnTitle = toolsDisabledForModel
-    ? "Tools are unavailable for this model. Messages will send as direct model chat unless you enable tool support in Connections."
+    ? "This model does not report tool-calling support. Hecate will send messages as direct model chat until you choose a tool-capable model."
     : "Use Hecate's task runtime with tools, approvals, artifacts, and telemetry.";
   const title =
     enabled && toolsDisabledForModel

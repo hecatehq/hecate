@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/providers"
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 type RegistryCatalog struct {
@@ -89,6 +90,10 @@ func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider provide
 	}
 
 	models := append([]string(nil), caps.Models...)
+	modelCapabilities := make(map[string]types.ModelCapabilities, len(caps.ModelCapabilities))
+	for model, cap := range caps.ModelCapabilities {
+		modelCapabilities[model] = cap
+	}
 	discoveredModelCount := len(models)
 	if len(models) == 0 && defaultModel != "" {
 		models = []string{defaultModel}
@@ -107,6 +112,7 @@ func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider provide
 		CredentialState:      credentialState,
 		DefaultModel:         defaultModel,
 		Models:               models,
+		ModelCapabilities:    modelCapabilities,
 		DiscoveredModelCount: discoveredModelCount,
 		DiscoverySource:      discoverySource,
 		Healthy:              err == nil,

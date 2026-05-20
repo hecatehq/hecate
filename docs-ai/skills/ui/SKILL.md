@@ -136,10 +136,12 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   prompt as a one-off subprocess.
 - Model capability badges are guidance and guardrails for tools, not a reason
   to hide plain chat. Hecate Chat should remain available when a model is
-  routable; only task-backed tools-on turns are blocked when the selected model
-  is explicitly marked `tool_calling="none"`. Unknown local/custom models
-  should show a clear capability indicator and explain how to record a manual
-  probe result or operator override in Connections.
+  routable; task-backed tools-on turns require `tool_calling="basic"` or
+  `parallel`. Unknown local/custom models should show a clear capability
+  indicator, fall back to direct model chat rather than failing the whole
+  transcript, and suggest choosing a known tool-capable model for task-backed
+  turns. Connections shows observed provider/catalog capability metadata, not a
+  global "tools on/off" override editor.
 - Stale selected-model readiness is a composition blocker, not a post-send
   error toast. If the selected model is not in the current model picker for the
   selected route, hide/disable send and show the selected model, provider route,
@@ -220,7 +222,7 @@ src/
       rootEffects.ts      <RootEffects /> — dashboard-load, RTK-sync, queued-message-drain
       coordinators/
         chat.ts           submission + lifecycle + targeting + files + approvals (the big one)
-        providers.ts      provider CRUD + model capabilities
+        providers.ts      provider CRUD + readiness actions
         dashboard.ts      loadDashboard + refreshes
         settings.ts       runSettingsMutation + setNoticeMessage
         agentAdapters.ts  adapter credential + probe ops
@@ -233,7 +235,7 @@ src/
     chats/              ChatView, ChatSidebar, ChatComposer, ChatHeader, ChatTranscript, ChatSettingsPanel, HecateTaskApprovalsBanner, ...
     transcript/         reusable transcript pieces for Chats and Task Detail
     overview/           ConnectYourClient, ObservabilityView — request history + trace drilldown
-    connections/        ConnectionsPanel — provider readiness, model capabilities, external-agent setup/grants
+    connections/        ConnectionsPanel — provider readiness, external-agent setup/grants
     settings/           SettingsView — local data cleanup / retention controls
     providers/          provider catalog/editor components used by Connections
     shared/             primitives, pickers, overlays; ui.ts is a compatibility barrel

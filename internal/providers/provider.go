@@ -56,14 +56,15 @@ type CredentialReporter interface {
 }
 
 type Capabilities struct {
-	Name            string
-	Kind            Kind
-	DefaultModel    string
-	Models          []string
-	Discoverable    bool
-	DiscoverySource string
-	RefreshedAt     time.Time
-	LastError       string
+	Name              string
+	Kind              Kind
+	DefaultModel      string
+	Models            []string
+	ModelCapabilities map[string]types.ModelCapabilities
+	Discoverable      bool
+	DiscoverySource   string
+	RefreshedAt       time.Time
+	LastError         string
 }
 
 // Enabler is an optional interface a Provider may implement to signal that it

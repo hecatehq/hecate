@@ -55,14 +55,11 @@ func registerHecateRuntimeRoutes(mux *http.ServeMux, handler *Handler) {
 	// collide with provider protocol routes.
 	mux.HandleFunc("GET /hecate/v1/whoami", handler.HandleSession)
 
-	// Provider/model diagnostics and capability overrides power setup, routing,
-	// and Hecate Chat tool-eligibility decisions.
+	// Provider/model diagnostics power setup, routing, and Hecate Chat
+	// tool-eligibility decisions.
 	mux.HandleFunc("GET /hecate/v1/providers/presets", handler.HandleProviderPresets)
 	mux.HandleFunc("GET /hecate/v1/providers/status", handler.HandleProviderStatus)
 	mux.HandleFunc("GET /hecate/v1/providers/history", handler.HandleProviderHealthHistory)
-	mux.HandleFunc("PUT /hecate/v1/model-capabilities/overrides", handler.HandleUpsertModelCapabilityOverride)
-	mux.HandleFunc("DELETE /hecate/v1/model-capabilities/overrides", handler.HandleDeleteModelCapabilityOverride)
-	mux.HandleFunc("POST /hecate/v1/model-capabilities/probes", handler.HandleRecordModelCapabilityProbe)
 }
 
 func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {

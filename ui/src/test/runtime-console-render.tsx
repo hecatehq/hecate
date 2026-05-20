@@ -215,9 +215,6 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
       setProviderBaseURL: actions.setProviderBaseURL,
       setProviderName: actions.setProviderName,
       setProviderCustomName: actions.setProviderCustomName,
-      upsertModelCapabilityOverride: actions.upsertModelCapabilityOverride,
-      recordModelCapabilityProbe: actions.recordModelCapabilityProbe,
-      deleteModelCapabilityOverride: actions.deleteModelCapabilityOverride,
     },
     policy: {
       upsertPolicyRule: actions.upsertPolicyRule,

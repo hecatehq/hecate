@@ -30,6 +30,7 @@ func (s *Service) ListModels(ctx context.Context) (*ModelsResult, error) {
 				OwnedBy:         entry.Name,
 				Default:         modelID == entry.DefaultModel,
 				DiscoverySource: entry.DiscoverySource,
+				Capabilities:    entry.ModelCapabilities[modelID],
 				Readiness:       providerModelReadinessForEntry(entry, entry.Name, modelID).ToModelReadiness(),
 			})
 		}

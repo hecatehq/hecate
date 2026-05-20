@@ -98,10 +98,9 @@ budget package.
 
 Lookup precedence:
 
-1. Operator capability override.
-2. Provider-discovered capability if available.
-3. Static catalog default.
-4. Conservative fallback plus `unknown_model_context_limit` warning.
+1. Provider-discovered capability if available.
+2. Static catalog default.
+3. Conservative fallback plus `unknown_model_context_limit` warning.
 
 The model capability field should be named `max_context_tokens` or
 `context_window_tokens` consistently with existing model capability naming. The

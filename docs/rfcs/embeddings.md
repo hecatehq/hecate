@@ -328,10 +328,9 @@ models whose names don't match the heuristic (Voyage's
 the adapter; the heuristic is the fallback, not the source of
 truth.
 
-The model-capability override table (already operator-visible
-via `/hecate/v1/model-capabilities/overrides`) extends to allow
-flipping `kind` for custom local models that the heuristic
-mis-classifies.
+For custom local models that the heuristic mis-classifies, prefer
+provider-native metadata or a future local catalog entry rather than a
+global model-capability override table.
 
 ## Local models (`llama-server`)
 

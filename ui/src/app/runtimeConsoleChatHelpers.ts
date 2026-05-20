@@ -36,7 +36,7 @@ export function humanizeChatError(raw: string): string {
       raw,
     )
   ) {
-    return "This model is not marked as tool-capable. Send directly, test it, or enable tools in Connections → Model capabilities.";
+    return "This model is not marked as tool-capable. Hecate will send directly; choose a tool-capable model for task-backed turns.";
   }
   const explicitModel = raw.match(/no provider supports explicit model ["“]?([^"”]+)["”]?/i);
   if (explicitModel) {

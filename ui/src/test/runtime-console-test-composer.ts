@@ -263,10 +263,9 @@ export function useRuntimeConsole() {
     refreshRuntimeState: chatActions.refreshRuntimeState,
   });
 
-  // Provider CRUD + model capability mutations. Composes settings
-  // (notice / mutation template) and reads chat + providersAndModels
-  // slice state internally for the optimistic-update + rollback
-  // paths.
+  // Provider CRUD. Composes settings (notice / mutation template)
+  // and reads chat + providersAndModels slice state internally for
+  // the optimistic-update + rollback paths.
   const providerActions = useProviderActions({
     settingsConfig,
     setSettingsConfig,
@@ -575,9 +574,6 @@ export function useRuntimeConsole() {
       setProviderBaseURL: providerActions.setProviderBaseURL,
       setProviderName: providerActions.setProviderName,
       setProviderCustomName: providerActions.setProviderCustomName,
-      upsertModelCapabilityOverride: providerActions.upsertModelCapabilityOverride,
-      recordModelCapabilityProbe: providerActions.recordModelCapabilityProbe,
-      deleteModelCapabilityOverride: providerActions.deleteModelCapabilityOverride,
       getChatApproval: chatActions.getChatApproval,
       listChatMessageFiles: chatActions.listChatMessageFiles,
       getChatMessageFileDiff: chatActions.getChatMessageFileDiff,

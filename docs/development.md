@@ -245,7 +245,7 @@ bootstrap               # first-run secret-key generation and persistence
 catalog                 # provider/model discovery and registration
 chat                    # chat session storage and replay (memory / sqlite)
 config                  # env-driven config loading
-controlplane            # persisted providers, secrets, policy, and capability overrides
+controlplane            # persisted providers, secrets, and policy settings
 eventprotocol           # typed agent-event envelope + emitter (see docs/event-protocol-v1.md)
 gateway                 # request lifecycle: policy, router, retry/fallback
 governor                # policy rules, route gates, and append-only usage events

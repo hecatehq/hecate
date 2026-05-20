@@ -8,7 +8,6 @@ export type ChatSetupRepairKind =
   | "no_provider"
   | "no_routable_model"
   | "selected_model_not_ready"
-  | "tools_disabled"
   | "workspace_required"
   | "external_agent_unavailable"
   | "external_agent_setup";
@@ -16,7 +15,6 @@ export type ChatSetupRepairKind =
 export type ChatSetupRepairAction =
   | "open_connections"
   | "choose_workspace"
-  | "enable_tools"
   | "use_suggested_model"
   | "open_agent_setup";
 
@@ -35,7 +33,6 @@ export function resolveChatSetupRepairState({
   hasConfiguredProviders,
   modelRouteUnavailable,
   selectedModelIssue,
-  toolsDisabledForModel,
   workspace,
   selectedAgentName,
   selectedAgentAvailable,
@@ -46,7 +43,6 @@ export function resolveChatSetupRepairState({
   hasConfiguredProviders: boolean;
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
-  toolsDisabledForModel: boolean;
   workspace: string;
   selectedAgentName?: string;
   selectedAgentAvailable: boolean;
@@ -111,18 +107,6 @@ export function resolveChatSetupRepairState({
     };
   }
 
-  if (target === "agent" && toolsDisabledForModel) {
-    return {
-      kind: "tools_disabled",
-      title: "Tools are unavailable for this model",
-      message:
-        "You can still chat normally. Hecate will send this turn directly to the selected model unless you enable tool support in Connections.",
-      action: "enable_tools",
-      actionLabel: "Enable tools",
-      tone: "amber",
-    };
-  }
-
   if (target === "agent" && !workspace.trim()) {
     return workspaceRepair();
   }
@@ -157,5 +141,11 @@ export function modelSelectionHasNoToolCalling({
     return entry.metadata?.provider === providerFilter;
   });
   if (matches.length === 0) return false;
-  return matches.every((entry) => entry.metadata?.capabilities?.tool_calling === "none");
+  return matches.every(
+    (entry) => !toolCallingSupportsTaskMode(entry.metadata?.capabilities?.tool_calling),
+  );
+}
+
+export function toolCallingSupportsTaskMode(value?: string): boolean {
+  return value === "basic" || value === "parallel";
 }

@@ -24,7 +24,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   also auto-import into the Connections view on first boot; subsequent
   boots leave operator UI edits untouched. See [providers.md](providers.md)
   for the full env-vs-UI lifecycle.
-- Credentials, base URLs, defaults, and model-capability overrides are managed through
+- Credentials, base URLs, and provider defaults are managed through
   the persisted settings store. Taking a provider out of rotation is done by
   deleting it — there is no enable/disable toggle.
 - Custom clients are supported separately: external callers can use Hecate's
@@ -57,8 +57,9 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 - `agent_loop` tasks require a model to be configured — either via
   `requested_model` on the task or the gateway's default model. A missing model
   is caught at start time and returns a 422 `model_not_configured` error; the
-  run is never created. There is no runtime check that the configured model
-  actually supports tool-calling until the loop's first LLM call.
+  run is never created. Tool support is still ultimately enforced by the
+  provider at call time, so stale or incomplete capability metadata can still
+  surface as a model/tool error during the first LLM call.
 - Runs that are stuck in `running` state (e.g. after a worker crash or process
   restart) are recovered automatically by the periodic reconciler and re-queued
   without operator intervention. The recovery window is three times the
@@ -94,10 +95,13 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   the backing task is queued, running, or awaiting approval. The operator UI
   turns this into a local **Queued next** composer FIFO and sends the prompt
   after the active run settles; queued prompts are not durable until submitted.
-- Tools-on Hecate Chat currently blocks only models explicitly marked
-  `tool_calling="none"`. Unknown local/custom models are labelled as unknown
-  and can be marked manually in Connections; automatic capability probing is
-  not shipped yet.
+- Tools-on Hecate Chat needs a model known to support tools
+  (`tool_calling="basic"` or `parallel`). If the selected model is unknown or
+  explicitly does not support tools, the operator UI keeps the transcript
+  usable by sending the next prompt as a direct model turn and showing a
+  capability repair hint. Ollama models can be enriched from their native
+  capability metadata; generic OpenAI-compatible local models often remain
+  `unknown` until the provider reports richer metadata.
 - Workspace modes and named agent profiles are still roadmap items.
   Tools-on chat uses the selected workspace with the current built-in profile.
 - Tasks remains canonical for full run history, retry/resume, artifacts, and

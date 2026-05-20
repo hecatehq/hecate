@@ -58,11 +58,6 @@ func TestSQLiteStore_SnapshotEmptyOnFreshDatabase(t *testing.T) {
 	}
 }
 
-func TestSQLiteStore_ModelCapabilityLifecycle(t *testing.T) {
-	t.Parallel()
-	runStoreModelCapabilityLifecycle(t, newSQLiteTestStore(t))
-}
-
 func TestSQLiteStore_PolicyRuleRoundTrip(t *testing.T) {
 	t.Parallel()
 	store := newSQLiteTestStore(t)

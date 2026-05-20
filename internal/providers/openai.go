@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -201,6 +202,14 @@ type openAIModelsResponse struct {
 
 type openAIModel struct {
 	ID string `json:"id"`
+}
+
+type ollamaShowRequest struct {
+	Model string `json:"model"`
+}
+
+type ollamaShowResponse struct {
+	Capabilities []string `json:"capabilities"`
 }
 
 type UpstreamError struct {
@@ -407,14 +416,95 @@ func (p *OpenAICompatibleProvider) discoverCapabilities(ctx context.Context) (Ca
 	}
 
 	return Capabilities{
-		Name:            p.Name(),
-		Kind:            p.Kind(),
-		DefaultModel:    defaultModel,
-		Models:          models,
-		Discoverable:    true,
-		DiscoverySource: "upstream_v1_models",
-		RefreshedAt:     time.Now().UTC(),
+		Name:              p.Name(),
+		Kind:              p.Kind(),
+		DefaultModel:      defaultModel,
+		Models:            models,
+		ModelCapabilities: p.discoverProviderModelCapabilities(ctx, models),
+		Discoverable:      true,
+		DiscoverySource:   "upstream_v1_models",
+		RefreshedAt:       time.Now().UTC(),
 	}, nil
+}
+
+func (p *OpenAICompatibleProvider) discoverProviderModelCapabilities(ctx context.Context, models []string) map[string]types.ModelCapabilities {
+	if !p.isOllamaProvider() || len(models) == 0 {
+		return nil
+	}
+	baseURL, err := ollamaNativeBaseURL(p.config.BaseURL)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]types.ModelCapabilities, len(models))
+	for _, model := range models {
+		if cap, ok := p.discoverOllamaModelCapability(ctx, baseURL, model); ok {
+			out[model] = cap
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (p *OpenAICompatibleProvider) isOllamaProvider() bool {
+	return strings.EqualFold(strings.TrimSpace(p.config.Name), "ollama")
+}
+
+func ollamaNativeBaseURL(base string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(base))
+	if err != nil {
+		return "", err
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.Path = strings.TrimRight(u.Path, "/")
+	if strings.EqualFold(u.Path, "/v1") {
+		u.Path = ""
+	}
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
+func (p *OpenAICompatibleProvider) discoverOllamaModelCapability(ctx context.Context, baseURL, model string) (types.ModelCapabilities, bool) {
+	body, err := json.Marshal(ollamaShowRequest{Model: model})
+	if err != nil {
+		return types.ModelCapabilities{}, false
+	}
+	showCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(showCtx, http.MethodPost, baseURL+"/api/show", bytes.NewReader(body))
+	if err != nil {
+		return types.ModelCapabilities{}, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	injectTraceContext(req)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return types.ModelCapabilities{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return types.ModelCapabilities{}, false
+	}
+
+	var payload ollamaShowResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil || len(payload.Capabilities) == 0 {
+		return types.ModelCapabilities{}, false
+	}
+	toolCalling := "none"
+	for _, capability := range payload.Capabilities {
+		if strings.EqualFold(strings.TrimSpace(capability), "tools") {
+			toolCalling = "basic"
+			break
+		}
+	}
+	return types.ModelCapabilities{
+		ToolCalling: toolCalling,
+		Streaming:   true,
+		Source:      "provider",
+	}, true
 }
 
 func (p *OpenAICompatibleProvider) Validate() error {

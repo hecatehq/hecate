@@ -232,6 +232,7 @@ export function Modal({
         borderRadius: "var(--radius)",
         display: "flex",
         flexDirection: "column",
+        overflow: "hidden",
         boxShadow: "var(--shadow-modal)",
       }}
     >

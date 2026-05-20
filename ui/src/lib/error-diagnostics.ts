@@ -60,8 +60,7 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   },
   "chat.model_capability_required": {
     title: "Tools unavailable for this model",
-    action:
-      "Continue with direct model chat, test the model, or enable tool support in Connections.",
+    action: "Send as direct model chat, or choose a model that reports tool-calling support.",
     tone: "warning",
   },
   "chat.agent_session_busy": {

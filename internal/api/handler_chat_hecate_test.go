@@ -852,18 +852,11 @@ func TestMergeHecateAgentAnswerReplacesCommandIntro(t *testing.T) {
 	}
 }
 
-func TestHecateAgentChatRejectsDisabledToolCapability(t *testing.T) {
+func TestHecateAgentChatFallsBackToDirectModelWhenToolsUnavailable(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cpStore := controlplane.NewMemoryStore()
-	if _, err := cpStore.UpsertModelCapabilityOverride(context.Background(), controlplane.ModelCapabilityRecord{
-		Provider:    "ollama",
-		Model:       "llama3.1:8b",
-		ToolCalling: modelcaps.ToolCallingNone,
-	}); err != nil {
-		t.Fatalf("UpsertModelCapabilityOverride: %v", err)
-	}
 	provider := &fakeProvider{
 		name: "ollama",
 		capabilities: providers.Capabilities{
@@ -871,6 +864,24 @@ func TestHecateAgentChatRejectsDisabledToolCapability(t *testing.T) {
 			Kind:         providers.KindLocal,
 			DefaultModel: "llama3.1:8b",
 			Models:       []string{"llama3.1:8b"},
+			ModelCapabilities: map[string]types.ModelCapabilities{
+				"llama3.1:8b": {
+					ToolCalling: modelcaps.ToolCallingNone,
+					Streaming:   true,
+					Source:      modelcaps.SourceProvider,
+				},
+			},
+		},
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-direct",
+			Model:     "llama3.1:8b",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "plain answer"},
+				FinishReason: "stop",
+			}},
+			Usage: types.Usage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5},
 		},
 	}
 	handler := newTestHTTPHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, cpStore)
@@ -883,31 +894,23 @@ func TestHecateAgentChatRejectsDisabledToolCapability(t *testing.T) {
 		t.Fatalf("session capabilities = %+v, want none", session.Data.Capabilities)
 	}
 
-	recorder := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+	updated := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
 		`{"execution_mode":"hecate_task","content":"use tools"}`)
-	var payload struct {
-		Error struct {
-			Type         string                  `json:"type"`
-			Message      string                  `json:"message"`
-			Provider     string                  `json:"provider"`
-			Model        string                  `json:"model"`
-			Capabilities types.ModelCapabilities `json:"capabilities"`
-		} `json:"error"`
+	if len(updated.Data.Messages) < 2 {
+		t.Fatalf("messages = %d, want at least 2", len(updated.Data.Messages))
 	}
-	payload = decodeRecorder[struct {
-		Error struct {
-			Type         string                  `json:"type"`
-			Message      string                  `json:"message"`
-			Provider     string                  `json:"provider"`
-			Model        string                  `json:"model"`
-			Capabilities types.ModelCapabilities `json:"capabilities"`
-		} `json:"error"`
-	}](t, recorder)
-	if payload.Error.Type != errCodeModelCapability {
-		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeModelCapability)
+	assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
+	if assistant.ExecutionMode != chat.ExecutionModeDirectModel {
+		t.Fatalf("assistant execution mode = %q, want direct_model", assistant.ExecutionMode)
 	}
-	if !strings.Contains(payload.Error.Message, "Tools are unavailable for this model") {
-		t.Fatalf("message = %q", payload.Error.Message)
+	if assistant.TaskID != "" {
+		t.Fatalf("assistant task id = %q, want empty", assistant.TaskID)
+	}
+	if assistant.Content != "plain answer" {
+		t.Fatalf("assistant content = %q, want plain answer", assistant.Content)
+	}
+	if req := provider.LastRequest(); len(req.Tools) != 0 {
+		t.Fatalf("provider request tools = %d, want 0", len(req.Tools))
 	}
 }
 

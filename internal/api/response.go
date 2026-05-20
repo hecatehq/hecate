@@ -192,7 +192,7 @@ func defaultErrorAction(code string) string {
 	case errCodeAgentSessionBusy:
 		return "Open the backing task, resolve the pending approval, or stop the run before sending another message."
 	case errCodeModelCapability:
-		return "Send as direct model chat, test the model, or enable tool support in Connections."
+		return "Send as direct model chat, or choose a model that reports tool-calling support."
 	case errCodeModelNotConfigured:
 		return "Choose a discovered model, refresh provider status, or open Connections to fix model discovery."
 	case errCodeWorkspaceRequired:

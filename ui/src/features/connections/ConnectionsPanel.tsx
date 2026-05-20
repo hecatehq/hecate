@@ -28,7 +28,6 @@ import type {
   ProviderRecord,
 } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
-import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
 
 type Props = {
   onNavigate?: (
@@ -226,8 +225,6 @@ export function ConnectionsPanel({
           onNavigate={onNavigate}
         />
       )}
-
-      <ModelCapabilitiesSection />
 
       {rememberedAnthropicProvider && (
         <AnthropicProviderKeyCard
