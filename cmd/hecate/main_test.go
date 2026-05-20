@@ -27,6 +27,6 @@ func TestResolveBootstrapPath_ExplicitFileWins(t *testing.T) {
 	got := resolveBootstrapPath("/run/secrets/bootstrap.json", ".data")
 	want := "/run/secrets/bootstrap.json"
 	if got != want {
-		t.Fatalf("explicit GATEWAY_BOOTSTRAP_FILE not honored: got %q, want %q", got, want)
+		t.Fatalf("explicit HECATE_BOOTSTRAP_FILE not honored: got %q, want %q", got, want)
 	}
 }

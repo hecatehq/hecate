@@ -21,7 +21,7 @@ import (
 
 // TestApprovalReconcilePersistsAndFlipsAcrossRestart is the binary-
 // level smoke for startup reconcile. It boots the real
-// hecate binary with GATEWAY_CHAT_SESSIONS_BACKEND=sqlite, inserts a
+// hecate binary with HECATE_BACKEND=sqlite, inserts a
 // pending agent-chat approval directly into the SQLite db (simulating
 // a process that crashed mid-RequestPermission), kills the binary,
 // restarts it, and asserts via the HTTP API that the surviving
@@ -47,20 +47,20 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	commonEnv := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + workDir,
-		"GATEWAY_DATA_DIR=" + dataDir,
-		"GATEWAY_CHAT_SESSIONS_BACKEND=sqlite",
-		"GATEWAY_SQLITE_PATH=" + dbPath,
+		"HECATE_DATA_DIR=" + dataDir,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_SQLITE_PATH=" + dbPath,
 		// Start with auto so the approval coordinator boots cleanly even
 		// without any adapter activity. Mode doesn't affect reconcile,
 		// which runs before the gateway accepts traffic.
-		"GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto",
+		"HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto",
 	}
 
 	// ── First start: bring the gateway up to materialize the schema.
 	addr1 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	cmd1 := exec.Command(bin)
 	cmd1.Dir = workDir
-	cmd1.Env = append([]string{"GATEWAY_ADDRESS=" + addr1}, commonEnv...)
+	cmd1.Env = append([]string{"HECATE_ADDRESS=" + addr1}, commonEnv...)
 	cmd1.Stdout = io.Discard
 	cmd1.Stderr = io.Discard
 	if err := cmd1.Start(); err != nil {
@@ -90,7 +90,7 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	cmd2 := exec.Command(bin)
 	cmd2.Dir = workDir
-	cmd2.Env = append([]string{"GATEWAY_ADDRESS=" + addr2}, commonEnv...)
+	cmd2.Env = append([]string{"HECATE_ADDRESS=" + addr2}, commonEnv...)
 	cmd2.Stdout = io.Discard
 	cmd2.Stderr = io.Discard
 	if err := cmd2.Start(); err != nil {
@@ -137,16 +137,16 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	commonEnv := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + workDir,
-		"GATEWAY_DATA_DIR=" + dataDir,
-		"GATEWAY_CHAT_SESSIONS_BACKEND=sqlite",
-		"GATEWAY_SQLITE_PATH=" + dbPath,
-		"GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=prompt",
+		"HECATE_DATA_DIR=" + dataDir,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_SQLITE_PATH=" + dbPath,
+		"HECATE_AGENT_ADAPTER_APPROVAL_MODE=prompt",
 	}
 
 	addr1 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	cmd1 := exec.Command(bin)
 	cmd1.Dir = workDir
-	cmd1.Env = append([]string{"GATEWAY_ADDRESS=" + addr1}, commonEnv...)
+	cmd1.Env = append([]string{"HECATE_ADDRESS=" + addr1}, commonEnv...)
 	cmd1.Stdout = io.Discard
 	cmd1.Stderr = io.Discard
 	if err := cmd1.Start(); err != nil {
@@ -175,7 +175,7 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	cmd2 := exec.Command(bin)
 	cmd2.Dir = workDir
-	cmd2.Env = append([]string{"GATEWAY_ADDRESS=" + addr2}, commonEnv...)
+	cmd2.Env = append([]string{"HECATE_ADDRESS=" + addr2}, commonEnv...)
 	cmd2.Stdout = io.Discard
 	cmd2.Stderr = io.Discard
 	if err := cmd2.Start(); err != nil {
@@ -328,7 +328,7 @@ func injectPendingApproval(t *testing.T, dbPath, sessionID string) string {
 	scopes := `["once","session","workspace_tool","adapter_tool"]`
 	payload := `{"sessionId":"` + sessionID + `","options":[]}`
 
-	// Default GATEWAY_SQLITE_TABLE_PREFIX is "hecate"; combined with
+	// Default HECATE_SQLITE_TABLE_PREFIX is "hecate"; combined with
 	// agent_chat_approvals → hecate_chat_approvals.
 	_, err = db.ExecContext(context.Background(),
 		`INSERT INTO hecate_chat_approvals (

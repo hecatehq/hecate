@@ -75,7 +75,7 @@ The `hecate` runtime embeds the React UI via `//go:embed ui/dist`. There's no se
 
    ```bash
    cp .env.example .env
-   # Edit .env — at minimum set GATEWAY_DEFAULT_MODEL plus a PROVIDER_*_API_KEY
+   # Edit .env — at minimum set HECATE_DEFAULT_MODEL plus a PROVIDER_*_API_KEY
    ```
 
 2. Build `hecate` with the UI bundled in:
@@ -289,7 +289,7 @@ For finer control, pass a comma-separated override list:
 just dev-agent-adapters 'codex=ready,claude_code=no_auth,cursor_agent=app_missing'
 ```
 
-The backing env var is `GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES`. It accepts
+The backing env var is `HECATE_AGENT_ADAPTER_DEV_OVERRIDES`. It accepts
 `all=...` or per-adapter entries using:
 
 - `missing` / `connector_missing` / `acp_missing` — ACP connector unavailable.
@@ -304,7 +304,7 @@ probe results, but it does not create adapter processes or make a chat send
 succeed.
 
 There is also a narrower discovery-only fixture env var,
-`GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`, used by backend tests that only
+`HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES`, used by backend tests that only
 need catalog states (`all=missing`, `codex=available`). Prefer
 `just dev-agent-adapters` for UI work because it keeps catalog and probe visuals
 aligned.

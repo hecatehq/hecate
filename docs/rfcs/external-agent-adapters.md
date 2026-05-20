@@ -178,12 +178,12 @@ DELETE /hecate/v1/chat/grants/{grant_id}
 
 Message creation is still a blocking POST for the submitted prompt, but clients
 can subscribe to the session SSE stream first to receive partial output while
-the external process is running. History is memory-backed by default and SQLite
-backed when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`. The store also keeps the
-native ACP session id. On the next prompt after a gateway restart, Hecate passes
-that id to the adapter through ACP `session/load` when the adapter advertises
-load-session support; otherwise it creates a fresh native session and keeps the
-Hecate transcript intact.
+the external process is running. History follows `HECATE_BACKEND`; `sqlite`
+persists sessions across restarts. The store also keeps the native ACP session
+id. On the next prompt after a gateway restart, Hecate passes that id to the
+adapter through ACP `session/load` when the adapter advertises load-session
+support; otherwise it creates a fresh native session and keeps the Hecate
+transcript intact.
 
 ## Adapter Session Behavior
 

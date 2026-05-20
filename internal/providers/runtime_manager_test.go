@@ -229,7 +229,7 @@ func TestControlPlaneRuntimeManagerNormalizesPresetNameCasing(t *testing.T) {
 }
 
 // TestControlPlaneRuntimeManagerAppliesAnthropicCacheToggleByProtocol pins
-// that the global GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle reaches
+// that the global HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle reaches
 // every Anthropic-protocol provider regardless of how it ended up in the
 // registry. The earlier name-match-only fallback left CP-only Anthropic
 // providers stuck at the default; this test guards against a regression.

@@ -151,7 +151,7 @@ needs it too.
 `hecate-acp` should discover the gateway in this order:
 
 1. `HECATE_GATEWAY_URL`
-2. runtime discovery state in `GATEWAY_DATA_DIR`
+2. runtime discovery state in `HECATE_DATA_DIR`
 3. native app runtime discovery state
 4. `http://127.0.0.1:8765`
 
@@ -256,8 +256,8 @@ other launch modes:
 
 | Variable                    | Meaning                                                               |
 | --------------------------- | --------------------------------------------------------------------- |
-| `GATEWAY_ADDRESS`           | Gateway bind address for headless mode. Defaults to `127.0.0.1:8765`. |
-| `GATEWAY_DATA_DIR`          | Runtime state, SQLite database, logs, and runtime discovery state.    |
+| `HECATE_ADDRESS`            | Gateway bind address for headless mode. Defaults to `127.0.0.1:8765`. |
+| `HECATE_DATA_DIR`           | Runtime state, SQLite database, logs, and runtime discovery state.    |
 | `HECATE_GATEWAY_URL`        | Explicit gateway URL for helper processes such as `hecate-acp`.       |
 | `HECATE_AGENT_ADAPTERS_DIR` | Managed external-agent ACP launcher cache.                            |
 

@@ -205,7 +205,7 @@ func TestAgentAdapterProbePromotesClaudeHandshakeToAuthOK(t *testing.T) {
 }
 
 func TestAgentAdapterProbeUsesSyntheticStatusWhenDevOverrideActive(t *testing.T) {
-	t.Setenv("GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES", "codex=no_auth")
+	t.Setenv("HECATE_AGENT_ADAPTER_DEV_OVERRIDES", "codex=no_auth")
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)

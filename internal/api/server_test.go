@@ -154,8 +154,8 @@ func TestTraceEndpointReturnsRecordedRequestTimeline(t *testing.T) {
 	if payload.Data.Spans[0].Name != "gateway.request" {
 		t.Fatalf("first span = %q, want gateway.request", payload.Data.Spans[0].Name)
 	}
-	if payload.Data.Spans[0].Attributes[telemetry.AttrServiceName] != "hecate-gateway" {
-		t.Fatalf("root span %s = %#v, want hecate-gateway", telemetry.AttrServiceName, payload.Data.Spans[0].Attributes[telemetry.AttrServiceName])
+	if payload.Data.Spans[0].Attributes[telemetry.AttrServiceName] != telemetry.ServiceName {
+		t.Fatalf("root span %s = %#v, want %s", telemetry.AttrServiceName, payload.Data.Spans[0].Attributes[telemetry.AttrServiceName], telemetry.ServiceName)
 	}
 	foundResponseSpan := false
 	for _, span := range payload.Data.Spans {
@@ -1080,7 +1080,7 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 }
 
 func TestAgentAdaptersHonorsDiscoveryOverride(t *testing.T) {
-	t.Setenv("GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES", "all=missing")
+	t.Setenv("HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES", "all=missing")
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
@@ -1093,7 +1093,7 @@ func TestAgentAdaptersHonorsDiscoveryOverride(t *testing.T) {
 		if item.Available || item.Status != agentadapters.StatusMissing || item.Path != "" {
 			t.Fatalf("adapter %q = %#v, want forced missing", item.ID, item)
 		}
-		if !strings.Contains(item.Error, "GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES") {
+		if !strings.Contains(item.Error, "HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES") {
 			t.Fatalf("adapter %q error = %q, want discovery override marker", item.ID, item.Error)
 		}
 	}
@@ -3910,6 +3910,7 @@ func TestTaskRunCancellation(t *testing.T) {
 	tasks.mustRequest(http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/approvals/"+approvals.Data[0].ID+"/resolve", `{"decision":"approve"}`)
 
 	waitForRunStatus(t, handler, created.Data.ID, started.Data.ID, "running")
+	waitForRunEvent(t, handler, created.Data.ID, started.Data.ID, "run.started")
 
 	tasks.mustRequest(http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/cancel", "")
 
@@ -4944,13 +4945,10 @@ func TestTaskCreateCodingAgentProfileAppliesDefaults(t *testing.T) {
 }
 
 func TestTaskStartAgentLoopWithoutLLM_FailsInRunNotAtQueue(t *testing.T) {
-	// agent_loop is unconditionally available — there used to be a
-	// feature flag (GATEWAY_TASK_ENABLE_AGENT_EXECUTOR) gating it at
-	// the queue boundary, but it was removed once the runtime
-	// stabilized. Without an LLM configured the run still fails, but
-	// it does so inside the run with an actionable error step the
-	// operator can see in the timeline, not at the queue boundary
-	// where the run never even appears.
+	// agent_loop is unconditionally available. Without an LLM configured
+	// the run still fails, but it does so inside the run with an actionable
+	// error step the operator can see in the timeline, not at the queue
+	// boundary where the run never even appears.
 	//
 	// A model must be specified (or a default configured) — the start
 	// preflight rejects agent_loop tasks with no model before creating
@@ -4978,7 +4976,7 @@ func TestTaskStartAgentLoopWithoutLLM_FailsInRunNotAtQueue(t *testing.T) {
 
 func TestTaskStartAgentLoopWithoutModel_FailsAtStart(t *testing.T) {
 	// When no model is configured (neither task.RequestedModel nor
-	// GATEWAY_DEFAULT_MODEL), starting an agent_loop run should return
+	// HECATE_DEFAULT_MODEL), starting an agent_loop run should return
 	// 422 immediately — no run is created, no tokens are spent.
 	t.Parallel()
 

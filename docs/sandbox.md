@@ -42,7 +42,7 @@ gateway:
    the shell command will see; gateway secrets stay out of scope.
 4. **Spawns the subprocess** under the task's wall-clock timeout and
    reads stdout / stderr through bounded pipes. Combined output is
-   capped (`GATEWAY_TASK_MAX_OUTPUT_BYTES`); over-cap commands are
+   capped (`HECATE_TASK_MAX_OUTPUT_BYTES`); over-cap commands are
    killed and surface an `OutputLimitExceededError`.
 5. **Returns** stdout, stderr, and exit code as a structured `Result`.
    The agent runtime turns that into a tool-result message for the
@@ -58,13 +58,13 @@ These checks run before any subprocess is spawned. A failing check
 turns into a `PolicyError` returned to the caller; nothing is
 executed.
 
-| Control              | Field                                  | Effect                                                                                                                         |
-| -------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| **Allowed root**     | `sandbox_allowed_root` on the task     | File and path arguments validated to stay under this directory; `..` traversal rejected                                        |
-| **Read-only**        | `sandbox_read_only` on the task        | Blocks write operations (`file_write`, shell output redirection, mutating git commands)                                        |
-| **Network gate**     | `sandbox_network` on the task          | `false` (default) blocks commands that look like network access; `true` allows egress subject to the host/IP constraints below |
-| **Host allowlist**   | `GATEWAY_TASK_SHELL_ALLOWED_HOSTS`     | Restricts HTTP/S URLs in commands to exact hostnames                                                                           |
-| **Private IP block** | `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | Blocks IP literals in RFC1918 / loopback / link-local ranges                                                                   |
+| Control              | Field                                 | Effect                                                                                                                         |
+| -------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Allowed root**     | `sandbox_allowed_root` on the task    | File and path arguments validated to stay under this directory; `..` traversal rejected                                        |
+| **Read-only**        | `sandbox_read_only` on the task       | Blocks write operations (`file_write`, shell output redirection, mutating git commands)                                        |
+| **Network gate**     | `sandbox_network` on the task         | `false` (default) blocks commands that look like network access; `true` allows egress subject to the host/IP constraints below |
+| **Host allowlist**   | `HECATE_TASK_SHELL_ALLOWED_HOSTS`     | Restricts HTTP/S URLs in commands to exact hostnames                                                                           |
+| **Private IP block** | `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS` | Blocks IP literals in RFC1918 / loopback / link-local ranges                                                                   |
 
 Network enforcement is **best-effort static string matching** on the
 command text before execution. A sufficiently creative command
@@ -109,7 +109,7 @@ spawning the shell. Both are always-on; the cap is configurable.
   inherit the user's environment because that's what the user wants.
   A long-running gateway must not.
 - **Output size cap + wall-clock timeout** —
-  `GATEWAY_TASK_MAX_OUTPUT_BYTES` (default 4 MiB) bounds the combined
+  `HECATE_TASK_MAX_OUTPUT_BYTES` (default 4 MiB) bounds the combined
   stdout + stderr a command can emit; the task's `Timeout` field
   bounds wall-clock. Both kill the subprocess on breach. Together they
   are the per-call budget — runaway commands can't exhaust gateway
@@ -174,13 +174,13 @@ they got.
 
 ## Environment variables
 
-| Env var                                | Default           | What it controls                                                                                             |
-| -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| `GATEWAY_TASK_MAX_OUTPUT_BYTES`        | `4194304` (4 MiB) | Combined stdout + stderr cap per command. Commands exceeding this are killed and return an error. 0 = no cap |
-| `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`           | Allow loopback / RFC1918 / link-local IP literals in shell and git command URLs when `sandbox_network=true`  |
-| `GATEWAY_TASK_SHELL_ALLOWED_HOSTS`     | `""`              | Comma-separated exact-host allowlist for URLs in shell and git commands; empty = all public hosts            |
+| Env var                               | Default           | What it controls                                                                                             |
+| ------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `HECATE_TASK_MAX_OUTPUT_BYTES`        | `4194304` (4 MiB) | Combined stdout + stderr cap per command. Commands exceeding this are killed and return an error. 0 = no cap |
+| `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`           | Allow loopback / RFC1918 / link-local IP literals in shell and git command URLs when `sandbox_network=true`  |
+| `HECATE_TASK_SHELL_ALLOWED_HOSTS`     | `""`              | Comma-separated exact-host allowlist for URLs in shell and git commands; empty = all public hosts            |
 
-The `http_request` tool has its own parallel pair (`GATEWAY_TASK_HTTP_*`) — see
+The `http_request` tool has its own parallel pair (`HECATE_TASK_HTTP_*`) — see
 [`agent-runtime.md`](agent-runtime.md#configuration-knobs).
 
 ## Limitations

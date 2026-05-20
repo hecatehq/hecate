@@ -39,7 +39,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      GATEWAY_PUBLIC_URL: "http://127.0.0.1:8765"
+      HECATE_PUBLIC_URL: "http://127.0.0.1:8765"
       PROVIDER_OLLAMA_BASE_URL: "http://host.docker.internal:11434/v1"
       PROVIDER_LMSTUDIO_BASE_URL: "http://host.docker.internal:1234/v1"
       PROVIDER_LLAMACPP_BASE_URL: "http://host.docker.internal:8080/v1"

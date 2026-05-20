@@ -9,7 +9,7 @@ prompts over ACP, records transcript/diagnostics, handles approvals, and shows
 Git diffs. The model gateway path is not involved; `/v1` provider routing and
 Hecate model credentials stay separate.
 
-With `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, Hecate keeps the transcript and the
+With `HECATE_BACKEND=sqlite`, Hecate keeps the transcript and the
 adapter's native ACP session id. After restart, the next prompt asks the adapter
 to `session/load` that native session when supported. If the adapter cannot load
 it, Hecate starts a fresh native session and keeps the Hecate transcript.
@@ -267,8 +267,8 @@ short-circuit, mode default, or prompt-mode wait) and carries
 path with `decision` and `scope` attributes.
 
 Durable approval grants are part of the chat-session SQLite bundle. When
-`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, grants survive Hecate server restarts and are
-listed from `GET /hecate/v1/chat/grants`; the operator can revoke them from
+`HECATE_BACKEND=sqlite`, grants survive Hecate server restarts and are listed
+from `GET /hecate/v1/chat/grants`; the operator can revoke them from
 Connections. Pending approvals from a dead process are not
 replayed as actionable prompts — startup reconcile marks them `timed_out` with
 `path=startup_reconcile` before Hecate accepts traffic.
@@ -279,13 +279,13 @@ replayed as actionable prompts — startup reconcile marks them `timed_out` with
 
 ## Approval mode
 
-`GATEWAY_AGENT_ADAPTER_APPROVAL_MODE` controls how Hecate responds to ACP
+`HECATE_AGENT_ADAPTER_APPROVAL_MODE` controls how Hecate responds to ACP
 `RequestPermission` from external adapters. Three values:
 
 - `prompt` (default) — Hecate records a pending row and waits for an
   operator decision via the Chats workspace banner / modal or the
   `/hecate/v1/chat/sessions/{id}/approvals` REST surface. Without an operator
-  reviewing within `GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT` (default 5m), the
+  reviewing within `HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT` (default 5m), the
   approval times out and the adapter receives ACP `Cancelled`.
 - `auto` — every adapter request is permitted without review. Surfaces a red
   danger banner across every Chats session because every adapter call runs
@@ -297,7 +297,7 @@ replayed as actionable prompts — startup reconcile marks them `timed_out` with
 
 ### Per-session turn ceiling
 
-`GATEWAY_CHAT_MAX_TURNS_PER_SESSION` caps the number of user→assistant
+`HECATE_CHAT_MAX_TURNS_PER_SESSION` caps the number of user→assistant
 round-trips per chat session. When a session reaches the ceiling,
 `POST /hecate/v1/chat/sessions/{id}/messages` returns HTTP 422:
 
@@ -312,10 +312,10 @@ round-trips per chat session. When a session reaches the ceiling,
 }
 ```
 
-| Setting                                 | Behavior                            |
-| --------------------------------------- | ----------------------------------- |
-| `GATEWAY_CHAT_MAX_TURNS_PER_SESSION=0`  | Unlimited (default)                 |
-| `GATEWAY_CHAT_MAX_TURNS_PER_SESSION=50` | Enforce 50-turn ceiling per session |
+| Setting                                | Behavior                            |
+| -------------------------------------- | ----------------------------------- |
+| `HECATE_CHAT_MAX_TURNS_PER_SESSION=0`  | Unlimited (default)                 |
+| `HECATE_CHAT_MAX_TURNS_PER_SESSION=50` | Enforce 50-turn ceiling per session |
 
 When a limit is set, the chat header shows a `{turns_used}/{max} turns` badge.
 The badge turns amber when the ceiling is reached.
@@ -328,12 +328,12 @@ the same workspace resets the counter.
 Two optional time-based limits protect long-lived ACP sessions from turning
 into invisible background processes:
 
-| Setting                                | Behavior                                                  |
-| -------------------------------------- | --------------------------------------------------------- |
-| `GATEWAY_CHAT_MAX_SESSION_DURATION=0s` | Unlimited wall-clock age (default)                        |
-| `GATEWAY_CHAT_MAX_SESSION_DURATION=2h` | Reject new turns once the session is at least 2 hours old |
-| `GATEWAY_CHAT_IDLE_TIMEOUT=0s`         | No idle sweeper (default)                                 |
-| `GATEWAY_CHAT_IDLE_TIMEOUT=1h`         | Auto-close idle sessions after 1 hour without updates     |
+| Setting                               | Behavior                                                  |
+| ------------------------------------- | --------------------------------------------------------- |
+| `HECATE_CHAT_MAX_SESSION_DURATION=0s` | Unlimited wall-clock age (default)                        |
+| `HECATE_CHAT_MAX_SESSION_DURATION=2h` | Reject new turns once the session is at least 2 hours old |
+| `HECATE_CHAT_IDLE_TIMEOUT=0s`         | No idle sweeper (default)                                 |
+| `HECATE_CHAT_IDLE_TIMEOUT=1h`         | Auto-close idle sessions after 1 hour without updates     |
 
 When the wall-clock limit is exceeded, `POST
 /hecate/v1/chat/sessions/{id}/messages` returns HTTP 422 with

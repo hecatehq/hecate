@@ -131,7 +131,7 @@ dev-agent-adapters overrides *args: _go-cache
 	set -a; \
 	[ -f ./.env ] && . ./.env; \
 	set +a; \
-	GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES="{{overrides}}" GOCACHE="$PWD/{{gocache}}" go run ./cmd/hecate
+	HECATE_AGENT_ADAPTER_DEV_OVERRIDES="{{overrides}}" GOCACHE="$PWD/{{gocache}}" go run ./cmd/hecate
 
 # Run the gateway with all external-agent adapters shown as not installed.
 # Useful for manually testing first-run External Agent onboarding.
@@ -233,7 +233,7 @@ test-docker-smoke: _go-cache
 docs-env-check:
 	test -f docs/release.md
 	test -f docs/known-limitations.md
-	! rg -n 'GATEWAY_POLICY_RULES_JSON|GATEWAY_PRICEBOOK_JSON|GATEWAY_PROVIDERS|PROVIDER_[A-Z0-9_]+_(PROTOCOL|API_VERSION|TIMEOUT)' README.md docs .env.example internal/config e2e .github
+	! rg -n 'HECATE_POLICY_RULES_JSON|HECATE_PRICEBOOK_JSON|HECATE_PROVIDERS|HECATE_[A-Z0-9_]+_BACKEND|PROVIDER_[A-Z0-9_]+_(PROTOCOL|API_VERSION|TIMEOUT)' README.md docs .env.example internal/config e2e .github
 
 # Run lychee against all markdown and .mdc files to catch broken relative
 # links and dead external URLs. Mirrors the CI Links workflow.

@@ -63,8 +63,8 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 - Runs that are stuck in `running` state (e.g. after a worker crash or process
   restart) are recovered automatically by the periodic reconciler and re-queued
   without operator intervention. The recovery window is three times the
-  configured lease duration (`GATEWAY_TASK_QUEUE_LEASE_SECONDS`); the scan
-  cadence is `GATEWAY_TASK_RECONCILE_INTERVAL` (default `30s`).
+  configured lease duration (`HECATE_TASK_QUEUE_LEASE_SECONDS`); the scan
+  cadence is `HECATE_TASK_RECONCILE_INTERVAL` (default `30s`).
 - The sandbox is a per-call `sh` subprocess with env sanitisation, output cap,
   and wall-clock timeout applied inline by the gateway. It is not a container,
   chroot, or VM; the subprocess runs as the same OS user as the gateway.

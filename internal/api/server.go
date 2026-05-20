@@ -11,6 +11,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	registerHealthRoutes(mux, handler)
 	registerProviderCompatibleRoutes(mux, handler)
 	registerHecateRuntimeRoutes(mux, handler)
+	registerHecateProjectRoutes(mux, handler)
 	registerHecateAgentRoutes(mux, handler)
 	registerHecateTaskRoutes(mux, handler)
 	registerHecateOperationsRoutes(mux, handler)
@@ -60,6 +61,16 @@ func registerHecateRuntimeRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/providers/presets", handler.HandleProviderPresets)
 	mux.HandleFunc("GET /hecate/v1/providers/status", handler.HandleProviderStatus)
 	mux.HandleFunc("GET /hecate/v1/providers/history", handler.HandleProviderHealthHistory)
+}
+
+func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
+	// Projects are durable user/work identity. Chats and tasks can later attach
+	// to them for shared defaults, memory, and context assembly.
+	mux.HandleFunc("GET /hecate/v1/projects", handler.HandleProjects)
+	mux.HandleFunc("POST /hecate/v1/projects", handler.HandleCreateProject)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}", handler.HandleProject)
+	mux.HandleFunc("PATCH /hecate/v1/projects/{id}", handler.HandleUpdateProject)
+	mux.HandleFunc("DELETE /hecate/v1/projects/{id}", handler.HandleDeleteProject)
 }
 
 func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {

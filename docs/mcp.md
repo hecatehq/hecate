@@ -222,7 +222,7 @@ Behavior of the API layer:
 - **On create**: any value that is NOT a `$VAR_NAME` reference and NOT already `enc:<base64>` gets auto-encrypted to `enc:...` if a settings encryption key is configured, or stored bare if not.
 - **On render** (`GET /hecate/v1/tasks/...`): `$VAR_NAME` values come back verbatim; everything else (encrypted ciphertext, bare literals) is replaced with `[redacted]`. Stored secrets cannot leak through the task API.
 
-The control-plane key comes from `GATEWAY_CONTROL_PLANE_SECRET_KEY` when set,
+The control-plane key comes from `HECATE_CONTROL_PLANE_SECRET_KEY` when set,
 or from the bootstrap key file otherwise. See
 [`security.md`](security.md#bootstrap-key-today) for the local storage model.
 
@@ -254,18 +254,18 @@ Hecate maintains a shared client cache so multiple tasks targeting the same upst
 - **Idle TTL**: 5 minutes. Entries with refcount=0 evict after this; in-use entries are never evicted regardless of age.
 - **Reaper interval**: 30 seconds.
 - **Reactive eviction**: a transport-closed error from a tool call drops the entry so the next task respawns, instead of being handed back the same dead client.
-- **Proactive health check**: a background loop pings each idle cached client every `GATEWAY_TASK_MCP_CLIENT_CACHE_PING_INTERVAL` (default 60s, `0` disables). Failure or `GATEWAY_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT` (default 5s) deadline-exceeded evicts the entry. Catches wedged subprocesses (event-loop deadlock, tight CPU loop) before the next real tool call hits the wall — reactive eviction only fires AFTER a call has already failed. In-use entries are never pinged (the active call's response would race with the ping reply on the same channel).
-- **Max-entries soft cap**: 256 by default (`GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES`). On a fresh insert that would push the cache over the cap, the least-recently-used IDLE entry is evicted first. If every entry is in-use, the over-cap insert is allowed (rejecting an Acquire would break a legitimate run; TTL eviction catches up once anything goes idle). Set to `0` to disable the cap.
+- **Proactive health check**: a background loop pings each idle cached client every `HECATE_TASK_MCP_CLIENT_CACHE_PING_INTERVAL` (default 60s, `0` disables). Failure or `HECATE_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT` (default 5s) deadline-exceeded evicts the entry. Catches wedged subprocesses (event-loop deadlock, tight CPU loop) before the next real tool call hits the wall — reactive eviction only fires AFTER a call has already failed. In-use entries are never pinged (the active call's response would race with the ping reply on the same channel).
+- **Max-entries soft cap**: 256 by default (`HECATE_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES`). On a fresh insert that would push the cache over the cap, the least-recently-used IDLE entry is evicted first. If every entry is in-use, the over-cap insert is allowed (rejecting an Acquire would break a legitimate run; TTL eviction catches up once anything goes idle). Set to `0` to disable the cap.
 - **Live snapshot**: `GET /hecate/v1/system/mcp/cache` returns the current `{entries, in_use, idle}` plus a `configured` boolean (false on deploys without a cache). Surfaced on the observability view alongside queue depth and worker count.
 - **HTTP-transport seam**: every HTTP MCP client the cache spawns shares one `*http.Client`. Default-constructed (5-minute timeout, Go's `http.DefaultTransport`) but overridable in code via `SharedClientCacheOptions.HTTPClient` for deploys that need a corporate proxy, mTLS, alternate `DialContext`, or different timeouts. Stdio servers ignore this; uncached pools (built via `NewPool` rather than `NewPoolWithCache`) keep the prior per-transport default.
 - **Dry-run probe**: `POST /hecate/v1/mcp/probe` brings a single MCP server up exactly the way a task would, calls `tools/list`, and returns the catalog without touching the cache. Lets operators confirm a config (and discover what tools an upstream vends) before committing it to a task. See [`runtime-api.md`](runtime-api.md#runtime-backend-and-queue-configuration) for the request/response shape.
 
 ### Resource limits
 
-| Knob                                        | Default | What it does                                                                                                                                                                                                                    |
-| ------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK`     | `16`    | Per-task cap on `mcp_servers` entries. The gateway rejects creates that exceed this with a 400 — protects the worker from a single misconfigured task spawning hundreds of subprocesses before failing. `0` disables the check. |
-| `GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES` | `256`   | Gateway-wide soft cap on cached MCP clients. See "Lifecycle and caching" above for the LRU-idle eviction contract. `0` disables.                                                                                                |
+| Knob                                       | Default | What it does                                                                                                                                                                                                                    |
+| ------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HECATE_TASK_MAX_MCP_SERVERS_PER_TASK`     | `16`    | Per-task cap on `mcp_servers` entries. The gateway rejects creates that exceed this with a 400 — protects the worker from a single misconfigured task spawning hundreds of subprocesses before failing. `0` disables the check. |
+| `HECATE_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES` | `256`   | Gateway-wide soft cap on cached MCP clients. See "Lifecycle and caching" above for the LRU-idle eviction contract. `0` disables.                                                                                                |
 
 ### Shutdown
 

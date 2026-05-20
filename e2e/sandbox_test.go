@@ -20,7 +20,7 @@ func TestSandboxShellExecRunsInline(t *testing.T) {
 	baseURL := gatewayServer(t,
 		// Disable the shell_exec approval gate so the task runs without
 		// a human approval step in the test loop.
-		"GATEWAY_TASK_APPROVAL_POLICIES=",
+		"HECATE_TASK_APPROVAL_POLICIES=",
 	)
 
 	taskID := sbCreateShellTask(t, baseURL, `echo "inline-sandbox-ok"`, workDir)
@@ -44,7 +44,7 @@ func TestSandboxPolicyDeniesNetwork(t *testing.T) {
 	workDir := t.TempDir()
 
 	baseURL := gatewayServer(t,
-		"GATEWAY_TASK_APPROVAL_POLICIES=",
+		"HECATE_TASK_APPROVAL_POLICIES=",
 	)
 
 	taskID := sbCreateShellTask(t, baseURL, `curl https://example.com`, workDir)
@@ -62,7 +62,7 @@ func TestSandboxReadOnlyPolicyDeniesWrite(t *testing.T) {
 	workDir := t.TempDir()
 
 	baseURL := gatewayServer(t,
-		"GATEWAY_TASK_APPROVAL_POLICIES=",
+		"HECATE_TASK_APPROVAL_POLICIES=",
 	)
 
 	body := fmt.Sprintf(`{

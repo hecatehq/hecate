@@ -38,7 +38,7 @@ Eight SQLite-backed packages, each owning its own schema:
 | `internal/taskstate/sqlite.go`               | Task runs, steps, artifacts, approvals                    |
 
 All eight share a single SQLite file (`.data/hecate.db` by default,
-overridable via `GATEWAY_SQLITE_PATH`). Each package's `migrate(ctx)`
+overridable via `HECATE_SQLITE_PATH`). Each package's `migrate(ctx)`
 runs lazily on first store use:
 
 - New tables come from `CREATE TABLE IF NOT EXISTS` — idempotent.
@@ -203,7 +203,7 @@ A new `cmd/hecate/migrate.go` (or a small subpackage under
 `cmd/hecate/`) that:
 
 1. Parses the subcommand from `os.Args`.
-2. Loads `internal/config/config.go` like normal so `GATEWAY_SQLITE_PATH`
+2. Loads `internal/config/config.go` like normal so `HECATE_SQLITE_PATH`
    etc. resolve identically to the gateway.
 3. Constructs the same SQLite client the gateway constructs at boot
    (`internal/storage/sqlite.go`).
@@ -309,7 +309,7 @@ incremental improvements after that.
   scope for the first PR.
 - **Encryption.** Snapshots are byte-identical SQLite files,
   including any settings encrypted via
-  `GATEWAY_CONTROL_PLANE_SECRET_KEY`. Operators who want
+  `HECATE_CONTROL_PLANE_SECRET_KEY`. Operators who want
   off-machine backup should encrypt the snapshot themselves
   (`age`, `gpg`). Building encryption into the CLI is out of scope.
 - **Concurrency.** Multiple `hecate migrate` invocations against

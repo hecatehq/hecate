@@ -158,7 +158,7 @@ For the native app, this file lives in the platform app data directory:
 - Linux: `~/.local/share/sh.hecate.app/hecate.runtime.json`
 - Windows: `%APPDATA%\sh.hecate.app\hecate.runtime.json`
 
-For source, tarball, and Docker runs, it lives under `GATEWAY_DATA_DIR`
+For source, tarball, and Docker runs, it lives under `HECATE_DATA_DIR`
 (`.data/hecate.runtime.json` by default for local runs, `/data/hecate.runtime.json`
 inside the Docker image).
 
@@ -427,13 +427,13 @@ where Hecate supervises Codex / Claude Code / Cursor Agent-style adapters from C
 `hecate-acp` as its default `service.name`, even when it inherits collector
 endpoint settings from the gateway environment.
 
-| Variable                                                         | Meaning                                                                                                              |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `HECATE_ACP_OTEL_TRACES_ENABLED`                                 | Enable bridge trace export. Falls back to `GATEWAY_OTEL_TRACES_ENABLED`.                                             |
-| `HECATE_ACP_OTEL_ENDPOINT` / `HECATE_ACP_OTEL_TRACES_ENDPOINT`   | Shared or trace-specific collector endpoint. Falls back to `GATEWAY_OTEL_ENDPOINT` / `GATEWAY_OTEL_TRACES_ENDPOINT`. |
-| `HECATE_ACP_OTEL_TRANSPORT` / `HECATE_ACP_OTEL_TRACES_TRANSPORT` | `http` or `grpc`. Falls back to the gateway OTel transport variables.                                                |
-| `HECATE_ACP_OTEL_HEADERS` / `HECATE_ACP_OTEL_TRACES_HEADERS`     | Comma-separated `key=value` headers for OTLP export.                                                                 |
-| `HECATE_ACP_OTEL_SERVICE_NAME`                                   | Optional service-name override. Defaults to `hecate-acp`.                                                            |
+| Variable                                                         | Meaning                                                                                                            |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `HECATE_ACP_OTEL_TRACES_ENABLED`                                 | Enable bridge trace export. Falls back to `HECATE_OTEL_TRACES_ENABLED`.                                            |
+| `HECATE_ACP_OTEL_ENDPOINT` / `HECATE_ACP_OTEL_TRACES_ENDPOINT`   | Shared or trace-specific collector endpoint. Falls back to `HECATE_OTEL_ENDPOINT` / `HECATE_OTEL_TRACES_ENDPOINT`. |
+| `HECATE_ACP_OTEL_TRANSPORT` / `HECATE_ACP_OTEL_TRACES_TRANSPORT` | `http` or `grpc`. Falls back to the gateway OTel transport variables.                                              |
+| `HECATE_ACP_OTEL_HEADERS` / `HECATE_ACP_OTEL_TRACES_HEADERS`     | Comma-separated `key=value` headers for OTLP export.                                                               |
+| `HECATE_ACP_OTEL_SERVICE_NAME`                                   | Optional service-name override. Defaults to `hecate-acp`.                                                          |
 
 When enabled, the bridge emits `acp.rpc` spans for JSON-RPC calls and
 `acp.gateway.request` spans for gateway HTTP calls. It also injects W3C

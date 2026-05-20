@@ -12,7 +12,7 @@ import (
 
 func TestBuildResourcePopulatesServiceIdentity(t *testing.T) {
 	res, err := BuildResource(context.Background(), ResourceOptions{
-		ServiceName:       "hecate-gateway-test",
+		ServiceName:       "hecate-test",
 		ServiceVersion:    "1.2.3",
 		ServiceInstanceID: "instance-abc",
 		DeploymentEnv:     "staging",
@@ -27,7 +27,7 @@ func TestBuildResourcePopulatesServiceIdentity(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"service.name":                "hecate-gateway-test",
+		"service.name":                "hecate-test",
 		"service.version":             "1.2.3",
 		"service.instance.id":         "instance-abc",
 		"deployment.environment.name": "staging",

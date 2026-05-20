@@ -1,10 +1,11 @@
 # Projects
 
-Status: Proposed
+> **Status:** accepted; foundation in progress.
 
 Current source of truth: [Agent runtime](../agent-runtime.md), [Chat sessions](../chat-sessions.md), [Architecture](../architecture.md)
 
-Next action: introduce a durable `project_id` model before project-scoped memory, agent profiles, and richer context assembly.
+Next action: attach chats and tasks to the new project store before adding
+project-scoped memory, agent profiles, and richer context assembly.
 
 ## Summary
 
@@ -213,7 +214,12 @@ Avoid turning Projects into a heavy project-management product. This is a runtim
 
 ## Storage Plan
 
-Add a new `internal/projects/` package with memory and SQLite stores.
+The first implementation adds `internal/projects/` with memory and SQLite
+stores, plus `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects`.
+
+This landed as a standalone foundation: project records and roots can be
+persisted, but chats, tasks, context packets, memory entries, profiles, and
+presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 
@@ -234,15 +240,16 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 
 ## Implementation Plan
 
-1. Add project store, API, and UI list/create basics.
-2. Auto-create path-derived projects for local workspaces.
-3. Add `project_id` to chat sessions and tasks.
-4. Thread project identity into context packets.
-5. Add project-scoped memory.
-6. Add agent-profile memory-source selection.
-7. Move relevant defaults from ad hoc chat/task state into project defaults.
-8. Add project activity aggregation.
-9. Update docs, screenshots, and e2e coverage.
+1. Add project store and API basics. Done for memory + SQLite CRUD.
+2. Add UI list/create basics.
+3. Auto-create path-derived projects for local workspaces.
+4. Add `project_id` to chat sessions and tasks.
+5. Thread project identity into context packets.
+6. Add project-scoped memory.
+7. Add agent-profile memory-source selection.
+8. Move relevant defaults from ad hoc chat/task state into project defaults.
+9. Add project activity aggregation.
+10. Update docs, screenshots, and e2e coverage.
 
 ## Test Plan
 

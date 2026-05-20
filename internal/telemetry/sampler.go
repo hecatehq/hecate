@@ -7,7 +7,7 @@ import (
 )
 
 // SamplerName values are aligned with the OTEL_TRACES_SAMPLER spec so operators
-// who already know the standard names can reuse them with the GATEWAY_OTEL_*
+// who already know the standard names can reuse them with the HECATE_OTEL_*
 // equivalents. An empty or unrecognized name falls back to parentbased_always_on,
 // which preserves upstream sampling decisions and matches the SDK default.
 const (

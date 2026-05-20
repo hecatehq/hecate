@@ -541,7 +541,7 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 		"CODEX_HOME=/tmp/codex",
 		"CURSOR_API_KEY=cursor-test",
 		"VOLTA_HOME=/Users/alice/.volta",
-		"GATEWAY_AUTH_TOKEN=secret",
+		"HECATE_AUTH_TOKEN=secret",
 	})
 
 	got := map[string]bool{}
@@ -562,7 +562,7 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 			t.Fatalf("missing allowed env %q in %#v", want, env)
 		}
 	}
-	if got["GATEWAY_AUTH_TOKEN=secret"] {
+	if got["HECATE_AUTH_TOKEN=secret"] {
 		t.Fatalf("gateway secret leaked into adapter env: %#v", env)
 	}
 }

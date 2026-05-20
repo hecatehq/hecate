@@ -15,7 +15,7 @@
 //   4. Spawn the gateway (std::process::Child — sync, so kill() works from
 //      the window-close event handler without needing an async runtime).
 //   5. Poll /healthz every 250 ms (async reqwest) with a 30 s hard deadline.
-//   6. Pass GATEWAY_PUBLIC_URL so hecate.runtime.json advertises the sidecar URL.
+//   6. Pass HECATE_PUBLIC_URL so hecate.runtime.json advertises the sidecar URL.
 //   7. On success return the base URL + Child handle. Caller is responsible
 //      for calling child.kill() when the app exits.
 
@@ -287,9 +287,9 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     // is synchronous and can be called from the window-close event handler
     // without an async runtime.
     let mut child = std::process::Command::new(&bin)
-        .env("GATEWAY_ADDRESS", &addr)
-        .env("GATEWAY_PUBLIC_URL", &base_url)
-        .env("GATEWAY_DATA_DIR", &paths.data_dir)
+        .env("HECATE_ADDRESS", &addr)
+        .env("HECATE_PUBLIC_URL", &base_url)
+        .env("HECATE_DATA_DIR", &paths.data_dir)
         // Suppress inherited terminal so the gateway doesn't fight the Tauri
         // process for stdin/stdout in dev mode.
         .stdin(std::process::Stdio::null())

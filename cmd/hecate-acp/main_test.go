@@ -77,12 +77,12 @@ func TestDiscoverGatewayURLFromRuntimePathsUsesFirstHealthyState(t *testing.T) {
 
 func TestHecateRuntimeCandidatePathsIncludesTrustedDataDirOnly(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "custom-data")
-	t.Setenv("GATEWAY_DATA_DIR", dataDir)
+	t.Setenv("HECATE_DATA_DIR", dataDir)
 
 	paths := hecateRuntimeCandidatePaths()
 	joined := strings.Join(paths, "\n")
 	if !strings.Contains(joined, filepath.Join(dataDir, hecateRuntimeFile)) {
-		t.Fatalf("candidate paths = %#v, want GATEWAY_DATA_DIR state", paths)
+		t.Fatalf("candidate paths = %#v, want HECATE_DATA_DIR state", paths)
 	}
 	if strings.Contains(joined, filepath.Join(".data", hecateRuntimeFile)) {
 		t.Fatalf("candidate paths = %#v, want no cwd-relative runtime state", paths)
@@ -532,9 +532,9 @@ func TestGatewayHTTPClientInjectsTraceContext(t *testing.T) {
 }
 
 func TestBridgeOTelFromEnvUsesACPServiceIdentity(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4318")
-	t.Setenv("GATEWAY_OTEL_TRACES_ENABLED", "true")
-	t.Setenv("GATEWAY_OTEL_SERVICE_NAME", "hecate-gateway")
+	t.Setenv("HECATE_OTEL_ENDPOINT", "http://collector:4318")
+	t.Setenv("HECATE_OTEL_TRACES_ENABLED", "true")
+	t.Setenv("HECATE_OTEL_SERVICE_NAME", "hecate")
 
 	cfg := bridgeOTelFromEnv()
 	if !cfg.TracesEnabled {

@@ -45,7 +45,7 @@ type OutputLimitExceededError struct {
 }
 
 func (e *OutputLimitExceededError) Error() string {
-	return fmt.Sprintf("command output exceeded limit of %d bytes; configure GATEWAY_TASK_MAX_OUTPUT_BYTES to widen", e.Limit)
+	return fmt.Sprintf("command output exceeded limit of %d bytes; configure HECATE_TASK_MAX_OUTPUT_BYTES to widen", e.Limit)
 }
 
 // IsOutputLimitExceeded reports whether err is or wraps an
@@ -688,12 +688,12 @@ func sanitisedEnv() []string {
 }
 
 // defaultLimits reads sandbox limit configuration from environment
-// variables. Set GATEWAY_TASK_MAX_OUTPUT_BYTES=0 to disable the cap
+// variables. Set HECATE_TASK_MAX_OUTPUT_BYTES=0 to disable the cap
 // entirely. The default of 4 MiB bounds memory growth in the gateway
 // reader goroutines for runaway commands.
 func defaultLimits() ResourceLimits {
 	return ResourceLimits{
-		MaxOutputBytes: envInt64("GATEWAY_TASK_MAX_OUTPUT_BYTES", 4*1024*1024),
+		MaxOutputBytes: envInt64("HECATE_TASK_MAX_OUTPUT_BYTES", 4*1024*1024),
 	}
 }
 

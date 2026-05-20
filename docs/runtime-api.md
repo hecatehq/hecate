@@ -97,6 +97,8 @@ object when available.
 - [Runtime backend and queue configuration](#runtime-backend-and-queue-configuration)
 - [Usage endpoints](#usage-endpoints)
 - [Health and discovery endpoints](#health-and-discovery-endpoints)
+- [Project endpoints](#project-endpoints)
+- [Chat session endpoints](#chat-session-endpoints)
 - [Rate-limit headers on chat / messages](#rate-limit-headers-on-chat--messages)
 
 ## Core resources
@@ -122,7 +124,7 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 - `sandbox_allowed_root` / `sandbox_read_only` / `sandbox_network` — sandbox policy for shell / git / file kinds; see [`sandbox.md`](sandbox.md) for the full policy and isolation model
 - `requested_provider` / `requested_model` — pin the LLM (`agent_loop`); empty falls back to gateway default
 - `budget_micros_usd` — per-task cost ceiling in micro-USD; `0` disables
-- `mcp_servers` — `agent_loop`-only array of external MCP server configs whose tools join the LLM's tool catalog under `mcp__<name>__<tool>` aliases. Each entry picks one transport (stdio: `command` + optional `args` / `env`; HTTP: `url` + optional `headers`), and may set `approval_policy` (`auto` / `require_approval` / `block`). Capped per-task by `GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK`. Full schema, secret handling, and lifecycle in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
+- `mcp_servers` — `agent_loop`-only array of external MCP server configs whose tools join the LLM's tool catalog under `mcp__<name>__<tool>` aliases. Each entry picks one transport (stdio: `command` + optional `args` / `env`; HTTP: `url` + optional `headers`), and may set `approval_policy` (`auto` / `require_approval` / `block`). Capped per-task by `HECATE_TASK_MAX_MCP_SERVERS_PER_TASK`. Full schema, secret handling, and lifecycle in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
 - `priority` / `timeout_ms`
 
 `execution_profile` applies task-create defaults:
@@ -226,7 +228,7 @@ Resolve payload: `{"decision": "approve" | "reject", "note": "..."}`. Approving 
 
 ### Approval policy configuration
 
-`GATEWAY_TASK_APPROVAL_POLICIES` (default `shell_exec,git_exec,file_write`) is a comma-separated allowlist of which approval gates are active across the task runtime. It controls both pre-execution gates on `shell` / `git` / `file` tasks **and** mid-loop gates inside `agent_loop` runs — same env var, same names. Recognized values:
+`HECATE_TASK_APPROVAL_POLICIES` (default `shell_exec,git_exec,file_write`) is a comma-separated allowlist of which approval gates are active across the task runtime. It controls both pre-execution gates on `shell` / `git` / `file` tasks **and** mid-loop gates inside `agent_loop` runs — same env var, same names. Recognized values:
 
 | Value            | Effect                                                                                                                                                                                                                         |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -323,19 +325,22 @@ sequenceDiagram
 
 ## Runtime backend and queue configuration
 
-- `GATEWAY_TASKS_BACKEND=memory|sqlite`
-- `GATEWAY_TASK_QUEUE_BACKEND=memory|sqlite`
-- `GATEWAY_TASK_QUEUE_WORKERS=<int>`
-- `GATEWAY_TASK_QUEUE_BUFFER=<int>`
-- `GATEWAY_TASK_QUEUE_LEASE_SECONDS=<int>`
-- `GATEWAY_TASK_MAX_CONCURRENT=<int>` (`0` disables the limit)
-- `GATEWAY_TASK_RECONCILE_INTERVAL=<duration>` (default `30s`; Go duration string — e.g. `"1m"`; how often the periodic reconciler scans for stalled runs; runs stuck in `running` longer than 3× `GATEWAY_TASK_QUEUE_LEASE_SECONDS` are automatically re-queued and emit `gap.run_disconnected` with `reason=worker_lease_expired`)
-- `GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK=<int>` (default `16`; caps `mcp_servers` entries on `agent_loop` task creates; `0` disables the check)
-- `GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES=<int>` (default `256`; soft cap on the gateway-wide MCP client cache; LRU-idle eviction kicks in at the cap, with fail-open when every entry is in use)
-- `GATEWAY_TASK_MCP_CLIENT_CACHE_PING_INTERVAL=<duration>` (default `60s`; how often the cache pings each idle cached upstream to detect wedged subprocesses; `0` disables the proactive health check, leaving only reactive eviction in `Pool.Call`)
-- `GATEWAY_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT=<duration>` (default `5s`; per-ping deadline; failure or timeout evicts the entry)
+- `HECATE_BACKEND=memory|sqlite` controls all Hecate-owned durable state,
+  including tasks, the task queue, projects, chats, usage events, and settings.
+- `HECATE_TASK_QUEUE_WORKERS=<int>`
+- `HECATE_TASK_QUEUE_BUFFER=<int>`
+- `HECATE_TASK_QUEUE_LEASE_SECONDS=<int>`
+- `HECATE_TASK_MAX_CONCURRENT_PER_TENANT=<int>` (`0` disables the limit)
+- `HECATE_TASK_RECONCILE_INTERVAL=<duration>` (default `30s`; Go duration string — e.g. `"1m"`; how often the periodic reconciler scans for stalled runs; runs stuck in `running` longer than 3× `HECATE_TASK_QUEUE_LEASE_SECONDS` are automatically re-queued and emit `gap.run_disconnected` with `reason=worker_lease_expired`)
+- `HECATE_TASK_MAX_MCP_SERVERS_PER_TASK=<int>` (default `16`; caps `mcp_servers` entries on `agent_loop` task creates; `0` disables the check)
+- `HECATE_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES=<int>` (default `256`; soft cap on the gateway-wide MCP client cache; LRU-idle eviction kicks in at the cap, with fail-open when every entry is in use)
+- `HECATE_TASK_MCP_CLIENT_CACHE_PING_INTERVAL=<duration>` (default `60s`; how often the cache pings each idle cached upstream to detect wedged subprocesses; `0` disables the proactive health check, leaving only reactive eviction in `Pool.Call`)
+- `HECATE_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT=<duration>` (default `5s`; per-ping deadline; failure or timeout evicts the entry)
 
-When `GATEWAY_TASKS_BACKEND` is `sqlite`, tasks/runs/steps/approvals/artifacts/run-events are persisted and the stream replay cursor is durable across restarts. When `GATEWAY_TASK_QUEUE_BACKEND` is `sqlite`, workers claim queue items with renewable leases, so pending runs survive process restarts and can be recovered when a lease expires.
+When `HECATE_BACKEND=sqlite`, tasks/runs/steps/approvals/artifacts/run-events
+are persisted and the stream replay cursor is durable across restarts. Workers
+claim queue items with renewable leases, so pending runs survive process
+restarts and can be recovered when a lease expires.
 
 For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy for the `http_request` tool), see [`agent-runtime.md`](agent-runtime.md#configuration-knobs).
 
@@ -909,13 +914,141 @@ Status codes:
 - `409 conflict` when the adapter is not managed or the launcher cannot be
   recreated.
 
+## Project endpoints
+
+Projects are the durable Hecate identity for a codebase or work area. A project
+can remember one or more concrete workspace roots and future defaults such as
+provider, model, agent profile, tools posture, workspace mode, system prompt,
+and compact command-output preference.
+
+This first implementation is intentionally a storage/API foundation:
+`GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects` work, and
+`HECATE_BACKEND=sqlite` persists them, but chats, tasks, memory,
+profiles, presets, and context packets are not linked to `project_id` yet.
+
+### `GET /hecate/v1/projects`
+
+Lists projects ordered by recent activity, then update/create time.
+
+```json
+GET /hecate/v1/projects
+→ 200
+{
+  "object": "projects",
+  "data": [
+    {
+      "id": "proj_...",
+      "name": "Hecate",
+      "description": "Gateway and agent runtime",
+      "roots": [
+        {
+          "id": "root_...",
+          "path": "/Users/alice/src/hecate",
+          "kind": "git",
+          "git_remote": "git@github.com:hecatehq/hecate.git",
+          "git_branch": "master",
+          "active": true,
+          "created_at": "2026-05-20T12:00:00Z",
+          "updated_at": "2026-05-20T12:00:00Z"
+        }
+      ],
+      "default_root_id": "root_...",
+      "default_provider": "ollama",
+      "default_model": "qwen2.5-coder",
+      "default_agent_profile": "implementation",
+      "default_tools_enabled": true,
+      "default_workspace_mode": "in_place",
+      "default_system_prompt": "Prefer small, reviewable patches.",
+      "default_compact_tool_output": false,
+      "created_at": "2026-05-20T12:00:00Z",
+      "updated_at": "2026-05-20T12:00:00Z",
+      "last_opened_at": "2026-05-20T12:30:00Z"
+    }
+  ]
+}
+```
+
+### `POST /hecate/v1/projects`
+
+Creates a project. `name` is required. Root `id` values are optional; Hecate
+generates `root_...` IDs for roots that omit them. If `default_root_id` is
+empty and at least one root is supplied, the first root becomes the default.
+When supplied, `default_root_id` must match one of the supplied roots.
+
+```json
+POST /hecate/v1/projects
+{
+  "name": "Hecate",
+  "description": "Gateway and agent runtime",
+  "roots": [
+    {
+      "path": "/Users/alice/src/hecate",
+      "kind": "git",
+      "git_remote": "git@github.com:hecatehq/hecate.git",
+      "git_branch": "master",
+      "active": true
+    }
+  ],
+  "default_provider": "ollama",
+  "default_model": "qwen2.5-coder",
+  "default_tools_enabled": true,
+  "default_workspace_mode": "in_place"
+}
+
+→ 201
+{
+  "object": "project",
+  "data": {
+    "id": "proj_...",
+    "name": "Hecate",
+    "roots": [
+      {
+        "id": "root_...",
+        "path": "/Users/alice/src/hecate",
+        "kind": "git",
+        "active": true
+      }
+    ],
+    "default_root_id": "root_..."
+  }
+}
+```
+
+### `GET /hecate/v1/projects/{id}`
+
+Returns one project or `404 not_found`.
+
+### `PATCH /hecate/v1/projects/{id}`
+
+Updates project metadata and defaults. Fields are optional. When `roots` is
+present, it replaces the full root list; use this for root add/remove/reorder
+until narrower root endpoints exist.
+When `default_root_id` is supplied, it must match the replacement root list or,
+if `roots` is omitted, one of the existing roots.
+
+```json
+PATCH /hecate/v1/projects/proj_...
+{
+  "name": "Hecate runtime",
+  "last_opened_at": "2026-05-20T12:45:00Z",
+  "default_compact_tool_output": true
+}
+```
+
+### `DELETE /hecate/v1/projects/{id}`
+
+Deletes the project catalog entry and its roots. This does not delete any
+workspace files. Since chats/tasks are not linked to projects yet, deletion has
+no transcript or task side effects in the current slice.
+
+## Chat session endpoints
+
 ### `GET /hecate/v1/chat/sessions`
 
-Lists chat sessions. Chat sessions use the same backend selection as model
-chat history: memory by default, SQLite when
-`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`. It is the alpha transcript surface for
-Hecate Chat and External Agent sessions. A session has a stable `agent_id`
-that chooses the chat owner:
+Lists chat sessions. Chat sessions use the process-wide storage backend
+selected by `HECATE_BACKEND`. They are the alpha transcript surface for Hecate
+Chat and External Agent sessions. A session has a stable `agent_id` that
+chooses the chat owner:
 
 - `agent_id="hecate"` — Hecate owns the chat. Individual turns choose
   `execution_mode="direct_model"` for normal provider/model chat or
@@ -929,8 +1062,8 @@ that chooses the chat owner:
   Hecate supervises lifecycle, transcript, diagnostics, and external-agent
   approvals. Turns use `execution_mode="external_agent"`.
 
-`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` is the single selector for the entire
-chat state bundle: sessions, messages, **and** the operator-facing
+`HECATE_BACKEND=sqlite` persists the entire chat state bundle: sessions,
+messages, **and** the operator-facing
 approval rows + grants documented under
 `/hecate/v1/chat/sessions/{id}/approvals` and `/hecate/v1/chat/grants`. They all
 move together so chat state can't go split-brain. On startup the gateway
@@ -940,7 +1073,7 @@ waiters can't be resurrected, so the operator UI never sees an actionable
 "pending" row that nothing is actually blocked on.
 
 Resolved approvals are pruned by the retention worker
-(`GATEWAY_RETENTION_CHAT_APPROVALS_*`, default 30d / 10k). Operator-
+(`HECATE_RETENTION_CHAT_APPROVALS_*`, default 30d / 10k). Operator-
 authored grants are NOT subject to that retention — only their own
 `expires_at` drives deletion, so explicit operator intent outlives normal
 retention windows.
@@ -1240,9 +1373,9 @@ when the run finishes. External Agent turns continue to publish normalized
 adapter output as it arrives.
 
 Before starting the adapter, Hecate enforces optional chat guardrails:
-`GATEWAY_CHAT_MAX_TURNS_PER_SESSION`,
-`GATEWAY_CHAT_MAX_SESSION_DURATION`, and
-`GATEWAY_CHAT_IDLE_TIMEOUT`. Each returns HTTP 422 with a stable
+`HECATE_CHAT_MAX_TURNS_PER_SESSION`,
+`HECATE_CHAT_MAX_SESSION_DURATION`, and
+`HECATE_CHAT_IDLE_TIMEOUT`. Each returns HTTP 422 with a stable
 `error.type` when exceeded:
 `chat.session_limit_exceeded`,
 `chat.session_duration_limit_exceeded`, or
@@ -1543,7 +1676,7 @@ Every response from `POST /v1/chat/completions` and `POST /v1/messages` carries 
 
 | Header                  | Type         | Meaning                                                       |
 | ----------------------- | ------------ | ------------------------------------------------------------- |
-| `X-RateLimit-Limit`     | int          | Steady-state refill rate (`GATEWAY_RATE_LIMIT_RPM`).          |
+| `X-RateLimit-Limit`     | int          | Steady-state refill rate (`HECATE_RATE_LIMIT_RPM`).           |
 | `X-RateLimit-Remaining` | int          | Tokens still available in the bucket. Decrements per request. |
 | `X-RateLimit-Reset`     | Unix seconds | When the bucket will be full again.                           |
 

@@ -120,7 +120,7 @@ func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git
 		gated[name] = struct{}{}
 	}
 	// Apply safe defaults to the HTTP policy. Operators who don't
-	// configure GATEWAY_TASK_HTTP_* still get sensible bounds.
+	// configure HECATE_TASK_HTTP_* still get sensible bounds.
 	if httpPolicy.Timeout <= 0 {
 		httpPolicy.Timeout = 30 * time.Second
 	}
@@ -1218,7 +1218,7 @@ func checkPublicHost(ctx context.Context, host string) string {
 	// Literal IP shortcut.
 	if ip := net.ParseIP(host); ip != nil {
 		if isBlockedIP(ip) {
-			return fmt.Sprintf("http_request: target IP %s is private/loopback/link-local; set GATEWAY_TASK_HTTP_ALLOW_PRIVATE_IPS=true to permit", ip)
+			return fmt.Sprintf("http_request: target IP %s is private/loopback/link-local; set HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS=true to permit", ip)
 		}
 		return ""
 	}
@@ -1228,7 +1228,7 @@ func checkPublicHost(ctx context.Context, host string) string {
 	}
 	for _, a := range addrs {
 		if isBlockedIP(a.IP) {
-			return fmt.Sprintf("http_request: host %s resolves to a private/loopback/link-local address (%s); set GATEWAY_TASK_HTTP_ALLOW_PRIVATE_IPS=true to permit", host, a.IP)
+			return fmt.Sprintf("http_request: host %s resolves to a private/loopback/link-local address (%s); set HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS=true to permit", host, a.IP)
 		}
 	}
 	return ""

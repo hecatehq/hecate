@@ -219,7 +219,7 @@ CREATE INDEX IF NOT EXISTS idx_memory_entries_scope
     ON memory_entries (scope, project_id, chat_session_id, agent_profile, surface, enabled);
 ```
 
-When `GATEWAY_CONTROL_PLANE_SECRET_KEY` is set, `body` should be encrypted with
+When `HECATE_CONTROL_PLANE_SECRET_KEY` is set, `body` should be encrypted with
 the same secret-management primitives used for stored provider credentials.
 When the key is unset, store plain UTF-8, matching the current local-dev
 posture.

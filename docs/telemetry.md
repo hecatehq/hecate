@@ -103,10 +103,10 @@ independently.
 
 Shared identity (applied to traces, metrics, and logs as a single OpenTelemetry Resource):
 
-- `GATEWAY_OTEL_SERVICE_NAME`
-- `GATEWAY_OTEL_SERVICE_VERSION`
-- `GATEWAY_OTEL_SERVICE_INSTANCE_ID` (auto-generated per process when unset)
-- `GATEWAY_OTEL_DEPLOYMENT_ENVIRONMENT` (e.g. `production`, `staging`)
+- `HECATE_OTEL_SERVICE_NAME`
+- `HECATE_OTEL_SERVICE_VERSION`
+- `HECATE_OTEL_SERVICE_INSTANCE_ID` (auto-generated per process when unset)
+- `HECATE_OTEL_DEPLOYMENT_ENVIRONMENT` (e.g. `production`, `staging`)
 - `OTEL_RESOURCE_ATTRIBUTES` is honored last and can override any of the above
 
 The runtime also auto-detects telemetry SDK, host, and process attributes
@@ -115,12 +115,12 @@ can group instances without extra wiring.
 
 Shared OTLP defaults:
 
-- `GATEWAY_OTEL_ENDPOINT`
-- `GATEWAY_OTEL_HEADERS`
-- `GATEWAY_OTEL_TIMEOUT`
-- `GATEWAY_OTEL_TRANSPORT` — `http` (default) or `grpc`
+- `HECATE_OTEL_ENDPOINT`
+- `HECATE_OTEL_HEADERS`
+- `HECATE_OTEL_TIMEOUT`
+- `HECATE_OTEL_TRANSPORT` — `http` (default) or `grpc`
 
-When `GATEWAY_OTEL_ENDPOINT` is set with `http` transport, Hecate derives
+When `HECATE_OTEL_ENDPOINT` is set with `http` transport, Hecate derives
 standard OTLP/HTTP signal endpoints by appending `/v1/traces`, `/v1/metrics`,
 and `/v1/logs`.
 With `grpc` transport, the same host:port endpoint is used for every enabled
@@ -128,45 +128,45 @@ signal. Per-signal variables below override the shared defaults.
 
 Traces:
 
-- `GATEWAY_OTEL_TRACES_ENABLED`
-- `GATEWAY_OTEL_TRACES_ENDPOINT`
-- `GATEWAY_OTEL_TRACES_HEADERS`
-- `GATEWAY_OTEL_TRACES_TIMEOUT`
-- `GATEWAY_OTEL_TRACES_TRANSPORT`
-- `GATEWAY_OTEL_TRACES_SAMPLER` — one of `always_on`, `always_off`, `traceidratio`, `parentbased_always_on` (default), `parentbased_always_off`, `parentbased_traceidratio`
-- `GATEWAY_OTEL_TRACES_SAMPLER_ARG` — float in `[0, 1]`, used by the ratio samplers
+- `HECATE_OTEL_TRACES_ENABLED`
+- `HECATE_OTEL_TRACES_ENDPOINT`
+- `HECATE_OTEL_TRACES_HEADERS`
+- `HECATE_OTEL_TRACES_TIMEOUT`
+- `HECATE_OTEL_TRACES_TRANSPORT`
+- `HECATE_OTEL_TRACES_SAMPLER` — one of `always_on`, `always_off`, `traceidratio`, `parentbased_always_on` (default), `parentbased_always_off`, `parentbased_traceidratio`
+- `HECATE_OTEL_TRACES_SAMPLER_ARG` — float in `[0, 1]`, used by the ratio samplers
 
 Metrics:
 
-- `GATEWAY_OTEL_METRICS_ENABLED`
-- `GATEWAY_OTEL_METRICS_ENDPOINT`
-- `GATEWAY_OTEL_METRICS_HEADERS`
-- `GATEWAY_OTEL_METRICS_TIMEOUT`
-- `GATEWAY_OTEL_METRICS_TRANSPORT`
-- `GATEWAY_OTEL_METRICS_INTERVAL`
-- `GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER` — optional override for histogram/counter exemplar sampling: `trace_based` (SDK default), `always_on`, or `always_off`
+- `HECATE_OTEL_METRICS_ENABLED`
+- `HECATE_OTEL_METRICS_ENDPOINT`
+- `HECATE_OTEL_METRICS_HEADERS`
+- `HECATE_OTEL_METRICS_TIMEOUT`
+- `HECATE_OTEL_METRICS_TRANSPORT`
+- `HECATE_OTEL_METRICS_INTERVAL`
+- `HECATE_OTEL_METRICS_EXEMPLAR_FILTER` — optional override for histogram/counter exemplar sampling: `trace_based` (SDK default), `always_on`, or `always_off`
 
 Logs:
 
-- `GATEWAY_OTEL_LOGS_ENABLED`
-- `GATEWAY_OTEL_LOGS_ENDPOINT`
-- `GATEWAY_OTEL_LOGS_HEADERS`
-- `GATEWAY_OTEL_LOGS_TIMEOUT`
-- `GATEWAY_OTEL_LOGS_TRANSPORT`
+- `HECATE_OTEL_LOGS_ENABLED`
+- `HECATE_OTEL_LOGS_ENDPOINT`
+- `HECATE_OTEL_LOGS_HEADERS`
+- `HECATE_OTEL_LOGS_TIMEOUT`
+- `HECATE_OTEL_LOGS_TRANSPORT`
 
 Behavior to know:
 
-- traces export only when `GATEWAY_OTEL_TRACES_ENABLED=true`
-- metrics export only when `GATEWAY_OTEL_METRICS_ENABLED=true`
-- logs export only when `GATEWAY_OTEL_LOGS_ENABLED=true`
+- traces export only when `HECATE_OTEL_TRACES_ENABLED=true`
+- metrics export only when `HECATE_OTEL_METRICS_ENABLED=true`
+- logs export only when `HECATE_OTEL_LOGS_ENABLED=true`
 - signal-specific endpoint, headers, timeout, and transport override shared settings
 - if log endpoint, headers, timeout, or transport are omitted, log export falls back to the trace signal settings
 
 Trace body capture is configured separately from OTLP export:
 
-- `GATEWAY_TRACE_BODIES`
-- `GATEWAY_TRACE_BODY_MODE`
-- `GATEWAY_TRACE_BODY_MAX_BYTES`
+- `HECATE_TRACE_BODIES`
+- `HECATE_TRACE_BODY_MODE`
+- `HECATE_TRACE_BODY_MAX_BYTES`
 
 ## Trace Context Propagation
 
@@ -334,12 +334,12 @@ Provider execution also emits attempt-level metrics. These are intentionally
 separate from finalized chat metrics: retries and failed attempts are visible
 even when a later provider recovers the request.
 
-When `GATEWAY_TRACE_BODIES=true`, the gateway also records trace events named:
+When `HECATE_TRACE_BODIES=true`, the gateway also records trace events named:
 
 - `request.body.captured`
 - `response.body.captured`
 
-By default, `GATEWAY_TRACE_BODY_MODE=metadata` records only message shape:
+By default, `HECATE_TRACE_BODY_MODE=metadata` records only message shape:
 roles, content byte counts, content-block counts, tool-call counts, model, and
 finish reasons. It does not record prompt or response text. This is the
 recommended mode for routine local debugging because it preserves request shape
@@ -347,10 +347,10 @@ without storing operator data in traces. Metadata capture is capped to the
 first 128 request messages or response choices and sets a `truncated` attribute
 when the event omits additional entries.
 
-`GATEWAY_TRACE_BODY_MODE=redacted_text` records size-capped text snapshots after
+`HECATE_TRACE_BODY_MODE=redacted_text` records size-capped text snapshots after
 heuristic secret redaction. This mode is for short-lived debugging in trusted
 local or tightly controlled observability setups. Redaction is best effort; it
-is not a data-loss-prevention boundary. `GATEWAY_TRACE_BODY_MAX_BYTES` only
+is not a data-loss-prevention boundary. `HECATE_TRACE_BODY_MAX_BYTES` only
 applies in `redacted_text` mode.
 
 ### Orchestrator Spans
@@ -438,15 +438,15 @@ Retention manager runs emit events under the `retention.run` span:
 
 The retention worker handles the following subsystems. The **subsystem name** is what the runtime exposes (in retention history rows, in `POST /hecate/v1/system/retention/run`'s `subsystems` array, and in `retention.subsystem.*` events); the **env-var prefix** is the config knob — they don't always match verbatim.
 
-| Subsystem (runtime) | Env-var prefix                        | What it prunes                                                                                                                                                                          |
-| ------------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `trace_snapshots`   | `GATEWAY_RETENTION_TRACES_`           | Per-request profiler trace snapshots                                                                                                                                                    |
-| `usage_events`      | `GATEWAY_RETENTION_USAGE_EVENTS_`     | Gateway usage event rows                                                                                                                                                                |
-| `audit_events`      | `GATEWAY_RETENTION_AUDIT_EVENTS_`     | Settings audit log                                                                                                                                                                      |
-| `provider_history`  | `GATEWAY_RETENTION_PROVIDER_HISTORY_` | Persisted provider health and failover history rows exposed by `GET /hecate/v1/providers/history`                                                                                       |
-| `turn_events`       | `GATEWAY_RETENTION_TURN_EVENTS_`      | `turn.completed` rows in the run-events table — high-cardinality bulk telemetry from agent_loop runs. Other event types (`run.started`, `run.finished`, `approval.*`) are never touched |
+| Subsystem (runtime) | Env-var prefix                       | What it prunes                                                                                                                                                                          |
+| ------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trace_snapshots`   | `HECATE_RETENTION_TRACES_`           | Per-request profiler trace snapshots                                                                                                                                                    |
+| `usage_events`      | `HECATE_RETENTION_USAGE_EVENTS_`     | Gateway usage event rows                                                                                                                                                                |
+| `audit_events`      | `HECATE_RETENTION_AUDIT_EVENTS_`     | Settings audit log                                                                                                                                                                      |
+| `provider_history`  | `HECATE_RETENTION_PROVIDER_HISTORY_` | Persisted provider health and failover history rows exposed by `GET /hecate/v1/providers/history`                                                                                       |
+| `turn_events`       | `HECATE_RETENTION_TURN_EVENTS_`      | `turn.completed` rows in the run-events table — high-cardinality bulk telemetry from agent_loop runs. Other event types (`run.started`, `run.finished`, `approval.*`) are never touched |
 
-Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TRACES_MAX_AGE=24h`). See `.env.example` for the defaults.
+Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `HECATE_RETENTION_TRACES_MAX_AGE=24h`). See `.env.example` for the defaults.
 
 ## Metrics
 
@@ -514,7 +514,7 @@ labels.
 The Go OTel SDK records metric exemplars with the trace-based filter by
 default, so histogram/counter samples recorded under a sampled trace can carry
 trace/span IDs to supporting backends. Set
-`GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER=always_on` for local collector smoke
+`HECATE_OTEL_METRICS_EXEMPLAR_FILTER=always_on` for local collector smoke
 tests when you want every sample eligible for exemplars, or `always_off` if
 your backend does not support them yet.
 
@@ -551,21 +551,21 @@ your preferred backend.
 1. Point Hecate to collector OTLP/HTTP:
 
 ```bash
-GATEWAY_OTEL_TRACES_ENABLED=true
-GATEWAY_OTEL_METRICS_ENABLED=true
-GATEWAY_OTEL_LOGS_ENABLED=true
-GATEWAY_OTEL_ENDPOINT=http://127.0.0.1:4318
-GATEWAY_OTEL_TRANSPORT=http
+HECATE_OTEL_TRACES_ENABLED=true
+HECATE_OTEL_METRICS_ENABLED=true
+HECATE_OTEL_LOGS_ENABLED=true
+HECATE_OTEL_ENDPOINT=http://127.0.0.1:4318
+HECATE_OTEL_TRANSPORT=http
 ```
 
 For OTLP/gRPC, use the collector gRPC port instead:
 
 ```bash
-GATEWAY_OTEL_TRACES_ENABLED=true
-GATEWAY_OTEL_METRICS_ENABLED=true
-GATEWAY_OTEL_LOGS_ENABLED=true
-GATEWAY_OTEL_ENDPOINT=127.0.0.1:4317
-GATEWAY_OTEL_TRANSPORT=grpc
+HECATE_OTEL_TRACES_ENABLED=true
+HECATE_OTEL_METRICS_ENABLED=true
+HECATE_OTEL_LOGS_ENABLED=true
+HECATE_OTEL_ENDPOINT=127.0.0.1:4317
+HECATE_OTEL_TRANSPORT=grpc
 ```
 
 2. Run collector with an OTLP receiver and your exporter(s), for example:
@@ -614,7 +614,7 @@ This keeps Hecate vendor-neutral and lets you change backends without touching r
 ### Secure headers and token guidance
 
 - prefer short-lived ingest credentials
-- set secrets in `GATEWAY_OTEL_*_HEADERS` via secret manager, not plaintext files
+- set secrets in `HECATE_OTEL_*_HEADERS` via secret manager, not plaintext files
 - avoid reusing provider API keys for telemetry ingest
 - rotate ingest tokens and verify by checking `last_activity_at`/error counters in runtime telemetry health
 
@@ -622,7 +622,7 @@ This keeps Hecate vendor-neutral and lets you change backends without touching r
 
 ### No traces visible in backend
 
-1. Verify `GATEWAY_OTEL_TRACES_ENABLED=true`.
+1. Verify `HECATE_OTEL_TRACES_ENABLED=true`.
 2. Check `GET /hecate/v1/system/stats` for telemetry signal error counters/messages.
 3. Confirm collector receiver endpoint and path (`/v1/traces` for OTLP/HTTP).
 4. Send a request and confirm `X-Trace-Id` is returned.
@@ -660,9 +660,9 @@ Working today:
 - ACP bridge tracing — `hecate-acp` emits JSON-RPC and gateway-client spans, and propagates trace context into gateway requests
 - Sandbox/tool trace depth — shell and file tool steps expose sandbox wrapper/policy, timeout, exit, output-size, truncation, and file patch metadata through OTel-shaped `hecate.*` attributes
 - Metric cardinality guardrails — closed-set labels collapse unknown values to `other`; free-form labels reject control characters and oversized values
-- Metric exemplar filter configuration — Hecate exposes the SDK exemplar filter through `GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER`
+- Metric exemplar filter configuration — Hecate exposes the SDK exemplar filter through `HECATE_OTEL_METRICS_EXEMPLAR_FILTER`
 - Sampler selection: `always_on` / `always_off` / `traceidratio` / `parentbased_*` (default: `parentbased_always_on`)
-- Resource attributes auto-populated (telemetry SDK, host, process; service identity from `GATEWAY_OTEL_SERVICE_*`)
+- Resource attributes auto-populated (telemetry SDK, host, process; service identity from `HECATE_OTEL_SERVICE_*`)
 - Stable span and metric vocabulary (`gen_ai.*` for OTel-standard fields, `hecate.*` for product-specific fields)
 - High-cardinality protection on `hecate.error.kind` — values outside the closed set are normalized to `other`
 
