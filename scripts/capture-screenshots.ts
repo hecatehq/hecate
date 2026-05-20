@@ -222,8 +222,7 @@ function docsAgentSession() {
   return {
     id: docsChatSessionID,
     title: "Review API docs update",
-    runtime_kind: "external_agent",
-    adapter_id: "codex",
+    agent_id: "codex",
     driver_kind: "acp",
     native_session_id: "acp_doc_42",
     workspace: "/Users/alice/dev/hecate",
@@ -465,8 +464,7 @@ async function routeAgentDocsFixtures(page: Page) {
       data: [{
         id: session.id,
         title: session.title,
-        runtime_kind: session.runtime_kind,
-        adapter_id: session.adapter_id,
+        agent_id: session.agent_id,
         driver_kind: session.driver_kind,
         native_session_id: session.native_session_id,
         workspace: session.workspace,
@@ -485,7 +483,7 @@ async function routeAgentDocsFixtures(page: Page) {
     }
     fulfillJSON(route, { object: "chat_session", data: session });
   });
-  await page.route(`${HECATE_API}/chat/sessions/${docsChatSessionID}/approvals?status=pending`, (route) => {
+  await page.route(`${HECATE_API}/chat/sessions/${docsChatSessionID}/approvals*`, (route) => {
     fulfillJSON(route, { object: "chat_approvals", data: [docsAgentApproval()] });
   });
   await page.route(`${HECATE_API}/chat/sessions/${docsChatSessionID}/approvals/${docsApprovalID}`, (route) => {

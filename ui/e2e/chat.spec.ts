@@ -772,6 +772,267 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
+test("local provider quick-add selects the first healthy detected provider with models", async ({
+  page,
+}) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockGatewayAPIs(page);
+  const createdPresets = new Set<string>();
+
+  await page.route("/hecate/v1/settings/providers", async (route) => {
+    if (route.request().method() === "POST") {
+      const body = JSON.parse(route.request().postData() ?? "{}") as { preset_id?: string };
+      if (body.preset_id) createdPresets.add(body.preset_id);
+    }
+    await route.fallback();
+  });
+  await page.route("/hecate/v1/settings/providers/local-discovery", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "local_provider_discovery",
+        data: [
+          {
+            preset_id: "lmstudio",
+            name: "LM Studio",
+            base_url: "http://127.0.0.1:1234/v1",
+            probe_url: "http://127.0.0.1:1234/v1/models",
+            status: "installed",
+            command: "lms",
+            command_available: true,
+            command_path: "/Users/alice/.lmstudio/bin/lms",
+            http_available: false,
+            model_count: 0,
+            models: [],
+          },
+          {
+            preset_id: "ollama",
+            name: "Ollama",
+            base_url: "http://127.0.0.1:11434/v1",
+            probe_url: "http://127.0.0.1:11434/api/tags",
+            status: "running",
+            command: "ollama",
+            command_available: true,
+            command_path: "/usr/local/bin/ollama",
+            http_available: true,
+            model_count: 1,
+            models: ["llama3.1:8b"],
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("/hecate/v1/providers/status*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "list",
+        data: [
+          ...(createdPresets.has("lmstudio")
+            ? [
+                {
+                  name: "lmstudio",
+                  kind: "local",
+                  healthy: false,
+                  status: "pending",
+                  default_model: "",
+                  models: [],
+                  model_count: 0,
+                },
+              ]
+            : []),
+          ...(createdPresets.has("ollama")
+            ? [
+                {
+                  name: "ollama",
+                  kind: "local",
+                  healthy: true,
+                  status: "healthy",
+                  default_model: "llama3.1:8b",
+                  models: ["llama3.1:8b"],
+                  model_count: 1,
+                },
+              ]
+            : []),
+        ],
+      }),
+    });
+  });
+  await page.route("/v1/models*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "list",
+        data: createdPresets.has("ollama")
+          ? [
+              {
+                id: "llama3.1:8b",
+                owned_by: "ollama",
+                metadata: {
+                  provider: "ollama",
+                  provider_kind: "local",
+                  default: true,
+                  capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
+                },
+              },
+            ]
+          : [],
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await expect(page.getByText("Detected locally")).toBeVisible();
+
+  await page.getByRole("button", { name: "Add selected" }).click();
+
+  await expect.poll(() => [...createdPresets].sort()).toEqual(["lmstudio", "ollama"]);
+  await expect(page.getByRole("button", { name: /provider picker/i })).toContainText("Ollama");
+  await expect(page.getByRole("button", { name: /model picker/i })).toContainText("llama3.1:8b");
+  await expect(page.getByText("No routable model")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
+});
+
+test("Hecate Chat sends direct model turns when selected model lacks tools", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.providerFilter", "ollama");
+    window.localStorage.setItem("hecate.model", "smollm2:135m");
+  });
+  await mockGatewayAPIs(page, {
+    settingsConfig: {
+      providers: [
+        {
+          id: "ollama",
+          name: "Ollama",
+          preset_id: "ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+          enabled: true,
+          credential_configured: false,
+        },
+      ],
+      tenants: [],
+      api_keys: [],
+      policy_rules: [],
+    },
+  });
+  await page.route("/hecate/v1/providers/status*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "list",
+        data: [
+          {
+            name: "ollama",
+            kind: "local",
+            healthy: true,
+            status: "healthy",
+            default_model: "smollm2:135m",
+            models: ["smollm2:135m"],
+            model_count: 1,
+          },
+        ],
+      }),
+    }),
+  );
+  await page.route("/v1/models*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "list",
+        data: [
+          {
+            id: "smollm2:135m",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              default: true,
+              capabilities: { tool_calling: "none", streaming: true, source: "provider" },
+            },
+          },
+        ],
+      }),
+    }),
+  );
+  let messagePayload: Record<string, unknown> | null = null;
+  await page.route(/\/hecate\/v1\/chat\/sessions\/[^/]+\/messages$/, async (route) => {
+    messagePayload = await route.request().postDataJSON();
+    const url = new URL(route.request().url());
+    const sessionID = decodeURIComponent(url.pathname.split("/").at(-2) ?? "chat-direct-e2e");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "chat_session",
+        data: {
+          id: sessionID,
+          title: "Hecate chat",
+          agent_id: "hecate",
+          provider: "ollama",
+          model: "smollm2:135m",
+          status: "completed",
+          message_count: 2,
+          messages: [
+            {
+              id: "direct-user-e2e",
+              execution_mode: "direct_model",
+              role: "user",
+              content: "tell a tiny joke",
+              created_at: "2026-05-14T12:00:00Z",
+            },
+            {
+              id: "direct-assistant-e2e",
+              execution_mode: "direct_model",
+              role: "assistant",
+              content: "Direct response to: tell a tiny joke",
+              status: "completed",
+              provider: "ollama",
+              model: "smollm2:135m",
+              run_id: "model_run_direct_e2e",
+              request_id: "req_direct_e2e",
+              trace_id: "trace_direct_e2e",
+              cost_mode: "hecate",
+              created_at: "2026-05-14T12:00:01Z",
+            },
+          ],
+          created_at: "2026-05-14T12:00:00Z",
+          updated_at: "2026-05-14T12:00:01Z",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await expect(page.getByRole("button", { name: /provider picker/i })).toContainText("Ollama");
+  await expect(page.getByRole("button", { name: /model picker/i })).toContainText("smollm2:135m");
+
+  await page.locator("textarea").fill("tell a tiny joke");
+  await page.locator("button[type='submit']").click();
+
+  await expect(page.locator("body")).toContainText("Direct response to: tell a tiny joke");
+  await expect(page.locator("body")).not.toContainText("agent run failed");
+  await expect
+    .poll(() => messagePayload)
+    .toMatchObject({
+      execution_mode: "direct_model",
+      provider: "ollama",
+      model: "smollm2:135m",
+    });
+});
+
 test("Hecate Agent local-provider onboarding renders the real final answer after completion", async ({
   page,
 }) => {
