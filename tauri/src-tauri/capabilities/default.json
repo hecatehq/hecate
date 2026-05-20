@@ -11,6 +11,7 @@
     "core:window:allow-start-dragging",
     "allow-set-update-badge",
     "log:default",
+    "process:allow-restart",
     "updater:default"
   ]
 }
