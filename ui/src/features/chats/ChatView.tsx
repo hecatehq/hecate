@@ -16,6 +16,7 @@ import { discoverLocalProviders } from "../../lib/api";
 import {
   modelSelectionHasNoToolCalling,
   resolveChatSetupRepairState,
+  toolCallingSupportsTaskMode,
   type ChatSetupRepairState,
 } from "../../lib/chat-setup-readiness";
 import { describeGatewayError } from "../../lib/error-diagnostics";
@@ -124,7 +125,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     setModel: chat.actions.setModel,
     setProviderFilter: chatActions.selectProviderRoute,
     setSystemPrompt: chat.actions.setSystemPrompt,
-    upsertModelCapabilityOverride: providerActions.upsertModelCapabilityOverride,
   };
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // approvalModalID is the per-banner-click open state for the
@@ -152,7 +152,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [quickLocalError, setQuickLocalError] = useState("");
   const [quickAddingProviders, setQuickAddingProviders] = useState(false);
   const [taskApprovalBusyID, setTaskApprovalBusyID] = useState("");
-  const [capabilitySaving, setCapabilitySaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const focusComposerAfterNewChatRef = useRef(false);
 
@@ -353,15 +352,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       : chatAgentOption(newChatAgentID, state.agentAdapters).label
     : selectedProviderName;
   const latestChatUsage = isAgentChat ? findLatestAgentUsage(state.activeChatSession) : null;
-  const selectedHecateModelRecord = hecateAgentModelLocked
-    ? undefined
-    : selectableModels.find(
-        (entry) =>
-          entry.id === state.model &&
-          (!state.providerFilter ||
-            state.providerFilter === "auto" ||
-            entry.metadata?.provider === state.providerFilter),
-      );
   const selectedModelIssue =
     !hecateAgentModelLocked && providerConfigLoaded && state.model && selectableModels.length > 0
       ? buildSelectedModelIssue({
@@ -372,23 +362,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           runtimeProvider: selectedRuntimeProvider,
         })
       : null;
-  const selectedModelCapabilities = hecateAgentModelLocked
-    ? state.activeChatSession?.capabilities
-    : selectedHecateModelRecord?.metadata?.capabilities;
   const hecateAgentToolsDisabledForModel = hecateAgentModelLocked
-    ? selectedModelCapabilities?.tool_calling === "none"
+    ? !toolCallingSupportsTaskMode(state.activeChatSession?.capabilities?.tool_calling)
     : modelSelectionHasNoToolCalling({
         models: selectableModels,
         providerFilter: state.providerFilter,
         model: state.model,
       });
   const hecateTaskToolsAvailable = isHecateAgentChat && !hecateAgentToolsDisabledForModel;
-  const selectedCapabilityProvider = hecateAgentModelLocked
-    ? ""
-    : state.providerFilter !== "auto"
-      ? state.providerFilter
-      : (selectedHecateModelRecord?.metadata?.provider ?? "");
-  const selectedCapabilityModel = hecateAgentModelLocked ? "" : state.model;
   const hecateChatModelReady =
     isHecateAgentChat && hecateAgentModelLocked
       ? Boolean(hecateChatModelValue)
@@ -418,7 +399,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     hasConfiguredProviders,
     modelRouteUnavailable,
     selectedModelIssue,
-    toolsDisabledForModel: hecateAgentToolsDisabledForModel,
     workspace: state.agentWorkspace,
     selectedAgentName: selectedAgent?.name,
     selectedAgentAvailable: Boolean(selectedAgent?.available),
@@ -453,25 +433,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       isHecateAgentChat &&
       (!hecateChatModelReady ||
         (!hecateAgentToolsDisabledForModel && !state.agentWorkspace.trim())));
-
-  async function enableToolsForSelectedModel() {
-    if (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving) {
-      return;
-    }
-    setCapabilitySaving(true);
-    try {
-      await actions.upsertModelCapabilityOverride({
-        provider: selectedCapabilityProvider,
-        model: selectedCapabilityModel,
-        tool_calling: "basic",
-        streaming: selectedModelCapabilities?.streaming,
-        max_context_tokens: selectedModelCapabilities?.max_context_tokens,
-        note: "Tools enabled from Hecate Chat.",
-      });
-    } finally {
-      setCapabilitySaving(false);
-    }
-  }
 
   function openAgentSetup() {
     try {
@@ -864,10 +825,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               hecateProviderOptions={hecateProviderOptions}
               hecateDisabledProviderReasons={hecateDisabledProviderReasons}
               selectableModels={selectableModels}
-              selectedCapabilityProvider={selectedCapabilityProvider}
-              selectedCapabilityModel={selectedCapabilityModel}
-              capabilitySaving={capabilitySaving}
-              enableToolsForSelectedModel={enableToolsForSelectedModel}
               chooseWorkspace={chooseWorkspace}
               openClaudeCodeSetup={openAgentSetup}
               activeHecateTaskID={activeHecateTaskID}
@@ -965,7 +922,7 @@ function buildActiveChatHeaderSubline({
   const mode = isHecateAgentChat
     ? hecateTaskToolsAvailable
       ? "Tools on"
-      : "Tools unavailable"
+      : "Direct chat"
     : "Tools off";
   return [mode, activeSession?.workspace || ""].filter(Boolean).join(" · ");
 }
@@ -974,7 +931,6 @@ function composerVisibleRepair(repair: ChatSetupRepairState | null): ChatSetupRe
   if (!repair) return null;
   switch (repair.kind) {
     case "workspace_required":
-    case "tools_disabled":
     case "external_agent_unavailable":
     case "external_agent_setup":
       return repair;
@@ -999,10 +955,7 @@ function emptyStateAlreadyShowsRepair(
   visibleMessageCount: number,
 ): boolean {
   if (!repair || visibleMessageCount > 0) return false;
-  // The tools-disabled repair needs the composer notice because that notice
-  // owns the capability-write busy/disabled state. Other empty-chat repairs
-  // already render the same copy and CTA in ChatEmptyState.
-  return repair.action !== "enable_tools";
+  return true;
 }
 
 function emptyStateAlreadyShowsModelRepair(

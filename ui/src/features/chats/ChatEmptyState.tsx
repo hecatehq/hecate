@@ -73,7 +73,6 @@ export function ChatEmptyState({
 }: Props) {
   const hecateModelUnavailable =
     isHecateChat && (modelRouteUnavailable || Boolean(selectedModelIssue));
-  const setupRepairForEmpty = setupRepair?.action === "enable_tools" ? null : setupRepair;
   const readyTitle = isExternalAgentChat
     ? `Ready for ${selectedAgent?.name || "the agent"}`
     : "Ready when you are";
@@ -89,8 +88,8 @@ export function ChatEmptyState({
           ? "Nothing runnable yet"
           : selectedModelIssue
             ? selectedModelIssue.title
-            : setupRepairForEmpty
-              ? setupRepairForEmpty.title
+            : setupRepair
+              ? setupRepair.title
               : hecateModelUnavailable
                 ? "No routable model"
                 : readyTitle;
@@ -103,12 +102,12 @@ export function ChatEmptyState({
           ? "Add a model provider or install a supported coding-agent CLI before sending a message."
           : selectedModelIssue
             ? selectedModelIssue.message
-            : setupRepairForEmpty
-              ? setupRepairForEmpty.message
+            : setupRepair
+              ? setupRepair.message
               : hecateModelUnavailable
                 ? "Add a provider with discovered models before sending through Hecate."
                 : readyDetail;
-  const emptyRepairAction = setupRepairForEmpty;
+  const emptyRepairAction = setupRepair;
 
   function runEmptyRepairAction() {
     if (!emptyRepairAction) return;
@@ -124,10 +123,6 @@ export function ChatEmptyState({
         return;
       case "open_agent_setup":
         onOpenAgentSetup();
-        return;
-      case "enable_tools":
-        // Tools-enabled repair is handled by the composer notice, where we
-        // can disable the action while capability override writes are busy.
         return;
     }
   }
@@ -165,7 +160,7 @@ export function ChatEmptyState({
         rtkAvailable &&
         !rtkEnabled &&
         !hecateModelUnavailable &&
-        !setupRepairForEmpty && <RTKOnboardingHint path={rtkPath} onEnable={onEnableRTK} />}
+        !emptyRepairAction && <RTKOnboardingHint path={rtkPath} onEnable={onEnableRTK} />}
       {(emptyRepairAction ||
         modelRouteUnavailable ||
         selectedModelIssue ||

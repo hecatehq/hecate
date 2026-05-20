@@ -151,7 +151,9 @@ test("New chat keeps an unsent draft on the active empty chat", async ({ page })
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   // The current empty chat is still the target, so an unsent draft is
   // preserved rather than discarded.
-  await expect(page.getByText("New chat").first()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Chat Hecate chat, Hecate/ }).first(),
+  ).toBeVisible();
   await expect(page.locator("textarea")).toHaveValue("some prior message");
 });
 
@@ -494,34 +496,7 @@ test("workspace selection persists across reload", async ({ page }) => {
 // Connections repair action before reaching the DOM.
 test("chat error renders inline with the humanized message", async ({ page }) => {
   await switchToModel(page);
-  await page.route("/hecate/v1/chat/sessions", async (route) => {
-    if (route.request().method() !== "POST") {
-      await route.continue();
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        object: "chat_session",
-        data: {
-          id: "chat_err_e2e",
-          title: "x",
-          agent_id: "hecate",
-          status: "created",
-          provider: "anthropic",
-          model: "claude-sonnet-4-6",
-          messages: [],
-          created_at: "2026-04-21T00:00:00Z",
-          updated_at: "2026-04-21T00:00:00Z",
-        },
-      }),
-    });
-  });
-  await page.route("/hecate/v1/chat/sessions/chat_err_e2e/stream", (route) =>
-    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
-  );
-  await page.route("/hecate/v1/chat/sessions/chat_err_e2e/messages", (route) =>
+  await page.route(/\/hecate\/v1\/chat\/sessions\/[^/]+\/messages$/, (route) =>
     route.fulfill({
       status: 400,
       contentType: "application/json",
@@ -820,7 +795,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
             metadata: {
               provider: "lm-studio",
               provider_kind: "local",
-              capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+              capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
             },
           },
         ],
@@ -846,7 +821,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
         agent_id: "hecate",
         provider: body.provider || "",
         model: body.model || "qwen2.5",
-        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
         workspace: body.workspace,
         status: "created",
         message_count: 0,
@@ -1010,7 +985,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
             metadata: {
               provider: "lmstudio",
               provider_kind: "local",
-              capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+              capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
             },
           },
         ],
@@ -1083,7 +1058,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
         agent_id: body.agent_id || "hecate",
         provider: body.provider || "",
         model: body.model || "qwen2.5",
-        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
         workspace: body.workspace,
         status: "created",
         message_count: 0,
@@ -1224,7 +1199,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       ...session,
       provider: body.provider || "",
       model: body.model,
-      capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+      capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
       workspace: body.workspace || "/tmp/hecate-e2e-workspace",
       task_id: isHecateAgent ? taskID : session?.task_id,
       latest_run_id: isHecateAgent ? runID : session?.latest_run_id,
@@ -1326,7 +1301,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
     agent_id: "hecate",
     provider: "lmstudio",
     model: "qwen2.5",
-    capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+    capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
     workspace: "/tmp/hecate-e2e-workspace",
     task_id: "task-busy-e2e",
     latest_run_id: "run-busy-e2e",
@@ -1400,7 +1375,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
             metadata: {
               provider: "lmstudio",
               provider_kind: "local",
-              capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+              capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
             },
           },
         ],
@@ -1496,7 +1471,7 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
     agent_id: "hecate",
     provider: "lmstudio",
     model: "qwen2.5",
-    capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+    capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
     workspace: "/tmp/hecate-e2e-workspace",
     task_id: "task-approval-refresh-e2e",
     latest_run_id: "run-approval-refresh-e2e",
@@ -1611,7 +1586,7 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
             metadata: {
               provider: "lmstudio",
               provider_kind: "local",
-              capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+              capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
             },
           },
         ],

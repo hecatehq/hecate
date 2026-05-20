@@ -509,17 +509,9 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cpState, err := h.settingsState(ctx)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
 	data := make([]OpenAIModelData, 0, len(result.Models))
 	for _, model := range result.Models {
-		caps := model.Capabilities
-		if caps.ToolCalling == "" {
-			caps = modelcaps.Resolve(model.Provider, model.Kind, model.ID, model.DiscoverySource, cpState)
-		}
+		caps := modelcaps.ResolveWithProviderCapability(model.Provider, model.Kind, model.ID, model.DiscoverySource, model.Capabilities)
 		data = append(data, OpenAIModelData{
 			ID:      model.ID,
 			Object:  "model",

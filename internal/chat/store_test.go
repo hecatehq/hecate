@@ -29,7 +29,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 		LatestRunID:     "run_chat_1",
 		Provider:        "openai",
 		Model:           "gpt-4o-mini",
-		Capabilities:    types.ModelCapabilities{ToolCalling: "basic", Streaming: true, MaxContextTokens: 128000, Source: "operator_override"},
+		Capabilities:    types.ModelCapabilities{ToolCalling: "basic", Streaming: true, MaxContextTokens: 128000, Source: "provider"},
 		Workspace:       "/tmp/hecate",
 		WorkspaceBranch: "main",
 	})
@@ -70,7 +70,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 		RunID:         "agent_run_1",
 		Provider:      "openai",
 		Model:         "gpt-4o-mini",
-		Capabilities:  types.ModelCapabilities{ToolCalling: "basic", Streaming: true, Source: "operator_override"},
+		Capabilities:  types.ModelCapabilities{ToolCalling: "basic", Streaming: true, Source: "provider"},
 		Role:          "assistant",
 		Content:       "running",
 		AgentID:       DefaultAgentID,
@@ -141,7 +141,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.AgentID != DefaultAgentID || got.TaskID != "task_chat_1" || got.LatestRunID != "run_chat_1" {
 		t.Fatalf("persisted linkage = agent %q task %q run %q", got.AgentID, got.TaskID, got.LatestRunID)
 	}
-	if got.Provider != "openai" || got.Model != "gpt-4o-mini" || got.Capabilities.ToolCalling != "basic" || got.Capabilities.Source != "operator_override" {
+	if got.Provider != "openai" || got.Model != "gpt-4o-mini" || got.Capabilities.ToolCalling != "basic" || got.Capabilities.Source != "provider" {
 		t.Fatalf("persisted model snapshot = provider %q model %q caps %+v", got.Provider, got.Model, got.Capabilities)
 	}
 	if got.Messages[1].RawOutput == "" || got.Messages[1].TraceID != "trace_agent" || len(got.Messages[1].Activities) != 2 {

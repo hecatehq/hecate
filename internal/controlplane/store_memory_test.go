@@ -59,11 +59,6 @@ func TestMemoryStore_ProviderUpsertAndDelete(t *testing.T) {
 	}
 }
 
-func TestMemoryStore_ModelCapabilityLifecycle(t *testing.T) {
-	t.Parallel()
-	runStoreModelCapabilityLifecycle(t, NewMemoryStore())
-}
-
 func TestMemoryStore_Prune(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryStore()

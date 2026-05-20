@@ -100,6 +100,17 @@ describe("ChatView input", () => {
     const { state, actions } = setup(
       {
         chatTarget: "model",
+        providerScopedModels: [
+          {
+            id: "gpt-4o-mini",
+            owned_by: "openai",
+            metadata: {
+              provider: "openai",
+              provider_kind: "cloud",
+              capabilities: { tool_calling: "basic" },
+            },
+          },
+        ],
         activeChatSessionID: "chat_1",
         activeChatSession: {
           id: "chat_1",
@@ -107,6 +118,7 @@ describe("ChatView input", () => {
           title: "Repo work",
           provider: "openai",
           model: "gpt-4o-mini",
+          capabilities: { tool_calling: "basic" },
           workspace: "/workspace",
           status: "completed",
           messages: [],
@@ -1223,7 +1235,7 @@ describe("ChatView input", () => {
           metadata: {
             provider: "ollama",
             provider_kind: "local",
-            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+            capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
           },
         },
       ],
@@ -1295,7 +1307,7 @@ describe("ChatView input", () => {
           metadata: {
             provider: "ollama",
             provider_kind: "local",
-            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+            capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
           },
         },
         {
@@ -1317,7 +1329,7 @@ describe("ChatView input", () => {
         latest_run_id: "run_hecate_abcdef",
         provider: "ollama",
         model: "qwen2.5-coder",
-        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
         workspace: "/tmp/hecate",
         status: "completed",
         messages: [],
@@ -1389,7 +1401,7 @@ describe("ChatView input", () => {
             metadata: {
               provider: "ollama",
               provider_kind: "local",
-              capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+              capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
             },
           },
           {
@@ -1411,7 +1423,7 @@ describe("ChatView input", () => {
           latest_run_id: "run_hecate_abcdef",
           provider: "ollama",
           model: "qwen2.5-coder",
-          capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
           workspace: "/tmp/hecate",
           status: "completed",
           messages: [],
@@ -1482,7 +1494,7 @@ describe("ChatView input", () => {
           metadata: {
             provider: "local-ollama",
             provider_kind: "local",
-            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+            capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
           },
         },
       ],
@@ -1549,7 +1561,7 @@ describe("ChatView input", () => {
         latest_run_id: "run_hecate_abcdef",
         provider: "ollama",
         model: "qwen2.5-coder",
-        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
         workspace: "/tmp/hecate",
         status: "running",
         messages: [],
@@ -1746,7 +1758,7 @@ describe("ChatView input", () => {
           metadata: {
             provider: "ollama",
             provider_kind: "local",
-            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+            capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
           },
         },
       ],
@@ -1763,7 +1775,6 @@ describe("ChatView input", () => {
   });
 
   it("keeps Hecate Chat sendable when tools are explicitly unavailable for the model", async () => {
-    const upsertModelCapabilityOverride = vi.fn(async () => true);
     const submitChat = vi.fn(async () => undefined);
     const { state, actions } = setup(
       {
@@ -1785,31 +1796,59 @@ describe("ChatView input", () => {
             metadata: {
               provider: "ollama",
               provider_kind: "local",
-              capabilities: { tool_calling: "none", streaming: true, source: "operator_override" },
+              capabilities: { tool_calling: "none", streaming: true, source: "provider" },
             },
           },
         ],
       },
-      { submitChat, upsertModelCapabilityOverride },
+      { submitChat },
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.getByText(/Tools are unavailable for this model/)).toBeTruthy();
+    expect(screen.queryByText(/Tools are unavailable for this model/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enable tools" })).toBeNull();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Enable tools" }));
-    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider: "ollama",
-        model: "llama3.1:8b",
-        tool_calling: "basic",
-        note: "Tools enabled from Hecate Chat.",
-      }),
-    );
     await user.click(send);
     expect(submitChat).toHaveBeenCalled();
+  });
+
+  it("keeps Hecate Chat sendable when local model tool support is unknown", () => {
+    const submitChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        message: "tell a joke",
+        agentWorkspace: "/tmp/hecate",
+        settingsConfig: {
+          backend: "memory",
+          providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
+          policy_rules: [],
+          events: [],
+        },
+        providerFilter: "ollama",
+        model: "smollm2:135m",
+        providerScopedModels: [
+          {
+            id: "smollm2:135m",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+            },
+          },
+        ],
+      },
+      { submitChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.queryByText(/Tools are unavailable for this model/)).toBeNull();
+    const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
   });
 
   it("opens the backing task from the Hecate Chat assistant turn, not the header", async () => {

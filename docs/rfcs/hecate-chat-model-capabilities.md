@@ -43,7 +43,7 @@ requirements after the baseline bridge are:
 - local composer queueing while a backing task is busy _(implemented)_
 - task workspace modes exposed in the Hecate Agent chat setup
 - named Hecate Agent profiles
-- automatic capability probing with explicit operator control
+- richer automatic capability detection with visible status
 
 ## Why
 
@@ -94,30 +94,26 @@ type ModelCapabilities = {
   tool_calling: "unknown" | "none" | "basic" | "parallel";
   streaming?: boolean;
   max_context_tokens?: number;
-  source: "unknown" | "catalog" | "provider" | "probe" | "operator_override";
+  source: "unknown" | "catalog" | "provider";
 };
 ```
 
 Capability sources merge with this precedence:
 
-1. **Operator override**: explicit setting in Hecate wins.
-2. **Manual probe result**: operator records a known test result.
-3. **Catalog default**: Hecate-shipped metadata for known provider/model
+1. **Provider-discovered capabilities**: provider-native metadata wins when
+   available (for example Ollama's native `/api/show` capability list).
+2. **Catalog default**: Hecate-shipped metadata for known provider/model
    families.
-4. **Provider-discovered existence**: provider says the model exists but not
+3. **Provider-discovered existence**: provider says the model exists but not
    necessarily what it can do.
-5. **Unknown local/custom default**: local/custom models default to
+4. **Unknown local/custom default**: local/custom models default to
    `tool_calling="unknown"` until proven otherwise.
 
-Manual controls are explicit:
-
-- `PUT /hecate/v1/model-capabilities/overrides`
-- `DELETE /hecate/v1/model-capabilities/overrides?provider=...&model=...`
-- `POST /hecate/v1/model-capabilities/probes`
-
 `GET /v1/models` includes the effective capability snapshot in
-`metadata.capabilities` so the UI can render badges and disable Hecate Agent
-when tool support is unknown or absent.
+`metadata.capabilities` so the UI can render badges and decide whether a
+tools-on Hecate Chat turn should create a task-backed segment or fall back to
+direct model chat. The operator chooses tools per chat; there is no global
+model-capability override UI or API in the current implementation.
 
 ### Automatic probing
 
@@ -133,14 +129,13 @@ Automatic probes should:
 3. Never execute a tool or mutate a workspace.
 4. Respect a per-provider cooldown so the gateway does not probe every page
    load.
-5. Persist results as `source="probe"` with timestamp, provider, model, probe
+5. Persist results as provider/catalog metadata with timestamp, provider, model, probe
    status, and any safe error summary.
 6. Surface probe state in Connections and the model picker: unknown, testing,
    tools supported, no tools, failed.
 7. Let operators disable automatic probes globally or per provider/model.
 
-Manual override still wins over automatic probe. A failed probe must not
-overwrite an explicit operator override.
+A failed probe must not override a provider-native capability result.
 
 ## Hecate Agent Sessions
 
@@ -201,9 +196,8 @@ creation time. Profile edits should not silently rewrite historical sessions.
 
 For `execution_mode="hecate_task"` the first user message:
 
-1. Validates that tools are not explicitly disabled for the selected model
-   (`tool_calling!="none"`). Unknown models are allowed by default for now;
-   Connections provides the operator-facing tools on/off switch.
+1. Validates that the selected model is known tool-capable
+   (`tool_calling="basic"` or `parallel`).
 2. Applies the selected Hecate Agent profile.
 3. Creates a visible task with `execution_kind="agent_loop"`.
 4. Marks the task origin as `origin_kind="chat"` and
@@ -229,7 +223,7 @@ The operator UI may also keep a local FIFO for prompts typed while the backing
 task is busy. That queue is a UX layer above the API invariant: queued prompts
 are not persisted until the UI submits them after the active task settles.
 
-If tools are explicitly disabled for the selected model and the client still
+If the selected model is not known to support tools and the client still
 requests `execution_mode="hecate_task"`, the message endpoint returns:
 
 ```text
@@ -239,13 +233,13 @@ requests `execution_mode="hecate_task"`, the message endpoint returns:
 The API copy is:
 
 ```text
-Tools are unavailable for this model. Continue with direct model chat or enable tools in Connections.
+Tools are unavailable for this model. Send as direct model chat or choose a tool-capable model.
 ```
 
-The operator UI should normally avoid this server error: when the selected model
-is explicitly `tool_calling="none"`, Hecate Chat keeps the composer sendable and
-starts a direct model segment instead. The UI still shows a repair affordance to
-enable/test tool support in Connections.
+The operator UI should normally avoid this server error: when the selected
+model's tool support is `unknown` or `none`, Hecate Chat keeps the composer
+sendable and starts a direct model segment instead. The UI should use a compact
+capability hint plus the model picker, not a global "enable tools" override.
 
 ## Workspace Modes
 
@@ -327,8 +321,9 @@ Hecate | Codex | Claude Code | Cursor
 - **tools off** — direct provider/model chat. It keeps today's route/cost/cache
   / trace metadata and model-chat persistence.
 - **tools on** — Hecate Agent. This is the default. The selected
-  provider/model enters Hecate's native task runtime unless the model is
-  explicitly marked "tools off" in Connections.
+  provider/model enters Hecate's native task runtime when it is known to
+  support tools; otherwise the next prompt falls back to direct model chat with
+  a visible capability hint.
 
 ### Hecate Agent
 
@@ -347,10 +342,13 @@ Shows:
 - pending task approvals with Approve / Deny actions
 
 Task-backed sends are disabled unless a workspace is selected. If the selected
-model has `tool_calling="none"`, Hecate Chat should keep normal chat available:
-the next send starts a direct model segment, the tools indicator reports that
-tools are unavailable for the selected model, and repair copy points to
-Connections for capability override/probe controls.
+model is not known to support tools (`tool_calling` is `unknown` or `none`),
+Hecate Chat should keep normal chat available: the next send starts a direct
+model segment, the tools indicator reports that tools are unavailable for the
+selected model, and repair copy points to choosing a known tool-capable model.
+Provider-discovered capability data, such as Ollama's native model metadata,
+should narrow the unknown state without introducing a global per-model tools
+override.
 
 When a task-backed Hecate Chat segment is running, provider/model controls are
 locked to that segment's snapshot and the chat composer treats the whole session
@@ -381,9 +379,6 @@ and exposes external-agent approvals.
 
 Memory and SQLite must persist:
 
-- capability overrides
-- manual probe results
-- automatic probe results
 - Hecate Agent profiles
 - selected `agent_profile_id`
 - `agent_id`
@@ -405,17 +400,16 @@ run even if the profile changes later.
 
 Minimum coverage:
 
-- Capability precedence: override > probe > catalog > provider existence >
-  unknown local default.
+- Capability precedence: provider-discovered metadata > catalog > provider
+  existence > unknown local default.
 - `/v1/models` includes capability metadata.
-- Override/probe endpoints persist and affect `/v1/models`.
 - Task-backed Hecate Chat first message creates a visible task/run.
 - Task-backed Hecate Chat follow-up continues the same task after the latest run is
   terminal.
 - Busy backing runs return `409 chat.agent_session_busy`.
 - Explicit `hecate_task` requests against models with disabled tools return
   `422 chat.model_capability_required`.
-- Memory/SQLite parity for capability records and new session fields.
+- Memory/SQLite parity for new session fields.
 - UI target picker, tools on/off switches, tools-unavailable direct fallback,
   and task/run links.
 - Task-backed Hecate Chat run activity projection from task-run SSE into Chats.
@@ -425,8 +419,7 @@ Minimum coverage:
 - Workspace mode selection and task creation parity.
 - Agent profile CRUD, profile selection, session snapshotting, and built-in
   default profile behavior.
-- Automatic probe scheduling, cooldown, persistence, disabled-probe behavior,
-  and override precedence.
+- Richer provider-native capability detection, cooldown, and failure behavior.
 
 ## Implementation Status
 
@@ -435,8 +428,8 @@ Done in the core bridge:
 - agent picker exposes Hecate plus built-in external adapters, with a tools
   toggle inside Hecate for direct model chat vs. Hecate Agent execution
 - Hecate Agent creates and continues visible `agent_loop` tasks
-- model capability snapshots gate only explicitly disabled tools
-- manual probe records and operator overrides persist
+- provider/catalog model capability snapshots choose whether tools-on turns run
+  through the task runtime or fall back to direct model chat
 - chat sessions store task/run linkage
 - Tasks labels chat-origin tasks and links back to Chats; Hecate Agent
   assistant turns link back to their backing Task/run
@@ -478,7 +471,8 @@ The missing stable-scope pieces should land in this order:
    snapshot on each session so history remains explainable.
 3. **Automatic probing.** Add bounded, visible capability probes for configured
    models so local/custom providers can become eligible without manual edits.
-   Overrides still win, and probes must not execute tools or mutate workspaces.
+   Probes must not execute tools or mutate workspaces, and provider-native
+   capability metadata remains the stronger source when it is available.
 4. **E2E hardening.** Extend the existing browser paths to cover workspace
    modes, profiles, automatic capability detection, refresh/reconnect edges,
    and long mixed chats with queued prompts.
@@ -499,9 +493,10 @@ The missing stable-scope pieces should land in this order:
 ## Decision Bias
 
 Prefer explicit capability records over magic. Hecate should not infer
-"agentness" from a model name. It should know what a model can do and show
-that clearly to the operator. During alpha, Hecate blocks tools-on execution
-only when a model is explicitly marked `tool_calling="none"`; unknown
-local/custom models stay visibly unknown until the operator records a probe or
-override. Before stable, automatic probing should make that unknown state much
-rarer without silently overwriting operator intent.
+"agentness" from a model name when a provider can give stronger metadata. It
+should know what a model can do and show that clearly to the operator. During
+alpha, task-backed tools-on execution requires a known tool-capable value
+(`basic` or `parallel`); unknown local/custom models stay visibly unknown and
+fall back to direct model chat until provider metadata or a safe probe marks
+them tool-capable. Before stable, automatic probing should make that unknown
+state much rarer without silently overwriting provider-native facts.

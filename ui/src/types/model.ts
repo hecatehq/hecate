@@ -17,18 +17,7 @@ export type ModelCapabilitiesRecord = {
   tool_calling?: "unknown" | "none" | "basic" | "parallel" | string;
   streaming?: boolean;
   max_context_tokens?: number;
-  source?: "unknown" | "catalog" | "provider" | "probe" | "operator_override" | string;
-  note?: string;
-  updated_at?: string;
-};
-
-export type ModelCapabilityRecord = {
-  provider: string;
-  model: string;
-  tool_calling: "unknown" | "none" | "basic" | "parallel" | string;
-  streaming?: boolean;
-  max_context_tokens?: number;
-  source?: "unknown" | "catalog" | "provider" | "probe" | "operator_override" | string;
+  source?: "unknown" | "catalog" | "provider" | string;
   note?: string;
   updated_at?: string;
 };
@@ -46,11 +35,6 @@ export type ModelReadinessRecord = {
   provider_status?: string;
   provider_blocked_reason?: string;
   suggested_models?: string[];
-};
-
-export type ModelCapabilityResponse = {
-  object: string;
-  data: ModelCapabilityRecord;
 };
 
 export type ModelResponse = {

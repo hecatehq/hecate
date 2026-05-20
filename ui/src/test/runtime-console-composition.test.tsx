@@ -425,8 +425,8 @@ describe("useRuntimeConsole", () => {
       agent_id: "hecate",
       provider: "ollama",
       model: "llama3.1:8b",
-      workspace: "/tmp/hecate",
     });
+    expect(createBody).not.toHaveProperty("workspace");
     expect(result.current.state.activeChatSessionID).toBe("chat_ollama");
     expect(result.current.state.chatError).toBe("");
   });
@@ -473,7 +473,11 @@ describe("useRuntimeConsole", () => {
               {
                 id: "llama3.1:8b",
                 owned_by: "ollama",
-                metadata: { provider: "ollama", provider_kind: "local" },
+                metadata: {
+                  provider: "ollama",
+                  provider_kind: "local",
+                  capabilities: { tool_calling: "basic", streaming: true },
+                },
               },
             ],
           }),
@@ -3115,7 +3119,7 @@ describe("humanizeChatError", () => {
       "Choose a workspace before using Hecate Chat tools or External Agent.",
     );
     expect(humanizeChatError("tool calling support is unknown")).toBe(
-      "This model is not marked as tool-capable. Send directly, test it, or enable tools in Connections → Model capabilities.",
+      "This model is not marked as tool-capable. Hecate will send directly; choose a tool-capable model for task-backed turns.",
     );
     expect(
       humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'),

@@ -27,16 +27,16 @@ func (e modelReadinessError) Unwrap() error {
 }
 
 func (h *Handler) resolveModelCapabilities(ctx context.Context, provider, model string) (types.ModelCapabilities, error) {
+	provider = strings.TrimSpace(provider)
+	if strings.EqualFold(provider, "auto") {
+		provider = ""
+	}
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return types.ModelCapabilities{}, fmt.Errorf("model is required")
 	}
-	state, err := h.settingsState(ctx)
-	if err != nil {
-		return types.ModelCapabilities{}, err
-	}
 	if h.service == nil {
-		return modelcaps.Resolve(provider, "", model, "", state), nil
+		return modelcaps.Resolve(provider, "", model, ""), nil
 	}
 	result, err := h.service.ListModels(ctx)
 	if err != nil {
@@ -49,7 +49,7 @@ func (h *Handler) resolveModelCapabilities(ctx context.Context, provider, model 
 		if !strings.EqualFold(item.ID, model) {
 			continue
 		}
-		return modelcaps.Resolve(item.Provider, item.Kind, item.ID, item.DiscoverySource, state), nil
+		return modelcaps.ResolveWithProviderCapability(item.Provider, item.Kind, item.ID, item.DiscoverySource, item.Capabilities), nil
 	}
 	if provider == "" {
 		err := fmt.Errorf("model %q is not available from any configured provider", model)

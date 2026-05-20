@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   modelSelectionHasNoToolCalling,
   resolveChatSetupRepairState,
+  toolCallingSupportsTaskMode,
 } from "./chat-setup-readiness";
 
 describe("resolveChatSetupRepairState", () => {
@@ -10,7 +11,6 @@ describe("resolveChatSetupRepairState", () => {
     hasConfiguredProviders: true,
     modelRouteUnavailable: false,
     selectedModelIssue: null,
-    toolsDisabledForModel: false,
     workspace: "/repo",
     selectedAgentAvailable: true,
     anyAgentAvailable: true,
@@ -53,20 +53,6 @@ describe("resolveChatSetupRepairState", () => {
       action: "use_suggested_model",
       actionLabel: "Use gpt-4o-mini",
       suggestedModel: "gpt-4o-mini",
-    });
-  });
-
-  it("warns when tools are unavailable for the selected model", () => {
-    const repair = resolveChatSetupRepairState({
-      ...base,
-      target: "agent",
-      toolsDisabledForModel: true,
-    });
-
-    expect(repair).toMatchObject({
-      kind: "tools_disabled",
-      action: "enable_tools",
-      title: "Tools are unavailable for this model",
     });
   });
 
@@ -161,5 +147,34 @@ describe("modelSelectionHasNoToolCalling", () => {
         ],
       }),
     ).toBe(false);
+  });
+
+  it("returns true for unknown tool support so the turn falls back to direct chat", () => {
+    expect(
+      modelSelectionHasNoToolCalling({
+        model: "smollm2:135m",
+        providerFilter: "ollama",
+        models: [
+          {
+            id: "smollm2:135m",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              capabilities: { tool_calling: "unknown" },
+            },
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("toolCallingSupportsTaskMode", () => {
+  it("requires a known tool-capable value", () => {
+    expect(toolCallingSupportsTaskMode("basic")).toBe(true);
+    expect(toolCallingSupportsTaskMode("parallel")).toBe(true);
+    expect(toolCallingSupportsTaskMode("unknown")).toBe(false);
+    expect(toolCallingSupportsTaskMode("none")).toBe(false);
+    expect(toolCallingSupportsTaskMode(undefined)).toBe(false);
   });
 });

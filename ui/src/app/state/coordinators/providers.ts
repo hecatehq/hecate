@@ -1,5 +1,5 @@
-// Providers coordinator: provider CRUD + model capability override
-// operations. These coordinate across the settings local state
+// Providers coordinator: provider CRUD operations. These coordinate
+// across the settings local state
 // (settingsConfig, settingsError, notice) AND the providersAndModels
 // + chat slices, so the hook accepts the settings layer's bridges
 // as parameters and reads the slice state directly.
@@ -15,16 +15,12 @@ import { useContext } from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import {
-  type ModelCapabilityUpsertPayload,
   createProvider as createProviderRequest,
-  deleteModelCapabilityOverride as deleteModelCapabilityOverrideRequest,
   deleteProvider as deleteProviderRequest,
-  recordModelCapabilityProbe as recordModelCapabilityProbeRequest,
   setProviderAPIKey as setProviderAPIKeyRequest,
   setProviderBaseURL as setProviderBaseURLRequest,
   setProviderCustomName as setProviderCustomNameRequest,
   setProviderName as setProviderNameRequest,
-  upsertModelCapabilityOverride as upsertModelCapabilityOverrideRequest,
 } from "../../../lib/api";
 import { defaultModelForProvider, defaultProviderForChat } from "../../runtimeConsoleChatHelpers";
 import { useChat } from "../chat";
@@ -167,58 +163,6 @@ export function useProviderActions(params: UseProviderActionsParams) {
     await params.loadDashboard();
   }
 
-  async function upsertModelCapabilityOverride(
-    payload: ModelCapabilityUpsertPayload,
-  ): Promise<boolean> {
-    try {
-      await upsertModelCapabilityOverrideRequest(payload);
-      await params.loadDashboard();
-      params.setNoticeMessage("success", "Model capability override saved.");
-      return true;
-    } catch (error) {
-      params.setNoticeMessage(
-        "error",
-        error instanceof Error ? error.message : "Failed to save model capability override.",
-      );
-      return false;
-    }
-  }
-
-  async function recordModelCapabilityProbe(
-    payload: ModelCapabilityUpsertPayload,
-  ): Promise<boolean> {
-    try {
-      await recordModelCapabilityProbeRequest(payload);
-      await params.loadDashboard();
-      params.setNoticeMessage("success", "Manual capability result recorded.");
-      return true;
-    } catch (error) {
-      params.setNoticeMessage(
-        "error",
-        error instanceof Error ? error.message : "Failed to record capability result.",
-      );
-      return false;
-    }
-  }
-
-  async function deleteModelCapabilityOverride(
-    provider: string,
-    modelName: string,
-  ): Promise<boolean> {
-    try {
-      await deleteModelCapabilityOverrideRequest(provider, modelName);
-      await params.loadDashboard();
-      params.setNoticeMessage("success", "Model capability override cleared.");
-      return true;
-    } catch (error) {
-      params.setNoticeMessage(
-        "error",
-        error instanceof Error ? error.message : "Failed to clear model capability override.",
-      );
-      return false;
-    }
-  }
-
   const overrides = useContext(CoordinatorOverridesContext);
   return applyOverride(
     {
@@ -228,9 +172,6 @@ export function useProviderActions(params: UseProviderActionsParams) {
       setProviderBaseURL,
       setProviderName,
       setProviderCustomName,
-      upsertModelCapabilityOverride,
-      recordModelCapabilityProbe,
-      deleteModelCapabilityOverride,
     },
     overrides?.providers,
   );

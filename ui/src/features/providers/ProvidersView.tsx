@@ -545,28 +545,23 @@ export function ProvidersView() {
 
         {configuredProviders.length === 0 ? (
           <div
+            className="card"
             style={{
               display: "flex",
-              flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              minHeight: 280,
-              gap: 0,
+              padding: "14px 16px",
+              textAlign: "center",
             }}
           >
-            <div style={{ fontSize: 14, color: "var(--t1)", fontWeight: 500 }}>
-              No model providers configured
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, color: "var(--t1)", fontWeight: 500 }}>
+                No model providers configured
+              </div>
+              <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 4 }}>
+                Add a local or cloud provider to start routing requests
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 6 }}>
-              Add a local or cloud provider to start routing requests
-            </div>
-            <button
-              className="btn btn-primary btn-sm"
-              style={{ marginTop: 16 }}
-              onClick={() => setAddProviderOpen(true)}
-            >
-              Add provider
-            </button>
           </div>
         ) : (
           <>
@@ -576,7 +571,7 @@ export function ProvidersView() {
           </>
         )}
 
-        <div style={{ marginTop: configuredProviders.length === 0 ? 28 : 8 }}>
+        <div style={{ marginTop: configuredProviders.length === 0 ? 16 : 8 }}>
           <ConnectionsPanel showProviderSummary={false} />
         </div>
       </div>

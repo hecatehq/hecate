@@ -691,10 +691,14 @@ GET /v1/models
 ```
 
 `capabilities.tool_calling` is one of `unknown`, `none`, `basic`, or
-`parallel`. Hecate Chat treats tools as on by default and only blocks a model
-when the effective value is `none`. Local/custom models often report
-`unknown`; operators can use Connections → Model capabilities to explicitly turn
-tools on or off for a provider/model pair.
+`parallel`. Task-backed Hecate Chat requires a known tool-capable value
+(`basic` or `parallel`). When tools are on but the selected model is
+`unknown` or `none`, the operator UI keeps normal chat available by sending the
+turn as direct model chat and showing a compact capability hint. Local/custom
+OpenAI-compatible providers often report `unknown`; Ollama models are enriched
+from the native `/api/show` capability list when available. Tool usage is a
+per-chat setting; model capability metadata is observed from provider/catalog
+data rather than edited globally.
 
 `metadata.readiness` is the backend-owned provider/model readiness snapshot for
 that discovered row. Chats should use it before sending instead of inferring
@@ -703,62 +707,6 @@ provider is credential-blocked, circuit-open, disabled, or otherwise not
 routable. When `ready=false`, show `message` and `operator_action` directly and
 use `reason`, `provider_status`, `provider_blocked_reason`, and
 `suggested_models` for compact diagnostics.
-
-### `PUT /hecate/v1/model-capabilities/overrides`
-
-Stores an operator override for a provider/model capability record. Overrides
-win over manual probe results, catalog defaults, and provider-discovered
-metadata.
-
-```json
-PUT /hecate/v1/model-capabilities/overrides
-{
-  "provider": "ollama",
-  "model": "qwen2.5-coder",
-  "tool_calling": "basic",
-  "streaming": true,
-  "max_context_tokens": 32768,
-  "note": "Validated locally with a tool-call prompt."
-}
-
-→ 200
-{
-  "object": "model_capability",
-  "data": {
-    "provider": "ollama",
-    "model": "qwen2.5-coder",
-    "tool_calling": "basic",
-    "streaming": true,
-    "max_context_tokens": 32768,
-    "source": "operator_override",
-    "note": "Validated locally with a tool-call prompt.",
-    "updated_at": "2026-05-05T10:00:00Z"
-  }
-}
-```
-
-`tool_calling` must be `none`, `basic`, or `parallel` for overrides. Use
-`DELETE /hecate/v1/model-capabilities/overrides?provider=...&model=...` to remove an
-operator override and fall back to the next capability source.
-
-### `POST /hecate/v1/model-capabilities/probes`
-
-Records a manual probe result. Hecate does not run background capability probes
-in this version; this endpoint persists an operator-supplied result after the
-operator has tested the model.
-
-```json
-POST /hecate/v1/model-capabilities/probes
-{
-  "provider": "ollama",
-  "model": "qwen2.5-coder",
-  "tool_calling": "basic",
-  "note": "Manual tool-call probe succeeded."
-}
-```
-
-Manual probe results lose to operator overrides and win over catalog/provider
-defaults.
 
 ### `GET /hecate/v1/agent-adapters`
 
@@ -1056,7 +1004,7 @@ GET /hecate/v1/chat/sessions
       "capabilities": {
         "tool_calling": "basic",
         "streaming": true,
-        "source": "operator_override"
+        "source": "provider"
       },
       "status": "completed",
       "rtk_enabled": true,
@@ -1124,7 +1072,7 @@ POST /hecate/v1/chat/sessions
     "capabilities": {
       "tool_calling": "basic",
       "streaming": true,
-      "source": "operator_override"
+      "source": "provider"
     },
     "status": "idle",
     "rtk_enabled": false,
@@ -1408,19 +1356,19 @@ envelope.
 
 Chat execution errors:
 
-| Status | `error.type`                     | Meaning                                                                                                                                                                                  |
-| ------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `400`  | `chat.workspace_required`        | Task-backed Hecate Chat turns and External Agent sessions need a selected workspace path before the first turn.                                                                          |
-| `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or task-backed turns.                                                                                                   |
-| `400`  | `chat.agent_id_invalid`          | The requested session owner is not `hecate` and does not match a registered external-agent adapter.                                                                                      |
-| `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `direct_model`, `hecate_task`, or `external_agent`.                                                                                      |
-| `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                         |
-| `400`  | `chat.adapter_not_found`         | The selected external-agent adapter is not registered.                                                                                                                                   |
-| `409`  | `chat.agent_session_busy`        | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session. |
-| `409`  | `chat.session_stopping`          | The session is still cancelling or closing; retry after it settles.                                                                                                                      |
-| `409`  | `chat.session_not_running`       | A stop request was issued when no run was active.                                                                                                                                        |
-| `422`  | `model_not_configured`           | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery.                                                      |
-| `422`  | `chat.model_capability_required` | A task-backed Hecate Chat turn was explicitly requested, but tools are unavailable for the selected model. Continue with direct model chat or enable tools in Connections.               |
+| Status | `error.type`                     | Meaning                                                                                                                                                                                     |
+| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | `chat.workspace_required`        | Task-backed Hecate Chat turns and External Agent sessions need a selected workspace path before the first turn.                                                                             |
+| `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or task-backed turns.                                                                                                      |
+| `400`  | `chat.agent_id_invalid`          | The requested session owner is not `hecate` and does not match a registered external-agent adapter.                                                                                         |
+| `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `direct_model`, `hecate_task`, or `external_agent`.                                                                                         |
+| `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                            |
+| `400`  | `chat.adapter_not_found`         | The selected external-agent adapter is not registered.                                                                                                                                      |
+| `409`  | `chat.agent_session_busy`        | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session.    |
+| `409`  | `chat.session_stopping`          | The session is still cancelling or closing; retry after it settles.                                                                                                                         |
+| `409`  | `chat.session_not_running`       | A stop request was issued when no run was active.                                                                                                                                           |
+| `422`  | `model_not_configured`           | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery.                                                         |
+| `422`  | `chat.model_capability_required` | A task-backed Hecate Chat turn was explicitly requested, but the selected model is not known to support tools. Continue with direct model chat or choose a model that reports tool support. |
 
 Client note: browser/operator clients may queue a prompt locally when they
 receive or predict `chat.agent_session_busy`, but the server still

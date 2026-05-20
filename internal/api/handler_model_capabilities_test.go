@@ -10,6 +10,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/providers"
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 func TestModelsExposeCapabilityPayloads(t *testing.T) {
@@ -34,67 +35,72 @@ func TestModelsExposeCapabilityPayloads(t *testing.T) {
 	}
 }
 
-func TestModelCapabilityOverrideAffectsModelsResponse(t *testing.T) {
+func TestModelsExposeProviderDiscoveredCapabilityPayloads(t *testing.T) {
 	t.Parallel()
 
-	handler := newModelCapabilityTestHandler(t)
-	client := newTaskTestClient(t, handler)
-
-	updated := mustRequestJSON[ModelCapabilityResponse](client, http.MethodPut, "/hecate/v1/model-capabilities/overrides",
-		`{"provider":"ollama","model":"llama3.1:8b","tool_calling":"basic","max_context_tokens":128000,"note":"operator verified tools"}`)
-	if updated.Data.ToolCalling != modelcaps.ToolCallingBasic || updated.Data.Source != modelcaps.SourceOperatorOverride {
-		t.Fatalf("override response = %+v", updated.Data)
-	}
-
-	models := mustRequestJSON[OpenAIModelsResponse](client, http.MethodGet, "/v1/models", "")
+	handler := newModelCapabilityTestHandlerWithCapabilities(t, map[string]types.ModelCapabilities{
+		"llama3.1:8b": {
+			ToolCalling: modelcaps.ToolCallingBasic,
+			Streaming:   true,
+			Source:      modelcaps.SourceProvider,
+		},
+	})
+	models := mustRequestJSON[OpenAIModelsResponse](newTaskTestClient(t, handler), http.MethodGet, "/v1/models", "")
 	caps := modelCapabilitiesFromModels(t, models, "llama3.1:8b")
+
 	if caps["tool_calling"] != modelcaps.ToolCallingBasic {
 		t.Fatalf("tool_calling = %#v, want basic", caps["tool_calling"])
 	}
-	if caps["source"] != modelcaps.SourceOperatorOverride {
-		t.Fatalf("source = %#v, want operator_override", caps["source"])
-	}
-	if caps["max_context_tokens"] != float64(128000) {
-		t.Fatalf("max_context_tokens = %#v, want 128000", caps["max_context_tokens"])
+	if caps["source"] != modelcaps.SourceProvider {
+		t.Fatalf("source = %#v, want provider", caps["source"])
 	}
 }
 
-func TestModelCapabilityProbeIsRecorded(t *testing.T) {
+func TestResolveModelCapabilitiesTreatsAutoProviderAsUnpinned(t *testing.T) {
 	t.Parallel()
 
-	handler := newModelCapabilityTestHandler(t)
-	client := newTaskTestClient(t, handler)
+	handler := newModelCapabilityTestAPIHandlerWithCapabilities(t, map[string]types.ModelCapabilities{
+		"llama3.1:8b": {
+			ToolCalling: modelcaps.ToolCallingBasic,
+			Streaming:   true,
+			Source:      modelcaps.SourceProvider,
+		},
+	})
 
-	updated := mustRequestJSON[ModelCapabilityResponse](client, http.MethodPost, "/hecate/v1/model-capabilities/probes",
-		`{"provider":"ollama","model":"llama3.1:8b","tool_calling":"parallel","note":"manual probe passed"}`)
-	if updated.Data.ToolCalling != modelcaps.ToolCallingParallel || updated.Data.Source != modelcaps.SourceProbe {
-		t.Fatalf("probe response = %+v", updated.Data)
+	caps, err := handler.resolveModelCapabilities(t.Context(), "auto", "llama3.1:8b")
+	if err != nil {
+		t.Fatalf("resolveModelCapabilities returned error: %v", err)
 	}
-
-	models := mustRequestJSON[OpenAIModelsResponse](client, http.MethodGet, "/v1/models", "")
-	caps := modelCapabilitiesFromModels(t, models, "llama3.1:8b")
-	if caps["tool_calling"] != modelcaps.ToolCallingParallel {
-		t.Fatalf("tool_calling = %#v, want parallel", caps["tool_calling"])
-	}
-	if caps["source"] != modelcaps.SourceProbe {
-		t.Fatalf("source = %#v, want probe", caps["source"])
+	if caps.ToolCalling != modelcaps.ToolCallingBasic {
+		t.Fatalf("tool_calling = %q, want basic", caps.ToolCalling)
 	}
 }
 
 func newModelCapabilityTestHandler(t *testing.T) http.Handler {
+	t.Helper()
+	return newModelCapabilityTestHandlerWithCapabilities(t, nil)
+}
+
+func newModelCapabilityTestHandlerWithCapabilities(t *testing.T, modelCapabilities map[string]types.ModelCapabilities) http.Handler {
+	t.Helper()
+	return NewServer(slog.New(slog.NewJSONHandler(io.Discard, nil)), newModelCapabilityTestAPIHandlerWithCapabilities(t, modelCapabilities))
+}
+
+func newModelCapabilityTestAPIHandlerWithCapabilities(t *testing.T, modelCapabilities map[string]types.ModelCapabilities) *Handler {
 	t.Helper()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cpStore := controlplane.NewMemoryStore()
 	provider := &fakeProvider{
 		name: "ollama",
 		capabilities: providers.Capabilities{
-			Name:         "ollama",
-			Kind:         providers.KindLocal,
-			DefaultModel: "llama3.1:8b",
-			Models:       []string{"llama3.1:8b"},
+			Name:              "ollama",
+			Kind:              providers.KindLocal,
+			DefaultModel:      "llama3.1:8b",
+			Models:            []string{"llama3.1:8b"},
+			ModelCapabilities: modelCapabilities,
 		},
 	}
-	return newTestHTTPHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, cpStore)
+	return newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, cpStore)
 }
 
 func modelCapabilitiesFromModels(t *testing.T, models OpenAIModelsResponse, modelID string) map[string]any {

@@ -384,7 +384,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           native_session_id: isExternal ? `native-${chatSequence}` : "",
           provider: body.provider || "auto",
           model: body.model || MOCK_MODELS[0]?.id || "",
-          capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
           rtk_enabled: Boolean(body.rtk_enabled),
           workspace: body.workspace || "/tmp/hecate-e2e",
           workspace_branch: "",

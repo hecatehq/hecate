@@ -232,31 +232,6 @@ type OpenAIModelsResponse struct {
 	Data   []OpenAIModelData `json:"data"`
 }
 
-type ModelCapabilityUpsertRequest struct {
-	Provider         string `json:"provider"`
-	Model            string `json:"model"`
-	ToolCalling      string `json:"tool_calling,omitempty"`
-	Streaming        *bool  `json:"streaming,omitempty"`
-	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
-	Note             string `json:"note,omitempty"`
-}
-
-type ModelCapabilityResponse struct {
-	Object string              `json:"object"`
-	Data   ModelCapabilityItem `json:"data"`
-}
-
-type ModelCapabilityItem struct {
-	Provider         string `json:"provider"`
-	Model            string `json:"model"`
-	ToolCalling      string `json:"tool_calling"`
-	Streaming        bool   `json:"streaming"`
-	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
-	Source           string `json:"source"`
-	Note             string `json:"note,omitempty"`
-	UpdatedAt        string `json:"updated_at,omitempty"`
-}
-
 type SessionResponse struct {
 	Object string              `json:"object"`
 	Data   SessionResponseItem `json:"data"`

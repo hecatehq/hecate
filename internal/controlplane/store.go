@@ -49,29 +49,11 @@ type AuditEvent struct {
 	Detail     string    `json:"detail,omitempty"`
 }
 
-// ModelCapabilityRecord is an operator- or probe-supplied capability
-// assertion for one provider/model pair. It is intentionally small: the
-// catalog/discovery layer owns model existence, while this record only stores
-// Hecate-specific execution capability facts and their provenance.
-type ModelCapabilityRecord struct {
-	Provider         string     `json:"provider"`
-	Model            string     `json:"model"`
-	ToolCalling      string     `json:"tool_calling,omitempty"`
-	Streaming        *bool      `json:"streaming,omitempty"`
-	MaxContextTokens int        `json:"max_context_tokens,omitempty"`
-	Source           string     `json:"source,omitempty"`
-	Note             string     `json:"note,omitempty"`
-	UpdatedAt        time.Time  `json:"updated_at,omitempty"`
-	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
-}
-
 type State struct {
-	Providers                 []Provider                `json:"providers,omitempty"`
-	ProviderSecrets           []ProviderSecret          `json:"provider_secrets,omitempty"`
-	PolicyRules               []config.PolicyRuleConfig `json:"policy_rules,omitempty"`
-	ModelCapabilityOverrides  []ModelCapabilityRecord   `json:"model_capability_overrides,omitempty"`
-	ModelCapabilityProbeState []ModelCapabilityRecord   `json:"model_capability_probe_state,omitempty"`
-	Events                    []AuditEvent              `json:"events,omitempty"`
+	Providers       []Provider                `json:"providers,omitempty"`
+	ProviderSecrets []ProviderSecret          `json:"provider_secrets,omitempty"`
+	PolicyRules     []config.PolicyRuleConfig `json:"policy_rules,omitempty"`
+	Events          []AuditEvent              `json:"events,omitempty"`
 }
 
 type Store interface {
@@ -83,9 +65,6 @@ type Store interface {
 	DeleteProvider(ctx context.Context, id string) error
 	UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error)
 	DeletePolicyRule(ctx context.Context, id string) error
-	UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error)
-	DeleteModelCapabilityOverride(ctx context.Context, provider, model string) error
-	UpsertModelCapabilityProbe(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error)
 	Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }
 
@@ -103,12 +82,10 @@ func WithActor(ctx context.Context, actor string) context.Context {
 
 func cloneState(state State) State {
 	out := State{
-		Providers:                 make([]Provider, 0, len(state.Providers)),
-		ProviderSecrets:           make([]ProviderSecret, 0, len(state.ProviderSecrets)),
-		PolicyRules:               make([]config.PolicyRuleConfig, 0, len(state.PolicyRules)),
-		ModelCapabilityOverrides:  make([]ModelCapabilityRecord, 0, len(state.ModelCapabilityOverrides)),
-		ModelCapabilityProbeState: make([]ModelCapabilityRecord, 0, len(state.ModelCapabilityProbeState)),
-		Events:                    make([]AuditEvent, 0, len(state.Events)),
+		Providers:       make([]Provider, 0, len(state.Providers)),
+		ProviderSecrets: make([]ProviderSecret, 0, len(state.ProviderSecrets)),
+		PolicyRules:     make([]config.PolicyRuleConfig, 0, len(state.PolicyRules)),
+		Events:          make([]AuditEvent, 0, len(state.Events)),
 	}
 	for _, provider := range state.Providers {
 		out.Providers = append(out.Providers, Provider{
@@ -141,12 +118,6 @@ func cloneState(state State) State {
 	for _, rule := range state.PolicyRules {
 		out.PolicyRules = append(out.PolicyRules, clonePolicyRule(rule))
 	}
-	for _, record := range state.ModelCapabilityOverrides {
-		out.ModelCapabilityOverrides = append(out.ModelCapabilityOverrides, cloneModelCapabilityRecord(record))
-	}
-	for _, record := range state.ModelCapabilityProbeState {
-		out.ModelCapabilityProbeState = append(out.ModelCapabilityProbeState, cloneModelCapabilityRecord(record))
-	}
 	for _, event := range state.Events {
 		out.Events = append(out.Events, AuditEvent{
 			Timestamp:  event.Timestamp,
@@ -156,19 +127,6 @@ func cloneState(state State) State {
 			TargetID:   event.TargetID,
 			Detail:     event.Detail,
 		})
-	}
-	return out
-}
-
-func cloneModelCapabilityRecord(record ModelCapabilityRecord) ModelCapabilityRecord {
-	out := record
-	if record.Streaming != nil {
-		streaming := *record.Streaming
-		out.Streaming = &streaming
-	}
-	if record.ExpiresAt != nil {
-		expiresAt := *record.ExpiresAt
-		out.ExpiresAt = &expiresAt
 	}
 	return out
 }

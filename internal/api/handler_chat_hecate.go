@@ -51,7 +51,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		caps = resolved
 	}
 	if !modelcaps.ToolCapable(caps) {
-		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelCapability, "Tools are unavailable for this model. Send as direct model chat or enable tools in Connections.", ErrorDetails{
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelCapability, "Tools are unavailable for this model. Send as direct model chat or choose a tool-capable model.", ErrorDetails{
 			Fields: map[string]any{
 				"provider":     session.Provider,
 				"model":        session.Model,

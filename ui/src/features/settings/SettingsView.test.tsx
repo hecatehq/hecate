@@ -100,29 +100,6 @@ describe("SettingsView maintenance cleanup", () => {
 // focused on retention.
 
 describe("Connections external-agent panel", () => {
-  const modelCapabilityState = {
-    models: [
-      {
-        id: "qwen2.5-coder",
-        owned_by: "ollama",
-        metadata: {
-          provider: "ollama",
-          provider_kind: "local",
-          capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
-        },
-      },
-      {
-        id: "gpt-4o-mini",
-        owned_by: "openai",
-        metadata: {
-          provider: "openai",
-          provider_kind: "cloud",
-          capabilities: { tool_calling: "parallel", streaming: true, source: "catalog" },
-        },
-      },
-    ],
-  };
-
   it("summarizes model provider connections and links to Connections when requested", async () => {
     const onNavigate = vi.fn();
     const { state, actions, user } = setup({
@@ -190,70 +167,6 @@ describe("Connections external-agent panel", () => {
 
     await user.click(within(card).getByRole("button", { name: "Open Connections" }));
     expect(onNavigate).toHaveBeenCalledWith("connections");
-  });
-
-  it("renders model capabilities inside Connections", async () => {
-    const { state, actions } = setup(modelCapabilityState);
-    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-
-    expect(await screen.findByTestId("connections-model-capabilities")).toBeTruthy();
-    expect(await screen.findByTestId("model-capabilities-list")).toBeTruthy();
-    expect(screen.getByText("qwen2.5-coder")).toBeTruthy();
-    expect(screen.getAllByText("tools on").length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("saves the model tools switch from Connections", async () => {
-    const upsertModelCapabilityOverride = vi.fn(async () => true);
-    const { state, actions, user } = setup(modelCapabilityState, { upsertModelCapabilityOverride });
-    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-    const row = await screen.findByTestId("model-capability-row-ollama-qwen2.5-coder");
-
-    await user.click(within(row).getByRole("button", { name: "tools on" }));
-
-    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider: "ollama",
-        model: "qwen2.5-coder",
-        tool_calling: "basic",
-        note: "Tools enabled from Connections.",
-      }),
-    );
-  });
-
-  it("saves and clears model capability overrides from Connections", async () => {
-    const upsertModelCapabilityOverride = vi.fn(async () => true);
-    const deleteModelCapabilityOverride = vi.fn(async () => true);
-    const { state, actions, user } = setup(
-      {
-        models: [
-          {
-            id: "local-tools",
-            owned_by: "ollama",
-            metadata: {
-              provider: "ollama",
-              provider_kind: "local",
-              capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
-            },
-          },
-        ],
-      },
-      { upsertModelCapabilityOverride, deleteModelCapabilityOverride },
-    );
-    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-    const row = await screen.findByTestId("model-capability-row-ollama-local-tools");
-
-    await user.click(within(row).getByRole("button", { name: "tools off" }));
-    await user.click(within(row).getByRole("button", { name: "Clear override" }));
-
-    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider: "ollama",
-        model: "local-tools",
-        tool_calling: "none",
-        note: "Tools disabled from Connections.",
-      }),
-    );
-    expect(deleteModelCapabilityOverride).toHaveBeenCalledWith("ollama", "local-tools");
   });
 
   it("fires listChatGrants when the tab opens", async () => {

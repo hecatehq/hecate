@@ -12,20 +12,20 @@ import { withRuntimeConsole } from "../test/runtime-console-render";
 // removed so text inputs, screen readers, and browser shortcuts own the
 // number keys without surprises.
 describe("getAvailableWorkspaces", () => {
-  it("returns chats / connections / runs / overview / usage / settings", () => {
+  it("returns chats / runs / connections / overview / usage / settings", () => {
     const ws = getAvailableWorkspaces();
     expect(ws.map((w) => w.id)).toEqual([
       "chats",
-      "connections",
       "runs",
+      "connections",
       "overview",
       "usage",
       "settings",
     ]);
     expect(ws.map((w) => w.label)).toEqual([
       "Chats",
-      "Connections",
       "Tasks",
+      "Connections",
       "Observability",
       "Usage",
       "Settings",

@@ -13,6 +13,7 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/chat"
+	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/requestscope"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 	"github.com/hecate/agent-runtime/pkg/types"
@@ -600,6 +601,9 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	executionMode := normalizeChatExecutionMode(req.ExecutionMode, session)
+	if executionMode == chat.ExecutionModeHecateTask && !isExternalChatSession(session) && h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req) {
+		executionMode = chat.ExecutionModeDirectModel
+	}
 	switch executionMode {
 	case chat.ExecutionModeDirectModel:
 		if isExternalChatSession(session) {
@@ -886,6 +890,25 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 	}
 	h.agentChatLive.publishSession(updated)
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) hecateTaskShouldFallbackToDirectModel(ctx context.Context, session chat.Session, req CreateChatMessageRequest) bool {
+	provider := strings.TrimSpace(req.Provider)
+	if provider == "" {
+		provider = session.Provider
+	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = session.Model
+	}
+	if model == "" {
+		return false
+	}
+	caps, err := h.resolveModelCapabilities(ctx, provider, model)
+	if err != nil {
+		return false
+	}
+	return !modelcaps.ToolCapable(caps)
 }
 
 func normalizeChatExecutionMode(mode string, session chat.Session) string {

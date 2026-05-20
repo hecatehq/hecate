@@ -5,7 +5,7 @@ import type {
   RuntimeStatsResponse,
   SessionResponse,
 } from "../types/runtime";
-import type { ModelCapabilityResponse, ModelResponse } from "../types/model";
+import type { ModelResponse } from "../types/model";
 import type {
   ConfiguredStateResponse,
   LocalProviderDiscoveryResponse,
@@ -176,15 +176,6 @@ export type CreateTaskPayload = {
   workspace_mode?: string;
 };
 
-export type ModelCapabilityUpsertPayload = {
-  provider: string;
-  model: string;
-  tool_calling: "none" | "basic" | "parallel" | string;
-  streaming?: boolean;
-  max_context_tokens?: number;
-  note?: string;
-};
-
 export type ResolveTaskApprovalPayload = {
   decision: "approve" | "reject";
   note?: string;
@@ -208,34 +199,6 @@ export async function getSession(): Promise<SessionResponse> {
 
 export async function getModels(): Promise<ModelResponse> {
   return fetchJSON<ModelResponse>("/v1/models");
-}
-
-export async function upsertModelCapabilityOverride(
-  payload: ModelCapabilityUpsertPayload,
-): Promise<ModelCapabilityResponse> {
-  return fetchJSON<ModelCapabilityResponse>(`${HECATE_API}/model-capabilities/overrides`, {
-    method: "PUT",
-    body: payload,
-  });
-}
-
-export async function deleteModelCapabilityOverride(
-  provider: string,
-  model: string,
-): Promise<void> {
-  const params = new URLSearchParams({ provider, model });
-  await fetchJSON<unknown>(`${HECATE_API}/model-capabilities/overrides?${params.toString()}`, {
-    method: "DELETE",
-  });
-}
-
-export async function recordModelCapabilityProbe(
-  payload: ModelCapabilityUpsertPayload,
-): Promise<ModelCapabilityResponse> {
-  return fetchJSON<ModelCapabilityResponse>(`${HECATE_API}/model-capabilities/probes`, {
-    method: "POST",
-    body: payload,
-  });
 }
 
 export async function getProviders(): Promise<ProviderStatusResponse> {

@@ -194,7 +194,7 @@ const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
 const BARE_WORKSPACES: WorkspaceID[] = ["chats", "runs"];
 
 export function getAvailableWorkspaces(): WorkspaceDefinition[] {
-  return [WS.chats, WS.connections, WS.runs, WS.overview, WS.usage, WS.settings];
+  return [WS.chats, WS.runs, WS.connections, WS.overview, WS.usage, WS.settings];
 }
 
 export function ConsoleShell({
