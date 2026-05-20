@@ -8,8 +8,15 @@
 import { useDesktopUpdate } from "../../lib/desktop-update";
 
 export function UpdateBanner() {
-  const { update, installing, installPhase, progress, lastCheckResult, dismiss, installAndRestart } =
-    useDesktopUpdate();
+  const {
+    update,
+    installing,
+    installPhase,
+    progress,
+    lastCheckResult,
+    dismiss,
+    installAndRestart,
+  } = useDesktopUpdate();
 
   if (update) {
     return (
