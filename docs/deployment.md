@@ -11,7 +11,7 @@ Hecate defaults to `127.0.0.1:8765` and enforces same-origin for browser request
 - [Desktop app](#desktop-app)
 - [Resetting state](#resetting-state)
 - [Bootstrap key and backups](#bootstrap-key-and-backups)
-- [Storage backends](#storage-backends)
+- [Storage backend](#storage-backend)
 - [External-agent startup knobs](#external-agent-startup-knobs)
 - [Rate limiting](#rate-limiting)
 

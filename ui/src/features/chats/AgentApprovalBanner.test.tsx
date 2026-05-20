@@ -34,7 +34,7 @@ describe("AgentApprovalAutoModeBanner", () => {
     render(<AgentApprovalAutoModeBanner mode="auto" />);
     const banner = screen.getByTestId("agent-approval-auto-banner");
     expect(banner.textContent).toMatch(/Auto-approval is on/);
-    expect(banner.textContent).toMatch(/GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto/);
+    expect(banner.textContent).toMatch(/HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto/);
   });
 });
 

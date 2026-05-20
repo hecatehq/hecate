@@ -188,7 +188,7 @@ The bare binary defaults to `memory`; the docker image defaults to `sqlite`
 so the container survives restarts. One `HECATE_SQLITE_PATH` configures the
 shared SQLite client for Hecate-owned durable state.
 
-The full per-subsystem matrix lives in [`docs/deployment.md`](deployment.md#storage-backends). Implementation notes worth pinning here:
+The full storage reference lives in [`docs/deployment.md`](deployment.md#storage-backend). Implementation notes worth pinning here:
 
 - SQLite uses the pure-Go `modernc.org/sqlite` driver — no CGO, no native extensions.
 - The task queue uses `BEGIN IMMEDIATE` plus `UPDATE … RETURNING` for atomic claim under WAL. Race-tested.

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/storage"
 )
 
 type SQLiteStore struct {
+	mu          sync.Mutex
 	db          *sql.DB
 	projectsTbl string
 	rootsTbl    string
@@ -75,6 +77,9 @@ CREATE TABLE IF NOT EXISTS %s (
 }
 
 func (s *SQLiteStore) Create(ctx context.Context, project Project) (Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	project = normalizeProject(project, time.Now().UTC())
 	if err := validateProject(project); err != nil {
 		return Project{}, err
@@ -149,9 +154,17 @@ ORDER BY
 }
 
 func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Project)) (Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	id = strings.TrimSpace(id)
-	project, err := s.loadProject(ctx, id)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return Project{}, err
+	}
+	project, err := s.loadProjectWith(ctx, tx, id)
+	if err != nil {
+		_ = tx.Rollback()
 		return Project{}, err
 	}
 	if update != nil {
@@ -161,10 +174,7 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Projec
 	project.UpdatedAt = now
 	project = normalizeProject(project, now)
 	if err := validateProject(project); err != nil {
-		return Project{}, err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+		_ = tx.Rollback()
 		return Project{}, err
 	}
 	if err := s.upsertProject(ctx, tx, project); err != nil {
@@ -178,6 +188,9 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Projec
 }
 
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -267,7 +280,16 @@ INSERT INTO %s (
 }
 
 func (s *SQLiteStore) loadProject(ctx context.Context, id string) (Project, error) {
-	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
+	return s.loadProjectWith(ctx, s.db, id)
+}
+
+type sqliteQuerier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func (s *SQLiteStore) loadProjectWith(ctx context.Context, q sqliteQuerier, id string) (Project, error) {
+	row := q.QueryRowContext(ctx, fmt.Sprintf(`
 SELECT
 	id, name, description, default_root_id, default_provider, default_model,
 	default_agent_profile, default_tools_enabled, default_workspace_mode,
@@ -314,7 +336,7 @@ WHERE id = ?`, s.projectsTbl), id)
 			return Project{}, err
 		}
 	}
-	roots, err := s.loadRoots(ctx, project.ID)
+	roots, err := s.loadRootsWith(ctx, q, project.ID)
 	if err != nil {
 		return Project{}, err
 	}
@@ -323,7 +345,11 @@ WHERE id = ?`, s.projectsTbl), id)
 }
 
 func (s *SQLiteStore) loadRoots(ctx context.Context, projectID string) ([]Root, error) {
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+	return s.loadRootsWith(ctx, s.db, projectID)
+}
+
+func (s *SQLiteStore) loadRootsWith(ctx context.Context, q sqliteQuerier, projectID string) ([]Root, error) {
+	rows, err := q.QueryContext(ctx, fmt.Sprintf(`
 SELECT id, path, kind, git_remote, git_branch, active, created_at, updated_at
 FROM %s
 WHERE project_id = ?

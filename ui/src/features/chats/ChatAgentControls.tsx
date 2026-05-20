@@ -460,7 +460,7 @@ function adapterIssueTitle(
 function sanitizedAdapterDetail(detail: string | undefined): string {
   const trimmed = detail?.trim() ?? "";
   if (!trimmed) return "";
-  if (trimmed.includes("GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES")) return "";
+  if (trimmed.includes("HECATE_AGENT_ADAPTER_DEV_OVERRIDES")) return "";
   if (trimmed.startsWith("forced ")) return "";
   return trimmed;
 }
