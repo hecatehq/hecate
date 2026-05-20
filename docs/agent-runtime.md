@@ -107,7 +107,7 @@ sequenceDiagram
 
 Three things bound the loop:
 
-- **`GATEWAY_TASK_AGENT_LOOP_MAX_TURNS`** (default `8`) — hard ceiling on LLM round-trips per run. Runaway-cost safety net.
+- **`HECATE_TASK_AGENT_LOOP_MAX_TURNS`** (default `8`) — hard ceiling on LLM round-trips per run. Runaway-cost safety net.
 - **`Task.BudgetMicrosUSD`** — per-task cost ceiling. Checked after each turn against `priorCost + costSpent`; failing the run preserves the assistant's last message.
 - **Approval gates** — when the model requests a gated tool, the loop pauses with `status=awaiting_approval` and emits an approval record. See below.
 
@@ -132,8 +132,8 @@ Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the stan
 `shell_exec` and `git_exec` are bounded by the same allowlist semantics as `http_request` when the task has `sandbox_network=true`:
 
 - HTTP/HTTPS URLs that appear as command tokens are extracted and validated.
-- Hosts that parse as a private/loopback IP literal (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, link-local, multicast) are rejected unless `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS=true`.
-- When `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` is set, only those exact hostnames are reachable. Empty = all public hosts allowed.
+- Hosts that parse as a private/loopback IP literal (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, link-local, multicast) are rejected unless `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS=true`.
+- When `HECATE_TASK_SHELL_ALLOWED_HOSTS` is set, only those exact hostnames are reachable. Empty = all public hosts allowed.
 
 Enforcement is **best-effort static parsing** of the command string. Tools that respect the allowlist (`curl`, `wget`, `git fetch`, `bun install`, `pip install`, etc.) get covered; clever obfuscation (base64-encoded URLs, `nc`/`telnet` raw sockets, custom-binary egress) bypasses it. The kernel-enforced backstop comes from Layer 2 of the sandbox: on Linux with `bwrap` installed, and on macOS, every shell/git call runs inside a wrapper that drops the network namespace (Linux) or applies a Seatbelt profile (macOS) when the task's `sandbox_network=false`. See [`sandbox.md`](sandbox.md#layer-2--os-level-isolation) for the auto-detection logic and platform coverage. The default `sandbox_network=false` (no network at all) plus an active Layer 2 wrapper is the strongest guarantee short of a full container.
 
@@ -210,7 +210,7 @@ Without this, the model would read `/Users/foo/myrepo` from the user prompt and 
 
 The operator-tunable system prompt is composed from three layers, broadest first:
 
-1. **Global** — `GATEWAY_TASK_AGENT_SYSTEM_PROMPT` (env). Applies to every agent_loop run gateway-wide.
+1. **Global** — `HECATE_TASK_AGENT_SYSTEM_PROMPT` (env). Applies to every agent_loop run gateway-wide.
 2. **Workspace** — `CLAUDE.md` or `AGENTS.md` in the task's working directory, capped at 8 KiB. Read once per run.
 3. **Per-task** — `Task.SystemPrompt` set when the task is created.
 
@@ -222,7 +222,7 @@ Two distinct approval flows:
 
 ### Pre-execution approval
 
-Triggered when the task's `execution_kind` is `shell` / `git` / `file` (or `sandbox_network=true`) AND a matching policy is in `GATEWAY_TASK_APPROVAL_POLICIES`. The run is created in `awaiting_approval` status before it ever leaves the queue. The UI shows an amber banner with the command being approved. Approve → run becomes `queued` → executes. Cancel before approval → run becomes `cancelled` and the pending approval is marked `cancelled` so stale approval buttons cannot resurrect the run.
+Triggered when the task's `execution_kind` is `shell` / `git` / `file` (or `sandbox_network=true`) AND a matching policy is in `HECATE_TASK_APPROVAL_POLICIES`. The run is created in `awaiting_approval` status before it ever leaves the queue. The UI shows an amber banner with the command being approved. Approve → run becomes `queued` → executes. Cancel before approval → run becomes `cancelled` and the pending approval is marked `cancelled` so stale approval buttons cannot resurrect the run.
 
 ### Mid-loop approval (`agent_loop_tool_call`)
 
@@ -243,7 +243,7 @@ The approval banner stays in sync with the run state because approvals ride alon
 
 Per-turn LLM cost is captured at three granularities:
 
-- **`turn.completed` events** — one per LLM round-trip on the persisted run-event log. Each event carries the per-turn spend, the run-cumulative figure (this run only), and the task-cumulative figure (entire resume chain via `PriorCostMicrosUSD`). Subscribe via `/hecate/v1/events?event_type=turn.completed`; the wire shape is in [`events.md`](events.md#turncompleted). These rows are the only run events the retention worker prunes — see the `turn_events` subsystem in [`telemetry.md`](telemetry.md#retention-spans) and `GATEWAY_RETENTION_TURN_EVENTS_*` in `.env.example`.
+- **`turn.completed` events** — one per LLM round-trip on the persisted run-event log. Each event carries the per-turn spend, the run-cumulative figure (this run only), and the task-cumulative figure (entire resume chain via `PriorCostMicrosUSD`). Subscribe via `/hecate/v1/events?event_type=turn.completed`; the wire shape is in [`events.md`](events.md#turncompleted). These rows are the only run events the retention worker prunes — see the `turn_events` subsystem in [`telemetry.md`](telemetry.md#retention-spans) and `HECATE_RETENTION_TURN_EVENTS_*` in `.env.example`.
 - **`tool.file.patch` events** — emitted whenever `file_write` or `file_edit` changes or proposes a file change. Each event points at a `patch` artifact containing the unified diff, giving operator UIs and future ACP/CLI consumers an inspectable edit record without re-deriving state from the workspace.
 - **Patch review API** — `GET /hecate/v1/tasks/{id}/runs/{run_id}/patches` lists patch artifacts. Applied patches can be reverted; proposed patches from `file_edit` with `propose=true` can be applied if the target file still matches the captured before-content.
 - **`git_summary` artifacts** — when the run workspace is a git repository and has changes at run completion, Hecate records a `git-changes.json` artifact with porcelain status entries and a diff stat for quick changed-file review.
@@ -269,18 +269,18 @@ The conversation viewer in the run-replay UI shows a `↻ retry from here` butto
 
 Env vars that affect agent_loop runs:
 
-| Variable                               | Default            | What it does                                                                                                      |
-| -------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `GATEWAY_TASK_AGENT_LOOP_MAX_TURNS`    | `8`                | Hard ceiling on LLM round-trips per run                                                                           |
-| `GATEWAY_TASK_AGENT_SYSTEM_PROMPT`     | `""`               | Global (broadest) layer of the three-layer system prompt                                                          |
-| `GATEWAY_TASK_HTTP_TIMEOUT`            | `30s`              | Timeout for the `http_request` tool                                                                               |
-| `GATEWAY_TASK_HTTP_MAX_RESPONSE_BYTES` | `262144` (256 KiB) | Response size cap for `http_request`                                                                              |
-| `GATEWAY_TASK_HTTP_ALLOW_PRIVATE_IPS`  | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                 |
-| `GATEWAY_TASK_HTTP_ALLOWED_HOSTS`      | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                    |
-| `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true` |
-| `GATEWAY_TASK_SHELL_ALLOWED_HOSTS`     | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                          |
+| Variable                              | Default            | What it does                                                                                                      |
+| ------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `HECATE_TASK_AGENT_LOOP_MAX_TURNS`    | `8`                | Hard ceiling on LLM round-trips per run                                                                           |
+| `HECATE_TASK_AGENT_SYSTEM_PROMPT`     | `""`               | Global (broadest) layer of the three-layer system prompt                                                          |
+| `HECATE_TASK_HTTP_TIMEOUT`            | `30s`              | Timeout for the `http_request` tool                                                                               |
+| `HECATE_TASK_HTTP_MAX_RESPONSE_BYTES` | `262144` (256 KiB) | Response size cap for `http_request`                                                                              |
+| `HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS`  | `false`            | When `false`, blocks loopback / RFC1918 / link-local destinations                                                 |
+| `HECATE_TASK_HTTP_ALLOWED_HOSTS`      | `""`               | Comma-separated exact-host allowlist; empty = all public hosts                                                    |
+| `HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false`            | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true` |
+| `HECATE_TASK_SHELL_ALLOWED_HOSTS`     | `""`               | Same exact-host allowlist, applied to shell_exec / git_exec command URLs                                          |
 
-For `GATEWAY_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `file_write` gates both full-file writes and exact-match `file_edit` calls. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
+For `HECATE_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `file_write` gates both full-file writes and exact-match `file_edit` calls. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 
 Hecate Chat can opt a session into RTK command-output compaction from
 the chat settings panel. The setting is off by default. Hecate only
@@ -302,15 +302,15 @@ Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 - `system_prompt` — narrowest layer of the three-layer composition; optional
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
 - `workspace_mode` — `""` / `"persistent"` / `"ephemeral"` (all clone) or `"in_place"` (use source directly)
-- `requested_provider` / `requested_model` — pin the LLM provider and model. For `agent_loop`, a model must be resolvable at start time — either `requested_model` is set on the task, or the gateway has a default model configured (`GATEWAY_DEFAULT_MODEL`). A missing model returns 422 `model_not_configured` before a run is created.
+- `requested_provider` / `requested_model` — pin the LLM provider and model. For `agent_loop`, a model must be resolvable at start time — either `requested_model` is set on the task, or the gateway has a default model configured (`HECATE_DEFAULT_MODEL`). A missing model returns 422 `model_not_configured` before a run is created.
 - `budget_micros_usd` — per-task cost ceiling in micro-USD; `0` disables
 - `mcp_servers` — array of external MCP server configs whose tools join the catalog under `mcp__<name>__<tool>` aliases. Schema in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
 
 ## Common failure modes
 
-- **HTTP 422 `model_not_configured`** — `POST /hecate/v1/tasks/{id}/start` was called for an `agent_loop` task with no model resolvable (neither `task.RequestedModel` nor the gateway's `GATEWAY_DEFAULT_MODEL` is set). No run is created. Fix: set `requested_model` on the task or configure a default model.
+- **HTTP 422 `model_not_configured`** — `POST /hecate/v1/tasks/{id}/start` was called for an `agent_loop` task with no model resolvable (neither `task.RequestedModel` nor the gateway's `HECATE_DEFAULT_MODEL` is set). No run is created. Fix: set `requested_model` on the task or configure a default model.
 - **`escapes allowed root`** — the LLM picked a path outside the workspace. The env system message normally prevents this; if you see it, check that `task.WorkingDirectory` matches what the model is using, or switch to `workspace_mode=in_place` to align them.
 - **`api key is required for cloud provider X`** — the operator pinned provider X but no credentials are configured, OR the request fell through to the default provider. The router uses `Scope.ProviderHint` from `run.Provider` (mirrored from `task.RequestedProvider`); empty hint falls back to the default model's provider.
 - **`model "X" does not support tool-calling`** — the chosen model rejects the `tools` field. Tiny / chat-only models (e.g. `smollm2:135m`) hit this. Pick a tool-capable model: `gpt-4o-mini`, `claude-sonnet-4-6`, or `qwen2.5-coder` for Ollama. Hecate Chat normally avoids this for new prompts by falling back to direct model chat when tool support is unknown or absent; native Tasks still require a tool-capable model.
 - **`agent loop hit per-task cost ceiling`** — `Task.BudgetMicrosUSD` was exceeded across the run + prior chain. Raise the ceiling and resume to continue.
-- **`agent loop hit maxTurns=N without producing a final answer`** — the model didn't terminate. Either raise `GATEWAY_TASK_AGENT_LOOP_MAX_TURNS`, narrow the prompt, or resume to give it more turns.
+- **`agent loop hit maxTurns=N without producing a final answer`** — the model didn't terminate. Either raise `HECATE_TASK_AGENT_LOOP_MAX_TURNS`, narrow the prompt, or resume to give it more turns.

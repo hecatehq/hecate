@@ -20,6 +20,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/profiler"
+	"github.com/hecate/agent-runtime/internal/projects"
 	"github.com/hecate/agent-runtime/internal/ratelimit"
 	"github.com/hecate/agent-runtime/internal/sandbox"
 	"github.com/hecate/agent-runtime/internal/secrets"
@@ -39,6 +40,7 @@ type Handler struct {
 	taskRunner               *orchestrator.Runner
 	tracer                   profiler.Tracer
 	agentChat                chat.Store
+	projects                 projects.Store
 	agentChatRunner          agentadapters.Runner
 	agentChatLive            *agentChatLive
 	agentChatIdleSweepCancel context.CancelFunc
@@ -220,7 +222,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	}
 	// Wire the four-layer agent_loop system-prompt composer. Layers
 	// are concatenated broadest-first:
-	//   1. global default — operator's GATEWAY_TASK_AGENT_SYSTEM_PROMPT
+	//   1. global default — operator's HECATE_TASK_AGENT_SYSTEM_PROMPT
 	//   2. tenant — controlplane Tenant.SystemPrompt
 	//   3. workspace — CLAUDE.md or AGENTS.md in the workspace root
 	//      (matches what Claude Code / Codex CLI users already write)
@@ -249,12 +251,12 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	agentChatRunner := agentadapters.NewSessionManager()
 	agentChatRunner.SetLogger(logger)
 	agentChatRunner.SetAdapterMetrics(agentAdapterMetrics)
-	// Approval coordinator: applies GATEWAY_AGENT_ADAPTER_APPROVAL_MODE
+	// Approval coordinator: applies HECATE_AGENT_ADAPTER_APPROVAL_MODE
 	// to each ACP RequestPermission, records the approval row, exposes
 	// it to the operator UI/API, and emits approval.* metrics. Default
 	// mode is `prompt`; headless operators who want the old
 	// auto-approve behavior must set
-	// GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto explicitly.
+	// HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto explicitly.
 	approvalMode := agentadapters.ApprovalMode(strings.TrimSpace(cfg.Server.AgentAdapterApprovalMode))
 	if approvalMode == "" {
 		approvalMode = agentadapters.ModePrompt
@@ -262,7 +264,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	if approvalMode == agentadapters.ModeAuto {
 		telemetry.Warn(logger, context.Background(), "agent_adapter.approval_mode.auto",
 			slog.String("event.name", "agent_adapter.approval_mode.auto"),
-			slog.String("warning", "GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto: every adapter RequestPermission is auto-approved with no operator review"),
+			slog.String("warning", "HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto: every adapter RequestPermission is auto-approved with no operator review"),
 		)
 	}
 	// agentChatLive is constructed before the hook builder so the
@@ -299,6 +301,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		tracer:              tracer,
 		rateLimiter:         rl,
 		agentChat:           chat.NewMemoryStore(),
+		projects:            projects.NewMemoryStore(),
 		agentChatRunner:     agentChatRunner,
 		agentChatLive:       agentChatLive,
 		orchestratorMetrics: orchestratorMetrics,
@@ -362,6 +365,13 @@ func (h *Handler) SetAgentChatStore(store chat.Store) {
 	}
 	h.agentChat = store
 	h.reconcileAgentChatStore(context.Background())
+}
+
+func (h *Handler) SetProjectStore(store projects.Store) {
+	if store == nil {
+		return
+	}
+	h.projects = store
 }
 
 func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {

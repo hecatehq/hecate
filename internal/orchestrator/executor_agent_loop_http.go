@@ -20,10 +20,10 @@ import (
 //      etc. are rejected outright.
 //   2. SSRF guard — by default any host that resolves to a loopback,
 //      private, or link-local IP is blocked (cf. RFC 1918 / 4193 /
-//      6890). Operators flip GATEWAY_TASK_HTTP_ALLOW_PRIVATE_IPS=true
+//      6890). Operators flip HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS=true
 //      to permit this; useful for agents that hit the gateway's own
 //      admin API or a sidecar service.
-//   3. Hostname allowlist — when GATEWAY_TASK_HTTP_ALLOWED_HOSTS is
+//   3. Hostname allowlist — when HECATE_TASK_HTTP_ALLOWED_HOSTS is
 //      set, only those exact host names are reachable. Subdomains are
 //      NOT inferred (api.openai.com vs openai.com) — operators write
 //      what they mean.
@@ -127,7 +127,7 @@ func (e *AgentLoopExecutor) httpRequestTool(ctx context.Context, spec ExecutionS
 	b.WriteString("\n--- body ---\n")
 	b.Write(raw)
 	if truncated {
-		fmt.Fprintf(&b, "\n…(truncated at %d bytes; configure GATEWAY_TASK_HTTP_MAX_RESPONSE_BYTES to widen)", max)
+		fmt.Fprintf(&b, "\n…(truncated at %d bytes; configure HECATE_TASK_HTTP_MAX_RESPONSE_BYTES to widen)", max)
 	}
 	return b.String(), &step, nil, nil
 }

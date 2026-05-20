@@ -26,8 +26,8 @@ const (
 // adapterDevOverrideEnv: keep it for backend tests that only need catalog
 // states, while UI/dev smoke fixtures should use the dev override so catalog
 // and probe visuals stay aligned.
-const adapterDiscoveryOverrideEnv = "GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES"
-const adapterDevOverrideEnv = "GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES"
+const adapterDiscoveryOverrideEnv = "HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES"
+const adapterDevOverrideEnv = "HECATE_AGENT_ADAPTER_DEV_OVERRIDES"
 
 const (
 	adapterDevOverrideMissing      = "missing"
@@ -336,7 +336,7 @@ func adapterDevOverride(adapterID string) (string, bool) {
 	return adapterOverride(adapterDevOverrideEnv, adapterID, normalizeAdapterDevOverride)
 }
 
-// DevOverrideActive reports whether GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES has
+// DevOverrideActive reports whether HECATE_AGENT_ADAPTER_DEV_OVERRIDES has
 // a valid fixture for adapterID. API handlers use it to keep visual smoke-test
 // state synthetic end-to-end instead of letting a probe response "correct" the
 // catalog row from the real machine.

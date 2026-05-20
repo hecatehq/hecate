@@ -37,9 +37,9 @@ const (
 
 	// ModePrompt blocks waiting for an operator decision (or a matching
 	// grant). If no operator resolves the request before
-	// GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT, it resolves to a Cancelled
+	// HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT, it resolves to a Cancelled
 	// outcome. Operators who need fully unattended adapters can set
-	// GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto.
+	// HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto.
 	ModePrompt ApprovalMode = "prompt"
 
 	// ModeDeny auto-rejects every approval. Audit / compliance
@@ -152,9 +152,8 @@ type GrantFilter struct {
 	ToolKind  string
 }
 
-// ApprovalStore is the persistence interface. Memory and SQLite
-// backends both implement it. Backend selection is wired in
-// cmd/hecate, keyed off GATEWAY_CHAT_SESSIONS_BACKEND.
+// ApprovalStore is the persistence interface. Memory and SQLite backends both
+// implement it. Backend selection follows HECATE_BACKEND in cmd/hecate.
 type ApprovalStore interface {
 	// CreateApproval persists a pending approval and returns the row
 	// with its assigned ID + timestamps filled in.

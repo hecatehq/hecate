@@ -251,6 +251,45 @@ type OpenAIModelData struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
+type ProjectsResponse struct {
+	Object string                `json:"object"`
+	Data   []ProjectResponseItem `json:"data"`
+}
+
+type ProjectResponse struct {
+	Object string              `json:"object"`
+	Data   ProjectResponseItem `json:"data"`
+}
+
+type ProjectResponseItem struct {
+	ID                       string                    `json:"id"`
+	Name                     string                    `json:"name"`
+	Description              string                    `json:"description,omitempty"`
+	Roots                    []ProjectRootResponseItem `json:"roots"`
+	DefaultRootID            string                    `json:"default_root_id,omitempty"`
+	DefaultProvider          string                    `json:"default_provider,omitempty"`
+	DefaultModel             string                    `json:"default_model,omitempty"`
+	DefaultAgentProfile      string                    `json:"default_agent_profile,omitempty"`
+	DefaultToolsEnabled      *bool                     `json:"default_tools_enabled,omitempty"`
+	DefaultWorkspaceMode     string                    `json:"default_workspace_mode,omitempty"`
+	DefaultSystemPrompt      string                    `json:"default_system_prompt,omitempty"`
+	DefaultCompactToolOutput *bool                     `json:"default_compact_tool_output,omitempty"`
+	CreatedAt                string                    `json:"created_at"`
+	UpdatedAt                string                    `json:"updated_at"`
+	LastOpenedAt             string                    `json:"last_opened_at,omitempty"`
+}
+
+type ProjectRootResponseItem struct {
+	ID        string `json:"id"`
+	Path      string `json:"path"`
+	Kind      string `json:"kind"`
+	GitRemote string `json:"git_remote,omitempty"`
+	GitBranch string `json:"git_branch,omitempty"`
+	Active    bool   `json:"active"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type ProviderStatusResponse struct {
 	Object string                       `json:"object"`
 	Data   []ProviderStatusResponseItem `json:"data"`

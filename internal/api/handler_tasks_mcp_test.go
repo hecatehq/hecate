@@ -302,7 +302,7 @@ func TestNormalizeMCPServerConfigs_CapRejectsOverLimit(t *testing.T) {
 		t.Errorf("err = %q, want it to contain both counts (5 and 4)", err)
 	}
 	// And the env-var name so the operator knows which knob to turn.
-	if !strings.Contains(err.Error(), "GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK") {
+	if !strings.Contains(err.Error(), "HECATE_TASK_MAX_MCP_SERVERS_PER_TASK") {
 		t.Errorf("err = %q, want it to mention the env var", err)
 	}
 }

@@ -50,7 +50,7 @@ const (
 	EventResponseReturned = "response.returned"
 )
 
-// Body capture (opt-in via GATEWAY_TRACE_BODIES)
+// Body capture (opt-in via HECATE_TRACE_BODIES)
 const (
 	EventRequestBodyCaptured  = "request.body.captured"
 	EventResponseBodyCaptured = "response.body.captured"

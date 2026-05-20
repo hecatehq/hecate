@@ -103,12 +103,12 @@ static INTENTIONAL_EXIT: AtomicBool = AtomicBool::new(false);
 /// itself has a 10s budget on the Go side (see cmd/hecate/main.go's
 /// `context.WithTimeout(..., 10*time.Second)`); a hair beyond that
 /// covers HTTP round-trip jitter without leaving zombies.
-const GATEWAY_DRAIN_DEADLINE: Duration = Duration::from_secs(12);
+const HECATE_DRAIN_DEADLINE: Duration = Duration::from_secs(12);
 
 /// How long to wait between /healthz polls while draining. Short
 /// enough that a 1-2 second clean drain feels responsive; long enough
 /// not to pin a CPU.
-const GATEWAY_DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(200);
+const HECATE_DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 fn build_diagnostics_report(app: &tauri::AppHandle) -> String {
     let app_log = app
@@ -146,7 +146,7 @@ fn startup_failure_hint(message: &str) -> Option<&'static str> {
         || lower.contains("control-plane secret key")
     {
         return Some(
-            "Open the data directory, check hecate.bootstrap.json, and fix ownership, ACLs, or POSIX mode bits so the bootstrap key is private. If GATEWAY_CONTROL_PLANE_SECRET_KEY is set, it must be base64 for exactly 32 bytes.",
+            "Open the data directory, check hecate.bootstrap.json, and fix ownership, ACLs, or POSIX mode bits so the bootstrap key is private. If HECATE_CONTROL_PLANE_SECRET_KEY is set, it must be base64 for exactly 32 bytes.",
         );
     }
     None
@@ -332,17 +332,15 @@ async fn drain_gateway(base_url: &str) -> Result<(), String> {
     // 202 above is just an ack; the actual drain runs async on the Go
     // side.
     let healthz_url = format!("{base}/healthz");
-    let deadline = Instant::now() + GATEWAY_DRAIN_DEADLINE;
+    let deadline = Instant::now() + HECATE_DRAIN_DEADLINE;
     while Instant::now() < deadline {
-        tokio::time::sleep(GATEWAY_DRAIN_POLL_INTERVAL).await;
+        tokio::time::sleep(HECATE_DRAIN_POLL_INTERVAL).await;
         match client.get(&healthz_url).send().await {
             Ok(_) => continue,       // still up — keep polling
             Err(_) => return Ok(()), // gateway is gone
         }
     }
-    Err(format!(
-        "gateway did not exit within {GATEWAY_DRAIN_DEADLINE:?}"
-    ))
+    Err(format!("gateway did not exit within {HECATE_DRAIN_DEADLINE:?}"))
 }
 
 /// Shows a native blocking-by-callback confirmation dialog asking the

@@ -485,7 +485,7 @@ func (m *AgentAdapterMetrics) RecordTerminalRPCUnsupported(ctx context.Context, 
 type AgentAdapterApprovalRequestRecord struct {
 	AdapterID string
 	ToolKind  string
-	Mode      string // configured GATEWAY_AGENT_ADAPTER_APPROVAL_MODE
+	Mode      string // configured HECATE_AGENT_ADAPTER_APPROVAL_MODE
 }
 
 // AgentAdapterApprovalResolveRecord labels a resolved approval.

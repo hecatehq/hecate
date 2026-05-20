@@ -778,7 +778,7 @@ func normalizeMCPServerConfigs(items []MCPServerConfigItem, cipher secrets.Ciphe
 		return nil, nil
 	}
 	if maxEntries > 0 && len(items) > maxEntries {
-		return nil, fmt.Errorf("mcp_servers: %d entries exceeds per-task cap of %d (raise GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK if you genuinely need more)", len(items), maxEntries)
+		return nil, fmt.Errorf("mcp_servers: %d entries exceeds per-task cap of %d (raise HECATE_TASK_MAX_MCP_SERVERS_PER_TASK if you genuinely need more)", len(items), maxEntries)
 	}
 	out := make([]types.MCPServerConfig, 0, len(items))
 	seen := make(map[string]struct{}, len(items))

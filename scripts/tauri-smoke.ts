@@ -180,7 +180,7 @@ async function runACPInitialize(): Promise<InitializeResult> {
 
   const env = {
     ...process.env,
-    GATEWAY_DATA_DIR: appDataDir,
+    HECATE_DATA_DIR: appDataDir,
   };
   delete env.HECATE_GATEWAY_URL;
 

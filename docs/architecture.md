@@ -102,7 +102,7 @@ flowchart TD
 Key invariants:
 
 - **Workspace before queue.** Every run has a workspace before a worker can claim it. Default is an isolated clone of `task.WorkingDirectory` (or `task.Repo`) under `${TMPDIR}/hecate-workspaces/<task_id>/<run_id>`; opt in to `workspace_mode=in_place` to run directly in the source. The sandbox `AllowedRoot` is the workspace path either way.
-- **Lease before work.** A worker doesn't see a `task_run` until it has claimed a lease; if it crashes, the lease expires and another worker can pick the run up. Pinned by `GATEWAY_TASK_QUEUE_LEASE_SECONDS`.
+- **Lease before work.** A worker doesn't see a `task_run` until it has claimed a lease; if it crashes, the lease expires and another worker can pick the run up. Pinned by `HECATE_TASK_QUEUE_LEASE_SECONDS`.
 - **Execution is per-call subprocess.** Shell, file, and git tool calls spawn a fresh `sh` subprocess from inside the gateway, after the task's policy is validated and env sanitisation, output cap, and wall-clock timeout are applied. On Linux with `bwrap` installed, and on macOS, the call is additionally wrapped by an OS-level isolation tool (`bwrap` / `sandbox-exec`) for filesystem and network confinement. No separate sandbox daemon — the safety properties are applied inline. Container/chroot/VM-level isolation is not provided. See [`sandbox.md`](sandbox.md) for the full isolation-layer model.
 - **Approvals are blocking and come in two flavors.** Pre-execution approval (shell/git/file kinds, or `sandbox_network=true`) halts the run at `awaiting_approval` before the executor runs. Mid-loop approval (`agent_loop_tool_call`, see below) halts an `agent_loop` run after a turn produced a gated tool call. Both resolve via `POST /approvals/{id}/resolve`.
 - **Events are appended, not mutated.** Every step transition writes a `run_event` with a monotonic sequence number. The SSE stream replays from `after_sequence=N` or `Last-Event-ID`, so a disconnected client can re-join exactly where it left off. Each state payload carries the run's approvals so the operator UI's banner stays in sync without a separate refetch. The full catalog of event types and their payload shapes lives in [`events.md`](events.md).
@@ -183,7 +183,10 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](a
 
 ## Storage tiers
 
-Two tiers — `memory` and `sqlite` — picked per subsystem via `GATEWAY_*_BACKEND` env vars. The bare binary defaults to `memory` everywhere; the docker image defaults to `sqlite` so the container survives restarts. One `GATEWAY_SQLITE_PATH` configures the shared SQLite client across all opted-in subsystems.
+Two tiers — `memory` and `sqlite` — selected globally with `HECATE_BACKEND`.
+The bare binary defaults to `memory`; the docker image defaults to `sqlite`
+so the container survives restarts. One `HECATE_SQLITE_PATH` configures the
+shared SQLite client for Hecate-owned durable state.
 
 The full per-subsystem matrix lives in [`docs/deployment.md`](deployment.md#storage-backends). Implementation notes worth pinning here:
 

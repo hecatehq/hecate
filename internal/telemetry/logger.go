@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const ServiceName = "hecate-gateway"
+const ServiceName = "hecate"
 
 type contextKey string
 

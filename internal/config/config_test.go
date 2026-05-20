@@ -34,11 +34,32 @@ func TestDefaultProviderTimeoutBranchesOnKind(t *testing.T) {
 }
 
 func TestLoadFromEnvUsesCurrentOpenAIDefaultModel(t *testing.T) {
-	t.Setenv("GATEWAY_DEFAULT_MODEL", "")
+	t.Setenv("HECATE_DEFAULT_MODEL", "")
 
 	cfg := LoadFromEnv()
 	if cfg.Router.DefaultModel != "gpt-5.4-mini" {
 		t.Fatalf("default model = %q, want gpt-5.4-mini", cfg.Router.DefaultModel)
+	}
+}
+
+func TestLoadFromEnvBackendFansOutToDurableStores(t *testing.T) {
+	t.Setenv("HECATE_BACKEND", "sqlite")
+
+	cfg := LoadFromEnv()
+	got := []string{
+		cfg.Server.ControlPlaneBackend,
+		cfg.Server.TasksBackend,
+		cfg.Server.TaskQueueBackend,
+		cfg.Provider.HistoryBackend,
+		cfg.Chat.SessionsBackend,
+		cfg.Projects.Backend,
+		cfg.Governor.UsageBackend,
+		cfg.Retention.HistoryBackend,
+	}
+	for _, backend := range got {
+		if backend != "sqlite" {
+			t.Fatalf("backend fanout = %#v, want all sqlite", got)
+		}
 	}
 }
 
@@ -50,7 +71,7 @@ func TestLoadFromEnvTraceBodyModeDefaultsToMetadata(t *testing.T) {
 }
 
 func TestLoadFromEnvTraceBodyModeOverride(t *testing.T) {
-	t.Setenv("GATEWAY_TRACE_BODY_MODE", "redacted_text")
+	t.Setenv("HECATE_TRACE_BODY_MODE", "redacted_text")
 
 	cfg := LoadFromEnv()
 	if cfg.Server.TraceBodyMode != "redacted_text" {
@@ -59,13 +80,13 @@ func TestLoadFromEnvTraceBodyModeOverride(t *testing.T) {
 }
 
 func TestLoadFromEnvOTelSharedDefaults(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4318")
-	t.Setenv("GATEWAY_OTEL_HEADERS", "x-api-key=secret,tenant=local")
-	t.Setenv("GATEWAY_OTEL_TIMEOUT", "9s")
-	t.Setenv("GATEWAY_OTEL_TRANSPORT", "http")
-	t.Setenv("GATEWAY_OTEL_TRACES_ENABLED", "true")
-	t.Setenv("GATEWAY_OTEL_METRICS_ENABLED", "true")
-	t.Setenv("GATEWAY_OTEL_LOGS_ENABLED", "true")
+	t.Setenv("HECATE_OTEL_ENDPOINT", "http://collector:4318")
+	t.Setenv("HECATE_OTEL_HEADERS", "x-api-key=secret,tenant=local")
+	t.Setenv("HECATE_OTEL_TIMEOUT", "9s")
+	t.Setenv("HECATE_OTEL_TRANSPORT", "http")
+	t.Setenv("HECATE_OTEL_TRACES_ENABLED", "true")
+	t.Setenv("HECATE_OTEL_METRICS_ENABLED", "true")
+	t.Setenv("HECATE_OTEL_LOGS_ENABLED", "true")
 
 	cfg := LoadFromEnv()
 	if cfg.OTel.Endpoint != "http://collector:4318" {
@@ -89,11 +110,11 @@ func TestLoadFromEnvOTelSharedDefaults(t *testing.T) {
 }
 
 func TestLoadFromEnvOTelGRPCSharedEndpoint(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4317")
-	t.Setenv("GATEWAY_OTEL_TRANSPORT", "grpc")
-	t.Setenv("GATEWAY_OTEL_METRICS_ENDPOINT", "https://metrics-collector:4317")
-	t.Setenv("GATEWAY_OTEL_METRICS_TRANSPORT", "grpc")
-	t.Setenv("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", "always_on")
+	t.Setenv("HECATE_OTEL_ENDPOINT", "http://collector:4317")
+	t.Setenv("HECATE_OTEL_TRANSPORT", "grpc")
+	t.Setenv("HECATE_OTEL_METRICS_ENDPOINT", "https://metrics-collector:4317")
+	t.Setenv("HECATE_OTEL_METRICS_TRANSPORT", "grpc")
+	t.Setenv("HECATE_OTEL_METRICS_EXEMPLAR_FILTER", "always_on")
 
 	cfg := LoadFromEnv()
 	if cfg.OTel.Traces.Endpoint != "http://collector:4317" || cfg.OTel.Traces.Transport != "grpc" {
@@ -108,9 +129,9 @@ func TestLoadFromEnvOTelGRPCSharedEndpoint(t *testing.T) {
 }
 
 func TestLoadFromEnvOTelLogsFallbackToTraceSignal(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_TRACES_ENDPOINT", "127.0.0.1:4317")
-	t.Setenv("GATEWAY_OTEL_TRACES_TRANSPORT", "grpc")
-	t.Setenv("GATEWAY_OTEL_TRACES_HEADERS", "trace=true")
+	t.Setenv("HECATE_OTEL_TRACES_ENDPOINT", "127.0.0.1:4317")
+	t.Setenv("HECATE_OTEL_TRACES_TRANSPORT", "grpc")
+	t.Setenv("HECATE_OTEL_TRACES_HEADERS", "trace=true")
 
 	cfg := LoadFromEnv()
 	if cfg.OTel.Logs.Endpoint != "127.0.0.1:4317" {
@@ -133,54 +154,55 @@ func TestValidateAcceptsDefaultConfig(t *testing.T) {
 }
 
 func TestValidateRejectsInvalidOTelTransport(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_TRANSPORT", "smtp")
+	t.Setenv("HECATE_OTEL_TRANSPORT", "smtp")
 	cfg := LoadFromEnv()
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid OTel transport error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_OTEL_TRANSPORT") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_OTEL_TRANSPORT", err)
+	if !strings.Contains(err.Error(), "HECATE_OTEL_TRANSPORT") {
+		t.Fatalf("Validate() error = %q, want HECATE_OTEL_TRANSPORT", err)
 	}
 }
 
 func TestValidateRejectsInvalidOTelMetricsExemplarFilter(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", "sometimes")
+	t.Setenv("HECATE_OTEL_METRICS_EXEMPLAR_FILTER", "sometimes")
 	cfg := LoadFromEnv()
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid OTel metrics exemplar filter error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", err)
+	if !strings.Contains(err.Error(), "HECATE_OTEL_METRICS_EXEMPLAR_FILTER") {
+		t.Fatalf("Validate() error = %q, want HECATE_OTEL_METRICS_EXEMPLAR_FILTER", err)
 	}
 }
 
 func TestValidateRejectsInvalidTraceBodyMode(t *testing.T) {
-	t.Setenv("GATEWAY_TRACE_BODY_MODE", "raw")
+	t.Setenv("HECATE_TRACE_BODY_MODE", "raw")
 	cfg := LoadFromEnv()
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid trace body mode error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_TRACE_BODY_MODE") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_TRACE_BODY_MODE", err)
+	if !strings.Contains(err.Error(), "HECATE_TRACE_BODY_MODE") {
+		t.Fatalf("Validate() error = %q, want HECATE_TRACE_BODY_MODE", err)
 	}
 }
 
 func TestValidateRejectsInvalidBackendNames(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Server.ControlPlaneBackend = "redis"
+	cfg.Projects.Backend = "postgres"
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid backend error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_CONTROL_PLANE_BACKEND") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_CONTROL_PLANE_BACKEND", err)
+	if !strings.Contains(err.Error(), "HECATE_BACKEND") {
+		t.Fatalf("Validate() error = %q, want HECATE_BACKEND", err)
 	}
 }
 
@@ -192,21 +214,21 @@ func TestValidateRejectsInvalidPublicURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid public URL error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_PUBLIC_URL") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_PUBLIC_URL", err)
+	if !strings.Contains(err.Error(), "HECATE_PUBLIC_URL") {
+		t.Fatalf("Validate() error = %q, want HECATE_PUBLIC_URL", err)
 	}
 }
 
 func TestValidateRejectsInvalidDurationEnvValues(t *testing.T) {
-	t.Setenv("GATEWAY_RETENTION_INTERVAL", "tomorrow-ish")
+	t.Setenv("HECATE_RETENTION_INTERVAL", "tomorrow-ish")
 	cfg := LoadFromEnv()
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid duration error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_RETENTION_INTERVAL") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_RETENTION_INTERVAL", err)
+	if !strings.Contains(err.Error(), "HECATE_RETENTION_INTERVAL") {
+		t.Fatalf("Validate() error = %q, want HECATE_RETENTION_INTERVAL", err)
 	}
 }
 
@@ -234,20 +256,20 @@ func TestValidateRejectsImpossibleRuntimeValues(t *testing.T) {
 		t.Fatal("Validate() error = nil, want aggregate validation error")
 	}
 	for _, want := range []string{
-		"GATEWAY_RETENTION_INTERVAL",
-		"GATEWAY_RETENTION_TRACES_MAX_AGE",
-		"GATEWAY_RETENTION_TRACES_MAX_COUNT",
-		"GATEWAY_PROVIDER_MAX_ATTEMPTS",
-		"GATEWAY_PROVIDER_HEALTH_FAILURE_THRESHOLD",
-		"GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD",
-		"GATEWAY_PROVIDER_HISTORY_LIMIT",
-		"GATEWAY_TASK_QUEUE_WORKERS",
-		"GATEWAY_TASK_QUEUE_BUFFER",
-		"GATEWAY_CHAT_MAX_TURNS_PER_SESSION",
-		"GATEWAY_CHAT_MAX_SESSION_DURATION",
-		"GATEWAY_CHAT_IDLE_TIMEOUT",
-		"GATEWAY_RATE_LIMIT_RPM",
-		"GATEWAY_RATE_LIMIT_BURST",
+		"HECATE_RETENTION_INTERVAL",
+		"HECATE_RETENTION_TRACES_MAX_AGE",
+		"HECATE_RETENTION_TRACES_MAX_COUNT",
+		"HECATE_PROVIDER_MAX_ATTEMPTS",
+		"HECATE_PROVIDER_HEALTH_FAILURE_THRESHOLD",
+		"HECATE_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD",
+		"HECATE_PROVIDER_HISTORY_LIMIT",
+		"HECATE_TASK_QUEUE_WORKERS",
+		"HECATE_TASK_QUEUE_BUFFER",
+		"HECATE_CHAT_MAX_TURNS_PER_SESSION",
+		"HECATE_CHAT_MAX_SESSION_DURATION",
+		"HECATE_CHAT_IDLE_TIMEOUT",
+		"HECATE_RATE_LIMIT_RPM",
+		"HECATE_RATE_LIMIT_BURST",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Validate() error = %q, want %s", err, want)
@@ -503,7 +525,7 @@ func testProviderByName(items []OpenAICompatibleProviderConfig, name string) (Op
 }
 
 func TestLoadFromEnvDataDirDefault(t *testing.T) {
-	t.Setenv("GATEWAY_DATA_DIR", "")
+	t.Setenv("HECATE_DATA_DIR", "")
 
 	cfg := LoadFromEnv()
 	if cfg.Server.DataDir != ".data" {
@@ -512,7 +534,7 @@ func TestLoadFromEnvDataDirDefault(t *testing.T) {
 }
 
 func TestLoadFromEnvDataDirOverride(t *testing.T) {
-	t.Setenv("GATEWAY_DATA_DIR", "/var/hecate")
+	t.Setenv("HECATE_DATA_DIR", "/var/hecate")
 
 	cfg := LoadFromEnv()
 	if cfg.Server.DataDir != "/var/hecate" {
@@ -521,7 +543,7 @@ func TestLoadFromEnvDataDirOverride(t *testing.T) {
 }
 
 func TestLoadFromEnvBootstrapFileDefault(t *testing.T) {
-	t.Setenv("GATEWAY_BOOTSTRAP_FILE", "")
+	t.Setenv("HECATE_BOOTSTRAP_FILE", "")
 
 	cfg := LoadFromEnv()
 	if cfg.Server.BootstrapFile != "" {

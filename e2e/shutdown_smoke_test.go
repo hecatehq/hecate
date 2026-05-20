@@ -55,8 +55,8 @@ func TestSystemShutdownSmokeExitsCleanly(t *testing.T) {
 
 	cmd := exec.Command(bin)
 	cmd.Env = append(os.Environ(),
-		"GATEWAY_ADDRESS="+addr,
-		"GATEWAY_DATA_DIR="+t.TempDir(),
+		"HECATE_ADDRESS="+addr,
+		"HECATE_DATA_DIR="+t.TempDir(),
 	)
 	output := newTailBuffer(64 * 1024)
 	cmd.Stdout = output

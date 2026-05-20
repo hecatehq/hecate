@@ -194,7 +194,7 @@ Runtime continuity was broken and Hecate recovered the run automatically. This f
 Two emit sites:
 
 - **Pre-execution gate** — task policy matched before the run started; the run is parked in `awaiting_approval`.
-- **Mid-loop gate** — the agent loop tried a tool call (`shell_exec`, `git_exec`, etc.) gated by `GATEWAY_TASK_APPROVAL_POLICIES` and paused.
+- **Mid-loop gate** — the agent loop tried a tool call (`shell_exec`, `git_exec`, etc.) gated by `HECATE_TASK_APPROVAL_POLICIES` and paused.
 
 Both shapes share these fields.
 
@@ -288,7 +288,7 @@ Emitted once per LLM round-trip in an `agent_loop` run. The richest cost-trackin
 
 The per-turn figure is also stamped on the matching model step's `OutputSummary.cost_micros_usd` so the run-replay UI surfaces it without subscribing here. See [agent-runtime.md](agent-runtime.md#cost-tracking) for the full cost model.
 
-These rows are the only event type pruned by the retention worker (`turn_events` subsystem) — they accumulate fast on long agent runs. Other event types are kept indefinitely. See `GATEWAY_RETENTION_TURN_EVENTS_*` in `.env.example`.
+These rows are the only event type pruned by the retention worker (`turn_events` subsystem) — they accumulate fast on long agent runs. Other event types are kept indefinitely. See `HECATE_RETENTION_TURN_EVENTS_*` in `.env.example`.
 
 ## Typed shell tool events
 

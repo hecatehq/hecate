@@ -133,12 +133,12 @@ func gatewayServer(t *testing.T, extraEnv ...string) string {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	baseURL := "http://" + addr
 
-	// GATEWAY_DATA_DIR points at a per-test temp dir so any state file the
+	// HECATE_DATA_DIR points at a per-test temp dir so any state file the
 	// runtime touches (bootstrap, control plane) lands under the test's
 	// own filesystem and gets cleaned up automatically.
 	env := append(os.Environ(),
-		"GATEWAY_ADDRESS="+addr,
-		"GATEWAY_DATA_DIR="+t.TempDir(),
+		"HECATE_ADDRESS="+addr,
+		"HECATE_DATA_DIR="+t.TempDir(),
 	)
 	env = append(env, extraEnv...)
 	env = append(env, autoPreconfiguredEnv(extraEnv)...)
@@ -416,8 +416,8 @@ func TestEnvExampleDoesNotExposeAgentAdapterFixtureOverrides(t *testing.T) {
 	}
 	text := string(content)
 	for _, name := range []string{
-		"GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES",
-		"GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES",
+		"HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES",
+		"HECATE_AGENT_ADAPTER_DEV_OVERRIDES",
 	} {
 		if strings.Contains(text, name) {
 			t.Fatalf(".env.example exposes %s; fixture-only adapter overrides must stay out of operator env templates", name)
@@ -429,7 +429,7 @@ func TestAgentAdapterDevOverridesDriveCatalogAndProbeOnly(t *testing.T) {
 	t.Parallel()
 
 	base := gatewayServer(t,
-		"GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES=codex=ready,claude_code=no_auth,cursor_agent=app_missing",
+		"HECATE_AGENT_ADAPTER_DEV_OVERRIDES=codex=ready,claude_code=no_auth,cursor_agent=app_missing",
 	)
 
 	adapters := getJSON[e2eAgentAdapterList](t, base+"/hecate/v1/agent-adapters")
@@ -469,7 +469,7 @@ func TestAgentAdapterDevOverridesDoNotBypassRealAdapterStartup(t *testing.T) {
 	base := gatewayServer(t,
 		"HOME="+t.TempDir(),
 		"PATH="+t.TempDir(),
-		"GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES=cursor_agent=ready",
+		"HECATE_AGENT_ADAPTER_DEV_OVERRIDES=cursor_agent=ready",
 	)
 
 	probe := postJSONDecode[e2eAgentAdapterProbe](t, base+"/hecate/v1/agent-adapters/cursor_agent/probe", "")
@@ -516,7 +516,7 @@ func TestGatewayFakeUpstreamNonStreamingCodex(t *testing.T) {
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
+		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
@@ -559,12 +559,12 @@ func TestGatewayFakeUpstreamExportsOTLPTracesAndMetrics(t *testing.T) {
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
-		"GATEWAY_OTEL_TRACES_ENABLED=true",
-		"GATEWAY_OTEL_TRACES_ENDPOINT=http://"+sink.addr(),
-		"GATEWAY_OTEL_METRICS_ENABLED=true",
-		"GATEWAY_OTEL_METRICS_ENDPOINT=http://"+sink.addr(),
-		"GATEWAY_OTEL_METRICS_INTERVAL=200ms",
+		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
+		"HECATE_OTEL_TRACES_ENABLED=true",
+		"HECATE_OTEL_TRACES_ENDPOINT=http://"+sink.addr(),
+		"HECATE_OTEL_METRICS_ENABLED=true",
+		"HECATE_OTEL_METRICS_ENDPOINT=http://"+sink.addr(),
+		"HECATE_OTEL_METRICS_INTERVAL=200ms",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
@@ -595,7 +595,7 @@ func TestGatewayFakeUpstreamStreamingCodex(t *testing.T) {
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
+		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"hello"}]}`
@@ -635,7 +635,7 @@ func TestGatewayFakeUpstreamClaudeCode(t *testing.T) {
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=claude-sonnet-4-20250514",
+		"HECATE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 	)
 
 	body := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"messages":[{"role":"user","content":"hello"}]}`
@@ -691,7 +691,7 @@ func TestGatewayMultimodalCodexImageURLPassthrough(t *testing.T) {
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o",
+		"HECATE_DEFAULT_MODEL=gpt-4o",
 	)
 
 	body := `{
@@ -757,7 +757,7 @@ func TestGatewayMultimodalAnthropicImageURLTranslation(t *testing.T) {
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
 		"PROVIDER_ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-6",
-		"GATEWAY_DEFAULT_MODEL=claude-sonnet-4-6",
+		"HECATE_DEFAULT_MODEL=claude-sonnet-4-6",
 	)
 
 	// Caller posts the OpenAI shape — this is the cross-provider
@@ -818,7 +818,7 @@ func TestGatewayMultimodalAnthropicDataURITranslation(t *testing.T) {
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
 		"PROVIDER_ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-6",
-		"GATEWAY_DEFAULT_MODEL=claude-sonnet-4-6",
+		"HECATE_DEFAULT_MODEL=claude-sonnet-4-6",
 	)
 
 	// `data:image/jpeg;base64,...` — the shape an OpenAI client
@@ -869,7 +869,7 @@ func TestGatewayRuntimeProviderHeader(t *testing.T) {
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
+		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
@@ -898,7 +898,7 @@ func TestRealAnthropicClaudeCode(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY="+apiKey,
-		"GATEWAY_DEFAULT_MODEL=claude-haiku-4-5-20251001",
+		"HECATE_DEFAULT_MODEL=claude-haiku-4-5-20251001",
 	)
 
 	body := `{"model":"claude-haiku-4-5-20251001","max_tokens":64,"messages":[{"role":"user","content":"Reply with exactly the word: pong"}]}`
@@ -935,7 +935,7 @@ func TestRealAnthropicClaudeCodeStreaming(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY="+apiKey,
-		"GATEWAY_DEFAULT_MODEL=claude-haiku-4-5-20251001",
+		"HECATE_DEFAULT_MODEL=claude-haiku-4-5-20251001",
 	)
 
 	body := `{"model":"claude-haiku-4-5-20251001","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"Say hi"}]}`
@@ -979,7 +979,7 @@ func TestRealOpenAICodex(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_OPENAI_API_KEY="+apiKey,
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
+		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Reply with exactly the word: pong"}]}`
@@ -1011,7 +1011,7 @@ func TestRealOpenAICodexStreaming(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_OPENAI_API_KEY="+apiKey,
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
+		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"Say hi"}]}`
@@ -1234,9 +1234,9 @@ func TestGatewayRateLimitHeaders(t *testing.T) {
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
-		"GATEWAY_RATE_LIMIT_ENABLED=true",
-		"GATEWAY_RATE_LIMIT_RPM=120",
+		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
+		"HECATE_RATE_LIMIT_ENABLED=true",
+		"HECATE_RATE_LIMIT_RPM=120",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
@@ -1270,7 +1270,7 @@ func TestGatewayFakeUpstreamStreamingClaudeCode(t *testing.T) {
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=claude-sonnet-4-20250514",
+		"HECATE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 	)
 
 	body := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hello"}]}`
@@ -1401,7 +1401,7 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 }
 
 // TestBootstrapAutoGenerationDefaultPath proves the no-env-overrides
-// first-run path: with no GATEWAY_DATA_DIR override, the gateway must
+// first-run path: with no HECATE_DATA_DIR override, the gateway must
 //   - create `.data/hecate.bootstrap.json` (the default location)
 //     under its working directory, mode 0600,
 //   - persist a base64 control-plane secret in there,
@@ -1409,7 +1409,7 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 //   - reuse the same file on a second start so the persisted secret
 //     survives restarts.
 //
-// The standard gatewayServer() helper pins GATEWAY_DATA_DIR, so this is
+// The standard gatewayServer() helper pins HECATE_DATA_DIR, so this is
 // the only test that exercises the auto-generation default-path code in
 // the binary-only suite. The Docker smoke covers the same contract
 // through the `/data` volume; this is the cheap counterpart.
@@ -1427,7 +1427,7 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	cmd1.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + workDir, // isolate any HOME-relative defaults
-		"GATEWAY_ADDRESS=" + addr1,
+		"HECATE_ADDRESS=" + addr1,
 	}
 	cmd1.Stdout = io.Discard
 	cmd1.Stderr = io.Discard
@@ -1490,7 +1490,7 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	cmd2.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + workDir,
-		"GATEWAY_ADDRESS=" + addr2,
+		"HECATE_ADDRESS=" + addr2,
 	}
 	cmd2.Stdout = io.Discard
 	cmd2.Stderr = io.Discard

@@ -162,7 +162,7 @@ const (
 	// External-adapter approval attributes — see docs/rfcs/external-adapter-approvals-v1.md.
 	// `decision` is approve|deny, `scope` is once|session|workspace_tool|adapter_tool,
 	// `path` is operator|grant|default_mode|timeout, `mode` is the configured
-	// GATEWAY_AGENT_ADAPTER_APPROVAL_MODE.
+	// HECATE_AGENT_ADAPTER_APPROVAL_MODE.
 	AttrHecateAgentApprovalID       = "hecate.agent_adapter.approval.id"
 	AttrHecateAgentApprovalToolKind = "hecate.agent_adapter.approval.tool_kind"
 	AttrHecateAgentApprovalDecision = "hecate.agent_adapter.approval.decision"

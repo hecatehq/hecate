@@ -32,7 +32,7 @@ func NewControlPlaneRuntimeManager(logger *slog.Logger, baseConfigs []config.Ope
 }
 
 // SetGlobalAnthropicCacheDisabled records the gateway-wide
-// GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle (inverted). Once set,
+// HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle (inverted). Once set,
 // every Anthropic-protocol provider that enters the registry through
 // Reload — whether it came from env, the control-plane UI, or any
 // future on-demand registration path — has its cache flag stamped to

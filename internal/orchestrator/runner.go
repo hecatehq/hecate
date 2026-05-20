@@ -79,7 +79,7 @@ type Config struct {
 }
 
 // HTTPRequestPolicy is the agent-runtime-side projection of the
-// gateway's `GATEWAY_TASK_HTTP_*` env knobs. Lives here (not in
+// gateway's `HECATE_TASK_HTTP_*` env knobs. Lives here (not in
 // config) because the orchestrator package shouldn't import config —
 // the API handler translates env into this struct at startup.
 type HTTPRequestPolicy struct {
@@ -93,7 +93,7 @@ type HTTPRequestPolicy struct {
 	AllowedHosts []string
 }
 
-// ShellNetworkPolicy is the projection of `GATEWAY_TASK_SHELL_*` env
+// ShellNetworkPolicy is the projection of `HECATE_TASK_SHELL_*` env
 // knobs. Used to refine egress when a task has SandboxNetwork=true:
 // the static URL parser in sandbox.validateCommand() rejects http(s)
 // URLs whose host is in a blocked range or outside the allowlist.
@@ -256,7 +256,7 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 		runner.policies[policy] = struct{}{}
 	}
 	// No silent fallback: config.Validate() rejects unknown names at boot.
-	// An empty GATEWAY_TASK_APPROVAL_POLICIES is the documented "no gates"
+	// An empty HECATE_TASK_APPROVAL_POLICIES is the documented "no gates"
 	// path for fully-trusted environments.
 	workers := cfg.QueueWorkers
 	if workers <= 0 {
@@ -567,7 +567,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	// first LLM call with a confusing "no route" error.
 	if task.ExecutionKind == "agent_loop" {
 		if firstNonEmpty(task.RequestedModel, r.config.DefaultModel) == "" {
-			return nil, fmt.Errorf("%w: no model configured — set task.RequestedModel or GATEWAY_DEFAULT_MODEL", ErrAgentLoopMisconfigured)
+			return nil, fmt.Errorf("%w: no model configured — set task.RequestedModel or HECATE_DEFAULT_MODEL", ErrAgentLoopMisconfigured)
 		}
 	}
 

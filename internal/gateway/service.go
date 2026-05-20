@@ -696,7 +696,7 @@ func validate(req types.ChatRequest) error {
 }
 
 // captureRequestBody records a safe-by-default diagnostic snapshot of request
-// messages into the distributed trace when GATEWAY_TRACE_BODIES=true.
+// messages into the distributed trace when HECATE_TRACE_BODIES=true.
 func (s *Service) captureRequestBody(trace *profiler.Trace, req types.ChatRequest) {
 	type capturedMessage struct {
 		Role         string `json:"role"`
@@ -736,7 +736,7 @@ func (s *Service) captureRequestBody(trace *profiler.Trace, req types.ChatReques
 }
 
 // captureResponseBody records a safe-by-default diagnostic snapshot of the
-// response into the distributed trace when GATEWAY_TRACE_BODIES=true.
+// response into the distributed trace when HECATE_TRACE_BODIES=true.
 func (s *Service) captureResponseBody(trace *profiler.Trace, resp *types.ChatResponse) {
 	if resp == nil || len(resp.Choices) == 0 {
 		return

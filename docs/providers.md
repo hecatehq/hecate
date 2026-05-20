@@ -36,7 +36,7 @@ Click **Add provider** to open the modal:
 3. Fill in the form:
    - **Name** is locked to the preset name; Custom lets you choose.
    - **Endpoint URL** is shown for local and custom providers.
-   - **API Key** is shown for cloud and custom-cloud providers; stored encrypted at rest with `GATEWAY_CONTROL_PLANE_SECRET_KEY`.
+   - **API Key** is shown for cloud and custom-cloud providers; stored encrypted at rest with `HECATE_CONTROL_PLANE_SECRET_KEY`.
 4. Click **Add provider**.
 
 The Local tab also runs a lightweight discovery check before you choose a
@@ -167,7 +167,7 @@ Reads show up in the response as non-zero
 `Usage.PromptTokens`; Hecate records the token counts but does not
 try to infer provider-specific cache pricing.
 
-The behavior is controlled by `GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED`
+The behavior is controlled by `HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED`
 (default `true`). The toggle is global — every Anthropic-protocol
 provider, however it was added (env, Connections view, programmatic),
 inherits the same value. Operators flip it to `false` for cost-tier
@@ -193,7 +193,7 @@ The full surface lives in [`runtime-api.md`](runtime-api.md) and is implemented 
 
 Each provider has a per-process health tracker. After a configurable threshold of consecutive retryable failures the breaker opens — the router skips that provider and falls over to the next eligible one. After a cooldown, a half-open probe lets a single request through; if it succeeds, the breaker closes and normal traffic resumes. Upstream `429 Too Many Requests` responses cool a provider down immediately so later requests stop hammering a rate-limited backend and can fail over cleanly.
 
-When `GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD` is set to a positive duration, successful calls that take at-or-above that latency mark the provider `degraded` with health reason `latency` instead of `healthy`. Degraded providers remain routable, but the router scores them behind healthy peers and route diagnostics surface them as `provider_slow` with the last observed latency.
+When `HECATE_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD` is set to a positive duration, successful calls that take at-or-above that latency mark the provider `degraded` with health reason `latency` instead of `healthy`. Degraded providers remain routable, but the router scores them behind healthy peers and route diagnostics surface them as `provider_slow` with the last observed latency.
 
 Within the same health tier, the router now also prefers the more stable provider: fewer recent retryable failures, fewer rate limits/timeouts/server errors, then lower observed latency. When a healthy candidate loses on that dimension, route diagnostics surface it as `provider_less_stable` instead of silently dropping it from the route report.
 
@@ -219,10 +219,10 @@ Failover rows now also capture:
 - `attempt_count` — retry attempts exhausted before failover when applicable
 - `estimated_micros_usd` — reserved for callers that provide their own preflight estimate; usually `0`
 
-The history store is configurable with:
+Provider history follows the global Hecate storage backend:
 
-- `GATEWAY_PROVIDER_HISTORY_BACKEND` — `memory` or `sqlite`
-- `GATEWAY_PROVIDER_HISTORY_LIMIT` — default page size for `/hecate/v1/providers/history`
+- `HECATE_BACKEND` — `memory` or `sqlite`
+- `HECATE_PROVIDER_HISTORY_LIMIT` — default page size for `/hecate/v1/providers/history`
 
 The Connections view shows the current state on each card:
 

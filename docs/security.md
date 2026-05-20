@@ -63,11 +63,11 @@ Persisted provider and MCP literal credentials are encrypted
 with a gateway-local AES-GCM control-plane key. Hecate resolves that key at
 startup:
 
-1. If `GATEWAY_CONTROL_PLANE_SECRET_KEY` is set, Hecate validates that
+1. If `HECATE_CONTROL_PLANE_SECRET_KEY` is set, Hecate validates that
    base64-encoded 32-byte key, uses it for this run, and persists it to the
    bootstrap file.
 2. Otherwise Hecate loads `hecate.bootstrap.json` from the data directory, or
-   from `GATEWAY_BOOTSTRAP_FILE` when that path is set.
+   from `HECATE_BOOTSTRAP_FILE` when that path is set.
 3. If no bootstrap file exists, Hecate generates a new key and writes the file.
 
 The file-backed bootstrap path is intentionally local and boring:
@@ -81,13 +81,13 @@ The file-backed bootstrap path is intentionally local and boring:
   those APIs do not rewrite existing DACLs. Treat the OS account and data
   directory ACL as part of the local operator boundary on Windows.
 - Docker and headless installs keep using the file-backed path by default. If
-  you mount the data directory or `GATEWAY_BOOTSTRAP_FILE` separately, keep the
+  you mount the data directory or `HECATE_BOOTSTRAP_FILE` separately, keep the
   host-side permissions private to the operator or service account.
 
 If Hecate cannot validate or secure the bootstrap source, startup fails closed.
 The desktop app startup screen and `gateway.log` include the affected path or
 environment override; fix ownership, ACLs, POSIX mode bits, or unset an invalid
-`GATEWAY_CONTROL_PLANE_SECRET_KEY` override before restarting.
+`HECATE_CONTROL_PLANE_SECRET_KEY` override before restarting.
 
 This protects against accidental disclosure from the settings database alone,
 but it is not a vault boundary. A process running as the same OS user that can
@@ -96,7 +96,7 @@ read both the database and bootstrap key can decrypt stored credentials.
 Back up the settings database and bootstrap key together when you want stored
 credentials to survive a restore. If the bootstrap key is deleted, lost, or
 changed while keeping the old database, existing encrypted credentials cannot be
-decrypted. Changing `GATEWAY_CONTROL_PLANE_SECRET_KEY` has the same effect
+decrypted. Changing `HECATE_CONTROL_PLANE_SECRET_KEY` has the same effect
 unless encrypted rows are rekeyed at the same time; today the recovery path is
 to restore the old key or re-enter the provider and MCP credentials.
 
@@ -117,8 +117,8 @@ desktop builds should eventually prefer OS-backed storage:
 
 The migration should be explicit in metadata: record which key source is in
 use, import an existing file-backed key into the OS key store on first eligible
-desktop launch, keep migration idempotent, and preserve `GATEWAY_BOOTSTRAP_FILE`
-and `GATEWAY_CONTROL_PLANE_SECRET_KEY` as operator-controlled escape hatches.
+desktop launch, keep migration idempotent, and preserve `HECATE_BOOTSTRAP_FILE`
+and `HECATE_CONTROL_PLANE_SECRET_KEY` as operator-controlled escape hatches.
 Tests should cover missing keychain items, locked or unavailable keychains,
 idempotent migration, fallback behavior, and recovery messaging.
 

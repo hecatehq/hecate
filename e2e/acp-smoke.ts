@@ -253,7 +253,7 @@ class ACPClient {
     const env = { ...process.env };
     if (options.gatewayURL === null) delete env.HECATE_GATEWAY_URL;
     else if (options.gatewayURL !== undefined) env.HECATE_GATEWAY_URL = options.gatewayURL;
-    if (options.dataDir !== undefined) env.GATEWAY_DATA_DIR = options.dataDir;
+    if (options.dataDir !== undefined) env.HECATE_DATA_DIR = options.dataDir;
     if (options.approvalRoute !== undefined) env.HECATE_APPROVAL_ROUTE = options.approvalRoute;
 
     this.process = spawn("go", ["run", "./cmd/hecate-acp"], {
@@ -318,11 +318,11 @@ async function startGateway(options: StartGatewayOptions): Promise<ChildProcessW
     cwd: repoRoot,
     env: {
       ...process.env,
-      GATEWAY_ADDRESS: `127.0.0.1:${gatewayPort}`,
-      GATEWAY_AUTH_DISABLED: "true",
-      GATEWAY_DATA_DIR: options.dataDir ?? await mkdtemp(join(tmpdir(), "hecate-acp-smoke-")),
-      GATEWAY_DEFAULT_MODEL: modelID,
-      GATEWAY_TASK_APPROVAL_POLICIES: options.approvalPolicies ?? "",
+      HECATE_ADDRESS: `127.0.0.1:${gatewayPort}`,
+      HECATE_AUTH_DISABLED: "true",
+      HECATE_DATA_DIR: options.dataDir ?? await mkdtemp(join(tmpdir(), "hecate-acp-smoke-")),
+      HECATE_DEFAULT_MODEL: modelID,
+      HECATE_TASK_APPROVAL_POLICIES: options.approvalPolicies ?? "",
       PROVIDER_FAKE_PRECONFIGURED: "1",
       PROVIDER_FAKE_API_KEY: "dummy",
       PROVIDER_FAKE_BASE_URL: `http://127.0.0.1:${options.fakePort}/v1`,

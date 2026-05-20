@@ -166,7 +166,7 @@ Operator prompt is the default. A config var remains for explicit batch /
 smoke-test modes:
 
 ```
-GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto|prompt|deny
+HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto|prompt|deny
                                        │     │     └─ auto-deny everything (smoke tests, audit mode)
                                        │     └─ ask the operator (default)
                                        └─ auto-approve everything; danger mode, explicit only
@@ -184,7 +184,7 @@ Mode contract:
 
 Adapters block on `RequestPermission` indefinitely; a tab-closed operator
 shouldn't wedge a session forever. Each pending approval gets an
-`expires_at` of `now + GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT` (default
+`expires_at` of `now + HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT` (default
 `5m`). When the deadline passes, the approval transitions to `timed_out` and
 Hecate replies to the adapter with an ACP `Cancelled` outcome.
 
@@ -410,7 +410,7 @@ These need resolution before this draft can become v1.0 stable.
    - Status: open
 
 5. **`mode=prompt` vs unattended runs.** A scheduled or background Hecate
-   in `prompt` mode waits until `GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT`,
+   in `prompt` mode waits until `HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT`,
    then returns ACP `Cancelled` with `path=timeout`. Should repeated
    timeouts reduce to `mode=deny` for that session to avoid repeated waits?
    Per-session opt-in?
@@ -432,7 +432,7 @@ These need resolution before this draft can become v1.0 stable.
 ## Implementation status
 
 1. **Land the wire shape, persistence, and prompt-mode default** behind
-   `GATEWAY_AGENT_ADAPTER_APPROVAL_MODE`. The default is `prompt`; explicit
+   `HECATE_AGENT_ADAPTER_APPROVAL_MODE`. The default is `prompt`; explicit
    `auto` and `deny` modes still record approvals with `path=default_mode`.
    _(Done for alpha.)_
 

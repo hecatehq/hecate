@@ -1,0 +1,188 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecate/agent-runtime/internal/projects"
+)
+
+func newProjectsTestServer() http.Handler {
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	return NewServer(quietLogger(), handler)
+}
+
+func TestProjectsAPI_CRUD(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	createBody := []byte(`{
+		"name":"Hecate",
+		"description":"main repo",
+		"roots":[{"path":"/tmp/hecate","kind":"local","git_remote":"git@example.com:hecate/hecate.git","git_branch":"main"}],
+		"default_provider":"ollama",
+		"default_model":"llama3.1:8b",
+		"default_tools_enabled":true
+	}`)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader(createBody)))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.Data.ID == "" || created.Data.Roots[0].ID == "" {
+		t.Fatalf("created project missing generated ids: %+v", created.Data)
+	}
+	if created.Data.DefaultRootID != created.Data.Roots[0].ID {
+		t.Fatalf("default_root_id = %q, want first root id %q", created.Data.DefaultRootID, created.Data.Roots[0].ID)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{"name":"Renamed","default_model":"ministral-3:latest"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var updated ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode patch response: %v", err)
+	}
+	if updated.Data.Name != "Renamed" || updated.Data.DefaultModel != "ministral-3:latest" {
+		t.Fatalf("updated project = %+v, want patched name/model", updated.Data)
+	}
+
+	openedAt := time.Date(2026, 5, 20, 12, 30, 0, 0, time.UTC)
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{"last_opened_at":"`+openedAt.Format(time.RFC3339Nano)+`"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("last-opened patch status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode last-opened patch response: %v", err)
+	}
+	if updated.Data.LastOpenedAt != openedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("last_opened_at = %q, want %q", updated.Data.LastOpenedAt, openedAt.Format(time.RFC3339Nano))
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var listed ProjectsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(listed.Data) != 1 || listed.Data[0].ID != created.Data.ID {
+		t.Fatalf("listed projects = %+v, want created project", listed.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+created.Data.ID, nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectsAPI_Validation(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":" "}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("blank-name status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_missing", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"Broken","roots":[{"id":"root_a","path":"/tmp/a"}],"default_root_id":"root_missing"}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid default root status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectsAPI_InvalidDefaultRootPatchDoesNotMutate(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Original",
+		"roots":[{"id":"root_a","path":"/tmp/a"}],
+		"default_root_id":"root_a"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{"default_root_id":"root_missing"}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("patch status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+created.Data.ID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var got ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if got.Data.DefaultRootID != "root_a" {
+		t.Fatalf("default_root_id mutated to %q, want root_a", got.Data.DefaultRootID)
+	}
+}
+
+func TestProjectsAPI_InvalidPatchDoesNotMutate(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"Original","description":"before"}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{"description":"after","roots":[{"path":" "} ]}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("patch status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+created.Data.ID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var got ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if got.Data.Description != "before" || len(got.Data.Roots) != 0 {
+		t.Fatalf("project mutated after invalid patch: %+v", got.Data)
+	}
+}

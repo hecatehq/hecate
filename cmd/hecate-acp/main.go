@@ -121,29 +121,29 @@ func configFromEnv() (bridgeConfig, error) {
 }
 
 func bridgeOTelFromEnv() bridgeOTelConfig {
-	sharedEndpoint := firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_ENDPOINT"), os.Getenv("GATEWAY_OTEL_ENDPOINT"))
-	sharedTransport := normalizeBridgeOTelTransport(firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_TRANSPORT"), os.Getenv("GATEWAY_OTEL_TRANSPORT"), "http"))
-	traceTransport := normalizeBridgeOTelTransport(firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_TRACES_TRANSPORT"), os.Getenv("GATEWAY_OTEL_TRACES_TRANSPORT"), sharedTransport))
+	sharedEndpoint := firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_ENDPOINT"), os.Getenv("HECATE_OTEL_ENDPOINT"))
+	sharedTransport := normalizeBridgeOTelTransport(firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_TRANSPORT"), os.Getenv("HECATE_OTEL_TRANSPORT"), "http"))
+	traceTransport := normalizeBridgeOTelTransport(firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_TRACES_TRANSPORT"), os.Getenv("HECATE_OTEL_TRACES_TRANSPORT"), sharedTransport))
 	traceEndpoint := firstNonEmpty(
 		os.Getenv("HECATE_ACP_OTEL_TRACES_ENDPOINT"),
 		os.Getenv("HECATE_ACP_OTEL_ENDPOINT"),
-		os.Getenv("GATEWAY_OTEL_TRACES_ENDPOINT"),
+		os.Getenv("HECATE_OTEL_TRACES_ENDPOINT"),
 	)
 	if traceEndpoint == "" && sharedEndpoint != "" {
 		traceEndpoint = deriveBridgeOTelEndpoint(sharedEndpoint, traceTransport, "traces")
 	}
 	return bridgeOTelConfig{
-		TracesEnabled:         getBridgeEnvBool("HECATE_ACP_OTEL_TRACES_ENABLED", getBridgeEnvBool("GATEWAY_OTEL_TRACES_ENABLED", false)),
+		TracesEnabled:         getBridgeEnvBool("HECATE_ACP_OTEL_TRACES_ENABLED", getBridgeEnvBool("HECATE_OTEL_TRACES_ENABLED", false)),
 		TracesEndpoint:        traceEndpoint,
-		TracesHeaders:         parseBridgeEnvMap(firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_TRACES_HEADERS"), os.Getenv("HECATE_ACP_OTEL_HEADERS"), os.Getenv("GATEWAY_OTEL_TRACES_HEADERS"), os.Getenv("GATEWAY_OTEL_HEADERS"))),
-		TracesTimeout:         getBridgeEnvDuration("HECATE_ACP_OTEL_TRACES_TIMEOUT", getBridgeEnvDuration("HECATE_ACP_OTEL_TIMEOUT", getBridgeEnvDuration("GATEWAY_OTEL_TRACES_TIMEOUT", getBridgeEnvDuration("GATEWAY_OTEL_TIMEOUT", 5*time.Second)))),
+		TracesHeaders:         parseBridgeEnvMap(firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_TRACES_HEADERS"), os.Getenv("HECATE_ACP_OTEL_HEADERS"), os.Getenv("HECATE_OTEL_TRACES_HEADERS"), os.Getenv("HECATE_OTEL_HEADERS"))),
+		TracesTimeout:         getBridgeEnvDuration("HECATE_ACP_OTEL_TRACES_TIMEOUT", getBridgeEnvDuration("HECATE_ACP_OTEL_TIMEOUT", getBridgeEnvDuration("HECATE_OTEL_TRACES_TIMEOUT", getBridgeEnvDuration("HECATE_OTEL_TIMEOUT", 5*time.Second)))),
 		TracesTransport:       traceTransport,
-		TracesSampler:         firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_TRACES_SAMPLER"), os.Getenv("GATEWAY_OTEL_TRACES_SAMPLER")),
-		TracesSamplerArg:      getBridgeEnvFloat("HECATE_ACP_OTEL_TRACES_SAMPLER_ARG", getBridgeEnvFloat("GATEWAY_OTEL_TRACES_SAMPLER_ARG", 1.0)),
+		TracesSampler:         firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_TRACES_SAMPLER"), os.Getenv("HECATE_OTEL_TRACES_SAMPLER")),
+		TracesSamplerArg:      getBridgeEnvFloat("HECATE_ACP_OTEL_TRACES_SAMPLER_ARG", getBridgeEnvFloat("HECATE_OTEL_TRACES_SAMPLER_ARG", 1.0)),
 		ServiceName:           firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_SERVICE_NAME"), "hecate-acp"),
 		ServiceVersion:        firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_SERVICE_VERSION"), version.Version),
 		ServiceInstanceID:     os.Getenv("HECATE_ACP_OTEL_SERVICE_INSTANCE_ID"),
-		DeploymentEnvironment: firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_DEPLOYMENT_ENVIRONMENT"), os.Getenv("GATEWAY_OTEL_DEPLOYMENT_ENVIRONMENT")),
+		DeploymentEnvironment: firstNonEmpty(os.Getenv("HECATE_ACP_OTEL_DEPLOYMENT_ENVIRONMENT"), os.Getenv("HECATE_OTEL_DEPLOYMENT_ENVIRONMENT")),
 	}
 }
 
@@ -196,7 +196,7 @@ func discoverGatewayURLFromRuntimePaths(paths []string, healthy func(string) boo
 
 func hecateRuntimeCandidatePaths() []string {
 	var candidates []string
-	if dataDir := strings.TrimSpace(os.Getenv("GATEWAY_DATA_DIR")); dataDir != "" {
+	if dataDir := strings.TrimSpace(os.Getenv("HECATE_DATA_DIR")); dataDir != "" {
 		candidates = append(candidates, filepath.Join(dataDir, hecateRuntimeFile))
 	}
 	if nativePath, err := nativeHecateRuntimePath(); err == nil {
@@ -797,7 +797,7 @@ func startGatewaySpan(ctx context.Context, method, requestPath string) (context.
 	return bridgeTracer().Start(ctx, "acp.gateway.request",
 		oteltrace.WithSpanKind(oteltrace.SpanKindClient),
 		oteltrace.WithAttributes(
-			attribute.String("server.address", "hecate-gateway"),
+			attribute.String("server.address", "hecate"),
 			attribute.String("http.request.method", method),
 			attribute.String("url.path", cleanAPIPath(requestPath)),
 		))
