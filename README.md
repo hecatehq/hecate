@@ -58,13 +58,11 @@ Download the current alpha from [hecate.sh](https://hecate.sh) or from the
 versioned GitHub Release assets below:
 
 <!-- desktop-release-links:start -->
-
-| Platform              | Bundle                                                                                                                                                                                                                                                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.32_aarch64.dmg](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.32/Hecate_0.1.0-alpha.32_aarch64.dmg)                                                                                                                                                  |
-| Linux x86_64          | [Hecate_0.1.0-alpha.32_amd64.deb](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.32/Hecate_0.1.0-alpha.32_amd64.deb) or [Hecate_0.1.0-alpha.32_amd64.AppImage](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.32/Hecate_0.1.0-alpha.32_amd64.AppImage) |
-| Windows x86_64        | [Hecate_0.1.0-alpha.32_x64_en-US.msi](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.32/Hecate_0.1.0-alpha.32_x64_en-US.msi)                                                                                                                                              |
-
+| Platform | Bundle |
+|---|---|
+| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.33_aarch64.dmg](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.33/Hecate_0.1.0-alpha.33_aarch64.dmg) |
+| Linux x86_64 | [Hecate_0.1.0-alpha.33_amd64.deb](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.33/Hecate_0.1.0-alpha.33_amd64.deb) or [Hecate_0.1.0-alpha.33_amd64.AppImage](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.33/Hecate_0.1.0-alpha.33_amd64.AppImage) |
+| Windows x86_64 | [Hecate_0.1.0-alpha.33_x64_en-US.msi](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.33/Hecate_0.1.0-alpha.33_x64_en-US.msi) |
 <!-- desktop-release-links:end -->
 
 Open the bundle and launch Hecate. The app starts the gateway sidecar, waits for it to become healthy, and opens the embedded operator UI automatically. State lives in the platform data dir (`~/Library/Application Support/sh.hecate.app/` on macOS, `%APPDATA%\sh.hecate.app\` on Windows, `~/.local/share/sh.hecate.app/` on Linux).
@@ -79,7 +77,7 @@ Skip to [Add a provider](#add-a-provider) once it's running.
 
 ```bash
 docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
-  ghcr.io/hecatehq/hecate:0.1.0-alpha.32
+  ghcr.io/hecatehq/hecate:0.1.0-alpha.33
 ```
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.
