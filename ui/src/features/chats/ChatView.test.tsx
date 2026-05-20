@@ -1452,10 +1452,10 @@ describe("ChatView input", () => {
     expect(screen.queryByRole("option", { name: /smollm2:135m/ })).toBeNull();
     await userEvent.click(screen.getByRole("option", { name: /qwen2.5-coder/ }));
     expect(setModel).toHaveBeenCalledWith("qwen2.5-coder");
-    expect(actions.setChatTarget).toHaveBeenCalledWith("agent");
+    expect(actions.setChatTarget).not.toHaveBeenCalled();
   });
 
-  it("keeps tools off when model selection changes to a non-tool model", async () => {
+  it("keeps tools off when model selection changes to a tool-capable model", async () => {
     const setChatTarget = vi.fn();
     const setModel = vi.fn();
     const { state, actions } = setup(
@@ -1463,7 +1463,7 @@ describe("ChatView input", () => {
         chatTarget: "model",
         message: "continue",
         providerFilter: "ollama",
-        model: "qwen2.5-coder",
+        model: "smollm2:135m",
         settingsConfig: {
           backend: "memory",
           providers: [
@@ -1516,11 +1516,11 @@ describe("ChatView input", () => {
 
     const controls = screen.getByLabelText("Hecate message controls");
     await userEvent.click(
-      within(controls).getByRole("button", { name: "Model picker: qwen2.5-coder" }),
+      within(controls).getByRole("button", { name: "Model picker: smollm2:135m" }),
     );
-    await userEvent.click(screen.getByRole("option", { name: /smollm2:135m/ }));
+    await userEvent.click(screen.getByRole("option", { name: /qwen2.5-coder/ }));
 
-    expect(setModel).toHaveBeenCalledWith("smollm2:135m");
+    expect(setModel).toHaveBeenCalledWith("qwen2.5-coder");
     expect(setChatTarget).not.toHaveBeenCalledWith("agent");
   });
 
