@@ -195,9 +195,17 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Projec
 		_ = tx.Rollback()
 		return Project{}, err
 	}
+	originalID := project.ID
+	originalCreatedAt := project.CreatedAt
 	if update != nil {
 		update(&project)
 	}
+	if strings.TrimSpace(project.ID) != originalID {
+		_ = tx.Rollback()
+		return Project{}, fmt.Errorf("%w: project id cannot be changed", ErrInvalid)
+	}
+	project.ID = originalID
+	project.CreatedAt = originalCreatedAt
 	now := time.Now().UTC()
 	project.UpdatedAt = now
 	project = normalizeProject(project, now)
@@ -263,7 +271,6 @@ ON CONFLICT(id) DO UPDATE SET
 	default_workspace_mode = excluded.default_workspace_mode,
 	default_system_prompt = excluded.default_system_prompt,
 	default_compact_tool_output = excluded.default_compact_tool_output,
-	created_at = excluded.created_at,
 	updated_at = excluded.updated_at,
 	last_opened_at = excluded.last_opened_at`, s.projectsTbl),
 		project.ID,

@@ -417,7 +417,7 @@ func logFullStartupConfig(logger *slog.Logger, cfg config.Config) {
 		slog.Int("provider_health_failure_threshold", cfg.Provider.HealthThreshold),
 		slog.String("provider_health_cooldown", cfg.Provider.HealthCooldown.String()),
 		slog.String("provider_health_latency_degraded_threshold", cfg.Provider.HealthLatencyDegradedThreshold.String()),
-		slog.String("backend", cfg.Provider.HistoryBackend),
+		slog.String("provider_history_backend", cfg.Provider.HistoryBackend),
 		slog.Int("provider_history_limit", cfg.Provider.HistoryLimit),
 		slog.Bool("retention_enabled", cfg.Retention.Enabled),
 		slog.String("retention_interval", cfg.Retention.Interval.String()),

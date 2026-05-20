@@ -107,9 +107,16 @@ func (s *MemoryStore) Update(_ context.Context, id string, update func(*Project)
 		return Project{}, ErrNotFound
 	}
 	project = cloneProject(project)
+	originalID := project.ID
+	originalCreatedAt := project.CreatedAt
 	if update != nil {
 		update(&project)
 	}
+	if strings.TrimSpace(project.ID) != originalID {
+		return Project{}, fmt.Errorf("%w: project id cannot be changed", ErrInvalid)
+	}
+	project.ID = originalID
+	project.CreatedAt = originalCreatedAt
 	project.UpdatedAt = time.Now().UTC()
 	project = normalizeProject(project, project.UpdatedAt)
 	if err := validateProject(project); err != nil {
