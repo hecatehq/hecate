@@ -153,7 +153,7 @@ describe("AgentApprovalModal", () => {
       />,
     );
     await waitFor(() => expect(fetchApproval).toHaveBeenCalled());
-    expect(screen.getByText(/Could not load this approval/)).toBeTruthy();
+    expect(await screen.findByText(/Could not load this approval/)).toBeTruthy();
   });
 
   it("flips the decision to deny and selects a reject option when available", async () => {
