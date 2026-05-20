@@ -45,6 +45,8 @@ export type DesktopUpdate = {
   version: string;
 };
 
+export type DesktopUpdateInstallPhase = "idle" | "downloading" | "restarting";
+
 // Result of the most recent check. "update" rides on top of the
 // `update` field below; "up-to-date" is surfaced transiently after a
 // manual checkNow() returns nothing so the UI can confirm the user's
@@ -59,10 +61,12 @@ type State = {
   lastCheckResult: DesktopUpdateCheckResult | null;
   // downloaded/total drive a 0..1 progress fraction surfaced as
   // `progress` below. total may be 0 if the Started event never
-  // fires (some Tauri builds skip it on small payloads); the
-  // banner falls back to indeterminate "Downloading…" in that case.
+  // fires (some Tauri builds skip it on small payloads). The
+  // downloadFinished flag lets the banner move from "Downloading…"
+  // to "Restarting…" even when total is unknown.
   downloaded: number;
   total: number;
+  downloadFinished: boolean;
 };
 
 // Plugin event shape — narrowed locally so the dynamic-import path
@@ -78,9 +82,14 @@ type PluginUpdate = {
   downloadAndInstall: (onEvent?: (e: DownloadEvent) => void) => Promise<void>;
 };
 
+type ProcessPlugin = {
+  relaunch: () => Promise<void>;
+};
+
 export function useDesktopUpdate(): {
   update: DesktopUpdate | null;
   installing: boolean;
+  installPhase: DesktopUpdateInstallPhase;
   /** 0..1 while downloading, null when not downloading or when total is unknown. */
   progress: number | null;
   /** Result of the most recent check, transient. */
@@ -96,6 +105,7 @@ export function useDesktopUpdate(): {
     lastCheckResult: null,
     downloaded: 0,
     total: 0,
+    downloadFinished: false,
   });
   // The plugin's Update object holds the download/install methods. We
   // keep it in a ref-shaped state slot so the banner's button can
@@ -253,21 +263,39 @@ export function useDesktopUpdate(): {
 
   const installAndRestart = useCallback(async () => {
     if (!pluginUpdate) return;
-    setState((prev) => ({ ...prev, installing: true, downloaded: 0, total: 0 }));
+    setState((prev) => ({
+      ...prev,
+      installing: true,
+      downloaded: 0,
+      total: 0,
+      downloadFinished: false,
+    }));
     try {
       await pluginUpdate.downloadAndInstall((event) => {
         if (event.event === "Started") {
           const total = event.data.contentLength ?? 0;
-          setState((prev) => ({ ...prev, total, downloaded: 0 }));
+          setState((prev) => ({ ...prev, total, downloaded: 0, downloadFinished: false }));
         } else if (event.event === "Progress") {
           setState((prev) => ({ ...prev, downloaded: prev.downloaded + event.data.chunkLength }));
+        } else if (event.event === "Finished") {
+          setState((prev) => ({
+            ...prev,
+            downloaded: prev.total || prev.downloaded,
+            downloadFinished: true,
+          }));
         }
-        // "Finished" needs no UI change — the plugin proceeds to
-        // install + relaunch immediately, terminating the renderer.
       });
+      const process = (await import("@tauri-apps/plugin-process")) as ProcessPlugin;
+      await process.relaunch();
     } catch (err) {
       logWarn("[hecate] desktop updater install failed:", err);
-      setState((prev) => ({ ...prev, installing: false, downloaded: 0, total: 0 }));
+      setState((prev) => ({
+        ...prev,
+        installing: false,
+        downloaded: 0,
+        total: 0,
+        downloadFinished: false,
+      }));
     }
   }, [pluginUpdate]);
 
@@ -275,12 +303,23 @@ export function useDesktopUpdate(): {
     await runCheck({ manual: true });
   }, [runCheck]);
 
-  const progress =
-    state.installing && state.total > 0 ? Math.min(1, state.downloaded / state.total) : null;
+  const progress = state.installing
+    ? state.downloadFinished
+      ? 1
+      : state.total > 0
+        ? Math.min(1, state.downloaded / state.total)
+        : null
+    : null;
+  const installPhase: DesktopUpdateInstallPhase = state.installing
+    ? state.downloadFinished
+      ? "restarting"
+      : "downloading"
+    : "idle";
 
   return {
     update: state.update,
     installing: state.installing,
+    installPhase,
     progress,
     lastCheckResult: state.lastCheckResult,
     dismiss,

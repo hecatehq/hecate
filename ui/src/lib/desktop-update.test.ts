@@ -33,6 +33,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args?: unknown) => invokeMock(cmd, args),
 }));
 
+const relaunchMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: () => relaunchMock(),
+}));
+
 function enterTauriRuntime() {
   // Stamp the marker isTauriRuntime() looks for. cleanup in afterEach.
   (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
@@ -47,6 +52,8 @@ beforeEach(() => {
   logWarnMock.mockReset();
   invokeMock.mockReset();
   invokeMock.mockResolvedValue(undefined);
+  relaunchMock.mockReset();
+  relaunchMock.mockResolvedValue(undefined);
   sessionStorage.clear();
   exitTauriRuntime();
 });
@@ -122,7 +129,7 @@ describe("useDesktopUpdate", () => {
     expect(result.current.update).toBeNull();
   });
 
-  it("installAndRestart() toggles installing and calls downloadAndInstall", async () => {
+  it("installAndRestart() downloads the update and then relaunches the app", async () => {
     enterTauriRuntime();
     let resolveDownload: (() => void) | null = null;
     const downloadAndInstall = vi.fn(
@@ -141,13 +148,13 @@ describe("useDesktopUpdate", () => {
       void result.current.installAndRestart();
     });
     await waitFor(() => expect(result.current.installing).toBe(true));
+    expect(result.current.installPhase).toBe("downloading");
     expect(downloadAndInstall).toHaveBeenCalledTimes(1);
-    // Resolve the download — installing flips back only on error;
-    // on success the plugin relaunches and the renderer terminates.
-    // We simulate the success path by resolving without exception.
-    act(() => {
+    await act(async () => {
       resolveDownload?.();
+      await Promise.resolve();
     });
+    await waitFor(() => expect(relaunchMock).toHaveBeenCalledTimes(1));
   });
 
   it("only calls check() once under React StrictMode (no double-fire on dev remount)", async () => {
@@ -193,6 +200,33 @@ describe("useDesktopUpdate", () => {
       onEventCb?.({ event: "Progress", data: { chunkLength: 500 } });
     });
     await waitFor(() => expect(result.current.progress).toBe(0.75));
+    act(() => {
+      onEventCb?.({ event: "Finished" });
+    });
+    await waitFor(() => expect(result.current.progress).toBe(1));
+    expect(result.current.installPhase).toBe("restarting");
+  });
+
+  it("clears installing state when relaunch fails", async () => {
+    enterTauriRuntime();
+    relaunchMock.mockRejectedValueOnce(new Error("restart denied"));
+    const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+    checkMock.mockResolvedValue({
+      version: "0.1.0-alpha.24",
+      downloadAndInstall,
+    });
+    const { result } = renderHook(() => useDesktopUpdate());
+    await waitFor(() => expect(result.current.update).not.toBeNull());
+
+    await act(async () => {
+      await result.current.installAndRestart();
+    });
+
+    expect(downloadAndInstall).toHaveBeenCalledTimes(1);
+    expect(relaunchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.installing).toBe(false);
+    expect(result.current.installPhase).toBe("idle");
+    expect(logWarnMock).toHaveBeenCalled();
   });
 
   it("re-runs check() on the steady-state interval", async () => {

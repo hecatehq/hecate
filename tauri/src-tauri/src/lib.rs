@@ -336,11 +336,13 @@ async fn drain_gateway(base_url: &str) -> Result<(), String> {
     while Instant::now() < deadline {
         tokio::time::sleep(GATEWAY_DRAIN_POLL_INTERVAL).await;
         match client.get(&healthz_url).send().await {
-            Ok(_) => continue, // still up — keep polling
+            Ok(_) => continue,       // still up — keep polling
             Err(_) => return Ok(()), // gateway is gone
         }
     }
-    Err(format!("gateway did not exit within {GATEWAY_DRAIN_DEADLINE:?}"))
+    Err(format!(
+        "gateway did not exit within {GATEWAY_DRAIN_DEADLINE:?}"
+    ))
 }
 
 /// Shows a native blocking-by-callback confirmation dialog asking the
@@ -380,9 +382,7 @@ fn handle_quit_request(app: AppHandle) {
         return;
     }
     tauri::async_runtime::spawn(async move {
-        let base_url = app
-            .try_state::<GatewayBaseURL>()
-            .and_then(|s| s.snapshot());
+        let base_url = app.try_state::<GatewayBaseURL>().and_then(|s| s.snapshot());
         if let Some(ref base) = base_url {
             let running = fetch_running_runs(base).await;
             if running > 0 {
@@ -445,6 +445,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .invoke_handler(tauri::generate_handler![set_update_badge])

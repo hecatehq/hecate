@@ -252,3 +252,11 @@ causes, in rough order:
   channel baked in.
 - Network / fetch error against `hecate.sh` (the hook silently
   swallows errors; check the webview console in dev builds).
+
+**Banner reaches `Downloading... 100%` / `Installing...` and never
+relaunches.** The updater payload was downloaded, but the app did
+not request a restart after installation. Confirm the UI calls
+`@tauri-apps/plugin-process` `relaunch()` after
+`downloadAndInstall()`, `tauri_plugin_process::init()` is registered
+in the Rust builder, and the default capability includes
+`process:allow-restart`.
