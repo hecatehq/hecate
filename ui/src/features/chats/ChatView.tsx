@@ -15,7 +15,6 @@ import {
 import { discoverLocalProviders } from "../../lib/api";
 import {
   modelSelectionHasNoToolCalling,
-  modelSelectionSupportsToolCalling,
   resolveChatSetupRepairState,
   toolCallingSupportsTaskMode,
   type ChatSetupRepairState,
@@ -427,15 +426,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
 
   function handleHecateModelChange(model: string) {
     actions.setModel(model);
-    if (
-      modelSelectionSupportsToolCalling({
-        models: selectableModels,
-        providerFilter: state.providerFilter,
-        model,
-      })
-    ) {
-      actions.setChatTarget("agent");
-    }
   }
 
   const sendDisabled =
