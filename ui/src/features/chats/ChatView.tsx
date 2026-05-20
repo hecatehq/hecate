@@ -15,6 +15,7 @@ import {
 import { discoverLocalProviders } from "../../lib/api";
 import {
   modelSelectionHasNoToolCalling,
+  modelSelectionSupportsToolCalling,
   resolveChatSetupRepairState,
   toolCallingSupportsTaskMode,
   type ChatSetupRepairState,
@@ -370,6 +371,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         model: state.model,
       });
   const hecateTaskToolsAvailable = isHecateAgentChat && !hecateAgentToolsDisabledForModel;
+  const chatSetupRepairTarget =
+    isHecateAgentChat && hecateAgentToolsDisabledForModel ? "model" : state.chatTarget;
   const hecateChatModelReady =
     isHecateAgentChat && hecateAgentModelLocked
       ? Boolean(hecateChatModelValue)
@@ -395,7 +398,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     state.pendingToolCalls.length === 0 &&
     state.message.trim() === "";
   const chatSetupRepair = resolveChatSetupRepairState({
-    target: state.chatTarget,
+    target: chatSetupRepairTarget,
     hasConfiguredProviders,
     modelRouteUnavailable,
     selectedModelIssue,
@@ -421,6 +424,20 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     emptyStateAlreadyShowsModelRepair(chatSetupRepair, visibleMessages.length);
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
+
+  function handleHecateModelChange(model: string) {
+    actions.setModel(model);
+    if (
+      modelSelectionSupportsToolCalling({
+        models: selectableModels,
+        providerFilter: state.providerFilter,
+        model,
+      })
+    ) {
+      actions.setChatTarget("agent");
+    }
+  }
+
   const sendDisabled =
     !state.message.trim() ||
     (!agentBusy && streaming) ||
@@ -825,6 +842,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               hecateProviderOptions={hecateProviderOptions}
               hecateDisabledProviderReasons={hecateDisabledProviderReasons}
               selectableModels={selectableModels}
+              onHecateModelChange={handleHecateModelChange}
               chooseWorkspace={chooseWorkspace}
               openClaudeCodeSetup={openAgentSetup}
               activeHecateTaskID={activeHecateTaskID}
@@ -922,7 +940,7 @@ function buildActiveChatHeaderSubline({
   const mode = isHecateAgentChat
     ? hecateTaskToolsAvailable
       ? "Tools on"
-      : "Direct chat"
+      : "Direct chat · tools unavailable"
     : "Tools off";
   return [mode, activeSession?.workspace || ""].filter(Boolean).join(" · ");
 }

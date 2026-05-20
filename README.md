@@ -115,6 +115,10 @@ Chats is the primary day-to-day surface. It explains missing setup before you se
 
 Hecate Chat keeps direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
 
+![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
+
+If the selected model is known not to support tool-calling, Hecate keeps the chat usable as direct model chat and shows the tools-unavailable state in the header instead of failing the prompt.
+
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 
 External Agent approvals surface in Chats as actionable operator prompts before Codex, Claude Code, or Cursor Agent can apply gated actions.
@@ -182,6 +186,10 @@ Chats starts from setup-aware onboarding: local runtimes can be added quickly, o
 ![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)
 
 Hecate Chat keeps direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
+
+![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
+
+Models without tool-calling support still work for ordinary chat: Hecate falls back to direct model turns and keeps that state visible in the header.
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 

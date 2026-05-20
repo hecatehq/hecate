@@ -57,7 +57,10 @@ async function snap(page: Page, name: string) {
   console.log(`  saved ${path}`);
 }
 
-async function openWorkspace(page: Page, id: "overview" | "runs" | "chats" | "connections" | "usage" | "settings") {
+async function openWorkspace(
+  page: Page,
+  id: "overview" | "runs" | "chats" | "connections" | "usage" | "settings",
+) {
   await page.evaluate(
     ({ key, workspace }) => {
       window.localStorage.setItem(key, workspace);
@@ -74,17 +77,26 @@ function detectOptimizer(): PNGOptimizer | null {
   const candidates: PNGOptimizer[] = [
     {
       name: "pngquant",
-      args: path => ["--quality=80-100", "--speed", "1", "--strip", "--ext", ".png", "--force", path],
+      args: (path) => [
+        "--quality=80-100",
+        "--speed",
+        "1",
+        "--strip",
+        "--ext",
+        ".png",
+        "--force",
+        path,
+      ],
       lossy: true,
     },
     {
       name: "oxipng",
-      args: path => ["-o", "max", "--strip", "safe", path],
+      args: (path) => ["-o", "max", "--strip", "safe", path],
       lossy: false,
     },
     {
       name: "magick",
-      args: path => [path, "-strip", "-define", "png:compression-level=9", path],
+      args: (path) => [path, "-strip", "-define", "png:compression-level=9", path],
       lossy: false,
     },
   ];
@@ -108,24 +120,35 @@ async function optimize() {
   }
   console.log(`→ optimizing PNGs (${tool.name}, ${tool.lossy ? "lossy palette" : "lossless"})`);
   const { spawn } = await import("node:child_process");
-  await Promise.all(captured.map(path => new Promise<void>(resolve => {
-    const before = statSync(path).size;
-    const child = spawn(tool.name, tool.args(path), { stdio: ["ignore", "ignore", "pipe"] });
-    let stderr = "";
-    child.stderr?.on("data", chunk => { stderr += chunk.toString(); });
-    child.on("close", code => {
-      if (code !== 0) {
-        console.warn(`  ${path.split("/").pop()}: ${tool.name} failed (${stderr.trim() || `exit ${code}`}); leaving original`);
-        resolve();
-        return;
-      }
-      const after = statSync(path).size;
-      const delta = before - after;
-      const pct = ((delta / before) * 100).toFixed(0);
-      console.log(`  ${path.split("/").pop()}: ${(before / 1024).toFixed(1)} KB → ${(after / 1024).toFixed(1)} KB (-${pct}%)`);
-      resolve();
-    });
-  })));
+  await Promise.all(
+    captured.map(
+      (path) =>
+        new Promise<void>((resolve) => {
+          const before = statSync(path).size;
+          const child = spawn(tool.name, tool.args(path), { stdio: ["ignore", "ignore", "pipe"] });
+          let stderr = "";
+          child.stderr?.on("data", (chunk) => {
+            stderr += chunk.toString();
+          });
+          child.on("close", (code) => {
+            if (code !== 0) {
+              console.warn(
+                `  ${path.split("/").pop()}: ${tool.name} failed (${stderr.trim() || `exit ${code}`}); leaving original`,
+              );
+              resolve();
+              return;
+            }
+            const after = statSync(path).size;
+            const delta = before - after;
+            const pct = ((delta / before) * 100).toFixed(0);
+            console.log(
+              `  ${path.split("/").pop()}: ${(before / 1024).toFixed(1)} KB → ${(after / 1024).toFixed(1)} KB (-${pct}%)`,
+            );
+            resolve();
+          });
+        }),
+    ),
+  );
 }
 
 const jsonHeaders = { "Content-Type": "application/json" } as const;
@@ -141,6 +164,7 @@ function fulfillJSON(route: Route, data: unknown) {
 const docsChatSessionID = "agent-docs-session";
 const docsApprovalID = "appr_docs_file_write";
 const docsHecateChatSessionID = "chat-docs-hecate";
+const docsHecateToolsFallbackSessionID = "chat-docs-hecate-tools-fallback";
 const docsTaskID = "task_docs_git_status";
 const docsRunID = "run_docs_git_status";
 
@@ -245,7 +269,8 @@ function docsAgentSession() {
       {
         id: "agent-docs-assistant-1",
         role: "assistant",
-        content: "I found the runtime API section and prepared a small docs patch. Hecate needs your approval before the adapter writes the file.",
+        content:
+          "I found the runtime API section and prepared a small docs patch. Hecate needs your approval before the adapter writes the file.",
         adapter_id: "codex",
         adapter_name: "Codex",
         driver_kind: "acp",
@@ -256,12 +281,33 @@ function docsAgentSession() {
         run_id: "agent_run_docs",
         trace_id: "7c5a7e1f8a6d4b31",
         duration_ms: 12_480,
-        diff_stat: "docs/runtime-api.md | 18 +++++++++++++-----\n1 file changed, 13 insertions(+), 5 deletions(-)",
+        diff_stat:
+          "docs/runtime-api.md | 18 +++++++++++++-----\n1 file changed, 13 insertions(+), 5 deletions(-)",
         diff: "diff --git a/docs/runtime-api.md b/docs/runtime-api.md\nindex 1a2b3c4..5d6e7f8 100644\n--- a/docs/runtime-api.md\n+++ b/docs/runtime-api.md\n@@ -10,6 +10,9 @@\n+External-agent approvals are visible on the chat stream.\n",
         activities: [
-          { id: "plan-1", type: "plan", status: "completed", title: "Inspect runtime API docs", created_at: docsTimestamp(-5) },
-          { id: "tool-1", type: "tool_call", status: "completed", kind: "read_file", title: "Read docs/runtime-api.md", created_at: docsTimestamp(-4) },
-          { id: "approval-1", type: "approval", status: "running", kind: "file_write", title: "Waiting for file_write approval", created_at: docsTimestamp(-1) },
+          {
+            id: "plan-1",
+            type: "plan",
+            status: "completed",
+            title: "Inspect runtime API docs",
+            created_at: docsTimestamp(-5),
+          },
+          {
+            id: "tool-1",
+            type: "tool_call",
+            status: "completed",
+            kind: "read_file",
+            title: "Read docs/runtime-api.md",
+            created_at: docsTimestamp(-4),
+          },
+          {
+            id: "approval-1",
+            type: "approval",
+            status: "running",
+            kind: "file_write",
+            title: "Waiting for file_write approval",
+            created_at: docsTimestamp(-1),
+          },
         ],
         usage: {
           context_size: 200_000,
@@ -269,7 +315,8 @@ function docsAgentSession() {
           reported_cost_amount: "0.04",
           reported_cost_currency: "USD",
         },
-        raw_output: "request_permission file_write docs/runtime-api.md\nwaiting for operator approval",
+        raw_output:
+          "request_permission file_write docs/runtime-api.md\nwaiting for operator approval",
         created_at: docsTimestamp(-5),
         started_at: docsTimestamp(-5),
       },
@@ -343,7 +390,8 @@ function docsHecateChatSession() {
         runtime_kind: "model",
         segment_id: "model:intro",
         role: "assistant",
-        content: "Today focused on polishing Hecate Chat: clearer task links, trace navigation, and smoother task-backed turns.",
+        content:
+          "Today focused on polishing Hecate Chat: clearer task links, trace navigation, and smoother task-backed turns.",
         provider: "ollama",
         model: "ministral-3:latest",
         status: "completed",
@@ -380,7 +428,8 @@ function docsHecateChatSession() {
         request_id: requestID,
         trace_id: `${requestID}d2a88c64e56b`,
         role: "assistant",
-        content: "Here are the last 3 commits in the Hecate repository:\n\n- `c3c1e9a` fix(ui): compact chat header identifiers\n- `0fcbc52` fix(ui): stabilize busy chat e2e selectors\n- `f6572e5` fix(runtime): avoid overflowing slice capacity calculations\n\nThe branch is clean after those changes.",
+        content:
+          "Here are the last 3 commits in the Hecate repository:\n\n- `c3c1e9a` fix(ui): compact chat header identifiers\n- `0fcbc52` fix(ui): stabilize busy chat e2e selectors\n- `f6572e5` fix(runtime): avoid overflowing slice capacity calculations\n\nThe branch is clean after those changes.",
         provider: "ollama",
         model: "ministral-3:latest",
         capabilities: {
@@ -421,7 +470,8 @@ function docsHecateChatSession() {
             created_at: docsTimestamp(-1),
           },
         ],
-        raw_output: "c3c1e9a fix(ui): compact chat header identifiers\n0fcbc52 fix(ui): stabilize busy chat e2e selectors\nf6572e5 fix(runtime): avoid overflowing slice capacity calculations",
+        raw_output:
+          "c3c1e9a fix(ui): compact chat header identifiers\n0fcbc52 fix(ui): stabilize busy chat e2e selectors\nf6572e5 fix(runtime): avoid overflowing slice capacity calculations",
         usage: {
           context_size: 128_000,
           context_used: 18_320,
@@ -446,6 +496,81 @@ function docsHecateChatSession() {
   };
 }
 
+function docsHecateToolsFallbackSession() {
+  const createdAt = docsTimestamp(-3);
+  const updatedAt = docsTimestamp(-1);
+  return {
+    id: docsHecateToolsFallbackSessionID,
+    title: "Ask a tiny local model",
+    agent_id: "hecate",
+    runtime_kind: "agent",
+    provider: "ollama",
+    model: "smollm2:135m",
+    capabilities: {
+      tool_calling: "none",
+      streaming: true,
+      max_context_tokens: 8_192,
+      source: "provider",
+    },
+    workspace: "/Users/alice/dev/hecate",
+    status: "completed",
+    created_at: createdAt,
+    updated_at: updatedAt,
+    segments: [
+      {
+        id: "model:smollm-joke",
+        runtime_kind: "model",
+        provider: "ollama",
+        model: "smollm2:135m",
+        status: "completed",
+        message_count: 2,
+        started_at: createdAt,
+        updated_at: updatedAt,
+      },
+    ],
+    messages: [
+      {
+        id: "hecate-tools-fallback-user-1",
+        runtime_kind: "model",
+        execution_mode: "direct_model",
+        segment_id: "model:smollm-joke",
+        role: "user",
+        content: "tell a short terminal joke",
+        provider: "ollama",
+        model: "smollm2:135m",
+        created_at: createdAt,
+      },
+      {
+        id: "hecate-tools-fallback-assistant-1",
+        runtime_kind: "model",
+        execution_mode: "direct_model",
+        segment_id: "model:smollm-joke",
+        role: "assistant",
+        content:
+          "Why did the shell script bring a ladder?\n\nBecause it wanted to reach the next pipeline.",
+        provider: "ollama",
+        model: "smollm2:135m",
+        capabilities: {
+          tool_calling: "none",
+          streaming: true,
+          max_context_tokens: 8_192,
+          source: "provider",
+        },
+        status: "completed",
+        request_id: "req_docs_smollm",
+        trace_id: "5d3a0e7b9f214d2a9c10",
+        duration_ms: 2_800,
+        usage: {
+          context_size: 8_192,
+          context_used: 740,
+        },
+        created_at: docsTimestamp(-2),
+        completed_at: updatedAt,
+      },
+    ],
+  };
+}
+
 async function routeAgentDocsFixtures(page: Page) {
   const fulfillJSON = (route: Route, data: unknown) =>
     route.fulfill({
@@ -461,19 +586,21 @@ async function routeAgentDocsFixtures(page: Page) {
   await page.route(`${HECATE_API}/chat/sessions`, (route) => {
     fulfillJSON(route, {
       object: "chat_sessions",
-      data: [{
-        id: session.id,
-        title: session.title,
-        agent_id: session.agent_id,
-        driver_kind: session.driver_kind,
-        native_session_id: session.native_session_id,
-        workspace: session.workspace,
-        workspace_branch: session.workspace_branch,
-        status: session.status,
-        message_count: session.messages.length,
-        created_at: session.created_at,
-        updated_at: session.updated_at,
-      }],
+      data: [
+        {
+          id: session.id,
+          title: session.title,
+          agent_id: session.agent_id,
+          driver_kind: session.driver_kind,
+          native_session_id: session.native_session_id,
+          workspace: session.workspace,
+          workspace_branch: session.workspace_branch,
+          status: session.status,
+          message_count: session.messages.length,
+          created_at: session.created_at,
+          updated_at: session.updated_at,
+        },
+      ],
     });
   });
   await page.route(`${HECATE_API}/chat/sessions/${docsChatSessionID}`, async (route) => {
@@ -486,9 +613,12 @@ async function routeAgentDocsFixtures(page: Page) {
   await page.route(`${HECATE_API}/chat/sessions/${docsChatSessionID}/approvals*`, (route) => {
     fulfillJSON(route, { object: "chat_approvals", data: [docsAgentApproval()] });
   });
-  await page.route(`${HECATE_API}/chat/sessions/${docsChatSessionID}/approvals/${docsApprovalID}`, (route) => {
-    fulfillJSON(route, { object: "chat_approval", data: docsAgentApproval() });
-  });
+  await page.route(
+    `${HECATE_API}/chat/sessions/${docsChatSessionID}/approvals/${docsApprovalID}`,
+    (route) => {
+      fulfillJSON(route, { object: "chat_approval", data: docsAgentApproval() });
+    },
+  );
   await page.route(`${HECATE_API}/chat/grants`, (route) => {
     fulfillJSON(route, {
       object: "chat_grants",
@@ -564,7 +694,7 @@ async function routeHecateChatDocsFixture(page: Page) {
             provider: "ollama",
             provider_kind: "local",
             discovery_source: "provider",
-            capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+            capabilities: { tool_calling: "none", streaming: true, source: "provider" },
           },
         },
       ],
@@ -616,22 +746,24 @@ async function routeHecateChatDocsFixture(page: Page) {
   await page.route(`${HECATE_API}/chat/sessions`, (route) => {
     fulfillJSON(route, {
       object: "chat_sessions",
-      data: [{
-        id: session.id,
-        title: session.title,
-        runtime_kind: session.runtime_kind,
-        task_id: session.task_id,
-        latest_run_id: session.latest_run_id,
-        provider: session.provider,
-        model: session.model,
-        capabilities: session.capabilities,
-        workspace: session.workspace,
-        workspace_branch: session.workspace_branch,
-        status: session.status,
-        message_count: session.messages.length,
-        created_at: session.created_at,
-        updated_at: session.updated_at,
-      }],
+      data: [
+        {
+          id: session.id,
+          title: session.title,
+          runtime_kind: session.runtime_kind,
+          task_id: session.task_id,
+          latest_run_id: session.latest_run_id,
+          provider: session.provider,
+          model: session.model,
+          capabilities: session.capabilities,
+          workspace: session.workspace,
+          workspace_branch: session.workspace_branch,
+          status: session.status,
+          message_count: session.messages.length,
+          created_at: session.created_at,
+          updated_at: session.updated_at,
+        },
+      ],
     });
   });
   await page.route(`${HECATE_API}/chat/sessions/${docsHecateChatSessionID}`, async (route) => {
@@ -641,9 +773,12 @@ async function routeHecateChatDocsFixture(page: Page) {
     }
     fulfillJSON(route, { object: "chat_session", data: session });
   });
-  await page.route(`${HECATE_API}/chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`, (route) => {
-    fulfillJSON(route, { object: "chat_approvals", data: [] });
-  });
+  await page.route(
+    `${HECATE_API}/chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`,
+    (route) => {
+      fulfillJSON(route, { object: "chat_approvals", data: [] });
+    },
+  );
 }
 
 async function unrouteHecateChatDocsFixture(page: Page) {
@@ -652,7 +787,134 @@ async function unrouteHecateChatDocsFixture(page: Page) {
   await page.unroute(`${HECATE_API}/providers/status`);
   await page.unroute(`${HECATE_API}/chat/sessions`);
   await page.unroute(`${HECATE_API}/chat/sessions/${docsHecateChatSessionID}`);
-  await page.unroute(`${HECATE_API}/chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`);
+  await page.unroute(
+    `${HECATE_API}/chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`,
+  );
+}
+
+async function routeHecateToolsFallbackDocsFixture(page: Page) {
+  const session = docsHecateToolsFallbackSession();
+  await page.route(`${COMPAT_API}/models`, (route) => {
+    fulfillJSON(route, {
+      object: "list",
+      data: [
+        {
+          id: "ministral-3:latest",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            discovery_source: "provider",
+            capabilities: {
+              tool_calling: "basic",
+              streaming: true,
+              max_context_tokens: 128_000,
+              source: "provider",
+            },
+          },
+        },
+        {
+          id: "smollm2:135m",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            discovery_source: "provider",
+            capabilities: {
+              tool_calling: "none",
+              streaming: true,
+              max_context_tokens: 8_192,
+              source: "provider",
+            },
+          },
+        },
+      ],
+    });
+  });
+  await page.route(`${HECATE_API}/settings`, (route) => {
+    fulfillJSON(route, {
+      object: "settings",
+      data: {
+        backend: "memory",
+        providers: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            preset_id: "ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            default_model: "smollm2:135m",
+            credential_configured: true,
+          },
+        ],
+        policy_rules: [],
+        events: [],
+      },
+    });
+  });
+  await page.route(`${HECATE_API}/providers/status`, (route) => {
+    fulfillJSON(route, {
+      object: "providers",
+      data: [
+        {
+          name: "ollama",
+          kind: "local",
+          base_url: "http://127.0.0.1:11434/v1",
+          credential_state: "not_required",
+          credential_ready: true,
+          healthy: true,
+          status: "ok",
+          routing_ready: true,
+          default_model: "smollm2:135m",
+          models: ["ministral-3:latest", "smollm2:135m"],
+          model_count: 2,
+          discovery_source: "provider",
+        },
+      ],
+    });
+  });
+  await page.route(`${HECATE_API}/chat/sessions`, (route) => {
+    fulfillJSON(route, {
+      object: "chat_sessions",
+      data: [
+        {
+          id: session.id,
+          title: session.title,
+          agent_id: session.agent_id,
+          runtime_kind: session.runtime_kind,
+          provider: session.provider,
+          model: session.model,
+          capabilities: session.capabilities,
+          workspace: session.workspace,
+          status: session.status,
+          message_count: session.messages.length,
+          created_at: session.created_at,
+          updated_at: session.updated_at,
+        },
+      ],
+    });
+  });
+  await page.route(`${HECATE_API}/chat/sessions/${docsHecateToolsFallbackSessionID}`, (route) => {
+    fulfillJSON(route, { object: "chat_session", data: session });
+  });
+  await page.route(
+    `${HECATE_API}/chat/sessions/${docsHecateToolsFallbackSessionID}/approvals?status=pending`,
+    (route) => {
+      fulfillJSON(route, { object: "chat_approvals", data: [] });
+    },
+  );
+}
+
+async function unrouteHecateToolsFallbackDocsFixture(page: Page) {
+  await page.unroute(`${COMPAT_API}/models`);
+  await page.unroute(`${HECATE_API}/settings`);
+  await page.unroute(`${HECATE_API}/providers/status`);
+  await page.unroute(`${HECATE_API}/chat/sessions`);
+  await page.unroute(`${HECATE_API}/chat/sessions/${docsHecateToolsFallbackSessionID}`);
+  await page.unroute(
+    `${HECATE_API}/chat/sessions/${docsHecateToolsFallbackSessionID}/approvals?status=pending`,
+  );
 }
 
 async function routeTaskDiagnosticsDocsFixture(page: Page) {
@@ -722,7 +984,12 @@ async function routeTaskDiagnosticsDocsFixture(page: Page) {
       tool_name: "git_exec",
       exit_code: 128,
       error: "fatal: not a git repository",
-      output_summary: { command: "git status --short", exit_code: 128, stdout_bytes: 0, stderr_bytes: 27 },
+      output_summary: {
+        command: "git status --short",
+        exit_code: 128,
+        stdout_bytes: 0,
+        stderr_bytes: 27,
+      },
       started_at: docsTimestamp(-10),
       finished_at: docsTimestamp(-10),
     },
@@ -830,10 +1097,46 @@ async function routeTaskDiagnosticsDocsFixture(page: Page) {
     },
   ];
   const events = [
-    { schema_version: "1", event_id: "evt_docs_1", task_id: docsTaskID, run_id: docsRunID, sequence: 1, occurred_at: docsTimestamp(-12), type: "run.created", data: {} },
-    { schema_version: "1", event_id: "evt_docs_2", task_id: docsTaskID, run_id: docsRunID, sequence: 2, occurred_at: docsTimestamp(-12), type: "run.started", data: {} },
-    { schema_version: "1", event_id: "evt_docs_3", task_id: docsTaskID, run_id: docsRunID, sequence: 3, occurred_at: docsTimestamp(-10), type: "tool.failed", data: { tool: "git_exec" } },
-    { schema_version: "1", event_id: "evt_docs_4", task_id: docsTaskID, run_id: docsRunID, sequence: 4, occurred_at: docsTimestamp(-3), type: "run.failed", data: { error: "git_exec failed: not a git repository" } },
+    {
+      schema_version: "1",
+      event_id: "evt_docs_1",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      sequence: 1,
+      occurred_at: docsTimestamp(-12),
+      type: "run.created",
+      data: {},
+    },
+    {
+      schema_version: "1",
+      event_id: "evt_docs_2",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      sequence: 2,
+      occurred_at: docsTimestamp(-12),
+      type: "run.started",
+      data: {},
+    },
+    {
+      schema_version: "1",
+      event_id: "evt_docs_3",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      sequence: 3,
+      occurred_at: docsTimestamp(-10),
+      type: "tool.failed",
+      data: { tool: "git_exec" },
+    },
+    {
+      schema_version: "1",
+      event_id: "evt_docs_4",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      sequence: 4,
+      occurred_at: docsTimestamp(-3),
+      type: "run.failed",
+      data: { error: "git_exec failed: not a git repository" },
+    },
   ];
   const snapshot = {
     object: "task_run_event",
@@ -851,17 +1154,34 @@ async function routeTaskDiagnosticsDocsFixture(page: Page) {
   const fulfillJSON = (route: Route, data: unknown) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
 
-  await page.route(`${HECATE_API}/tasks?limit=30`, route => fulfillJSON(route, { object: "tasks", data: [task] }));
-  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs`, route => fulfillJSON(route, { object: "task_runs", data: [run] }));
-  await page.route(`${HECATE_API}/tasks/${docsTaskID}/approvals`, route => fulfillJSON(route, { object: "task_approvals", data: [] }));
-  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/steps`, route => fulfillJSON(route, { object: "task_steps", data: steps }));
-  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/artifacts`, route => fulfillJSON(route, { object: "task_artifacts", data: artifacts }));
-  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/events?after_sequence=0`, route => fulfillJSON(route, { object: "task_run_events", data: events }));
-  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/stream?after_sequence=0`, route => route.fulfill({
-    status: 200,
-    contentType: "text/event-stream",
-    body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`,
-  }));
+  await page.route(`${HECATE_API}/tasks?limit=30`, (route) =>
+    fulfillJSON(route, { object: "tasks", data: [task] }),
+  );
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs`, (route) =>
+    fulfillJSON(route, { object: "task_runs", data: [run] }),
+  );
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/approvals`, (route) =>
+    fulfillJSON(route, { object: "task_approvals", data: [] }),
+  );
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/steps`, (route) =>
+    fulfillJSON(route, { object: "task_steps", data: steps }),
+  );
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/artifacts`, (route) =>
+    fulfillJSON(route, { object: "task_artifacts", data: artifacts }),
+  );
+  await page.route(
+    `${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/events?after_sequence=0`,
+    (route) => fulfillJSON(route, { object: "task_run_events", data: events }),
+  );
+  await page.route(
+    `${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/stream?after_sequence=0`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`,
+      }),
+  );
 }
 
 async function unrouteTaskDiagnosticsDocsFixture(page: Page) {
@@ -875,42 +1195,44 @@ async function unrouteTaskDiagnosticsDocsFixture(page: Page) {
 }
 
 async function routeLocalProviderDiscoveryDocsFixture(page: Page) {
-  await page.route(`${HECATE_API}/settings/providers/local-discovery`, route => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({
-      object: "local_provider_discovery",
-      data: [
-        {
-          preset_id: "ollama",
-          name: "Ollama",
-          base_url: "http://127.0.0.1:11434/v1",
-          probe_url: "http://127.0.0.1:11434/api/tags",
-          status: "running",
-          command: "ollama",
-          command_available: true,
-          command_path: "/opt/homebrew/bin/ollama",
-          http_available: true,
-          model_count: 1,
-          models: ["llama3.1:8b"],
-        },
-        {
-          preset_id: "lmstudio",
-          name: "LM Studio",
-          base_url: "http://127.0.0.1:1234/v1",
-          probe_url: "http://127.0.0.1:1234/v1/models",
-          status: "installed",
-          command: "lms",
-          command_available: true,
-          command_path: "/Users/alice/.lmstudio/bin/lms",
-          http_available: false,
-          model_count: 0,
-          models: [],
-          error: "connection refused",
-        },
-      ],
+  await page.route(`${HECATE_API}/settings/providers/local-discovery`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "local_provider_discovery",
+        data: [
+          {
+            preset_id: "ollama",
+            name: "Ollama",
+            base_url: "http://127.0.0.1:11434/v1",
+            probe_url: "http://127.0.0.1:11434/api/tags",
+            status: "running",
+            command: "ollama",
+            command_available: true,
+            command_path: "/opt/homebrew/bin/ollama",
+            http_available: true,
+            model_count: 1,
+            models: ["llama3.1:8b"],
+          },
+          {
+            preset_id: "lmstudio",
+            name: "LM Studio",
+            base_url: "http://127.0.0.1:1234/v1",
+            probe_url: "http://127.0.0.1:1234/v1/models",
+            status: "installed",
+            command: "lms",
+            command_available: true,
+            command_path: "/Users/alice/.lmstudio/bin/lms",
+            http_available: false,
+            model_count: 0,
+            models: [],
+            error: "connection refused",
+          },
+        ],
+      }),
     }),
-  }));
+  );
 }
 
 // addProvider creates a provider via the same POST endpoint the UI's
@@ -991,10 +1313,12 @@ async function seedChatSessions() {
         model: "llama3.1:8b",
         provider: "ollama",
         session_id: firstID,
-        messages: [{
-          role: "user",
-          content: "In two sentences: when do you reach for a Go interface vs a struct?",
-        }],
+        messages: [
+          {
+            role: "user",
+            content: "In two sentences: when do you reach for a Go interface vs a struct?",
+          },
+        ],
       }),
     });
     if (!chatRes.ok) {
@@ -1026,45 +1350,47 @@ async function main() {
   // the one-click local setup path, not the capture machine's real state.
   console.log("→ chat-empty (first-run one-click local setup)");
   const missingAgentAdapters = `${HECATE_API}/agent-adapters`;
-  await page.route(missingAgentAdapters, route => route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({
-      object: "agent_adapters",
-      data: [
-        {
-          id: "codex",
-          name: "Codex",
-          kind: "acp",
-          command: "codex-acp",
-          available: false,
-          status: "missing",
-          error: "codex was not found on PATH",
-          cost_mode: "external",
-        },
-        {
-          id: "claude_code",
-          name: "Claude Code",
-          kind: "acp",
-          command: "claude-agent-acp",
-          available: false,
-          status: "missing",
-          error: "claude was not found on PATH",
-          cost_mode: "external",
-        },
-        {
-          id: "cursor_agent",
-          name: "Cursor Agent",
-          kind: "acp",
-          command: "cursor-agent",
-          available: false,
-          status: "missing",
-          error: "cursor-agent was not found on PATH",
-          cost_mode: "external",
-        },
-      ],
+  await page.route(missingAgentAdapters, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_adapters",
+        data: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: false,
+            status: "missing",
+            error: "codex was not found on PATH",
+            cost_mode: "external",
+          },
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: false,
+            status: "missing",
+            error: "claude was not found on PATH",
+            cost_mode: "external",
+          },
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: false,
+            status: "missing",
+            error: "cursor-agent was not found on PATH",
+            cost_mode: "external",
+          },
+        ],
+      }),
     }),
-  }));
+  );
   await routeLocalProviderDiscoveryDocsFixture(page);
   await clearAndNavigate(page);
   await page.evaluate((workspaceKey) => {
@@ -1106,10 +1432,14 @@ async function main() {
   // enough to pass the create handler's "cloud-needs-key" guard; an actual
   // round-trip to OpenAI isn't in the screenshot.
   console.log("→ seeding providers");
-  await addProvider({ name: "Ollama",   preset_id: "ollama",   kind: "local" });
+  await addProvider({ name: "Ollama", preset_id: "ollama", kind: "local" });
   await addProvider({ name: "LM Studio", preset_id: "lmstudio", kind: "local" });
-  await addProvider({ name: "OpenAI",   preset_id: "openai",   kind: "cloud",
-    api_key: "sk-live-redacted-for-screenshots" });
+  await addProvider({
+    name: "OpenAI",
+    preset_id: "openai",
+    kind: "cloud",
+    api_key: "sk-live-redacted-for-screenshots",
+  });
 
   // ── 5. Populated Connections table ──────────────────────────────────────────
   console.log("→ connections (populated table)");
@@ -1129,15 +1459,21 @@ async function main() {
   console.log("→ chat (Hecate Chat, tools on/off transcript)");
   await routeHecateChatDocsFixture(page);
   await clearAndNavigate(page);
-  await page.evaluate(({ sessionID, workspaceKey }) => {
-    window.localStorage.setItem(workspaceKey, "chats");
-    window.localStorage.setItem("hecate.chatTarget", "agent");
-    window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "agent" }));
-    window.localStorage.setItem("hecate.chatSessionID", sessionID);
-    window.localStorage.setItem("hecate.providerFilter", "ollama");
-    window.localStorage.setItem("hecate.model", "ministral-3:latest");
-    window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
-  }, { sessionID: docsHecateChatSessionID, workspaceKey: WORKSPACE_KEY });
+  await page.evaluate(
+    ({ sessionID, workspaceKey }) => {
+      window.localStorage.setItem(workspaceKey, "chats");
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem(
+        "hecate.chatTargetBySessionID",
+        JSON.stringify({ [sessionID]: "agent" }),
+      );
+      window.localStorage.setItem("hecate.chatSessionID", sessionID);
+      window.localStorage.setItem("hecate.providerFilter", "ollama");
+      window.localStorage.setItem("hecate.model", "ministral-3:latest");
+      window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
+    },
+    { sessionID: docsHecateChatSessionID, workspaceKey: WORKSPACE_KEY },
+  );
   await page.reload();
   await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
   await openWorkspace(page, "chats");
@@ -1147,31 +1483,62 @@ async function main() {
   await snap(page, "chat");
   await unrouteHecateChatDocsFixture(page);
 
-  // ── 7. Tasks ────────────────────────────────────────────────────────────────
+  // ── 7. Hecate Chat with a non-tool model ────────────────────────────────────
+  // This captures the fallback path where the chat remains usable, but the
+  // header tells the operator the selected model cannot drive task tools.
+  console.log("→ chat-tools-fallback (non-tool model, direct chat fallback)");
+  await routeHecateToolsFallbackDocsFixture(page);
+  await clearAndNavigate(page);
+  await page.evaluate(
+    ({ sessionID, workspaceKey }) => {
+      window.localStorage.setItem(workspaceKey, "chats");
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem(
+        "hecate.chatTargetBySessionID",
+        JSON.stringify({ [sessionID]: "agent" }),
+      );
+      window.localStorage.setItem("hecate.chatSessionID", sessionID);
+      window.localStorage.setItem("hecate.providerFilter", "ollama");
+      window.localStorage.setItem("hecate.model", "smollm2:135m");
+      window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
+    },
+    { sessionID: docsHecateToolsFallbackSessionID, workspaceKey: WORKSPACE_KEY },
+  );
+  await page.reload();
+  await page.waitForSelector("text=Direct chat", { timeout: 5_000 });
+  await page.waitForSelector("text=tools unavailable", { timeout: 5_000 });
+  await page.waitForTimeout(700);
+  await snap(page, "chat-tools-fallback");
+  await unrouteHecateToolsFallbackDocsFixture(page);
+
+  // ── 8. Tasks ────────────────────────────────────────────────────────────────
   console.log("→ tasks (failed tool diagnostics fixture)");
   await routeTaskDiagnosticsDocsFixture(page);
   await page.reload();
   await page.waitForSelector(".hecate-activitybar", { timeout: 5_000 });
   await openWorkspace(page, "runs");
   await page.waitForSelector("text=git_exec", { timeout: 5_000 });
-  await page.locator("details").evaluateAll(nodes => {
+  await page.locator("details").evaluateAll((nodes) => {
     for (const node of nodes) {
       const text = node.parentElement?.textContent ?? "";
       (node as HTMLDetailsElement).open = text.includes("Ran git") || text.includes("git_exec");
     }
   });
-  await page.locator("pre", { hasText: "fatal: not a git repository" }).last().waitFor({ state: "visible", timeout: 5_000 });
+  await page
+    .locator("pre", { hasText: "fatal: not a git repository" })
+    .last()
+    .waitFor({ state: "visible", timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "tasks");
   await unrouteTaskDiagnosticsDocsFixture(page);
 
-  // ── 8. Observability — pick a trace first ───────────────────────────────────
+  // ── 9. Observability — pick a trace first ───────────────────────────────────
   console.log("→ observe (trace selected)");
   await openWorkspace(page, "overview");
   await page.waitForTimeout(800);
   try {
     const firstRow = page.locator("[data-trace-row], tbody tr").first();
-    if (await firstRow.count() > 0 && await firstRow.isVisible()) {
+    if ((await firstRow.count()) > 0 && (await firstRow.isVisible())) {
       await firstRow.click({ timeout: 2_000 });
       await page.waitForTimeout(800);
     } else {
@@ -1182,62 +1549,66 @@ async function main() {
   }
   await snap(page, "observe");
 
-  // ── 9. Usage workspace ─────────────────────────────────────────────
+  // ── 10. Usage workspace ────────────────────────────────────────────
   console.log("→ usage");
-  await page.route(`${HECATE_API}/usage/summary`, route => fulfillJSON(route, {
-    object: "usage_summary",
-    data: {
-      key: "global",
-      scope: "global",
-      used_micros_usd: 1600,
-      used_usd: "$0.001600",
-    },
-  }));
-  await page.route(`${HECATE_API}/usage/events?limit=20`, route => fulfillJSON(route, {
-    object: "usage_events",
-    data: [
-      {
-        key: "global:provider:openai",
-        type: "usage",
-        scope: "provider",
-        provider: "openai",
-        model: "gpt-5.4-mini",
-        request_id: "req_docs_usage_1",
-        amount_micros_usd: 1600,
-        amount_usd: "$0.001600",
-        prompt_tokens: 920,
-        completion_tokens: 280,
-        total_tokens: 1200,
-        timestamp: docsTimestamp(-2),
+  await page.route(`${HECATE_API}/usage/summary`, (route) =>
+    fulfillJSON(route, {
+      object: "usage_summary",
+      data: {
+        key: "global",
+        scope: "global",
+        used_micros_usd: 1600,
+        used_usd: "$0.001600",
       },
-      {
-        key: "global:provider:ollama",
-        type: "usage",
-        scope: "provider",
-        provider: "ollama",
-        model: "ministral-3:latest",
-        request_id: "req_docs_usage_local",
-        amount_micros_usd: 0,
-        amount_usd: "$0.000000",
-        prompt_tokens: 400,
-        completion_tokens: 100,
-        total_tokens: 500,
-        timestamp: docsTimestamp(-1),
-      },
-    ],
-  }));
+    }),
+  );
+  await page.route(`${HECATE_API}/usage/events?limit=20`, (route) =>
+    fulfillJSON(route, {
+      object: "usage_events",
+      data: [
+        {
+          key: "global:provider:openai",
+          type: "usage",
+          scope: "provider",
+          provider: "openai",
+          model: "gpt-5.4-mini",
+          request_id: "req_docs_usage_1",
+          amount_micros_usd: 1600,
+          amount_usd: "$0.001600",
+          prompt_tokens: 920,
+          completion_tokens: 280,
+          total_tokens: 1200,
+          timestamp: docsTimestamp(-2),
+        },
+        {
+          key: "global:provider:ollama",
+          type: "usage",
+          scope: "provider",
+          provider: "ollama",
+          model: "ministral-3:latest",
+          request_id: "req_docs_usage_local",
+          amount_micros_usd: 0,
+          amount_usd: "$0.000000",
+          prompt_tokens: 400,
+          completion_tokens: 100,
+          total_tokens: 500,
+          timestamp: docsTimestamp(-1),
+        },
+      ],
+    }),
+  );
   await openWorkspace(page, "usage");
   await page.waitForTimeout(500);
   await snap(page, "usage");
 
-  // ── 10. Settings — Retention ───────────────────────────────────────
+  // ── 11. Settings — Retention ───────────────────────────────────────
   console.log("→ settings / retention");
   await openWorkspace(page, "settings");
   await page.waitForTimeout(500);
   await page.waitForTimeout(500);
   await snap(page, "settings");
 
-  // ── 11. New external-agent surfaces ────────────────────────────────────────
+  // ── 12. New external-agent surfaces ────────────────────────────────────────
   // Mock these endpoints so the documentation shots stay deterministic:
   // screenshots should show the intended UI shape, not whatever agent CLIs
   // and auth state happen to exist on the capture machine.
@@ -1250,14 +1621,20 @@ async function main() {
   await snap(page, "connections-external-agents");
 
   console.log("→ chat / pending agent approval");
-  await page.evaluate(({ sessionID, workspaceKey }) => {
-    window.localStorage.setItem(workspaceKey, "chats");
-    window.localStorage.setItem("hecate.chatTarget", "external_agent");
-    window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "external_agent" }));
-    window.localStorage.setItem("hecate.agentAdapterID", "codex");
-    window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
-    window.localStorage.setItem("hecate.chatSessionID", sessionID);
-  }, { sessionID: docsChatSessionID, workspaceKey: WORKSPACE_KEY });
+  await page.evaluate(
+    ({ sessionID, workspaceKey }) => {
+      window.localStorage.setItem(workspaceKey, "chats");
+      window.localStorage.setItem("hecate.chatTarget", "external_agent");
+      window.localStorage.setItem(
+        "hecate.chatTargetBySessionID",
+        JSON.stringify({ [sessionID]: "external_agent" }),
+      );
+      window.localStorage.setItem("hecate.agentAdapterID", "codex");
+      window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
+      window.localStorage.setItem("hecate.chatSessionID", sessionID);
+    },
+    { sessionID: docsChatSessionID, workspaceKey: WORKSPACE_KEY },
+  );
   await page.reload();
   await page.waitForSelector("[data-testid='agent-approval-banner']", { timeout: 5_000 });
   await page.waitForTimeout(700);

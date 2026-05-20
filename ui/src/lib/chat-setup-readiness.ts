@@ -146,6 +146,29 @@ export function modelSelectionHasNoToolCalling({
   );
 }
 
+export function modelSelectionSupportsToolCalling({
+  models,
+  providerFilter,
+  model,
+}: {
+  models: ModelRecord[];
+  providerFilter: ProviderFilter;
+  model: string;
+}): boolean {
+  if (!model) return false;
+  return models.some((entry) => {
+    if (entry.id !== model) return false;
+    if (
+      providerFilter &&
+      providerFilter !== "auto" &&
+      entry.metadata?.provider !== providerFilter
+    ) {
+      return false;
+    }
+    return toolCallingSupportsTaskMode(entry.metadata?.capabilities?.tool_calling);
+  });
+}
+
 export function toolCallingSupportsTaskMode(value?: string): boolean {
   return value === "basic" || value === "parallel";
 }

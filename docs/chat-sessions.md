@@ -66,7 +66,10 @@ only meaningful alongside the session that produced them.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct
-model calls or enter the Hecate task runtime. Compact command output is
+model calls or enter the Hecate task runtime. If tools are on but the selected
+model is known not to support tool-calling, Hecate keeps the chat usable by
+sending the turn as direct model chat and showing that state in the chat header.
+Compact command output is
 per-chat RTK support. It is off by default; if `rtk` is installed in the
 gateway process `PATH`, Hecate suggests enabling it during new-chat onboarding.
 When enabled, future shell/git tool calls in task-backed turns launch as
