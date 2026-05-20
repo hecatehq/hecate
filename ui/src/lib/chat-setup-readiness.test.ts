@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   modelSelectionHasNoToolCalling,
+  modelSelectionSupportsToolCalling,
   resolveChatSetupRepairState,
   toolCallingSupportsTaskMode,
 } from "./chat-setup-readiness";
@@ -166,6 +167,46 @@ describe("modelSelectionHasNoToolCalling", () => {
         ],
       }),
     ).toBe(true);
+  });
+});
+
+describe("modelSelectionSupportsToolCalling", () => {
+  it("returns true when the scoped provider/model route is tool-capable", () => {
+    expect(
+      modelSelectionSupportsToolCalling({
+        model: "qwen2.5",
+        providerFilter: "ollama",
+        models: [
+          {
+            id: "qwen2.5",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              capabilities: { tool_calling: "basic" },
+            },
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false for a known non-tool model", () => {
+    expect(
+      modelSelectionSupportsToolCalling({
+        model: "smollm2:135m",
+        providerFilter: "ollama",
+        models: [
+          {
+            id: "smollm2:135m",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              capabilities: { tool_calling: "none" },
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 });
 

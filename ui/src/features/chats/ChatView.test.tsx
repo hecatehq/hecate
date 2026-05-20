@@ -1429,7 +1429,7 @@ describe("ChatView input", () => {
           messages: [],
         } as any,
       },
-      { setProviderFilter, setModel },
+      { setChatTarget: vi.fn(), setProviderFilter, setModel },
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
@@ -1452,6 +1452,76 @@ describe("ChatView input", () => {
     expect(screen.queryByRole("option", { name: /smollm2:135m/ })).toBeNull();
     await userEvent.click(screen.getByRole("option", { name: /qwen2.5-coder/ }));
     expect(setModel).toHaveBeenCalledWith("qwen2.5-coder");
+    expect(actions.setChatTarget).toHaveBeenCalledWith("agent");
+  });
+
+  it("keeps tools off when model selection changes to a non-tool model", async () => {
+    const setChatTarget = vi.fn();
+    const setModel = vi.fn();
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        message: "continue",
+        providerFilter: "ollama",
+        model: "qwen2.5-coder",
+        settingsConfig: {
+          backend: "memory",
+          providers: [
+            {
+              id: "ollama",
+              name: "Ollama",
+              kind: "local",
+              protocol: "openai",
+              base_url: "http://127.0.0.1:11434/v1",
+              credential_configured: true,
+            },
+          ],
+          policy_rules: [],
+          events: [],
+        },
+        providerPresets: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            description: "",
+          },
+        ],
+        providerScopedModels: [
+          {
+            id: "qwen2.5-coder",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
+            },
+          },
+          {
+            id: "smollm2:135m",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              capabilities: { tool_calling: "none", streaming: true, source: "provider" },
+            },
+          },
+        ],
+      },
+      { setChatTarget, setModel },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const controls = screen.getByLabelText("Hecate message controls");
+    await userEvent.click(
+      within(controls).getByRole("button", { name: "Model picker: qwen2.5-coder" }),
+    );
+    await userEvent.click(screen.getByRole("option", { name: /smollm2:135m/ }));
+
+    expect(setModel).toHaveBeenCalledWith("smollm2:135m");
+    expect(setChatTarget).not.toHaveBeenCalledWith("agent");
   });
 
   it("keeps the catalog provider label while the Hecate composer is busy", () => {

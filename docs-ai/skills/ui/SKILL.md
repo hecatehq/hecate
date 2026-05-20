@@ -140,8 +140,9 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   `parallel`. Unknown local/custom models should show a clear capability
   indicator, fall back to direct model chat rather than failing the whole
   transcript, and suggest choosing a known tool-capable model for task-backed
-  turns. Connections shows observed provider/catalog capability metadata, not a
-  global "tools on/off" override editor.
+  turns. Put the fallback state in the chat header/status line, not as a noisy
+  composer warning. Connections shows observed provider/catalog capability
+  metadata, not a global "tools on/off" override editor.
 - Stale selected-model readiness is a composition blocker, not a post-send
   error toast. If the selected model is not in the current model picker for the
   selected route, hide/disable send and show the selected model, provider route,

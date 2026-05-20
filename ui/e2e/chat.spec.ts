@@ -1523,6 +1523,191 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   ]);
 });
 
+test("Hecate Chat falls back to direct chat when the selected model has no tools", async ({
+  page,
+}) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.providerFilter", "ollama");
+    window.localStorage.setItem("hecate.model", "qwen2.5-coder");
+    window.localStorage.removeItem("hecate.agentWorkspace");
+  });
+  await mockGatewayAPIs(page, {
+    settingsConfig: {
+      providers: [
+        {
+          id: "ollama",
+          name: "Ollama",
+          preset_id: "ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+          enabled: true,
+          credential_configured: false,
+        },
+      ],
+      tenants: [],
+      api_keys: [],
+      policy_rules: [],
+    },
+  });
+
+  await page.route("/v1/models*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "list",
+        data: [
+          {
+            id: "qwen2.5-coder",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
+            },
+          },
+          {
+            id: "smollm2:135m",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              capabilities: { tool_calling: "none", streaming: true, source: "provider" },
+            },
+          },
+        ],
+      }),
+    }),
+  );
+  await page.route("/hecate/v1/providers/status*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "list",
+        data: [
+          {
+            name: "ollama",
+            kind: "local",
+            healthy: true,
+            status: "healthy",
+            default_model: "qwen2.5-coder",
+            models: ["qwen2.5-coder", "smollm2:135m"],
+            model_count: 2,
+          },
+        ],
+      }),
+    }),
+  );
+
+  const submittedTurns: Array<Record<string, unknown>> = [];
+  let session: Record<string, unknown> | null = null;
+
+  await page.route("/hecate/v1/chat/sessions", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_sessions", data: session ? [session] : [] }),
+      });
+      return;
+    }
+    if (route.request().method() === "POST") {
+      const body = await route.request().postDataJSON();
+      session = {
+        id: "chat-no-tools-model-e2e",
+        title: body.title || "plain model",
+        agent_id: "hecate",
+        provider: body.provider || "",
+        model: body.model,
+        capabilities: { tool_calling: "none", streaming: true, source: "provider" },
+        status: "created",
+        message_count: 0,
+        messages: [],
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_session", data: session }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 405, body: "" });
+  });
+
+  await page.route("/hecate/v1/chat/sessions/chat-no-tools-model-e2e/stream", (route) =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
+  );
+  await page.route("/hecate/v1/chat/sessions/chat-no-tools-model-e2e", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "chat_session", data: session }),
+    }),
+  );
+  await page.route("/hecate/v1/chat/sessions/chat-no-tools-model-e2e/messages", async (route) => {
+    const body = await route.request().postDataJSON();
+    submittedTurns.push(body);
+    session = {
+      ...session,
+      status: "completed",
+      message_count: 2,
+      messages: [
+        {
+          id: "msg-user-direct",
+          execution_mode: body.execution_mode,
+          provider: body.provider || "",
+          model: body.model,
+          role: "user",
+          content: body.content,
+          created_at: "2026-05-06T10:00:00Z",
+        },
+        {
+          id: "msg-assistant-direct",
+          execution_mode: body.execution_mode,
+          provider: body.provider || "",
+          model: body.model,
+          role: "assistant",
+          content: `Direct answer from ${body.model}`,
+          status: "completed",
+          cost_mode: "provider",
+          created_at: "2026-05-06T10:00:01Z",
+        },
+      ],
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "chat_session", data: session }),
+    });
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+
+  await page.getByRole("button", { name: /model picker/i }).click();
+  await page.locator(".dropdown-menu").locator("text=smollm2:135m").first().click();
+  await expect(page.getByText("Direct chat · tools unavailable")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Message" }).fill("tell a joke");
+  await page.locator("button[type='submit']").click();
+  await expect(page.locator("body")).toContainText("Direct answer from smollm2:135m");
+
+  expect(submittedTurns).toEqual([
+    expect.objectContaining({
+      execution_mode: "direct_model",
+      provider: "ollama",
+      model: "smollm2:135m",
+      content: "tell a joke",
+    }),
+  ]);
+  expect(submittedTurns[0]).not.toHaveProperty("workspace");
+});
+
 test("Hecate Chat rehydrates an active task and blocks direct sends after refresh", async ({
   page,
 }) => {

@@ -68,6 +68,7 @@ export type ChatComposerProps = {
   hecateProviderOptions: HecateProviderOption[];
   hecateDisabledProviderReasons: Map<string, string>;
   selectableModels: ModelRecord[];
+  onHecateModelChange: (model: string) => void;
 
   // Repair actions.
   chooseWorkspace: () => Promise<void> | void;
@@ -138,6 +139,7 @@ export function ChatComposer(props: ChatComposerProps) {
     hecateProviderOptions,
     hecateDisabledProviderReasons,
     selectableModels,
+    onHecateModelChange,
     chooseWorkspace,
     openClaudeCodeSetup,
     activeHecateTaskID,
@@ -296,7 +298,7 @@ export function ChatComposer(props: ChatComposerProps) {
             onOpenProviders={() => onNavigate?.("connections")}
             onUseSuggestedModel={(model) => {
               chatActions.selectProviderRoute("auto");
-              chat.actions.setModel(model);
+              onHecateModelChange(model);
             }}
           />
         </div>
@@ -445,7 +447,7 @@ export function ChatComposer(props: ChatComposerProps) {
                   />
                   <HecateModelConfigControl
                     value={model}
-                    onChange={chat.actions.setModel}
+                    onChange={onHecateModelChange}
                     models={selectableModels}
                     presets={providerPresets}
                     showProvider={false}
