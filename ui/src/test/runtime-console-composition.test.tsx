@@ -1381,6 +1381,106 @@ describe("useRuntimeConsole", () => {
       });
     });
 
+    it("sends Hecate Chat turns directly when the selected model is not tool-capable", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
+      window.localStorage.setItem("hecate.providerFilter", "ollama");
+      window.localStorage.setItem("hecate.model", "smollm2:135m");
+      let postedBody: any = null;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/v1/models") {
+          return jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "smollm2:135m",
+                owned_by: "ollama",
+                metadata: {
+                  provider: "ollama",
+                  provider_kind: "local",
+                  capabilities: { tool_calling: "none", streaming: true },
+                },
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "a1",
+                title: "Agent",
+                agent_id: "hecate",
+                status: "completed",
+                provider: "ollama",
+                model: "smollm2:135m",
+                message_count: 0,
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Agent",
+              agent_id: "hecate",
+              status: "completed",
+              provider: "ollama",
+              model: "smollm2:135m",
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          postedBody = JSON.parse(String(init?.body ?? "{}"));
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Agent",
+              agent_id: "hecate",
+              status: "completed",
+              provider: "ollama",
+              model: "smollm2:135m",
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:01Z",
+            },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.model).toBe("smollm2:135m"));
+
+      act(() => {
+        result.current.actions.setMessage("tell a small joke");
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(postedBody).toMatchObject({
+        content: "tell a small joke",
+        execution_mode: "direct_model",
+        provider: "ollama",
+        model: "smollm2:135m",
+      });
+      expect(postedBody).not.toHaveProperty("workspace");
+      expect(result.current.state.chatError).toBe("");
+    });
+
     it("queues a prompt while the active agent run is busy and sends it after completion", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatSessionID", "a1");

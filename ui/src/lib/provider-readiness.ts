@@ -42,13 +42,15 @@ export function providerReadinessMeaning({
   }
   if (readyCount === 0) {
     return {
-      message: "Providers exist, but none are ready to route chat requests yet.",
+      message:
+        "Providers are configured, but none have passed readiness checks yet. Refresh Connections after starting local apps or fixing credentials.",
       tone: "amber",
     };
   }
   if (modelCount === 0) {
     return {
-      message: "Providers are reachable, but no models have been discovered yet.",
+      message:
+        "Providers are reachable, but none are reporting models yet. Load or pull a model, then refresh Connections.",
       tone: "amber",
     };
   }
@@ -75,7 +77,7 @@ export function readinessRecommendation(check: ProviderReadinessCheckRecord): st
     case "default_model_only":
       return "Send a test request or refresh discovery to confirm the default model is real.";
     case "no_models":
-      return "Start the provider and pull or load at least one model.";
+      return "Start the provider and load or pull at least one model.";
     case "provider_slow":
       return "Keep it enabled if acceptable, or route to a faster provider.";
     case "provider_rate_limited":
@@ -119,10 +121,10 @@ export function providerRepairHint({
 
   if (configuredProvider && !runtimeProvider) {
     return {
-      title: "No models discovered",
-      message: `${name} is configured, but Hecate does not have a current model-discovery result for it yet.`,
+      title: "Not checked yet",
+      message: `${name} is configured, but Hecate has not received a current readiness check for it yet.`,
       action: isLocal
-        ? "Start the local provider process, pull or load a model, then refresh Connections."
+        ? `Start ${name} if needed, load or pull a model, then refresh Connections.`
         : "Confirm the account has model access, then refresh Connections.",
       actionKind: "refresh_providers",
       providerID: configuredProvider.id,
@@ -180,10 +182,10 @@ export function providerRepairHint({
 
   if (runtimeProvider && modelCount === 0 && runtimeProvider.healthy) {
     return {
-      title: "No models discovered",
-      message: `${name} is reachable, but Hecate has not discovered any models from it yet.`,
+      title: "No models reported",
+      message: `${name} is reachable, but it is not reporting any models yet.`,
       action: isLocal
-        ? "Pull or load a model in the local provider, then refresh Connections."
+        ? `Load or pull a model in ${name}, then refresh Connections.`
         : "Confirm the account has model access, then refresh Connections.",
       actionKind: "refresh_providers",
       providerID: configuredProvider?.id,
@@ -332,7 +334,7 @@ function readinessTitle(check: ProviderReadinessCheckRecord): string {
     case "credential_missing":
       return "Credentials required";
     case "no_models":
-      return "No models discovered";
+      return "No models reported";
     case "discovery_failed":
       return "Discovery failed";
     case "provider_unhealthy":

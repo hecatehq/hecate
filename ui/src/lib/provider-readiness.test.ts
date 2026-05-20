@@ -30,7 +30,7 @@ describe("readinessRecommendation", () => {
     ).toContain("API key");
     expect(
       readinessRecommendation({ name: "models", status: "blocked", reason: "no_models" }),
-    ).toContain("pull or load");
+    ).toContain("load or pull");
   });
 });
 
@@ -88,7 +88,7 @@ describe("providerRepairHint", () => {
     expect(hint.action).toBe("Wait for cooldown.");
   });
 
-  it("explains reachable local providers with no discovered models", () => {
+  it("explains reachable local providers with no reported models", () => {
     const hint = providerRepairHint({
       configuredProvider: {
         id: "ollama",
@@ -106,8 +106,9 @@ describe("providerRepairHint", () => {
       },
     });
 
-    expect(hint.title).toBe("No models discovered");
-    expect(hint.action).toContain("Pull or load");
+    expect(hint.title).toBe("No models reported");
+    expect(hint.message).toContain("not reporting any models");
+    expect(hint.action).toContain("Load or pull");
     expect(hint.actionKind).toBe("refresh_providers");
   });
 
@@ -137,10 +138,10 @@ describe("providerRepairHint", () => {
       },
     });
 
-    expect(hint.title).toBe("No models discovered");
+    expect(hint.title).toBe("No models reported");
   });
 
-  it("treats configured providers without runtime discovery as needing models", () => {
+  it("treats configured providers without runtime status as not checked yet", () => {
     const hint = providerRepairHint({
       configuredProvider: {
         id: "ollama",
@@ -150,8 +151,9 @@ describe("providerRepairHint", () => {
       },
     });
 
-    expect(hint.title).toBe("No models discovered");
-    expect(hint.action).toContain("refresh Connections");
+    expect(hint.title).toBe("Not checked yet");
+    expect(hint.message).toContain("current readiness check");
+    expect(hint.action).toContain("Start Ollama");
   });
 
   it("humanizes routing blocked reasons when readiness details are absent", () => {
@@ -229,7 +231,7 @@ describe("providerFleetRepairHint", () => {
         ],
         statuses,
       )?.title,
-    ).toBe("No models discovered");
+    ).toBe("No models reported");
 
     expect(
       providerFleetRepairHint(
@@ -285,7 +287,7 @@ describe("providerReadinessMeaning", () => {
         modelCount: 1,
         repair: null,
       }).message,
-    ).toContain("Providers exist");
+    ).toContain("none have passed readiness checks");
 
     expect(
       providerReadinessMeaning({
@@ -294,7 +296,7 @@ describe("providerReadinessMeaning", () => {
         blockedCount: 0,
         modelCount: 0,
       }).message,
-    ).toContain("no models");
+    ).toContain("none are reporting models");
 
     expect(
       providerReadinessMeaning({
