@@ -39,7 +39,6 @@ jobs:
       typescript: ${{ steps.filter.outputs.typescript }}
       tauri: ${{ steps.filter.outputs.tauri }}
       desktop: ${{ steps.filter.outputs.desktop }}
-      desktop_force: ${{ steps.filter.outputs.desktop_force }}
       workflow: ${{ steps.filter.outputs.workflow }}
       docker: ${{ steps.filter.outputs.docker }}
     steps:
@@ -81,31 +80,6 @@ jobs:
               - 'tauri/src-tauri/Cargo.lock'
               - 'tauri/src-tauri/tauri.conf.json'
             desktop:
-              - 'tauri/**'
-              - 'scripts/resolve-tauri-version.ts'
-              - 'scripts/stamp-version.ts'
-              - 'scripts/tauri-smoke.ts'
-              - 'Justfile'
-              - 'go.mod'
-              - 'go.sum'
-              - 'cmd/hecate/**'
-              - 'cmd/hecate-acp/**'
-              - 'ui/**'
-              - 'embed.go'
-              - '.goreleaser.yaml'
-              - 'Dockerfile.release'
-              - '.github/workflows/_tauri-shared.yml'
-              - '.github/workflows/tauri-build.yml'
-              - '.github/workflows/release.yml'
-            # `desktop_force` is the subset of `desktop` that the
-            # author-side `[skip desktop]` marker CAN'T override —
-            # anything outside `ui/**`. These files change the native
-            # build inputs (Rust sources, capabilities, sidecar
-            # binaries, packaging recipes), so the matrix has to run
-            # to verify they still compile and bundle. The marker is
-            # honoured only when the only `desktop`-matching change
-            # is in `ui/**`.
-            desktop_force:
               - 'tauri/**'
               - 'scripts/resolve-tauri-version.ts'
               - 'scripts/stamp-version.ts'
@@ -475,31 +449,16 @@ jobs:
       - docker-smoke
       - typescript
       - typescript-e2e
-    # `[skip desktop]` in the PR title is an explicit opt-out for
-    # changes the author knows can't affect the desktop build (most
-    # pure-UI refactors that still touch `ui/**` and would otherwise
-    # trip the `desktop` path filter — the marker name matches that
-    # filter for symmetry). Skips the macOS / Windows / Linux bundle
-    # matrix only — the cheap Tauri Rust tests above still run so a
-    # Rust-side regression can't slip through this knob.
-    #
-    # The marker is only honoured when the desktop-relevant change is
-    # ui/**-only. If the PR ALSO touches `tauri/**`, build scripts,
-    # the gateway binaries, or release packaging files, `desktop_force`
-    # fires and the matrix runs regardless of the marker — a
-    # `[skip desktop]` on a PR that bumps `tauri.conf.json` is a lie
-    # we want CI to call out.
+    # Native desktop bundles are expensive, so keep this gate scoped to
+    # actual desktop/package inputs. UI-only PRs are still covered by the
+    # TypeScript jobs and by `build-hecate`, which rebuilds the embedded UI.
     if: |
       always() &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.draft == false &&
       (
         needs.changes.outputs.workflow == 'true' ||
-        needs.changes.outputs.desktop_force == 'true' ||
-        (
-          needs.changes.outputs.desktop == 'true' &&
-          !contains(github.event.pull_request.title, '[skip desktop]')
-        )
+        needs.changes.outputs.desktop == 'true'
       ) &&
       contains(fromJSON('["success","skipped"]'), needs.test-tauri-rust.result) &&
       contains(fromJSON('["success","skipped"]'), needs.lint-go.result) &&

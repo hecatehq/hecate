@@ -66,7 +66,7 @@ The Tauri matrix doesn't need any local action — pushing the tag fires the wor
 
 The main `.github/workflows/test.yml` workflow owns PR-time desktop validation.
 It path-filters desktop-impacting changes (`tauri/**`, `cmd/hecate/**`,
-`cmd/hecate-acp/**`, `ui/**`, `Justfile`, Tauri version scripts, release
+`cmd/hecate-acp/**`, `Justfile`, Tauri version scripts, release
 packaging files, and the workflows themselves), then starts the
 `Tauri desktop bundles` matrix only after the cheaper Go, TypeScript, e2e,
 Docker smoke, and Tauri Rust jobs pass or skip. The PR matrix proves the
