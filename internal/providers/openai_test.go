@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -426,6 +427,92 @@ func TestOpenAIProviderOllamaDiscoveryReadsNativeToolCapabilities(t *testing.T) 
 	}
 	if got := caps.ModelCapabilities["qwen2.5-coder:7b"].Source; got != "provider" {
 		t.Fatalf("capability source = %q, want provider", got)
+	}
+}
+
+func TestOpenAIProviderOllamaDiscoveryRunsShowRequestsConcurrently(t *testing.T) {
+	t.Parallel()
+
+	models := make([]openAIModel, 8)
+	for i := range models {
+		models[i] = openAIModel{ID: fmt.Sprintf("model-%d", i)}
+	}
+	var inFlight atomic.Int64
+	var maxInFlight atomic.Int64
+	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/v1/models":
+			return jsonHTTPResponse(openAIModelsResponse{Data: models})
+		case "/api/show":
+			current := inFlight.Add(1)
+			for {
+				max := maxInFlight.Load()
+				if current <= max || maxInFlight.CompareAndSwap(max, current) {
+					break
+				}
+			}
+			defer inFlight.Add(-1)
+			time.Sleep(20 * time.Millisecond)
+			return jsonHTTPResponse(ollamaShowResponse{Capabilities: []string{"completion", "tools"}})
+		default:
+			return nil, fmt.Errorf("path = %s, want /v1/models or /api/show", r.URL.Path)
+		}
+	})
+
+	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name:         "ollama",
+		Kind:         "local",
+		BaseURL:      "http://127.0.0.1:11434/v1",
+		Timeout:      time.Second,
+		DefaultModel: "model-0",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provider.httpClient.Transport = transport
+
+	if _, err := provider.Capabilities(context.Background()); err != nil {
+		t.Fatalf("Capabilities() error = %v", err)
+	}
+	if got := maxInFlight.Load(); got < 2 {
+		t.Fatalf("max concurrent /api/show calls = %d, want at least 2", got)
+	}
+	if got := maxInFlight.Load(); got > ollamaCapabilityDiscoveryConcurrency {
+		t.Fatalf("max concurrent /api/show calls = %d, want <= %d", got, ollamaCapabilityDiscoveryConcurrency)
+	}
+}
+
+func TestOpenAIProviderOllamaDiscoveryCapsShowRequestVolume(t *testing.T) {
+	t.Parallel()
+
+	models := make([]openAIModel, ollamaCapabilityDiscoveryMaxModels+5)
+	for i := range models {
+		models[i] = openAIModel{ID: fmt.Sprintf("model-%d", i)}
+	}
+	var showCalls atomic.Int64
+	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/v1/models":
+			return jsonHTTPResponse(openAIModelsResponse{Data: models})
+		case "/api/show":
+			showCalls.Add(1)
+			return jsonHTTPResponse(ollamaShowResponse{Capabilities: []string{"completion"}})
+		default:
+			return nil, fmt.Errorf("path = %s, want /v1/models or /api/show", r.URL.Path)
+		}
+	})
+
+	provider := NewOpenAICompatibleProvider(config.OpenAICompatibleProviderConfig{
+		Name:         "ollama",
+		Kind:         "local",
+		BaseURL:      "http://127.0.0.1:11434/v1",
+		Timeout:      time.Second,
+		DefaultModel: "model-0",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provider.httpClient.Transport = transport
+
+	if _, err := provider.Capabilities(context.Background()); err != nil {
+		t.Fatalf("Capabilities() error = %v", err)
+	}
+	if got := showCalls.Load(); got != ollamaCapabilityDiscoveryMaxModels {
+		t.Fatalf("show call count = %d, want capped at %d", got, ollamaCapabilityDiscoveryMaxModels)
 	}
 }
 

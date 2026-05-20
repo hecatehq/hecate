@@ -90,9 +90,12 @@ func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider provide
 	}
 
 	models := append([]string(nil), caps.Models...)
-	modelCapabilities := make(map[string]types.ModelCapabilities, len(caps.ModelCapabilities))
-	for model, cap := range caps.ModelCapabilities {
-		modelCapabilities[model] = cap
+	var modelCapabilities map[string]types.ModelCapabilities
+	if len(caps.ModelCapabilities) > 0 {
+		modelCapabilities = make(map[string]types.ModelCapabilities, len(caps.ModelCapabilities))
+		for model, cap := range caps.ModelCapabilities {
+			modelCapabilities[model] = cap
+		}
 	}
 	discoveredModelCount := len(models)
 	if len(models) == 0 && defaultModel != "" {

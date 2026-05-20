@@ -33,7 +33,7 @@ func ResolveWithProviderCapability(provider, providerKind, model, discoverySourc
 }
 
 func hasProviderCapability(cap types.ModelCapabilities) bool {
-	return cap.ToolCalling != "" || cap.Streaming || cap.MaxContextTokens > 0 || strings.TrimSpace(cap.Source) != ""
+	return cap.ToolCalling != "" || cap.StreamingKnown || cap.Streaming || cap.MaxContextTokens > 0 || strings.TrimSpace(cap.Source) != ""
 }
 
 func ToolCapable(cap types.ModelCapabilities) bool {
@@ -102,7 +102,7 @@ func mergeCapability(base types.ModelCapabilities, cap types.ModelCapabilities, 
 	if strings.TrimSpace(cap.ToolCalling) != "" {
 		base.ToolCalling = NormalizeToolCalling(cap.ToolCalling)
 	}
-	if cap.Streaming {
+	if cap.StreamingKnown || cap.Streaming {
 		base.Streaming = cap.Streaming
 	}
 	if cap.MaxContextTokens > 0 {
