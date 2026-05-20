@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hecate/agent-runtime/internal/storage"
 )
@@ -107,6 +108,53 @@ func TestSQLiteStore_RejectsNilClient(t *testing.T) {
 	_, err := NewSQLiteStore(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected error for nil client")
+	}
+}
+
+func TestSQLiteStore_UpdateRejectsProjectIDChange(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	if _, err := store.Create(ctx, Project{ID: "proj_alpha", Name: "Alpha"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, err := store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.ID = "proj_beta"
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Update id change error = %v, want ErrInvalid", err)
+	}
+	if _, ok, err := store.Get(ctx, "proj_beta"); err != nil || ok {
+		t.Fatalf("Get rewritten project ok=%v err=%v, want not found", ok, err)
+	}
+	got, ok, err := store.Get(ctx, "proj_alpha")
+	if err != nil || !ok {
+		t.Fatalf("Get original project ok=%v err=%v, want project", ok, err)
+	}
+	if got.ID != "proj_alpha" {
+		t.Fatalf("project ID = %q, want proj_alpha", got.ID)
+	}
+}
+
+func TestSQLiteStore_UpdatePreservesCreatedAt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	createdAt := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC)
+	if _, err := store.Create(ctx, Project{ID: "proj_alpha", Name: "Alpha", CreatedAt: createdAt}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.CreatedAt = createdAt.Add(24 * time.Hour)
+		item.Name = "Renamed"
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if !updated.CreatedAt.Equal(createdAt) {
+		t.Fatalf("CreatedAt = %s, want %s", updated.CreatedAt, createdAt)
 	}
 }
 
