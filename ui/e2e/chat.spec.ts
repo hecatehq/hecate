@@ -307,7 +307,7 @@ test("New chat falls back to Hecate when the remembered external agent needs set
             available: false,
             status: "missing",
             cost_mode: "external",
-            error: "forced app CLI missing by GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES",
+            error: "forced app CLI missing by HECATE_AGENT_ADAPTER_DEV_OVERRIDES",
           },
         ],
       }),

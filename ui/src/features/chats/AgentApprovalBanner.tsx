@@ -3,7 +3,7 @@ import { Icon, Icons } from "../shared/ui";
 import { ChatNoticeFrame, ChatNoticeHeader, ChatNoticeRow } from "./ChatNotice";
 
 // AgentApprovalAutoModeBanner is the persistent danger banner shown
-// at the top of the Chats workspace when GATEWAY_AGENT_ADAPTER_APPROVAL_MODE
+// at the top of the Chats workspace when HECATE_AGENT_ADAPTER_APPROVAL_MODE
 // is set to "auto" — every adapter RequestPermission is permitted with
 // no operator review. Distinct from the per-session pending banner.
 //
@@ -27,7 +27,7 @@ export function AgentApprovalAutoModeBanner({ mode }: { mode: string }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
         <span style={{ fontWeight: 500, fontSize: 12 }}>Auto-approval is on</span>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--red-lo)" }}>
-          GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto — every adapter request is permitted without
+          HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto — every adapter request is permitted without
           review.
         </span>
       </div>

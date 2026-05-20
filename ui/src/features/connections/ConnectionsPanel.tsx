@@ -975,7 +975,7 @@ function isDevOverridePath(path: string): boolean {
 function shouldShowProbeError(health: AgentAdapterHealthRecord): boolean {
   const error = health.error?.trim() ?? "";
   if (!error) return false;
-  if (error.includes("GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES")) return false;
+  if (error.includes("HECATE_AGENT_ADAPTER_DEV_OVERRIDES")) return false;
   if (error.startsWith("forced ")) return false;
   return true;
 }

@@ -471,7 +471,7 @@ describe("Connections external-agent panel", () => {
                 status: "error",
                 stage: "ready",
                 path: "dev-override://cursor_agent",
-                error: "forced app CLI missing by GATEWAY_AGENT_ADAPTER_DEV_OVERRIDES",
+                error: "forced app CLI missing by HECATE_AGENT_ADAPTER_DEV_OVERRIDES",
                 hint: "Install Cursor with Agent support, then sign in with Cursor Agent.",
                 duration_ms: 0,
               },
