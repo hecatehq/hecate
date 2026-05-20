@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hecate/agent-runtime/internal/providers"
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 func TestIsSelfReferentialURL(t *testing.T) {
@@ -135,5 +136,60 @@ func TestEntryForProviderCapabilitiesErrorIsDegraded(t *testing.T) {
 	}
 	if entries[0].Error == "" {
 		t.Error("Error should be populated from capabilities failure")
+	}
+}
+
+func TestEntryForProviderLeavesEmptyModelCapabilitiesNil(t *testing.T) {
+	provider := &fakeProvider{
+		name:         "ollama",
+		kind:         providers.KindLocal,
+		defaultModel: "llama3.1",
+		caps: providers.Capabilities{
+			Name:         "ollama",
+			Kind:         providers.KindLocal,
+			DefaultModel: "llama3.1",
+			Models:       []string{"llama3.1"},
+		},
+	}
+	registry := providers.NewRegistry(provider)
+	cat := NewRegistryCatalog(registry, nil)
+
+	entries := cat.Snapshot(context.Background())
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+	if entries[0].ModelCapabilities != nil {
+		t.Fatalf("ModelCapabilities = %#v, want nil for providers without per-model metadata", entries[0].ModelCapabilities)
+	}
+}
+
+func TestEntryForProviderCopiesModelCapabilitiesWhenPresent(t *testing.T) {
+	provider := &fakeProvider{
+		name:         "ollama",
+		kind:         providers.KindLocal,
+		defaultModel: "llama3.1",
+		caps: providers.Capabilities{
+			Name:         "ollama",
+			Kind:         providers.KindLocal,
+			DefaultModel: "llama3.1",
+			Models:       []string{"llama3.1"},
+			ModelCapabilities: map[string]types.ModelCapabilities{
+				"llama3.1": {ToolCalling: "basic", Streaming: true, StreamingKnown: true, Source: "provider"},
+			},
+		},
+	}
+	registry := providers.NewRegistry(provider)
+	cat := NewRegistryCatalog(registry, nil)
+
+	entries := cat.Snapshot(context.Background())
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+	if entries[0].ModelCapabilities == nil {
+		t.Fatal("ModelCapabilities = nil, want copied provider metadata")
+	}
+	got := entries[0].ModelCapabilities["llama3.1"]
+	if got.ToolCalling != "basic" || !got.Streaming {
+		t.Fatalf("copied capability = %#v, want provider metadata", got)
 	}
 }

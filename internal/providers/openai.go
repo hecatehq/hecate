@@ -27,6 +27,13 @@ type OpenAICompatibleProvider struct {
 	capsExpiry time.Time
 }
 
+const (
+	ollamaCapabilityDiscoveryConcurrency = 4
+	ollamaCapabilityDiscoveryMaxModels   = 32
+	ollamaCapabilityDiscoveryMinTimeout  = 500 * time.Millisecond
+	ollamaCapabilityDiscoveryMaxTimeout  = 3 * time.Second
+)
+
 type openAIChatCompletionRequest struct {
 	Model       string              `json:"model"`
 	Messages    []openAIChatMessage `json:"messages"`
@@ -435,16 +442,57 @@ func (p *OpenAICompatibleProvider) discoverProviderModelCapabilities(ctx context
 	if err != nil {
 		return nil
 	}
-	out := make(map[string]types.ModelCapabilities, len(models))
-	for _, model := range models {
-		if cap, ok := p.discoverOllamaModelCapability(ctx, baseURL, model); ok {
-			out[model] = cap
-		}
+
+	probeModels := models
+	if len(probeModels) > ollamaCapabilityDiscoveryMaxModels {
+		probeModels = probeModels[:ollamaCapabilityDiscoveryMaxModels]
 	}
+	probeCtx, cancel := context.WithTimeout(ctx, p.ollamaCapabilityDiscoveryTimeout())
+	defer cancel()
+
+	out := make(map[string]types.ModelCapabilities, len(probeModels))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, ollamaCapabilityDiscoveryConcurrency)
+
+loop:
+	for _, model := range probeModels {
+		select {
+		case <-probeCtx.Done():
+			break loop
+		case sem <- struct{}{}:
+		}
+
+		wg.Add(1)
+		go func(model string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			cap, ok := p.discoverOllamaModelCapability(probeCtx, baseURL, model)
+			if !ok {
+				return
+			}
+			mu.Lock()
+			out[model] = cap
+			mu.Unlock()
+		}(model)
+	}
+	wg.Wait()
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func (p *OpenAICompatibleProvider) ollamaCapabilityDiscoveryTimeout() time.Duration {
+	timeout := p.config.Timeout / 20
+	if timeout < ollamaCapabilityDiscoveryMinTimeout {
+		timeout = ollamaCapabilityDiscoveryMinTimeout
+	}
+	if timeout > ollamaCapabilityDiscoveryMaxTimeout {
+		timeout = ollamaCapabilityDiscoveryMaxTimeout
+	}
+	return timeout
 }
 
 func (p *OpenAICompatibleProvider) isOllamaProvider() bool {
@@ -470,10 +518,7 @@ func (p *OpenAICompatibleProvider) discoverOllamaModelCapability(ctx context.Con
 	if err != nil {
 		return types.ModelCapabilities{}, false
 	}
-	showCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(showCtx, http.MethodPost, baseURL+"/api/show", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/show", bytes.NewReader(body))
 	if err != nil {
 		return types.ModelCapabilities{}, false
 	}
@@ -501,9 +546,10 @@ func (p *OpenAICompatibleProvider) discoverOllamaModelCapability(ctx context.Con
 		}
 	}
 	return types.ModelCapabilities{
-		ToolCalling: toolCalling,
-		Streaming:   true,
-		Source:      "provider",
+		ToolCalling:    toolCalling,
+		Streaming:      true,
+		StreamingKnown: true,
+		Source:         "provider",
 	}, true
 }
 

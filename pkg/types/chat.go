@@ -218,8 +218,12 @@ type ModelInfo struct {
 // to decide whether a model can back Hecate Agent sessions. The source tells
 // callers where the currently effective value came from.
 type ModelCapabilities struct {
-	ToolCalling      string `json:"tool_calling,omitempty"`
-	Streaming        bool   `json:"streaming,omitempty"`
+	ToolCalling string `json:"tool_calling,omitempty"`
+	Streaming   bool   `json:"streaming"`
+	// StreamingKnown is internal merge metadata: provider discovery can
+	// intentionally override catalog defaults to streaming=false without
+	// exposing another API field.
+	StreamingKnown   bool   `json:"-"`
 	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
 	Source           string `json:"source,omitempty"`
 }

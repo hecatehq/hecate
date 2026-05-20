@@ -8,12 +8,28 @@ import (
 
 func TestResolveProviderCapabilityBeatsCatalog(t *testing.T) {
 	got := ResolveWithProviderCapability("ollama", "local", "smollm2:135m", "upstream_v1_models", types.ModelCapabilities{
-		ToolCalling: ToolCallingNone,
-		Streaming:   true,
-		Source:      SourceProvider,
+		ToolCalling:    ToolCallingNone,
+		Streaming:      true,
+		StreamingKnown: true,
+		Source:         SourceProvider,
 	})
 	if got.ToolCalling != ToolCallingNone {
 		t.Fatalf("ToolCalling = %q, want provider none", got.ToolCalling)
+	}
+	if got.Source != SourceProvider {
+		t.Fatalf("Source = %q, want %q", got.Source, SourceProvider)
+	}
+}
+
+func TestResolveProviderCapabilityCanDisableStreaming(t *testing.T) {
+	got := ResolveWithProviderCapability("openai", "cloud", "gpt-5.4-mini", "static", types.ModelCapabilities{
+		ToolCalling:    ToolCallingParallel,
+		Streaming:      false,
+		StreamingKnown: true,
+		Source:         SourceProvider,
+	})
+	if got.Streaming {
+		t.Fatal("Streaming = true, want provider-discovered false to override catalog default")
 	}
 	if got.Source != SourceProvider {
 		t.Fatalf("Source = %q, want %q", got.Source, SourceProvider)
