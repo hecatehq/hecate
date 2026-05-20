@@ -341,7 +341,7 @@ type OpenAICompatibleProviderConfig struct {
 }
 
 func LoadFromEnv() Config {
-	storageBackend := getEnv("HECATE_BACKEND", "memory")
+	storageBackend := strings.ToLower(strings.TrimSpace(getEnv("HECATE_BACKEND", "memory")))
 	providersCfg := loadProvidersFromEnv()
 	return Config{
 		Server: ServerConfig{
