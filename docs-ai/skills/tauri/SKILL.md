@@ -263,28 +263,15 @@ Three workflow files split responsibilities:
 
 **PR-run behaviour:** `test.yml` owns PR validation. Its path filter scopes the
 desktop matrix to changes that could plausibly break a Tauri build (`tauri/**`,
-`cmd/hecate/**`, `cmd/hecate-acp/**`, `ui/**`, `Justfile`, version scripts,
-release packaging files, and `.github/workflows/*.yml`). The matrix waits for
-the cheaper Go, TypeScript, e2e, Docker smoke, and Tauri Rust jobs to pass (or
-skip by path filter) before it starts, and it does not upload unsigned bundles.
+`cmd/hecate/**`, `cmd/hecate-acp/**`, `Justfile`, version scripts, release
+packaging files, and `.github/workflows/*.yml`). UI-only PRs do not trigger the
+desktop matrix; they are covered by the TypeScript jobs and by `build-hecate`,
+which rebuilds the embedded UI. The desktop matrix waits for the cheaper Go,
+TypeScript, e2e, Docker smoke, and Tauri Rust jobs to pass (or skip by path
+filter) before it starts, and it does not upload unsigned bundles.
 `concurrency: cancel-in-progress: true` cancels older runs on the same ref.
 `tauri-build.yml` is manual-only for explicit desktop reruns/debugging; dispatch
 it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
-
-Author override: putting `[skip desktop]` anywhere in the PR title skips the
-3-OS desktop bundle matrix for that PR. The marker name mirrors the `desktop`
-path filter — same vocabulary on both sides of the gate. The cheap Linux-only
-Tauri Rust tests still run, so a Rust-side regression can't slip through.
-
-The marker is only honoured when the desktop-relevant change is `ui/**`-only.
-The workflow defines a tighter `desktop_force` filter — `tauri/**`, build
-scripts (`scripts/{resolve-tauri-version,stamp-version,tauri-smoke}.ts`,
-`Justfile`), gateway binaries (`cmd/hecate{,-acp}/**`, `go.{mod,sum}`,
-`embed.go`), and packaging files (`.goreleaser.yaml`, `Dockerfile.release`,
-the three desktop workflow files). When any of those change the matrix runs
-regardless of the marker, so a `[skip desktop]` on a PR that also bumps, say,
-`tauri.conf.json` doesn't slip through. The gate lives next to the `if:`
-block in `test.yml`'s `tauri-desktop` job.
 
 **Release-run behaviour:** `concurrency: cancel-in-progress: false` — a half-cancelled release is worse than waiting. The `tauri` job has `needs: goreleaser` so the GitHub Release entry exists before tauri-action's upload tries to attach to it.
 
