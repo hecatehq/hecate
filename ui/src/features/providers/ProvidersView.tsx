@@ -28,7 +28,7 @@ function resolveHealthBadge(
   rt: ProviderRecord | undefined,
   credentialConfigured: boolean,
 ): { status: string; label: string } {
-  if (!rt) return { status: "disabled", label: "Pending" };
+  if (!rt) return { status: "disabled", label: "Not checked" };
   const status = rt.status;
   if (status === "open" || status === "unhealthy") return { status: "down", label: "Down" };
   if (status === "degraded" || status === "half_open")
@@ -45,7 +45,7 @@ function resolveHealthBadge(
   // save. Once the next probe runs, routing_ready flips to true on its own.
   if (rt.routing_ready === false) {
     if (rt.routing_blocked_reason === "credential_missing" && credentialConfigured) {
-      return { status: "healthy", label: "Pending probe" };
+      return { status: "healthy", label: "Checking" };
     }
     return { status: "degraded", label: describeRoutingBlockedReason(rt.routing_blocked_reason) };
   }
@@ -231,7 +231,7 @@ export function ProvidersView() {
       modelCount > 0
         ? null
         : cp && !rt
-          ? { status: "degraded", label: "Discovery pending" }
+          ? { status: "degraded", label: "Not checked" }
           : { status: "degraded", label: "No models" };
     const protocol = cp?.protocol || preset?.protocol || "—";
     const isSelected = selectedID === id;
@@ -329,9 +329,9 @@ export function ProvidersView() {
           title={
             modelCount === 0
               ? cp && !rt
-                ? "Hecate has not received a current model-discovery result for this configured provider yet."
+                ? "Hecate has not received a current readiness check for this configured provider yet. Start the provider if needed, then refresh Connections."
                 : cp?.kind === "local"
-                  ? "No models discovered yet. Run `ollama pull <model>` (or your provider's equivalent) to populate this list."
+                  ? "No models reported yet. Load a model in the provider app or run `ollama pull <model>` for Ollama, then refresh Connections."
                   : "No models returned by /v1/models. Check the API key is correct and that the provider's account has model access."
               : undefined
           }

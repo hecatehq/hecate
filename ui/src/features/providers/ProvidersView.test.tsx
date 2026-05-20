@@ -969,8 +969,8 @@ describe("ProvidersView table renders", () => {
     );
 
     expect(screen.getAllByText(/lmstudio/i).length).toBeGreaterThan(0);
-    expect(screen.getByText("Discovery pending")).toBeTruthy();
-    expect(screen.queryByText(/does not have a current model-discovery result/i)).toBeNull();
+    expect(screen.getAllByText("Not checked").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/has not received a current readiness check/i)).toBeNull();
   });
 
   it("shows provider health diagnostics and last errors", async () => {
