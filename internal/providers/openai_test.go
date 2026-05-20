@@ -368,7 +368,7 @@ func TestOpenAIProviderCapabilitiesDiscovery(t *testing.T) {
 func TestOpenAIProviderOllamaDiscoveryReadsNativeToolCapabilities(t *testing.T) {
 	t.Parallel()
 
-	var showCalls int
+	var showCalls atomic.Int64
 	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
 		case "/v1/models":
@@ -385,7 +385,7 @@ func TestOpenAIProviderOllamaDiscoveryReadsNativeToolCapabilities(t *testing.T) 
 			if r.Method != http.MethodPost {
 				return nil, fmt.Errorf("show method = %s, want POST", r.Method)
 			}
-			showCalls++
+			showCalls.Add(1)
 			var body ollamaShowRequest
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				return nil, err
@@ -416,8 +416,8 @@ func TestOpenAIProviderOllamaDiscoveryReadsNativeToolCapabilities(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Capabilities() error = %v", err)
 	}
-	if showCalls != 2 {
-		t.Fatalf("show call count = %d, want 2", showCalls)
+	if got := showCalls.Load(); got != 2 {
+		t.Fatalf("show call count = %d, want 2", got)
 	}
 	if got := caps.ModelCapabilities["qwen2.5-coder:7b"].ToolCalling; got != "basic" {
 		t.Fatalf("qwen tool calling = %q, want basic", got)
