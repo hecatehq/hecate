@@ -43,7 +43,7 @@ func TestLoadFromEnvUsesCurrentOpenAIDefaultModel(t *testing.T) {
 }
 
 func TestLoadFromEnvBackendFansOutToDurableStores(t *testing.T) {
-	t.Setenv("HECATE_BACKEND", "sqlite")
+	t.Setenv("HECATE_BACKEND", " SQLite ")
 
 	cfg := LoadFromEnv()
 	got := []string{
