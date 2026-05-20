@@ -153,6 +153,38 @@ func TestProjectsAPI_InvalidDefaultRootPatchDoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestProjectsAPI_ReplacingRootsDefaultsToFirstNewRoot(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Original",
+		"roots":[{"id":"root_a","path":"/tmp/a"}],
+		"default_root_id":"root_a"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{"roots":[{"id":"root_b","path":"/tmp/b"}]}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var updated ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode patch response: %v", err)
+	}
+	if updated.Data.DefaultRootID != "root_b" {
+		t.Fatalf("default_root_id = %q, want root_b", updated.Data.DefaultRootID)
+	}
+}
+
 func TestProjectsAPI_InvalidPatchDoesNotMutate(t *testing.T) {
 	t.Parallel()
 	server := newProjectsTestServer()
