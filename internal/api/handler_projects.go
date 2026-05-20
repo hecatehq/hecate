@@ -200,6 +200,9 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Roots != nil {
 			item.Roots = roots
+			if req.DefaultRootID == nil && !projectRootIDExists(item.DefaultRootID, item.Roots) {
+				item.DefaultRootID = ""
+			}
 			if item.DefaultRootID == "" && len(item.Roots) > 0 {
 				item.DefaultRootID = item.Roots[0].ID
 			}
@@ -281,16 +284,26 @@ func rootsFromRequest(req []projectRootRequest) ([]projects.Root, error) {
 }
 
 func validateProjectDefaultRoot(defaultRootID string, roots []projects.Root) error {
-	defaultRootID = strings.TrimSpace(defaultRootID)
-	if defaultRootID == "" {
+	if strings.TrimSpace(defaultRootID) == "" {
 		return nil
 	}
-	for _, root := range roots {
-		if root.ID == defaultRootID {
-			return nil
-		}
+	if projectRootIDExists(defaultRootID, roots) {
+		return nil
 	}
 	return errors.New("default_root_id must match a project root")
+}
+
+func projectRootIDExists(id string, roots []projects.Root) bool {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false
+	}
+	for _, root := range roots {
+		if root.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func parseProjectTime(value string) (time.Time, error) {

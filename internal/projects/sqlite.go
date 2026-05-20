@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS %s (
 	}
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s (
-	id TEXT PRIMARY KEY,
+	id TEXT NOT NULL,
 	project_id TEXT NOT NULL,
 	path TEXT NOT NULL,
 	kind TEXT NOT NULL DEFAULT 'local',
@@ -69,9 +69,14 @@ CREATE TABLE IF NOT EXISTS %s (
 	active INTEGER NOT NULL DEFAULT 1,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
+	PRIMARY KEY(project_id, id),
 	FOREIGN KEY(project_id) REFERENCES %s(id) ON DELETE CASCADE
 )`, s.rootsTbl, s.projectsTbl)); err != nil {
 		return fmt.Errorf("create project roots table: %w", err)
+	}
+	rootsProjectIndex := strings.Trim(s.rootsTbl, `"`) + "_project_idx"
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (project_id)`, rootsProjectIndex, s.rootsTbl)); err != nil {
+		return fmt.Errorf("create project roots project index: %w", err)
 	}
 	return nil
 }
@@ -99,11 +104,20 @@ func (s *SQLiteStore) Create(ctx context.Context, project Project) (Project, err
 }
 
 func (s *SQLiteStore) Get(ctx context.Context, id string) (Project, bool, error) {
-	project, err := s.loadProject(ctx, strings.TrimSpace(id))
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return Project{}, false, err
+	}
+	project, err := s.loadProjectWith(ctx, tx, strings.TrimSpace(id))
 	if errors.Is(err, ErrNotFound) {
+		_ = tx.Rollback()
 		return Project{}, false, nil
 	}
 	if err != nil {
+		_ = tx.Rollback()
+		return Project{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
 		return Project{}, false, err
 	}
 	return project, true, nil
@@ -121,34 +135,48 @@ func (s *SQLiteStore) GetRequired(ctx context.Context, id string) (Project, erro
 }
 
 func (s *SQLiteStore) List(ctx context.Context) ([]Project, error) {
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf(`
 SELECT id FROM %s
 ORDER BY
 	CASE WHEN last_opened_at = '' THEN updated_at ELSE last_opened_at END DESC,
 	name ASC,
 	id ASC`, s.projectsTbl))
 	if err != nil {
+		_ = tx.Rollback()
 		return nil, err
 	}
-	defer rows.Close()
 	var ids []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
+			_ = tx.Rollback()
 			return nil, err
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		_ = tx.Rollback()
 		return nil, err
 	}
 	items := make([]Project, 0, len(ids))
 	for _, id := range ids {
-		project, err := s.loadProject(ctx, id)
+		project, err := s.loadProjectWith(ctx, tx, id)
 		if err != nil {
+			_ = tx.Rollback()
 			return nil, err
 		}
 		items = append(items, project)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -279,10 +307,6 @@ INSERT INTO %s (
 	return nil
 }
 
-func (s *SQLiteStore) loadProject(ctx context.Context, id string) (Project, error) {
-	return s.loadProjectWith(ctx, s.db, id)
-}
-
 type sqliteQuerier interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -342,10 +366,6 @@ WHERE id = ?`, s.projectsTbl), id)
 	}
 	project.Roots = roots
 	return project, nil
-}
-
-func (s *SQLiteStore) loadRoots(ctx context.Context, projectID string) ([]Root, error) {
-	return s.loadRootsWith(ctx, s.db, projectID)
 }
 
 func (s *SQLiteStore) loadRootsWith(ctx context.Context, q sqliteQuerier, projectID string) ([]Root, error) {

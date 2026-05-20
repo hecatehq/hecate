@@ -77,6 +77,7 @@ func TestSQLiteStore_ProjectRoundTrip(t *testing.T) {
 	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
 		item.Name = "Renamed"
 		item.Roots = []Root{{ID: "root_beta", Path: "/tmp/renamed", Active: true}}
+		item.DefaultRootID = "root_beta"
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
@@ -124,5 +125,69 @@ func TestSQLiteStore_RejectsInvalidProject(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Create invalid project error = %v, want ErrInvalid", err)
+	}
+}
+
+func TestSQLiteStore_AllowsSameRootIDAcrossProjects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+
+	for _, project := range []Project{
+		{
+			ID:   "proj_alpha",
+			Name: "Alpha",
+			Roots: []Root{{
+				ID:     "root_shared",
+				Path:   "/tmp/alpha",
+				Active: true,
+			}},
+		},
+		{
+			ID:   "proj_beta",
+			Name: "Beta",
+			Roots: []Root{{
+				ID:     "root_shared",
+				Path:   "/tmp/beta",
+				Active: true,
+			}},
+		},
+	} {
+		if _, err := store.Create(ctx, project); err != nil {
+			t.Fatalf("Create(%s): %v", project.ID, err)
+		}
+	}
+
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %+v, want two projects sharing a root id", items)
+	}
+	for _, item := range items {
+		if len(item.Roots) != 1 || item.Roots[0].ID != "root_shared" {
+			t.Fatalf("project %s roots = %+v, want shared root id", item.ID, item.Roots)
+		}
+	}
+}
+
+func TestSQLiteStore_RejectsInvalidDefaultRootID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+
+	_, err := store.Create(ctx, Project{
+		ID:            "proj_alpha",
+		Name:          "Alpha",
+		DefaultRootID: "missing",
+		Roots: []Root{{
+			ID:     "root_alpha",
+			Path:   "/tmp/alpha",
+			Active: true,
+		}},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create invalid default root error = %v, want ErrInvalid", err)
 	}
 }

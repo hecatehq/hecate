@@ -103,3 +103,23 @@ func TestMemoryStore_RejectsInvalidProject(t *testing.T) {
 		t.Fatalf("Create duplicate root error = %v, want ErrInvalid", err)
 	}
 }
+
+func TestMemoryStore_RejectsInvalidDefaultRootID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+
+	_, err := store.Create(ctx, Project{
+		ID:            "proj_alpha",
+		Name:          "Alpha",
+		DefaultRootID: "missing",
+		Roots: []Root{{
+			ID:     "root_alpha",
+			Path:   "/tmp/alpha",
+			Active: true,
+		}},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create invalid default root error = %v, want ErrInvalid", err)
+	}
+}

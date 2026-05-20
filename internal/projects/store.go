@@ -157,7 +157,7 @@ func normalizeProject(project Project, now time.Time) Project {
 	}
 	if len(project.Roots) == 0 {
 		project.DefaultRootID = ""
-	} else if !hasRootID(project.Roots, project.DefaultRootID) {
+	} else if project.DefaultRootID == "" {
 		project.DefaultRootID = project.Roots[0].ID
 	}
 	return project
