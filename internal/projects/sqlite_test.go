@@ -57,8 +57,11 @@ func TestSQLiteStore_ProjectRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if created.CreatedAt.IsZero() || created.UpdatedAt.IsZero() || created.LastOpenedAt.IsZero() {
+	if created.CreatedAt.IsZero() || created.UpdatedAt.IsZero() {
 		t.Fatalf("timestamps were not initialized: %+v", created)
+	}
+	if !created.LastOpenedAt.IsZero() {
+		t.Fatalf("LastOpenedAt = %s, want unset until explicitly opened", created.LastOpenedAt)
 	}
 
 	got, ok, err := store.Get(ctx, "proj_alpha")
@@ -108,6 +111,30 @@ func TestSQLiteStore_RejectsNilClient(t *testing.T) {
 	_, err := NewSQLiteStore(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected error for nil client")
+	}
+}
+
+func TestSQLiteStore_ListFallsBackToUpdatedAtWhenLastOpenedAtEmpty(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	base := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	if _, err := store.Create(ctx, Project{ID: "proj_old", Name: "Old", CreatedAt: base, UpdatedAt: base}); err != nil {
+		t.Fatalf("Create old: %v", err)
+	}
+	if _, err := store.Create(ctx, Project{ID: "proj_new", Name: "New", CreatedAt: base, UpdatedAt: base.Add(time.Hour)}); err != nil {
+		t.Fatalf("Create new: %v", err)
+	}
+
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(items) != 2 || items[0].ID != "proj_new" {
+		t.Fatalf("items = %+v, want updated-at fallback ordering", items)
+	}
+	if !items[0].LastOpenedAt.IsZero() || !items[1].LastOpenedAt.IsZero() {
+		t.Fatalf("last-opened timestamps = %s / %s, want unset", items[0].LastOpenedAt, items[1].LastOpenedAt)
 	}
 }
 
