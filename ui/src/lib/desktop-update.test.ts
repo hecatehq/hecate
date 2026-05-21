@@ -2,7 +2,11 @@ import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DESKTOP_UPDATE_POLL_INTERVAL_MS, useDesktopUpdate } from "./desktop-update";
+import {
+  DESKTOP_UPDATE_INSTALL_STALL_MS,
+  DESKTOP_UPDATE_POLL_INTERVAL_MS,
+  useDesktopUpdate,
+} from "./desktop-update";
 
 // The hook dynamically imports @tauri-apps/plugin-updater inside
 // the Tauri runtime check. We mock the module so the tests don't
@@ -204,6 +208,41 @@ describe("useDesktopUpdate", () => {
       onEventCb?.({ event: "Finished" });
     });
     await waitFor(() => expect(result.current.progress).toBe(1));
+    expect(result.current.installPhase).toBe("finishing");
+  });
+
+  it("relaunches when install stalls after the download completes", async () => {
+    vi.useFakeTimers();
+    enterTauriRuntime();
+    let onEventCb: ((e: unknown) => void) | null = null;
+    const downloadAndInstall = vi.fn((cb?: (e: unknown) => void) => {
+      onEventCb = cb ?? null;
+      return new Promise<void>(() => {
+        /* never resolves */
+      });
+    });
+    checkMock.mockResolvedValue({
+      version: "0.1.0-alpha.24",
+      downloadAndInstall,
+    });
+    const { result } = renderHook(() => useDesktopUpdate());
+    await vi.waitFor(() => expect(result.current.update).not.toBeNull());
+
+    act(() => {
+      void result.current.installAndRestart();
+    });
+    await vi.waitFor(() => expect(onEventCb).not.toBeNull());
+
+    act(() => {
+      onEventCb?.({ event: "Started", data: { contentLength: 1000 } });
+      onEventCb?.({ event: "Progress", data: { chunkLength: 1000 } });
+    });
+    expect(result.current.installPhase).toBe("finishing");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DESKTOP_UPDATE_INSTALL_STALL_MS);
+    });
+    await vi.waitFor(() => expect(relaunchMock).toHaveBeenCalledTimes(1));
     expect(result.current.installPhase).toBe("restarting");
   });
 

@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { warn as logWarn } from "./log";
+import { info as logInfo, warn as logWarn } from "./log";
 import { isTauriRuntime } from "./tauri";
 
 // Surface or clear the dock / taskbar "update available" badge.
@@ -41,11 +41,17 @@ export const DESKTOP_UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000;
 // banner to read naturally.
 const UP_TO_DATE_FEEDBACK_MS = 4_000;
 
+// If the updater reaches a complete download but the install promise
+// never resolves, the macOS app can sit at 100% forever. The update is
+// usually staged by then, so ask Tauri to relaunch after a generous
+// grace period instead of leaving the operator stranded.
+export const DESKTOP_UPDATE_INSTALL_STALL_MS = 30_000;
+
 export type DesktopUpdate = {
   version: string;
 };
 
-export type DesktopUpdateInstallPhase = "idle" | "downloading" | "restarting";
+export type DesktopUpdateInstallPhase = "idle" | "downloading" | "finishing" | "restarting";
 
 // Result of the most recent check. "update" rides on top of the
 // `update` field below; "up-to-date" is surfaced transiently after a
@@ -63,10 +69,11 @@ type State = {
   // `progress` below. total may be 0 if the Started event never
   // fires (some Tauri builds skip it on small payloads). The
   // downloadFinished flag lets the banner move from "Downloading…"
-  // to "Restarting…" even when total is unknown.
+  // to "Finishing install…" even when total is unknown.
   downloaded: number;
   total: number;
   downloadFinished: boolean;
+  relaunching: boolean;
 };
 
 // Plugin event shape — narrowed locally so the dynamic-import path
@@ -106,6 +113,7 @@ export function useDesktopUpdate(): {
     downloaded: 0,
     total: 0,
     downloadFinished: false,
+    relaunching: false,
   });
   // The plugin's Update object holds the download/install methods. We
   // keep it in a ref-shaped state slot so the banner's button can
@@ -125,6 +133,56 @@ export function useDesktopUpdate(): {
   const manualRequestedRef = useRef(false);
   const installingRef = useRef(false);
   installingRef.current = state.installing;
+  const relaunchingRef = useRef(false);
+  relaunchingRef.current = state.relaunching;
+  const installWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const downloadedRef = useRef(0);
+  const totalRef = useRef(0);
+
+  const clearInstallWatchdog = useCallback(() => {
+    if (installWatchdogRef.current === null) return;
+    clearTimeout(installWatchdogRef.current);
+    installWatchdogRef.current = null;
+  }, []);
+
+  const relaunchApp = useCallback(
+    async (reason: string) => {
+      if (relaunchingRef.current) return;
+      clearInstallWatchdog();
+      setState((prev) => ({
+        ...prev,
+        installing: true,
+        relaunching: true,
+        downloadFinished: true,
+      }));
+      try {
+        logInfo("[hecate] desktop updater relaunch requested:", reason);
+        const process = (await import("@tauri-apps/plugin-process")) as ProcessPlugin;
+        await process.relaunch();
+      } catch (err) {
+        logWarn("[hecate] desktop updater relaunch failed:", err);
+        setState((prev) => ({
+          ...prev,
+          installing: false,
+          relaunching: false,
+          downloadFinished: true,
+        }));
+      }
+    },
+    [clearInstallWatchdog],
+  );
+
+  const scheduleInstallWatchdog = useCallback(() => {
+    if (installWatchdogRef.current !== null) return;
+    installWatchdogRef.current = setTimeout(() => {
+      installWatchdogRef.current = null;
+      if (!installingRef.current || relaunchingRef.current) return;
+      logWarn(
+        "[hecate] desktop updater install did not resolve after download; relaunching to finish",
+      );
+      void relaunchApp("install stalled after download");
+    }, DESKTOP_UPDATE_INSTALL_STALL_MS);
+  }, [relaunchApp]);
 
   const runCheck = useCallback(async (opts: { manual: boolean }) => {
     if (!isTauriRuntime()) return;
@@ -203,6 +261,8 @@ export function useDesktopUpdate(): {
     };
   }, [runCheck]);
 
+  useEffect(() => clearInstallWatchdog, [clearInstallWatchdog]);
+
   // Listen for the native "Check for Updates…" menu item. The Rust
   // side emits `hecate:check-for-updates` (see lib.rs); we re-run
   // the check as a manual trigger so dismissal is bypassed and the
@@ -263,21 +323,34 @@ export function useDesktopUpdate(): {
 
   const installAndRestart = useCallback(async () => {
     if (!pluginUpdate) return;
+    downloadedRef.current = 0;
+    totalRef.current = 0;
     setState((prev) => ({
       ...prev,
       installing: true,
       downloaded: 0,
       total: 0,
       downloadFinished: false,
+      relaunching: false,
     }));
     try {
+      logInfo("[hecate] desktop updater install started:", pluginUpdate.version);
       await pluginUpdate.downloadAndInstall((event) => {
         if (event.event === "Started") {
           const total = event.data.contentLength ?? 0;
+          downloadedRef.current = 0;
+          totalRef.current = total;
+          logInfo("[hecate] desktop updater download started:", { total });
           setState((prev) => ({ ...prev, total, downloaded: 0, downloadFinished: false }));
         } else if (event.event === "Progress") {
-          setState((prev) => ({ ...prev, downloaded: prev.downloaded + event.data.chunkLength }));
+          downloadedRef.current += event.data.chunkLength;
+          if (totalRef.current > 0 && downloadedRef.current >= totalRef.current) {
+            scheduleInstallWatchdog();
+          }
+          setState((prev) => ({ ...prev, downloaded: downloadedRef.current }));
         } else if (event.event === "Finished") {
+          logInfo("[hecate] desktop updater download finished");
+          scheduleInstallWatchdog();
           setState((prev) => ({
             ...prev,
             downloaded: prev.total || prev.downloaded,
@@ -285,19 +358,21 @@ export function useDesktopUpdate(): {
           }));
         }
       });
-      const process = (await import("@tauri-apps/plugin-process")) as ProcessPlugin;
-      await process.relaunch();
+      logInfo("[hecate] desktop updater install finished; relaunching");
+      await relaunchApp("install completed");
     } catch (err) {
+      clearInstallWatchdog();
       logWarn("[hecate] desktop updater install failed:", err);
       setState((prev) => ({
         ...prev,
         installing: false,
+        relaunching: false,
         downloaded: 0,
         total: 0,
         downloadFinished: false,
       }));
     }
-  }, [pluginUpdate]);
+  }, [clearInstallWatchdog, pluginUpdate, relaunchApp, scheduleInstallWatchdog]);
 
   const checkNow = useCallback(async () => {
     await runCheck({ manual: true });
@@ -311,9 +386,11 @@ export function useDesktopUpdate(): {
         : null
     : null;
   const installPhase: DesktopUpdateInstallPhase = state.installing
-    ? state.downloadFinished
+    ? state.relaunching
       ? "restarting"
-      : "downloading"
+      : state.downloadFinished || (state.total > 0 && state.downloaded >= state.total)
+        ? "finishing"
+        : "downloading"
     : "idle";
 
   return {
