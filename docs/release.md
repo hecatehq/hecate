@@ -137,18 +137,19 @@ matrix is the next opportunity to catch regressions.
 
 ## Cut the release
 
-The canonical entry point is the `just release` recipe, which runs
-`just verify` first and then delegates to `scripts/release.ts`:
+The canonical entry point is the `just release` recipe, which first runs a
+fast release preflight, then `just verify`, then delegates to
+`scripts/release.ts`:
 
 ```bash
 just release vX.Y.Z
 ```
 
-It performs, in order: the full project verification gate,
-clean-worktree check, tag-uniqueness check, goreleaser-on-PATH check,
-goreleaser snapshot dry-run, interactive confirmation prompt, Tauri
-version stamp commit (Cargo.toml, package.json, tauri.conf.json),
-annotated tag, push.
+It performs, in order: clean-worktree check, tag-uniqueness check,
+goreleaser-on-PATH check, Docker-daemon check when the snapshot is enabled,
+the full project verification gate, goreleaser snapshot dry-run, interactive
+confirmation prompt, Tauri version stamp commit (Cargo.toml, package.json,
+tauri.conf.json), annotated tag, push.
 
 Pass `--skip-snapshot` to skip the dry-run when you've already validated
 locally:
@@ -203,6 +204,11 @@ Pre-flight checks before the snapshot run (the script enforces these):
   leak into a follow-up commit and break the next release on `--clean`. The
   `ui/dist/` entry in `.gitignore` does **not** cover repo-root `dist/`.
 - `goreleaser` itself is on PATH (`go install github.com/goreleaser/goreleaser/v2@latest`).
+- Docker is reachable when the snapshot is enabled. The snapshot builds local
+  Docker images, so `just release` fails early if Docker Desktop is stopped or
+  the current Docker context points at a missing socket. If `just verify` has
+  already passed and only the local snapshot is blocked, rerun with
+  `--skip-snapshot`.
 
 ## Post-release docs refresh
 

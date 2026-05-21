@@ -16,12 +16,14 @@ Before running the release script, verify:
 
 1. **`just verify` exits 0** — full gate: `docs-env-check`, race suite, docker-smoke, UI unit + e2e. See [`../core/verification.md`](../core/verification.md). Mandatory; calling out a skip in release notes is acceptable only when the risk is named.
 2. **`goreleaser` is installed.** `which goreleaser`. Install via `go install github.com/goreleaser/goreleaser/v2@latest` if missing.
+3. **Docker is reachable unless `--skip-snapshot` is intentional.** `just release` runs this check before the expensive verify gate because the Goreleaser snapshot builds local Docker images.
 
 ## Cut the release
 
-Use the release recipe. It runs `just verify`, then delegates to the
-release script, which checks clean worktree, tag uniqueness, goreleaser on
-PATH, fires a snapshot dry-run, then prompts before tagging:
+Use the release recipe. It runs the release script in preflight-only mode,
+then `just verify`, then the full release script. The script checks clean
+worktree, tag uniqueness, goreleaser on PATH, Docker availability for the
+snapshot, fires a snapshot dry-run, then prompts before tagging:
 
 ```bash
 just release vX.Y.Z
