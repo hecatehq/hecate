@@ -55,6 +55,10 @@ What works:
   the startup splash shows failures with the log and data-directory paths, and
   adds a bootstrap-key recovery hint when startup fails before the gateway
   serves the web UI.
+- Native app lifecycle breadcrumbs are written to the Tauri `app.log`: app
+  startup, gateway sidecar spawn/readiness/shutdown, update-check dispatch,
+  badge failures, and fallback sidecar termination. Use `gateway.log` for the
+  gateway process stderr and `app.log` for the desktop wrapper lifecycle.
 - Startup splash fonts are vendored for offline startup; their OFL license
   texts live next to the font files under `tauri/splash/fonts/`.
 - Window size and position persistence across launches.

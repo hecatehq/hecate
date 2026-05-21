@@ -265,6 +265,13 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     let port = free_port()?;
     let addr = format!("127.0.0.1:{port}");
     let base_url = format!("http://{addr}");
+    log::info!(
+        "starting gateway sidecar bin={} addr={} data_dir={} gateway_log={}",
+        bin.display(),
+        addr,
+        paths.data_dir.display(),
+        paths.log_path.display()
+    );
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
@@ -297,12 +304,25 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
         .stderr(std::process::Stdio::from(stderr_log))
         .spawn()
         .map_err(|e| format!("failed to spawn {bin:?}: {e}"))?;
+    let child_pid = child.id();
+    log::info!(
+        "gateway sidecar spawned pid={} base_url={}",
+        child_pid,
+        base_url
+    );
 
     // Poll /healthz. Hard deadline: 30 s.
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(30);
     let healthz = format!("{base_url}/healthz");
     loop {
         if Instant::now() >= deadline {
+            log::warn!(
+                "gateway sidecar health check timed out pid={} base_url={} startup_ms={}",
+                child_pid,
+                base_url,
+                started.elapsed().as_millis()
+            );
             let _ = child.kill();
             let _ = child.wait();
             return Err(format!(
@@ -311,6 +331,12 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
             ));
         }
         if let Ok(Some(status)) = child.try_wait() {
+            log::warn!(
+                "gateway sidecar exited before healthy pid={} status={} startup_ms={}",
+                child_pid,
+                status,
+                started.elapsed().as_millis()
+            );
             return Err(format!(
                 "gateway exited before becoming healthy ({status}). {}",
                 startup_failure_details(&paths.log_path)
@@ -318,6 +344,12 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
         }
         match client.get(&healthz).send().await {
             Ok(resp) if resp.status().is_success() => {
+                log::info!(
+                    "gateway sidecar healthy pid={} base_url={} startup_ms={}",
+                    child_pid,
+                    base_url,
+                    started.elapsed().as_millis()
+                );
                 return Ok(GatewayHandle {
                     base_url,
                     port,

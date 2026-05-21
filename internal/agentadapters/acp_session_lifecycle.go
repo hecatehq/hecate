@@ -29,6 +29,7 @@ type acpSession struct {
 	conn      *acp.ClientSideConnection
 	client    *acpChatClient
 	nativeID  string
+	logger    *slog.Logger
 
 	configMu      sync.Mutex
 	configOptions []agentcontrols.ConfigOption
@@ -46,6 +47,20 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		return nil, false, "", err
 	}
 	args := append([]string(nil), adapter.Args...)
+	sessionLogger := logger
+	if sessionLogger != nil {
+		sessionLogger = sessionLogger.With(
+			slog.String("component", "agent_adapters.acp_session"),
+			slog.String("adapter_id", adapter.ID),
+			slog.String("session_id", sessionID),
+			slog.String("workspace", workspace),
+		)
+		sessionLogger.Info("starting ACP adapter process",
+			slog.String("command", command),
+			slog.Any("args", args),
+			slog.Bool("resume_requested", strings.TrimSpace(previousNativeSessionID) != ""),
+		)
+	}
 	cmd := exec.CommandContext(context.Background(), command, args...)
 	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
@@ -66,6 +81,9 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	if err := cmd.Start(); err != nil {
 		return nil, false, "", fmt.Errorf("start ACP adapter %q: %w", adapter.ID, err)
 	}
+	if sessionLogger != nil {
+		sessionLogger.Info("ACP adapter process started", slog.Int("pid", cmd.Process.Pid))
+	}
 
 	client := &acpChatClient{
 		sessionID:   sessionID,
@@ -80,6 +98,9 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	}
 	initCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	if sessionLogger != nil {
+		sessionLogger.Info("initializing ACP adapter")
+	}
 	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientInfo: &acp.Implementation{
@@ -95,8 +116,16 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		},
 	})
 	if err != nil {
+		if sessionLogger != nil {
+			sessionLogger.Warn("ACP adapter initialize failed", slog.Any("error", err))
+		}
 		terminateProcess(cmd)
 		return nil, false, "", fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+	}
+	if sessionLogger != nil {
+		sessionLogger.Info("ACP adapter initialized",
+			slog.Bool("load_session_supported", initResp.AgentCapabilities.LoadSession),
+		)
 	}
 
 	nativeID := ""
@@ -105,6 +134,9 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	var configOptions []agentcontrols.ConfigOption
 	previousNativeSessionID = strings.TrimSpace(previousNativeSessionID)
 	if previousNativeSessionID != "" && initResp.AgentCapabilities.LoadSession {
+		if sessionLogger != nil {
+			sessionLogger.Info("loading previous ACP session", slog.String("native_session_id", previousNativeSessionID))
+		}
 		loadCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		loaded, loadErr := conn.LoadSession(loadCtx, acp.LoadSessionRequest{
 			SessionId:  acp.SessionId(previousNativeSessionID),
@@ -116,11 +148,26 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			nativeID = previousNativeSessionID
 			resumed = true
 			configOptions = agentcontrols.FromACPOptions(loaded.ConfigOptions)
+			if sessionLogger != nil {
+				sessionLogger.Info("previous ACP session loaded",
+					slog.String("native_session_id", nativeID),
+					slog.Int("config_options", len(configOptions)),
+				)
+			}
 		} else {
 			recovery = fmt.Sprintf("could not restore ACP session %s: %v", previousNativeSessionID, loadErr)
+			if sessionLogger != nil {
+				sessionLogger.Warn("previous ACP session load failed",
+					slog.String("native_session_id", previousNativeSessionID),
+					slog.Any("error", loadErr),
+				)
+			}
 		}
 	}
 	if nativeID == "" {
+		if sessionLogger != nil {
+			sessionLogger.Info("creating ACP session")
+		}
 		newCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		created, err := conn.NewSession(newCtx, acp.NewSessionRequest{
 			Cwd:        workspace,
@@ -128,11 +175,20 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		})
 		cancel()
 		if err != nil {
+			if sessionLogger != nil {
+				sessionLogger.Warn("ACP session creation failed", slog.Any("error", err))
+			}
 			terminateProcess(cmd)
 			return nil, false, "", fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 		}
 		nativeID = string(created.SessionId)
 		configOptions = agentcontrols.FromACPOptions(created.ConfigOptions)
+		if sessionLogger != nil {
+			sessionLogger.Info("ACP session created",
+				slog.String("native_session_id", nativeID),
+				slog.Int("config_options", len(configOptions)),
+			)
+		}
 	}
 	return &acpSession{
 		adapter:       adapter,
@@ -141,6 +197,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		conn:          conn,
 		client:        client,
 		nativeID:      nativeID,
+		logger:        sessionLogger,
 		configOptions: configOptions,
 	}, resumed, recovery, nil
 }
@@ -274,16 +331,33 @@ func (s *acpSession) Close(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
+	if s.logger != nil {
+		pid := 0
+		if s.cmd != nil && s.cmd.Process != nil {
+			pid = s.cmd.Process.Pid
+		}
+		s.logger.Info("closing ACP adapter session",
+			slog.String("native_session_id", s.nativeID),
+			slog.Int("pid", pid),
+		)
+	}
 	cancelCtx, cancel := context.WithTimeout(ctx, acpShutdownCancelTimeout)
-	_ = s.cancelActiveTurn(cancelCtx)
+	if err := s.cancelActiveTurn(cancelCtx); err != nil && s.logger != nil {
+		s.logger.Warn("cancel active ACP turn during close failed", slog.Any("error", err))
+	}
 	cancel()
 	if s.conn != nil && s.nativeID != "" {
 		closeCtx, cancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
-		_, _ = s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(s.nativeID)})
+		if _, err := s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(s.nativeID)}); err != nil && s.logger != nil {
+			s.logger.Warn("close ACP session RPC failed", slog.String("native_session_id", s.nativeID), slog.Any("error", err))
+		}
 		cancel()
 	}
 	if s.cmd != nil {
 		terminateProcess(s.cmd)
+		if s.logger != nil {
+			s.logger.Info("ACP adapter process terminated", slog.String("native_session_id", s.nativeID))
+		}
 	}
 	return nil
 }

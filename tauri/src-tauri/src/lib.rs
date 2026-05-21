@@ -40,19 +40,23 @@ const APP_LOG_FILE: &str = "app";
 #[tauri::command]
 fn set_update_badge(window: tauri::WebviewWindow, visible: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
-    {
+    let result = {
         let label = if visible {
             Some("•".to_string())
         } else {
             None
         };
         window.set_badge_label(label).map_err(|e| e.to_string())
-    }
+    };
     #[cfg(not(target_os = "macos"))]
-    {
+    let result = {
         let count = if visible { Some(1i64) } else { None };
         window.set_badge_count(count).map_err(|e| e.to_string())
+    };
+    if let Err(ref err) = result {
+        log::warn!("set update badge failed visible={visible}: {err}");
     }
+    result
 }
 
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
@@ -283,20 +287,28 @@ async fn fetch_running_runs(base_url: &str) -> u64 {
         .build()
     {
         Ok(c) => c,
-        Err(_) => return 0,
+        Err(e) => {
+            log::warn!("fetch_running_runs: build HTTP client failed: {e}");
+            return 0;
+        }
     };
     let url = format!("{}/hecate/v1/system/stats", base_url.trim_end_matches('/'));
     let response = match client.get(&url).send().await {
         Ok(r) => r,
         Err(e) => {
-            log::debug!("fetch_running_runs: GET {url} failed: {e}");
+            log::warn!("fetch_running_runs: GET {url} failed: {e}");
             return 0;
         }
     };
+    let status = response.status();
+    if !status.is_success() {
+        log::warn!("fetch_running_runs: GET {url} returned {status}");
+        return 0;
+    }
     let text = match response.text().await {
         Ok(s) => s,
         Err(e) => {
-            log::debug!("fetch_running_runs: read body failed: {e}");
+            log::warn!("fetch_running_runs: read body from {url} failed: {e}");
             return 0;
         }
     };
@@ -340,7 +352,9 @@ async fn drain_gateway(base_url: &str) -> Result<(), String> {
             Err(_) => return Ok(()), // gateway is gone
         }
     }
-    Err(format!("gateway did not exit within {HECATE_DRAIN_DEADLINE:?}"))
+    Err(format!(
+        "gateway did not exit within {HECATE_DRAIN_DEADLINE:?}"
+    ))
 }
 
 /// Shows a native blocking-by-callback confirmation dialog asking the
@@ -377,23 +391,35 @@ async fn confirm_quit_with_running_tasks(app: &AppHandle, running: u64) -> bool 
 /// otherwise re-prompt.
 fn handle_quit_request(app: AppHandle) {
     if QUIT_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        log::info!("quit request ignored because graceful shutdown is already in progress");
         return;
     }
     tauri::async_runtime::spawn(async move {
         let base_url = app.try_state::<GatewayBaseURL>().and_then(|s| s.snapshot());
+        log::info!(
+            "quit requested app_pid={} gateway_ready={}",
+            std::process::id(),
+            base_url.is_some()
+        );
         if let Some(ref base) = base_url {
             let running = fetch_running_runs(base).await;
+            log::info!("gateway running task count before quit running_runs={running}");
             if running > 0 {
                 let confirmed = confirm_quit_with_running_tasks(&app, running).await;
                 if !confirmed {
+                    log::info!("quit cancelled by operator; keeping gateway running");
                     QUIT_IN_PROGRESS.store(false, Ordering::SeqCst);
                     return;
                 }
+                log::info!("operator confirmed quit with running tasks; draining gateway");
             }
-            if let Err(e) = drain_gateway(base).await {
-                // Non-fatal: RunEvent::Exit's child.kill() is the
-                // fallback. Log so operators have a breadcrumb.
-                log::warn!("graceful gateway drain failed, falling back to child.kill(): {e}");
+            match drain_gateway(base).await {
+                Ok(()) => log::info!("gateway drain completed before app exit"),
+                Err(e) => {
+                    // Non-fatal: RunEvent::Exit's child.kill() is the
+                    // fallback. Log so operators have a breadcrumb.
+                    log::warn!("graceful gateway drain failed, falling back to child.kill(): {e}");
+                }
             }
         } else {
             log::debug!("quit requested before gateway base URL was ready; exiting without drain");
@@ -454,10 +480,18 @@ pub fn run() {
                 // banner state machine). Emit an event the webview can
                 // hook into; the React side handles the rest.
                 if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
+                    if let Err(e) = win.show() {
+                        log::warn!("show main window for update check failed: {e}");
+                    }
+                    if let Err(e) = win.set_focus() {
+                        log::warn!("focus main window for update check failed: {e}");
+                    }
+                } else {
+                    log::warn!("check-for-updates requested but main window was not found");
                 }
-                let _ = app.emit("hecate:check-for-updates", ());
+                if let Err(e) = app.emit("hecate:check-for-updates", ()) {
+                    log::warn!("emit hecate:check-for-updates failed: {e}");
+                }
             }
             "open-app-log" => {
                 // tauri-plugin-log writes to
@@ -468,11 +502,15 @@ pub fn run() {
                     Ok(dir) => {
                         let log_path = dir.join(format!("{APP_LOG_FILE}.log"));
                         if !log_path.exists() {
-                            let _ = std::fs::create_dir_all(&dir);
-                            let _ = std::fs::write(
+                            if let Err(e) = std::fs::create_dir_all(&dir) {
+                                log::warn!("create app log dir {} failed: {e}", dir.display());
+                            }
+                            if let Err(e) = std::fs::write(
                                 &log_path,
                                 "App log has not accumulated any entries yet.\n",
-                            );
+                            ) {
+                                log::warn!("write app log placeholder {} failed: {e}", log_path.display());
+                            }
                         }
                         if let Err(e) = open_path(&log_path) {
                             log::warn!("open app log failed: {e}");
@@ -484,10 +522,15 @@ pub fn run() {
             "open-gateway-log" => {
                 if let Some(paths) = app.try_state::<GatewayDiagnostics>() {
                     if !paths.log_path.exists() {
-                        let _ = std::fs::write(
+                        if let Err(e) = std::fs::write(
                             &paths.log_path,
                             "Gateway log has not been created yet.\n",
-                        );
+                        ) {
+                            log::warn!(
+                                "write gateway log placeholder {} failed: {e}",
+                                paths.log_path.display()
+                            );
+                        }
                     }
                     if let Err(e) = open_path(&paths.log_path) {
                         log::warn!("open gateway log failed: {e}");
@@ -521,6 +564,13 @@ pub fn run() {
 
             let diagnostics = sidecar::diagnostic_paths(app.handle())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            log::info!(
+                "hecate desktop starting version={} app_pid={} data_dir={} gateway_log={}",
+                env!("CARGO_PKG_VERSION"),
+                std::process::id(),
+                diagnostics.data_dir.display(),
+                diagnostics.log_path.display()
+            );
 
             // The main window is created by tauri.conf.json and starts on the
             // splash page (frontendDist). Grab a handle to it so we can
@@ -563,6 +613,9 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 match sidecar::spawn_and_wait(&app_handle).await {
                     Ok(handle) => {
+                        let sidecar_pid = handle.child.id();
+                        let sidecar_port = handle.port;
+                        let base_url = handle.base_url.clone();
                         // Store the child so the exit handler can kill it.
                         if let Some(state) = app_handle.try_state::<GatewayChild>() {
                             if let Ok(mut slot) = state.0.lock() {
@@ -580,9 +633,15 @@ pub fn run() {
                             tokio::time::sleep(delay).await;
                         }
                         // Navigate to the gateway UI.
-                        let url = tauri::Url::parse(&handle.base_url)
+                        let url = tauri::Url::parse(&base_url)
                             .expect("gateway base_url is always valid");
-                        log::info!("navigating to gateway {}", handle.base_url);
+                        log::info!(
+                            "navigating to gateway base_url={} port={} app_pid={} sidecar_pid={}",
+                            base_url,
+                            sidecar_port,
+                            std::process::id(),
+                            sidecar_pid
+                        );
                         if let Err(e) = win.navigate(url) {
                             log::error!("navigate to gateway failed: {e}");
                         }
@@ -598,8 +657,12 @@ pub fn run() {
                         let script = format!(
                             "window.__hecateStartupFailureDetails = {payload}; window.__hecateStartupFailed && window.__hecateStartupFailed(window.__hecateStartupFailureDetails);"
                         );
-                        let _ = win.eval(script);
-                        let _ = win.set_title("Hecate — startup failed");
+                        if let Err(eval_err) = win.eval(script) {
+                            log::warn!("show startup failure details in splash failed: {eval_err}");
+                        }
+                        if let Err(title_err) = win.set_title("Hecate — startup failed") {
+                            log::warn!("set startup failure window title failed: {title_err}");
+                        }
                     }
                 }
             });
@@ -619,6 +682,7 @@ pub fn run() {
             // doesn't get bypassed and the app doesn't close mid-dialog).
             RunEvent::ExitRequested { api, .. } => {
                 if INTENTIONAL_EXIT.load(Ordering::SeqCst) {
+                    log::info!("intentional app exit requested; allowing process shutdown");
                     return;
                 }
                 api.prevent_exit();
@@ -633,6 +697,8 @@ pub fn run() {
                 if let Some(state) = app_handle.try_state::<GatewayChild>() {
                     if let Ok(mut slot) = state.0.lock() {
                         if let Some(mut child) = slot.take() {
+                            let sidecar_pid = child.id();
+                            log::info!("app exiting; waiting for gateway sidecar pid={} to stop", sidecar_pid);
                             let deadline = Instant::now() + Duration::from_secs(2);
                             let mut exited = false;
                             while Instant::now() < deadline {
@@ -644,16 +710,37 @@ pub fn run() {
                                     Ok(None) => {
                                         std::thread::sleep(Duration::from_millis(100));
                                     }
-                                    Err(_) => break,
+                                    Err(e) => {
+                                        log::warn!(
+                                            "poll gateway sidecar exit status failed pid={}: {e}",
+                                            sidecar_pid
+                                        );
+                                        break;
+                                    }
                                 }
                             }
                             if !exited {
-                                let _ = child.kill();
+                                log::warn!(
+                                    "gateway sidecar still running at app exit; killing pid={}",
+                                    sidecar_pid
+                                );
+                                if let Err(e) = child.kill() {
+                                    log::warn!("kill gateway sidecar failed pid={}: {e}", sidecar_pid);
+                                }
+                            } else {
+                                log::info!(
+                                    "gateway sidecar exited before fallback kill pid={}",
+                                    sidecar_pid
+                                );
                             }
                         }
                     }
                 }
                 if let Some(paths) = app_handle.try_state::<GatewayDiagnostics>() {
+                    log::info!(
+                        "removing gateway runtime state path={}",
+                        paths.state_path.display()
+                    );
                     sidecar::remove_gateway_state(&paths.state_path);
                 }
             }
