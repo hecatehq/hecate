@@ -158,6 +158,59 @@ func TestSQLiteStore_UpdatePreservesCreatedAt(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_UpdateUpsertsRootsWithoutResettingExistingRootCreatedAt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	rootCreatedAt := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC)
+	if _, err := store.Create(ctx, Project{
+		ID:            "proj_alpha",
+		Name:          "Alpha",
+		DefaultRootID: "root_alpha",
+		Roots: []Root{{
+			ID:        "root_alpha",
+			Path:      "/tmp/alpha",
+			Active:    true,
+			CreatedAt: rootCreatedAt,
+			UpdatedAt: rootCreatedAt,
+		}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.Roots = []Root{
+			{ID: "root_alpha", Path: "/tmp/renamed", Active: true},
+			{ID: "root_beta", Path: "/tmp/beta", Active: true},
+		}
+		item.DefaultRootID = "root_alpha"
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	rootAlpha := mustFindRoot(t, updated.Roots, "root_alpha")
+	if rootAlpha.Path != "/tmp/renamed" {
+		t.Fatalf("root_alpha path = %q, want /tmp/renamed", rootAlpha.Path)
+	}
+	if !rootAlpha.CreatedAt.Equal(rootCreatedAt) {
+		t.Fatalf("root_alpha CreatedAt = %s, want %s", rootAlpha.CreatedAt, rootCreatedAt)
+	}
+	if !rootAlpha.UpdatedAt.After(rootCreatedAt) {
+		t.Fatalf("root_alpha UpdatedAt = %s, want after %s", rootAlpha.UpdatedAt, rootCreatedAt)
+	}
+
+	updated, err = store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.Roots = []Root{{ID: "root_beta", Path: "/tmp/beta", Active: true}}
+		item.DefaultRootID = "root_beta"
+	})
+	if err != nil {
+		t.Fatalf("Update removing root_alpha: %v", err)
+	}
+	if len(updated.Roots) != 1 || updated.Roots[0].ID != "root_beta" {
+		t.Fatalf("roots after removal = %+v, want only root_beta", updated.Roots)
+	}
+}
+
 func TestSQLiteStore_RejectsInvalidProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -174,6 +227,17 @@ func TestSQLiteStore_RejectsInvalidProject(t *testing.T) {
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Create invalid project error = %v, want ErrInvalid", err)
 	}
+}
+
+func mustFindRoot(t *testing.T, roots []Root, id string) Root {
+	t.Helper()
+	for _, root := range roots {
+		if root.ID == id {
+			return root
+		}
+	}
+	t.Fatalf("root %q not found in %+v", id, roots)
+	return Root{}
 }
 
 func TestSQLiteStore_AllowsSameRootIDAcrossProjects(t *testing.T) {

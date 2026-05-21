@@ -309,7 +309,7 @@ func projectRootIDExists(id string, roots []projects.Root) bool {
 func parseProjectTime(value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return time.Time{}, nil
+		return time.Time{}, errors.New("last_opened_at must be RFC3339 timestamp")
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {

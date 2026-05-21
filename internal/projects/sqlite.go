@@ -197,6 +197,7 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Projec
 	}
 	originalID := project.ID
 	originalCreatedAt := project.CreatedAt
+	originalRoots := projectRootsByID(project.Roots)
 	if update != nil {
 		update(&project)
 	}
@@ -208,6 +209,7 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Projec
 	project.CreatedAt = originalCreatedAt
 	now := time.Now().UTC()
 	project.UpdatedAt = now
+	project.Roots = preserveExistingRootTimestamps(project.Roots, originalRoots, now)
 	project = normalizeProject(project, now)
 	if err := validateProject(project); err != nil {
 		_ = tx.Rollback()
@@ -290,14 +292,30 @@ ON CONFLICT(id) DO UPDATE SET
 	); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ?`, s.rootsTbl), project.ID); err != nil {
+	return s.upsertProjectRoots(ctx, tx, project)
+}
+
+func (s *SQLiteStore) upsertProjectRoots(ctx context.Context, tx *sql.Tx, project Project) error {
+	if len(project.Roots) == 0 {
+		_, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ?`, s.rootsTbl), project.ID)
 		return err
 	}
+
+	deleteArgs := make([]any, 0, len(project.Roots)+1)
+	deleteArgs = append(deleteArgs, project.ID)
+	placeholders := make([]string, 0, len(project.Roots))
 	for _, root := range project.Roots {
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (
 	id, project_id, path, kind, git_remote, git_branch, active, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.rootsTbl),
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(project_id, id) DO UPDATE SET
+	path = excluded.path,
+	kind = excluded.kind,
+	git_remote = excluded.git_remote,
+	git_branch = excluded.git_branch,
+	active = excluded.active,
+	updated_at = excluded.updated_at`, s.rootsTbl),
 			root.ID,
 			project.ID,
 			root.Path,
@@ -310,8 +328,15 @@ INSERT INTO %s (
 		); err != nil {
 			return err
 		}
+		placeholders = append(placeholders, "?")
+		deleteArgs = append(deleteArgs, root.ID)
 	}
-	return nil
+	_, err := tx.ExecContext(ctx, fmt.Sprintf(
+		`DELETE FROM %s WHERE project_id = ? AND id NOT IN (%s)`,
+		s.rootsTbl,
+		strings.Join(placeholders, ", "),
+	), deleteArgs...)
+	return err
 }
 
 type sqliteQuerier interface {

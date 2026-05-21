@@ -218,3 +218,38 @@ func TestProjectsAPI_InvalidPatchDoesNotMutate(t *testing.T) {
 		t.Fatalf("project mutated after invalid patch: %+v", got.Data)
 	}
 }
+
+func TestProjectsAPI_BlankLastOpenedAtPatchDoesNotMutate(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"Original"}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	originalLastOpenedAt := created.Data.LastOpenedAt
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{"last_opened_at":"   "}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("blank last_opened_at patch status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+created.Data.ID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var got ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	if got.Data.LastOpenedAt != originalLastOpenedAt {
+		t.Fatalf("last_opened_at mutated to %q, want %q", got.Data.LastOpenedAt, originalLastOpenedAt)
+	}
+}

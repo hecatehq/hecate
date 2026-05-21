@@ -130,6 +130,42 @@ func TestMemoryStore_UpdatePreservesCreatedAt(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_UpdatePreservesExistingRootCreatedAt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	rootCreatedAt := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC)
+	if _, err := store.Create(ctx, Project{
+		ID:   "proj_alpha",
+		Name: "Alpha",
+		Roots: []Root{{
+			ID:        "root_alpha",
+			Path:      "/tmp/alpha",
+			Active:    true,
+			CreatedAt: rootCreatedAt,
+			UpdatedAt: rootCreatedAt,
+		}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.Roots = []Root{{ID: "root_alpha", Path: "/tmp/renamed", Active: true}}
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(updated.Roots) != 1 {
+		t.Fatalf("roots = %+v, want one root", updated.Roots)
+	}
+	if !updated.Roots[0].CreatedAt.Equal(rootCreatedAt) {
+		t.Fatalf("root CreatedAt = %s, want %s", updated.Roots[0].CreatedAt, rootCreatedAt)
+	}
+	if !updated.Roots[0].UpdatedAt.After(rootCreatedAt) {
+		t.Fatalf("root UpdatedAt = %s, want after %s", updated.Roots[0].UpdatedAt, rootCreatedAt)
+	}
+}
+
 func TestMemoryStore_RejectsInvalidProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
