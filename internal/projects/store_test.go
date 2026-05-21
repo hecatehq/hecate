@@ -78,6 +78,26 @@ func TestMemoryStore_ListSortsByLastOpenedAt(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_ListFallsBackToUpdatedAtWhenLastOpenedAtEmpty(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	base := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	_, _ = store.Create(ctx, Project{ID: "proj_old", Name: "Old", CreatedAt: base, UpdatedAt: base})
+	_, _ = store.Create(ctx, Project{ID: "proj_new", Name: "New", CreatedAt: base, UpdatedAt: base.Add(time.Hour)})
+
+	items, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(items) != 2 || items[0].ID != "proj_new" {
+		t.Fatalf("items = %+v, want updated-at fallback ordering", items)
+	}
+	if !items[0].LastOpenedAt.IsZero() || !items[1].LastOpenedAt.IsZero() {
+		t.Fatalf("last-opened timestamps = %s / %s, want unset", items[0].LastOpenedAt, items[1].LastOpenedAt)
+	}
+}
+
 func TestMemoryStore_UpdateMissingProject(t *testing.T) {
 	t.Parallel()
 	_, err := NewMemoryStore().Update(context.Background(), "missing", nil)

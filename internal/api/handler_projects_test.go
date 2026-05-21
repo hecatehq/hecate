@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +45,9 @@ func TestProjectsAPI_CRUD(t *testing.T) {
 	}
 	if created.Data.DefaultRootID != created.Data.Roots[0].ID {
 		t.Fatalf("default_root_id = %q, want first root id %q", created.Data.DefaultRootID, created.Data.Roots[0].ID)
+	}
+	if created.Data.LastOpenedAt != "" {
+		t.Fatalf("last_opened_at = %q, want omitted until explicitly opened", created.Data.LastOpenedAt)
 	}
 
 	rec = httptest.NewRecorder()
@@ -112,6 +116,9 @@ func TestProjectsAPI_Validation(t *testing.T) {
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"Broken","roots":[{"id":"root_a","path":"/tmp/a"}],"default_root_id":"root_missing"}`))))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid default root status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "root_missing") || !strings.Contains(rec.Body.String(), "root_a") {
+		t.Fatalf("invalid default root body = %s, want invalid and available root ids", rec.Body.String())
 	}
 }
 

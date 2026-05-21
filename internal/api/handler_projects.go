@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -290,7 +291,7 @@ func validateProjectDefaultRoot(defaultRootID string, roots []projects.Root) err
 	if projectRootIDExists(defaultRootID, roots) {
 		return nil
 	}
-	return errors.New("default_root_id must match a project root")
+	return fmt.Errorf("default_root_id %q must match a project root%s", strings.TrimSpace(defaultRootID), availableProjectRootIDsHint(roots))
 }
 
 func projectRootIDExists(id string, roots []projects.Root) bool {
@@ -304,6 +305,23 @@ func projectRootIDExists(id string, roots []projects.Root) bool {
 		}
 	}
 	return false
+}
+
+func availableProjectRootIDsHint(roots []projects.Root) string {
+	if len(roots) == 0 {
+		return " (no roots configured)"
+	}
+	ids := make([]string, 0, len(roots))
+	for _, root := range roots {
+		id := strings.TrimSpace(root.ID)
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return " (no root ids configured)"
+	}
+	return " (available: " + strings.Join(ids, ", ") + ")"
 }
 
 func parseProjectTime(value string) (time.Time, error) {

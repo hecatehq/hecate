@@ -159,9 +159,6 @@ func normalizeProject(project Project, now time.Time) Project {
 	if project.UpdatedAt.IsZero() {
 		project.UpdatedAt = project.CreatedAt
 	}
-	if project.LastOpenedAt.IsZero() {
-		project.LastOpenedAt = project.UpdatedAt
-	}
 	for idx := range project.Roots {
 		project.Roots[idx] = normalizeRoot(project.Roots[idx], now)
 	}
