@@ -140,6 +140,8 @@ just test              # go test ./...
 just vet               # go vet ./...
 just test-race         # go test -race ./...
 just coverage          # go test -coverprofile + writes coverage.html
+just go-format-check   # Go gofmt -s formatting check
+just go-format         # format Go source with gofmt -s
 just ui-lint           # UI oxlint checks
 just ui-format-check   # UI Oxfmt formatting check
 just ui-format         # format UI source with Oxfmt
@@ -150,6 +152,8 @@ just website-format-check # website Oxfmt formatting check
 just website-format    # format website source with Oxfmt
 just docs-format-check # Markdown and .mdc Oxfmt formatting check
 just docs-format       # format tracked Markdown and .mdc docs with Oxfmt
+just format-check      # Go + UI + website + docs formatting check
+just format            # auto-format Go + UI + website + docs
 just website-build     # Astro website check + production build
 just test-acp-smoke    # ACP stdio bridge smoke against fake local upstream
 just ui-coverage       # UI coverage report (vitest --coverage)
@@ -165,14 +169,13 @@ The race detector is the strongest correctness check (and the slowest); CI runs 
 Before cutting a public tag, run `just verify` and follow the checklist in [Release](release.md).
 
 TypeScript linting uses Oxc with type-aware checks through `oxlint-tsgolint`.
-`just ui-lint`, `just ui-format-check`, `just website-lint`,
-`just website-format-check`, and `just docs-format-check` are part of
-`just verify` and CI. Formatting commands (`just ui-format`,
-`just website-format`, `just docs-format`) are available for intentional
-cleanup passes; review the resulting diff like any other code change. The
-shared `.oxlintrc.json` enables React, accessibility, Vitest, import,
-TypeScript, Unicorn, and Oxc rules for both UI surfaces. Markdown and `.mdc`
-docs use Oxfmt for formatting; lychee still validates links and fragments.
+`just ui-lint`, `just website-lint`, and `just format-check` are part of
+`just verify` and CI. `just format` is the local auto-format pass for Go, UI,
+website, and docs; use it before pushing when CI reports formatting drift, then
+review the resulting diff like any other code change. The shared
+`.oxlintrc.json` enables React, accessibility, Vitest, import, TypeScript,
+Unicorn, and Oxc rules for both UI surfaces. Markdown and `.mdc` docs use
+Oxfmt for formatting; lychee still validates links and fragments.
 
 ## CI workflow
 

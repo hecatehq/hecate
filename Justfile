@@ -40,6 +40,19 @@ test-race: _go-cache
 vet: _go-cache
 	GOCACHE="$PWD/{{gocache}}" go vet ./...
 
+# Format Go source files with gofmt -s.
+go-format:
+	git ls-files -z '*.go' | xargs -0 gofmt -s -w
+
+# Check Go source formatting with gofmt -s.
+go-format-check:
+	files="$(git ls-files -z '*.go' | xargs -0 gofmt -s -l)"; \
+	if [ -n "$files" ]; then \
+	  echo "Go files need gofmt -s:"; \
+	  echo "$files"; \
+	  exit 1; \
+	fi
+
 # Generate Go coverage HTML.
 coverage: _go-cache
 	GOCACHE="$PWD/{{gocache}}" go test -coverprofile=coverage.out ./...
@@ -207,6 +220,12 @@ docs-format: _ui-deps
 docs-format-check: _ui-deps
 	git ls-files -z '*.md' '*.mdc' | xargs -0 ./ui/node_modules/.bin/oxfmt --check
 
+# Format all repo-managed source and docs surfaces.
+format: go-format ui-format website-format docs-format
+
+# Check all repo-managed source and docs formatting.
+format-check: go-format-check ui-format-check website-format-check docs-format-check
+
 # Build the Astro website.
 website-build: _website-deps
 	cd website && bun --bun run build
@@ -256,7 +275,7 @@ check-links:
 # Project verification gate. It intentionally runs only non-destructive
 # checks, but it is not cheap: Docker and UI e2e can take a bit.
 # Run the full project verification gate.
-verify: docs-env-check docs-format-check test vet test-race test-acp-smoke test-docker-smoke ui-lint ui-format-check website-lint website-format-check ui-test ui-test-e2e build
+verify: docs-env-check format-check test vet test-race test-acp-smoke test-docker-smoke ui-lint website-lint ui-test ui-test-e2e build
 
 # Run verification, then cut a release tag. Optional args pass through to
 # scripts/release.ts, for example: just release vX.Y.Z --skip-snapshot.

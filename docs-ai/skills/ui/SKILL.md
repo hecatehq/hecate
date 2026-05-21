@@ -298,10 +298,12 @@ Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-rende
 | `bun run typecheck`                             | `tsgo -b` — fast type check, no test execution      | First sanity check after edits                   |
 | `bun run lint`                                  | Type-aware Oxc lint checks                          | Before committing                                |
 | `bun run format:check`                          | Oxfmt formatting check                              | Before committing                                |
+| `just format-check`                             | Go + UI + website + docs formatting check           | Mixed-surface PRs or CI format failures          |
 | `just docs-format-check`                        | Oxfmt Markdown / `.mdc` formatting check            | When UI changes update docs or screenshots       |
 | `bun run test`                                  | `vitest run` — full test suite                      | Before committing                                |
 | `bun run test:watch`                            | watch mode                                          | During iteration                                 |
 | `bun run format`                                | Oxfmt source formatting                             | Formatting-only cleanup or after formatter drift |
+| `just format`                                   | Local auto-format for Go, UI, website, and docs     | Fix formatter drift before pushing               |
 | `bun run dev` (or `just ui-dev` from repo root) | Vite dev server on `:5173`, proxying API to `:8765` | Live UI iteration alongside `just dev`           |
 
 **Never `bun test`** — it skips testing-library DOM setup and panics with `document[isPrepared]`. Always `bun run test`.
@@ -318,8 +320,9 @@ Markdown and `.mdc` docs are formatted by Oxfmt through `just docs-format` /
 does not replace link checking.
 
 Do not mix broad Oxfmt churn into a feature diff unless the task is explicitly a
-formatting pass. When formatting is needed, run `bun run format`, then review
-the mechanical diff separately from behavior changes.
+formatting pass. When only UI source drifted, run `bun run format`; when the PR
+touches multiple surfaces or CI reports a format failure, run `just format`,
+then review the mechanical diff separately from behavior changes.
 
 ## Test patterns
 

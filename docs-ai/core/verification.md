@@ -22,11 +22,16 @@ filing the PR and call out the residual risk.
 
 | Step          | Command                                                        | When                                                                         |
 | ------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Format check  | `just go-format-check`                                         | Before claiming done for Go edits; also covered by `just format-check` / CI  |
 | Build         | `go build ./...`                                               | Always, before claiming done                                                 |
 | Vet           | `go vet ./...` or targeted packages                            | Go backend/runtime changes; use targeted vet during iteration                |
 | Focused tests | `/test-affected` (or `go test -race -count=1 ./<package>/...`) | During iteration                                                             |
 | Race suite    | `go test -race -timeout 10m ./...` (or `/race`)                | **Floor** for runtime/backend changes                                        |
 | E2E           | `go test -tags e2e ./e2e/...`                                  | When the change crosses the api → orchestrator → providers/sandbox/mcp chain |
+
+Use `just format` when you want the repo-managed local auto-format pass: Go
+source via `gofmt -s`, UI and website via Oxfmt, and Markdown / `.mdc` docs via
+Oxfmt. Review the resulting diff like any other code change.
 
 Run `go vet` for Go changes before claiming done. Targeted vet is fine while
 iterating, for example `go vet ./internal/api ./internal/gateway`; use
@@ -44,11 +49,13 @@ E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and 
 | Type check        | `cd ui && bun run typecheck`    | First sanity check after any `.ts`/`.tsx` edit (`tsgo -b`, fast)      |
 | Lint              | `cd ui && bun run lint`         | Before claiming done; also covered by `just ui-lint` and CI           |
 | Format check      | `cd ui && bun run format:check` | Before claiming done; also covered by `just ui-format-check` and CI   |
+| Repo format check | `just format-check`             | Mixed Go / UI / website / docs changes; mirrors CI format gates       |
 | Docs format check | `just docs-format-check`        | Markdown / `.mdc` changes; also covered by `just verify` and Links CI |
 | Tests             | `cd ui && bun run test`         | Before claiming done — vitest                                         |
 | Watch mode        | `cd ui && bun run test:watch`   | During iteration                                                      |
 | Snapshot update   | `cd ui && bun run test -- -u`   | When a UI shape change is intentional                                 |
 | Format            | `cd ui && bun run format`       | Intentional formatting-only cleanup; review the diff                  |
+| Repo format       | `just format`                   | Local auto-format for Go, UI, website, and docs                       |
 
 **Never `bun test`** — it skips the testing-library DOM setup and panics on `document[isPrepared]`. Always `bun run test`.
 
