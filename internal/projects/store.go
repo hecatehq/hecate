@@ -109,6 +109,7 @@ func (s *MemoryStore) Update(_ context.Context, id string, update func(*Project)
 	project = cloneProject(project)
 	originalID := project.ID
 	originalCreatedAt := project.CreatedAt
+	originalRoots := projectRootsByID(project.Roots)
 	if update != nil {
 		update(&project)
 	}
@@ -117,8 +118,10 @@ func (s *MemoryStore) Update(_ context.Context, id string, update func(*Project)
 	}
 	project.ID = originalID
 	project.CreatedAt = originalCreatedAt
-	project.UpdatedAt = time.Now().UTC()
-	project = normalizeProject(project, project.UpdatedAt)
+	now := time.Now().UTC()
+	project.UpdatedAt = now
+	project.Roots = preserveExistingRootTimestamps(project.Roots, originalRoots, now)
+	project = normalizeProject(project, now)
 	if err := validateProject(project); err != nil {
 		return Project{}, err
 	}
@@ -189,6 +192,61 @@ func normalizeRoot(root Root, now time.Time) Root {
 		root.UpdatedAt = root.CreatedAt
 	}
 	return root
+}
+
+func projectRootsByID(roots []Root) map[string]Root {
+	if len(roots) == 0 {
+		return nil
+	}
+	index := make(map[string]Root, len(roots))
+	for _, root := range roots {
+		id := strings.TrimSpace(root.ID)
+		if id != "" {
+			index[id] = root
+		}
+	}
+	return index
+}
+
+func preserveExistingRootTimestamps(roots []Root, existing map[string]Root, now time.Time) []Root {
+	if len(existing) == 0 {
+		return roots
+	}
+	for idx := range roots {
+		root := &roots[idx]
+		previous, ok := existing[strings.TrimSpace(root.ID)]
+		if !ok {
+			continue
+		}
+		if root.CreatedAt.IsZero() {
+			root.CreatedAt = previous.CreatedAt
+		}
+		if root.UpdatedAt.IsZero() {
+			if rootMetadataEqual(*root, previous) {
+				root.UpdatedAt = previous.UpdatedAt
+			} else {
+				root.UpdatedAt = now
+			}
+		}
+	}
+	return roots
+}
+
+func rootMetadataEqual(next, previous Root) bool {
+	return strings.TrimSpace(next.ID) == strings.TrimSpace(previous.ID) &&
+		strings.TrimSpace(next.Path) == strings.TrimSpace(previous.Path) &&
+		normalizeRootKind(next.Kind) == normalizeRootKind(previous.Kind) &&
+		strings.TrimSpace(next.GitRemote) == strings.TrimSpace(previous.GitRemote) &&
+		strings.TrimSpace(next.GitBranch) == strings.TrimSpace(previous.GitBranch) &&
+		next.Active == previous.Active
+}
+
+func normalizeRootKind(kind string) string {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return "local"
+	}
+	return kind
 }
 
 func validateProject(project Project) error {
