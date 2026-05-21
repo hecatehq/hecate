@@ -37,6 +37,22 @@ func TestSQLiteRunQueue_RejectsNilClient(t *testing.T) {
 	}
 }
 
+func TestSQLiteRunQueue_TimestampFormatSortsWithinSameSecond(t *testing.T) {
+	t.Parallel()
+
+	early := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	later := early.Add(time.Nanosecond)
+
+	earlyText := formatSQLiteRunQueueTime(early)
+	laterText := formatSQLiteRunQueueTime(later)
+	if earlyText >= laterText {
+		t.Fatalf("fixed-width sqlite timestamp should sort chronologically: %q >= %q", earlyText, laterText)
+	}
+	if earlyText == early.Format(time.RFC3339Nano) {
+		t.Fatalf("timestamp format must keep fractional seconds at exact second boundary: %q", earlyText)
+	}
+}
+
 func TestSQLiteRunQueue_EnqueueClaimRoundTrip(t *testing.T) {
 	t.Parallel()
 	q := newSQLiteTestQueue(t, 5*time.Second)

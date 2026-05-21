@@ -35,6 +35,12 @@ type SQLiteRunQueue struct {
 	pollInterval time.Duration
 }
 
+const sqliteRunQueueTimeFormat = "2006-01-02T15:04:05.000000000Z07:00"
+
+func formatSQLiteRunQueueTime(t time.Time) string {
+	return t.UTC().Format(sqliteRunQueueTimeFormat)
+}
+
 func NewSQLiteRunQueue(ctx context.Context, client *storage.SQLiteClient, leaseFor time.Duration) (*SQLiteRunQueue, error) {
 	if client == nil || client.DB() == nil {
 		return nil, fmt.Errorf("sqlite client is required")
@@ -57,7 +63,7 @@ func NewSQLiteRunQueue(ctx context.Context, client *storage.SQLiteClient, leaseF
 func (q *SQLiteRunQueue) Backend() string { return "sqlite" }
 
 func (q *SQLiteRunQueue) Enqueue(ctx context.Context, job QueueJob) error {
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := formatSQLiteRunQueueTime(time.Now())
 	_, err := q.db.ExecContext(ctx, fmt.Sprintf(`
 		INSERT INTO %s (task_id, run_id, status, available_at, lease_owner, lease_until, attempts, last_error, updated_at)
 		VALUES (?, ?, 'pending', ?, '', NULL, 0, '', ?)
@@ -120,9 +126,9 @@ func (q *SQLiteRunQueue) claimOnce(ctx context.Context, workerID string) (QueueC
 	}()
 
 	now := time.Now().UTC()
-	nowStr := now.Format(time.RFC3339Nano)
+	nowStr := formatSQLiteRunQueueTime(now)
 	leaseUntil := now.Add(q.leaseFor)
-	leaseStr := leaseUntil.Format(time.RFC3339Nano)
+	leaseStr := formatSQLiteRunQueueTime(leaseUntil)
 
 	// One-shot UPDATE ... WHERE id = (SELECT ... LIMIT 1) RETURNING.
 	// The subquery picks the next claimable row (pending+available, OR
@@ -179,8 +185,8 @@ func (q *SQLiteRunQueue) Nack(ctx context.Context, claimID, reason string) error
 	now := time.Now().UTC()
 	// Back off briefly so a flapping job doesn't immediately re-claim
 	// itself in a tight loop.
-	availableAt := now.Add(200 * time.Millisecond).Format(time.RFC3339Nano)
-	nowStr := now.Format(time.RFC3339Nano)
+	availableAt := formatSQLiteRunQueueTime(now.Add(200 * time.Millisecond))
+	nowStr := formatSQLiteRunQueueTime(now)
 	_, err := q.db.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE %s
 		SET status = 'pending',
@@ -199,8 +205,8 @@ func (q *SQLiteRunQueue) ExtendLease(ctx context.Context, claimID string, leaseF
 		leaseFor = q.leaseFor
 	}
 	now := time.Now().UTC()
-	leaseUntil := now.Add(leaseFor).Format(time.RFC3339Nano)
-	nowStr := now.Format(time.RFC3339Nano)
+	leaseUntil := formatSQLiteRunQueueTime(now.Add(leaseFor))
+	nowStr := formatSQLiteRunQueueTime(now)
 	_, err := q.db.ExecContext(ctx, fmt.Sprintf(`
 		UPDATE %s
 		SET lease_until = ?,
