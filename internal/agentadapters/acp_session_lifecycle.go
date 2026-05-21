@@ -94,7 +94,12 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	}
 	conn := acp.NewClientSideConnection(client, stdin, stdout)
 	if logger != nil {
-		conn.SetLogger(logger.With("component", "agent_adapters.acp", "adapter_id", adapter.ID))
+		conn.SetLogger(logger.With(
+			slog.String("component", "agent_adapters.acp"),
+			slog.String("adapter_id", adapter.ID),
+			slog.String("session_id", sessionID),
+			slog.String("workspace", workspace),
+		))
 	}
 	initCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
