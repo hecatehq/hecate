@@ -3902,6 +3902,25 @@ describe("ChatView error display", () => {
     screen.getByRole("button", { name: "Open trace" }).click();
     expect(openTrace).toHaveBeenCalledWith("req_1234567890abcdef");
   });
+
+  it("renders workspace-required as guidance instead of a red error", () => {
+    const { state, actions } = setup({
+      chatError: "Choose a workspace before using Hecate Chat tools or External Agent.",
+      chatErrorAction: "Choose a workspace, or turn tools off for direct model chat.",
+      chatErrorCode: "chat.workspace_required",
+      chatErrorStatus: 400,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const panel = screen.getByText("Choose a workspace").closest('[role="status"]');
+    expect(panel).toBeTruthy();
+    expect(panel).toHaveTextContent(
+      "Choose a workspace before using Hecate Chat tools or External Agent.",
+    );
+    expect(panel).toHaveTextContent("Choose a workspace, or turn tools off for direct model chat.");
+    expect(panel).not.toHaveTextContent("400");
+    expect(panel).not.toHaveTextContent("chat.workspace_required");
+  });
 });
 
 describe("ChatView session title", () => {

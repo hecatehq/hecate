@@ -43,7 +43,7 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
     tone: "warning",
   },
   "chat.workspace_required": {
-    title: "Workspace required",
+    title: "Choose a workspace",
     action: "Choose a workspace before using Hecate Chat tools or an external agent.",
     tone: "warning",
   },

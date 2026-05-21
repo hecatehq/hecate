@@ -697,28 +697,30 @@ export function ChatErrorPanel({
   if (!diagnostic) {
     return <InlineError message={`${provider ? `[${provider}] ` : ""}${message}`} />;
   }
+  const tone = diagnostic.tone === "warning" ? "warning" : "danger";
+  const vars = chatErrorPanelToneVars(tone);
+  const showTechnicalLabel = code !== "chat.workspace_required";
 
   return (
     <div
-      role="alert"
+      role={tone === "warning" ? "status" : "alert"}
+      aria-live={tone === "warning" ? "polite" : undefined}
       style={{
-        border: "1px solid var(--red-border)",
-        background: "var(--red-bg)",
+        border: `1px solid ${vars.border}`,
+        background: vars.bg,
         borderRadius: "var(--radius)",
         padding: "9px 11px",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--red)" }}>
-          {diagnostic.title}
-        </span>
-        {label && (
+        <span style={{ fontSize: 12, fontWeight: 600, color: vars.fg }}>{diagnostic.title}</span>
+        {label && showTechnicalLabel && (
           <span
             style={{
               marginLeft: "auto",
               fontFamily: "var(--font-mono)",
               fontSize: 10,
-              color: "var(--red)",
+              color: vars.fg,
             }}
           >
             {label}
@@ -751,9 +753,9 @@ export function ChatErrorPanel({
               type="button"
               onClick={() => onOpenTrace(requestID)}
               style={{
-                border: "1px solid var(--red-border)",
+                border: `1px solid ${vars.border}`,
                 background: "transparent",
-                color: "var(--red)",
+                color: vars.fg,
                 borderRadius: 999,
                 padding: "2px 8px",
                 fontSize: 10,
@@ -768,6 +770,21 @@ export function ChatErrorPanel({
       )}
     </div>
   );
+}
+
+function chatErrorPanelToneVars(tone: "danger" | "warning") {
+  if (tone === "warning") {
+    return {
+      bg: "rgba(245, 191, 79, 0.055)",
+      fg: "var(--amber)",
+      border: "rgba(245, 191, 79, 0.28)",
+    };
+  }
+  return {
+    bg: "var(--red-bg)",
+    fg: "var(--red)",
+    border: "var(--red-border)",
+  };
 }
 
 export function ChatSetupRepairNotice({
