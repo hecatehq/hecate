@@ -28,10 +28,12 @@ export function UpdateBanner() {
               {" "}
               <span className="page-banner__progress-text">
                 {installPhase === "restarting"
-                  ? "Installing and restarting…"
-                  : progress !== null
-                    ? `Downloading… ${Math.round(progress * 100)}%`
-                    : "Downloading…"}
+                  ? "Restarting…"
+                  : installPhase === "finishing"
+                    ? "Finishing install…"
+                    : progress !== null
+                      ? `Downloading… ${Math.round(progress * 100)}%`
+                      : "Downloading…"}
               </span>
             </>
           )}
@@ -55,7 +57,9 @@ export function UpdateBanner() {
             {installing
               ? installPhase === "restarting"
                 ? "Restarting…"
-                : "Installing…"
+                : installPhase === "finishing"
+                  ? "Finishing…"
+                  : "Installing…"
               : "Install and Restart"}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={dismiss} disabled={installing}>
