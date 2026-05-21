@@ -33,7 +33,7 @@ is manual-only for explicit desktop rebuild/debug runs from the Actions tab. To
 test-launch a bundle before merge, dispatch `tauri-build.yml` manually from the
 PR branch.
 
-## Current state — `v0.1.0-alpha.34`
+## Current state — `v0.1.0-alpha.35`
 
 What works:
 
