@@ -4,6 +4,7 @@
 // Usage:
 //   bun scripts/release.ts <version>                 # e.g. v0.1.0-alpha.9
 //   bun scripts/release.ts v0.2.0 --skip-snapshot    # skip goreleaser dry-run
+//   bun scripts/release.ts v0.2.0 --preflight-only   # validate local release deps
 //
 // The script runs pre-flight checks, fires a goreleaser snapshot dry-run so
 // you can inspect the changelog before anything is published, stamps the Tauri
@@ -46,6 +47,15 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
+function commandErrorOutput(error: unknown): string {
+  const maybeError = error as { stderr?: { toString(): string }; stdout?: { toString(): string }; message?: string };
+  const stderr = maybeError.stderr?.toString().trim();
+  if (stderr) return stderr;
+  const stdout = maybeError.stdout?.toString().trim();
+  if (stdout) return stdout;
+  return maybeError.message ?? String(error);
+}
+
 function sep(label: string) {
   console.log(`\n── ${label} ${"─".repeat(Math.max(0, 72 - label.length - 4))}`);
 }
@@ -55,11 +65,18 @@ function sep(label: string) {
 const args = process.argv.slice(2);
 const version = args.find(a => !a.startsWith("--")) ?? "";
 const skipSnapshot = args.includes("--skip-snapshot");
+const preflightOnly = args.includes("--preflight-only");
 
 if (!version) {
-  console.error("usage: bun scripts/release.ts <version> [--skip-snapshot]");
+  console.error("usage: bun scripts/release.ts <version> [--skip-snapshot] [--preflight-only]");
   console.error("       version: vX.Y.Z  or  vX.Y.Z-pre.N  (e.g. v0.1.0-alpha.9)");
   process.exit(1);
+}
+
+const allowedFlags = new Set(["--skip-snapshot", "--preflight-only"]);
+const unknownFlags = args.filter(a => a.startsWith("--") && !allowedFlags.has(a));
+if (unknownFlags.length > 0) {
+  fail(`unknown option${unknownFlags.length === 1 ? "" : "s"}: ${unknownFlags.join(", ")}`);
 }
 
 // ── Validate version format ───────────────────────────────────────────────────
@@ -127,6 +144,33 @@ try {
   console.log(`  bun       : ${run("bun --version", { silent: true })}`);
 } catch {
   fail("bun not found — required for Tauri version stamping.");
+}
+
+// 6. Docker must be reachable when the local snapshot will build images.
+// `just release` runs this preflight before `just verify`, so a stopped
+// Docker Desktop fails in seconds instead of after the full release gate.
+if (!skipSnapshot) {
+  try {
+    const dockerVersion = execFileSync("docker", ["info", "--format", "{{.ServerVersion}}"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    console.log(`  docker    : ${dockerVersion}`);
+  } catch (error) {
+    fail(
+      "Docker is required for the Goreleaser snapshot dry-run, but the Docker daemon is not reachable.\n" +
+      "  Start Docker Desktop and retry, or pass --skip-snapshot only after just verify has already passed.\n" +
+      `  Docker said: ${commandErrorOutput(error)}`,
+    );
+  }
+} else {
+  console.log("  docker    : skipped (--skip-snapshot)");
+}
+
+if (preflightOnly) {
+  console.log("\nRelease preflight passed.");
+  process.exit(0);
 }
 
 // ── Goreleaser snapshot dry-run ───────────────────────────────────────────────

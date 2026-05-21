@@ -277,10 +277,19 @@ check-links:
 # Run the full project verification gate.
 verify: docs-env-check format-check test vet test-race test-acp-smoke test-docker-smoke ui-lint website-lint ui-test ui-test-e2e build
 
-# Run verification, then cut a release tag. Optional args pass through to
-# scripts/release.ts, for example: just release vX.Y.Z --skip-snapshot.
+# Validate release-only dependencies without running the full verification
+# gate. Optional args pass through to scripts/release.ts.
+# Check release-only dependencies.
+release-preflight version *args:
+	bun scripts/release.ts {{version}} {{args}} --preflight-only
+
+# Check release-only dependencies, run verification, then cut a release tag.
+# Optional args pass through to scripts/release.ts, for example:
+# just release vX.Y.Z --skip-snapshot.
 # Verify and cut a release tag.
-release version *args: verify
+release version *args:
+	bun scripts/release.ts {{version}} {{args}} --preflight-only
+	just verify
 	bun scripts/release.ts {{version}} {{args}}
 
 # Wipe local dev state back to first-run: stop the gateway on :8765 and delete
