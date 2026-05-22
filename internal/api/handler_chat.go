@@ -98,14 +98,13 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	case agentID == chat.DefaultAgentID:
 		provider := strings.TrimSpace(req.Provider)
 		model := strings.TrimSpace(req.Model)
-		if model == "" {
-			writeAgentChatModelRequired(w, chat.ExecutionModeDirectModel)
-			return
-		}
-		caps, err := h.resolveModelCapabilities(r.Context(), provider, model)
-		if err != nil {
-			writeAgentChatModelResolutionError(w, err)
-			return
+		var caps types.ModelCapabilities
+		if model != "" {
+			caps, err = h.resolveModelCapabilities(r.Context(), provider, model)
+			if err != nil {
+				writeAgentChatModelResolutionError(w, err)
+				return
+			}
 		}
 		if session.Title == "" {
 			session.Title = "Hecate Chat"

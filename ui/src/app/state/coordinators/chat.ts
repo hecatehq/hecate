@@ -707,26 +707,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       model,
     });
     const workspace = agentWorkspace.trim();
-    if (executionMode === "hecate_task" && !workspace) {
-      setChatErrorState(
-        chatGuardError(
-          "Choose a workspace before starting a Hecate chat with tools.",
-          "chat.workspace_required",
-          "Choose a workspace, or turn tools off for direct model chat.",
-        ),
-      );
-      return;
-    }
-    if (!model) {
-      setChatErrorState(
-        chatGuardError(
-          "Choose a model before starting this chat.",
-          "chat.model_required",
-          "Open Connections or choose a model from the composer.",
-        ),
-      );
-      return;
-    }
     setChatLoading(true);
     clearChatErrorState();
     try {
