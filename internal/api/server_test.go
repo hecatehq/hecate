@@ -1453,6 +1453,99 @@ func TestAgentChatLoadsExternalNativeSessionOnRead(t *testing.T) {
 	}
 }
 
+func TestAgentChatStreamLoadsExternalNativeSessionOnSubscribe(t *testing.T) {
+	dir := t.TempDir()
+	store := chat.NewMemoryStore()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	oldBool := false
+	newBool := true
+
+	created, err := store.Create(context.Background(), chat.Session{
+		ID:              "chat_external_stream_load",
+		Title:           "Codex",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_existing",
+		Workspace:       dir,
+		ConfigOptions: []agentcontrols.ConfigOption{
+			{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &oldBool},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	runner := &fakeAgentChatRunner{
+		nativeSessionID: "native_existing",
+		sessionResumed:  true,
+		configOptions: []agentcontrols.ConfigOption{
+			{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &newBool},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(runner)
+	server := httptest.NewServer(NewServer(logger, apiHandler))
+	t.Cleanup(server.Close)
+
+	streamCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	streamReq, err := http.NewRequestWithContext(streamCtx, http.MethodGet, server.URL+"/hecate/v1/chat/sessions/"+created.ID+"/stream", nil)
+	if err != nil {
+		t.Fatalf("new stream request: %v", err)
+	}
+	streamResp, err := http.DefaultClient.Do(streamReq)
+	if err != nil {
+		t.Fatalf("stream request: %v", err)
+	}
+	defer streamResp.Body.Close()
+	if streamResp.StatusCode != http.StatusOK {
+		t.Fatalf("stream status = %d, want 200", streamResp.StatusCode)
+	}
+
+	events := readSSEEvents(t, streamResp.Body)
+	var snapshot ChatSessionResponse
+	timeout := time.After(3 * time.Second)
+	gotSnapshot := false
+	for !gotSnapshot {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				t.Fatal("stream closed before initial snapshot")
+			}
+			if event.Event != "snapshot" {
+				continue
+			}
+			if err := json.Unmarshal([]byte(event.Data), &snapshot); err != nil {
+				t.Fatalf("decode stream snapshot: %v", err)
+			}
+			cancel()
+			gotSnapshot = true
+		case <-timeout:
+			t.Fatal("timed out waiting for stream snapshot")
+		}
+	}
+
+	if len(runner.prepareRequests) != 1 {
+		t.Fatalf("prepare requests = %d, want 1", len(runner.prepareRequests))
+	}
+	if req := runner.prepareRequests[0]; req.PreviousNativeSessionID != "native_existing" || req.AdapterID != "codex" {
+		t.Fatalf("prepare request = %+v, want existing native codex session", req)
+	}
+	if snapshot.Data.NativeSessionID != "native_existing" || snapshot.Data.DriverKind != agentadapters.DriverKindACP {
+		t.Fatalf("stream snapshot metadata = kind %q native %q", snapshot.Data.DriverKind, snapshot.Data.NativeSessionID)
+	}
+	if len(snapshot.Data.ConfigOptions) != 1 || snapshot.Data.ConfigOptions[0].CurrentBool == nil || !*snapshot.Data.ConfigOptions[0].CurrentBool {
+		t.Fatalf("stream snapshot config options = %#v, want refreshed ACP controls", snapshot.Data.ConfigOptions)
+	}
+	persisted, ok, err := store.Get(context.Background(), created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get persisted: ok=%v err=%v", ok, err)
+	}
+	if len(persisted.ConfigOptions) != 1 || persisted.ConfigOptions[0].CurrentBool == nil || !*persisted.ConfigOptions[0].CurrentBool {
+		t.Fatalf("persisted config options = %#v, want refreshed ACP controls", persisted.ConfigOptions)
+	}
+}
+
 func TestAgentChatLoadKeepsStoredExternalSessionWhenACPUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	store := chat.NewMemoryStore()
