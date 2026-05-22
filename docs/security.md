@@ -122,15 +122,12 @@ and `HECATE_CONTROL_PLANE_SECRET_KEY` as operator-controlled escape hatches.
 Tests should cover missing keychain items, locked or unavailable keychains,
 idempotent migration, fallback behavior, and recovery messaging.
 
-## Native app and sidecars
+## Native app and sidecar
 
-The desktop app is a Tauri shell that bundles two Hecate executables: the main
-`hecate` runtime, which it launches in gateway mode as its primary sidecar, and
-`hecate-acp` for editor Agent Client Protocol (ACP) integrations.
+The desktop app is a Tauri shell that bundles the main `hecate` runtime, which
+it launches in gateway mode as its sidecar.
 
 - The app launches `hecate` as a sidecar on a free loopback port.
-- The app bundle also ships `hecate-acp` so editors that drive Hecate
-  through ACP can spawn it directly.
 - Windows bundles are not yet code-signed, so SmartScreen warnings are expected on first launch. macOS bundles cut by `release.yml` with the `APPLE_*` secrets configured are signed + notarized (Developer ID Application) and don't trip Gatekeeper.
 - Quitting the app should stop the sidecar; closing a window may not quit the app on every platform.
 

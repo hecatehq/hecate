@@ -24,10 +24,6 @@ _website-deps:
 build: ui-build _go-cache
 	GOCACHE="$PWD/{{gocache}}" go build -o hecate ./cmd/hecate
 
-# Build the ACP stdio bridge binary.
-build-acp: _go-cache
-	GOCACHE="$PWD/{{gocache}}" go build -o hecate-acp ./cmd/hecate-acp
-
 # Run all Go unit tests.
 test: _go-cache
 	GOCACHE="$PWD/{{gocache}}" go test ./...
@@ -234,10 +230,6 @@ website-build: _website-deps
 website-preview: _website-deps
 	cd website && bun --bun run preview
 
-# Smoke-test the ACP bridge.
-test-acp-smoke: _go-cache
-	GOCACHE="$PWD/{{gocache}}" bun e2e/acp-smoke.ts
-
 # Spin up `docker compose` with the production image and verify /healthz,
 # /v1/models auth, and the bootstrap volume round trip. Runs against a
 # separate compose project name so it cannot collide with a developer's
@@ -275,7 +267,7 @@ check-links:
 # Project verification gate. It intentionally runs only non-destructive
 # checks, but it is not cheap: Docker and UI e2e can take a bit.
 # Run the full project verification gate.
-verify: docs-env-check format-check test vet test-race test-acp-smoke test-docker-smoke ui-lint website-lint ui-test ui-test-e2e build
+verify: docs-env-check format-check test vet test-race test-docker-smoke ui-lint website-lint ui-test ui-test-e2e build
 
 # Validate release-only dependencies without running the full verification
 # gate. Optional args pass through to scripts/release.ts.
@@ -346,9 +338,9 @@ reset-docker:
 # Tauri native desktop app
 # ---------------------------------------------------------------------------
 #
-# The Tauri app bundles hecate and hecate-acp as sidecar binaries. The flow:
-#   1. Build the Go binaries for the current platform (`just build build-acp`).
-#   2. Copy them into tauri/src-tauri/binaries/ with the platform-triple suffix
+# The Tauri app bundles hecate as its sidecar binary. The flow:
+#   1. Build the Go binary for the current platform (`just build`).
+#   2. Copy it into tauri/src-tauri/binaries/ with the platform-triple suffix
 #      Tauri expects, for example hecate-aarch64-apple-darwin.
 #   3. Install Tauri JS dependencies (`bun install` inside tauri/).
 #   4. `tauri dev` / `tauri build` handles the Rust compile + bundle.
@@ -372,10 +364,10 @@ tauri-install:
 tauri-version: tauri-install
 	bun scripts/stamp-version.ts
 
-# Build hecate + hecate-acp with the same version Tauri will package. This
+# Build hecate with the same version Tauri will package. This
 # keeps the native app's embedded gateway from reporting "dev" in /healthz and
 # the shell status bar after a release build.
-# Build versioned gateway and ACP sidecars for Tauri.
+# Build versioned gateway sidecar for Tauri.
 tauri-build-sidecars: ui-build _go-cache
 	version=$(bun scripts/resolve-tauri-version.ts); \
 	goexe=$(go env GOEXE); \
@@ -384,12 +376,11 @@ tauri-build-sidecars: ui-build _go-cache
 	fi; \
 	ldflags="-X github.com/hecate/agent-runtime/internal/version.Version=$version"; \
 	echo "building Tauri sidecars at version $version"; \
-	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o "hecate$goexe" ./cmd/hecate; \
-	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o "hecate-acp$goexe" ./cmd/hecate-acp
+	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o "hecate$goexe" ./cmd/hecate
 
-# Build hecate + hecate-acp and stage them as Tauri sidecars. Pass an explicit
+# Build hecate and stage it as a Tauri sidecar. Pass an explicit
 # target triple in CI matrix builds; local builds auto-detect the host triple.
-# Stage gateway and ACP sidecars for Tauri.
+# Stage gateway sidecar for Tauri.
 tauri-sidecar target="": tauri-build-sidecars
 	rust_target="{{target}}"; \
 	if [ -z "$rust_target" ]; then \
@@ -399,12 +390,10 @@ tauri-sidecar target="": tauri-build-sidecars
 	  echo "rustc not found — cannot determine host triple" && exit 1; \
 	fi; \
 	goexe=$(go env GOEXE); \
-	for name in hecate hecate-acp; do \
-	  src="$name$goexe"; \
-	  dest="tauri/src-tauri/binaries/$name-$rust_target$goexe"; \
-	  echo "staging sidecar: $dest"; \
-	  cp "$src" "$dest"; \
-	done
+	src="hecate$goexe"; \
+	dest="tauri/src-tauri/binaries/hecate-$rust_target$goexe"; \
+	echo "staging sidecar: $dest"; \
+	cp "$src" "$dest"
 
 # Hot-reload development mode. Launches the Tauri window backed by a fresh
 # hecate sidecar build. The hecate binary is rebuilt first so the sidecar is up
@@ -444,10 +433,3 @@ tauri-build-app: tauri-sidecar tauri-version
 # Smoke-test the packaged native app.
 test-tauri-smoke: tauri-build-app
 	bun scripts/tauri-smoke.ts
-
-# Extend the native app smoke by launching the bundled hecate-acp sidecar
-# without HECATE_GATEWAY_URL and verifying it discovers the native app's
-# dynamic gateway URL through hecate.runtime.json.
-# Smoke-test native app ACP discovery.
-test-tauri-acp-smoke: tauri-build-app
-	bun scripts/tauri-smoke.ts --acp

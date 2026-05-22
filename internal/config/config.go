@@ -346,9 +346,8 @@ func LoadFromEnv() Config {
 	return Config{
 		Server: ServerConfig{
 			Address: getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
-			// PublicURL is written to hecate.runtime.json so local helper
-			// processes such as hecate-acp can discover the externally
-			// reachable gateway URL. Empty means derive from Address.
+			// PublicURL is written to hecate.runtime.json for local
+			// diagnostics. Empty means derive from Address.
 			PublicURL: getEnv("HECATE_PUBLIC_URL", ""),
 			// Default `.data/` keeps the auto-generated bootstrap file
 			// (AES-GCM key for persisted provider secrets) out of the repo root so a stray

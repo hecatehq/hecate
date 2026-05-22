@@ -223,17 +223,14 @@ when the built-in adapter list changes.
 
 ## Relationship To ACP
 
-ACP is useful in two directions:
+Hecate uses ACP as an outbound adapter protocol:
 
 ```text
-Zed / JetBrains -> ACP -> Hecate
 Hecate -> ACP -> Codex / Claude / Cursor Agent
 ```
 
-The inbound bridge (`cmd/hecate-acp`) lets editor agent panels talk to Hecate.
-The outbound adapter layer lets Hecate talk to ACP-capable external coding
-agents. They share protocol vocabulary but stay separate processes and code
-paths.
+The adapter layer lets Hecate talk to ACP-capable external coding agents while
+keeping provider routing and Hecate-owned task runs separate.
 
 ## Observability
 
