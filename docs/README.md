@@ -35,7 +35,7 @@ Pick the path closest to what you are doing.
 | [Agent runtime](agent-runtime.md)                     | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-turn.              |
 | [Events](events.md)                                   | Implemented event names, payloads, stdout/stderr stream chunks, and when each is emitted. Use this for today's `/hecate/v1/events` consumers.    |
 | [Chat sessions](chat-sessions.md)                     | Conversation persistence model behind the Chats UI, Hecate Chat segments, provider/model switching, queued prompts, and external-agent sessions. |
-| [External agent adapters](external-agent-adapters.md) | Use Codex, Claude Code, Cursor Agent, and Grok Build from Chats; install checks, credential boundaries, persistence, and troubleshooting.                    |
+| [External agent adapters](external-agent-adapters.md) | Use Codex, Claude Code, Cursor Agent, and Grok Build from Chats; install checks, credential boundaries, persistence, and troubleshooting.        |
 | [MCP integration](mcp.md)                             | Hecate as an MCP server and external MCP servers as task tools.                                                                                  |
 | [Sandbox](sandbox.md)                                 | Per-call subprocess execution, policy validation, env sanitisation, output cap, timeout, and OS wrappers.                                        |
 

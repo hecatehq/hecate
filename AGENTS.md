@@ -152,17 +152,17 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 ## Canonical docs
 
-| Doc                                                                  | Covers                                                                            |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`docs/architecture.md`](docs/architecture.md)                       | Request flow, lease semantics, storage tier matrix                                |
-| [`docs/agent-runtime.md`](docs/agent-runtime.md)                     | `agent_loop` tools, system prompt layers, cost model, retry-from-turn             |
-| [`docs/runtime-api.md`](docs/runtime-api.md)                         | Task / run / step / approval endpoints, queue + lease                             |
-| [`docs/events.md`](docs/events.md)                                   | Every event type at `/hecate/v1/events` with payload shapes                       |
-| [`docs/telemetry.md`](docs/telemetry.md)                             | OTel spans + metrics, OTLP wiring, status & gaps                                  |
-| [`docs/security.md`](docs/security.md)                               | Local-first threat model, workspace safety, approvals, secrets, advisories        |
-| [`docs/providers.md`](docs/providers.md)                             | Provider catalog, configuration                                                   |
-| [`docs/mcp.md`](docs/mcp.md)                                         | MCP server: tools, transport, configure                                           |
+| Doc                                                                  | Covers                                                                                        |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [`docs/architecture.md`](docs/architecture.md)                       | Request flow, lease semantics, storage tier matrix                                            |
+| [`docs/agent-runtime.md`](docs/agent-runtime.md)                     | `agent_loop` tools, system prompt layers, cost model, retry-from-turn                         |
+| [`docs/runtime-api.md`](docs/runtime-api.md)                         | Task / run / step / approval endpoints, queue + lease                                         |
+| [`docs/events.md`](docs/events.md)                                   | Every event type at `/hecate/v1/events` with payload shapes                                   |
+| [`docs/telemetry.md`](docs/telemetry.md)                             | OTel spans + metrics, OTLP wiring, status & gaps                                              |
+| [`docs/security.md`](docs/security.md)                               | Local-first threat model, workspace safety, approvals, secrets, advisories                    |
+| [`docs/providers.md`](docs/providers.md)                             | Provider catalog, configuration                                                               |
+| [`docs/mcp.md`](docs/mcp.md)                                         | MCP server: tools, transport, configure                                                       |
 | [`docs/external-agent-adapters.md`](docs/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, Cursor Agent, and Grok Build |
-| [`docs/deployment.md`](docs/deployment.md)                           | Compose profiles, image pinning, lost-token recovery                              |
-| [`docs/development.md`](docs/development.md)                         | Local build, testing, screenshot tooling, `[skip ci]` convention                  |
-| [`docs/desktop-app.md`](docs/desktop-app.md)                         | Native Tauri 2.x app: distribution, current state, roadmap, footguns              |
+| [`docs/deployment.md`](docs/deployment.md)                           | Compose profiles, image pinning, lost-token recovery                                          |
+| [`docs/development.md`](docs/development.md)                         | Local build, testing, screenshot tooling, `[skip ci]` convention                              |
+| [`docs/desktop-app.md`](docs/desktop-app.md)                         | Native Tauri 2.x app: distribution, current state, roadmap, footguns                          |

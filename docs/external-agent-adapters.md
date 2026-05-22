@@ -21,7 +21,7 @@ it, Hecate starts a fresh native session and keeps the Hecate transcript.
 | Codex        | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex auth visible to the adapter                   |
 | Claude Code  | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code / Anthropic auth visible to Claude Code |
 | Cursor Agent | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent`         |
-| Grok Build   | `grok agent ... stdio`; selected launch controls add `--model <id>` and optional `--reasoning-effort <effort>`                                  | Operator-owned Grok auth or `XAI_API_KEY` visible to `grok`        |
+| Grok Build   | `grok agent ... stdio`; selected launch controls add `--model <id>` and optional `--reasoning-effort <effort>`            | Operator-owned Grok auth or `XAI_API_KEY` visible to `grok`        |
 
 ## Credential and account boundaries
 

@@ -540,16 +540,16 @@ func TestGatewayFakeUpstreamNonStreamingCodex(t *testing.T) {
 	}
 }
 
-func TestGatewayFakeUpstreamProviderDefaultModelIsRoutable(t *testing.T) {
+func TestGatewayFakeUpstreamKnownModelIsRoutable(t *testing.T) {
 	t.Parallel()
 
-	fakeResp := `{"id":"chatcmpl-provider-default","object":"chat.completion","created":1700000000,"model":"fake-e2e-model","choices":[{"index":0,"message":{"role":"assistant","content":"provider default ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`
-	upstream := fakeOpenAIServer(t, "/v1/chat/completions", fakeResp, false)
+	fakeResp := `{"id":"chatcmpl-known-model","object":"chat.completion","created":1700000000,"model":"fake-e2e-model","choices":[{"index":0,"message":{"role":"assistant","content":"known model ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`
+	upstream := fakeOpenAIServerNoModels(t, "/v1/chat/completions", fakeResp, false)
 
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=fake-e2e-model",
+		"PROVIDER_FAKE_MODELS=fake-e2e-model",
 		"PROVIDER_FAKE_KIND=local",
 	)
 
@@ -558,7 +558,12 @@ func TestGatewayFakeUpstreamProviderDefaultModelIsRoutable(t *testing.T) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected provider default model to route, got %d — body: %s", resp.StatusCode, readBody(t, resp))
+		modelsResp, err := http.Get(base + "/v1/models") //nolint:noctx
+		if err != nil {
+			t.Fatalf("expected known model to route, got %d — body: %s; GET /v1/models: %v", resp.StatusCode, readBody(t, resp), err)
+		}
+		defer modelsResp.Body.Close()
+		t.Fatalf("expected known model to route, got %d — body: %s; models: %s", resp.StatusCode, readBody(t, resp), readBody(t, modelsResp))
 	}
 }
 
@@ -768,6 +773,7 @@ func TestGatewayMultimodalAnthropicImageURLTranslation(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
+		"PROVIDER_ANTHROPIC_MODELS=claude-sonnet-4-6",
 	)
 
 	// Caller posts the OpenAI shape — this is the cross-provider
@@ -827,6 +833,7 @@ func TestGatewayMultimodalAnthropicDataURITranslation(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
+		"PROVIDER_ANTHROPIC_MODELS=claude-sonnet-4-6",
 	)
 
 	// `data:image/jpeg;base64,...` — the shape an OpenAI client
@@ -1362,8 +1369,20 @@ func fakeUpstreamCapturing(t *testing.T, path, response string) (string, *captur
 
 func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 	t.Helper()
+	return fakeOpenAIServerWithModels(t, path, body, streaming, true)
+}
+
+func fakeOpenAIServerNoModels(t *testing.T, path, body string, streaming bool) string {
+	t.Helper()
+	return fakeOpenAIServerWithModels(t, path, body, streaming, false)
+}
+
+func fakeOpenAIServerWithModels(t *testing.T, path, body string, streaming bool, exposeModels bool) string {
+	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/models", fakeModelsHandler)
+	if exposeModels {
+		mux.HandleFunc("/v1/models", fakeModelsHandler)
+	}
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		if streaming {
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -1402,7 +1421,7 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 
 func fakeModelsHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model"},{"id":"gpt-4o","object":"model"},{"id":"claude-sonnet-4-20250514","object":"model"}]}`)
+	fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model"},{"id":"gpt-4o","object":"model"},{"id":"claude-sonnet-4-20250514","object":"model"},{"id":"claude-sonnet-4-6","object":"model"}]}`)
 }
 
 // TestBootstrapAutoGenerationDefaultPath proves the no-env-overrides
