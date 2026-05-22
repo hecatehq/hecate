@@ -45,7 +45,7 @@ export type UseProviderActionsParams = {
 export function useProviderActions(params: UseProviderActionsParams) {
   const providersAndModels = useProvidersAndModels();
   const chat = useChat();
-  const { providers, models, providerPresets } = providersAndModels.state;
+  const { providers, models } = providersAndModels.state;
   const { setProviders } = providersAndModels.actions;
   const { providerFilter, model } = chat.state;
   const { setProviderFilter, setModel } = chat.actions;
@@ -108,7 +108,7 @@ export function useProviderActions(params: UseProviderActionsParams) {
         params.settingsConfig?.providers.filter((provider) => provider.id !== id) ?? [];
       const nextProvider = defaultProviderForChat(models, remainingConfigured, remainingProviders);
       setProviderFilter(nextProvider);
-      setModel(defaultModelForProvider(nextProvider, models, remainingProviders, providerPresets));
+      setModel(defaultModelForProvider(nextProvider, models, remainingProviders));
     }
 
     try {

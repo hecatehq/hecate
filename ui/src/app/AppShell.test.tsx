@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
@@ -172,11 +172,11 @@ describe("ConsoleShell navigation", () => {
     expect(screen.getByText("git:feature/agents")).toBeInTheDocument();
   });
 
-  it("prefers the active agent chat workspace over the draft workspace", () => {
+  it("prefers the active agent chat workspace over the configured workspace", () => {
     const state = createRuntimeConsoleFixture({
       chatTarget: "external_agent",
-      agentWorkspace: "/Users/alice/dev/draft",
-      agentWorkspaceBranch: "draft",
+      agentWorkspace: "/Users/alice/dev/configured",
+      agentWorkspaceBranch: "configured",
       activeChatSession: {
         id: "chat_1",
         title: "Active Cursor work",
@@ -196,8 +196,8 @@ describe("ConsoleShell navigation", () => {
 
     expect(screen.getByText("/Users/alice/dev/hecate")).toBeInTheDocument();
     expect(screen.getByText("git:main")).toBeInTheDocument();
-    expect(screen.queryByText("/Users/alice/dev/draft")).toBeNull();
-    expect(screen.queryByText("git:draft")).toBeNull();
+    expect(screen.queryByText("/Users/alice/dev/configured")).toBeNull();
+    expect(screen.queryByText("git:configured")).toBeNull();
   });
 
   it("shows latest reported agent context usage in the status bar", () => {
@@ -251,6 +251,373 @@ describe("ConsoleShell navigation", () => {
 
     expect(screen.queryByText("/Users/alice/dev/hecate")).toBeNull();
     expect(screen.queryByText("git:main")).toBeNull();
+  });
+
+  it("keeps No project as the default chat-sidebar project context", () => {
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "",
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    expect(screen.getByRole("button", { name: /Project No project/i })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.queryByRole("button", { name: /Project Hecate/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
+    expect(screen.getByRole("button", { name: /Project Hecate/i })).toBeInTheDocument();
+  });
+
+  it("lets the chat sidebar switch back to No project", () => {
+    const selectProject = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [
+            {
+              id: "root_1",
+              path: "/Users/alice/dev/hecate",
+              kind: "local",
+              active: true,
+              created_at: "2026-05-21T10:00:00Z",
+              updated_at: "2026-05-21T10:00:00Z",
+            },
+          ],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "proj_1",
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), selectProject },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Project No project/i }));
+
+    expect(selectProject).toHaveBeenCalledWith("");
+  });
+
+  it("shows only chats for the selected project", async () => {
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "proj_1",
+      chatSessions: [
+        {
+          id: "chat_project",
+          title: "Project chat",
+          project_id: "proj_1",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+        {
+          id: "chat_loose",
+          title: "Loose chat",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    expect(await screen.findByText("Project chat")).toBeInTheDocument();
+    expect(screen.queryByText("Loose chat")).toBeNull();
+  });
+
+  it("creates new chats inside the selected project scope", async () => {
+    const createChatSession = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "proj_1",
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), createChatSession },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /New Hecate chat/i }));
+
+    expect(createChatSession).toHaveBeenCalledWith({
+      agentID: "hecate",
+      projectID: "proj_1",
+    });
+  });
+
+  it("moves the active chat when selecting a different project", () => {
+    const selectProject = vi.fn(async () => undefined);
+    const selectChatSession = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "",
+      activeChatSessionID: "chat_loose",
+      chatSessions: [
+        {
+          id: "chat_project",
+          title: "Project chat",
+          project_id: "proj_1",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+        {
+          id: "chat_loose",
+          title: "Loose chat",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), selectProject, selectChatSession },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Project Hecate/i }));
+
+    expect(selectProject).toHaveBeenCalledWith("proj_1");
+    expect(selectChatSession).toHaveBeenCalledWith("chat_project");
+  });
+
+  it("shows only unprojected chats when No project is selected", async () => {
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "",
+      chatSessions: [
+        {
+          id: "chat_project",
+          title: "Project chat",
+          project_id: "proj_1",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+        {
+          id: "chat_loose",
+          title: "Loose chat",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    expect(await screen.findByText("Loose chat")).toBeInTheDocument();
+    expect(screen.queryByText("Project chat")).toBeNull();
+  });
+
+  it("hides chats from deleted projects in the sidebar", async () => {
+    const state = createRuntimeConsoleFixture({
+      projects: [],
+      activeProjectID: "",
+      chatSessions: [
+        {
+          id: "chat_orphaned",
+          title: "Recovered chat",
+          project_id: "proj_deleted",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    expect(screen.queryByText("Recovered chat")).toBeNull();
+    expect(await screen.findByText("No unprojected chats yet")).toBeInTheDocument();
+  });
+
+  it("renames projects from the chat sidebar", () => {
+    const renameProject = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), renameProject },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
+    const projectButton = screen.getByRole("button", { name: /Project Hecate/i });
+    fireEvent.mouseEnter(projectButton.parentElement as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: /Rename project Hecate/i }));
+    const input = screen.getByRole("textbox", { name: /Rename project Hecate/i });
+    fireEvent.change(input, { target: { value: "Hecate Core" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(renameProject).toHaveBeenCalledWith("proj_1", "Hecate Core");
+  });
+
+  it("confirms project deletion from the chat sidebar", async () => {
+    const deleteProject = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "proj_1",
+      chatSessions: [
+        {
+          id: "chat_project",
+          title: "Project chat",
+          project_id: "proj_1",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), deleteProject },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
+    const projectButton = screen.getByRole("button", { name: /Project Hecate/i });
+    fireEvent.mouseEnter(projectButton.parentElement as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: /Delete project Hecate/i }));
+
+    expect(deleteProject).not.toHaveBeenCalled();
+    expect(screen.getByText(/This also deletes chats in this project/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Delete project$/i }));
+
+    expect(deleteProject).toHaveBeenCalledWith("proj_1");
+    await waitFor(() => {
+      expect(screen.queryByText("Project chat")).toBeNull();
+    });
+  });
+
+  it("confirms chat deletion from the chat sidebar", async () => {
+    const deleteChatSession = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      chatSessions: [
+        {
+          id: "chat_1",
+          title: "Cleanup chat",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), deleteChatSession },
+      }),
+    );
+
+    const chatRow = await screen.findByLabelText("Chat Cleanup chat, Hecate");
+    fireEvent.mouseEnter(chatRow);
+    fireEvent.click(screen.getByRole("button", { name: /Delete chat Cleanup chat/i }));
+
+    expect(deleteChatSession).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /^Delete chat$/i }));
+
+    expect(deleteChatSession).toHaveBeenCalledWith("chat_1");
   });
 });
 

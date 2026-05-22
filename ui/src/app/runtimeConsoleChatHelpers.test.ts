@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RuntimeHeaders } from "../types/runtime";
 import type { ModelRecord } from "../types/model";
-import type { ProviderPresetRecord, ProviderRecord } from "../types/provider";
+import type { ProviderRecord } from "../types/provider";
 import type { ChatApprovalRecord, ChatSessionRecord } from "../types/chat";
 import {
   approvalRecordToPending,
@@ -13,6 +13,7 @@ import {
   deriveChatSessionTitle,
   humanizeChatError,
   isModelValidForProvider,
+  providerHasChatRouteEvidence,
   renderChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
 
@@ -135,7 +136,7 @@ describe("buildAssistantToolCallMessage", () => {
     ]);
   });
 
-  it("uses null content when no draft exists", () => {
+  it("uses null content when no assistant content exists", () => {
     const out = buildAssistantToolCallMessage("", []);
     expect(out.content).toBeNull();
   });
@@ -152,12 +153,12 @@ describe("buildSyntheticChatResult", () => {
 
 describe("defaultModelForProvider", () => {
   it("returns an empty string for the auto router", () => {
-    expect(defaultModelForProvider("auto", [], [], [])).toBe("");
+    expect(defaultModelForProvider("auto", [], [])).toBe("");
   });
 
   it("prefers the provider's declared default_model when set", () => {
     const providers = [provider({ name: "openai", default_model: "gpt-4o-mini" })];
-    expect(defaultModelForProvider("openai", [], providers, [])).toBe("gpt-4o-mini");
+    expect(defaultModelForProvider("openai", [], providers)).toBe("gpt-4o-mini");
   });
 
   it("falls back to the metadata-tagged default model in the model list", () => {
@@ -166,21 +167,11 @@ describe("defaultModelForProvider", () => {
       model({ id: "gpt-4o-mini", metadata: { provider: "openai", default: true } }),
     ];
     const providers = [provider({ name: "openai" })];
-    expect(defaultModelForProvider("openai", models, providers, [])).toBe("gpt-4o-mini");
+    expect(defaultModelForProvider("openai", models, providers)).toBe("gpt-4o-mini");
   });
 
-  it("falls back to the preset default when no provider record is configured", () => {
-    const presets: ProviderPresetRecord[] = [
-      {
-        id: "anthropic",
-        name: "Anthropic",
-        kind: "anthropic",
-        protocol: "anthropic",
-        base_url: "",
-        default_model: "claude-3-5-sonnet",
-      },
-    ];
-    expect(defaultModelForProvider("anthropic", [], [], presets)).toBe("claude-3-5-sonnet");
+  it("does not treat catalog preset defaults as routable models", () => {
+    expect(defaultModelForProvider("anthropic", [], [])).toBe("");
   });
 });
 
@@ -265,22 +256,59 @@ describe("defaultProviderForChat", () => {
 
 describe("isModelValidForProvider", () => {
   it("returns true for any model under the auto router", () => {
-    expect(isModelValidForProvider("anything", "auto", [], [], [])).toBe(true);
+    expect(isModelValidForProvider("anything", "auto", [], [])).toBe(true);
   });
 
   it("matches when the model carries the provider in its metadata", () => {
     const models: ModelRecord[] = [model({ id: "gpt-4o", metadata: { provider: "openai" } })];
-    expect(isModelValidForProvider("gpt-4o", "openai", models, [], [])).toBe(true);
+    expect(isModelValidForProvider("gpt-4o", "openai", models, [])).toBe(true);
   });
 
   it("matches when the provider record explicitly lists the model", () => {
     const providers = [provider({ name: "openai", models: ["gpt-4o"] })];
-    expect(isModelValidForProvider("gpt-4o", "openai", [], providers, [])).toBe(true);
+    expect(isModelValidForProvider("gpt-4o", "openai", [], providers)).toBe(true);
   });
 
   it("rejects models not listed by a provider record", () => {
     const providers = [provider({ name: "openai", default_model: "gpt-4o", models: ["gpt-4o"] })];
-    expect(isModelValidForProvider("gpt-3.5", "openai", [], providers, [])).toBe(false);
+    expect(isModelValidForProvider("gpt-3.5", "openai", [], providers)).toBe(false);
+  });
+});
+
+describe("providerHasChatRouteEvidence", () => {
+  it("does not count catalog presets as live provider evidence", () => {
+    expect(providerHasChatRouteEvidence("ollama", [], [], [])).toBe(false);
+  });
+
+  it("accepts configured providers, discovered models, and provider status rows", () => {
+    expect(
+      providerHasChatRouteEvidence(
+        "ollama",
+        [],
+        [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: false,
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      providerHasChatRouteEvidence(
+        "ollama",
+        [model({ id: "llama3.1:8b", metadata: { provider: "ollama" } })],
+        [],
+        [],
+      ),
+    ).toBe(true);
+    expect(providerHasChatRouteEvidence("ollama", [], [], [provider({ name: "ollama" })])).toBe(
+      true,
+    );
   });
 });
 
@@ -290,6 +318,7 @@ describe("renderChatSessionSummary", () => {
       id: "ac1",
       title: "agent t",
       agent_id: "codex",
+      project_id: "proj_1",
       driver_kind: "acp",
       native_session_id: "n1",
       workspace: "/repo",
@@ -303,6 +332,7 @@ describe("renderChatSessionSummary", () => {
     const out = renderChatSessionSummary(session);
     expect(out.message_count).toBe(2);
     expect(out.agent_id).toBe("codex");
+    expect(out.project_id).toBe("proj_1");
     expect(out.workspace_branch).toBe("main");
     expect(out.status).toBe("running");
   });

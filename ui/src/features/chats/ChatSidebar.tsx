@@ -2,13 +2,15 @@ import { useState } from "react";
 
 import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useProjects } from "../../app/state/projects";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useNewChatAgentID, useChatTarget } from "../../app/state/derived";
 import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
 import { formatAbsoluteTime } from "../../lib/format";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatSessionRecord } from "../../types/chat";
-import { BrandAvatar, Icon, Icons } from "../shared/ui";
+import type { ProjectRecord } from "../../types/project";
+import { BrandAvatar, ConfirmModal, Icon, Icons } from "../shared/ui";
 
 import { NewChatAgentButton, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
 import type { ChatAgentOptionID } from "./ChatAgentControls";
@@ -16,6 +18,7 @@ import type { ChatAgentOptionID } from "./ChatAgentControls";
 export type SidebarSession = {
   id: string;
   title?: string;
+  project_id?: string;
   message_count: number;
   provider_call_count: number;
   last_provider?: string;
@@ -29,18 +32,19 @@ export type SidebarSession = {
 
 type Props = {
   isAgentChat: boolean;
-  // Session activation: ChatView wires this to clear the draft, focus
-  // the composer textarea, and dispatch selectChatSession. Keeping the
+  // Session activation: ChatView wires this to focus the composer
+  // textarea and dispatch selectChatSession. Keeping the
   // coordination on the parent side avoids the sidebar reaching across
   // the canvas for the composer ref.
   onSelectSession: (sessionID: string) => void;
   // New-chat creation. Gated on adapter readiness inside the sidebar.
-  onCreateChat: (agentID: ChatAgentOptionID) => void;
+  onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
 };
 
 export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Props) {
   const chat = useChat();
   const providersAndModels = useProvidersAndModels();
+  const projects = useProjects();
   const chatTarget = useChatTarget();
   const { actions: settingsActions } = useWiredSettingsActions();
   const chatActions = useChatActions({
@@ -56,10 +60,17 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
+  const [deleteChatID, setDeleteChatID] = useState<string | null>(null);
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
+  const [renamingProjectID, setRenamingProjectID] = useState<string | null>(null);
+  const [projectRenameValue, setProjectRenameValue] = useState("");
+  const [hoveredProjectID, setHoveredProjectID] = useState<string | null>(null);
+  const [deleteProjectID, setDeleteProjectID] = useState<string | null>(null);
 
   const sessions: SidebarSession[] = (chatSessions ?? []).map((s) => ({
     id: s.id,
     title: s.title,
+    project_id: s.project_id ?? "",
     message_count: s.message_count,
     provider_call_count: 0,
     last_provider: s.agent_id && s.agent_id !== "hecate" ? s.agent_id : s.provider,
@@ -70,9 +81,18 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
     created_at: s.created_at,
     updated_at: s.updated_at,
   }));
-  const filteredSessions = filterSidebarSessions(sessions, sidebarQuery);
+  const projectSessions = filterSidebarSessionsByProject(sessions, projects.activeProjectID);
+  const filteredSessions = filterSidebarSessions(projectSessions, sidebarQuery);
   const groupedSessions = groupSidebarSessions(filteredSessions);
   const activeSessionID = activeChatSessionID;
+  const activeProject =
+    projects.activeProjectID === ""
+      ? null
+      : (projects.state.projects.find((project) => project.id === projects.activeProjectID) ??
+        null);
+  const pendingDeleteChat = sessions.find((session) => session.id === deleteChatID) ?? null;
+  const pendingDeleteProject =
+    projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
 
   function statusForAgent(agentID: ChatAgentOptionID) {
     const adapter =
@@ -81,28 +101,127 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
     return chatAgentOptionStatus(agentID, adapter, health);
   }
 
+  function startProjectRename(project: ProjectRecord) {
+    setRenamingProjectID(project.id);
+    setProjectRenameValue(project.name);
+  }
+
+  function commitProjectRename(project: ProjectRecord) {
+    const nextName = projectRenameValue.trim();
+    setRenamingProjectID(null);
+    if (nextName && nextName !== project.name) {
+      void projects.actions.renameProject(project.id, nextName);
+    }
+  }
+
+  function selectProjectScope(projectID: string) {
+    const scopedSessions = filterSidebarSessionsByProject(sessions, projectID);
+    void projects.actions.selectProject(projectID);
+    if (activeSessionID && scopedSessions.some((session) => session.id === activeSessionID)) {
+      return;
+    }
+    const nextSession = scopedSessions[0];
+    onSelectSession(nextSession?.id ?? "");
+  }
+
   return (
-    <div
-      style={{
-        width: 220,
-        borderRight: "1px solid var(--border)",
-        display: "flex",
-        flexDirection: "column",
-        flexShrink: 0,
-        background: "var(--bg1)",
-      }}
-    >
+    <>
       <div
         style={{
-          height: "var(--topbar-h)",
-          padding: "0 8px",
-          borderBottom: "1px solid var(--border)",
+          width: 220,
+          borderRight: "1px solid var(--border)",
           display: "flex",
-          alignItems: "center",
+          flexDirection: "column",
           flexShrink: 0,
+          background: "var(--bg1)",
         }}
       >
-        <div style={{ display: "flex", gap: 6, width: "100%" }}>
+        <div style={{ padding: "8px 8px 6px", borderBottom: "1px solid var(--border)" }}>
+          <SidebarSectionHeader
+            actionLabel="Add project"
+            expanded={projectsExpanded}
+            label="Projects"
+            onAction={() => {
+              void projects.actions.createProjectFromFolder();
+            }}
+            onToggle={() => setProjectsExpanded((value) => !value)}
+          />
+          {projectsExpanded ? (
+            <>
+              <ProjectRow
+                active={projects.activeProjectID === ""}
+                detail="Chats and tasks stay ungrouped."
+                label="No project"
+                onSelect={() => {
+                  selectProjectScope("");
+                }}
+              />
+              {projects.state.projects.map((project) => (
+                <ProjectRow
+                  key={project.id}
+                  active={projects.activeProjectID === project.id}
+                  actionsVisible={hoveredProjectID === project.id}
+                  detail={projectDetail(project)}
+                  editable
+                  label={project.name}
+                  onSelect={() => {
+                    selectProjectScope(project.id);
+                  }}
+                  onDelete={() => {
+                    setDeleteProjectID(project.id);
+                  }}
+                  onInteractionChange={(active) => {
+                    setHoveredProjectID(active ? project.id : null);
+                  }}
+                  onRenameCancel={() => setRenamingProjectID(null)}
+                  onRenameChange={setProjectRenameValue}
+                  onRenameCommit={() => commitProjectRename(project)}
+                  onRenameStart={() => startProjectRename(project)}
+                  renameValue={projectRenameValue}
+                  renaming={renamingProjectID === project.id}
+                />
+              ))}
+            </>
+          ) : (
+            <ProjectRow
+              active
+              detail={
+                activeProject ? projectDetail(activeProject) : "Chats and tasks stay ungrouped."
+              }
+              label={activeProject?.name ?? "No project"}
+              onSelect={() => setProjectsExpanded(true)}
+            />
+          )}
+          {projectsExpanded && projects.state.projects.length === 0 && (
+            <div style={{ padding: "6px 8px 3px", color: "var(--t3)", fontSize: 11 }}>
+              Add a folder when you want a project context.
+            </div>
+          )}
+          {projects.state.error && (
+            <div
+              role="status"
+              style={{ padding: "6px 8px 0", color: "var(--yellow)", fontSize: 11 }}
+            >
+              {projects.state.error}
+            </div>
+          )}
+        </div>
+        <div
+          style={{
+            padding: "8px 12px 4px",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "var(--t3)",
+          }}
+        >
+          Chats
+          {projectSessions.length > 0
+            ? ` · ${filteredSessions.length}${filteredSessions.length === projectSessions.length ? "" : `/${projectSessions.length}`}`
+            : ""}
+        </div>
+        <div style={{ padding: "4px 8px 8px" }}>
           <NewChatAgentButton
             value={newChatAgentID}
             adapters={agentAdapters}
@@ -112,221 +231,216 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
             onCreate={(agentID) => {
               if (!statusForAgent(agentID).ready) return;
               if (agentID !== newChatAgentID) chatActions.setNewChatAgent(agentID);
-              onCreateChat(agentID);
+              onCreateChat(agentID, projects.activeProjectID);
             }}
           />
         </div>
-      </div>
-      <div
-        style={{
-          padding: "8px 12px 4px",
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          color: "var(--t3)",
-        }}
-      >
-        Chats
-        {sessions.length > 0
-          ? ` · ${filteredSessions.length}${filteredSessions.length === sessions.length ? "" : `/${sessions.length}`}`
-          : ""}
-      </div>
-      <div style={{ padding: "4px 8px 8px" }}>
-        <input
-          aria-label="Search chats"
-          className="input"
-          onChange={(e) => setSidebarQuery(e.target.value)}
-          placeholder="Search chats"
-          style={{ height: 28, fontSize: 12, padding: "0 8px" }}
-          value={sidebarQuery}
-        />
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: "2px 0 6px" }}>
-        {sessions.length === 0 && (
-          <div
-            style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}
-          >
-            No chats yet
-          </div>
-        )}
-        {sessions.length > 0 && filteredSessions.length === 0 && (
-          <div
-            style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}
-          >
-            No matching chats
-          </div>
-        )}
-        {groupedSessions.map((group) => (
-          <div key={group.label}>
+        <div style={{ padding: "4px 8px 8px" }}>
+          <input
+            aria-label="Search chats"
+            className="input"
+            onChange={(e) => setSidebarQuery(e.target.value)}
+            placeholder="Search chats"
+            style={{ height: 28, fontSize: 12, padding: "0 8px" }}
+            value={sidebarQuery}
+          />
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "2px 0 6px" }}>
+          {projectSessions.length === 0 && (
             <div
               style={{
-                padding: "8px 12px 3px",
-                fontFamily: "var(--font-mono)",
-                fontSize: 9,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
+                padding: "16px 12px",
+                fontSize: 12,
                 color: "var(--t3)",
+                textAlign: "center",
               }}
             >
-              {group.label}
+              {sessions.length === 0
+                ? "No chats yet"
+                : projects.activeProjectID
+                  ? "No chats in this project yet"
+                  : "No unprojected chats yet"}
             </div>
-            {group.sessions.map((s) => (
+          )}
+          {projectSessions.length > 0 && filteredSessions.length === 0 && (
+            <div
+              style={{
+                padding: "16px 12px",
+                fontSize: 12,
+                color: "var(--t3)",
+                textAlign: "center",
+              }}
+            >
+              No matching chats
+            </div>
+          )}
+          {groupedSessions.map((group) => (
+            <div key={group.label}>
               <div
-                key={s.id}
-                role="button"
-                tabIndex={renamingId === s.id ? -1 : 0}
-                aria-current={activeSessionID === s.id ? "true" : undefined}
-                aria-label={`Chat ${s.title || "Untitled"}${s.agent_label ? `, ${s.agent_label}` : ""}`}
-                onClick={() => {
-                  if (renamingId === s.id) return;
-                  onSelectSession(s.id);
-                }}
-                onKeyDown={(e) => {
-                  if (e.target !== e.currentTarget) return;
-                  if (renamingId === s.id) return;
-                  if (e.key !== "Enter" && e.key !== " ") return;
-                  e.preventDefault();
-                  onSelectSession(s.id);
-                }}
-                onFocus={() => setHoveredChatId(s.id)}
-                onBlur={(e) => {
-                  const nextFocus = e.relatedTarget;
-                  if (!(nextFocus instanceof Node) || !e.currentTarget.contains(nextFocus)) {
-                    setHoveredChatId(null);
-                  }
-                }}
-                onMouseEnter={() => setHoveredChatId(s.id)}
-                onMouseLeave={() => setHoveredChatId(null)}
                 style={{
-                  padding: "8px 12px",
-                  cursor: "pointer",
-                  background: activeSessionID === s.id ? "var(--teal-bg)" : "transparent",
-                  borderLeft:
-                    activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
-                  transition: "background 0.1s",
+                  padding: "8px 12px 3px",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 9,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "var(--t3)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 7, minHeight: 22 }}>
-                  {renamingId === s.id ? (
-                    <input
-                      autoFocus
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
+                {group.label}
+              </div>
+              {group.sessions.map((s) => (
+                <div
+                  key={s.id}
+                  role="button"
+                  tabIndex={renamingId === s.id ? -1 : 0}
+                  aria-current={activeSessionID === s.id ? "true" : undefined}
+                  aria-label={`Chat ${s.title || "Untitled"}${s.agent_label ? `, ${s.agent_label}` : ""}`}
+                  onClick={() => {
+                    if (renamingId === s.id) return;
+                    onSelectSession(s.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (renamingId === s.id) return;
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    onSelectSession(s.id);
+                  }}
+                  onFocus={() => setHoveredChatId(s.id)}
+                  onBlur={(e) => {
+                    const nextFocus = e.relatedTarget;
+                    if (!(nextFocus instanceof Node) || !e.currentTarget.contains(nextFocus)) {
+                      setHoveredChatId(null);
+                    }
+                  }}
+                  onMouseEnter={() => setHoveredChatId(s.id)}
+                  onMouseLeave={() => setHoveredChatId(null)}
+                  style={{
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    background: activeSessionID === s.id ? "var(--teal-bg)" : "transparent",
+                    borderLeft:
+                      activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
+                    transition: "background 0.1s",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, minHeight: 22 }}>
+                    {renamingId === s.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            void chatActions.renameChatSession(s.id, renameValue);
+                            setRenamingId(null);
+                          }
+                          if (e.key === "Escape") setRenamingId(null);
+                        }}
+                        onBlur={() => {
                           void chatActions.renameChatSession(s.id, renameValue);
                           setRenamingId(null);
-                        }
-                        if (e.key === "Escape") setRenamingId(null);
-                      }}
-                      onBlur={() => {
-                        void chatActions.renameChatSession(s.id, renameValue);
-                        setRenamingId(null);
-                      }}
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        height: 18,
-                        boxSizing: "border-box",
-                        fontSize: 12,
-                        background: "var(--bg3)",
-                        border: "1px solid var(--teal)",
-                        borderRadius: "var(--radius-sm)",
-                        color: "var(--t0)",
-                        padding: "0 4px",
-                        outline: "none",
-                        fontFamily: "var(--font-sans)",
-                        lineHeight: "16px",
-                      }}
-                    />
-                  ) : (
-                    <>
-                      <div
+                        }}
                         style={{
                           flex: 1,
                           minWidth: 0,
+                          height: 18,
+                          boxSizing: "border-box",
                           fontSize: 12,
-                          lineHeight: "18px",
-                          color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)",
-                          fontWeight: activeSessionID === s.id ? 500 : 400,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
+                          background: "var(--bg3)",
+                          border: "1px solid var(--teal)",
+                          borderRadius: "var(--radius-sm)",
+                          color: "var(--t0)",
+                          padding: "0 4px",
+                          outline: "none",
+                          fontFamily: "var(--font-sans)",
+                          lineHeight: "16px",
                         }}
-                      >
-                        {s.title || "Untitled"}
-                      </div>
-                      {sidebarSessionTimeLabel(s.updated_at || s.created_at) && (
-                        <span
-                          title={formatAbsoluteTime(s.updated_at || s.created_at)}
+                      />
+                    ) : (
+                      <>
+                        <div
                           style={{
-                            color: "var(--t3)",
-                            flexShrink: 0,
-                            fontFamily: "var(--font-mono)",
-                            fontSize: 9,
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 12,
                             lineHeight: "18px",
+                            color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)",
+                            fontWeight: activeSessionID === s.id ? 500 : 400,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          {sidebarSessionTimeLabel(s.updated_at || s.created_at)}
-                        </span>
-                      )}
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 1,
-                          opacity: hoveredChatId === s.id ? 1 : 0,
-                          transition: "opacity 0.15s",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          aria-label={`Rename chat ${s.title || "Untitled"}`}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRenamingId(s.id);
-                            setRenameValue(s.title || "");
+                          {s.title || "Untitled"}
+                        </div>
+                        {sidebarSessionTimeLabel(s.updated_at || s.created_at) && (
+                          <span
+                            title={formatAbsoluteTime(s.updated_at || s.created_at)}
+                            style={{
+                              color: "var(--t3)",
+                              flexShrink: 0,
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 9,
+                              lineHeight: "18px",
+                            }}
+                          >
+                            {sidebarSessionTimeLabel(s.updated_at || s.created_at)}
+                          </span>
+                        )}
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 1,
+                            opacity: hoveredChatId === s.id ? 1 : 0,
+                            transition: "opacity 0.15s",
+                            flexShrink: 0,
                           }}
-                          style={{ padding: "1px 3px" }}
-                          title="Rename"
                         >
-                          <Icon d={Icons.edit} size={10} />
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          aria-label={`Delete chat ${s.title || "Untitled"}`}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void chatActions.deleteChatSession(s.id);
-                          }}
-                          style={{ padding: "1px 3px", color: "var(--red)" }}
-                          title="Delete"
-                        >
-                          <Icon d={Icons.trash} size={10} />
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 10,
-                    color: "var(--t3)",
-                    marginTop: 1,
-                    fontFamily: "var(--font-mono)",
-                  }}
-                >
-                  <span>{s.message_count} msg</span>
-                  {isAgentChat && s.agent_brand && renamingId !== s.id && (
-                    <>
-                      <span style={{ color: "var(--t4)" }}>·</span>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            aria-label={`Rename chat ${s.title || "Untitled"}`}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenamingId(s.id);
+                              setRenameValue(s.title || "");
+                            }}
+                            style={{ padding: "1px 3px" }}
+                            title="Rename"
+                          >
+                            <Icon d={Icons.edit} size={10} />
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            aria-label={`Delete chat ${s.title || "Untitled"}`}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteChatID(s.id);
+                            }}
+                            style={{ padding: "1px 3px", color: "var(--red)" }}
+                            title="Delete"
+                          >
+                            <Icon d={Icons.trash} size={10} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 10,
+                      color: "var(--t3)",
+                      marginTop: 1,
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {isAgentChat && s.agent_brand && renamingId !== s.id && (
                       <BrandAvatar
                         brand={s.agent_brand}
                         fallback={s.agent_label || s.agent_brand}
@@ -335,31 +449,327 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                         size={13}
                         style={{ flexShrink: 0 }}
                       />
-                    </>
-                  )}
-                  {isAgentChat ? (
-                    s.status_label && (
+                    )}
+                    <span>{s.message_count} msg</span>
+                    {isAgentChat ? (
+                      s.status_label && (
+                        <>
+                          <span style={{ color: "var(--t4)" }}>·</span>
+                          <span>{s.status_label}</span>
+                        </>
+                      )
+                    ) : (
                       <>
                         <span style={{ color: "var(--t4)" }}>·</span>
-                        <span>{s.status_label}</span>
+                        <span>
+                          {s.provider_call_count} call{s.provider_call_count === 1 ? "" : "s"}
+                        </span>
                       </>
-                    )
-                  ) : (
-                    <>
-                      <span style={{ color: "var(--t4)" }}>·</span>
-                      <span>
-                        {s.provider_call_count} call{s.provider_call_count === 1 ? "" : "s"}
-                      </span>
-                    </>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ))}
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      {pendingDeleteChat && (
+        <ConfirmModal
+          danger
+          title="Delete chat"
+          confirmLabel="Delete chat"
+          message={
+            <>
+              Delete <strong>{pendingDeleteChat.title || "Untitled"}</strong>? This removes the chat
+              transcript from Hecate.
+            </>
+          }
+          onClose={() => setDeleteChatID(null)}
+          onConfirm={async () => {
+            await chatActions.deleteChatSession(pendingDeleteChat.id);
+            setDeleteChatID(null);
+          }}
+        />
+      )}
+      {pendingDeleteProject && (
+        <ConfirmModal
+          danger
+          title="Delete project"
+          confirmLabel="Delete project"
+          message={
+            <>
+              Delete <strong>{pendingDeleteProject.name}</strong>? This also deletes chats in this
+              project. Unprojected chats and other projects stay untouched.
+            </>
+          }
+          onClose={() => setDeleteProjectID(null)}
+          onConfirm={async () => {
+            const projectID = pendingDeleteProject.id;
+            const activeDeletedSession = chat.state.chatSessions.some(
+              (session) =>
+                session.id === chat.state.activeChatSessionID && session.project_id === projectID,
+            );
+            await projects.actions.deleteProject(projectID);
+            chat.actions.setChatSessions((current) =>
+              current.filter((session) => session.project_id !== projectID),
+            );
+            if (activeDeletedSession || chat.state.activeChatSession?.project_id === projectID) {
+              chatActions.startNewChat();
+            }
+            setDeleteProjectID(null);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function SidebarSectionHeader({
+  actionLabel,
+  expanded,
+  label,
+  onAction,
+  onToggle,
+}: {
+  actionLabel: string;
+  expanded: boolean;
+  label: string;
+  onAction: () => void;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 4px 4px",
+        gap: 8,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "var(--t3)",
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          aria-label={actionLabel}
+          title={actionLabel}
+          onClick={onAction}
+          style={{ height: 20, width: 20, padding: 0, fontSize: 14, lineHeight: "18px" }}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse projects" : "Expand projects"}
+          title={expanded ? "Collapse projects" : "Expand projects"}
+          onClick={onToggle}
+          style={{ height: 20, width: 20, padding: 0 }}
+        >
+          <Icon d={expanded ? Icons.chevD : Icons.chevR} size={12} />
+        </button>
       </div>
     </div>
   );
+}
+
+function ProjectRow({
+  actionsVisible = false,
+  active,
+  detail,
+  editable = false,
+  label,
+  onDelete,
+  onInteractionChange,
+  onRenameCancel,
+  onRenameChange,
+  onRenameCommit,
+  onRenameStart,
+  onSelect,
+  renameValue = "",
+  renaming = false,
+}: {
+  actionsVisible?: boolean;
+  active: boolean;
+  detail: string;
+  editable?: boolean;
+  label: string;
+  onDelete?: () => void;
+  onInteractionChange?: (active: boolean) => void;
+  onRenameCancel?: () => void;
+  onRenameChange?: (value: string) => void;
+  onRenameCommit?: () => void;
+  onRenameStart?: () => void;
+  onSelect: () => void;
+  renameValue?: string;
+  renaming?: boolean;
+}) {
+  return (
+    <div
+      onBlur={(e) => {
+        const nextFocus = e.relatedTarget;
+        if (!(nextFocus instanceof Node) || !e.currentTarget.contains(nextFocus)) {
+          onInteractionChange?.(false);
+        }
+      }}
+      onFocus={() => onInteractionChange?.(true)}
+      onMouseEnter={() => onInteractionChange?.(true)}
+      onMouseLeave={() => onInteractionChange?.(false)}
+      style={{
+        width: "100%",
+        borderRadius: "var(--radius-md)",
+        background: active ? "var(--teal-bg)" : "transparent",
+        color: active ? "var(--t0)" : "var(--t2)",
+        display: "flex",
+        gap: 8,
+        alignItems: "center",
+        padding: "3px 6px",
+        minHeight: 28,
+      }}
+      title={detail ? `${label} — ${detail}` : label}
+    >
+      {renaming ? (
+        <input
+          autoFocus
+          aria-label={`Rename project ${label}`}
+          onBlur={onRenameCommit}
+          onChange={(e) => onRenameChange?.(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onRenameCommit?.();
+            if (e.key === "Escape") onRenameCancel?.();
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            height: 22,
+            boxSizing: "border-box",
+            fontSize: 12,
+            background: "var(--bg3)",
+            border: "1px solid var(--teal)",
+            borderRadius: "var(--radius-sm)",
+            color: "var(--t0)",
+            padding: "0 5px",
+            outline: "none",
+            fontFamily: "var(--font-sans)",
+            lineHeight: "20px",
+          }}
+          value={renameValue}
+        />
+      ) : (
+        <button
+          type="button"
+          aria-current={active ? "true" : undefined}
+          aria-label={`Project ${label}`}
+          onClick={onSelect}
+          style={{
+            minWidth: 0,
+            flex: 1,
+            border: 0,
+            background: "transparent",
+            color: "inherit",
+            cursor: "pointer",
+            display: "grid",
+            gridTemplateColumns: "18px minmax(0, 1fr)",
+            gap: 8,
+            alignItems: "center",
+            padding: "2px 0",
+            textAlign: "left",
+            font: "inherit",
+          }}
+        >
+          <Icon d={Icons.folder} size={15} strokeWidth={1.7} />
+          <span
+            style={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontSize: 12,
+              lineHeight: "16px",
+              fontWeight: active ? 550 : 450,
+            }}
+          >
+            {label}
+          </span>
+        </button>
+      )}
+      {editable && !renaming && (
+        <span
+          style={{
+            display: "flex",
+            gap: 1,
+            opacity: actionsVisible ? 1 : 0,
+            transition: "opacity 0.15s",
+            flexShrink: 0,
+          }}
+        >
+          <button
+            aria-label={`Rename project ${label}`}
+            aria-hidden={!actionsVisible}
+            className="btn btn-ghost btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRenameStart?.();
+            }}
+            style={{ padding: "1px 3px" }}
+            tabIndex={actionsVisible ? 0 : -1}
+            title="Rename"
+            type="button"
+          >
+            <Icon d={Icons.edit} size={10} />
+          </button>
+          <button
+            aria-label={`Delete project ${label}`}
+            aria-hidden={!actionsVisible}
+            className="btn btn-ghost btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete?.();
+            }}
+            style={{ padding: "1px 3px", color: "var(--red)" }}
+            tabIndex={actionsVisible ? 0 : -1}
+            title="Delete"
+            type="button"
+          >
+            <Icon d={Icons.trash} size={10} />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+function projectDetail(project: ProjectRecord): string {
+  return (
+    project.roots.find((root) => root.active)?.path ??
+    project.roots[0]?.path ??
+    project.description ??
+    ""
+  );
+}
+
+function filterSidebarSessionsByProject(
+  sessions: SidebarSession[],
+  activeProjectID: string,
+): SidebarSession[] {
+  const projectID = activeProjectID.trim();
+  return sessions.filter((session) => {
+    const sessionProjectID = (session.project_id ?? "").trim();
+    return projectID ? sessionProjectID === projectID : sessionProjectID === "";
+  });
 }
 
 export function filterSidebarSessions(sessions: SidebarSession[], query: string): SidebarSession[] {

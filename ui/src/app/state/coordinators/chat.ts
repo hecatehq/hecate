@@ -57,6 +57,7 @@ import {
 } from "../_shared";
 import { useApprovals } from "../approvals";
 import { useChat } from "../chat";
+import { useProjects } from "../projects";
 import { useProvidersAndModels } from "../providersAndModels";
 import { useRuntime } from "../runtime";
 import { useUsage } from "../usage";
@@ -156,7 +157,7 @@ type ChatActionsReturn = {
   cancelAgentChat: () => Promise<void>;
   updateToolResult: (index: number, result: string) => void;
   submitToolResults: () => Promise<void>;
-  createChatSession: (options?: { agentID?: string }) => Promise<void>;
+  createChatSession: (options?: { agentID?: string; projectID?: string }) => Promise<void>;
   selectChatSession: (id: string) => Promise<void>;
   startNewChat: () => void;
   deleteChatSession: (id: string) => Promise<void>;
@@ -204,6 +205,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   const usage = useUsage();
   const providersAndModels = useProvidersAndModels();
   const chat = useChat();
+  const projects = useProjects();
   const approvals = useApprovals();
 
   const { message, hecateRTKEnabled } = runtime.state;
@@ -213,7 +215,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setHecateRTKEnabled: setHecateRTKEnabledState,
   } = runtime.actions;
   const { setSummary: setUsageSummary, setEvents: setUsageEvents } = usage.actions;
-  const { agentAdapters, models, providers, providerPresets } = providersAndModels.state;
+  const { agentAdapters, models, providers } = providersAndModels.state;
+  const activeProjectID = projects.activeProjectID.trim();
   const {
     defaultChatTarget,
     agentAdapterID,
@@ -294,7 +297,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
   function selectProviderRoute(nextProvider: ProviderFilter) {
     setProviderFilter(nextProvider);
-    setModel(defaultModelForProvider(nextProvider, models, providers, providerPresets));
+    setModel(defaultModelForProvider(nextProvider, models, providers));
   }
 
   function updateAgentWorkspace(nextWorkspace: string) {
@@ -457,6 +460,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       if (!sessionID) {
         const created = await createChatSessionRequest({
           title: deriveChatSessionTitle(content),
+          ...(activeProjectID ? { project_id: activeProjectID } : {}),
           agent_id: isExternalAgent ? turnAgentID : "hecate",
           ...(!isExternalAgent
             ? {
@@ -649,8 +653,10 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     };
   }
 
-  async function createChatSession(options?: { agentID?: string }) {
+  async function createChatSession(options?: { agentID?: string; projectID?: string }) {
     const requestedAgentID = options?.agentID?.trim();
+    const createProjectID =
+      options && "projectID" in options ? options.projectID?.trim() || "" : activeProjectID;
     const createExternalAgent =
       requestedAgentID && requestedAgentID !== "hecate"
         ? true
@@ -674,6 +680,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         const adapter = agentAdapters.find((item) => item.id === externalAgentID);
         const created = await createChatSessionRequest({
           title: adapter ? `${adapter.name} chat` : "External agent chat",
+          ...(createProjectID ? { project_id: createProjectID } : {}),
           agent_id: externalAgentID,
           workspace,
         });
@@ -724,6 +731,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     clearChatErrorState();
     try {
       const created = await createChatSessionRequest({
+        ...(createProjectID ? { project_id: createProjectID } : {}),
         agent_id: "hecate",
         provider: providerFilter === "auto" ? "" : providerFilter,
         model,

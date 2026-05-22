@@ -28,6 +28,7 @@ import type {
   ProviderPresetRecord,
   ProviderRecord,
 } from "../types/provider";
+import type { ProjectRecord } from "../types/project";
 import type { RetentionRunData } from "../types/retention";
 import type { HealthResponse, RuntimeHeaders } from "../types/runtime";
 import type { UsageEventRecord, UsageSummaryResponse } from "../types/usage";
@@ -88,6 +89,8 @@ export type RuntimeConsoleFixtureState = {
   providerScopedModels: ModelRecord[];
   providers: ProviderRecord[];
   providerPresets: ProviderPresetRecord[];
+  projects: ProjectRecord[];
+  activeProjectID: string;
   usageEvents: UsageEventRecord[];
   retentionError: string;
   retentionLastRun: RetentionRunData | null;
@@ -160,6 +163,8 @@ export function createRuntimeConsoleFixture(
     session: { label: "Local" },
     providerFilter: "auto",
     providerPresets: [],
+    projects: [],
+    activeProjectID: "",
     providerScopedModels: [],
     providers: [],
     usageEvents: [],
@@ -188,7 +193,7 @@ export type RuntimeConsoleFixtureActions = {
   copyCommand: (command: string) => Promise<void>;
   cancelAgentChat: () => Promise<void>;
   chooseAgentWorkspace: () => Promise<boolean>;
-  createChatSession: (options?: { agentID?: string }) => Promise<void>;
+  createChatSession: (options?: { agentID?: string; projectID?: string }) => Promise<void>;
   deleteChatSession: (id: string) => Promise<void>;
   deletePolicyRule: (id: string) => Promise<void>;
   loadDashboard: () => Promise<void>;
@@ -220,6 +225,11 @@ export type RuntimeConsoleFixtureActions = {
   setProviderBaseURL: (id: string, baseURL: string) => Promise<void>;
   setProviderName: (id: string, name: string) => Promise<void>;
   setProviderCustomName: (id: string, customName: string) => Promise<void>;
+  setActiveProjectID: (id: string) => void;
+  selectProject: (id: string) => Promise<void>;
+  createProjectFromFolder: () => Promise<ProjectRecord | null>;
+  renameProject: (id: string, name: string) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
   getChatApproval: (sessionID: string, approvalID: string) => Promise<unknown>;
   listChatMessageFiles: (sessionID: string, messageID: string) => Promise<unknown[]>;
   getChatMessageFileDiff: (sessionID: string, messageID: string, path: string) => Promise<unknown>;
@@ -284,6 +294,11 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     setProviderBaseURL: async () => undefined,
     setProviderName: async () => undefined,
     setProviderCustomName: async () => undefined,
+    setActiveProjectID: () => undefined,
+    selectProject: async () => undefined,
+    createProjectFromFolder: async () => null,
+    renameProject: async () => undefined,
+    deleteProject: async () => undefined,
     getChatApproval: async () => null,
     listChatMessageFiles: async () => [],
     getChatMessageFileDiff: async () => null,

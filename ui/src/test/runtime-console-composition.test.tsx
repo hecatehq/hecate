@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApprovalsProvider } from "../app/state/approvals";
 import { ChatProvider } from "../app/state/chat";
 import { ProvidersAndModelsProvider } from "../app/state/providersAndModels";
+import { ProjectsProvider } from "../app/state/projects";
 import { RetentionProvider } from "../app/state/retention";
 import { RuntimeProvider } from "../app/state/runtime";
 import { SettingsProvider } from "../app/state/settings";
@@ -22,13 +23,15 @@ function SliceProviders({ children }: { children: ReactNode }) {
     <RuntimeProvider>
       <UsageProvider>
         <ProvidersAndModelsProvider>
-          <ChatProvider>
-            <RetentionProvider>
-              <ApprovalsProvider>
-                <SettingsProvider>{children}</SettingsProvider>
-              </ApprovalsProvider>
-            </RetentionProvider>
-          </ChatProvider>
+          <ProjectsProvider>
+            <ChatProvider>
+              <RetentionProvider>
+                <ApprovalsProvider>
+                  <SettingsProvider>{children}</SettingsProvider>
+                </ApprovalsProvider>
+              </RetentionProvider>
+            </ChatProvider>
+          </ProjectsProvider>
         </ProvidersAndModelsProvider>
       </UsageProvider>
     </RuntimeProvider>
@@ -85,6 +88,7 @@ function defaultBackendMock(
       return jsonResponse({ object: "usage_events", data: [] });
     if (url === "/hecate/v1/chat/sessions")
       return jsonResponse({ object: "chat_sessions", data: [] });
+    if (url === "/hecate/v1/projects") return jsonResponse({ object: "projects", data: [] });
     if (url.startsWith("/hecate/v1/chat/sessions/") && url.endsWith("/approvals?status=pending"))
       return jsonResponse({ object: "list", data: [] });
     if (url.startsWith("/hecate/v1/chat/sessions"))
@@ -342,7 +346,7 @@ describe("useRuntimeConsole", () => {
   });
 
   it("creates a Hecate chat session from the default model when no model is preselected", async () => {
-    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatTarget", "model");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     let createBody: any = null;
     fetchMock.mockImplementation(
@@ -429,6 +433,189 @@ describe("useRuntimeConsole", () => {
     expect(createBody).not.toHaveProperty("workspace");
     expect(result.current.state.activeChatSessionID).toBe("chat_ollama");
     expect(result.current.state.chatError).toBe("");
+  });
+
+  it("drops stale persisted provider/model selections when only a catalog preset remains", async () => {
+    window.localStorage.setItem("hecate.providerFilter", "ollama");
+    window.localStorage.setItem("hecate.model", "ministral-3:latest");
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/providers/presets": () =>
+          jsonResponse({
+            object: "provider_presets",
+            data: [
+              {
+                id: "ollama",
+                name: "Ollama",
+                kind: "local",
+                protocol: "openai",
+                base_url: "http://127.0.0.1:11434/v1",
+                default_model: "ministral-3:latest",
+              },
+            ],
+          }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.providerFilter).toBe("auto"));
+
+    expect(result.current.state.model).toBe("");
+  });
+
+  it("creates new chat sessions in the active project", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    window.localStorage.setItem("hecate.project", "proj_1");
+    let createBody: any = null;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/projects": () =>
+          jsonResponse({
+            object: "projects",
+            data: [
+              {
+                id: "proj_1",
+                name: "Hecate",
+                roots: [],
+                created_at: "2026-05-21T10:00:00Z",
+                updated_at: "2026-05-21T10:00:00Z",
+              },
+            ],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_project",
+                title: "Hecate Chat",
+                project_id: "proj_1",
+                agent_id: "hecate",
+                provider: "",
+                model: "gpt-4o-mini",
+                status: "idle",
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession();
+    });
+
+    expect(createBody).toMatchObject({
+      agent_id: "hecate",
+      model: "gpt-4o-mini",
+      project_id: "proj_1",
+    });
+    expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
+  });
+
+  it("honors an explicit project scope when creating a Hecate chat", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
+    let createBody: any = null;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_project",
+                title: "Hecate Chat",
+                project_id: "proj_1",
+                agent_id: "hecate",
+                provider: "",
+                model: "gpt-4o-mini",
+                status: "idle",
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession({ agentID: "hecate", projectID: "proj_1" });
+    });
+
+    expect(createBody).toMatchObject({
+      agent_id: "hecate",
+      model: "gpt-4o-mini",
+      workspace: "/tmp/hecate",
+      project_id: "proj_1",
+    });
+    expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
+  });
+
+  it("honors an explicit project scope when creating an external-agent chat", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-project");
+    let createBody: any = null;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/agent-adapters": () =>
+          jsonResponse({
+            object: "agent_adapters",
+            data: [{ id: "claude_code", name: "Claude Code", available: true }],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_project",
+                title: "Claude Code chat",
+                project_id: "proj_1",
+                agent_id: "claude_code",
+                driver_kind: "acp",
+                workspace: "/tmp/hecate-project",
+                status: "idle",
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession({
+        agentID: "claude_code",
+        projectID: "proj_1",
+      });
+    });
+
+    expect(createBody).toMatchObject({
+      agent_id: "claude_code",
+      workspace: "/tmp/hecate-project",
+      project_id: "proj_1",
+    });
+    expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
   });
 
   it("surfaces a clear error when Hecate chat has no model", async () => {
@@ -599,7 +786,7 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatErrorCode).toBe("chat.workspace_required");
   });
 
-  it("keeps the draft chat unbound when eager external-agent prepare fails", async () => {
+  it("does not create or select a chat when eager external-agent prepare fails", async () => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-project");
