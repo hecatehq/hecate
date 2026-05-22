@@ -1,8 +1,15 @@
 import { expect, test } from "./fixtures";
+import type { Page } from "@playwright/test";
 
 // End-to-end UI flow: Chats stays available in first-run mode, while the
 // Connections workspace owns provider create/delete state.
 // Pure UI — relies on the stateful create/delete mocks in fixtures.ts.
+
+async function expectComposerNotRunnable(page: Page) {
+  if ((await page.locator("textarea").count()) > 0) {
+    await expect(page.locator("button[type='submit']")).toBeDisabled();
+  }
+}
 
 test("adding and deleting a provider keeps chat available", async ({ page }) => {
   await page.goto("/");
@@ -13,9 +20,7 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   await expect(page.getByText(/Nothing runnable yet|No model provider configured/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Open Connections/i })).toBeVisible();
-  if ((await page.locator("textarea").count()) > 0) {
-    await expect(page.locator("button[type='submit']")).toBeDisabled();
-  }
+  await expectComposerNotRunnable(page);
 
   // Move to Connections and add Ollama.
   await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
@@ -36,7 +41,7 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   await page.locator(".hecate-activitybar [aria-label^='Chats']").click();
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   await expect(page.getByText(/Nothing runnable yet|No routable model/)).toBeVisible();
-  await expect(page.locator("textarea")).toHaveCount(0);
+  await expectComposerNotRunnable(page);
 
   // Back to Connections, delete the row.
   await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
@@ -55,5 +60,5 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   await expect(page.getByText(/Nothing runnable yet|No model provider configured/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Open Connections/i })).toBeVisible();
-  await expect(page.locator("textarea")).toHaveCount(0);
+  await expectComposerNotRunnable(page);
 });
