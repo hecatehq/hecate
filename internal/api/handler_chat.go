@@ -221,9 +221,11 @@ func (h *Handler) loadExternalChatSession(ctx context.Context, session chat.Sess
 		}
 		return session
 	}
-	if result.SessionRecovery != "" && !result.SessionResumed {
+	if !result.SessionResumed {
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
-		_ = h.agentChatRunner.CloseSession(closeCtx, session.ID)
+		if result.SessionStarted || result.NativeSessionID != "" && result.NativeSessionID != session.NativeSessionID {
+			_ = h.agentChatRunner.CloseSession(closeCtx, session.ID)
+		}
 		closeCancel()
 		if h.logger != nil {
 			h.logger.WarnContext(ctx, "chat.external_session.load_recovered_fresh_session",
