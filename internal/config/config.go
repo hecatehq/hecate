@@ -393,7 +393,7 @@ func LoadFromEnv() Config {
 			},
 		},
 		Router: RouterConfig{
-			DefaultModel: getEnv("HECATE_DEFAULT_MODEL", "gpt-5.4-mini"),
+			DefaultModel: "",
 		},
 		Provider: ProviderConfig{
 			MaxAttempts:                    getEnvInt("HECATE_PROVIDER_MAX_ATTEMPTS", 2),
@@ -744,7 +744,7 @@ func anthropicCacheDisabledFromEnv() bool {
 
 func loadProvidersFromEnv() ProvidersConfig {
 	// Only register providers that have at least one explicit env var
-	// (PROVIDER_<NAME>_BASE_URL / _API_KEY / _DEFAULT_MODEL / etc.).
+	// (PROVIDER_<NAME>_BASE_URL / _API_KEY / etc.).
 	// Previously this seeded the list with every built-in preset and
 	// relied on providerConfigFromEnv falling back to the catalog's
 	// base_url to keep them — which auto-registered all 12 presets at
@@ -801,7 +801,7 @@ func providerNameFromEnvKey(key string) (string, bool) {
 		return "", false
 	}
 	nameAndField := strings.TrimPrefix(key, prefix)
-	for _, suffix := range []string{"_API_KEY", "_BASE_URL", "_DEFAULT_MODEL"} {
+	for _, suffix := range []string{"_API_KEY", "_BASE_URL"} {
 		if strings.HasSuffix(nameAndField, suffix) {
 			name := strings.TrimSuffix(nameAndField, suffix)
 			name = strings.ToLower(name)
@@ -821,7 +821,7 @@ func providerConfigFromEnv(name string) (OpenAICompatibleProviderConfig, bool) {
 		return OpenAICompatibleProviderConfig{}, false
 	}
 
-	cfg := providerDefaults(name, getEnv("HECATE_DEFAULT_MODEL", "gpt-5.4-mini"))
+	cfg := providerDefaults(name)
 	prefixes := []string{providerEnvPrefix(name)}
 	for _, prefix := range prefixes {
 		cfg.Kind = getEnv(prefix+"KIND", cfg.Kind)
@@ -829,7 +829,6 @@ func providerConfigFromEnv(name string) (OpenAICompatibleProviderConfig, bool) {
 		cfg.APIKey = getEnv(prefix+"API_KEY", cfg.APIKey)
 		cfg.StubMode = getEnvBool(prefix+"STUB_MODE", cfg.StubMode)
 		cfg.StubResponse = getEnv(prefix+"STUB_RESPONSE", cfg.StubResponse)
-		cfg.DefaultModel = getEnv(prefix+"DEFAULT_MODEL", cfg.DefaultModel)
 	}
 
 	// Auto-registration is gated on an explicit opt-in flag. Other
@@ -849,9 +848,9 @@ func providerConfigFromEnv(name string) (OpenAICompatibleProviderConfig, bool) {
 	return cfg, true
 }
 
-func providerDefaults(name, globalDefaultModel string) OpenAICompatibleProviderConfig {
+func providerDefaults(name string) OpenAICompatibleProviderConfig {
 	if builtIn, ok := BuiltInProviderByID(name); ok {
-		return builtIn.RuntimeConfig(globalDefaultModel)
+		return builtIn.RuntimeConfig()
 	}
 	return OpenAICompatibleProviderConfig{
 		Name:         strings.ToLower(strings.TrimSpace(name)),

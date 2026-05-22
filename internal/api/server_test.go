@@ -4975,8 +4975,7 @@ func TestTaskStartAgentLoopWithoutLLM_FailsInRunNotAtQueue(t *testing.T) {
 }
 
 func TestTaskStartAgentLoopWithoutModel_FailsAtStart(t *testing.T) {
-	// When no model is configured (neither task.RequestedModel nor
-	// HECATE_DEFAULT_MODEL), starting an agent_loop run should return
+	// When no model is configured on the task, starting an agent_loop run should return
 	// 422 immediately — no run is created, no tokens are spent.
 	t.Parallel()
 
