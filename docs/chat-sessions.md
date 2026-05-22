@@ -13,6 +13,13 @@ tools toggle decides whether a prompt stays as a direct provider/model turn or
 enters the native agent task runtime. Codex, Claude Code, and Cursor Agent entries in
 the same picker create **External Agent** sessions.
 
+Chats may also belong to a **Project**. Projects are optional durable identities
+for a codebase or work area; **No project** remains a valid chat scope. When a
+project is selected in the Chats sidebar, new Hecate and External Agent chat
+sessions are created with that `project_id`, and the chat list shows only chats
+for the active project. Deleting a project does not delete transcripts; chats
+whose project record no longer exists appear under **No project**.
+
 Hecate Chat treats model/provider readiness as part of composition, not a
 send-time surprise. If no configured provider has routable models, the empty
 state points at provider setup or local runtime discovery. If models exist but

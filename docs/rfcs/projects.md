@@ -4,8 +4,8 @@
 
 Current source of truth: [Agent runtime](../agent-runtime.md), [Chat sessions](../chat-sessions.md), [Architecture](../architecture.md)
 
-Next action: attach chats and tasks to the new project store before adding
-project-scoped memory, agent profiles, and richer context assembly.
+Next action: attach tasks to the project store before adding project-scoped
+memory, agent profiles, and richer context assembly.
 
 ## Summary
 
@@ -108,8 +108,9 @@ Rules:
 
 - `project_id` is nullable during migration.
 - Existing chats and tasks without a project remain valid.
-- First implementation may auto-create a path-derived project when a user starts a chat or task from a local workspace.
-- Operators can rename a path-derived project later.
+- First implementation lets the operator create projects explicitly and attach
+  new chat sessions to the selected project.
+- Operators can rename projects later.
 - Multiple roots can map to one project, but one root should not silently attach to many projects without operator confirmation.
 
 ## API Shape
@@ -122,7 +123,7 @@ POST   /hecate/v1/projects
 GET    /hecate/v1/projects/{project_id}
 PATCH  /hecate/v1/projects/{project_id}
 DELETE /hecate/v1/projects/{project_id}
-GET    /hecate/v1/projects/{project_id}/activity
+GET    /hecate/v1/projects/{project_id}/activity    # future
 ```
 
 Chats and tasks should expose project linkage directly:
@@ -202,10 +203,11 @@ This prevents future context systems from confusing “same path today” with �
 
 Initial UI should stay lightweight:
 
-- Show project identity in Chat settings and Task detail when present.
-- Group chat/task history by project once projects exist.
-- Let “New Hecate chat” inherit project defaults.
-- Let “Use model” and “Use external agent” attach to the same project when started from the same workspace.
+- Show project identity in the Chats sidebar and Chat settings when present.
+- Group chat history by selected project, while keeping **No project** valid.
+- Let “New Hecate chat” and External Agent chats attach to the selected project.
+- Show project identity in Task detail once task linkage exists.
+- Let future “Use model” and “Use external agent” flows attach to the same project when started from the same workspace.
 - Let agent profiles expose whether project memory is injected, visible only,
   or disabled for that agent.
 - Add a project details surface later for defaults, memory, trusted docs, and recent activity.
@@ -217,9 +219,9 @@ Avoid turning Projects into a heavy project-management product. This is a runtim
 The first implementation adds `internal/projects/` with memory and SQLite
 stores, plus `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects`.
 
-This landed as a standalone foundation: project records and roots can be
-persisted, but chats, tasks, context packets, memory entries, profiles, and
-presets are not linked to `project_id` yet.
+This landed as a foundation plus chat grouping: project records and roots can be
+persisted, and chat sessions can carry `project_id`. Tasks, context packets,
+memory entries, profiles, and presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 
@@ -241,9 +243,9 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 ## Implementation Plan
 
 1. Add project store and API basics. Done for memory + SQLite CRUD.
-2. Add UI list/create basics.
-3. Auto-create path-derived projects for local workspaces.
-4. Add `project_id` to chat sessions and tasks.
+2. Add UI list/create/rename/delete basics.
+3. Add `project_id` to chat sessions.
+4. Add `project_id` to tasks.
 5. Thread project identity into context packets.
 6. Add project-scoped memory.
 7. Add agent-profile memory-source selection.
@@ -256,7 +258,8 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 - Unit tests for memory and SQLite project store parity.
 - API tests for CRUD, root attachment, rename, and deletion constraints.
 - Migration tests for adding nullable `project_id` to existing data.
-- Chat tests that new Hecate Chat sessions inherit project defaults.
+- Chat tests that new Hecate and External Agent chat sessions attach to the
+  selected project.
 - Task tests that task/run records preserve `project_id`.
 - Memory tests that project memory appears only for matching `project_id`.
 - Profile tests proving Hecate Chat and external-agent profiles can opt into the

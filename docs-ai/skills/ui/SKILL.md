@@ -214,6 +214,7 @@ src/
     state/              the canonical state surface — every UI piece reads from here
       runtime.tsx         health, session, RTK availability, copy-command transient
       chat.tsx            chat sessions, composer state, in-flight machinery
+      projects.tsx        project list, active project scope, create/rename/delete
       providersAndModels.tsx  provider status, presets, model catalog, agent adapters
       approvals.tsx       pending approvals + agent-chat grants
       retention.tsx       retention runs + subsystems

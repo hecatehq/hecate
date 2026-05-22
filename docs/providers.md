@@ -108,14 +108,13 @@ The gateway ships with thirteen provider presets. None of them are auto-added â€
 
 ## Env-configured providers
 
-Setting `PROVIDER_<NAME>_API_KEY`, `PROVIDER_<NAME>_BASE_URL`, or `PROVIDER_<NAME>_DEFAULT_MODEL` in the environment seeds the runtime registry so the provider becomes reachable for routing, and is also auto-imported into the persisted Connections view so operators can see and manage it through the UI. On subsequent boots the auto-import skips any provider that already exists in the Connections view, so operator edits made via the UI are never overwritten by environment values.
+Setting `PROVIDER_<NAME>_API_KEY` or `PROVIDER_<NAME>_BASE_URL` in the environment seeds the runtime registry so the provider becomes reachable for routing, and is also auto-imported into the persisted Connections view so operators can see and manage it through the UI. On subsequent boots the auto-import skips any provider that already exists in the Connections view, so operator edits made via the UI are never overwritten by environment values.
 
 Env vars are convenient for first-run bootstrapping in `.env` / Docker compose; the Connections view is the source of truth thereafter.
 
 ```bash
 PROVIDER_ANTHROPIC_API_KEY=sk-ant-...
 PROVIDER_OPENAI_API_KEY=sk-...
-PROVIDER_OPENAI_DEFAULT_MODEL=gpt-4o-mini
 PROVIDER_PERPLEXITY_API_KEY=pplx-...
 ```
 
