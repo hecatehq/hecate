@@ -223,7 +223,7 @@ func (h *Handler) loadExternalChatSession(ctx context.Context, session chat.Sess
 	}
 	if !result.SessionResumed {
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
-		if result.SessionStarted || (result.NativeSessionID != "" && result.NativeSessionID != session.NativeSessionID) {
+		if result.SessionStarted {
 			_ = h.agentChatRunner.CloseSession(closeCtx, session.ID)
 		}
 		closeCancel()
