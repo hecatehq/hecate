@@ -36,11 +36,30 @@ async function startHecateChat(page: Page) {
   ).toBeVisible();
 }
 
-async function switchToModel(page: Page) {
+async function chooseComposerModel(page: Page, model = "claude-sonnet-4-6") {
+  const modelBtn = page.getByRole("button", { name: /model picker/i });
+  await expect(modelBtn).toBeVisible();
+  if ((await modelBtn.textContent())?.includes(model)) return;
+
+  await modelBtn.click();
+  const menu = page.locator(".dropdown-menu").first();
+  await expect(menu).toBeVisible();
+  const filter = menu.getByPlaceholder("Filter models...");
+  if (await filter.isVisible()) {
+    await filter.fill(model);
+  }
+  await menu.locator("[role='option']").filter({ hasText: model }).first().click();
+  await expect(modelBtn).toContainText(model);
+}
+
+async function switchToModel(page: Page, selectModel = true) {
   await startHecateChat(page);
   const useModel = page.getByRole("button", { name: "Use model", exact: true });
   if (await useModel.isVisible()) {
     await useModel.click();
+  }
+  if (selectModel) {
+    await chooseComposerModel(page);
   }
 }
 
@@ -122,7 +141,7 @@ test("Hecate composer provider and model controls match shared chat dropdowns", 
 });
 
 test("selecting a model closes the picker and updates the button label", async ({ page }) => {
-  await switchToModel(page);
+  await switchToModel(page, false);
   const modelBtn = page.getByRole("button", { name: /model picker/i });
   await modelBtn.click();
 
@@ -133,7 +152,7 @@ test("selecting a model closes the picker and updates the button label", async (
 });
 
 test("provider picker shows healthy providers", async ({ page }) => {
-  await switchToModel(page);
+  await switchToModel(page, false);
   const healthyProviders = MOCK_PROVIDERS.filter((p) => p.healthy);
   const providerBtn = page.getByRole("button", { name: /provider picker/i });
   await providerBtn.click();
@@ -720,7 +739,7 @@ test("empty model chat can add all detected local providers in one click", async
 
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
-  await switchToModel(page);
+  await switchToModel(page, false);
 
   await expect(page.getByText("Detected locally")).toBeVisible();
   await expect(page.getByText("Ollama", { exact: true })).toBeVisible();
@@ -772,7 +791,7 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
-test("local provider quick-add selects the first healthy detected provider with models", async ({
+test("local provider quick-add makes model chat runnable without detected-provider setup", async ({
   page,
 }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -892,8 +911,8 @@ test("local provider quick-add selects the first healthy detected provider with 
   await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect.poll(() => [...createdPresets].sort()).toEqual(["lmstudio", "ollama"]);
-  await expect(page.getByRole("button", { name: /provider picker/i })).toContainText("Ollama");
-  await expect(page.getByRole("button", { name: /model picker/i })).toContainText("llama3.1:8b");
+  await page.getByRole("button", { name: "Use model" }).click();
+  await expect(page.getByText("Ready when you are")).toBeVisible();
   await expect(page.getByText("No routable model")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
@@ -2153,7 +2172,7 @@ test("configured provider with no models shows troubleshooting, not detected-pro
 
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
-  await switchToModel(page);
+  await switchToModel(page, false);
 
   await expect(page.getByText("Nothing runnable yet")).toBeVisible();
   await expect(
@@ -2262,7 +2281,7 @@ test("selected-model readiness can switch to the backend-suggested fallback mode
   );
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "model");
-    window.localStorage.setItem("hecate.providerFilter", "anthropic");
+    window.localStorage.setItem("hecate.providerFilter", "auto");
     window.localStorage.setItem("hecate.model", "claude-sonnet-4-6");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
   });

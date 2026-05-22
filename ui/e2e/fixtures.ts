@@ -397,7 +397,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           driver_kind: isExternal ? "acp" : "",
           native_session_id: isExternal ? `native-${chatSequence}` : "",
           provider: body.provider || "auto",
-          model: body.model || MOCK_MODELS[0]?.id || "",
+          model: body.model || "",
           capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
           rtk_enabled: Boolean(body.rtk_enabled),
           workspace: body.workspace || "/tmp/hecate-e2e",
