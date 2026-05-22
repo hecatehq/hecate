@@ -1584,7 +1584,8 @@ func TestAgentChatLoadKeepsStoredExternalSessionWhenACPUnavailable(t *testing.T)
 func TestAgentChatLoadDoesNotPersistFreshSessionAfterStaleNativeSession(t *testing.T) {
 	dir := t.TempDir()
 	store := chat.NewMemoryStore()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	storedBool := false
 	freshBool := true
 
@@ -1607,6 +1608,7 @@ func TestAgentChatLoadDoesNotPersistFreshSessionAfterStaleNativeSession(t *testi
 		sessionStarted:  true,
 		sessionRecovery: "could not restore ACP session native_stale: not found",
 		configOptions:   []agentcontrols.ConfigOption{{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &freshBool}},
+		closeErr:        errors.New("close failed"),
 	}
 	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatStore(store)
@@ -1622,6 +1624,16 @@ func TestAgentChatLoadDoesNotPersistFreshSessionAfterStaleNativeSession(t *testi
 	}
 	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != created.ID {
 		t.Fatalf("closed sessions = %#v, want fresh read-time ACP session closed", runner.closedSessions)
+	}
+	for _, want := range []string{
+		"chat.external_session.load_fallback_close_failed",
+		"chat.external_session.load_started_fallback_session",
+		"fallback_native_session_id",
+		"session_started",
+	} {
+		if !strings.Contains(logs.String(), want) {
+			t.Fatalf("logs missing %q:\n%s", want, logs.String())
+		}
 	}
 	persisted, ok, err := store.Get(context.Background(), created.ID)
 	if err != nil || !ok {
@@ -1685,7 +1697,8 @@ func TestAgentChatLoadDoesNotPersistFreshSessionWhenLoadUnsupported(t *testing.T
 func TestAgentChatLoadDoesNotCloseActiveSessionWhenNotStarted(t *testing.T) {
 	dir := t.TempDir()
 	store := chat.NewMemoryStore()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 
 	created, err := store.Create(context.Background(), chat.Session{
 		ID:              "chat_external_load_active_elsewhere",
@@ -1714,6 +1727,18 @@ func TestAgentChatLoadDoesNotCloseActiveSessionWhenNotStarted(t *testing.T) {
 	}
 	if len(runner.closedSessions) != 0 {
 		t.Fatalf("closed sessions = %#v, want read path not to close an active session it did not start", runner.closedSessions)
+	}
+	for _, want := range []string{
+		"chat.external_session.load_returned_unresumed_session",
+		"returned_native_session_id",
+		"session_started",
+	} {
+		if !strings.Contains(logs.String(), want) {
+			t.Fatalf("logs missing %q:\n%s", want, logs.String())
+		}
+	}
+	if strings.Contains(logs.String(), "fresh_native_session_id") || strings.Contains(logs.String(), "fallback_native_session_id") {
+		t.Fatalf("logs should not describe an unstarted session as fresh/fallback:\n%s", logs.String())
 	}
 	persisted, ok, err := store.Get(context.Background(), created.ID)
 	if err != nil || !ok {
@@ -2537,6 +2562,7 @@ type fakeAgentChatRunner struct {
 	prepareDeadline    time.Time
 	prepareHasDeadline bool
 	closedSessions     []string
+	closeErr           error
 	configOptions      []agentcontrols.ConfigOption
 }
 
@@ -2657,7 +2683,7 @@ func (r *fakeAgentChatRunner) SetSessionConfigOption(_ context.Context, req agen
 
 func (r *fakeAgentChatRunner) CloseSession(_ context.Context, sessionID string) error {
 	r.closedSessions = append(r.closedSessions, sessionID)
-	return nil
+	return r.closeErr
 }
 
 func (r *fakeAgentChatRunner) Shutdown(context.Context) error { return nil }

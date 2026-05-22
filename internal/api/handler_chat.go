@@ -224,16 +224,36 @@ func (h *Handler) loadExternalChatSession(ctx context.Context, session chat.Sess
 	if !result.SessionResumed {
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
 		if result.SessionStarted {
-			_ = h.agentChatRunner.CloseSession(closeCtx, session.ID)
+			if err := h.agentChatRunner.CloseSession(closeCtx, session.ID); err != nil && h.logger != nil {
+				h.logger.WarnContext(ctx, "chat.external_session.load_fallback_close_failed",
+					"session_id", session.ID,
+					"agent_id", session.AgentID,
+					"adapter_name", adapter.Name,
+					"native_session_id", session.NativeSessionID,
+					"fallback_native_session_id", result.NativeSessionID,
+					"session_started", result.SessionStarted,
+					"session_resumed", result.SessionResumed,
+					"recovery", result.SessionRecovery,
+					"error", err,
+				)
+			}
 		}
 		closeCancel()
 		if h.logger != nil {
-			h.logger.WarnContext(ctx, "chat.external_session.load_recovered_fresh_session",
+			eventName := "chat.external_session.load_returned_unresumed_session"
+			nativeSessionKey := "returned_native_session_id"
+			if result.SessionStarted {
+				eventName = "chat.external_session.load_started_fallback_session"
+				nativeSessionKey = "fallback_native_session_id"
+			}
+			h.logger.WarnContext(ctx, eventName,
 				"session_id", session.ID,
 				"agent_id", session.AgentID,
 				"adapter_name", adapter.Name,
 				"native_session_id", session.NativeSessionID,
-				"fresh_native_session_id", result.NativeSessionID,
+				nativeSessionKey, result.NativeSessionID,
+				"session_started", result.SessionStarted,
+				"session_resumed", result.SessionResumed,
 				"recovery", result.SessionRecovery,
 			)
 		}
