@@ -449,7 +449,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       isExternalAgentChat &&
       (!state.agentWorkspace.trim() || !selectedAgent?.available)) ||
     (!agentBusy && isExternalAgentChat && externalAgentSetupRequired) ||
-    (!agentBusy && isExternalAgentChat && externalAgentModelRequired) ||
     (!agentBusy &&
       isHecateAgentChat &&
       (!hecateChatModelReady ||

@@ -174,13 +174,6 @@ export function ModelPicker({
         closeMenu();
         return;
       }
-      if (!includeAll && filter.trim() === "") {
-        event.preventDefault();
-        event.stopPropagation();
-        onChange("");
-        closeMenu();
-        return;
-      }
       const firstEnabled = filtered.find((model) => {
         const provider = model.metadata?.provider;
         return !provider || !disabledProviders?.has(provider);

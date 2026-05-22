@@ -453,6 +453,17 @@ describe("ModelPicker", () => {
     expect(onChange).toHaveBeenCalledWith("gpt-4o");
   });
 
+  it("selects the first enabled model when Enter is pressed with an empty filter", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<ModelPicker value="claude-sonnet-4-6" onChange={onChange} models={models} />);
+    await user.click(screen.getByRole("button"));
+    await user.keyboard("{Enter}");
+
+    expect(onChange).toHaveBeenCalledWith("gpt-4o-mini");
+    expect(onChange).not.toHaveBeenCalledWith("");
+  });
+
   it("disables the trigger when the model list is empty", async () => {
     // Selecting a provider whose runtime isn't running (Ollama / LM Studio
     // not started, llamacpp credentials missing) yields a 0-model list
