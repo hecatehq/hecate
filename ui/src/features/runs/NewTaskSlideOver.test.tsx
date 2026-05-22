@@ -460,10 +460,14 @@ describe("NewTaskSlideOver model warnings (agent_loop)", () => {
 async function gotoAgentLoopAndAddMCPRow(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Agent loop" }));
   await user.type(screen.getByPlaceholderText(/describe the task/i), "do the thing");
-  const modelTrigger = screen.queryByRole("button", { name: /Model picker:/i }) as
-    | HTMLButtonElement
-    | null;
-  if (modelTrigger && !modelTrigger.disabled && /pick a model/i.test(modelTrigger.textContent ?? "")) {
+  const modelTrigger = screen.queryByRole("button", {
+    name: /Model picker:/i,
+  }) as HTMLButtonElement | null;
+  if (
+    modelTrigger &&
+    !modelTrigger.disabled &&
+    /pick a model/i.test(modelTrigger.textContent ?? "")
+  ) {
     await user.click(modelTrigger);
     await user.click(screen.getByRole("option", { name: /model-a/i }));
   }
