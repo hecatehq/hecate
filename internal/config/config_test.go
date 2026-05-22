@@ -33,15 +33,6 @@ func TestDefaultProviderTimeoutBranchesOnKind(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnvUsesCurrentOpenAIDefaultModel(t *testing.T) {
-	t.Setenv("HECATE_DEFAULT_MODEL", "")
-
-	cfg := LoadFromEnv()
-	if cfg.Router.DefaultModel != "gpt-5.4-mini" {
-		t.Fatalf("default model = %q, want gpt-5.4-mini", cfg.Router.DefaultModel)
-	}
-}
-
 func TestLoadFromEnvBackendFansOutToDurableStores(t *testing.T) {
 	t.Setenv("HECATE_BACKEND", " SQLite ")
 
@@ -332,18 +323,15 @@ func TestLoadProvidersFromEnvUsesGenericProviderPrefixes(t *testing.T) {
 	}
 }
 
-func TestBuiltInProviderCatalogDefaults(t *testing.T) {
+func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 	t.Parallel()
 
 	openai, ok := BuiltInProviderByID("openai")
 	if !ok {
 		t.Fatal("BuiltInProviderByID(openai) = not found")
 	}
-	if openai.DefaultModel != "gpt-5.4-mini" {
-		t.Fatalf("openai built-in default model = %q, want gpt-5.4-mini", openai.DefaultModel)
-	}
-	if got := openai.RuntimeConfig("gpt-5.4").DefaultModel; got != "gpt-5.4" {
-		t.Fatalf("openai runtime default model = %q, want overridden global default", got)
+	if openai.Protocol != "openai" {
+		t.Fatalf("openai protocol = %q, want openai", openai.Protocol)
 	}
 
 	anthropic, ok := BuiltInProviderByID("anthropic")
@@ -352,9 +340,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	}
 	if anthropic.Protocol != "anthropic" {
 		t.Fatalf("anthropic protocol = %q, want anthropic", anthropic.Protocol)
-	}
-	if got := anthropic.RuntimeConfig("ignored").DefaultModel; got != "claude-sonnet-4-6" {
-		t.Fatalf("anthropic default model = %q, want claude-sonnet-4-6", got)
 	}
 
 	deepseek, ok := BuiltInProviderByID("deepseek")
@@ -367,9 +352,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	if deepseek.BaseURL != "https://api.deepseek.com/v1" {
 		t.Fatalf("deepseek base url = %q, want https://api.deepseek.com/v1", deepseek.BaseURL)
 	}
-	if got := deepseek.RuntimeConfig("ignored").DefaultModel; got != "deepseek-chat" {
-		t.Fatalf("deepseek default model = %q, want deepseek-chat", got)
-	}
 
 	gemini, ok := BuiltInProviderByID("gemini")
 	if !ok {
@@ -380,9 +362,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	}
 	if gemini.BaseURL != "https://generativelanguage.googleapis.com/v1beta/openai" {
 		t.Fatalf("gemini base url = %q, want https://generativelanguage.googleapis.com/v1beta/openai", gemini.BaseURL)
-	}
-	if got := gemini.RuntimeConfig("ignored").DefaultModel; got != "gemini-2.5-flash" {
-		t.Fatalf("gemini default model = %q, want gemini-2.5-flash", got)
 	}
 
 	xai, ok := BuiltInProviderByID("xai")
@@ -395,9 +374,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	if xai.BaseURL != "https://api.x.ai/v1" {
 		t.Fatalf("xai base url = %q, want https://api.x.ai/v1", xai.BaseURL)
 	}
-	if got := xai.RuntimeConfig("ignored").DefaultModel; got != "grok-3-mini" {
-		t.Fatalf("xai default model = %q, want grok-3-mini", got)
-	}
 
 	mistral, ok := BuiltInProviderByID("mistral")
 	if !ok {
@@ -408,9 +384,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	}
 	if mistral.BaseURL != "https://api.mistral.ai/v1" {
 		t.Fatalf("mistral base url = %q, want https://api.mistral.ai/v1", mistral.BaseURL)
-	}
-	if got := mistral.RuntimeConfig("ignored").DefaultModel; got != "mistral-small-latest" {
-		t.Fatalf("mistral default model = %q, want mistral-small-latest", got)
 	}
 
 	perplexity, ok := BuiltInProviderByID("perplexity")
@@ -426,9 +399,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	if perplexity.ChatPath != "/chat/completions" {
 		t.Fatalf("perplexity chat path = %q, want /chat/completions", perplexity.ChatPath)
 	}
-	if got := perplexity.RuntimeConfig("ignored").DefaultModel; got != "sonar" {
-		t.Fatalf("perplexity default model = %q, want sonar", got)
-	}
 
 	together, ok := BuiltInProviderByID("together_ai")
 	if !ok {
@@ -440,20 +410,11 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	if together.BaseURL != "https://api.together.xyz/v1" {
 		t.Fatalf("together_ai base url = %q, want https://api.together.xyz/v1", together.BaseURL)
 	}
-	if got := together.RuntimeConfig("ignored").DefaultModel; got != "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
-		t.Fatalf("together_ai default model = %q, want meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", got)
-	}
 
 	for _, id := range []string{"ollama", "LM Studio", "localai", "llamacpp"} {
-		local, ok := BuiltInProviderByID(id)
+		_, ok := BuiltInProviderByID(id)
 		if !ok {
 			t.Fatalf("BuiltInProviderByID(%s) = not found", id)
-		}
-		if local.DefaultModel != "" {
-			t.Fatalf("%s built-in default model = %q, want empty for discovery", local.ID, local.DefaultModel)
-		}
-		if got := local.RuntimeConfig("ignored").DefaultModel; got != "" {
-			t.Fatalf("%s runtime default model = %q, want empty for discovery", local.ID, got)
 		}
 	}
 }

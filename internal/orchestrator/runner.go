@@ -566,8 +566,8 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	// clean 422 and avoids a run that would immediately fail on its
 	// first LLM call with a confusing "no route" error.
 	if task.ExecutionKind == "agent_loop" {
-		if firstNonEmpty(task.RequestedModel, r.config.DefaultModel) == "" {
-			return nil, fmt.Errorf("%w: no model configured — set task.RequestedModel or HECATE_DEFAULT_MODEL", ErrAgentLoopMisconfigured)
+		if strings.TrimSpace(task.RequestedModel) == "" {
+			return nil, fmt.Errorf("%w: no model configured; set task.RequestedModel", ErrAgentLoopMisconfigured)
 		}
 	}
 

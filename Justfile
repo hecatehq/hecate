@@ -88,8 +88,8 @@ run *args: _go-cache
 
 # Run the pre-built ./hecate binary. The `stop` dependency frees :8765 if a
 # stale process is still listening, so a forgotten Ctrl-C never blocks a
-# restart. It also sources .env so configured providers are available,
-# matching the `just dev` workflow.
+# restart. It sources .env when present so configured providers are available,
+# but clean checkouts can run with defaults.
 # Serve the pre-built runtime binary. Optional arg: --reset.
 serve *args:
 	needs_reset=0; \
@@ -106,7 +106,7 @@ serve *args:
 	set +a; \
 	./hecate
 
-# Run the gateway from source with .env loaded. Optional arg: --reset.
+# Run the gateway from source. Sources .env when present. Optional arg: --reset.
 dev *args: _go-cache
 	needs_reset=0; \
 	for arg in {{args}}; do \
@@ -117,7 +117,7 @@ dev *args: _go-cache
 	done; \
 	if [ "$needs_reset" = "1" ]; then just reset-dev > /dev/null; else just stop; fi
 	set -a; \
-	. ./.env; \
+	[ -f ./.env ] && . ./.env; \
 	set +a; \
 	GOCACHE="$PWD/{{gocache}}" go run ./cmd/hecate
 
