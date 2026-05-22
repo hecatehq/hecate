@@ -435,10 +435,10 @@ function ChatSegmentDivider({ segment }: { segment: ChatSegmentRecord }) {
           minWidth: 0,
           maxWidth: "100%",
           border: "1px solid var(--border)",
-          background: "rgba(12, 18, 22, 0.78)",
+          background: "var(--bg2)",
           borderRadius: 999,
           padding: "5px 10px",
-          boxShadow: "0 0 0 1px rgba(255,255,255,0.02)",
+          boxShadow: "var(--shadow-popover)",
         }}
       >
         <span

@@ -145,6 +145,7 @@ describe("BrandAvatar", () => {
     const { container } = render(<BrandAvatar brand="hecate" fallback="Hecate" />);
     expect(container.querySelector("img")?.getAttribute("src")).toContain("hecate-mark");
     expect(container.querySelector("img")?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector("img")).toHaveStyle({ filter: "var(--mono-icon-filter)" });
   });
 
   it("uses the Meta icon for llama.cpp providers", () => {

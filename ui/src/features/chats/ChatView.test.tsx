@@ -2205,6 +2205,9 @@ describe("ChatView input", () => {
     expect(screen.queryByRole("button", { name: /Open Task second/i })).toBeNull();
     expect(screen.getAllByRole("button", { name: /Open Task first/i })).toHaveLength(1);
     expect(screen.getAllByText(/direct model chat/)).toHaveLength(2);
+    expect(screen.getByLabelText("Tools on segment using qwen2.5-coder").children[1]).toHaveStyle({
+      background: "var(--bg2)",
+    });
   });
 
   it("renders projected Hecate Chat task run activity in the transcript", () => {

@@ -45,7 +45,7 @@ const BRAND_ICONS: Record<string, BrandIconSpec> = {
   deepseek: { component: Deepseek },
   gemini: { component: GoogleGeminiIcon },
   groq: { component: Groq, monochrome: true },
-  hecate: { image: hecateMarkURL },
+  hecate: { image: hecateMarkURL, monochrome: true },
   lm_studio: { component: LmStudioIcon, monochrome: true },
   lmstudio: { component: LmStudioIcon, monochrome: true },
   llama_cpp: { component: MetaIcon, monochrome: true },
@@ -59,6 +59,7 @@ const BRAND_ICONS: Record<string, BrandIconSpec> = {
 };
 
 const MONOCHROME_ICON_COLOR = "var(--mono-icon)";
+const MONOCHROME_IMAGE_FILTER = "var(--mono-icon-filter)";
 
 export function BrandAvatar({
   brand,
@@ -81,6 +82,7 @@ export function BrandAvatar({
       src={icon.image}
       style={{
         display: "block",
+        filter: icon.monochrome ? MONOCHROME_IMAGE_FILTER : undefined,
         height: Math.max(14, Math.round(size * 0.6)),
         width: Math.max(14, Math.round(size * 0.6)),
       }}
