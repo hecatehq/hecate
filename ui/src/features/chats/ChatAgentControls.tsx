@@ -293,10 +293,11 @@ export function chatAgentOption(
   if (value !== "hecate") {
     const adapter = adapters.find((item) => item.id === value);
     if (!adapter) {
+      const label = adapterDisplayName(value, undefined);
       return {
-        id: "hecate",
-        label: "Hecate",
-        title: "Chat with Hecate; enable tools to use Hecate's task runtime.",
+        id: value,
+        label,
+        title: `External agent ${label} is selected. Hecate is still loading or refreshing its adapter catalog.`,
       };
     }
     return {
@@ -478,6 +479,8 @@ function adapterLoginCommand(optionID: ChatAgentOptionID): string {
       return "claude /login";
     case "cursor_agent":
       return "cursor-agent login";
+    case "grok_build":
+      return "grok login";
     default:
       return "";
   }
@@ -486,9 +489,18 @@ function adapterLoginCommand(optionID: ChatAgentOptionID): string {
 function adapterDisplayName(optionID: ChatAgentOptionID, adapter?: AgentAdapterRecord): string {
   return (
     adapter?.name ||
-    (optionID === "hecate" ? HECATE_CHAT_AGENT_OPTION.label : "") ||
+    (optionID === "hecate" ? HECATE_CHAT_AGENT_OPTION.label : humanizeAgentID(optionID)) ||
     "External agent"
   );
+}
+
+function humanizeAgentID(value: string): string {
+  return value
+    .trim()
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function adapterReadyTitle(

@@ -147,7 +147,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	cmd := exec.CommandContext(context.Background(), path, args...)
 	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
-	cmd.Env = sanitizedEnv(os.Environ())
+	cmd.Env = sanitizedEnvForAdapter(adapter.ID, os.Environ())
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

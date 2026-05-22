@@ -7,6 +7,7 @@ import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import {
   ExternalAgentConfigControls,
   NewChatAgentButton,
+  chatAgentOption,
   chatAgentOptionStatus,
 } from "./ChatAgentControls";
 
@@ -69,6 +70,14 @@ describe("NewChatAgentButton", () => {
       },
     );
     expect(probed.title).toContain("verified adapter startup, auth, and ACP session creation");
+  });
+
+  it("preserves an external-agent selection while the adapter catalog loads", () => {
+    const option = chatAgentOption("grok_build", []);
+
+    expect(option.id).toBe("grok_build");
+    expect(option.label).toBe("Grok Build");
+    expect(option.title).toContain("adapter catalog");
   });
 
   it("creates a Hecate chat from a compact primary button", async () => {

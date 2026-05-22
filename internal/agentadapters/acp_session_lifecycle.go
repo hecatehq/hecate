@@ -65,7 +65,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	cmd := exec.CommandContext(context.Background(), command, args...)
 	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
-	cmd.Env = sanitizedEnv(os.Environ())
+	cmd.Env = sanitizedEnvForAdapter(adapter.ID, os.Environ())
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

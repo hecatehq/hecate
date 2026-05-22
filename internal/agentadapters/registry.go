@@ -856,6 +856,10 @@ func ValidateWorkspace(path string) (string, error) {
 }
 
 func sanitizedEnv(env []string) []string {
+	return sanitizedEnvForAdapter("", env)
+}
+
+func sanitizedEnvForAdapter(adapterID string, env []string) []string {
 	allowedPrefixes := []string{
 		"ANTHROPIC_",
 		"CODEX_",
@@ -872,18 +876,21 @@ func sanitizedEnv(env []string) []string {
 		"TERM=",
 		"USER=",
 		"LOGNAME=",
-		"XAI_",
 		"XDG_",
 		"VOLTA_",
+	}
+	includeXAI := strings.EqualFold(strings.TrimSpace(adapterID), "grok_build")
+	if includeXAI {
+		allowedPrefixes = append(allowedPrefixes, "XAI_")
 	}
 	out := make([]string, 0, len(env))
 	hasXAIAPIKey := false
 	providerXAIAPIKey := ""
 	for _, entry := range env {
-		if strings.HasPrefix(entry, "XAI_API_KEY=") && strings.TrimSpace(strings.TrimPrefix(entry, "XAI_API_KEY=")) != "" {
+		if includeXAI && strings.HasPrefix(entry, "XAI_API_KEY=") && strings.TrimSpace(strings.TrimPrefix(entry, "XAI_API_KEY=")) != "" {
 			hasXAIAPIKey = true
 		}
-		if strings.HasPrefix(entry, "PROVIDER_XAI_API_KEY=") {
+		if includeXAI && strings.HasPrefix(entry, "PROVIDER_XAI_API_KEY=") {
 			providerXAIAPIKey = strings.TrimSpace(strings.TrimPrefix(entry, "PROVIDER_XAI_API_KEY="))
 		}
 		for _, prefix := range allowedPrefixes {
@@ -893,7 +900,7 @@ func sanitizedEnv(env []string) []string {
 			}
 		}
 	}
-	if !hasXAIAPIKey && providerXAIAPIKey != "" {
+	if includeXAI && !hasXAIAPIKey && providerXAIAPIKey != "" {
 		out = append(out, "XAI_API_KEY="+providerXAIAPIKey)
 	}
 	return out
