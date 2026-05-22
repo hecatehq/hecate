@@ -34,6 +34,7 @@ func renderChatSessionSummary(session chat.Session) ChatSessionSummaryItem {
 	return ChatSessionSummaryItem{
 		ID:              session.ID,
 		Title:           session.Title,
+		ProjectID:       session.ProjectID,
 		AgentID:         renderChatAgentID(session),
 		DriverKind:      session.DriverKind,
 		NativeSessionID: session.NativeSessionID,
@@ -93,6 +94,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 	return ChatSessionItem{
 		ID:                   session.ID,
 		Title:                session.Title,
+		ProjectID:            session.ProjectID,
 		AgentID:              renderChatAgentID(session),
 		DriverKind:           session.DriverKind,
 		NativeSessionID:      session.NativeSessionID,

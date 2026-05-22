@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/projects"
 )
@@ -258,5 +259,74 @@ func TestProjectsAPI_BlankLastOpenedAtPatchDoesNotMutate(t *testing.T) {
 	}
 	if got.Data.LastOpenedAt != originalLastOpenedAt {
 		t.Fatalf("last_opened_at mutated to %q, want %q", got.Data.LastOpenedAt, originalLastOpenedAt)
+	}
+}
+
+func TestProjectsAPI_DeleteProjectDeletesProjectChats(t *testing.T) {
+	t.Parallel()
+	logger := quietLogger()
+	handler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	chatStore := chat.NewMemoryStore()
+	handler.SetAgentChatStore(chatStore)
+	server := NewServer(logger, handler)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"Hecate"}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	ctx := t.Context()
+	if _, err := chatStore.Create(ctx, chat.Session{
+		ID:        "chat_project",
+		Title:     "Project chat",
+		ProjectID: created.Data.ID,
+		AgentID:   chat.DefaultAgentID,
+	}); err != nil {
+		t.Fatalf("create project chat: %v", err)
+	}
+	if _, err := chatStore.Create(ctx, chat.Session{
+		ID:        "chat_other",
+		Title:     "Other project chat",
+		ProjectID: "proj_other",
+		AgentID:   chat.DefaultAgentID,
+	}); err != nil {
+		t.Fatalf("create other project chat: %v", err)
+	}
+	if _, err := chatStore.Create(ctx, chat.Session{
+		ID:      "chat_unprojected",
+		Title:   "Unprojected chat",
+		AgentID: chat.DefaultAgentID,
+	}); err != nil {
+		t.Fatalf("create unprojected chat: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+created.Data.ID, nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+
+	sessions, err := chatStore.List(ctx)
+	if err != nil {
+		t.Fatalf("list chats: %v", err)
+	}
+	ids := make(map[string]bool, len(sessions))
+	for _, session := range sessions {
+		ids[session.ID] = true
+		if session.ProjectID == created.Data.ID {
+			t.Fatalf("deleted project chat remains: %+v", session)
+		}
+	}
+	if ids["chat_project"] {
+		t.Fatalf("project chat was not deleted")
+	}
+	if !ids["chat_other"] || !ids["chat_unprojected"] {
+		t.Fatalf("unrelated chats = %v, want other project and unprojected chats retained", ids)
 	}
 }

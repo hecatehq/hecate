@@ -573,6 +573,7 @@ type AgentAdapterSetupCommandStatusItem struct {
 
 type CreateChatSessionRequest struct {
 	Title      string `json:"title,omitempty"`
+	ProjectID  string `json:"project_id,omitempty"`
 	AgentID    string `json:"agent_id,omitempty"`
 	Provider   string `json:"provider,omitempty"`
 	Model      string `json:"model,omitempty"`
@@ -604,6 +605,7 @@ type SetAgentChatSettingsRequest struct {
 type ChatSessionSummaryItem struct {
 	ID              string                  `json:"id"`
 	Title           string                  `json:"title"`
+	ProjectID       string                  `json:"project_id,omitempty"`
 	AgentID         string                  `json:"agent_id"`
 	DriverKind      string                  `json:"driver_kind,omitempty"`
 	NativeSessionID string                  `json:"native_session_id,omitempty"`
@@ -624,6 +626,7 @@ type ChatSessionSummaryItem struct {
 type ChatSessionItem struct {
 	ID                   string                       `json:"id"`
 	Title                string                       `json:"title"`
+	ProjectID            string                       `json:"project_id,omitempty"`
 	AgentID              string                       `json:"agent_id"`
 	DriverKind           string                       `json:"driver_kind,omitempty"`
 	NativeSessionID      string                       `json:"native_session_id,omitempty"`

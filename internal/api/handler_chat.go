@@ -49,6 +49,16 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 		writeChatAgentIDInvalid(w)
 		return
 	}
+	projectID := strings.TrimSpace(req.ProjectID)
+	if projectID != "" {
+		if _, ok, err := h.projects.Get(r.Context(), projectID); err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		} else if !ok {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+	}
 	isExternalAgent := agentID != chat.DefaultAgentID
 	workspace := strings.TrimSpace(req.Workspace)
 	if isExternalAgent {
@@ -76,6 +86,7 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	session := chat.Session{
 		ID:              newChatID("chat"),
 		Title:           title,
+		ProjectID:       projectID,
 		AgentID:         agentID,
 		Workspace:       workspace,
 		WorkspaceBranch: workspaceBranch,
