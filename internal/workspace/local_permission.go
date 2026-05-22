@@ -10,12 +10,6 @@ import (
 // workspace's gate is the same policy the one-shot Run path already
 // enforces at spawn time.
 //
-// The ACPWorkspace counterpart (added later in the refactor) forwards
-// the request to session/request_permission on the editor instead;
-// the contract from the caller's perspective is unchanged either way
-// — block until you have a PermissionDecision, then proceed only on
-// Granted.
-//
 // Today's mapping (kept narrow on purpose):
 //   - file_write / file_delete: denied when Policy.ReadOnly is true.
 //   - network_fetch: denied when Policy.Network is false.

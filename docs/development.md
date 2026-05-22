@@ -155,16 +155,14 @@ just docs-format       # format tracked Markdown and .mdc docs with Oxfmt
 just format-check      # Go + UI + website + docs formatting check
 just format            # auto-format Go + UI + website + docs
 just website-build     # Astro website check + production build
-just test-acp-smoke    # ACP stdio bridge smoke against fake local upstream
 just ui-coverage       # UI coverage report (vitest --coverage)
 just test-docker-smoke # boots the production image and probes /healthz, /v1/models
 just test-tauri-smoke  # macOS native app smoke: build .app, probe /healthz, quit
-just test-tauri-acp-smoke # native app + bundled ACP bridge discovery smoke
 just verify            # full gate: docs/env check, Go, Docker, UI, build
 just release vX.Y.Z    # verify, then run the release script
 ```
 
-The race detector is the strongest correctness check (and the slowest); CI runs it on every push. `test-acp-smoke` starts a fake OpenAI-compatible upstream, the real `hecate` runtime in gateway mode, and the real `cmd/hecate-acp` stdio bridge, then verifies model discovery, same-task continuation, SSE updates, and editor approval round-trip behavior. The Go e2e suite also includes binary-level External Agent approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits; `test-tauri-acp-smoke` additionally runs the bundled `hecate-acp` without `HECATE_GATEWAY_URL` and verifies native runtime discovery through `hecate.runtime.json`. Both native smokes are opt-in because they open a real GUI window.
+The race detector is the strongest correctness check (and the slowest); CI runs it on every push. The Go e2e suite also includes binary-level External Agent approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits. The native smoke is opt-in because it opens a real GUI window.
 
 Before cutting a public tag, run `just verify` and follow the checklist in [Release](release.md).
 
@@ -228,7 +226,6 @@ Top-level entry points:
 
 ```
 cmd/hecate/            # main runtime entry point (gateway service, embedded UI, `mcp-server` subcommand)
-cmd/hecate-acp/         # ACP stdio bridge for editor agent panels
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
 website/                # Astro homepage for hecate.sh
 tauri/                  # native desktop app (Tauri 2.x); wraps `hecate` as a sidecar
@@ -241,7 +238,6 @@ pkg/types/              # public types shared with external Go code
 Internal packages (each `internal/<name>/` is a single Go package):
 
 ```
-acp                     # ACP protocol types + dispatcher used by cmd/hecate-acp
 agentadapters           # external coding-agent adapter framework (Codex, Claude Code, Cursor Agent)
 api                     # HTTP handlers — chat, messages, tasks, settings, telemetry
 bootstrap               # first-run secret-key generation and persistence

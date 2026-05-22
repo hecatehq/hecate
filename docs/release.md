@@ -66,8 +66,8 @@ Every `v*` tag fires `.github/workflows/release.yml`, which expands into
 five Actions jobs:
 
 1. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
-   `linux+darwin × amd64+arm64`; each tarball includes `hecate` and
-   `hecate-acp`. It also publishes multi-arch Docker images on
+   `linux+darwin × amd64+arm64`; each tarball includes `hecate`. It also
+   publishes multi-arch Docker images on
    `ghcr.io/hecatehq/hecate`, source tarball, checksums, GitHub Release
    entry.
 2. **`tauri / build`** (matrix, ~10–15 min, runs after goreleaser) —
@@ -90,7 +90,7 @@ Acceptance after the run:
 - All release jobs green.
 - Release entry marked **Pre-release** for `-alpha.N` tags.
 - Goreleaser-side artifacts attached: tarballs for each goos/goarch + checksums.
-  Each tarball contains both `hecate` and `hecate-acp`.
+  Each tarball contains `hecate`.
 - Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
   If any is missing, the matrix leg silently skipped upload — open the run
   to see what failed.
@@ -100,9 +100,8 @@ Acceptance after the run:
   the release tag. This is the updater endpoint bundled into alpha.28+ desktop
   apps; the GitHub Release `latest.json` asset is a backup/source artifact.
 - `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix —
-  goreleaser uses bare semver as the docker tag). The image contains both
-  `/usr/local/bin/hecate` and `/usr/local/bin/hecate-acp`; the entrypoint is
-  `/usr/local/bin/hecate`.
+  goreleaser uses bare semver as the docker tag). The image contains
+  `/usr/local/bin/hecate`; the entrypoint is `/usr/local/bin/hecate`.
 - `docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:X.Y.Z` then
   `curl :8765/healthz` returns `version: "X.Y.Z"`.
 
@@ -120,11 +119,10 @@ The target runs the non-destructive launch checks in order:
 2. Go unit tests
 3. `go vet`
 4. Go race tests
-5. ACP bridge smoke test
-6. Docker smoke test
-7. UI unit tests
-8. UI e2e tests
-9. production binary build with embedded UI
+5. Docker smoke test
+6. UI unit tests
+7. UI e2e tests
+8. production binary build with embedded UI
 
 If a check is intentionally skipped, call it out in the release notes with the
 reason and the risk. Docker smoke and UI e2e are allowed to be slow; they are

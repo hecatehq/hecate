@@ -415,7 +415,7 @@ The task's `approval_policy=block` short-circuited the call. The upstream was ne
 
 ### `tool.file.patch`
 
-Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_write` / `file_edit`) writes or proposes a file change. Hecate stores an inline `patch` artifact containing a unified diff of the before/after file contents, then emits this event so operator UIs, CLIs, and future ACP bridges can render the edit without re-running `git diff` against a moving workspace.
+Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_write` / `file_edit`) writes or proposes a file change. Hecate stores an inline `patch` artifact containing a unified diff of the before/after file contents, then emits this event so operator UIs and CLIs can render the edit without re-running `git diff` against a moving workspace.
 
 | Extra key                          | Type     | Notes                                                                    |
 | ---------------------------------- | -------- | ------------------------------------------------------------------------ |

@@ -33,7 +33,7 @@ pub struct GatewayPaths {
     pub data_dir: PathBuf,
     /// Gateway stderr log captured for the most recent launch.
     pub log_path: PathBuf,
-    /// Runtime state consumed by hecate-acp to discover the native sidecar URL.
+    /// Runtime state written for native diagnostics and future local helpers.
     pub state_path: PathBuf,
 }
 

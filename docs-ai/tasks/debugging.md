@@ -7,7 +7,7 @@ Debug deliberately. Blind edits convert a known problem into an unknown one.
 A bug you can't reproduce is a bug you can't fix. Pin the conditions before changing code:
 
 - Provider and model.
-- Caller surface (provider-compatible `/v1/...`, Hecate-native `/hecate/v1/...`, native app, or ACP bridge).
+- Caller surface (provider-compatible `/v1/...`, Hecate-native `/hecate/v1/...`, native app, or external-agent adapter).
 - Request shape (headers, body, streaming or not).
 - Environment (env vars that route the gateway differently).
 - OS / runtime (especially for sandbox or subprocess issues).
