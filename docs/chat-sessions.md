@@ -126,6 +126,16 @@ each message records the execution mode that produced it:
 - **External Agent** sessions map one chat session to one supervised adapter
   session such as Codex, Claude Code, or Cursor Agent.
 
+External Agent sessions persist Hecate's operator-facing shell plus the
+adapter-owned native session handle. Listing chat sessions does not start or
+reattach adapters. Opening a single External Agent session, or subscribing to
+its stream, attempts to load the stored ACP session handle so Hecate can refresh
+adapter controls before the next prompt. If the adapter cannot restore that
+native session, the transcript still opens from Hecate's store; the next send or
+adapter setup action can start a fresh native session and keep the shell intact.
+Opening a chat never silently replaces the stored native session handle with a
+fresh adapter session.
+
 The chat session API shape used by the operator UI is in
 [`runtime-api.md`](runtime-api.md#get-hecatev1chatsessions), and external
 adapter behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
