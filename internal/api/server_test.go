@@ -1398,6 +1398,147 @@ func TestAgentChatPassesPersistedNativeSessionForResume(t *testing.T) {
 	}
 }
 
+func TestAgentChatLoadsExternalNativeSessionOnRead(t *testing.T) {
+	dir := t.TempDir()
+	store := chat.NewMemoryStore()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	oldBool := false
+	newBool := true
+
+	created, err := store.Create(context.Background(), chat.Session{
+		ID:              "chat_external_load",
+		Title:           "Codex",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_existing",
+		Workspace:       dir,
+		ConfigOptions: []agentcontrols.ConfigOption{
+			{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &oldBool},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	runner := &fakeAgentChatRunner{
+		nativeSessionID: "native_existing",
+		sessionResumed:  true,
+		configOptions: []agentcontrols.ConfigOption{
+			{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &newBool},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	got := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+created.ID, "")
+	if len(runner.prepareRequests) != 1 {
+		t.Fatalf("prepare requests = %d, want 1", len(runner.prepareRequests))
+	}
+	if req := runner.prepareRequests[0]; req.PreviousNativeSessionID != "native_existing" || req.AdapterID != "codex" {
+		t.Fatalf("prepare request = %+v, want existing native codex session", req)
+	}
+	if got.Data.NativeSessionID != "native_existing" || got.Data.DriverKind != agentadapters.DriverKindACP {
+		t.Fatalf("loaded session metadata = kind %q native %q", got.Data.DriverKind, got.Data.NativeSessionID)
+	}
+	if len(got.Data.ConfigOptions) != 1 || got.Data.ConfigOptions[0].CurrentBool == nil || !*got.Data.ConfigOptions[0].CurrentBool {
+		t.Fatalf("config options = %#v, want refreshed ACP controls", got.Data.ConfigOptions)
+	}
+	persisted, ok, err := store.Get(context.Background(), created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get persisted: ok=%v err=%v", ok, err)
+	}
+	if len(persisted.ConfigOptions) != 1 || persisted.ConfigOptions[0].CurrentBool == nil || !*persisted.ConfigOptions[0].CurrentBool {
+		t.Fatalf("persisted config options = %#v, want refreshed ACP controls", persisted.ConfigOptions)
+	}
+}
+
+func TestAgentChatLoadKeepsStoredExternalSessionWhenACPUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	store := chat.NewMemoryStore()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	storedBool := false
+
+	created, err := store.Create(context.Background(), chat.Session{
+		ID:              "chat_external_load_unavailable",
+		Title:           "Codex",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_existing",
+		Workspace:       dir,
+		ConfigOptions: []agentcontrols.ConfigOption{
+			{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &storedBool},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	runner := &fakeAgentChatRunner{prepareErr: errors.New("adapter unavailable")}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	got := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+created.ID, "")
+	if got.Data.NativeSessionID != "native_existing" || got.Data.DriverKind != agentadapters.DriverKindACP {
+		t.Fatalf("loaded session metadata = kind %q native %q, want stored shell", got.Data.DriverKind, got.Data.NativeSessionID)
+	}
+	if len(got.Data.ConfigOptions) != 1 || got.Data.ConfigOptions[0].CurrentBool == nil || *got.Data.ConfigOptions[0].CurrentBool {
+		t.Fatalf("config options = %#v, want stored controls when ACP load fails", got.Data.ConfigOptions)
+	}
+}
+
+func TestAgentChatLoadDoesNotPersistFreshSessionAfterStaleNativeSession(t *testing.T) {
+	dir := t.TempDir()
+	store := chat.NewMemoryStore()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	storedBool := false
+	freshBool := true
+
+	created, err := store.Create(context.Background(), chat.Session{
+		ID:              "chat_external_load_stale",
+		Title:           "Codex",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_stale",
+		Workspace:       dir,
+		ConfigOptions: []agentcontrols.ConfigOption{
+			{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &storedBool},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	runner := &fakeAgentChatRunner{
+		nativeSessionID: "native_fresh",
+		sessionStarted:  true,
+		sessionRecovery: "could not restore ACP session native_stale: not found",
+		configOptions:   []agentcontrols.ConfigOption{{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &freshBool}},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	got := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+created.ID, "")
+	if got.Data.NativeSessionID != "native_stale" || got.Data.DriverKind != agentadapters.DriverKindACP {
+		t.Fatalf("loaded session metadata = kind %q native %q, want stored stale shell", got.Data.DriverKind, got.Data.NativeSessionID)
+	}
+	if len(got.Data.ConfigOptions) != 1 || got.Data.ConfigOptions[0].CurrentBool == nil || *got.Data.ConfigOptions[0].CurrentBool {
+		t.Fatalf("config options = %#v, want stored controls when read-time load starts fresh", got.Data.ConfigOptions)
+	}
+	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != created.ID {
+		t.Fatalf("closed sessions = %#v, want fresh read-time ACP session closed", runner.closedSessions)
+	}
+	persisted, ok, err := store.Get(context.Background(), created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get persisted: ok=%v err=%v", ok, err)
+	}
+	if persisted.NativeSessionID != "native_stale" {
+		t.Fatalf("persisted native session = %q, want native_stale", persisted.NativeSessionID)
+	}
+}
+
 func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
 	dir := t.TempDir()
 	store := chat.NewMemoryStore()
