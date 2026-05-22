@@ -24,6 +24,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	created, err := store.Create(ctx, Session{
 		ID:              "chat_1",
 		Title:           "Review diff",
+		ProjectID:       "proj_hecate",
 		AgentID:         DefaultAgentID,
 		TaskID:          "task_chat_1",
 		LatestRunID:     "run_chat_1",
@@ -41,6 +42,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if created.WorkspaceBranch != "main" {
 		t.Fatalf("created workspace branch = %q, want main", created.WorkspaceBranch)
+	}
+	if created.ProjectID != "proj_hecate" {
+		t.Fatalf("created project_id = %q, want proj_hecate", created.ProjectID)
 	}
 	if created.AgentID != DefaultAgentID || created.TaskID != "task_chat_1" || created.LatestRunID != "run_chat_1" {
 		t.Fatalf("created linkage = agent %q task %q run %q", created.AgentID, created.TaskID, created.LatestRunID)
@@ -138,6 +142,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.WorkspaceBranch != "main" {
 		t.Fatalf("persisted workspace branch = %q, want main", got.WorkspaceBranch)
 	}
+	if got.ProjectID != "proj_hecate" {
+		t.Fatalf("persisted project_id = %q, want proj_hecate", got.ProjectID)
+	}
 	if got.AgentID != DefaultAgentID || got.TaskID != "task_chat_1" || got.LatestRunID != "run_chat_1" {
 		t.Fatalf("persisted linkage = agent %q task %q run %q", got.AgentID, got.TaskID, got.LatestRunID)
 	}
@@ -169,6 +176,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if list[0].WorkspaceBranch != "main" || len(list[0].Messages) != 2 || list[0].AgentID != DefaultAgentID || list[0].TaskID != "task_chat_1" {
 		t.Fatalf("List summary = %+v, want cached branch and message count", list[0])
+	}
+	if list[0].ProjectID != "proj_hecate" {
+		t.Fatalf("List summary project_id = %q, want proj_hecate", list[0].ProjectID)
 	}
 
 	if err := store.Delete(ctx, created.ID); err != nil {

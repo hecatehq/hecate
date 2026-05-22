@@ -51,6 +51,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	if _, err := store.Create(context.Background(), Session{
 		ID:              "chat_1",
 		Title:           "Persist me",
+		ProjectID:       "proj_sqlite",
 		AgentID:         "cursor_agent",
 		Workspace:       "/tmp/hecate",
 		WorkspaceBranch: "feature/sqlite",
@@ -84,7 +85,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("Get after reopen: ok=%v err=%v", ok, err)
 	}
-	if got.AgentID != "cursor_agent" || got.WorkspaceBranch != "feature/sqlite" || got.Messages[0].Content != "hello" {
+	if got.ProjectID != "proj_sqlite" || got.AgentID != "cursor_agent" || got.WorkspaceBranch != "feature/sqlite" || got.Messages[0].Content != "hello" {
 		t.Fatalf("reopened session mismatch: %+v", got)
 	}
 }

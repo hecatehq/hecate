@@ -15,6 +15,7 @@ import (
 type Session struct {
 	ID              string
 	Title           string
+	ProjectID       string
 	AgentID         string
 	DriverKind      string
 	NativeSessionID string

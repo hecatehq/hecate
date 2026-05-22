@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -225,7 +226,19 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
-	err := h.projects.Delete(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	if _, ok, err := h.projects.Get(r.Context(), id); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	} else if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return
+	}
+	if err := h.deleteProjectChats(r.Context(), id); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	err := h.projects.Delete(r.Context(), id)
 	if errors.Is(err, projects.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
 		return
@@ -235,6 +248,25 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deleteProjectChats(ctx context.Context, projectID string) error {
+	if h.agentChat == nil {
+		return nil
+	}
+	sessions, err := h.agentChat.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		if session.ProjectID != projectID {
+			continue
+		}
+		if err := h.agentChat.Delete(ctx, session.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func projectFromCreateRequest(req createProjectRequest) (projects.Project, error) {

@@ -16,6 +16,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/modelcaps"
+	"github.com/hecate/agent-runtime/internal/projects"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/internal/taskstate"
 	"github.com/hecate/agent-runtime/internal/telemetry"
@@ -147,6 +148,38 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if secondAssistant.RequestID != secondRun.RequestID || secondAssistant.TraceID != secondRun.TraceID || secondAssistant.SpanID != secondRun.RootSpanID {
 		t.Fatalf("second assistant trace linkage = request %q trace %q span %q, want backing run request %q trace %q span %q",
 			secondAssistant.RequestID, secondAssistant.TraceID, secondAssistant.SpanID, secondRun.RequestID, secondRun.TraceID, secondRun.RootSpanID)
+	}
+}
+
+func TestChatSessionsProjectID(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{name: "openai"}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+
+	project, err := apiHandler.projects.Create(context.Background(), projects.Project{
+		ID:   "proj_hecate",
+		Name: "Hecate",
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","project_id":%q,"provider":"openai","model":"gpt-4o-mini"}`, project.ID))
+	if created.Data.ProjectID != project.ID {
+		t.Fatalf("created project_id = %q, want %q", created.Data.ProjectID, project.ID)
+	}
+
+	list := mustRequestJSON[ChatSessionsResponse](client, http.MethodGet, "/hecate/v1/chat/sessions", "")
+	if len(list.Data) != 1 || list.Data[0].ProjectID != project.ID {
+		t.Fatalf("listed chat sessions = %+v, want one session for project %q", list.Data, project.ID)
+	}
+
+	recorder := client.mustRequestStatus(http.StatusNotFound, http.MethodPost, "/hecate/v1/chat/sessions",
+		`{"agent_id":"hecate","project_id":"proj_missing","provider":"openai","model":"gpt-4o-mini"}`)
+	if !strings.Contains(recorder.Body.String(), "project not found") {
+		t.Fatalf("missing project response = %s, want project not found", recorder.Body.String())
 	}
 }
 
