@@ -1682,6 +1682,48 @@ func TestAgentChatLoadDoesNotPersistFreshSessionWhenLoadUnsupported(t *testing.T
 	}
 }
 
+func TestAgentChatLoadDoesNotCloseActiveSessionWhenNotStarted(t *testing.T) {
+	dir := t.TempDir()
+	store := chat.NewMemoryStore()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	created, err := store.Create(context.Background(), chat.Session{
+		ID:              "chat_external_load_active_elsewhere",
+		Title:           "Codex",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_stored",
+		Workspace:       dir,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	runner := &fakeAgentChatRunner{
+		nativeSessionID: "native_active",
+		sessionStarted:  false,
+		sessionResumed:  false,
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	got := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+created.ID, "")
+	if got.Data.NativeSessionID != "native_stored" || got.Data.DriverKind != agentadapters.DriverKindACP {
+		t.Fatalf("loaded session metadata = kind %q native %q, want stored shell", got.Data.DriverKind, got.Data.NativeSessionID)
+	}
+	if len(runner.closedSessions) != 0 {
+		t.Fatalf("closed sessions = %#v, want read path not to close an active session it did not start", runner.closedSessions)
+	}
+	persisted, ok, err := store.Get(context.Background(), created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get persisted: ok=%v err=%v", ok, err)
+	}
+	if persisted.NativeSessionID != "native_stored" {
+		t.Fatalf("persisted native session = %q, want native_stored", persisted.NativeSessionID)
+	}
+}
+
 func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
 	dir := t.TempDir()
 	store := chat.NewMemoryStore()
