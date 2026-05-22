@@ -71,11 +71,11 @@ The `hecate` runtime embeds the React UI via `//go:embed ui/dist`. There's no se
 
 ## Local build
 
-1. Copy env defaults and configure at least one provider:
+1. Optionally copy env defaults if you want local overrides or secrets:
 
    ```bash
    cp .env.example .env
-   # Edit .env — at minimum set HECATE_DEFAULT_MODEL plus a PROVIDER_*_API_KEY
+   # Edit .env for local overrides, or configure providers later in Connections.
    ```
 
 2. Build `hecate` with the UI bundled in:
@@ -84,13 +84,13 @@ The `hecate` runtime embeds the React UI via `//go:embed ui/dist`. There's no se
    just                    # lists available project recipes
    just ui-install         # installs UI dependencies (bun install)
    just build              # ui-build + go build → ./hecate
-   just serve              # run prebuilt ./hecate; sources .env; auto-stops stale :8765
+   just serve              # run prebuilt ./hecate; sources .env if present
    just serve --reset      # same, but wipe .data/ first
    ```
 
 The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `just serve` stops any earlier `./hecate` process still bound to that port before starting, so re-running it is always safe.
 
-For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `just run` is `go run` with quick defaults; `just dev` is the same but sources `.env` so provider keys are available.
+For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `just run` is `go run` with quick defaults; `just dev` is the same but sources `.env` when present so provider keys are available.
 
 ## UI hot reload
 

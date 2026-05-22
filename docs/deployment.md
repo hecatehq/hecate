@@ -185,9 +185,10 @@ Deployment-specific notes:
   across restarts with no extra config.
 - To make Docker ephemeral, override the backend via `.env` or compose env:
   `HECATE_BACKEND=memory`.
-- Projects are the durable identity foundation for future project-scoped
-  defaults, memory, and context; chats and tasks are not linked to `project_id`
-  yet in this first slice.
+- Projects are the durable identity foundation for project-scoped history,
+  defaults, memory, and context. Chat sessions can already carry `project_id`
+  for UI grouping; tasks, memory, and context packets are not linked to
+  projects yet.
 - When `HECATE_BACKEND=sqlite`, Hecate runs a startup reconcile pass that flips
   any pending external-agent approvals from a prior process to
   `status=timed_out`, `path=startup_reconcile` before serving requests, so an

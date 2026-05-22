@@ -302,15 +302,15 @@ Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 - `system_prompt` — narrowest layer of the three-layer composition; optional
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
 - `workspace_mode` — `""` / `"persistent"` / `"ephemeral"` (all clone) or `"in_place"` (use source directly)
-- `requested_provider` / `requested_model` — pin the LLM provider and model. For `agent_loop`, a model must be resolvable at start time — either `requested_model` is set on the task, or the gateway has a default model configured (`HECATE_DEFAULT_MODEL`). A missing model returns 422 `model_not_configured` before a run is created.
+- `requested_provider` / `requested_model` — pin the LLM provider and model. For `agent_loop`, `requested_model` must be set on the task. A missing model returns 422 `model_not_configured` before a run is created.
 - `budget_micros_usd` — per-task cost ceiling in micro-USD; `0` disables
 - `mcp_servers` — array of external MCP server configs whose tools join the catalog under `mcp__<name>__<tool>` aliases. Schema in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
 
 ## Common failure modes
 
-- **HTTP 422 `model_not_configured`** — `POST /hecate/v1/tasks/{id}/start` was called for an `agent_loop` task with no model resolvable (neither `task.RequestedModel` nor the gateway's `HECATE_DEFAULT_MODEL` is set). No run is created. Fix: set `requested_model` on the task or configure a default model.
+- **HTTP 422 `model_not_configured`** — `POST /hecate/v1/tasks/{id}/start` was called for an `agent_loop` task with no `task.RequestedModel` set. No run is created. Fix: set `requested_model` on the task.
 - **`escapes allowed root`** — the LLM picked a path outside the workspace. The env system message normally prevents this; if you see it, check that `task.WorkingDirectory` matches what the model is using, or switch to `workspace_mode=in_place` to align them.
-- **`api key is required for cloud provider X`** — the operator pinned provider X but no credentials are configured, OR the request fell through to the default provider. The router uses `Scope.ProviderHint` from `run.Provider` (mirrored from `task.RequestedProvider`); empty hint falls back to the default model's provider.
+- **`api key is required for cloud provider X`** — the operator pinned provider X but no credentials are configured. The router uses `Scope.ProviderHint` from `run.Provider` (mirrored from `task.RequestedProvider`).
 - **`model "X" does not support tool-calling`** — the chosen model rejects the `tools` field. Tiny / chat-only models (e.g. `smollm2:135m`) hit this. Pick a tool-capable model: `gpt-4o-mini`, `claude-sonnet-4-6`, or `qwen2.5-coder` for Ollama. Hecate Chat normally avoids this for new prompts by falling back to direct model chat when tool support is unknown or absent; native Tasks still require a tool-capable model.
 - **`agent loop hit per-task cost ceiling`** — `Task.BudgetMicrosUSD` was exceeded across the run + prior chain. Raise the ceiling and resume to continue.
 - **`agent loop hit maxTurns=N without producing a final answer`** — the model didn't terminate. Either raise `HECATE_TASK_AGENT_LOOP_MAX_TURNS`, narrow the prompt, or resume to give it more turns.

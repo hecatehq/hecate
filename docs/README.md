@@ -61,16 +61,16 @@ RFCs capture product and architecture direction before it becomes stable
 runtime behavior. The main RFC index groups active proposals, accepted alpha
 direction, implemented records, and experimental parking-lot ideas.
 
-| Doc                                                                                            | Status                                                                                                                              |
-| ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| [RFC index](rfcs/README.md)                                                                    | Catalog of active proposals, accepted alpha direction, implemented records, and experimental ideas.                                 |
-| [Hecate Chat and model capabilities](rfcs/hecate-chat-model-capabilities.md)                   | Accepted alpha direction for Hecate Chat tools on/off segments, observed model capability metadata, profiles, and future detection. |
-| [External agent adapters](rfcs/external-agent-adapters.md)                                     | Accepted alpha direction for Codex, Claude Code, Cursor Agent, ACP controls, approvals, readiness, diagnostics, and diff review.    |
-| [Projects](rfcs/projects.md)                                                                   | Accepted foundation for durable project identity; the project CRUD store exists, while chat/task linkage and memory remain next.    |
-| [Context assembly and injection boundaries](rfcs/context-assembly-and-injection-boundaries.md) | Active proposal for context packets, trust labels, prompt-injection boundaries, and "what did the model see?" inspection.           |
-| [Agent memory](rfcs/agent-memory.md)                                                           | Active proposal for durable operator-authored memory that feeds context assembly.                                                   |
-| [LLM context window management](rfcs/llm-context-window-management.md)                         | Active proposal for token estimation, context warnings/caps, and optional fitting policies.                                         |
-| [Event protocol v1](rfcs/event-protocol-v1.md)                                                 | Candidate event envelope; implemented for task-run event streams, but payload stability is still in progress.                       |
+| Doc                                                                                            | Status                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [RFC index](rfcs/README.md)                                                                    | Catalog of active proposals, accepted alpha direction, implemented records, and experimental ideas.                                        |
+| [Hecate Chat and model capabilities](rfcs/hecate-chat-model-capabilities.md)                   | Accepted alpha direction for Hecate Chat tools on/off segments, observed model capability metadata, profiles, and future detection.        |
+| [External agent adapters](rfcs/external-agent-adapters.md)                                     | Accepted alpha direction for Codex, Claude Code, Cursor Agent, ACP controls, approvals, readiness, diagnostics, and diff review.           |
+| [Projects](rfcs/projects.md)                                                                   | Accepted foundation for durable project identity; project CRUD and chat-session grouping exist, while task linkage and memory remain next. |
+| [Context assembly and injection boundaries](rfcs/context-assembly-and-injection-boundaries.md) | Active proposal for context packets, trust labels, prompt-injection boundaries, and "what did the model see?" inspection.                  |
+| [Agent memory](rfcs/agent-memory.md)                                                           | Active proposal for durable operator-authored memory that feeds context assembly.                                                          |
+| [LLM context window management](rfcs/llm-context-window-management.md)                         | Active proposal for token estimation, context warnings/caps, and optional fitting policies.                                                |
+| [Event protocol v1](rfcs/event-protocol-v1.md)                                                 | Candidate event envelope; implemented for task-run event streams, but payload stability is still in progress.                              |
 
 ## External Entry Points
 

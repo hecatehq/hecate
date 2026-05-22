@@ -54,8 +54,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 
 - `agent_loop` and MCP integration are alpha. They are useful for controlled
   workflows, but the behavior surface is still expanding.
-- `agent_loop` tasks require a model to be configured — either via
-  `requested_model` on the task or the gateway's default model. A missing model
+- `agent_loop` tasks require `requested_model` on the task. A missing model
   is caught at start time and returns a 422 `model_not_configured` error; the
   run is never created. Tool support is still ultimately enforced by the
   provider at call time, so stale or incomplete capability metadata can still

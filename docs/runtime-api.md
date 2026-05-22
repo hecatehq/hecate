@@ -148,7 +148,7 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 - `GET /hecate/v1/tasks`
 - `GET /hecate/v1/tasks/{id}`
 - `DELETE /hecate/v1/tasks/{id}`
-- `POST /hecate/v1/tasks/{id}/start` — returns `422 model_not_configured` when an `agent_loop` task has no model resolvable (neither `requested_model` on the task nor the gateway's default model is set). No run is created.
+- `POST /hecate/v1/tasks/{id}/start` — returns `422 model_not_configured` when an `agent_loop` task has no `requested_model` set. No run is created.
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/resume`
 - `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue`
@@ -487,7 +487,7 @@ The endpoint is intentionally cheap: it doesn't touch the database, providers, o
 
 ### `GET /hecate/v1/providers/presets`
 
-Provider catalog the UI's task-create form uses to render the provider picker. Each entry carries the operator-facing display name, the kind (`cloud` / `local`), the protocol Hecate speaks to it, the `BASE_URL` / `API_KEY` env-var pattern (so the UI can show which `PROVIDER_<NAME>_*` variables to set), the default model, and a short `env_snippet` ready to paste into `.env`.
+Provider catalog the UI's task-create form uses to render the provider picker. Each entry carries the operator-facing display name, the kind (`cloud` / `local`), the protocol Hecate speaks to it, the `BASE_URL` / `API_KEY` env-var pattern (so the UI can show which `PROVIDER_<NAME>_*` variables to set), and a short `env_snippet` ready to paste into `.env`.
 
 ```json
 GET /hecate/v1/providers/presets
@@ -502,7 +502,6 @@ GET /hecate/v1/providers/presets
       "protocol": "openai",
       "base_url": "https://api.openai.com/v1",
       "api_key_env": "OPENAI_API_KEY",
-      "default_model": "gpt-5.4-mini",
       "docs_url": "https://platform.openai.com/docs",
       "description": "OpenAI's Responses + Chat Completions API.",
       "env_snippet": "OPENAI_API_KEY=your_api_key_here"
@@ -603,7 +602,7 @@ routable, or `not_required` for local providers that do not need credentials.
 
 The trace inspector reuses the same vocabulary in route candidates. A selected
 candidate is paired with the route reason (`requested_model`, `pinned_provider`,
-`global_default_model`, etc.); skipped candidates carry `skip_reason` values
+`provider_default_model`, etc.); skipped candidates carry `skip_reason` values
 such as `policy_denied`, `provider_rate_limited`,
 `provider_less_stable`, or `provider_unavailable`. This keeps the operator
 debugging path consistent: Connections explains whether a route is possible now,
@@ -921,9 +920,10 @@ can remember one or more concrete workspace roots and future defaults such as
 provider, model, agent profile, tools posture, workspace mode, system prompt,
 and compact command-output preference.
 
-This first implementation is intentionally a storage/API foundation:
+This first implementation is intentionally lightweight:
 `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects` work, and
-`HECATE_BACKEND=sqlite` persists them, but chats, tasks, memory,
+`HECATE_BACKEND=sqlite` persists them. Chat sessions can carry an optional
+`project_id` so the operator UI can group history by project. Tasks, memory,
 profiles, presets, and context packets are not linked to `project_id` yet.
 
 ### `GET /hecate/v1/projects`
@@ -1038,8 +1038,10 @@ PATCH /hecate/v1/projects/proj_...
 ### `DELETE /hecate/v1/projects/{id}`
 
 Deletes the project catalog entry and its roots. This does not delete any
-workspace files. Since chats/tasks are not linked to projects yet, deletion has
-no transcript or task side effects in the current slice.
+workspace files or chat transcripts. Existing chat sessions that referenced the
+deleted project are still returned by the chat API; the operator UI groups them
+under **No project** because the durable project record no longer exists. Tasks
+are not linked to projects yet.
 
 ## Chat session endpoints
 
@@ -1131,6 +1133,7 @@ GET /hecate/v1/chat/sessions
     {
       "id": "chat_...",
       "title": "Hecate Chat",
+      "project_id": "proj_...",
       "agent_id": "hecate",
       "provider": "ollama",
       "model": "qwen2.5-coder",
@@ -1168,6 +1171,10 @@ Hecate Chat sessions require `model` when they are created. `provider` is
 optional; omit it to let Hecate route across configured providers that expose
 the selected model.
 
+`project_id` is optional. When supplied, it must reference an existing project
+or Hecate returns `404 not_found`. Project-scoped sessions are still normal
+chat sessions: deleting the project later does not delete the transcript.
+
 For Hecate Chat sessions, `rtk_enabled` records the chat's command-output
 compaction preference. It is only applied when a future turn runs through the
 task-backed `hecate_task` execution mode; direct model turns never execute
@@ -1188,6 +1195,7 @@ removes the empty chat record.
 POST /hecate/v1/chat/sessions
 {
   "agent_id": "hecate",
+  "project_id": "proj_...",
   "provider": "ollama",
   "model": "qwen2.5-coder",
   "title": "Hecate Chat"
@@ -1199,6 +1207,7 @@ POST /hecate/v1/chat/sessions
   "data": {
     "id": "chat_...",
     "title": "Hecate Chat",
+    "project_id": "proj_...",
     "agent_id": "hecate",
     "provider": "ollama",
     "model": "qwen2.5-coder",
