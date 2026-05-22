@@ -127,10 +127,12 @@ Grok Build similarly requires the `grok` CLI because its ACP mode is shipped by
 `grok models` is available, Hecate uses that output to populate the Grok Build
 model selector; if the command is unavailable or empty, the selector still shows
 the explicit "Pick a model" state. Open Terminal and check `grok models` (or
-re-test the adapter from Connections) if no real choices appear. Session
-creation returns `chat.model_required` until a real model can be selected.
-Choosing a model starts or restarts the adapter with `--model <id>`. Choosing
-reasoning starts or restarts it with `--reasoning-effort <effort>`.
+re-test the adapter from Connections) if no real choices appear. Hecate keeps a
+short in-process cache of launch help and model-list output so repeated catalog
+refreshes do not keep spawning the CLI. Session creation returns
+`chat.model_required` until a real model can be selected. Choosing a model starts
+or restarts the adapter with `--model <id>`. Choosing reasoning starts or
+restarts it with `--reasoning-effort <effort>`.
 
 By default the managed launcher directory is the user cache location:
 

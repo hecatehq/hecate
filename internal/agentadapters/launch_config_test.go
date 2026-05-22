@@ -2,6 +2,10 @@ package agentadapters
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hecate/agent-runtime/internal/agentcontrols"
@@ -151,6 +155,94 @@ Tip: use --model <id>
 	if got[3].Name != "Model C" {
 		t.Fatalf("cursor-style model name = %q, want Model C", got[3].Name)
 	}
+}
+
+func TestLaunchConfig_CachesLaunchDiscovery(t *testing.T) {
+	resetLaunchDiscoveryCacheForTest(t)
+	t.Setenv("CODEX_LAUNCH_CONFIG_HELPER", "1")
+	countFile := filepath.Join(t.TempDir(), "count")
+	adapter := Adapter{
+		ID:   "grok_build",
+		Name: "Grok Build",
+		Args: []string{"-test.run=TestLaunchConfigHelperProcess", "--", "agent", countFile},
+		LaunchModel: LaunchModelConfig{
+			ArgTemplate: []string{"--model", "{model}"},
+			ListArgs:    []string{"-test.run=TestLaunchConfigHelperProcess", "--", "models", countFile},
+		},
+	}
+
+	for i := 0; i < 2; i++ {
+		got, managed := appendLaunchConfigOptions(context.Background(), os.Args[0], adapter, nil, nil)
+		if len(got) != 1 {
+			t.Fatalf("options on iteration %d = %#v, want model option", i, got)
+		}
+		if _, ok := managed["model"]; !ok {
+			t.Fatalf("managed config ids on iteration %d = %#v, want model", i, managed)
+		}
+		if len(got[0].Options) != 2 || got[0].Options[1].Value != "model-a" {
+			t.Fatalf("model candidates on iteration %d = %#v, want discovered model", i, got[0].Options)
+		}
+	}
+
+	raw, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatalf("read helper count: %v", err)
+	}
+	if got := strings.Count(string(raw), "\n"); got != 2 {
+		t.Fatalf("helper invocations = %d, want one help and one model-list command", got)
+	}
+}
+
+func TestLaunchConfigHelperProcess(t *testing.T) {
+	if os.Getenv("CODEX_LAUNCH_CONFIG_HELPER") != "1" {
+		return
+	}
+	separator := -1
+	for i, arg := range os.Args {
+		if arg == "--" {
+			separator = i
+			break
+		}
+	}
+	if separator < 0 || separator+2 >= len(os.Args) {
+		os.Exit(2)
+	}
+	mode := os.Args[separator+1]
+	countFile := os.Args[separator+2]
+	recordLaunchHelperCall(countFile)
+	switch mode {
+	case "agent":
+		fmt.Println("Usage: fake agent --model <MODEL>")
+	case "models":
+		fmt.Println("Available models:")
+		fmt.Println("model-a - Model A")
+	default:
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+func recordLaunchHelperCall(path string) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		os.Exit(2)
+	}
+	defer file.Close()
+	if _, err := file.WriteString("x\n"); err != nil {
+		os.Exit(2)
+	}
+}
+
+func resetLaunchDiscoveryCacheForTest(t *testing.T) {
+	t.Helper()
+	launchDiscoveryCache.Lock()
+	launchDiscoveryCache.items = map[launchDiscoveryCacheKey]launchDiscoveryCacheEntry{}
+	launchDiscoveryCache.Unlock()
+	t.Cleanup(func() {
+		launchDiscoveryCache.Lock()
+		launchDiscoveryCache.items = map[launchDiscoveryCacheKey]launchDiscoveryCacheEntry{}
+		launchDiscoveryCache.Unlock()
+	})
 }
 
 func TestACPSessionManagedConfigOptionUpdatesSnapshot(t *testing.T) {

@@ -573,7 +573,6 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 		"CLAUDE_CONFIG_DIR=/tmp/claude",
 		"CODEX_HOME=/tmp/codex",
 		"CURSOR_API_KEY=cursor-test",
-		"XAI_API_KEY=xai-test",
 		"VOLTA_HOME=/Users/alice/.volta",
 	} {
 		if !got[want] {
@@ -583,12 +582,15 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 	if got["HECATE_AUTH_TOKEN=secret"] {
 		t.Fatalf("gateway secret leaked into adapter env: %#v", env)
 	}
+	if got["XAI_API_KEY=xai-test"] {
+		t.Fatalf("xAI secret leaked into generic adapter env: %#v", env)
+	}
 }
 
-func TestSanitizedEnvMapsProviderXAIKey(t *testing.T) {
+func TestSanitizedEnvMapsProviderXAIKeyOnlyForGrokBuild(t *testing.T) {
 	t.Parallel()
 
-	env := sanitizedEnv([]string{
+	env := sanitizedEnvForAdapter("grok_build", []string{
 		"PATH=/bin",
 		"PROVIDER_XAI_API_KEY=provider-xai-test",
 	})
@@ -602,6 +604,18 @@ func TestSanitizedEnvMapsProviderXAIKey(t *testing.T) {
 	}
 	if got["PROVIDER_XAI_API_KEY=provider-xai-test"] {
 		t.Fatalf("provider-scoped key leaked into adapter env: %#v", env)
+	}
+
+	env = sanitizedEnvForAdapter("codex", []string{
+		"PATH=/bin",
+		"PROVIDER_XAI_API_KEY=provider-xai-test",
+	})
+	got = map[string]bool{}
+	for _, item := range env {
+		got[item] = true
+	}
+	if got["XAI_API_KEY=provider-xai-test"] || got["PROVIDER_XAI_API_KEY=provider-xai-test"] {
+		t.Fatalf("xAI key leaked into non-Grok adapter env: %#v", env)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/agentcontrols"
@@ -14,8 +15,29 @@ import (
 
 const launchHelpDiscoveryTimeout = 2 * time.Second
 const launchModelDiscoveryTimeout = 5 * time.Second
+const launchDiscoveryCacheTTL = 30 * time.Second
 
 const launchModelUnsetValue = "__hecate_no_model_selected__"
+
+type launchDiscoveryCacheKey struct {
+	kind      string
+	adapterID string
+	command   string
+	args      string
+}
+
+type launchDiscoveryCacheEntry struct {
+	help    string
+	models  []LaunchModel
+	expires time.Time
+}
+
+var launchDiscoveryCache = struct {
+	sync.Mutex
+	items map[launchDiscoveryCacheKey]launchDiscoveryCacheEntry
+}{
+	items: map[launchDiscoveryCacheKey]launchDiscoveryCacheEntry{},
+}
 
 func adapterWithLaunchConfig(adapter Adapter, options []agentcontrols.ConfigOption) Adapter {
 	if !launchConfigEnabled(adapter) {
@@ -226,17 +248,24 @@ func discoverLaunchHelp(ctx context.Context, command string, adapter Adapter) st
 	if strings.TrimSpace(command) == "" {
 		return ""
 	}
-	discoverCtx, cancel := context.WithTimeout(ctx, launchHelpDiscoveryTimeout)
-	defer cancel()
 	args := append([]string(nil), adapter.Args...)
 	args = append(args, "--help")
+	key := launchDiscoveryKey("help", command, adapter.ID, args)
+	if entry, ok := lookupLaunchDiscoveryCache(key); ok {
+		return entry.help
+	}
+	discoverCtx, cancel := context.WithTimeout(ctx, launchHelpDiscoveryTimeout)
+	defer cancel()
 	cmd := exec.CommandContext(discoverCtx, command, args...)
-	cmd.Env = sanitizedEnv(os.Environ())
+	cmd.Env = sanitizedEnvForAdapter(adapter.ID, os.Environ())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{})
 		return ""
 	}
-	return string(out)
+	help := string(out)
+	storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{help: help})
+	return help
 }
 
 func launchHelpSupportsTemplate(help string, template []string) bool {
@@ -256,15 +285,54 @@ func discoverLaunchModels(ctx context.Context, command string, adapter Adapter) 
 	if len(adapter.LaunchModel.ListArgs) == 0 || strings.TrimSpace(command) == "" {
 		return nil
 	}
+	key := launchDiscoveryKey("models", command, adapter.ID, adapter.LaunchModel.ListArgs)
+	if entry, ok := lookupLaunchDiscoveryCache(key); ok {
+		return cloneLaunchModels(entry.models)
+	}
 	discoverCtx, cancel := context.WithTimeout(ctx, launchModelDiscoveryTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(discoverCtx, command, adapter.LaunchModel.ListArgs...)
-	cmd.Env = sanitizedEnv(os.Environ())
+	cmd.Env = sanitizedEnvForAdapter(adapter.ID, os.Environ())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{})
 		return nil
 	}
-	return parseLaunchModelList(string(out))
+	models := parseLaunchModelList(string(out))
+	storeLaunchDiscoveryCache(key, launchDiscoveryCacheEntry{models: cloneLaunchModels(models)})
+	return models
+}
+
+func launchDiscoveryKey(kind, command, adapterID string, args []string) launchDiscoveryCacheKey {
+	return launchDiscoveryCacheKey{
+		kind:      kind,
+		adapterID: strings.TrimSpace(adapterID),
+		command:   strings.TrimSpace(command),
+		args:      strings.Join(args, "\x00"),
+	}
+}
+
+func lookupLaunchDiscoveryCache(key launchDiscoveryCacheKey) (launchDiscoveryCacheEntry, bool) {
+	launchDiscoveryCache.Lock()
+	defer launchDiscoveryCache.Unlock()
+	entry, ok := launchDiscoveryCache.items[key]
+	if !ok {
+		return launchDiscoveryCacheEntry{}, false
+	}
+	if time.Now().After(entry.expires) {
+		delete(launchDiscoveryCache.items, key)
+		return launchDiscoveryCacheEntry{}, false
+	}
+	entry.models = cloneLaunchModels(entry.models)
+	return entry, true
+}
+
+func storeLaunchDiscoveryCache(key launchDiscoveryCacheKey, entry launchDiscoveryCacheEntry) {
+	entry.expires = time.Now().Add(launchDiscoveryCacheTTL)
+	entry.models = cloneLaunchModels(entry.models)
+	launchDiscoveryCache.Lock()
+	defer launchDiscoveryCache.Unlock()
+	launchDiscoveryCache.items[key] = entry
 }
 
 func parseLaunchModelList(raw string) []LaunchModel {
