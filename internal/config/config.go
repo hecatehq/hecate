@@ -829,6 +829,10 @@ func providerConfigFromEnv(name string) (OpenAICompatibleProviderConfig, bool) {
 		cfg.APIKey = getEnv(prefix+"API_KEY", cfg.APIKey)
 		cfg.StubMode = getEnvBool(prefix+"STUB_MODE", cfg.StubMode)
 		cfg.StubResponse = getEnv(prefix+"STUB_RESPONSE", cfg.StubResponse)
+		cfg.DefaultModel = getEnv(prefix+"DEFAULT_MODEL", cfg.DefaultModel)
+		if models := splitCSV(getEnv(prefix+"MODELS", "")); len(models) > 0 {
+			cfg.KnownModels = models
+		}
 	}
 
 	// Auto-registration is gated on an explicit opt-in flag. Other

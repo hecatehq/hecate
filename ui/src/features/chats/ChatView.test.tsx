@@ -2617,7 +2617,7 @@ describe("ChatView chats sidebar", () => {
         } as any,
         {
           id: "s2",
-        title: "Release notes cleanup",
+          title: "Release notes cleanup",
           execution_mode: "direct_model",
           status: "completed",
           provider: "openai",

@@ -190,8 +190,8 @@ export function NewChatAgentButton({
                       fontSize: 9,
                       letterSpacing: "0.04em",
                       textTransform: "uppercase",
-                  }}
-                >
+                    }}
+                  >
                     {option.statusLabel}
                   </span>
                 )}

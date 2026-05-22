@@ -542,6 +542,28 @@ func TestGatewayFakeUpstreamNonStreamingCodex(t *testing.T) {
 	}
 }
 
+func TestGatewayFakeUpstreamProviderDefaultModelIsRoutable(t *testing.T) {
+	t.Parallel()
+
+	fakeResp := `{"id":"chatcmpl-provider-default","object":"chat.completion","created":1700000000,"model":"fake-e2e-model","choices":[{"index":0,"message":{"role":"assistant","content":"provider default ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`
+	upstream := fakeOpenAIServer(t, "/v1/chat/completions", fakeResp, false)
+
+	base := gatewayServer(t,
+		"PROVIDER_FAKE_API_KEY=dummy",
+		"PROVIDER_FAKE_BASE_URL="+upstream,
+		"PROVIDER_FAKE_DEFAULT_MODEL=fake-e2e-model",
+		"PROVIDER_FAKE_KIND=local",
+	)
+
+	body := `{"model":"fake-e2e-model","messages":[{"role":"user","content":"hello"}]}`
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected provider default model to route, got %d — body: %s", resp.StatusCode, readBody(t, resp))
+	}
+}
+
 // TestGatewayFakeUpstreamExportsOTLPTracesAndMetrics verifies that the
 // standard e2e path exports both traces and metrics to an OTLP/HTTP receiver
 // without requiring a real model runtime such as Ollama.
