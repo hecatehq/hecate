@@ -162,7 +162,7 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 | [`docs/security.md`](docs/security.md)                               | Local-first threat model, workspace safety, approvals, secrets, advisories        |
 | [`docs/providers.md`](docs/providers.md)                             | Provider catalog, configuration                                                   |
 | [`docs/mcp.md`](docs/mcp.md)                                         | MCP server: tools, transport, configure                                           |
-| [`docs/external-agent-adapters.md`](docs/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, and Cursor Agent |
+| [`docs/external-agent-adapters.md`](docs/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, Cursor Agent, and Grok Build |
 | [`docs/deployment.md`](docs/deployment.md)                           | Compose profiles, image pinning, lost-token recovery                              |
 | [`docs/development.md`](docs/development.md)                         | Local build, testing, screenshot tooling, `[skip ci]` convention                  |
 | [`docs/desktop-app.md`](docs/desktop-app.md)                         | Native Tauri 2.x app: distribution, current state, roadmap, footguns              |

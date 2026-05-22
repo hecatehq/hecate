@@ -91,6 +91,7 @@ function chatInitialState(fixture: RuntimeConsoleFixtureState) {
     defaultChatTarget: fixture.chatTarget,
     chatTargetBySessionID,
     agentAdapterID: fixture.agentAdapterID,
+    agentConfigOptions: fixture.agentConfigOptions,
     agentWorkspace: fixture.agentWorkspace,
     agentWorkspaceBranch: fixture.agentWorkspaceBranch,
     chatSessions: fixture.chatSessions,
@@ -330,6 +331,7 @@ function FixtureSyncer({ state }: { state: RuntimeConsoleFixtureState }) {
     chatActionsRef.current.setActiveChatSession(state.activeChatSession);
     chatActionsRef.current.setActiveChatSessionID(state.activeChatSessionID);
     chatActionsRef.current.setAgentAdapterID(state.agentAdapterID);
+    chatActionsRef.current.setAgentConfigOptions(state.agentConfigOptions);
     chatActionsRef.current.setAgentWorkspace(state.agentWorkspace);
     chatActionsRef.current.setAgentWorkspaceBranch(state.agentWorkspaceBranch);
     chatActionsRef.current.setChatSessions(state.chatSessions);

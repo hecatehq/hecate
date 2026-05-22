@@ -1,3 +1,5 @@
+import type { ChatConfigOptionRecord } from "./chat";
+
 export type AgentAdapterRecord = {
   id: string;
   name: string;
@@ -18,6 +20,7 @@ export type AgentAdapterRecord = {
   version_outside_range?: boolean;
   auth_status?: "ok" | "unauthenticated" | "billing" | "unknown" | string;
   auth_error?: string;
+  config_options?: ChatConfigOptionRecord[];
   claude_code_cli?: AgentAdapterSetupCommandStatus;
 };
 

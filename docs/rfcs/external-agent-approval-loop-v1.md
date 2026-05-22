@@ -9,13 +9,13 @@
 > before beta.
 
 This RFC defines how Hecate handles the `RequestPermission` reverse-RPC that
-external ACP adapters (Codex, Claude Code, Cursor Agent, future ACP CLIs) emit
-when they want to do something the operator should sign off on — write a file,
-run a shell command, hit the network, take a destructive action. Earlier alpha
-builds auto-selected the first allow option in the adapter's option list. The
-current alpha records approvals, defaults to prompt mode, streams pending and
-resolved events to Chats, persists durable grants, and makes explicit `auto`
-mode visible as a danger state.
+external ACP adapters (Codex, Claude Code, Cursor Agent, Grok Build, future ACP
+CLIs) emit when they want to do something the operator should sign off on —
+write a file, run a shell command, hit the network, take a destructive action.
+Earlier alpha builds auto-selected the first allow option in the adapter's
+option list. The current alpha records approvals, defaults to prompt mode,
+streams pending and resolved events to Chats, persists durable grants, and makes
+explicit `auto` mode visible as a danger state.
 
 The goal of v1 is **operator control without forcing the operator to click
 through every adapter call**. Mid-1990s permission dialogs are correct but
@@ -57,7 +57,7 @@ func (c *acpChatClient) RequestPermission(_ context.Context, params acp.RequestP
 
 For every adapter request, Hecate picks the first allow option in the list —
 including `allow_always`, which the operator never sees, never authored, and
-can't audit. Codex / Claude Code / Cursor can:
+can't audit. Codex / Claude Code / Cursor / Grok Build can:
 
 - write or replace any file in the configured workspace,
 - shell out to anything on `PATH`,
@@ -142,8 +142,8 @@ recorded as an `chat_approval` row with `status=approved/denied` and
 
 ACP's `RequestPermissionRequest` doesn't carry a clean tool name. v1 derives
 `tool_kind` from the embedded `tool_call.tool_name` field (always present in
-the ACP shape we've observed across Codex / Claude Code / Cursor) and falls
-back to the option `kind` when the tool field is missing. The mapping:
+the ACP shape we've observed across Codex / Claude Code / Cursor / Grok Build)
+and falls back to the option `kind` when the tool field is missing. The mapping:
 
 ```
 tool_call.tool_name → tool_kind

@@ -10,7 +10,7 @@ model turns and task-backed tools-on turns with a backing `agent_loop` task — 
 The Chats workspace has one shell and an agent picker. **Hecate** is always
 first and covers both direct model chat and Hecate-owned agent execution: the
 tools toggle decides whether a prompt stays as a direct provider/model turn or
-enters the native agent task runtime. Codex, Claude Code, and Cursor Agent entries in
+enters the native agent task runtime. Codex, Claude Code, Cursor Agent, and Grok Build entries in
 the same picker create **External Agent** sessions.
 
 Chats may also belong to a **Project**. Projects are optional durable identities
@@ -66,7 +66,12 @@ on, the same text becomes the per-task system prompt for the Hecate-owned
 `AGENTS.md` / `CLAUDE.md` prompts. Once a chat has messages the field is locked
 so historical segments keep the instructions they were created with; start a
 new chat to change them. External Agent chats do not use this field because
-Codex, Claude Code, and Cursor Agent own their own prompt/configuration surface.
+Codex, Claude Code, Cursor Agent, and Grok Build own their own
+prompt/configuration surface; adapter model and mode controls appear near the
+message composer when the adapter exposes them. Hecate-managed launch controls,
+such as Grok Build's model picker, can appear before the first External Agent
+chat session exists; the message input itself appears only after the chat
+session has been created.
 External-agent context and reported cost are intentionally shown in the active
 chat, not the Usage workspace, because those values are adapter-reported and
 only meaningful alongside the session that produced them.
@@ -121,10 +126,15 @@ each message records the execution mode that produced it:
   rehydrates the active Hecate Chat from the persisted session/task snapshot so
   queued, running, and awaiting-approval states stay visible without sending a
   new prompt.
+  Deleting a Hecate Chat cancels any non-terminal backing task run before the
+  transcript is removed; the backing Task record remains in Tasks for audit and
+  artifact history.
   When the backing provider supports streaming, the running assistant message
   updates from the task conversation artifact before the task run completes.
 - **External Agent** sessions map one chat session to one supervised adapter
-  session such as Codex, Claude Code, or Cursor Agent.
+  session such as Codex, Claude Code, Cursor Agent, or Grok Build. Adapter
+  controls may be ACP-owned session options or Hecate-managed launch options;
+  they stay separate from Hecate provider/model routing.
 
 The chat session API shape used by the operator UI is in
 [`runtime-api.md`](runtime-api.md#get-hecatev1chatsessions), and external

@@ -98,6 +98,10 @@ func (m *SessionManager) PrepareSession(ctx context.Context, req PrepareSessionR
 	if !ok {
 		return PrepareSessionResult{}, fmt.Errorf("agent adapter %q not found", req.AdapterID)
 	}
+	if err := validateLaunchConfig(adapter, req.ConfigOptions); err != nil {
+		return PrepareSessionResult{}, err
+	}
+	adapter = adapterWithLaunchConfig(adapter, req.ConfigOptions)
 	req.AdapterID = adapter.ID
 	workspace, err := ValidateWorkspace(req.Workspace)
 	if err != nil {
@@ -112,6 +116,7 @@ func (m *SessionManager) PrepareSession(ctx context.Context, req PrepareSessionR
 		AdapterID:               req.AdapterID,
 		Workspace:               req.Workspace,
 		PreviousNativeSessionID: req.PreviousNativeSessionID,
+		ConfigOptions:           req.ConfigOptions,
 	})
 	if err != nil {
 		return PrepareSessionResult{}, err
@@ -135,6 +140,10 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	if !ok {
 		return RunResult{}, fmt.Errorf("agent adapter %q not found", req.AdapterID)
 	}
+	if err := validateLaunchConfig(adapter, req.ConfigOptions); err != nil {
+		return RunResult{}, err
+	}
+	adapter = adapterWithLaunchConfig(adapter, req.ConfigOptions)
 	req.AdapterID = adapter.ID
 	req.Prompt = strings.TrimSpace(req.Prompt)
 	if req.Prompt == "" {
@@ -178,7 +187,7 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 			return nil, false, false, "", fmt.Errorf("agent session manager is shut down")
 		}
 		existing := m.sessions[req.SessionID]
-		if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace {
+		if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace && sameArgs(existing.adapter.Args, adapter.Args) {
 			m.mu.Unlock()
 			return existing, false, false, "", nil
 		}
@@ -203,7 +212,7 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		metrics := m.metrics
 		m.mu.Unlock()
 
-		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, logger, coordinator, metrics)
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, req.ConfigOptions, logger, coordinator, metrics)
 		startCancel()
 
 		var previous *acpSession
@@ -230,6 +239,18 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		}
 		return started, true, resumed, recovery, nil
 	}
+}
+
+func sameArgs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *SessionManager) CloseSession(ctx context.Context, sessionID string) error {

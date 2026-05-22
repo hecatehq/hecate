@@ -109,7 +109,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 
 ## External Agent Adapters
 
-- Codex, Claude Code, and Cursor Agent run as trusted local subprocesses in the
+- Codex, Claude Code, Cursor Agent, and Grok Build run as trusted local subprocesses in the
   selected workspace. Hecate supervises lifecycle, approvals, timeouts,
   diagnostics, and Git diff capture, but it does not sandbox those agents or
   own their internal runtime loops.

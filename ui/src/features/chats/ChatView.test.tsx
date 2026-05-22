@@ -84,9 +84,52 @@ function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
   return { state, actions };
 }
 
+function expectBefore(before: Element, after: Element) {
+  expect(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+}
+
 describe("ChatView input", () => {
   it("renders Hecate first in the unified agent picker", async () => {
-    const { state, actions } = setup();
+    const { state, actions } = setup({
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: false,
+          status: "missing",
+          cost_mode: "external",
+        },
+        {
+          id: "claude_code",
+          name: "Claude Code",
+          kind: "acp",
+          command: "claude-agent-acp",
+          available: false,
+          status: "missing",
+          cost_mode: "external",
+        },
+        {
+          id: "cursor_agent",
+          name: "Cursor Agent",
+          kind: "acp",
+          command: "cursor-agent",
+          available: false,
+          status: "missing",
+          cost_mode: "external",
+        },
+        {
+          id: "grok_build",
+          name: "Grok Build",
+          kind: "acp",
+          command: "grok",
+          available: false,
+          status: "missing",
+          cost_mode: "external",
+        },
+      ],
+    });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
     const picker = screen.getByRole("button", { name: "Choose agent for new chat" });
@@ -99,8 +142,109 @@ describe("ChatView input", () => {
       "Codexsetup",
       "Claude Codesetup",
       "Cursor Agentsetup",
+      "Grok Buildsetup",
     ]);
   }, 10_000);
+
+  it("shows Grok Build model controls before the first external-agent session exists", async () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "grok_build",
+      agentWorkspace: "/tmp/hecate",
+      activeChatSessionID: "",
+      activeChatSession: null,
+      agentAdapters: [
+        {
+          id: "grok_build",
+          name: "Grok Build",
+          kind: "acp",
+          command: "grok",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+          config_options: [
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              current_value: "__hecate_no_model_selected__",
+              options: [
+                { value: "__hecate_no_model_selected__", name: "Pick a model" },
+                { value: "model-a", name: "Model A" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const modelPicker = await screen.findByRole("button", { name: "Model" });
+    expect(modelPicker).toHaveTextContent("Pick a model");
+
+    const user = userEvent.setup();
+    await user.click(modelPicker);
+    await user.click(screen.getByRole("option", { name: /Model A/ }));
+
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Model A");
+  });
+
+  it("shows Grok Build model controls for an existing session without persisted config options", async () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "codex",
+      activeChatSessionID: "chat_grok",
+      activeChatSession: {
+        id: "chat_grok",
+        agent_id: "grok_build",
+        title: "Grok work",
+        workspace: "/tmp/hecate",
+        status: "idle",
+        config_options: [],
+        messages: [],
+      } as any,
+      agentAdapters: [
+        {
+          id: "grok_build",
+          name: "Grok Build",
+          kind: "acp",
+          command: "grok",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+          config_options: [
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              current_value: "__hecate_no_model_selected__",
+              options: [
+                { value: "__hecate_no_model_selected__", name: "Pick a model" },
+                { value: "grok-build-0429a", name: "Grok Build 0429a" },
+              ],
+            },
+            {
+              id: "reasoning_effort",
+              name: "Reasoning",
+              category: "thought_level",
+              type: "select",
+              current_value: "__hecate_no_reasoning_selected__",
+              options: [
+                { value: "__hecate_no_reasoning_selected__", name: "Pick reasoning" },
+                { value: "high", name: "High" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent("Pick a model");
+    expect(screen.getByRole("button", { name: "Reasoning" })).toHaveTextContent("Pick reasoning");
+  });
 
   it("toggles Hecate Chat between direct model chat and tool-backed agent mode", async () => {
     const setChatTarget = vi.fn();
@@ -469,7 +613,7 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(false);
   });
 
-  it("hides Hecate Chat composer until a model is selected", () => {
+  it("keeps Hecate Chat composer editable but blocks send until a model is selected", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       model: "",
@@ -477,11 +621,14 @@ describe("ChatView input", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+    const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(false);
+    expect(textarea.placeholder).toMatch(/^Message…/);
+    const send = screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
   });
 
-  it("hides model composer when no provider is configured", () => {
+  it("keeps model composer editable but blocks send when no provider is configured", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       message: "hello",
@@ -501,8 +648,10 @@ describe("ChatView input", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText("No model provider configured")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+    const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(false);
+    const send = screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
   });
 
   it("blocks sending when the selected model is not discovered by the selected provider", () => {
@@ -577,8 +726,10 @@ describe("ChatView input", () => {
         "Pull or load llama3.1:8b in that provider, or pick one of its discovered models.",
       ).length,
     ).toBeGreaterThan(0);
-    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+    const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(false);
+    const send = screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
   });
 
   it("shows stale selected-model readiness on existing transcripts", async () => {
@@ -645,7 +796,8 @@ describe("ChatView input", () => {
 
     expect(screen.getByText("Selected model is not available from this provider")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Connections" })).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(false);
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Open Connections" }));
@@ -1289,8 +1441,10 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Choose agent for new chat" })).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+    const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    expect(textarea.disabled).toBe(false);
+    const send = screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
   });
 
   it("enables Hecate Chat tools when tools are not explicitly disabled for the model", async () => {
@@ -1729,7 +1883,9 @@ describe("ChatView input", () => {
     expect(screen.queryByText(/Tools are unavailable for this model/)).toBeNull();
     expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
-    expect(screen.getByText(/Hecate Chat is still working on this task/)).toBeTruthy();
+    const activeRunStatus = screen.getByLabelText("Active run status");
+    expect(activeRunStatus).toHaveTextContent(/Hecate Chat is still working on this task/);
+    expectBefore(activeRunStatus, screen.getByLabelText("Message"));
 
     rerender(
       withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }),
@@ -4032,6 +4188,7 @@ describe("ChatView error display", () => {
 
   it("renders workspace-required as guidance instead of a red error", () => {
     const { state, actions } = setup({
+      chatTarget: "agent",
       chatError: "Choose a workspace before using Hecate Chat tools or External Agent.",
       chatErrorAction: "Choose a workspace, or turn tools off for direct model chat.",
       chatErrorCode: "chat.workspace_required",
@@ -4041,6 +4198,7 @@ describe("ChatView error display", () => {
 
     const panel = screen.getByText("Choose a workspace").closest('[role="status"]');
     expect(panel).toBeTruthy();
+    expectBefore(screen.getByLabelText("Message"), panel!);
     expect(panel).toHaveTextContent(
       "Choose a workspace before using Hecate Chat tools or External Agent.",
     );

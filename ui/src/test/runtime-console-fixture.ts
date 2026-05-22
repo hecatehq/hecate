@@ -15,6 +15,7 @@ import type { ChatTarget, HecateChatTarget, QueuedChatMessage } from "../app/sta
 import type { LocalProviderIssue } from "../lib/provider-issues";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../types/agent-adapter";
 import type {
+  ChatConfigOptionRecord,
   ChatGrantRecord,
   ChatResponse,
   ChatSessionRecord,
@@ -43,6 +44,7 @@ export type RuntimeConsoleFixtureState = {
   activeChatSession: ChatSessionRecord | null;
   activeChatSessionID: string;
   agentAdapterID: string;
+  agentConfigOptions: ChatConfigOptionRecord[];
   agentAdapters: AgentAdapterRecord[];
   chatCancelling: boolean;
   chatSessions: ChatSessionSummaryRecord[];
@@ -119,6 +121,7 @@ export function createRuntimeConsoleFixture(
     activeChatSession: null,
     activeChatSessionID: "",
     agentAdapterID: "codex",
+    agentConfigOptions: [],
     agentAdapters: [],
     chatCancelling: false,
     chatSessions: [],

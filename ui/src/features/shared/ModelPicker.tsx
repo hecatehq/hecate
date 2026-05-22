@@ -135,7 +135,7 @@ export function ModelPicker({
       ? allLabel
       : isEmpty
         ? "no models available"
-        : value || models[0]?.id || "model";
+        : value || "Pick a model";
   const buttonWidth = triggerWidth === undefined ? undefined : triggerWidth;
   const disabledTitle = isEmpty
     ? "No discovered models for this provider. Configure credentials or start the local runtime."
@@ -171,6 +171,13 @@ export function ModelPicker({
         event.preventDefault();
         event.stopPropagation();
         onChange(allValue);
+        closeMenu();
+        return;
+      }
+      if (!includeAll && filter.trim() === "") {
+        event.preventDefault();
+        event.stopPropagation();
+        onChange("");
         closeMenu();
         return;
       }
@@ -293,6 +300,34 @@ export function ModelPicker({
                     }}
                   >
                     {allLabel}
+                  </span>
+                </button>
+                {filtered.length > 0 && <div className="dropdown-divider" />}
+              </>
+            )}
+            {!includeAll && filter.trim() === "" && (
+              <>
+                <button
+                  type="button"
+                  data-dropdown-item
+                  data-selected={value === "" ? "true" : undefined}
+                  className={`dropdown-item ${value === "" ? "selected" : ""}`}
+                  aria-selected={value === ""}
+                  role="option"
+                  onClick={() => {
+                    onChange("");
+                    closeMenu();
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      textAlign: "left",
+                    }}
+                  >
+                    Pick a model
                   </span>
                 </button>
                 {filtered.length > 0 && <div className="dropdown-divider" />}

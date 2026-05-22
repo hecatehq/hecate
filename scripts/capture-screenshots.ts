@@ -219,6 +219,21 @@ const docsAgentAdapters = [
     auth_status: "unauthenticated",
     auth_error: "Run cursor-agent login or set CURSOR_API_KEY.",
   },
+  {
+    id: "grok_build",
+    name: "Grok Build",
+    kind: "acp",
+    command: "grok",
+    args: ["agent", "stdio"],
+    available: true,
+    status: "available",
+    path: "/Users/alice/.local/bin/grok",
+    cost_mode: "external",
+    docs_url: "https://docs.x.ai/build/cli/headless-scripting#acp",
+    version: "0.8.0",
+    supported_range: ">=0.1.0",
+    auth_status: "ok",
+  },
 ];
 
 function docsAgentApproval() {

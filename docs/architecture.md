@@ -124,7 +124,7 @@ The orchestrator owns:
 
 The orchestrator does **not** own OpenAI/Anthropic request routing for normal
 chat traffic, and it does not own external-agent adapter runtimes such as Codex,
-Claude Code, or Cursor Agent. Those external adapters are supervised by Agent
+Claude Code, Cursor Agent, or Grok Build. Those external adapters are supervised by Agent
 Chat and run as their own processes in the selected workspace. Task-runtime
 `agent_loop` work is the path that uses the orchestrator, task approvals,
 workspace manager, and sandbox boundary described here.

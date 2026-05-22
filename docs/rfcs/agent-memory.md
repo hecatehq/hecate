@@ -70,10 +70,11 @@ flowchart LR
   behavior in v1.
 - **Semantic recall or vector retrieval.** Exact scope matching first. Embedding
   search can become a later retrieval RFC.
-- **Owning external-agent private memory.** Codex, Claude Code, and Cursor have
-  their own memory/settings layers. Hecate can provide project memory to an
-  external-agent session through supported prompt/config surfaces, but it should
-  not pretend to read, rewrite, or synchronize the agent's private memory.
+- **Owning external-agent private memory.** Codex, Claude Code, Cursor, and
+  Grok Build have their own memory/settings layers. Hecate can provide project
+  memory to an external-agent session through supported prompt/config surfaces,
+  but it should not pretend to read, rewrite, or synchronize the agent's private
+  memory.
 - **Cross-user sharing.** Hecate remains local-first and single-operator shaped.
 - **Replacing workspace docs.** Repository guidance belongs in repo files such
   as `AGENTS.md`; memory is for operator-owned durable preferences and facts.
@@ -178,9 +179,9 @@ External memory provider rules:
 Hecate Chat can inject project memory directly into the provider prompt because
 Hecate owns that model call.
 
-External agents are different: Codex, Claude Code, and Cursor own their private
-prompt/history internals. Hecate should still let them use project memory, but
-only through explicit surfaces:
+External agents are different: Codex, Claude Code, Cursor, and Grok Build own
+their private prompt/history internals. Hecate should still let them use
+project memory, but only through explicit surfaces:
 
 - ACP config/session options when an adapter exposes a suitable field.
 - Hecate-authored session preamble or instruction text when the adapter accepts

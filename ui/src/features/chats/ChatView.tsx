@@ -23,7 +23,7 @@ import { describeGatewayError } from "../../lib/error-diagnostics";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
-import type { ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
+import type { ChatConfigOptionRecord, ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
 import type { LocalProviderDiscoveryRecord, ProviderFilter } from "../../types/provider";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
@@ -34,6 +34,7 @@ import { ChatHeader } from "./ChatHeader";
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
 import { ChatSidebar, sidebarSessionAgentLabel, sidebarSessionBrand } from "./ChatSidebar";
 import { ChatTranscript, buildTranscriptItems, type VisibleChatMessage } from "./ChatTranscript";
+import { externalAgentRequiresModelSelection, mergeAgentConfigOptions } from "./agentConfigOptions";
 import { chatAgentOption } from "./ChatAgentControls";
 import {
   HecateTaskApprovalsBanner,
@@ -75,6 +76,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     activeChatSession: chat.state.activeChatSession,
     activeChatSessionID: chat.state.activeChatSessionID,
     agentAdapterID: chat.state.agentAdapterID,
+    agentConfigOptions: chat.state.agentConfigOptions,
     agentAdapters: providersAndModels.state.agentAdapters,
     agentAdapterApprovalMode: providersAndModels.state.agentAdapterApprovalMode,
     agentAdapterHealthByID: providersAndModels.state.agentAdapterHealthByID,
@@ -157,9 +159,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const isHecateAgentChat = isHecateChat && state.chatTarget === "agent";
   const isExternalAgentChat =
     activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
-  const externalAgentHasConfigControls = Boolean(
-    isExternalAgentChat && state.activeChatSession?.config_options?.length,
-  );
   const instructionsAvailable = isHecateChat;
   const activeSessionID = state.activeChatSessionID;
   const selectedChatReady = Boolean(activeSessionID && state.activeChatSession);
@@ -224,9 +223,19 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       ? state.activeChatSession.agent_id
       : state.agentAdapterID;
   const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === activeAgentAdapterID);
+  const externalAgentConfigOptions: ChatConfigOptionRecord[] = isExternalAgentChat
+    ? mergeAgentConfigOptions(
+        selectedAgent?.config_options ?? [],
+        state.activeChatSession
+          ? (state.activeChatSession.config_options ?? [])
+          : state.agentConfigOptions,
+      )
+    : [];
+  const externalAgentHasConfigControls = externalAgentConfigOptions.length > 0;
   const selectedAgentHealth = activeAgentAdapterID
     ? (state.agentAdapterHealthByID.get(activeAgentAdapterID) ?? null)
     : null;
+
   const externalAgentSetupRequired = needsExternalAgentSetup(selectedAgent, selectedAgentHealth);
   const availableAgents = state.agentAdapters.filter((adapter) => adapter.available);
   const configuredProviders = state.settingsConfig?.providers ?? [];
@@ -395,13 +404,17 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     anyAgentAvailable: availableAgents.length > 0,
     externalAgentSetupRequired,
   });
-  const composerVisible =
-    selectedChatReady && (isExternalAgentChat || (isHecateChat && hecateChatModelReady));
+  const externalAgentModelRequired = externalAgentRequiresModelSelection(
+    externalAgentConfigOptions,
+  );
+  const composerVisible = selectedChatReady && isAgentChat;
   const hecateHasMessageControls =
     isHecateChat &&
     (hecateAgentModelLocked || hasConfiguredProviders || selectableModels.length > 0);
   const messageControlsVisible =
-    selectedChatReady && (externalAgentHasConfigControls || hecateHasMessageControls);
+    (isExternalAgentChat && externalAgentHasConfigControls) ||
+    (selectedChatReady && hecateHasMessageControls);
+  const composerShellVisible = selectedChatReady || messageControlsVisible;
   const composerRepair =
     composerVisible && !emptyStateAlreadyShowsRepair(chatSetupRepair, visibleMessages.length)
       ? composerVisibleRepair(chatSetupRepair)
@@ -418,6 +431,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     emptyStateExplainsModelRoute;
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
+  const messageSendBlocked =
+    !agentBusy &&
+    ((isHecateChat && !hecateChatModelReady) ||
+      (isExternalAgentChat && externalAgentModelRequired));
 
   function handleHecateModelChange(model: string) {
     actions.setModel(model);
@@ -425,12 +442,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
 
   const sendDisabled =
     !state.message.trim() ||
+    messageSendBlocked ||
     (!agentBusy && streaming) ||
     (!isAgentChat && modelRouteUnavailable) ||
     (!agentBusy &&
       isExternalAgentChat &&
       (!state.agentWorkspace.trim() || !selectedAgent?.available)) ||
     (!agentBusy && isExternalAgentChat && externalAgentSetupRequired) ||
+    (!agentBusy && isExternalAgentChat && externalAgentModelRequired) ||
     (!agentBusy &&
       isHecateAgentChat &&
       (!hecateChatModelReady ||
@@ -790,7 +809,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               }
             />
 
-            {selectedChatReady && (
+            {composerShellVisible && (
               <ChatComposer
                 isAgentChat={isAgentChat}
                 isHecateChat={isHecateChat}
@@ -802,6 +821,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 composerRepair={composerRepair}
                 suppressChatError={suppressComposerChatError}
                 messageControlsVisible={messageControlsVisible}
+                messageSendBlocked={messageSendBlocked}
                 sendDisabled={sendDisabled}
                 agentBusy={agentBusy}
                 queueingMessage={queueingMessage}

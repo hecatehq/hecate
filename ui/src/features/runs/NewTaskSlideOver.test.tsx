@@ -4,6 +4,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import { NewTaskSlideOver } from "./NewTaskSlideOver";
 
+const agentLoopModelFixtures = [
+  {
+    id: "model-a",
+    owned_by: "test",
+    metadata: { provider: "test", provider_kind: "local", default: false },
+  },
+];
+
 function setup(propOverrides: Partial<React.ComponentProps<typeof NewTaskSlideOver>> = {}) {
   const props: React.ComponentProps<typeof NewTaskSlideOver> = {
     open: true,
@@ -197,7 +205,6 @@ describe("NewTaskSlideOver submit", () => {
           kind: "cloud",
           protocol: "openai",
           base_url: "https://api.openai.com/v1",
-          default_model: "gpt-5.4-mini",
         },
         {
           id: "ollama",
@@ -205,7 +212,6 @@ describe("NewTaskSlideOver submit", () => {
           kind: "local",
           protocol: "openai",
           base_url: "http://127.0.0.1:11434/v1",
-          default_model: "ministral-3:latest",
         },
       ],
     });
@@ -248,7 +254,6 @@ describe("NewTaskSlideOver submit", () => {
           kind: "cloud",
           protocol: "openai",
           base_url: "https://api.openai.com/v1",
-          default_model: "gpt-5.4-mini",
         },
         {
           id: "ollama",
@@ -256,7 +261,6 @@ describe("NewTaskSlideOver submit", () => {
           kind: "local",
           protocol: "openai",
           base_url: "http://127.0.0.1:11434/v1",
-          default_model: "ministral-3:latest",
         },
       ],
     });
@@ -456,6 +460,13 @@ describe("NewTaskSlideOver model warnings (agent_loop)", () => {
 async function gotoAgentLoopAndAddMCPRow(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Agent loop" }));
   await user.type(screen.getByPlaceholderText(/describe the task/i), "do the thing");
+  const modelTrigger = screen.queryByRole("button", { name: /Model picker:/i }) as
+    | HTMLButtonElement
+    | null;
+  if (modelTrigger && !modelTrigger.disabled && /pick a model/i.test(modelTrigger.textContent ?? "")) {
+    await user.click(modelTrigger);
+    await user.click(screen.getByRole("option", { name: /model-a/i }));
+  }
   await user.click(screen.getByRole("button", { name: /add mcp server/i }));
 }
 
@@ -518,7 +529,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     // does NOT send url/headers, and omits approval_policy when
     // it's left at the default (auto).
     const onCreate = vi.fn();
-    const { render, user } = setup({ onCreate });
+    const { render, user } = setup({ onCreate, models: agentLoopModelFixtures });
     render();
     await gotoAgentLoopAndAddMCPRow(user);
     await user.type(screen.getByPlaceholderText(/^name \(e\.g\. filesystem\)/i), "fs");
@@ -550,7 +561,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     // mutual-exclusion check would reject "" as a present-but-empty
     // command).
     const onCreate = vi.fn();
-    const { render, user } = setup({ onCreate });
+    const { render, user } = setup({ onCreate, models: agentLoopModelFixtures });
     render();
     await gotoAgentLoopAndAddMCPRow(user);
     await user.type(screen.getByPlaceholderText(/^name \(e\.g\. filesystem\)/i), "remote");
@@ -583,7 +594,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     // form's "send only when non-default" rule keeps API responses
     // free of redundant fields. Default = auto = omitted.
     const onCreate = vi.fn();
-    const { render, user } = setup({ onCreate });
+    const { render, user } = setup({ onCreate, models: agentLoopModelFixtures });
     render();
     await gotoAgentLoopAndAddMCPRow(user);
     await user.type(screen.getByPlaceholderText(/^name \(e\.g\. filesystem\)/i), "github");
@@ -599,7 +610,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     // string verbatim so the gateway's per-server policy lookup
     // matches.
     const onCreate = vi.fn();
-    const { render, user } = setup({ onCreate });
+    const { render, user } = setup({ onCreate, models: agentLoopModelFixtures });
     render();
     await gotoAgentLoopAndAddMCPRow(user);
     await user.type(screen.getByPlaceholderText(/^name \(e\.g\. filesystem\)/i), "github");
@@ -614,7 +625,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     // Block is the third state — easy to forget if we only test
     // auto + require_approval, so we pin it explicitly.
     const onCreate = vi.fn();
-    const { render, user } = setup({ onCreate });
+    const { render, user } = setup({ onCreate, models: agentLoopModelFixtures });
     render();
     await gotoAgentLoopAndAddMCPRow(user);
     await user.type(screen.getByPlaceholderText(/^name \(e\.g\. filesystem\)/i), "github");
@@ -631,7 +642,7 @@ describe("NewTaskSlideOver MCP servers — submit payload", () => {
     // travel as a phantom entry, otherwise the gateway returns a
     // 400 the operator can't easily map back to a UI mistake.
     const onCreate = vi.fn();
-    const { render, user } = setup({ onCreate });
+    const { render, user } = setup({ onCreate, models: agentLoopModelFixtures });
     render();
     // Add a row, leave it empty.
     await gotoAgentLoopAndAddMCPRow(user);

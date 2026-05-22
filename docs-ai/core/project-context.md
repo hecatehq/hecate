@@ -25,7 +25,8 @@ internal/retention/        retention worker (subsystems: traces, usage_events, a
                              provider_history, turn_events,
                              chat_approvals)
 internal/mcp/              stdio MCP server (read tools + write tools)
-internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor
+internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor,
+                             Grok Build
 internal/chat/        chat transcript persistence and runtime linkage
 internal/modelcaps/        model tool-capability merge logic and defaults
 

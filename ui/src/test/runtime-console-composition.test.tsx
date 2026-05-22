@@ -176,6 +176,95 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatTarget).toBe("model");
   });
 
+  it("drops stale persisted provider and model selections when only a catalog preset remains", async () => {
+    window.localStorage.setItem("hecate.providerFilter", "ollama");
+    window.localStorage.setItem("hecate.model", "ministral-3:latest");
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/providers/presets": () =>
+          jsonResponse({
+            object: "provider_presets",
+            data: [
+              {
+                id: "ollama",
+                name: "Ollama",
+                kind: "local",
+                protocol: "openai",
+                base_url: "http://127.0.0.1:11434/v1",
+                default_model: "ministral-3:latest",
+              },
+            ],
+          }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.providerFilter).toBe("auto"));
+    expect(result.current.state.model).toBe("");
+  });
+
+  it("keeps expected Hecate chat setup route failures out of the global notice", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.providerFilter", "ollama");
+    window.localStorage.setItem("hecate.model", "ministral-3:latest");
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/v1/models": () =>
+          jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "ministral-3:latest",
+                owned_by: "ollama",
+                metadata: { provider: "ollama", provider_kind: "local" },
+              },
+            ],
+          }),
+        "/hecate/v1/providers/status": () =>
+          jsonResponse({
+            object: "provider_status",
+            data: [
+              {
+                name: "ollama",
+                kind: "local",
+                healthy: true,
+                status: "ok",
+                models: ["ministral-3:latest"],
+              },
+            ],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            return jsonResponse(
+              {
+                error: {
+                  type: "route.no_routable_provider",
+                  message: 'No routable provider reports model "ministral-3:latest".',
+                },
+              },
+              400,
+            );
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.model).toBe("ministral-3:latest"));
+
+    await act(async () => {
+      await result.current.actions.createChatSession({ agentID: "hecate" });
+    });
+
+    expect(result.current.state.chatError).toBe(
+      'No routable provider reports model "ministral-3:latest".',
+    );
+    expect(result.current.state.notice).toBeNull();
+  });
+
   it("keeps a newly created tools-off Hecate chat in direct model mode", async () => {
     window.localStorage.setItem("hecate.chatTarget", "model");
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");

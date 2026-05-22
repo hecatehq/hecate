@@ -1,6 +1,6 @@
 // AgentAdapterPicker is the dropdown the chat view uses to switch
-// between registered external-agent adapters (Codex / Claude Code /
-// Cursor Agent). It surfaces both the dashboard's discovery flag and
+// between registered external-agent adapters. It surfaces both the
+// dashboard's discovery flag and
 // the on-demand probe result so operators can see at a glance which
 // adapter is actually usable on this machine.
 

@@ -18,6 +18,7 @@ import type {
   ChatApprovalResolvedEvent,
   ChatApprovalResponse,
   ChatApprovalsResponse,
+  ChatConfigOptionRecord,
   ChatChangedFileDiffResponse,
   ChatChangedFilesResponse,
   ChatGrantsResponse,
@@ -149,6 +150,7 @@ export type CreateChatSessionPayload = {
   model?: string;
   workspace?: string;
   rtk_enabled?: boolean;
+  config_options?: ChatConfigOptionRecord[];
 };
 
 export type CreateChatMessagePayload = {

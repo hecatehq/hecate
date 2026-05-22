@@ -468,6 +468,16 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
         commands: [{ label: "Auth", command: "cursor-agent login" }],
         note: "Cursor Agent is installed with the Cursor application, not npm.",
       };
+    case "grok_build":
+      return {
+        label: "Grok Build",
+        action: "Install Grok Build, then sign in with Grok.",
+        commands: [
+          { label: "Install", command: "curl -fsSL https://x.ai/cli/install.sh | bash" },
+          { label: "Auth", command: "grok login" },
+        ],
+        note: "Headless environments can set XAI_API_KEY instead of using browser sign-in.",
+      };
     default:
       return {
         label: adapter.command || adapter.id,

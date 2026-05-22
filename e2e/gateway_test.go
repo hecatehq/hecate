@@ -514,9 +514,7 @@ func TestGatewayFakeUpstreamNonStreamingCodex(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
@@ -579,9 +577,7 @@ func TestGatewayFakeUpstreamExportsOTLPTracesAndMetrics(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 		"HECATE_OTEL_TRACES_ENABLED=true",
 		"HECATE_OTEL_TRACES_ENDPOINT=http://"+sink.addr(),
 		"HECATE_OTEL_METRICS_ENABLED=true",
@@ -615,9 +611,7 @@ func TestGatewayFakeUpstreamStreamingCodex(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"hello"}]}`
@@ -655,9 +649,7 @@ func TestGatewayFakeUpstreamClaudeCode(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 		"PROVIDER_FAKE_KIND=local",
-		"HECATE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 	)
 
 	body := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"messages":[{"role":"user","content":"hello"}]}`
@@ -711,9 +703,7 @@ func TestGatewayMultimodalCodexImageURLPassthrough(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o",
 		"PROVIDER_FAKE_KIND=local",
-		"HECATE_DEFAULT_MODEL=gpt-4o",
 	)
 
 	body := `{
@@ -778,8 +768,6 @@ func TestGatewayMultimodalAnthropicImageURLTranslation(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
-		"PROVIDER_ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-6",
-		"HECATE_DEFAULT_MODEL=claude-sonnet-4-6",
 	)
 
 	// Caller posts the OpenAI shape — this is the cross-provider
@@ -839,8 +827,6 @@ func TestGatewayMultimodalAnthropicDataURITranslation(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
-		"PROVIDER_ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-6",
-		"HECATE_DEFAULT_MODEL=claude-sonnet-4-6",
 	)
 
 	// `data:image/jpeg;base64,...` — the shape an OpenAI client
@@ -889,9 +875,7 @@ func TestGatewayRuntimeProviderHeader(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
@@ -920,7 +904,6 @@ func TestRealAnthropicClaudeCode(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY="+apiKey,
-		"HECATE_DEFAULT_MODEL=claude-haiku-4-5-20251001",
 	)
 
 	body := `{"model":"claude-haiku-4-5-20251001","max_tokens":64,"messages":[{"role":"user","content":"Reply with exactly the word: pong"}]}`
@@ -957,7 +940,6 @@ func TestRealAnthropicClaudeCodeStreaming(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY="+apiKey,
-		"HECATE_DEFAULT_MODEL=claude-haiku-4-5-20251001",
 	)
 
 	body := `{"model":"claude-haiku-4-5-20251001","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"Say hi"}]}`
@@ -1001,7 +983,6 @@ func TestRealOpenAICodex(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_OPENAI_API_KEY="+apiKey,
-		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Reply with exactly the word: pong"}]}`
@@ -1033,7 +1014,6 @@ func TestRealOpenAICodexStreaming(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_OPENAI_API_KEY="+apiKey,
-		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"Say hi"}]}`
@@ -1254,9 +1234,7 @@ func TestGatewayRateLimitHeaders(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"HECATE_DEFAULT_MODEL=gpt-4o-mini",
 		"HECATE_RATE_LIMIT_ENABLED=true",
 		"HECATE_RATE_LIMIT_RPM=120",
 	)
@@ -1290,9 +1268,7 @@ func TestGatewayFakeUpstreamStreamingClaudeCode(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 		"PROVIDER_FAKE_KIND=local",
-		"HECATE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 	)
 
 	body := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hello"}]}`
@@ -1362,6 +1338,7 @@ func fakeUpstreamCapturing(t *testing.T, path, response string) (string, *captur
 	t.Helper()
 	captured := &capturedRequests{}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", fakeModelsHandler)
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		// Decode best-effort; non-JSON bodies still record an
@@ -1386,6 +1363,7 @@ func fakeUpstreamCapturing(t *testing.T, path, response string) (string, *captur
 func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 	t.Helper()
 	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", fakeModelsHandler)
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		if streaming {
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -1420,6 +1398,11 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 	go srv.Serve(ln) //nolint:errcheck
 	t.Cleanup(func() { srv.Close() })
 	return "http://" + ln.Addr().String()
+}
+
+func fakeModelsHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model"},{"id":"gpt-4o","object":"model"},{"id":"claude-sonnet-4-20250514","object":"model"}]}`)
 }
 
 // TestBootstrapAutoGenerationDefaultPath proves the no-env-overrides

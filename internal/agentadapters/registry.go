@@ -22,6 +22,10 @@ const (
 	StatusMissing   = "missing"
 )
 
+// ErrLaunchModelRequired means Hecate owns the model launch flag for an
+// adapter and the operator has not selected a concrete model yet.
+var ErrLaunchModelRequired = errors.New("launch model required")
+
 // adapterDiscoveryOverrideEnv is intentionally narrower than
 // adapterDevOverrideEnv: keep it for backend tests that only need catalog
 // states, while UI/dev smoke fixtures should use the dev override so catalog
@@ -47,17 +51,52 @@ const (
 )
 
 type Adapter struct {
-	ID             string
-	Name           string
-	Command        string
-	Args           []string
-	CandidatePaths []string
-	Managed        ManagedLauncher
-	Kind           string
-	Description    string
-	CostMode       string
-	DocsURL        string
-	SupportedRange string
+	ID               string
+	Name             string
+	Command          string
+	Args             []string
+	CandidatePaths   []string
+	Managed          ManagedLauncher
+	LaunchSuffixArgs []string
+	LaunchModel      LaunchModelConfig
+	LaunchOptions    []LaunchSelectConfig
+	Kind             string
+	Description      string
+	CostMode         string
+	DocsURL          string
+	SupportedRange   string
+}
+
+type LaunchModelConfig struct {
+	ConfigID       string
+	ArgTemplate    []string
+	ListArgs       []string
+	FallbackModels []LaunchModel
+}
+
+type LaunchModel struct {
+	ID          string
+	Name        string
+	Description string
+}
+
+type LaunchSelectConfig struct {
+	ConfigID         string
+	Name             string
+	Description      string
+	Category         string
+	Default          string
+	UnsetValue       string
+	UnsetName        string
+	UnsetDescription string
+	ArgTemplate      []string
+	Options          []LaunchSelectOption
+}
+
+type LaunchSelectOption struct {
+	ID          string
+	Name        string
+	Description string
 }
 
 type ManagedLauncher struct {
@@ -92,6 +131,7 @@ type RunRequest struct {
 	Workspace               string
 	PreviousNativeSessionID string
 	Prompt                  string
+	ConfigOptions           []agentcontrols.ConfigOption
 	Timeout                 time.Duration
 	MaxOutputBytes          int64
 	OnOutput                func(string)
@@ -103,6 +143,7 @@ type PrepareSessionRequest struct {
 	AdapterID               string
 	Workspace               string
 	PreviousNativeSessionID string
+	ConfigOptions           []agentcontrols.ConfigOption
 }
 
 type PrepareSessionResult struct {
@@ -222,6 +263,47 @@ func BuiltIns() []Adapter {
 			Description:    "Run Cursor Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
 			CostMode:       "external",
 			DocsURL:        "https://cursor.com/cli",
+			SupportedRange: ">=0.1.0",
+		},
+		{
+			ID:               "grok_build",
+			Name:             "Grok Build",
+			Command:          "grok",
+			Args:             []string{"agent"},
+			LaunchSuffixArgs: []string{"stdio"},
+			CandidatePaths: []string{
+				"${HOME}/.local/bin/grok",
+				"/opt/homebrew/bin/grok",
+				"/usr/local/bin/grok",
+			},
+			LaunchModel: LaunchModelConfig{
+				ConfigID:    "model",
+				ArgTemplate: []string{"--model", "{model}"},
+				ListArgs:    []string{"models"},
+			},
+			LaunchOptions: []LaunchSelectConfig{
+				{
+					ConfigID:         "reasoning_effort",
+					Name:             "Reasoning",
+					Description:      "Reasoning effort passed to Grok Build when Hecate starts or restarts it.",
+					Category:         "thought_level",
+					UnsetValue:       "__hecate_no_reasoning_selected__",
+					UnsetName:        "Pick reasoning",
+					UnsetDescription: "Use Grok Build's default reasoning effort.",
+					ArgTemplate:      []string{"--reasoning-effort", "{reasoning_effort}"},
+					Options: []LaunchSelectOption{
+						{ID: "low", Name: "Low"},
+						{ID: "medium", Name: "Medium"},
+						{ID: "high", Name: "High"},
+						{ID: "xhigh", Name: "XHigh"},
+						{ID: "max", Name: "Max"},
+					},
+				},
+			},
+			Kind:           "acp",
+			Description:    "Run Grok Build through its ACP mode as a long-lived external coding-agent session supervised by Hecate.",
+			CostMode:       "external",
+			DocsURL:        "https://docs.x.ai/build/cli/headless-scripting#acp",
 			SupportedRange: ">=0.1.0",
 		},
 	}
@@ -790,17 +872,29 @@ func sanitizedEnv(env []string) []string {
 		"TERM=",
 		"USER=",
 		"LOGNAME=",
+		"XAI_",
 		"XDG_",
 		"VOLTA_",
 	}
 	out := make([]string, 0, len(env))
+	hasXAIAPIKey := false
+	providerXAIAPIKey := ""
 	for _, entry := range env {
+		if strings.HasPrefix(entry, "XAI_API_KEY=") && strings.TrimSpace(strings.TrimPrefix(entry, "XAI_API_KEY=")) != "" {
+			hasXAIAPIKey = true
+		}
+		if strings.HasPrefix(entry, "PROVIDER_XAI_API_KEY=") {
+			providerXAIAPIKey = strings.TrimSpace(strings.TrimPrefix(entry, "PROVIDER_XAI_API_KEY="))
+		}
 		for _, prefix := range allowedPrefixes {
 			if strings.HasPrefix(entry, prefix) {
 				out = append(out, entry)
 				break
 			}
 		}
+	}
+	if !hasXAIAPIKey && providerXAIAPIKey != "" {
+		out = append(out, "XAI_API_KEY="+providerXAIAPIKey)
 	}
 	return out
 }

@@ -10,14 +10,9 @@ import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownK
 import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
 
-const CHAT_AGENT_OPTIONS = [
-  { id: "hecate", label: "Hecate" },
-  { id: "codex", label: "Codex" },
-  { id: "claude_code", label: "Claude Code" },
-  { id: "cursor_agent", label: "Cursor Agent" },
-] as const;
+const HECATE_CHAT_AGENT_OPTION = { id: "hecate", label: "Hecate" } as const;
 
-export type ChatAgentOptionID = (typeof CHAT_AGENT_OPTIONS)[number]["id"];
+export type ChatAgentOptionID = "hecate" | (string & {});
 
 export function NewChatAgentButton({
   value,
@@ -268,7 +263,11 @@ function chatAgentPickerOptions(
   disableUnavailable: boolean,
   iconSize: number,
 ): DropdownPickerOption<ChatAgentOptionID>[] {
-  return CHAT_AGENT_OPTIONS.map((option) => {
+  const options = [
+    HECATE_CHAT_AGENT_OPTION,
+    ...adapters.map((adapter) => ({ id: adapter.id, label: adapter.name || adapter.id })),
+  ];
+  return options.map((option) => {
     const adapter =
       option.id === "hecate" ? undefined : adapters.find((item) => item.id === option.id);
     const health = option.id === "hecate" ? undefined : healthByID.get(option.id);
@@ -291,13 +290,19 @@ export function chatAgentOption(
   value: string,
   adapters: AgentAdapterRecord[],
 ): { id: ChatAgentOptionID; label: string; title: string } {
-  if (value === "codex" || value === "claude_code" || value === "cursor_agent") {
-    const hardcoded = CHAT_AGENT_OPTIONS.find((option) => option.id === value);
+  if (value !== "hecate") {
     const adapter = adapters.find((item) => item.id === value);
+    if (!adapter) {
+      return {
+        id: "hecate",
+        label: "Hecate",
+        title: "Chat with Hecate; enable tools to use Hecate's task runtime.",
+      };
+    }
     return {
       id: value,
-      label: adapter?.name || hardcoded?.label || value,
-      title: adapter?.description || adapter?.command || hardcoded?.label || value,
+      label: adapter.name || value,
+      title: adapter.description || adapter.command || adapter.name || value,
     };
   }
   return {
@@ -481,7 +486,7 @@ function adapterLoginCommand(optionID: ChatAgentOptionID): string {
 function adapterDisplayName(optionID: ChatAgentOptionID, adapter?: AgentAdapterRecord): string {
   return (
     adapter?.name ||
-    CHAT_AGENT_OPTIONS.find((option) => option.id === optionID)?.label ||
+    (optionID === "hecate" ? HECATE_CHAT_AGENT_OPTION.label : "") ||
     "External agent"
   );
 }
@@ -656,10 +661,12 @@ export function ExternalAgentSettingsControls({
 export function HecateProviderConfigControl({
   value,
   options,
+  placement = "up",
   onChange,
 }: {
   value: string;
   options: ProviderOption[];
+  placement?: "up" | "down";
   onChange: (value: string) => void;
 }) {
   const pickerOptions: DropdownPickerOption<string>[] = options.map((option) => ({
@@ -684,7 +691,7 @@ export function HecateProviderConfigControl({
       triggerMinWidth={150}
       triggerMaxWidth={260}
       menuMinWidth={230}
-      placement="up"
+      placement={placement}
       buttonStyle={externalAgentComposerControlStyle}
     />
   );
@@ -696,6 +703,7 @@ export function HecateModelConfigControl({
   presets,
   disabledProviders,
   showProvider,
+  placement = "up",
   onChange,
 }: {
   value: string;
@@ -703,37 +711,41 @@ export function HecateModelConfigControl({
   presets?: ProviderPresetRecord[];
   disabledProviders?: Map<string, string>;
   showProvider?: boolean;
+  placement?: "up" | "down";
   onChange: (value: string) => void;
 }) {
   const providerName = (id: string) => presets?.find((preset) => preset.id === id)?.name || id;
-  const pickerOptions: DropdownPickerOption<string>[] = models.map((model) => {
-    const provider = typeof model.metadata?.provider === "string" ? model.metadata.provider : "";
-    const disabledReason = provider ? disabledProviders?.get(provider) : undefined;
-    return {
-      value: model.id,
-      label: model.id,
-      detail: showProvider && provider ? providerName(provider) : undefined,
-      title: disabledReason || model.id,
-      disabled: Boolean(disabledReason),
-      disabledReason,
-      statusLabel: disabledReason ? "setup" : undefined,
-      statusColor: disabledReason ? "var(--amber)" : undefined,
-    };
-  });
+  const pickerOptions: DropdownPickerOption<string>[] = [
+    { value: "", label: "Pick a model", title: "No model selected" },
+    ...models.map((model) => {
+      const provider = typeof model.metadata?.provider === "string" ? model.metadata.provider : "";
+      const disabledReason = provider ? disabledProviders?.get(provider) : undefined;
+      return {
+        value: model.id,
+        label: model.id,
+        detail: showProvider && provider ? providerName(provider) : undefined,
+        title: disabledReason || model.id,
+        disabled: Boolean(disabledReason),
+        disabledReason,
+        statusLabel: disabledReason ? "setup" : undefined,
+        statusColor: disabledReason ? "var(--amber)" : undefined,
+      };
+    }),
+  ];
   const selected = pickerOptions.find((option) => option.value === value);
   return (
     <DropdownPicker
-      ariaLabel={`Model picker: ${selected?.label || value || "model"}`}
+      ariaLabel={`Model picker: ${selected?.label || value || "Pick a model"}`}
       value={value}
       options={pickerOptions}
       onChange={onChange}
-      placeholder={models.length > 0 ? "model" : "no models available"}
+      placeholder={models.length > 0 ? "Pick a model" : "no models available"}
       triggerPrefix="model"
       triggerMinWidth={150}
       triggerMaxWidth={300}
       menuMinWidth={300}
       align="right"
-      placement="up"
+      placement={placement}
       searchable
       searchPlaceholder="Filter models..."
       disabled={models.length === 0}

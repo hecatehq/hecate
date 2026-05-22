@@ -173,6 +173,15 @@ describe("defaultModelForProvider", () => {
   it("does not treat catalog preset defaults as routable models", () => {
     expect(defaultModelForProvider("anthropic", [], [])).toBe("");
   });
+
+  it("leaves the model unselected when no provider default is reported", () => {
+    const models: ModelRecord[] = [
+      model({ id: "model-a", metadata: { provider: "openai" } }),
+      model({ id: "model-b", metadata: { provider: "openai" } }),
+    ];
+    const providers = [provider({ name: "openai", models: ["model-a", "model-b"] })];
+    expect(defaultModelForProvider("openai", models, providers)).toBe("");
+  });
 });
 
 describe("defaultProviderForChat", () => {

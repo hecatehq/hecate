@@ -68,8 +68,6 @@ func TestMain(m *testing.M) {
 	suiteGateway, err = startGatewayProcess(
 		"PROVIDER_OLLAMA_BASE_URL="+suiteOllamaURL,
 		"PROVIDER_OLLAMA_KIND=local",
-		"PROVIDER_OLLAMA_DEFAULT_MODEL="+ollamaModel,
-		"HECATE_DEFAULT_MODEL="+ollamaModel,
 		"HECATE_OTEL_TRACES_ENABLED=true",
 		"HECATE_OTEL_TRACES_ENDPOINT=http://"+suiteOTLP.addr(),
 		"HECATE_OTEL_METRICS_ENABLED=true",

@@ -44,6 +44,7 @@ const BRAND_ICONS: Record<string, BrandIconSpec> = {
   cursor_agent: { component: CursorIcon, monochrome: true },
   deepseek: { component: Deepseek },
   gemini: { component: GoogleGeminiIcon },
+  grok_build: { component: Xai, monochrome: true },
   groq: { component: Groq, monochrome: true },
   hecate: { image: hecateMarkURL, monochrome: true },
   lm_studio: { component: LmStudioIcon, monochrome: true },

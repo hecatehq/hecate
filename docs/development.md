@@ -238,7 +238,7 @@ pkg/types/              # public types shared with external Go code
 Internal packages (each `internal/<name>/` is a single Go package):
 
 ```
-agentadapters           # external coding-agent adapter framework (Codex, Claude Code, Cursor Agent)
+agentadapters           # external coding-agent adapter framework (Codex, Claude Code, Cursor Agent, Grok Build)
 api                     # HTTP handlers — chat, messages, tasks, settings, telemetry
 bootstrap               # first-run secret-key generation and persistence
 catalog                 # provider/model discovery and registration
@@ -269,7 +269,7 @@ version                 # build-time version metadata
 ## External-agent adapter smoke states
 
 External-agent onboarding depends on local tools (`codex-acp`,
-`claude-agent-acp`, `cursor-agent`) and the underlying agent CLIs/auth that may
+`claude-agent-acp`, `cursor-agent`, `grok`) and the underlying agent CLIs/auth that may
 already be installed on your machine. For manual UI smoke tests and Playwright
 fixtures, you can force the visual state without uninstalling anything. These
 fixture env vars are intentionally not listed in `.env.example`; keep them in
@@ -285,7 +285,7 @@ missing, which is useful for checking first-run onboarding copy.
 For finer control, pass a comma-separated override list:
 
 ```bash
-just dev-agent-adapters 'codex=ready,claude_code=no_auth,cursor_agent=app_missing'
+just dev-agent-adapters 'codex=ready,claude_code=no_auth,cursor_agent=app_missing,grok_build=ready'
 ```
 
 The backing env var is `HECATE_AGENT_ADAPTER_DEV_OVERRIDES`. It accepts

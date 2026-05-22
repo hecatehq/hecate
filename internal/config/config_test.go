@@ -423,7 +423,6 @@ func TestLoadProvidersFromEnvIncludesCustomProviderFromCoreEnvKeys(t *testing.T)
 	t.Setenv("PROVIDER_CUSTOM_PRECONFIGURED", "1")
 	t.Setenv("PROVIDER_CUSTOM_BASE_URL", "https://example.com/v1")
 	t.Setenv("PROVIDER_CUSTOM_API_KEY", "custom-secret")
-	t.Setenv("PROVIDER_CUSTOM_DEFAULT_MODEL", "custom-fast")
 	t.Setenv("PROVIDER_CUSTOM_MODELS", "custom-fast, custom-large")
 
 	cfg := LoadFromEnv()
@@ -441,9 +440,6 @@ func TestLoadProvidersFromEnvIncludesCustomProviderFromCoreEnvKeys(t *testing.T)
 	}
 	if custom.APIKey != "custom-secret" {
 		t.Fatalf("custom api key = %q, want custom-secret", custom.APIKey)
-	}
-	if custom.DefaultModel != "custom-fast" {
-		t.Fatalf("custom default model = %q, want custom-fast", custom.DefaultModel)
 	}
 	if len(custom.KnownModels) != 2 || custom.KnownModels[0] != "custom-fast" || custom.KnownModels[1] != "custom-large" {
 		t.Fatalf("custom known models = %#v, want custom-fast/custom-large", custom.KnownModels)

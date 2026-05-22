@@ -113,9 +113,9 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Provider and model selection exposes local and cloud distinctions clearly.
 - In Chats, use the shared agent-picker shell. **Hecate** is the built-in
   choice and owns provider/model selection; its tools toggle switches between
-  direct model chat and Hecate-owned task execution. Codex, Claude Code, and
-  Cursor choices create External Agent sessions where adapter/workspace/native
-  session diagnostics belong.
+  direct model chat and Hecate-owned task execution. Codex, Claude Code,
+  Cursor, and Grok Build choices create External Agent sessions where
+  adapter/workspace/native session diagnostics belong.
 - Hecate-owned chats store provider/model state on the session and durable
   runtime snapshots on each message. Tools-on turns create or continue a backing
   task and should show per-turn task links in the transcript. Chats may resolve

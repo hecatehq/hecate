@@ -14,8 +14,8 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	t.Parallel()
 
 	items := BuiltIns()
-	if len(items) != 3 {
-		t.Fatalf("built-in adapter count = %d, want 3", len(items))
+	if len(items) != 4 {
+		t.Fatalf("built-in adapter count = %d, want 4", len(items))
 	}
 
 	found := map[string]Adapter{}
@@ -34,6 +34,18 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	}
 	if got := found["cursor_agent"]; len(got.Args) != 1 || got.Args[0] != "acp" {
 		t.Fatalf("cursor_agent adapter = %#v", got)
+	}
+	if got := found["grok_build"]; got.Command != "grok" || got.Kind != DriverKindACP || got.CostMode != "external" {
+		t.Fatalf("grok_build adapter = %#v", got)
+	}
+	if got := found["grok_build"]; strings.Join(got.Args, " ") != "agent" || strings.Join(got.LaunchSuffixArgs, " ") != "stdio" {
+		t.Fatalf("grok_build adapter args = %#v", got.Args)
+	}
+	if got := found["grok_build"]; got.LaunchModel.ConfigID != "model" || len(got.LaunchModel.ListArgs) == 0 {
+		t.Fatalf("grok_build launch model config = %#v", got.LaunchModel)
+	}
+	if got := found["grok_build"]; len(got.LaunchOptions) != 1 || got.LaunchOptions[0].ConfigID != "reasoning_effort" {
+		t.Fatalf("grok_build launch options = %#v", got.LaunchOptions)
 	}
 }
 
@@ -62,6 +74,9 @@ func TestListWithLookupReportsAvailability(t *testing.T) {
 	}
 	if _, ok := byID["cursor_agent"]; !ok {
 		t.Fatalf("missing cursor_agent status in %#v", response)
+	}
+	if _, ok := byID["grok_build"]; !ok {
+		t.Fatalf("missing grok_build status in %#v", response)
 	}
 }
 
@@ -540,6 +555,8 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 		"CLAUDE_CONFIG_DIR=/tmp/claude",
 		"CODEX_HOME=/tmp/codex",
 		"CURSOR_API_KEY=cursor-test",
+		"PROVIDER_XAI_API_KEY=provider-xai-test",
+		"XAI_API_KEY=xai-test",
 		"VOLTA_HOME=/Users/alice/.volta",
 		"HECATE_AUTH_TOKEN=secret",
 	})
@@ -556,6 +573,7 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 		"CLAUDE_CONFIG_DIR=/tmp/claude",
 		"CODEX_HOME=/tmp/codex",
 		"CURSOR_API_KEY=cursor-test",
+		"XAI_API_KEY=xai-test",
 		"VOLTA_HOME=/Users/alice/.volta",
 	} {
 		if !got[want] {
@@ -564,6 +582,26 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 	}
 	if got["HECATE_AUTH_TOKEN=secret"] {
 		t.Fatalf("gateway secret leaked into adapter env: %#v", env)
+	}
+}
+
+func TestSanitizedEnvMapsProviderXAIKey(t *testing.T) {
+	t.Parallel()
+
+	env := sanitizedEnv([]string{
+		"PATH=/bin",
+		"PROVIDER_XAI_API_KEY=provider-xai-test",
+	})
+
+	got := map[string]bool{}
+	for _, item := range env {
+		got[item] = true
+	}
+	if !got["XAI_API_KEY=provider-xai-test"] {
+		t.Fatalf("missing XAI_API_KEY bridge in %#v", env)
+	}
+	if got["PROVIDER_XAI_API_KEY=provider-xai-test"] {
+		t.Fatalf("provider-scoped key leaked into adapter env: %#v", env)
 	}
 }
 
@@ -637,5 +675,21 @@ func TestNormalizeErrorExplainsClaudeAuthRequirement(t *testing.T) {
 	}
 	if !strings.Contains(got, "claude_code_auth_required") {
 		t.Fatalf("NormalizeError = %q, want claude_code_auth_required token for UI pattern-match", got)
+	}
+}
+
+func TestNormalizeErrorExtractsJSONRPCStringData(t *testing.T) {
+	t.Parallel()
+
+	err := errors.New(`{"code":-32603,"message":"Internal error","data":"stream error (api_error): no healthy upstream"}`)
+	got := NormalizeError("Grok Build", err)
+	if !strings.Contains(got, "Grok Build error: stream error (api_error): no healthy upstream") {
+		t.Fatalf("NormalizeError = %q, want Grok Build upstream diagnostic", got)
+	}
+	if !strings.Contains(got, "XAI_API_KEY") {
+		t.Fatalf("NormalizeError = %q, want XAI_API_KEY recovery hint", got)
+	}
+	if strings.Contains(got, `{"code"`) {
+		t.Fatalf("NormalizeError = %q, want parsed message instead of raw JSON", got)
 	}
 }
