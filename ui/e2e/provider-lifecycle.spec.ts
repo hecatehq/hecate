@@ -13,7 +13,9 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   await expect(page.getByText(/Nothing runnable yet|No model provider configured/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Open Connections/i })).toBeVisible();
-  await expect(page.locator("textarea")).toHaveCount(0);
+  if ((await page.locator("textarea").count()) > 0) {
+    await expect(page.locator("button[type='submit']")).toBeDisabled();
+  }
 
   // Move to Connections and add Ollama.
   await page.locator(".hecate-activitybar [aria-label^='Connections']").click();

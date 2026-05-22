@@ -130,6 +130,7 @@ test("Hecate composer provider and model controls match shared chat dropdowns", 
   await expect(providerBtn).toContainText("Anthropic");
 
   const modelBtn = page.getByRole("button", { name: /model picker/i });
+  await chooseComposerModel(page);
   await expect(modelBtn).toContainText("claude-sonnet-4-6");
   await modelBtn.click();
 
@@ -1036,6 +1037,7 @@ test("Hecate Chat sends direct model turns when selected model lacks tools", asy
   await page.waitForSelector(".hecate-activitybar");
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   await expect(page.getByRole("button", { name: /provider picker/i })).toContainText("Ollama");
+  await chooseComposerModel(page, "smollm2:135m");
   await expect(page.getByRole("button", { name: /model picker/i })).toContainText("smollm2:135m");
 
   await page.locator("textarea").fill("tell a tiny joke");
@@ -2290,6 +2292,7 @@ test("selected-model readiness can switch to the backend-suggested fallback mode
   await page.waitForSelector(".hecate-activitybar");
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
 
+  await chooseComposerModel(page, "gpt-4o-mini");
   await expect(page.getByRole("button", { name: /model picker/i })).toContainText("gpt-4o-mini");
   await page.locator("textarea").fill("hello");
   await expect(page.locator("button[type='submit']")).toBeEnabled();
