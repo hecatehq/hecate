@@ -22,6 +22,7 @@ import {
   defaultProviderForChat,
   humanizeChatError,
   isModelValidForProvider,
+  providerHasChatRouteEvidence,
 } from "../app/runtimeConsoleChatHelpers";
 import { deriveSessionState } from "../app/runtimeConsoleDashboard";
 import { useApprovals } from "../app/state/approvals";
@@ -368,6 +369,9 @@ export function useRuntimeConsole() {
     if (providerFilter !== "auto") {
       return;
     }
+    if (!settingsConfig) {
+      return;
+    }
 
     const configuredProviders = settingsConfig?.providers ?? [];
     const nextProvider = defaultProviderForChat(models, configuredProviders, providers);
@@ -375,33 +379,41 @@ export function useRuntimeConsole() {
       return;
     }
     setProviderFilter(nextProvider);
-    setModel(defaultModelForProvider(nextProvider, models, providers, providerPresets));
-  }, [models, providerFilter, providerPresets, providers, settingsConfig]);
+    setModel(defaultModelForProvider(nextProvider, models, providers));
+  }, [models, providerFilter, providers, settingsConfig]);
 
   useEffect(() => {
     if (providerFilter === "auto") {
       return;
     }
-    const hasProviderEvidence =
-      models.some((entry) => entry.metadata?.provider === providerFilter) ||
-      providers.some((entry) => entry.name === providerFilter) ||
-      providerPresets.some((entry) => entry.id === providerFilter);
-    if (model && !hasProviderEvidence) {
+    if (!settingsConfig) {
       return;
     }
-    const stillValid = isModelValidForProvider(
-      model,
+    const configuredProviders = settingsConfig.providers ?? [];
+    const hasProviderEvidence = providerHasChatRouteEvidence(
       providerFilter,
       models,
+      configuredProviders,
       providers,
-      providerPresets,
     );
+    const activeHecateSessionUsesProvider =
+      activeChatSession?.agent_id === "hecate" && activeChatSession.provider === providerFilter;
+    if (!hasProviderEvidence) {
+      if (activeHecateSessionUsesProvider) {
+        return;
+      }
+      const nextProvider = defaultProviderForChat(models, configuredProviders, providers);
+      setProviderFilter(nextProvider);
+      setModel(defaultModelForProvider(nextProvider, models, providers));
+      return;
+    }
+    const stillValid = isModelValidForProvider(model, providerFilter, models, providers);
     if (stillValid) {
       return;
     }
-    const nextModel = defaultModelForProvider(providerFilter, models, providers, providerPresets);
+    const nextModel = defaultModelForProvider(providerFilter, models, providers);
     setModel(nextModel);
-  }, [model, models, providerFilter, providers, providerPresets]);
+  }, [activeChatSession, model, models, providerFilter, providers, settingsConfig]);
 
   useEffect(() => {
     if (providerFilter === "auto" || model !== "" || models.length === 0) {
@@ -409,8 +421,8 @@ export function useRuntimeConsole() {
     }
     const scopedModels = models.filter((m) => m.metadata?.provider === providerFilter);
     if (scopedModels.length === 0) return;
-    setModel(defaultModelForProvider(providerFilter, models, providers, providerPresets));
-  }, [model, models, providers, providerFilter, providerPresets]);
+    setModel(defaultModelForProvider(providerFilter, models, providers));
+  }, [model, models, providers, providerFilter]);
 
   // When models load, validate the selected model. If it's not in the list (e.g. stale localStorage),
   // fall back to the gateway default. If no model is set at all, pick the default.

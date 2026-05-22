@@ -27,7 +27,50 @@ afterEach(() => {
 });
 
 function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
+  const hasActiveSessionIDOverride = Object.prototype.hasOwnProperty.call(
+    stateOverrides,
+    "activeChatSessionID",
+  );
+  const hasActiveSessionOverride = Object.prototype.hasOwnProperty.call(
+    stateOverrides,
+    "activeChatSession",
+  );
+  const activeChatSessionID = hasActiveSessionIDOverride
+    ? stateOverrides.activeChatSessionID
+    : "chat_1";
+  const provider =
+    typeof stateOverrides.providerFilter === "string" && stateOverrides.providerFilter !== "auto"
+      ? stateOverrides.providerFilter
+      : "openai";
+  const model = typeof stateOverrides.model === "string" ? stateOverrides.model : "gpt-4o-mini";
+  const chatTarget = stateOverrides.chatTarget ?? "agent";
+  const isExternalChat = chatTarget === "external_agent";
+  const agentID =
+    typeof stateOverrides.agentAdapterID === "string" ? stateOverrides.agentAdapterID : "codex";
+  const activeChatSession = hasActiveSessionOverride
+    ? stateOverrides.activeChatSession
+    : activeChatSessionID
+      ? ({
+          id: activeChatSessionID,
+          agent_id: isExternalChat ? agentID : "hecate",
+          driver_kind: isExternalChat ? "acp" : undefined,
+          execution_mode: isExternalChat
+            ? "external_agent"
+            : chatTarget === "agent"
+              ? "hecate_task"
+              : "hecate_direct",
+          title: "New chat",
+          provider: isExternalChat ? undefined : provider,
+          model: isExternalChat ? undefined : model,
+          capabilities: { tool_calling: "basic" },
+          status: "idle",
+          workspace: stateOverrides.agentWorkspace,
+          messages: [],
+        } as any)
+      : null;
   const state = createRuntimeConsoleFixture({
+    activeChatSessionID,
+    activeChatSession,
     providerScopedModels: [
       {
         id: "gpt-4o-mini",
@@ -52,10 +95,10 @@ describe("ChatView input", () => {
     await user.click(picker);
     const options = screen.getAllByRole("option");
     expect(options.map((option) => option.textContent?.replace(/\s+/g, " ").trim())).toEqual([
-      "Hecate· local",
-      "Codex· setup",
-      "Claude Code· setup",
-      "Cursor Agent· setup",
+      "Hecatelocal",
+      "Codexsetup",
+      "Claude Codesetup",
+      "Cursor Agentsetup",
     ]);
   }, 10_000);
 
@@ -2332,7 +2375,6 @@ describe("ChatView input", () => {
     // Start with empty message so the assertion sees only what we typed.
     const { state, actions } = setup({ chatTarget: "model", message: "" }, { setMessage });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
-    fireEvent.click(screen.getByRole("button", { name: /new .* chat/i }));
     const ta = screen.getByPlaceholderText(/Message/i) as HTMLTextAreaElement;
     const user = userEvent.setup();
     await user.type(ta, "h");
@@ -2397,7 +2439,7 @@ describe("ChatView input", () => {
     expect(setMessage).toHaveBeenLastCalledWith("");
   });
 
-  it("keeps normal ArrowUp navigation inside multiline drafts", () => {
+  it("keeps normal ArrowUp navigation inside multiline composer text", () => {
     const setMessage = vi.fn();
     const { state, actions } = setup(
       {
@@ -2428,12 +2470,12 @@ describe("ChatView input", () => {
     expect(setMessage).not.toHaveBeenCalled();
   });
 
-  it("restores a single-line draft after browsing history", () => {
+  it("restores pending composer text after browsing history", () => {
     const setMessage = vi.fn();
     const { state, actions } = setup(
       {
         chatTarget: "model",
-        message: "draft question",
+        message: "pending question",
         activeChatSessionID: "chat_history",
         activeChatSession: {
           id: "chat_history",
@@ -2454,7 +2496,7 @@ describe("ChatView input", () => {
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     let textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
-    textarea.setSelectionRange("draft question".length, "draft question".length);
+    textarea.setSelectionRange("pending question".length, "pending question".length);
     fireEvent.keyDown(textarea, { key: "ArrowUp" });
     expect(setMessage).toHaveBeenLastCalledWith("previous prompt");
 
@@ -2467,7 +2509,7 @@ describe("ChatView input", () => {
     textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     textarea.setSelectionRange("previous prompt".length, "previous prompt".length);
     fireEvent.keyDown(textarea, { key: "ArrowDown" });
-    expect(setMessage).toHaveBeenLastCalledWith("draft question");
+    expect(setMessage).toHaveBeenLastCalledWith("pending question");
   });
 });
 
@@ -2540,7 +2582,7 @@ describe("ChatView chats sidebar", () => {
         } as any,
         {
           id: "s2",
-          title: "Draft release notes",
+        title: "Release notes cleanup",
           execution_mode: "direct_model",
           status: "completed",
           provider: "openai",
@@ -2553,7 +2595,7 @@ describe("ChatView chats sidebar", () => {
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Search chats"), "anthropic");
     expect(screen.getByText("Budget check")).toBeTruthy();
-    expect(screen.queryByText("Draft release notes")).toBeNull();
+    expect(screen.queryByText("Release notes cleanup")).toBeNull();
   });
 
   it("filters agent history by adapter and status metadata", async () => {
@@ -2659,9 +2701,8 @@ describe("ChatView external-agent target", () => {
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText(/External agents run as your OS user/)).toBeTruthy();
 
-    rerender(
-      withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }),
-    );
+    const modelState = setup({ chatTarget: "model" }).state;
+    rerender(withRuntimeConsole(<ChatView />, { state: modelState, actions }));
     expect(screen.queryByText(/External agents run as your OS user/)).toBeNull();
   });
 
@@ -3819,6 +3860,54 @@ describe("ChatView error display", () => {
     expect(screen.queryByText("Choose a model before starting this chat.")).toBeNull();
   });
 
+  it("hides unavailable-model route errors when provider onboarding already explains the fix", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+      providerScopedModels: [],
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+      chatError: 'No routable provider reports model "ministral-3:latest".',
+      chatErrorCode: "model_not_configured",
+      chatErrorStatus: 422,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(await screen.findByText("No model provider configured")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
+    expect(screen.queryByText("Selected model is unavailable")).toBeNull();
+    expect(screen.queryByText("422 · model_not_configured")).toBeNull();
+    expect(screen.queryByText(/No routable provider reports model/)).toBeNull();
+  });
+
+  it("hides unavailable-model route errors when the empty state uses the broader setup copy", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+      providerScopedModels: [],
+      agentAdapters: [],
+      chatError: 'No routable provider reports model "ministral-3:latest".',
+      chatErrorCode: "model_not_configured",
+      chatErrorStatus: 422,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(await screen.findByText("Nothing runnable yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
+    expect(screen.queryByText("Selected model is unavailable")).toBeNull();
+    expect(screen.queryByText("422 · model_not_configured")).toBeNull();
+    expect(screen.queryByText(/No routable provider reports model/)).toBeNull();
+  });
+
   it("keeps model-required errors visible while pending tool calls hide the empty repair state", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
@@ -3924,7 +4013,7 @@ describe("ChatView error display", () => {
 });
 
 describe("ChatView session title", () => {
-  it("shows the chat empty state and composer when no chats exist", () => {
+  it("shows the chat empty state without composer when no chat is selected", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       chatSessions: [],
@@ -3934,13 +4023,13 @@ describe("ChatView session title", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     // New users land directly on the chat canvas with its empty
-    // state + composer, not a passive "pick something first" panel.
+    // state, but the composer waits for a real session selection.
     // (Sidebar still shows "No chats yet" — that's a different surface.)
     expect(screen.queryByText(/Start your first .* chat from the sidebar/)).toBeNull();
-    expect(screen.queryByRole("textbox", { name: "Message" })).not.toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
   });
 
-  it("shows a draft chat canvas on start when chat history exists but none is active", () => {
+  it("shows a passive new-chat canvas when chat history exists but none is active", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       chatSessions: [
@@ -3960,7 +4049,7 @@ describe("ChatView session title", () => {
 
     expect(screen.queryByText("No chat selected")).toBeNull();
     expect(screen.getByText("New chat")).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "Message" })).not.toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
   });
 
   it("shows the active session's title", () => {
@@ -4024,12 +4113,31 @@ describe("ChatView New chat button", () => {
     // is almost always to type. Auto-focusing the textarea saves a
     // click and matches the muscle-memory pattern from chat clients.
     const createChatSession = vi.fn();
-    const { state, actions } = setup({}, { createChatSession });
+    const { state, actions } = setup(
+      { activeChatSessionID: "", activeChatSession: null },
+      { createChatSession },
+    );
     const user = userEvent.setup();
-    render(withRuntimeConsole(<ChatView />, { state, actions }));
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
     await user.click(screen.getByRole("button", { name: /new .* chat/i }));
     expect(createChatSession).toHaveBeenCalled();
-    const textarea = screen.getByPlaceholderText(/^Message…/i);
+    const nextState = setup({
+      ...state,
+      activeChatSessionID: "chat_new",
+      activeChatSession: {
+        id: "chat_new",
+        agent_id: "hecate",
+        execution_mode: "hecate_direct",
+        title: "New chat",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        capabilities: { tool_calling: "basic" },
+        status: "idle",
+        messages: [],
+      } as any,
+    }).state;
+    rerender(withRuntimeConsole(<ChatView />, { state: nextState, actions }));
+    const textarea = await screen.findByPlaceholderText(/^Message…/i);
     await waitFor(() => expect(document.activeElement).toBe(textarea));
   });
 });

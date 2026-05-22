@@ -190,9 +190,9 @@ export function NewChatAgentButton({
                       fontSize: 9,
                       letterSpacing: "0.04em",
                       textTransform: "uppercase",
-                    }}
-                  >
-                    · {option.statusLabel}
+                  }}
+                >
+                    {option.statusLabel}
                   </span>
                 )}
               </button>
@@ -861,26 +861,26 @@ function ExternalAgentTextConfigControl({
   option: ChatConfigOptionRecord;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
 }) {
-  const [draft, setDraft] = useState(option.current_value ?? "");
+  const [textValue, setTextValue] = useState(option.current_value ?? "");
   const [saving, setSaving] = useState(false);
-  const cleanDraft = draft.trim();
+  const cleanValue = textValue.trim();
   const cleanCurrent = (option.current_value ?? "").trim();
-  const changed = cleanDraft !== cleanCurrent;
+  const changed = cleanValue !== cleanCurrent;
   const label = agentConfigOptionIsInstructions(option)
     ? "System prompt / instructions"
     : option.name || option.id;
 
   useEffect(() => {
-    setDraft(option.current_value ?? "");
+    setTextValue(option.current_value ?? "");
   }, [option.current_value, option.id]);
 
   async function save() {
     if (!changed || saving) return;
     setSaving(true);
     try {
-      const ok = await onChange(sessionID, option.id, draft);
+      const ok = await onChange(sessionID, option.id, textValue);
       if (!ok) {
-        setDraft(option.current_value ?? "");
+        setTextValue(option.current_value ?? "");
       }
     } finally {
       setSaving(false);
@@ -907,8 +907,8 @@ function ExternalAgentTextConfigControl({
       </div>
       <textarea
         aria-label={label}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        value={textValue}
+        onChange={(event) => setTextValue(event.target.value)}
         rows={4}
         style={{
           width: "100%",

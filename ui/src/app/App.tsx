@@ -4,6 +4,7 @@ import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID }
 import { ApprovalsProvider } from "./state/approvals";
 import { ChatProvider } from "./state/chat";
 import { ProvidersAndModelsProvider } from "./state/providersAndModels";
+import { ProjectsProvider } from "./state/projects";
 import { RetentionProvider } from "./state/retention";
 import { RootEffects } from "./state/rootEffects";
 import { RuntimeProvider } from "./state/runtime";
@@ -32,16 +33,18 @@ export default function App() {
     <RuntimeProvider>
       <UsageProvider>
         <ProvidersAndModelsProvider>
-          <ChatProvider>
-            <RetentionProvider>
-              <ApprovalsProvider>
-                <SettingsProvider>
-                  <RootEffects />
-                  <AppConsole />
-                </SettingsProvider>
-              </ApprovalsProvider>
-            </RetentionProvider>
-          </ChatProvider>
+          <ProjectsProvider>
+            <ChatProvider>
+              <RetentionProvider>
+                <ApprovalsProvider>
+                  <SettingsProvider>
+                    <RootEffects />
+                    <AppConsole />
+                  </SettingsProvider>
+                </ApprovalsProvider>
+              </RetentionProvider>
+            </ChatProvider>
+          </ProjectsProvider>
         </ProvidersAndModelsProvider>
       </UsageProvider>
     </RuntimeProvider>

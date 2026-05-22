@@ -18,11 +18,13 @@ import {
   defaultModelForProvider,
   defaultProviderForChat,
   isModelValidForProvider,
+  providerHasChatRouteEvidence,
 } from "../runtimeConsoleChatHelpers";
 import { useApprovals } from "./approvals";
 import { useChat } from "./chat";
 import { useChatTarget } from "./derived";
 import { useProvidersAndModels } from "./providersAndModels";
+import { useProjects } from "./projects";
 import { useRuntime } from "./runtime";
 import { useSettings } from "./settings";
 import { useChatActions } from "./coordinators/chat";
@@ -57,6 +59,7 @@ export function RootEffects() {
   const approvals = useApprovals();
   const chat = useChat();
   const providersAndModels = useProvidersAndModels();
+  const projects = useProjects();
   const chatTarget = useChatTarget();
 
   // Wire the coordinator graph inline so the loadDashboardRef plumbed
@@ -127,7 +130,7 @@ export function RootEffects() {
   } = chat.state;
   const { setChatCancelling, setModel, setProviderFilter, setQueuedChatMessages } = chat.actions;
   const { setHecateRTKEnabled: setHecateRTKEnabledState } = runtime.actions;
-  const { models, providers, providerPresets } = providersAndModels.state;
+  const { models, providers } = providersAndModels.state;
   const { notice } = settings.state;
   const { dismissNoticeIfMatching } = settings.actions;
   const settingsConfig = settings.state.config;
@@ -137,6 +140,7 @@ export function RootEffects() {
   // one-shot regardless of re-renders.
   useEffect(() => {
     void dashboardActions.loadDashboard();
+    void projects.actions.loadProjects();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -179,47 +183,55 @@ export function RootEffects() {
 
   // Provider auto-default cascade.
   useEffect(() => {
+    if (!settingsConfig) return;
     if (providerFilter !== "auto") return;
     const configuredProviders = settingsConfig?.providers ?? [];
     const nextProvider = defaultProviderForChat(models, configuredProviders, providers);
     if (nextProvider === providerFilter) return;
     setProviderFilter(nextProvider);
-    setModel(defaultModelForProvider(nextProvider, models, providers, providerPresets));
-  }, [
-    models,
-    providerFilter,
-    providerPresets,
-    providers,
-    settingsConfig,
-    setProviderFilter,
-    setModel,
-  ]);
+    setModel(defaultModelForProvider(nextProvider, models, providers));
+  }, [models, providerFilter, providers, settingsConfig, setProviderFilter, setModel]);
 
   useEffect(() => {
+    if (!settingsConfig) return;
     if (providerFilter === "auto") return;
-    const hasProviderEvidence =
-      models.some((entry) => entry.metadata?.provider === providerFilter) ||
-      providers.some((entry) => entry.name === providerFilter) ||
-      providerPresets.some((entry) => entry.id === providerFilter);
-    if (model && !hasProviderEvidence) return;
-    const stillValid = isModelValidForProvider(
-      model,
+    const configuredProviders = settingsConfig.providers ?? [];
+    const hasProviderEvidence = providerHasChatRouteEvidence(
       providerFilter,
       models,
+      configuredProviders,
       providers,
-      providerPresets,
     );
+    const activeHecateSessionUsesProvider =
+      activeChatSession?.agent_id === "hecate" && activeChatSession.provider === providerFilter;
+    if (!hasProviderEvidence) {
+      if (activeHecateSessionUsesProvider) return;
+      const nextProvider = defaultProviderForChat(models, configuredProviders, providers);
+      setProviderFilter(nextProvider);
+      setModel(defaultModelForProvider(nextProvider, models, providers));
+      return;
+    }
+    const stillValid = isModelValidForProvider(model, providerFilter, models, providers);
     if (stillValid) return;
-    const nextModel = defaultModelForProvider(providerFilter, models, providers, providerPresets);
+    const nextModel = defaultModelForProvider(providerFilter, models, providers);
     setModel(nextModel);
-  }, [model, models, providerFilter, providers, providerPresets, setModel]);
+  }, [
+    activeChatSession,
+    model,
+    models,
+    providerFilter,
+    providers,
+    settingsConfig,
+    setModel,
+    setProviderFilter,
+  ]);
 
   useEffect(() => {
     if (providerFilter === "auto" || model !== "" || models.length === 0) return;
     const scopedModels = models.filter((m) => m.metadata?.provider === providerFilter);
     if (scopedModels.length === 0) return;
-    setModel(defaultModelForProvider(providerFilter, models, providers, providerPresets));
-  }, [model, models, providers, providerFilter, providerPresets, setModel]);
+    setModel(defaultModelForProvider(providerFilter, models, providers));
+  }, [model, models, providers, providerFilter, setModel]);
 
   // When models load, validate the selected model. If it's not in the list (e.g. stale localStorage),
   // fall back to the gateway default. If no model is set at all, pick the default.

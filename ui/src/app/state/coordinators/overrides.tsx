@@ -35,6 +35,7 @@ export type CoordinatorOverrides = {
   runtimeSlice?: CoordinatorActionsOverride;
   usageSlice?: CoordinatorActionsOverride;
   providersAndModelsSlice?: CoordinatorActionsOverride;
+  projectsSlice?: CoordinatorActionsOverride;
   chatSlice?: CoordinatorActionsOverride;
   approvalsSlice?: CoordinatorActionsOverride;
   retentionSlice?: CoordinatorActionsOverride;

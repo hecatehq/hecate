@@ -162,13 +162,13 @@ export function ChatComposer(props: ChatComposerProps) {
   );
   const formRef = useRef<HTMLFormElement>(null);
   const messageHistoryCursorRef = useRef<number | null>(null);
-  const messageHistoryDraftRef = useRef("");
+  const messageHistoryPendingTextRef = useRef("");
 
   // Reset history navigation on session change. Scroll-side reset
   // lives in ChatView since it concerns the transcript surface.
   useEffect(() => {
     messageHistoryCursorRef.current = null;
-    messageHistoryDraftRef.current = "";
+    messageHistoryPendingTextRef.current = "";
   }, [activeSessionID]);
 
   function setComposerText(value: string, cursorAtEnd = false) {
@@ -184,7 +184,7 @@ export function ChatComposer(props: ChatComposerProps) {
 
   function handleMessageChange(value: string) {
     messageHistoryCursorRef.current = null;
-    messageHistoryDraftRef.current = value;
+    messageHistoryPendingTextRef.current = value;
     runtime.actions.setMessage(value);
   }
 
@@ -210,7 +210,7 @@ export function ChatComposer(props: ChatComposerProps) {
       if (!singleLine && !isEmpty && !atStart && !browsing) return false;
       e.preventDefault();
       if (!browsing) {
-        messageHistoryDraftRef.current = message;
+        messageHistoryPendingTextRef.current = message;
       }
       const current = messageHistoryCursorRef.current;
       const next = current === null ? messageHistory.length - 1 : Math.max(0, current - 1);
@@ -226,7 +226,7 @@ export function ChatComposer(props: ChatComposerProps) {
     const next = current + 1;
     if (next >= messageHistory.length) {
       messageHistoryCursorRef.current = null;
-      setComposerText(messageHistoryDraftRef.current, true);
+      setComposerText(messageHistoryPendingTextRef.current, true);
       return true;
     }
     messageHistoryCursorRef.current = next;

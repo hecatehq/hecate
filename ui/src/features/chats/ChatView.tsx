@@ -134,15 +134,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [rtkOnboardingDismissed, setRTKOnboardingDismissed] = useState(false);
-  const [draftChatOpen, setDraftChatOpen] = useState(() =>
-    Boolean(
-      !state.activeChatSessionID ||
-      state.message.trim() ||
-      state.chatError ||
-      state.pendingToolCalls.length > 0 ||
-      state.streamingContent,
-    ),
-  );
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [workspacePathValue, setWorkspacePathValue] = useState("");
   const [quickLocalProviders, setQuickLocalProviders] = useState<LocalProviderDiscoveryRecord[]>(
@@ -171,10 +162,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   );
   const instructionsAvailable = isHecateChat;
   const activeSessionID = state.activeChatSessionID;
-  // The Chats workspace always shows a working canvas. When no
-  // persisted session is active, the canvas represents a draft chat.
-  // That avoids a passive "select something" screen during startup
-  // and while switching between saved sessions.
+  const selectedChatReady = Boolean(activeSessionID && state.activeChatSession);
   const activeQueuedChatMessages = activeSessionID
     ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
     : [];
@@ -407,20 +395,27 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     anyAgentAvailable: availableAgents.length > 0,
     externalAgentSetupRequired,
   });
-  const composerVisible = isExternalAgentChat || (isHecateChat && hecateChatModelReady);
+  const composerVisible =
+    selectedChatReady && (isExternalAgentChat || (isHecateChat && hecateChatModelReady));
   const hecateHasMessageControls =
     isHecateChat &&
     (hecateAgentModelLocked || hasConfiguredProviders || selectableModels.length > 0);
-  const messageControlsVisible = externalAgentHasConfigControls || hecateHasMessageControls;
+  const messageControlsVisible =
+    selectedChatReady && (externalAgentHasConfigControls || hecateHasMessageControls);
   const composerRepair =
     composerVisible && !emptyStateAlreadyShowsRepair(chatSetupRepair, visibleMessages.length)
       ? composerVisibleRepair(chatSetupRepair)
       : null;
+  const emptyStateExplainsModelRoute =
+    visibleMessages.length === 0 &&
+    (emptyStateAlreadyShowsModelRepair(chatSetupRepair, visibleMessages.length) ||
+      (state.chatErrorCode === "model_not_configured" && modelRouteUnavailable));
   const suppressComposerChatError =
-    state.chatErrorCode === "chat.model_required" &&
+    (state.chatErrorCode === "chat.model_required" ||
+      state.chatErrorCode === "model_not_configured") &&
     !streaming &&
     state.pendingToolCalls.length === 0 &&
-    emptyStateAlreadyShowsModelRepair(chatSetupRepair, visibleMessages.length);
+    emptyStateExplainsModelRoute;
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
 
@@ -452,22 +447,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }
 
   useEffect(() => {
-    if (activeSessionID) {
-      setDraftChatOpen(false);
-      return;
-    }
-    setDraftChatOpen(true);
-  }, [activeSessionID]);
-
-  useEffect(() => {
-    if (!focusComposerAfterNewChatRef.current) return;
+    if (!focusComposerAfterNewChatRef.current || !composerVisible) return;
     const frame = requestAnimationFrame(() => {
       if (!textareaRef.current) return;
       textareaRef.current.focus();
       focusComposerAfterNewChatRef.current = false;
     });
     return () => cancelAnimationFrame(frame);
-  }, [composerVisible, messageControlsVisible]);
+  }, [activeSessionID, composerVisible, messageControlsVisible, state.activeChatSession]);
 
   useEffect(() => {
     setWorkspacePathValue(state.agentWorkspace);
@@ -611,11 +598,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
 
   function focusComposerWhenReady() {
     focusComposerAfterNewChatRef.current = true;
-    requestAnimationFrame(() => {
-      if (!textareaRef.current) return;
-      textareaRef.current.focus();
-      focusComposerAfterNewChatRef.current = false;
-    });
   }
 
   return (
@@ -625,15 +607,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           isAgentChat={isAgentChat}
           onSelectSession={(sessionID) => {
             focusComposerWhenReady();
-            setDraftChatOpen(false);
             void actions.selectChatSession(sessionID);
             textareaRef.current?.focus();
           }}
-          onCreateChat={(agentID) => {
-            setDraftChatOpen(true);
+          onCreateChat={(agentID, projectID) => {
             setChatSettingsOpen(false);
             focusComposerWhenReady();
-            void actions.createChatSession({ agentID });
+            void actions.createChatSession({ agentID, projectID });
           }}
         />
       )}
@@ -654,7 +634,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           onOpenSidebar={() => setSidebarOpen(true)}
           brand={activeHeaderBrand}
           fallback={activeHeaderFallback}
-          title={activeTitle || (!activeSessionID || draftChatOpen ? "New chat" : "Select a chat")}
+          title={activeTitle || "New chat"}
           subline={activeHeaderSubline}
           sublineHoverTitle={
             isExternalAgentChat
@@ -810,39 +790,41 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               }
             />
 
-            <ChatComposer
-              isAgentChat={isAgentChat}
-              isHecateChat={isHecateChat}
-              isExternalAgentChat={isExternalAgentChat}
-              hecateTaskToolsAvailable={hecateTaskToolsAvailable}
-              activeSessionID={activeSessionID}
-              textareaRef={textareaRef}
-              composerVisible={composerVisible}
-              composerRepair={composerRepair}
-              suppressChatError={suppressComposerChatError}
-              messageControlsVisible={messageControlsVisible}
-              sendDisabled={sendDisabled}
-              agentBusy={agentBusy}
-              queueingMessage={queueingMessage}
-              selectedModelIssue={selectedModelIssue}
-              chatDiagnostic={chatDiagnostic}
-              hecateAgentModelLocked={hecateAgentModelLocked}
-              hecateChatProviderValue={hecateChatProviderValue}
-              hecateChatModelValue={hecateChatModelValue}
-              hecateProviderOptions={hecateProviderOptions}
-              hecateDisabledProviderReasons={hecateDisabledProviderReasons}
-              selectableModels={selectableModels}
-              onHecateModelChange={handleHecateModelChange}
-              chooseWorkspace={chooseWorkspace}
-              openClaudeCodeSetup={openAgentSetup}
-              activeHecateTaskID={activeHecateTaskID}
-              activeHecateRunID={activeHecateRunID}
-              activeQueuedChatMessages={activeQueuedChatMessages}
-              messageHistory={messageHistory}
-              onNavigate={onNavigate}
-              onOpenTask={onOpenTask}
-              onOpenTrace={onOpenTrace}
-            />
+            {selectedChatReady && (
+              <ChatComposer
+                isAgentChat={isAgentChat}
+                isHecateChat={isHecateChat}
+                isExternalAgentChat={isExternalAgentChat}
+                hecateTaskToolsAvailable={hecateTaskToolsAvailable}
+                activeSessionID={activeSessionID}
+                textareaRef={textareaRef}
+                composerVisible={composerVisible}
+                composerRepair={composerRepair}
+                suppressChatError={suppressComposerChatError}
+                messageControlsVisible={messageControlsVisible}
+                sendDisabled={sendDisabled}
+                agentBusy={agentBusy}
+                queueingMessage={queueingMessage}
+                selectedModelIssue={selectedModelIssue}
+                chatDiagnostic={chatDiagnostic}
+                hecateAgentModelLocked={hecateAgentModelLocked}
+                hecateChatProviderValue={hecateChatProviderValue}
+                hecateChatModelValue={hecateChatModelValue}
+                hecateProviderOptions={hecateProviderOptions}
+                hecateDisabledProviderReasons={hecateDisabledProviderReasons}
+                selectableModels={selectableModels}
+                onHecateModelChange={handleHecateModelChange}
+                chooseWorkspace={chooseWorkspace}
+                openClaudeCodeSetup={openAgentSetup}
+                activeHecateTaskID={activeHecateTaskID}
+                activeHecateRunID={activeHecateRunID}
+                activeQueuedChatMessages={activeQueuedChatMessages}
+                messageHistory={messageHistory}
+                onNavigate={onNavigate}
+                onOpenTask={onOpenTask}
+                onOpenTrace={onOpenTrace}
+              />
+            )}
           </div>
           {isAgentChat && chatSettingsOpen && (
             <ChatSettingsPanel

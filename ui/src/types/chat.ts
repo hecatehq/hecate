@@ -21,6 +21,7 @@ export type PersistedContentBlock = {
 export type ChatSessionSummaryRecord = {
   id: string;
   title: string;
+  project_id?: string;
   agent_id?: string;
   driver_kind?: string;
   native_session_id?: string;
@@ -145,6 +146,7 @@ export type ChatConfigOptionRecord = {
 export type ChatSessionRecord = {
   id: string;
   title: string;
+  project_id?: string;
   agent_id?: string;
   driver_kind?: string;
   native_session_id?: string;

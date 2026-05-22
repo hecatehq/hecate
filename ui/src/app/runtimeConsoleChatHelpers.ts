@@ -4,7 +4,6 @@ import type { ModelResponse } from "../types/model";
 import type {
   ConfiguredStateResponse,
   ProviderFilter,
-  ProviderPresetRecord,
   ProviderStatusResponse,
 } from "../types/provider";
 import type {
@@ -112,7 +111,6 @@ export function defaultModelForProvider(
   provider: ProviderFilter,
   models: ModelResponse["data"],
   providers: ProviderStatusResponse["data"],
-  presets: ProviderPresetRecord[],
 ): string {
   if (provider === "auto") {
     return "";
@@ -120,7 +118,6 @@ export function defaultModelForProvider(
 
   const providerRecord = providers.find((entry) => entry.name === provider);
   const scopedModels = models.filter((entry) => entry.metadata?.provider === provider);
-  const preset = presets.find((entry) => entry.id === provider);
   if (providerRecord?.default_model) {
     return providerRecord.default_model;
   }
@@ -134,12 +131,7 @@ export function defaultModelForProvider(
     );
   }
 
-  return (
-    scopedModels.find((entry) => entry.metadata?.default)?.id ??
-    scopedModels[0]?.id ??
-    preset?.default_model ??
-    ""
-  );
+  return scopedModels.find((entry) => entry.metadata?.default)?.id ?? scopedModels[0]?.id ?? "";
 }
 
 export function defaultProviderForChat(
@@ -180,7 +172,6 @@ export function isModelValidForProvider(
   provider: ProviderFilter,
   models: ModelResponse["data"],
   providers: ProviderStatusResponse["data"],
-  presets: ProviderPresetRecord[],
 ): boolean {
   if (!model || provider === "auto") {
     return true;
@@ -198,8 +189,23 @@ export function isModelValidForProvider(
     return false;
   }
 
-  const preset = presets.find((entry) => entry.id === provider);
-  return preset?.default_model === model;
+  return false;
+}
+
+export function providerHasChatRouteEvidence(
+  provider: ProviderFilter,
+  models: ModelResponse["data"],
+  configuredProviders: ConfiguredStateResponse["data"]["providers"],
+  providers: ProviderStatusResponse["data"],
+): boolean {
+  if (provider === "auto") {
+    return true;
+  }
+  return (
+    configuredProviders.some((entry) => entry.id === provider) ||
+    models.some((entry) => entry.metadata?.provider === provider) ||
+    providers.some((entry) => entry.name === provider)
+  );
 }
 
 export function approvalRecordToPending(row: ChatApprovalRecord): PendingAgentApproval {
@@ -221,6 +227,7 @@ export function renderChatSessionSummary(
   return {
     id: session.id,
     title: session.title,
+    project_id: session.project_id,
     agent_id: session.agent_id,
     driver_kind: session.driver_kind,
     native_session_id: session.native_session_id,

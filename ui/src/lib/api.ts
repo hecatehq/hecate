@@ -43,6 +43,12 @@ import type {
 import type { TraceListResponse, TraceResponse } from "../types/trace";
 import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 import type { RetentionRunResponse, RetentionRunsResponse } from "../types/retention";
+import type {
+  CreateProjectPayload,
+  ProjectResponse,
+  ProjectsResponse,
+  UpdateProjectPayload,
+} from "../types/project";
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
@@ -137,6 +143,7 @@ export type RetentionRunPayload = {
 
 export type CreateChatSessionPayload = {
   title?: string;
+  project_id?: string;
   agent_id?: string;
   provider?: string;
   model?: string;
@@ -260,6 +267,33 @@ export async function getRecentTraces(limit = 50): Promise<TraceListResponse> {
 
 export async function getUsageSummary(query = ""): Promise<UsageSummaryResponse> {
   return fetchJSON<UsageSummaryResponse>(`${HECATE_API}/usage/summary${query}`);
+}
+
+export async function getProjects(): Promise<ProjectsResponse> {
+  return fetchJSON<ProjectsResponse>(`${HECATE_API}/projects`);
+}
+
+export async function createProject(payload: CreateProjectPayload): Promise<ProjectResponse> {
+  return fetchJSON<ProjectResponse>(`${HECATE_API}/projects`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updateProject(
+  id: string,
+  patch: UpdateProjectPayload,
+): Promise<ProjectResponse> {
+  return fetchJSON<ProjectResponse>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: patch,
+  });
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  return fetchJSON<void>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getChatSessions(): Promise<ChatSessionsResponse> {

@@ -18,6 +18,7 @@ import {
   type CoordinatorOverrides,
 } from "../app/state/coordinators/overrides";
 import { ProvidersAndModelsProvider, useProvidersAndModels } from "../app/state/providersAndModels";
+import { ProjectsProvider, useProjects } from "../app/state/projects";
 import { RetentionProvider, useRetention } from "../app/state/retention";
 import { RuntimeProvider, useRuntime } from "../app/state/runtime";
 import { SettingsProvider, useSettings } from "../app/state/settings";
@@ -115,6 +116,12 @@ function chatInitialState(fixture: RuntimeConsoleFixtureState) {
   };
 }
 
+function projectsInitialState(fixture: RuntimeConsoleFixtureState) {
+  return {
+    projects: fixture.projects,
+  };
+}
+
 function approvalsInitialState(fixture: RuntimeConsoleFixtureState) {
   return {
     pendingBySessionID: fixture.pendingApprovalsBySessionID,
@@ -180,6 +187,13 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
     providersAndModelsSlice: {
       refreshProviders: actions.refreshProviders,
     },
+    projectsSlice: {
+      setActiveProjectID: actions.setActiveProjectID,
+      createProjectFromFolder: actions.createProjectFromFolder,
+      selectProject: actions.selectProject,
+      renameProject: actions.renameProject,
+      deleteProject: actions.deleteProject,
+    },
     chat: {
       submitChat: actions.submitChat,
       submitToolResults: actions.submitToolResults,
@@ -241,6 +255,7 @@ function FixtureSyncer({ state }: { state: RuntimeConsoleFixtureState }) {
   const runtime = useRuntime();
   const usage = useUsage();
   const providersAndModels = useProvidersAndModels();
+  const projects = useProjects();
   const chat = useChat();
   const approvals = useApprovals();
   const retention = useRetention();
@@ -258,6 +273,8 @@ function FixtureSyncer({ state }: { state: RuntimeConsoleFixtureState }) {
   usageActionsRef.current = usage.actions;
   const providersAndModelsActionsRef = useRef(providersAndModels.actions);
   providersAndModelsActionsRef.current = providersAndModels.actions;
+  const projectsActionsRef = useRef(projects.actions);
+  projectsActionsRef.current = projects.actions;
   const chatActionsRef = useRef(chat.actions);
   chatActionsRef.current = chat.actions;
   const approvalsActionsRef = useRef(approvals.actions);
@@ -306,6 +323,9 @@ function FixtureSyncer({ state }: { state: RuntimeConsoleFixtureState }) {
     for (const [id, loading] of state.agentAdapterHealthLoadingByID) {
       providersAndModelsActionsRef.current.setAgentAdapterHealthLoading(id, Boolean(loading));
     }
+
+    projectsActionsRef.current.setProjects(state.projects);
+    projectsActionsRef.current.setActiveProjectID(state.activeProjectID);
 
     chatActionsRef.current.setActiveChatSession(state.activeChatSession);
     chatActionsRef.current.setActiveChatSessionID(state.activeChatSessionID);
@@ -387,6 +407,11 @@ export function withRuntimeConsole(
   // the fixture so the mount-time read matches what the test wants.
   if (typeof window !== "undefined") {
     window.localStorage.setItem("hecate.providerFilter", ctx.state.providerFilter);
+    if (ctx.state.activeProjectID) {
+      window.localStorage.setItem("hecate.project", ctx.state.activeProjectID);
+    } else {
+      window.localStorage.removeItem("hecate.project");
+    }
   }
   const overrides: CoordinatorOverrides = {
     ...buildOverrides(ctx.actions),
@@ -397,18 +422,20 @@ export function withRuntimeConsole(
     <RuntimeProvider initialState={runtimeInitialState(ctx.state)}>
       <UsageProvider initialState={usageInitialState(ctx.state)}>
         <ProvidersAndModelsProvider initialState={providersAndModelsInitialState(ctx.state)}>
-          <ChatProvider initialState={chatInitialState(ctx.state)}>
-            <RetentionProvider initialState={retentionInitialState(ctx.state)}>
-              <ApprovalsProvider initialState={approvalsInitialState(ctx.state)}>
-                <SettingsProvider initialState={settingsInitialState(ctx.state)}>
-                  <FixtureSyncer state={ctx.state} />
-                  <CoordinatorOverridesProvider value={overrides}>
-                    {ui}
-                  </CoordinatorOverridesProvider>
-                </SettingsProvider>
-              </ApprovalsProvider>
-            </RetentionProvider>
-          </ChatProvider>
+          <ProjectsProvider initialState={projectsInitialState(ctx.state)}>
+            <ChatProvider initialState={chatInitialState(ctx.state)}>
+              <RetentionProvider initialState={retentionInitialState(ctx.state)}>
+                <ApprovalsProvider initialState={approvalsInitialState(ctx.state)}>
+                  <SettingsProvider initialState={settingsInitialState(ctx.state)}>
+                    <FixtureSyncer state={ctx.state} />
+                    <CoordinatorOverridesProvider value={overrides}>
+                      {ui}
+                    </CoordinatorOverridesProvider>
+                  </SettingsProvider>
+                </ApprovalsProvider>
+              </RetentionProvider>
+            </ChatProvider>
+          </ProjectsProvider>
         </ProvidersAndModelsProvider>
       </UsageProvider>
     </RuntimeProvider>
