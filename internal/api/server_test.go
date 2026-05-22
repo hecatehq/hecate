@@ -1539,6 +1539,56 @@ func TestAgentChatLoadDoesNotPersistFreshSessionAfterStaleNativeSession(t *testi
 	}
 }
 
+func TestAgentChatLoadDoesNotPersistFreshSessionWhenLoadUnsupported(t *testing.T) {
+	dir := t.TempDir()
+	store := chat.NewMemoryStore()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	storedBool := false
+	freshBool := true
+
+	created, err := store.Create(context.Background(), chat.Session{
+		ID:              "chat_external_load_unsupported",
+		Title:           "Codex",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_existing",
+		Workspace:       dir,
+		ConfigOptions: []agentcontrols.ConfigOption{
+			{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &storedBool},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	runner := &fakeAgentChatRunner{
+		nativeSessionID: "native_fresh",
+		sessionStarted:  true,
+		configOptions:   []agentcontrols.ConfigOption{{ID: "auto_approve", Name: "Auto approve", Type: agentcontrols.ConfigOptionTypeBoolean, CurrentBool: &freshBool}},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	got := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+created.ID, "")
+	if got.Data.NativeSessionID != "native_existing" || got.Data.DriverKind != agentadapters.DriverKindACP {
+		t.Fatalf("loaded session metadata = kind %q native %q, want stored shell", got.Data.DriverKind, got.Data.NativeSessionID)
+	}
+	if len(got.Data.ConfigOptions) != 1 || got.Data.ConfigOptions[0].CurrentBool == nil || *got.Data.ConfigOptions[0].CurrentBool {
+		t.Fatalf("config options = %#v, want stored controls when ACP load starts fresh", got.Data.ConfigOptions)
+	}
+	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != created.ID {
+		t.Fatalf("closed sessions = %#v, want fresh read-time ACP session closed", runner.closedSessions)
+	}
+	persisted, ok, err := store.Get(context.Background(), created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get persisted: ok=%v err=%v", ok, err)
+	}
+	if persisted.NativeSessionID != "native_existing" {
+		t.Fatalf("persisted native session = %q, want native_existing", persisted.NativeSessionID)
+	}
+}
+
 func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
 	dir := t.TempDir()
 	store := chat.NewMemoryStore()
