@@ -359,6 +359,41 @@ describe("ChatView input", () => {
     expect(screen.queryByText("SYSTEM PROMPT / INSTRUCTIONS")).toBeNull();
   });
 
+  it("does not leak external-agent controls into an empty Hecate chat shell", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "codex",
+      activeChatSessionID: "chat_hecate_empty",
+      activeChatSession: {
+        id: "chat_hecate_empty",
+        agent_id: "hecate",
+        title: "Hecate Chat",
+        provider: "",
+        model: "",
+        status: "idle",
+        messages: [],
+      } as any,
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByText("Hecate Chat")).toBeTruthy();
+    expect(screen.queryByText("GPT-5.5")).toBeNull();
+    expect(screen.queryByText("reasoning")).toBeNull();
+    expect(screen.queryByText("mode")).toBeNull();
+    expect(screen.queryByText("External agents run as your OS user")).toBeNull();
+  });
+
   it("surfaces adapter-exposed instructions in external-agent chat settings", async () => {
     const setChatConfigOption = vi.fn(async () => true);
     const { state, actions } = setup(

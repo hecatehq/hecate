@@ -1722,12 +1722,6 @@ func TestAgentChatCreateUsesStableErrorContracts(t *testing.T) {
 			wantType:   errCodeWorkspaceRequired,
 		},
 		{
-			name:       "model required for hecate chat",
-			body:       `{"agent_id":"hecate"}`,
-			statusCode: http.StatusBadRequest,
-			wantType:   errCodeModelRequired,
-		},
-		{
 			name:       "agent id invalid",
 			body:       fmt.Sprintf(`{"agent_id":"missing","workspace":%q}`, t.TempDir()),
 			statusCode: http.StatusBadRequest,
@@ -1759,6 +1753,35 @@ func TestAgentChatCreateUsesStableErrorContracts(t *testing.T) {
 				t.Fatalf("error missing operator metadata: %+v", payload.Error)
 			}
 		})
+	}
+}
+
+func TestAgentChatCreateAllowsEmptyHecateShellAndRequiresModelOnSend(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	client := newAPITestClient(t, handler)
+
+	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"agent_id":"hecate","title":"Hecate shell"}`)
+	if created.Data.AgentID != chat.DefaultAgentID {
+		t.Fatalf("agent_id = %q, want %q", created.Data.AgentID, chat.DefaultAgentID)
+	}
+	if created.Data.Model != "" {
+		t.Fatalf("model = %q, want empty shell model", created.Data.Model)
+	}
+
+	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`)
+	payload := decodeRecorder[struct {
+		Error struct {
+			Type           string `json:"type"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+		} `json:"error"`
+	}](t, rec)
+	if payload.Error.Type != errCodeModelRequired {
+		t.Fatalf("error.type = %q, want %q", payload.Error.Type, errCodeModelRequired)
+	}
+	if payload.Error.UserMessage == "" || payload.Error.OperatorAction == "" {
+		t.Fatalf("error missing operator metadata: %+v", payload.Error)
 	}
 }
 
