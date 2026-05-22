@@ -1,12 +1,11 @@
 # Project context
 
-Hecate is an open-source AI gateway and agent-task runtime. The main Go runtime runs the local gateway service, embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle. Hecate is gateway-local, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
+Hecate is an open-source AI gateway and agent-task runtime. The main Go runtime runs the local gateway service, embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Hecate is gateway-local, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
 
 ## Repository layout
 
 ```
 cmd/hecate/               main runtime entry: gateway service, embedded UI, MCP subcommand
-cmd/hecate-acp/            ACP stdio bridge for editor agent panels
 
 pkg/types/                 public types (ChatRequest, Message, ContentBlock, ...)
                              — no internal/ imports
@@ -99,7 +98,6 @@ code, not as a follow-up. Don't restate their content here — link and move on.
 | How do I configure MCP? What tools does the server expose?                    | [`docs/mcp.md`](../../docs/mcp.md)                                                                                                                         |
 | How do Hecate Chat segments and model capabilities work?                      | [`docs/chat-sessions.md`](../../docs/chat-sessions.md), [`docs/rfcs/hecate-chat-model-capabilities.md`](../../docs/rfcs/hecate-chat-model-capabilities.md) |
 | How do external-agent adapters work?                                          | [`docs/external-agent-adapters.md`](../../docs/external-agent-adapters.md)                                                                                 |
-| How does an editor ACP host connect to Hecate?                                | [`docs/acp.md`](../../docs/acp.md)                                                                                                                         |
 | How do I deploy? What are the Compose profiles?                               | [`docs/deployment.md`](../../docs/deployment.md)                                                                                                           |
 | How do I build and test locally? What does `[skip ci]` mean?                  | [`docs/development.md`](../../docs/development.md)                                                                                                         |
 | What sandbox isolation layers are shipped? How do namespaces work?            | [`docs/sandbox.md`](../../docs/sandbox.md)                                                                                                                 |

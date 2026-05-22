@@ -31,8 +31,6 @@ When in doubt: read [`docs-ai/core/project-context.md`](docs-ai/core/project-con
 
 ```
 cmd/hecate/            main runtime entry: gateway service, embedded UI, MCP subcommand
-cmd/hecate-acp/         ACP stdio bridge for editor agent panels
-
 pkg/types/              public types (ChatRequest, Message, ContentBlock, ...)
                           — no internal/ imports
 
@@ -62,7 +60,6 @@ internal/
                           output cap + timeout, auto-detected bwrap/sandbox-exec wrapper
   taskstate/            task / run / step / artifact / approval persistence
   agentadapters/        ACP/process adapters for Codex, Claude Code, Cursor
-  acp/                  Agent Client Protocol — JSON-RPC bridge for ACP-driving editors
   eventprotocol/        agent-runtime event protocol v1 envelopes (API-facing shape)
   chat/                 chat transcript persistence (memory / sqlite)
   projects/             durable project identity store (memory / sqlite)
@@ -166,7 +163,6 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 | [`docs/providers.md`](docs/providers.md)                             | Provider catalog, configuration                                                   |
 | [`docs/mcp.md`](docs/mcp.md)                                         | MCP server: tools, transport, configure                                           |
 | [`docs/external-agent-adapters.md`](docs/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, and Cursor Agent |
-| [`docs/acp.md`](docs/acp.md)                                         | Hecate as an ACP agent: `hecate-acp` bridge for editor agent panels               |
 | [`docs/deployment.md`](docs/deployment.md)                           | Compose profiles, image pinning, lost-token recovery                              |
 | [`docs/development.md`](docs/development.md)                         | Local build, testing, screenshot tooling, `[skip ci]` convention                  |
 | [`docs/desktop-app.md`](docs/desktop-app.md)                         | Native Tauri 2.x app: distribution, current state, roadmap, footguns              |

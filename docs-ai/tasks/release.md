@@ -51,7 +51,7 @@ The native desktop app (`tauri/`) **is built and uploaded by CI** as part of the
 
 `.github/workflows/release.yml` runs two jobs on a `v*` tag push:
 
-1. `goreleaser` — Linux/macOS binary tarballs containing `hecate` and `hecate-acp`, multi-arch Docker images on GHCR, GitHub Release entry.
+1. `goreleaser` — Linux/macOS binary tarballs containing `hecate`, multi-arch Docker images on GHCR, GitHub Release entry.
 2. `tauri` (`needs: goreleaser`) — three-platform matrix (macOS arm64, Linux x86_64, Windows x86_64) calls the reusable `_tauri-shared.yml` workflow with `tagName: ${{ github.ref_name }}`. Each leg builds the hecate sidecar, the Tauri bundle, and uploads platform-native artifacts (`.dmg` / `.deb` + `.AppImage` / `.msi`) to the existing release.
 
 End state of a successful tag: the GitHub Release page has goreleaser tarballs + Docker images + four desktop bundles, all attached.
@@ -68,7 +68,7 @@ The Tauri matrix doesn't need any local action — pushing the tag fires the wor
 
 The main `.github/workflows/test.yml` workflow owns PR-time desktop validation.
 It path-filters desktop-impacting changes (`tauri/**`, `cmd/hecate/**`,
-`cmd/hecate-acp/**`, `Justfile`, Tauri version scripts, release
+`Justfile`, Tauri version scripts, release
 packaging files, and the workflows themselves), then starts the
 `Tauri desktop bundles` matrix only after the cheaper Go, TypeScript, e2e,
 Docker smoke, and Tauri Rust jobs pass or skip. The PR matrix proves the
@@ -123,7 +123,7 @@ Acceptance:
 
 - Both workflow jobs are green.
 - GitHub Releases page has the entry, marked **Pre-release** for `-alpha.N` tags.
-- Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums. Each binary tarball contains `hecate` and `hecate-acp`.
+- Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums. Each binary tarball contains `hecate`.
 - Tauri-side artifacts attached: one `.dmg`, one `.deb`, one `.AppImage`, one `.msi`. If any is missing, the matrix leg silently skipped upload — open the run, find the leg, see what failed.
 - `latest.json` is attached as a release asset (the auto-updater manifest, GitHub Release copy). Missing means the `publish-updater-manifest` job failed — most likely on its `missing updater signature(s)` check. Look there first; common causes are `bundle.createUpdaterArtifacts` being unset in `tauri.conf.json` (bundler produced no sigs) or the `TAURI_UPDATER_*` secrets having been removed from repo settings.
 - `https://hecate.sh/releases/alpha/latest.json` serves the new version's manifest. This is the URL bundles actually read; the GitHub Release copy is a backup. If `publish-updater-website` succeeded, this is automatic — the job blocks until propagation completes. If `publish-updater-website` failed at "Verify manifest is live at hecate.sh", check the website workflow run for the master commit `publish updater manifest for vX.Y.Z`.

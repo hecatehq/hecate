@@ -15,7 +15,7 @@
   Route cloud/local models, run Hecate-owned tool agents, supervise Codex / Claude Code / Cursor Agent, and keep every decision observable.
 </p>
 
-> **Status: public alpha.** Gateway routing, provider onboarding, Hecate Chat, External Agent sessions, and native task runs are usable for alpha workflows. Desktop signing, workspace modes, agent profiles, ACP bridge packaging, and sandbox hardening are still evolving. Read [known limitations](docs/known-limitations.md) before depending on it.
+> **Status: public alpha.** Gateway routing, provider onboarding, Hecate Chat, External Agent sessions, and native task runs are usable for alpha workflows. Desktop signing, workspace modes, agent profiles, and sandbox hardening are still evolving. Read [known limitations](docs/known-limitations.md) before depending on it.
 
 ## Table Of Contents
 
@@ -238,7 +238,6 @@ Stability stages:
 | Observability       | Alpha-ready | OTLP traces/metrics/logs, response trace headers, local trace view, route reports, timing buckets, and runtime stats.                                                                                                                                        |
 | Storage             | Alpha-ready | Memory or SQLite per subsystem; SQLite persists chat/task/provider state. Pending approval reconciliation runs on startup.                                                                                                                                   |
 | Desktop app         | Early       | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. macOS release builds are signed/notarized and auto-update is active through the `hecate.sh` alpha channel; Windows signing and Linux/Windows launch smoke are still pending. |
-| ACP bridge          | Early       | `hecate-acp` supports session creation, prompts, cancellation, run-event forwarding, and approval round-trip. Registry/editor packaging is not done.                                                                                                         |
 | Execution isolation | Early       | Per-call subprocess + env sanitisation + output cap + timeout, with `bwrap` / `sandbox-exec` where available. Not container-level isolation.                                                                                                                 |
 
 Read [docs/known-limitations.md](docs/known-limitations.md) before treating Hecate as production-stable.
@@ -261,7 +260,6 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 - [Chat sessions](docs/chat-sessions.md) — Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queueing, and activity rendering.
 - [Agent runtime](docs/agent-runtime.md) — `agent_loop` loop mechanics, tools, stdout/stderr handling, cost ceilings, retry-from-turn.
 - [External agent adapters](docs/external-agent-adapters.md) — Hecate as an ACP client/operator: use Codex, Claude Code, and Cursor Agent from Chats.
-- [ACP bridge](docs/acp.md) — Hecate as an ACP agent for editor panels such as Zed and JetBrains.
 - [Events](docs/events.md) — every event type, payload shape, when each fires.
 - [MCP integration](docs/mcp.md) — Hecate as MCP server + attaching external MCP servers as tools.
 

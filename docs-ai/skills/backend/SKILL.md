@@ -125,18 +125,16 @@ When changing this path:
 3. Keep `docs/external-agent-adapters.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
    guardrails, auth/readiness probes, and troubleshooting.
-4. Keep `docs/acp.md` aligned only when changing the separate `hecate-acp`
-   editor bridge.
-5. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
+4. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
    protocol behavior and `internal/api/server_test.go` for HTTP/session
    persistence behavior. Guardrail changes should cover both the HTTP 422
    envelope and the session snapshot fields the UI consumes.
-6. If the change touches model-capability precedence, add or update tests in
+5. If the change touches model-capability precedence, add or update tests in
    `internal/modelcaps` and the `/v1/models` API tests.
-7. If the change touches approval/grant durability, startup reconcile, or
+6. If the change touches approval/grant durability, startup reconcile, or
    cmd/hecate store wiring, add or run the binary e2e approval smokes:
    `go test -tags e2e -run 'TestApproval' ./e2e`.
-8. Run the race suite. Long-lived adapter sessions are runtime code, not just
+7. Run the race suite. Long-lived adapter sessions are runtime code, not just
    a UI convenience.
 
 ### Add a persisted run-event type

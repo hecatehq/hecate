@@ -6,11 +6,6 @@ binary used everywhere else: on launch, the Rust layer spawns it in gateway
 mode on a free loopback port, polls `/healthz`, then navigates a webview to
 `http://127.0.0.1:{port}/` where the gateway serves its embedded UI.
 
-The desktop app bundles both `hecate` and `hecate-acp`. ACP clients still
-launch `hecate-acp` themselves over stdio, but the gateway writes
-`hecate.runtime.json` into the app data directory so the bridge can discover the
-current dynamic gateway URL when `HECATE_GATEWAY_URL` is not set.
-
 Code: [`tauri/`](../tauri/) · agent guide: [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md) · CI: [`.github/workflows/test.yml`](../.github/workflows/test.yml), [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`.github/workflows/tauri-build.yml`](../.github/workflows/tauri-build.yml).
 
 ## Distribution
@@ -44,8 +39,8 @@ What works:
   `SIGINT`/`SIGTERM` from a terminal. `pgrep hecate` is empty afterward
   in both paths. When agent runs are in-flight, a native confirmation
   dialog appears first.
-- Runtime discovery file for ACP bridges (`hecate.runtime.json`) written by the
-  sidecar gateway on successful startup and removed on app exit.
+- Runtime discovery file (`hecate.runtime.json`) written by the sidecar gateway
+  on successful startup and removed on app exit for native diagnostics.
 - Same-origin loading of the embedded gateway UI from the sidecar port.
 - Native Hecate menu with actions to focus the window, open the gateway log,
   open the data directory, and quit.
@@ -136,13 +131,11 @@ the bundle is polished enough to recommend.
 
 ## Sandbox executor
 
-The desktop app bundles the `hecate` and `hecate-acp` binaries. Agent tool calls
-(`shell_exec`, `git_exec`, `file_write`) spawn a per-call `sh`
-subprocess directly from the gateway with env sanitisation, output cap,
-and wall-clock timeout applied inline (Layer 1). On macOS the call is
-additionally wrapped by `sandbox-exec` (Layer 2) for filesystem and
-network confinement; `sandbox-exec` ships on every macOS install so this
-is automatic.
+The desktop app bundles the `hecate` binary. Agent tool calls (`shell_exec`,
+`git_exec`, `file_write`) spawn a per-call `sh` subprocess directly from the
+gateway with env sanitisation, output cap, and wall-clock timeout applied inline
+(Layer 1). On macOS the call is additionally wrapped by `sandbox-exec` (Layer 2) for filesystem and network confinement; `sandbox-exec` ships on every macOS
+install so this is automatic.
 
 See [`docs/sandbox.md`](sandbox.md) for the layer model and policy
 reference.
@@ -151,7 +144,6 @@ reference.
 
 ```bash
 just test-tauri-smoke
-just test-tauri-acp-smoke
 ```
 
 The target builds only the native `.app` bundle, launches the packaged macOS
@@ -160,12 +152,6 @@ verifies the sidecar process exits. It intentionally skips `.dmg` packaging so
 local smoke runs are faster and less vulnerable to temporary disk-image mount
 flakes. It is not part of `just verify` because it opens a real GUI app
 and is macOS-specific today.
-
-`just test-tauri-acp-smoke` uses the same packaged app launch but also starts
-the bundled `hecate-acp` sidecar without `HECATE_GATEWAY_URL`, expecting it to
-discover the dynamic gateway URL from `hecate.runtime.json` and complete an ACP
-`initialize` handshake. It intentionally stops at discovery + initialize; full
-approval/task behavior stays in `just test-acp-smoke`.
 
 ## Footguns to know
 

@@ -415,14 +415,6 @@ External-agent approval metrics:
 | `hecate.agent_adapter.probe`                    | counter         | `adapter`, `status`                                                   | Adapter health probes grouped by final classification (`ready` / `not_installed` / `auth_required` / `error`). One increment per `agentadapters.Probe` call.                                                                                                   |
 | `hecate.agent_adapter.terminal_rpc_unsupported` | counter         | `adapter`, `method`                                                   | ACP terminal RPC calls Hecate does not implement, grouped by method (`create` / `kill` / `output` / `release` / `wait`). The matching error returned to the adapter is `agentadapters.ErrTerminalRPCUnsupported`, wrapping JSON-RPC method-not-found (-32601). |
 
-### ACP Bridge Spans
-
-The `hecate-acp` stdio bridge has its own OTel trace provider. When trace export
-is enabled for the bridge, JSON-RPC handling emits `acp.rpc` spans and each
-gateway HTTP call emits an `acp.gateway.request` client span. The bridge injects
-`traceparent`, `tracestate`, and `baggage` into gateway requests, so editor ACP
-sessions can stitch through `hecate-acp` into the gateway traces.
-
 ### Retention Spans
 
 Retention manager runs emit events under the `retention.run` span:
@@ -657,7 +649,6 @@ Working today:
 - OTLP/HTTP and OTLP/gRPC export for traces, metrics, and logs (each independently toggleable)
 - W3C TextMap propagator on inbound — `traceparent`, `tracestate`, `baggage` are honored automatically; the gateway becomes a child of the upstream trace
 - W3C TextMap propagator on outbound provider calls — provider discovery, non-streaming chat, and streaming chat carry `traceparent` / `baggage` downstream
-- ACP bridge tracing — `hecate-acp` emits JSON-RPC and gateway-client spans, and propagates trace context into gateway requests
 - Sandbox/tool trace depth — shell and file tool steps expose sandbox wrapper/policy, timeout, exit, output-size, truncation, and file patch metadata through OTel-shaped `hecate.*` attributes
 - Metric cardinality guardrails — closed-set labels collapse unknown values to `other`; free-form labels reject control characters and oversized values
 - Metric exemplar filter configuration — Hecate exposes the SDK exemplar filter through `HECATE_OTEL_METRICS_EXEMPLAR_FILTER`

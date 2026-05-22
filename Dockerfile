@@ -3,8 +3,7 @@
 # Multi-stage build. Three layers:
 #   1. ui-builder:  Bun compiles the React operator UI to ui/dist.
 #   2. go-builder:  Go compiles cmd/hecate with //go:embed pulling in
-#                   ui/dist from the previous stage, plus cmd/hecate-acp
-#                   as the ACP stdio bridge companion.
+#                   ui/dist from the previous stage.
 #   3. runtime:     distroless/static — small base, no shell, runs as
 #                   non-root. Suitable for production.
 #
@@ -54,11 +53,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags='-s -w' \
     -o /out/hecate \
     ./cmd/hecate
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -trimpath \
-    -ldflags='-s -w' \
-    -o /out/hecate-acp \
-    ./cmd/hecate-acp
 
 # Pre-create an empty /data dir owned by distroless's nonroot uid (65532)
 # so that, when compose mounts a named volume on top, the volume inherits
@@ -72,10 +66,8 @@ RUN mkdir -p /out/data && chown 65532:65532 /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
-# Copy the static binaries. The image starts the gateway by default; hecate-acp
-# is present so all distribution shapes carry the same bridge companion.
+# Copy the static binary. The image starts the gateway by default.
 COPY --from=go-builder /out/hecate /usr/local/bin/hecate
-COPY --from=go-builder /out/hecate-acp /usr/local/bin/hecate-acp
 
 # /data holds the auto-generated bootstrap secret (control-plane encryption
 # key) and any file-backed control-plane state. We

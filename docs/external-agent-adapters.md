@@ -14,9 +14,6 @@ adapter's native ACP session id. After restart, the next prompt asks the adapter
 to `session/load` that native session when supported. If the adapter cannot load
 it, Hecate starts a fresh native session and keeps the Hecate transcript.
 
-`hecate-acp` is a separate editor bridge for Hecate's own task runtime. It is
-not a relay to Codex, Claude Code, or Cursor Agent.
-
 ## Supported adapters
 
 | Adapter      | How Hecate starts it                                                                                                      | Auth expected by the underlying agent                              |

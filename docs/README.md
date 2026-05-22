@@ -12,7 +12,7 @@ Pick the path closest to what you are doing.
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Running Hecate locally                      | [Desktop app](desktop-app.md), [Deployment](deployment.md), [Security](security.md), [Providers](providers.md), [Chat sessions](chat-sessions.md), [Known limitations](known-limitations.md) |
 | Calling Hecate from a client                | [Runtime API](runtime-api.md), [Chat sessions](chat-sessions.md), [Agent runtime](agent-runtime.md), [Events](events.md)                                                                     |
-| Building or using coding-agent integrations | [External agent adapters](external-agent-adapters.md), [ACP bridge](acp.md), [Runtime API](runtime-api.md), [Events](events.md), [MCP integration](mcp.md)                                   |
+| Building or using coding-agent integrations | [External agent adapters](external-agent-adapters.md), [Runtime API](runtime-api.md), [Events](events.md), [MCP integration](mcp.md)                                                         |
 | Changing the codebase                       | [Architecture](architecture.md), [Development](development.md), [Alpha-to-beta roadmap](beta-roadmap.md), [`docs-ai/`](../docs-ai/README.md), [Release](release.md)                          |
 | Working as an AI agent                      | [`AGENTS.md`](../AGENTS.md), [`docs-ai/README.md`](../docs-ai/README.md), then the relevant `docs-ai/skills/*/SKILL.md`                                                                      |
 
@@ -37,7 +37,6 @@ Pick the path closest to what you are doing.
 | [Chat sessions](chat-sessions.md)                     | Conversation persistence model behind the Chats UI, Hecate Chat segments, provider/model switching, queued prompts, and external-agent sessions. |
 | [External agent adapters](external-agent-adapters.md) | Use Codex, Claude Code, and Cursor Agent from Chats; install checks, credential boundaries, persistence, and troubleshooting.                    |
 | [MCP integration](mcp.md)                             | Hecate as an MCP server and external MCP servers as task tools.                                                                                  |
-| [ACP bridge](acp.md)                                  | Hecate as an ACP agent for editor panels. Host setup, gateway discovery, session model, smoke test, and current gaps.                            |
 | [Sandbox](sandbox.md)                                 | Per-call subprocess execution, policy validation, env sanitisation, output cap, timeout, and OS wrappers.                                        |
 
 ## Observability Docs
@@ -71,7 +70,6 @@ direction, implemented records, and experimental parking-lot ideas.
 | [Context assembly and injection boundaries](rfcs/context-assembly-and-injection-boundaries.md) | Active proposal for context packets, trust labels, prompt-injection boundaries, and "what did the model see?" inspection.           |
 | [Agent memory](rfcs/agent-memory.md)                                                           | Active proposal for durable operator-authored memory that feeds context assembly.                                                   |
 | [LLM context window management](rfcs/llm-context-window-management.md)                         | Active proposal for token estimation, context warnings/caps, and optional fitting policies.                                         |
-| [Terminal / CLI distribution](rfcs/terminal-distribution.md)                                   | Active proposal for a terminal-first install with `hecate`, `hecate-acp`, and a future first-class TUI.                             |
 | [Event protocol v1](rfcs/event-protocol-v1.md)                                                 | Candidate event envelope; implemented for task-run event streams, but payload stability is still in progress.                       |
 
 ## External Entry Points

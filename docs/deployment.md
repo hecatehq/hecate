@@ -30,9 +30,7 @@ Pinning is recommended for any deployment beyond local experimentation — `:lat
 
 When the working tree is a checkout of the source, `docker compose up` rebuilds locally from the bundled `Dockerfile` instead of pulling. Useful for testing changes; remove the `image:` line or run `docker compose build` first if you want the local build to be the canonical artifact.
 
-The Docker image starts `hecate` by default and also includes `hecate-acp` at
-`/usr/local/bin/hecate-acp` so the image carries the same companion bridge as
-the tarballs and native app. The container sets
+The Docker image starts `hecate` by default. The container sets
 `HECATE_PUBLIC_URL=http://127.0.0.1:8765`, which is the host URL users normally
 reach through `-p 8765:8765` or `docker compose`.
 
@@ -66,12 +64,11 @@ Available tarballs for `v0.1.0-alpha.35`:
 - `hecate_0.1.0-alpha.35_darwin_amd64.tar.gz`
 - `hecate_0.1.0-alpha.35_darwin_arm64.tar.gz`
 
-Each tarball includes `hecate`, `hecate-acp`, `LICENSE`, and `README.md`.
+Each tarball includes `hecate`, `LICENSE`, and `README.md`.
 Verify integrity against `checksums.txt` published alongside the release.
 
-The gateway writes `hecate.runtime.json` into `HECATE_DATA_DIR` on startup.
-Local helper processes such as `hecate-acp` use it to discover the active
-gateway URL before falling back to `http://127.0.0.1:8765`.
+The gateway writes `hecate.runtime.json` into `HECATE_DATA_DIR` on startup for
+runtime diagnostics.
 
 ## Desktop app
 
