@@ -12,7 +12,7 @@
 
 <p align="center">
   <strong>Local-first AI gateway and agent console.</strong><br>
-  Route cloud/local models, run Hecate-owned tool agents, supervise Codex / Claude Code / Cursor Agent, and keep every decision observable.
+  Route cloud/local models, run Hecate-owned tool agents, supervise Codex / Claude Code / Cursor Agent / Grok Build, and keep every decision observable.
 </p>
 
 > **Status: public alpha.** Gateway routing, provider onboarding, Hecate Chat, External Agent sessions, and native task runs are usable for alpha workflows. Desktop signing, workspace modes, agent profiles, and sandbox hardening are still evolving. Read [known limitations](docs/known-limitations.md) before depending on it.
@@ -38,7 +38,7 @@ Hecate sits at that crossroads: one local runtime layer between clients, model p
 | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Gateway for cloud + local models** | OpenAI, Anthropic, DeepSeek, Gemini, Groq, Mistral, Perplexity, Together AI, xAI, Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, and custom OpenAI-compatible endpoints behind one local API. |
 | **Hecate Chat**                      | Use one transcript for direct model turns and tools-on task-backed agent turns with approvals, artifacts, streamed activity, and trace links.                                                            |
-| **External Agent console\***         | Supervise Codex, Claude Code, and Cursor Agent as local ACP sessions with readiness checks, approvals, adapter diagnostics, and Git diff inspect/revert.                                                 |
+| **External Agent console\***         | Supervise Codex, Claude Code, Cursor Agent, and Grok Build as local ACP sessions with readiness checks, approvals, adapter diagnostics, and Git diff inspect/revert.                                                 |
 | **Operator-grade control**           | Token usage, reported cost, rate limits, routing reports, provider health, task approvals, and OpenTelemetry are on the hot path.                                                                        |
 
 \*External agents use their own local CLIs, accounts, subscriptions, and billing.
@@ -109,7 +109,7 @@ After a provider is saved, Hecate discovers models and the Chats model picker be
 Chats is the primary day-to-day surface. It explains missing setup before you send a request, then keeps the common flows in one place:
 
 - **Hecate Chat** — choose a provider/model and use the per-chat **tools on/off** switch. Tools off is direct model chat through the gateway; tools on uses Hecate's task runtime with approvals, artifacts, per-call sandboxing, and OpenTelemetry. If a selected model becomes stale because provider discovery changed, Chats blocks send and shows the provider route, discovered-model count, health, and repair steps before the request leaves your machine.
-- **External Agent** — select Codex, Claude Code, or Cursor Agent, choose a workspace, and supervise a local ACP session.
+- **External Agent** — select Codex, Claude Code, Cursor Agent, or Grok Build, choose a workspace, and supervise a local ACP session.
 
 ![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)
 
@@ -121,7 +121,7 @@ If the selected model is known not to support tool-calling, Hecate keeps the cha
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 
-External Agent approvals surface in Chats as actionable operator prompts before Codex, Claude Code, or Cursor Agent can apply gated actions.
+External Agent approvals surface in Chats as actionable operator prompts before Codex, Claude Code, Cursor Agent, or Grok Build can apply gated actions.
 
 ![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
 
@@ -140,7 +140,7 @@ flowchart LR
     Clients["UI + compatible API clients"] --> Hecate["hecate process<br/>gateway · tasks · approvals"]
     Hecate --> Models["model providers"]
     Hecate --> Tools["sandboxed tools"]
-    Hecate --> Agents["external agent CLIs<br/>Codex · Claude Code · Cursor Agent"]
+    Hecate --> Agents["external agent CLIs<br/>Codex · Claude Code · Cursor Agent · Grok Build"]
     Agents --> Accounts["their vendor accounts"]
     Hecate --> Telemetry["OpenTelemetry"]
 ```
@@ -193,7 +193,7 @@ Models without tool-calling support still work for ordinary chat: Hecate falls b
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 
-External Agent approvals surface in Chats as actionable operator prompts before Codex, Claude Code, or Cursor Agent can apply gated actions.
+External Agent approvals surface in Chats as actionable operator prompts before Codex, Claude Code, Cursor Agent, or Grok Build can apply gated actions.
 
 ![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
 
@@ -233,7 +233,7 @@ Stability stages:
 | Model gateway       | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints.                                                                                                |
 | Connections         | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics.                                                                                        |
 | Hecate Chat         | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, and inline task approvals. Workspace modes and agent profiles are still future work.             |
-| External Agent      | Alpha-ready | Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, adapter diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses.                          |
+| External Agent      | Alpha-ready | Codex, Claude Code, Cursor Agent, and Grok Build discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, adapter diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses.                          |
 | Task runtime        | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing.                                                                                 |
 | Observability       | Alpha-ready | OTLP traces/metrics/logs, response trace headers, local trace view, route reports, timing buckets, and runtime stats.                                                                                                                                        |
 | Storage             | Alpha-ready | Memory or SQLite per subsystem; SQLite persists chat/task/provider state. Pending approval reconciliation runs on startup.                                                                                                                                   |
@@ -259,7 +259,7 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 - [Runtime API](docs/runtime-api.md) — task lifecycle, approvals, queue/lease execution, SSE streaming.
 - [Chat sessions](docs/chat-sessions.md) — Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queueing, and activity rendering.
 - [Agent runtime](docs/agent-runtime.md) — `agent_loop` loop mechanics, tools, stdout/stderr handling, cost ceilings, retry-from-turn.
-- [External agent adapters](docs/external-agent-adapters.md) — Hecate as an ACP client/operator: use Codex, Claude Code, and Cursor Agent from Chats.
+- [External agent adapters](docs/external-agent-adapters.md) — Hecate as an ACP client/operator: use Codex, Claude Code, Cursor Agent, and Grok Build from Chats.
 - [Events](docs/events.md) — every event type, payload shape, when each fires.
 - [MCP integration](docs/mcp.md) — Hecate as MCP server + attaching external MCP servers as tools.
 

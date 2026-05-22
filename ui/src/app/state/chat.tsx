@@ -38,7 +38,12 @@ import { ApiError, type ChatMessage } from "../../lib/api";
 import { parseStoredJSON, parseStoredString, usePersistedState } from "../../lib/persistedState";
 import type { ModelFilter } from "../../types/model";
 import type { ProviderFilter } from "../../types/provider";
-import type { ChatResponse, ChatSessionRecord, ChatSessionsResponse } from "../../types/chat";
+import type {
+  ChatConfigOptionRecord,
+  ChatResponse,
+  ChatSessionRecord,
+  ChatSessionsResponse,
+} from "../../types/chat";
 import {
   type ChatTarget,
   type HecateChatTarget,
@@ -62,6 +67,7 @@ export type ChatState = {
   defaultChatTarget: ChatTarget;
   chatTargetBySessionID: Map<string, HecateChatTarget>;
   agentAdapterID: string;
+  agentConfigOptions: ChatConfigOptionRecord[];
   agentWorkspace: string;
   agentWorkspaceBranch: string;
   chatSessions: ChatSessionsResponse["data"];
@@ -93,6 +99,7 @@ export type ChatActions = {
   setDefaultChatTarget: Setter<ChatTarget>;
   setChatTargetBySessionID: Setter<Map<string, HecateChatTarget>>;
   setAgentAdapterID: Setter<string>;
+  setAgentConfigOptions: Setter<ChatConfigOptionRecord[]>;
   setAgentWorkspace: Setter<string>;
   setAgentWorkspaceBranch: Setter<string>;
   setChatSessions: Setter<ChatSessionsResponse["data"]>;
@@ -158,6 +165,9 @@ export function ChatProvider({
     "hecate.agentAdapterID",
     parseStoredString,
     initialState?.agentAdapterID ?? "codex",
+  );
+  const [agentConfigOptions, setAgentConfigOptions] = useState<ChatConfigOptionRecord[]>(
+    initialState?.agentConfigOptions ?? [],
   );
   const [agentWorkspace, setAgentWorkspace] = usePersistedState(
     "hecate.agentWorkspace",
@@ -298,6 +308,7 @@ export function ChatProvider({
       defaultChatTarget,
       chatTargetBySessionID,
       agentAdapterID,
+      agentConfigOptions,
       agentWorkspace,
       agentWorkspaceBranch,
       chatSessions,
@@ -325,6 +336,7 @@ export function ChatProvider({
       defaultChatTarget,
       chatTargetBySessionID,
       agentAdapterID,
+      agentConfigOptions,
       agentWorkspace,
       agentWorkspaceBranch,
       chatSessions,
@@ -355,6 +367,7 @@ export function ChatProvider({
       setDefaultChatTarget,
       setChatTargetBySessionID,
       setAgentAdapterID,
+      setAgentConfigOptions,
       setAgentWorkspace,
       setAgentWorkspaceBranch,
       setChatSessions,
@@ -382,6 +395,7 @@ export function ChatProvider({
       setDefaultChatTarget,
       setChatTargetBySessionID,
       setAgentAdapterID,
+      setAgentConfigOptions,
       setAgentWorkspace,
       setChatSessions,
       setActiveChatSessionID,

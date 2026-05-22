@@ -1,7 +1,7 @@
 # External agent adapters
 
 Hecate can supervise external coding-agent CLIs from **Chats**. Today that means
-Codex, Claude Code, and Cursor Agent through local ACP adapters.
+Codex, Claude Code, Cursor Agent, and Grok Build through local ACP adapters.
 
 External agents are not Hecate model providers and they are not inside the
 `hecate` process. Hecate starts the adapter as the operator's OS user, sends
@@ -21,13 +21,14 @@ it, Hecate starts a fresh native session and keeps the Hecate transcript.
 | Codex        | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex auth visible to the adapter                   |
 | Claude Code  | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code / Anthropic auth visible to Claude Code |
 | Cursor Agent | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent`         |
+| Grok Build   | `grok agent ... stdio`; selected launch controls add `--model <id>` and optional `--reasoning-effort <effort>`                                  | Operator-owned Grok auth or `XAI_API_KEY` visible to `grok`        |
 
 ## Credential and account boundaries
 
 The selected external agent owns its model/runtime/account relationship:
 
-- Hecate does not call Claude Code SDK/API, Codex SDK/API, or Cursor Agent APIs
-  directly for External Agent sessions.
+- Hecate does not call Claude Code SDK/API, Codex SDK/API, Cursor Agent APIs,
+  or Grok/xAI APIs directly for External Agent sessions.
 - Hecate does not proxy, pool, resell, or bypass external-agent credentials,
   subscriptions, credits, or vendor policy.
 - Hecate does not store External Agent credentials. The adapter reads the
@@ -45,16 +46,20 @@ adapter process, while authentication and billing stay with the provider.
 ## Quick start from the operator UI
 
 1. Start Hecate and open **Chats**.
-2. Pick **Codex**, **Claude Code**, or **Cursor Agent** from the agent picker.
+2. Pick **Codex**, **Claude Code**, **Cursor Agent**, or **Grok Build** from the
+   agent picker.
 3. Choose the workspace directory the external agent is allowed to work in.
-4. Click **New chat**. Hecate starts the adapter session immediately so
-   adapter-owned controls such as model, reasoning, or mode can appear before
-   the first prompt.
-5. If the adapter row is amber/red, open **Connections**. The probe performs
+4. If model, reasoning, or mode controls appear above the message composer,
+   choose the values you want before creating the chat. Grok Build requires an
+   explicit model; reasoning is optional and can stay at **Pick reasoning**.
+5. Click **New chat**. Hecate starts the adapter session immediately. The
+   message input appears after that session exists, while launch controls can be
+   shown earlier so required values can be selected first.
+6. If the adapter row is amber/red, open **Connections**. The probe performs
    a real spawn + ACP handshake + temporary
    no-op session, so it catches missing auth, billing/subscription issues,
    unsupported versions, and broken managed launchers before a prompt fails.
-6. Send a small smoke prompt:
+7. Send a small smoke prompt:
 
    ```text
    Show me git status and summarize what changed.
@@ -65,14 +70,22 @@ sandbox. The selected adapter owns its model/runtime/account relationship;
 Hecate supervises the local process, approvals, transcript, diagnostics, traces,
 guardrails, and Git diff review.
 
-When an adapter supports ACP session configuration, Hecate surfaces those
-controls in the chat header as soon as the External Agent chat is created. The
-controls are adapter-defined: Codex / Claude Code / Cursor Agent decide which model,
-mode, or reasoning selectors exist and what the labels mean. The selected
-adapter is fixed for that chat; start another chat to use a different agent.
-Hecate stores the latest reported control state with the chat session and sends
-changes back with ACP `session/set_config_option`; it does not translate those
-controls into Hecate provider/model settings.
+External Agent controls have two sources:
+
+- **Launch controls** come from Hecate's adapter catalog and can appear before a
+  concrete chat session exists. Hecate passes the selected values as process
+  arguments when it starts or restarts the adapter. Grok Build uses this path
+  for `--model` and `--reasoning-effort`.
+- **ACP session controls** come from the adapter during `session/new`,
+  `session/load`, or `session/set_config_option`. Hecate surfaces them in the
+  composer and chat settings after the External Agent chat exists.
+
+The controls are adapter-defined: Codex / Claude Code / Cursor Agent / Grok
+Build decide which model, mode, or reasoning selectors exist and what the labels
+mean. The selected adapter is fixed for that chat; start another chat to use a
+different agent. Hecate stores the latest reported control state with the chat
+session and sends ACP-owned changes back with ACP `session/set_config_option`;
+it does not translate those controls into Hecate provider/model settings.
 
 Check discovery:
 
@@ -90,6 +103,7 @@ Manual setup stays in the upstream CLIs:
 | Codex        | `codex login`        |
 | Claude Code  | `claude /login`      |
 | Cursor Agent | `cursor-agent login` |
+| Grok Build   | `grok login`         |
 
 If an adapter readiness check reports an auth failure, run the matching command
 in Terminal, then return to Connections and test the adapter again.
@@ -108,6 +122,15 @@ For Codex and Claude, Hecate does not require `codex-acp` or
 but `npx` is available, Hecate creates a small launcher in the operator cache
 directory and runs the official ACP npm package from there. Cursor Agent still
 requires the Cursor Agent CLI because its ACP mode is shipped by `cursor-agent`.
+Grok Build similarly requires the `grok` CLI because its ACP mode is shipped by
+`grok agent stdio`. Hecate does not pin a Grok model by default. When
+`grok models` is available, Hecate uses that output to populate the Grok Build
+model selector; if the command is unavailable or empty, the selector still shows
+the explicit "Pick a model" state. Open Terminal and check `grok models` (or
+re-test the adapter from Connections) if no real choices appear. Session
+creation returns `chat.model_required` until a real model can be selected.
+Choosing a model starts or restarts the adapter with `--model <id>`. Choosing
+reasoning starts or restarts it with `--reasoning-effort <effort>`.
 
 By default the managed launcher directory is the user cache location:
 
@@ -191,6 +214,22 @@ If a run fails with `Authentication required. Please run 'agent login' first, or
 set CURSOR_API_KEY environment variable.`, authenticate Cursor Agent in the same
 environment that starts Hecate.
 
+### Grok Build
+
+```sh
+command -v grok
+grok login
+```
+
+Headless environments can authenticate through:
+
+```sh
+export XAI_API_KEY=...
+```
+
+If discovery cannot find `grok`, install Grok Build from the xAI CLI docs and
+restart Hecate from an environment where the command is on `PATH`.
+
 ## Manual smoke
 
 1. Start Hecate:
@@ -199,8 +238,8 @@ environment that starts Hecate.
    just dev
    ```
 
-2. Open **Chats** and choose Codex, Claude Code, or Cursor Agent from the
-   agent picker.
+2. Open **Chats** and choose Codex, Claude Code, Cursor Agent, or Grok Build
+   from the agent picker.
 
 3. Choose an available adapter.
 
@@ -247,7 +286,8 @@ model.
 On Hecate shutdown, active External Agent turns are cancelled first. Hecate waits
 briefly for the ACP turn to drain, asks the native ACP session to close, and
 then kills the owned adapter process group if it is still alive. This keeps app
-quit / restart from leaving Codex, Claude Code, or Cursor Agent adapter processes behind.
+quit / restart from leaving Codex, Claude Code, Cursor Agent, or Grok Build
+adapter processes behind.
 Operators can also close an External Agent chat session manually to release the external
 adapter process while keeping the Hecate chat history. Deleting a chat performs
 the same release step and then removes the persisted history.
@@ -345,7 +385,7 @@ the sweeper has closed the stale session, the request returns HTTP 422 with
 ## Stable alpha scope
 
 External agent adapters are stable enough for alpha use when the operator
-accepts the trusted-subprocess model: Codex, Claude Code, and Cursor Agent run as
+accepts the trusted-subprocess model: Codex, Claude Code, Cursor Agent, and Grok Build run as
 their own runtimes in the selected workspace while Hecate supervises lifecycle,
 approvals, output capture, diagnostics, observability, guardrails, and Git diff
 inspect/revert.
@@ -357,10 +397,10 @@ inspect/revert.
   Chats UI can inspect or revert captured Git paths. A fuller review surface
   with side-by-side hunks, batch selection, and richer artifact history is
   still future work.
-- Adapter-specific ACP mappers can make Codex, Claude Code, and Cursor Agent progress
+- Adapter-specific ACP mappers can make Codex, Claude Code, Cursor Agent, and Grok Build progress
   updates prettier over time. The current generic mapper plus raw diagnostics is
   sufficient for alpha stability.
 - External Agent chat is a lightweight API around opaque external runtimes.
   Future work may reuse more task-runtime primitives for artifacts, event
   history, retention, and trace correlation, but Hecate should not pretend it
-  owns the Codex / Claude Code / Cursor Agent runtime loop.
+  owns the Codex / Claude Code / Cursor Agent / Grok Build runtime loop.

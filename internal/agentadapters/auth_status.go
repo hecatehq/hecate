@@ -39,6 +39,11 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 			return AuthStatusOK, ""
 		}
 		return AuthStatusUnauthenticated, "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment."
+	case "grok_build":
+		if envAny("XAI_API_KEY") || fileAny("${HOME}/.grok") {
+			return AuthStatusOK, ""
+		}
+		return AuthStatusUnauthenticated, "Run grok login, or set XAI_API_KEY for the adapter environment."
 	default:
 		return AuthStatusUnknown, "No auth heuristic is available for this adapter."
 	}
@@ -52,6 +57,8 @@ func adapterSignInHint(adapter Adapter) string {
 		return "Run `claude /login` in Terminal, then test Claude Code again. Hecate uses Claude Code's local auth; it does not store Claude tokens."
 	case "cursor_agent":
 		return "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment."
+	case "grok_build":
+		return "Run grok login, or set XAI_API_KEY for the adapter environment."
 	default:
 		return fmt.Sprintf("Sign in to %s, then test the adapter again.", adapter.Name)
 	}
@@ -65,6 +72,8 @@ func adapterAppMissingHint(adapter Adapter) string {
 		return "Install Claude Code, then sign in with Claude Code."
 	case "cursor_agent":
 		return "Install Cursor with Agent support, then sign in with Cursor Agent."
+	case "grok_build":
+		return "Install Grok Build, then sign in with Grok."
 	default:
 		return fmt.Sprintf("Install %s, then test the adapter again.", adapter.Name)
 	}

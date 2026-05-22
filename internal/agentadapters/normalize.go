@@ -39,8 +39,14 @@ func NormalizeError(adapterName string, err error) string {
 		return raw
 	}
 	message := strings.TrimSpace(strings.TrimPrefix(parsed.Message, "Internal error:"))
+	if strings.EqualFold(message, "Internal error") && parsed.DataText != "" {
+		message = parsed.DataText
+	}
 	if message == "" {
 		message = strings.TrimSpace(parsed.Message)
+	}
+	if message == "" && parsed.DataText != "" {
+		message = parsed.DataText
 	}
 	if message == "" {
 		message = raw
@@ -50,6 +56,9 @@ func NormalizeError(adapterName string, err error) string {
 	}
 	if adapterName == "Claude Code" && isAuthErrorText(message) {
 		return claudeCodeAuthErrorMessage()
+	}
+	if adapterName == "Grok Build" && strings.Contains(strings.ToLower(message), "no healthy upstream") {
+		return adapterName + " error: " + message + ". Check Grok Build/xAI service health, model availability, or XAI_API_KEY."
 	}
 	if kind := parsed.Data.ErrorKind; kind != "" {
 		return adapterName + " error (" + kind + "): " + message
@@ -67,24 +76,41 @@ func isAuthErrorText(text string) bool {
 }
 
 type jsonRPCErrorPayload struct {
-	Message string `json:"message"`
-	Data    struct {
+	Message  string `json:"message"`
+	DataText string
+	Data     struct {
 		ErrorKind string `json:"errorKind"`
 	} `json:"data"`
 }
 
 func parseJSONRPCError(raw string) (jsonRPCErrorPayload, bool) {
-	var payload jsonRPCErrorPayload
-	if err := json.Unmarshal([]byte(raw), &payload); err == nil && payload.Message != "" {
+	if payload, ok := parseJSONRPCErrorObject([]byte(raw)); ok {
 		return payload, true
 	}
 	start := strings.Index(raw, "{")
 	end := strings.LastIndex(raw, "}")
 	if start < 0 || end <= start {
-		return payload, false
+		return jsonRPCErrorPayload{}, false
 	}
-	if err := json.Unmarshal([]byte(raw[start:end+1]), &payload); err != nil || payload.Message == "" {
-		return payload, false
+	return parseJSONRPCErrorObject([]byte(raw[start : end+1]))
+}
+
+func parseJSONRPCErrorObject(raw []byte) (jsonRPCErrorPayload, bool) {
+	var wire struct {
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil || strings.TrimSpace(wire.Message) == "" {
+		return jsonRPCErrorPayload{}, false
+	}
+	payload := jsonRPCErrorPayload{Message: wire.Message}
+	if len(wire.Data) > 0 && string(wire.Data) != "null" {
+		var dataText string
+		if err := json.Unmarshal(wire.Data, &dataText); err == nil {
+			payload.DataText = strings.TrimSpace(dataText)
+			return payload, true
+		}
+		_ = json.Unmarshal(wire.Data, &payload.Data)
 	}
 	return payload, true
 }

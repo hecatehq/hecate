@@ -44,6 +44,33 @@ func TestDetectAuthStatusCursorUsesEnv(t *testing.T) {
 	}
 }
 
+func TestDetectAuthStatusGrokBuild(t *testing.T) {
+	home := isolatedAuthHome(t)
+
+	status, hint := DetectAuthStatus(Adapter{ID: "grok_build"})
+	if status != AuthStatusUnauthenticated {
+		t.Fatalf("status = %q, want %q", status, AuthStatusUnauthenticated)
+	}
+	if !strings.Contains(hint, "grok login") || !strings.Contains(hint, "XAI_API_KEY") {
+		t.Fatalf("hint = %q, want grok login and XAI_API_KEY guidance", hint)
+	}
+
+	t.Setenv("XAI_API_KEY", "xai-test-key")
+	status, hint = DetectAuthStatus(Adapter{ID: "grok_build"})
+	if status != AuthStatusOK || hint != "" {
+		t.Fatalf("status/hint with env = %q/%q, want ok/empty", status, hint)
+	}
+
+	t.Setenv("XAI_API_KEY", "")
+	if err := os.MkdirAll(filepath.Join(home, ".grok"), 0o700); err != nil {
+		t.Fatalf("mkdir grok config: %v", err)
+	}
+	status, hint = DetectAuthStatus(Adapter{ID: "grok_build"})
+	if status != AuthStatusOK || hint != "" {
+		t.Fatalf("status/hint with config = %q/%q, want ok/empty", status, hint)
+	}
+}
+
 func TestDetectAuthStatusClaudeUnknownWithoutMarker(t *testing.T) {
 	isolatedAuthHome(t)
 	withClaudeAuthStatus(t, "", os.ErrNotExist)
@@ -135,6 +162,7 @@ func isolatedAuthHome(t *testing.T) string {
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
 	t.Setenv("CURSOR_API_KEY", "")
+	t.Setenv("XAI_API_KEY", "")
 	return home
 }
 

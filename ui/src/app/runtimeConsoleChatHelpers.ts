@@ -123,15 +123,10 @@ export function defaultModelForProvider(
   }
 
   if (providerRecord) {
-    return (
-      scopedModels.find((entry) => entry.metadata?.default)?.id ??
-      scopedModels[0]?.id ??
-      providerRecord.models?.[0] ??
-      ""
-    );
+    return scopedModels.find((entry) => entry.metadata?.default)?.id ?? "";
   }
 
-  return scopedModels.find((entry) => entry.metadata?.default)?.id ?? scopedModels[0]?.id ?? "";
+  return scopedModels.find((entry) => entry.metadata?.default)?.id ?? "";
 }
 
 export function defaultProviderForChat(

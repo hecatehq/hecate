@@ -13,6 +13,7 @@ import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnosti
 import { usePersistedState } from "../../lib/persistedState";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
+import type { ChatConfigOptionRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
 import type {
   ConfiguredProviderRecord,
@@ -28,6 +29,7 @@ import {
   LockedHecateModelSnapshot,
 } from "./ChatAgentControls";
 import { ChatNoticeInline } from "./ChatNotice";
+import { mergeAgentConfigOptions } from "./agentConfigOptions";
 
 type HecateProviderOption = {
   id: string;
@@ -55,6 +57,7 @@ export type ChatComposerProps = {
   composerRepair: ChatSetupRepairState | null;
   suppressChatError?: boolean;
   messageControlsVisible: boolean;
+  messageSendBlocked: boolean;
   sendDisabled: boolean;
   agentBusy: boolean;
   queueingMessage: boolean;
@@ -117,6 +120,13 @@ export function ChatComposer(props: ChatComposerProps) {
   const runtimeHeaders = runtime.state.runtimeHeaders;
   const providerPresets = providersAndModels.state.providerPresets;
   const providers = providersAndModels.state.providers;
+  const selectedDraftAgent = providersAndModels.state.agentAdapters.find(
+    (adapter) => adapter.id === chat.state.agentAdapterID,
+  );
+  const draftAgentConfigOptions = mergeAgentConfigOptions(
+    selectedDraftAgent?.config_options ?? [],
+    chat.state.agentConfigOptions,
+  );
   const {
     isAgentChat,
     isHecateChat,
@@ -128,6 +138,7 @@ export function ChatComposer(props: ChatComposerProps) {
     composerRepair,
     suppressChatError = false,
     messageControlsVisible,
+    messageSendBlocked,
     sendDisabled,
     agentBusy,
     queueingMessage,
@@ -150,7 +161,32 @@ export function ChatComposer(props: ChatComposerProps) {
     onOpenTask,
     onOpenTrace,
   } = props;
+  const activeExternalAgentID =
+    activeChatSession?.agent_id && activeChatSession.agent_id !== "hecate"
+      ? activeChatSession.agent_id
+      : "";
+  const selectedActiveAgent = activeExternalAgentID
+    ? providersAndModels.state.agentAdapters.find((adapter) => adapter.id === activeExternalAgentID)
+    : undefined;
+  const activeAgentConfigOptions = activeExternalAgentID
+    ? mergeAgentConfigOptions(
+        selectedActiveAgent?.config_options ?? [],
+        activeChatSession?.config_options ?? [],
+      )
+    : [];
+  const externalConfigSession = activeExternalAgentID
+    ? { ...activeChatSession!, config_options: activeAgentConfigOptions }
+    : isExternalAgentChat && draftAgentConfigOptions.length > 0
+      ? {
+          id: "__draft__",
+          agent_id: chat.state.agentAdapterID,
+          config_options: draftAgentConfigOptions,
+        }
+      : null;
   const chatError = suppressChatError ? "" : rawChatError;
+  const composerNoticeVisible = Boolean(
+    composerRepair || chatError || (isHecateChat && selectedModelIssue),
+  );
 
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
@@ -259,6 +295,24 @@ export function ChatComposer(props: ChatComposerProps) {
     }
   }
 
+  async function handleExternalAgentConfigChange(
+    sessionID: string,
+    configID: string,
+    value: string | boolean,
+  ): Promise<boolean> {
+    if (sessionID !== "__draft__") {
+      return chatActions.setChatConfigOption(sessionID, configID, value);
+    }
+    chat.actions.setAgentConfigOptions((current) =>
+      updateDraftAgentConfigOptions(
+        current.length > 0 ? current : draftAgentConfigOptions,
+        configID,
+        value,
+      ),
+    );
+    return true;
+  }
+
   function toggleModEnterMode() {
     setModEnterMode((v) => !v);
   }
@@ -276,7 +330,7 @@ export function ChatComposer(props: ChatComposerProps) {
         flexShrink: 0,
       }}
     >
-      {chatError && (
+      {!composerVisible && chatError && (
         <div style={{ marginBottom: 8 }}>
           <ChatErrorPanel
             message={chatError}
@@ -291,8 +345,8 @@ export function ChatComposer(props: ChatComposerProps) {
           />
         </div>
       )}
-      {isHecateChat && selectedModelIssue && (
-        <div style={{ marginBottom: composerVisible ? 8 : 0 }}>
+      {!composerVisible && isHecateChat && selectedModelIssue && (
+        <div style={{ marginBottom: 0 }}>
           <SelectedModelReadinessNotice
             issue={selectedModelIssue}
             onOpenProviders={() => onNavigate?.("connections")}
@@ -303,22 +357,57 @@ export function ChatComposer(props: ChatComposerProps) {
           />
         </div>
       )}
+      {messageControlsVisible && (
+        <div
+          aria-label={
+            isExternalAgentChat ? "External agent message controls" : "Hecate message controls"
+          }
+          style={{
+            maxWidth: 820,
+            margin: composerVisible ? "0 auto 8px" : "0 auto",
+            display: "flex",
+            justifyContent: "flex-start",
+            flexWrap: "wrap",
+            gap: 6,
+          }}
+        >
+          {isExternalAgentChat ? (
+            <ExternalAgentConfigControls
+              session={externalConfigSession}
+              onChange={handleExternalAgentConfigChange}
+              placement="composer"
+            />
+          ) : hecateAgentModelLocked ? (
+            <LockedHecateModelSnapshot
+              provider={providerLabelForHecateChat(
+                hecateChatProviderValue,
+                settings.state.config?.providers,
+                providerPresets,
+                providers,
+              )}
+              model={hecateChatModelValue}
+            />
+          ) : (
+            <>
+              <HecateProviderConfigControl
+                value={providerFilter}
+                onChange={(v) => chatActions.selectProviderRoute(v as typeof providerFilter)}
+                options={hecateProviderOptions}
+              />
+              <HecateModelConfigControl
+                value={model}
+                onChange={onHecateModelChange}
+                models={selectableModels}
+                presets={providerPresets}
+                showProvider={false}
+                disabledProviders={hecateDisabledProviderReasons}
+              />
+            </>
+          )}
+        </div>
+      )}
       {composerVisible && (
         <>
-          {composerRepair && (
-            <ChatSetupRepairNotice
-              repair={composerRepair}
-              onAction={(repair) => {
-                if (repair.action === "choose_workspace") {
-                  void chooseWorkspace();
-                } else if (repair.action === "open_agent_setup") {
-                  openClaudeCodeSetup();
-                } else if (repair.action === "open_connections") {
-                  onNavigate?.("connections");
-                }
-              }}
-            />
-          )}
           {activeQueuedChatMessages.length > 0 && (
             <div
               aria-label="Queued messages"
@@ -408,53 +497,69 @@ export function ChatComposer(props: ChatComposerProps) {
               ))}
             </div>
           )}
-          {messageControlsVisible && (
+          {agentBusy && (
             <div
-              aria-label={
-                isExternalAgentChat ? "External agent message controls" : "Hecate message controls"
-              }
+              aria-label="Active run status"
               style={{
                 maxWidth: 820,
-                margin: "0 auto 8px",
+                margin: "0 auto 6px",
+                color: "var(--amber)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                lineHeight: 1.45,
                 display: "flex",
-                justifyContent: "flex-start",
+                alignItems: "center",
+                gap: 8,
+                justifyContent: "space-between",
                 flexWrap: "wrap",
-                gap: 6,
               }}
             >
-              {isExternalAgentChat ? (
-                <ExternalAgentConfigControls
-                  session={activeChatSession}
-                  onChange={chatActions.setChatConfigOption}
-                  placement="composer"
-                />
-              ) : hecateAgentModelLocked ? (
-                <LockedHecateModelSnapshot
-                  provider={providerLabelForHecateChat(
-                    hecateChatProviderValue,
-                    settings.state.config?.providers,
-                    providerPresets,
-                    providers,
-                  )}
-                  model={hecateChatModelValue}
-                />
-              ) : (
-                <>
-                  <HecateProviderConfigControl
-                    value={providerFilter}
-                    onChange={(v) => chatActions.selectProviderRoute(v as typeof providerFilter)}
-                    options={hecateProviderOptions}
-                  />
-                  <HecateModelConfigControl
-                    value={model}
-                    onChange={onHecateModelChange}
-                    models={selectableModels}
-                    presets={providerPresets}
-                    showProvider={false}
-                    disabledProviders={hecateDisabledProviderReasons}
-                  />
-                </>
-              )}
+              <span>
+                {isExternalAgentChat
+                  ? "External Agent is still working. New messages will queue until it finishes."
+                  : "Hecate Chat is still working on this task. New messages will queue until the active task finishes."}
+              </span>
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}
+              >
+                {onOpenTask && activeHecateTaskID && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      padding: "2px 6px",
+                      color: "var(--amber)",
+                    }}
+                  >
+                    Open task
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
+                  title={
+                    chatCancelling
+                      ? "Stopping..."
+                      : isExternalAgentChat
+                        ? "Stop external agent"
+                        : "Stop active task"
+                  }
+                  onClick={chatActions.cancelAgentChat}
+                  disabled={chatCancelling}
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    padding: "2px 6px",
+                    color: "var(--danger)",
+                  }}
+                >
+                  Stop
+                </button>
+              </span>
             </div>
           )}
           <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
@@ -527,7 +632,9 @@ export function ChatComposer(props: ChatComposerProps) {
                 title={
                   queueingMessage
                     ? "Queue this message after the active run finishes"
-                    : "Send message"
+                    : messageSendBlocked
+                      ? "Complete chat setup before sending"
+                      : "Send message"
                 }
                 style={{
                   position: "absolute",
@@ -551,68 +658,48 @@ export function ChatComposer(props: ChatComposerProps) {
               </button>
             )}
           </div>
-          {agentBusy && (
+          {composerNoticeVisible && (
             <div
-              style={{
-                maxWidth: 820,
-                margin: "6px auto 0",
-                color: "var(--amber)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
-                lineHeight: 1.45,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-              }}
+              aria-label="Composer notices"
+              style={{ maxWidth: 820, margin: "6px auto 0", display: "grid", gap: 6 }}
             >
-              <span>
-                {isExternalAgentChat
-                  ? "External Agent is still working. New messages will queue until it finishes."
-                  : "Hecate Chat is still working on this task. New messages will queue until the active task finishes."}
-              </span>
-              <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}
-              >
-                {onOpenTask && activeHecateTaskID && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10,
-                      padding: "2px 6px",
-                      color: "var(--amber)",
-                    }}
-                  >
-                    Open task
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
-                  title={
-                    chatCancelling
-                      ? "Stopping..."
-                      : isExternalAgentChat
-                        ? "Stop external agent"
-                        : "Stop active task"
-                  }
-                  onClick={chatActions.cancelAgentChat}
-                  disabled={chatCancelling}
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    padding: "2px 6px",
-                    color: "var(--danger)",
+              {composerRepair && (
+                <ChatSetupRepairNotice
+                  repair={composerRepair}
+                  onAction={(repair) => {
+                    if (repair.action === "choose_workspace") {
+                      void chooseWorkspace();
+                    } else if (repair.action === "open_agent_setup") {
+                      openClaudeCodeSetup();
+                    } else if (repair.action === "open_connections") {
+                      onNavigate?.("connections");
+                    }
                   }}
-                >
-                  Stop
-                </button>
-              </span>
+                />
+              )}
+              {chatError && (
+                <ChatErrorPanel
+                  message={chatError}
+                  provider={runtimeHeaders?.provider}
+                  code={chatErrorCode}
+                  action={chatErrorAction}
+                  requestID={chatErrorRequestID}
+                  status={chatErrorStatus ?? undefined}
+                  traceID={chatErrorTraceID}
+                  onOpenTrace={onOpenTrace}
+                  diagnostic={chatDiagnostic}
+                />
+              )}
+              {isHecateChat && selectedModelIssue && (
+                <SelectedModelReadinessNotice
+                  issue={selectedModelIssue}
+                  onOpenProviders={() => onNavigate?.("connections")}
+                  onUseSuggestedModel={(model) => {
+                    chatActions.selectProviderRoute("auto");
+                    onHecateModelChange(model);
+                  }}
+                />
+              )}
             </div>
           )}
           {isAgentChat && chatCancelling && (
@@ -1000,6 +1087,22 @@ function providerLabelForHecateChat(
     return "Select provider";
   }
   return providerDisplayName(providerID, configuredProviders, providerPresets, providers);
+}
+
+function updateDraftAgentConfigOptions(
+  options: ChatConfigOptionRecord[],
+  configID: string,
+  value: string | boolean,
+): ChatConfigOptionRecord[] {
+  return options.map((option) => {
+    if (option.id !== configID) {
+      return option;
+    }
+    if (typeof value === "boolean") {
+      return { ...option, current_bool: value };
+    }
+    return { ...option, current_value: value };
+  });
 }
 
 export function repairActionIcon(repair: ChatSetupRepairState) {

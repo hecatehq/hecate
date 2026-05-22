@@ -65,10 +65,10 @@ the packet itself.
 - **Replacing sandbox or approval policy.** Prompt labelling reduces instruction
   confusion; it does not replace tool sandboxing, approvals, network policy, or
   workspace validation.
-- **External-agent private context control.** Codex, Claude Code, and Cursor
-  own their internal prompts and history. Hecate can show and label the
-  transcript and raw adapter output it receives, but cannot fully assemble their
-  private model context through ACP today.
+- **External-agent private context control.** Codex, Claude Code, Cursor, and
+  Grok Build own their internal prompts and history. Hecate can show and label
+  the transcript and raw adapter output it receives, but cannot fully assemble
+  their private model context through ACP today.
 - **Hosted multi-user policy.** Hecate remains local-first and single-operator
   shaped for this RFC.
 

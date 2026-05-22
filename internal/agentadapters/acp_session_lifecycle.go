@@ -33,6 +33,7 @@ type acpSession struct {
 
 	configMu      sync.Mutex
 	configOptions []agentcontrols.ConfigOption
+	managedConfig map[string]struct{}
 
 	turnMu sync.Mutex
 
@@ -41,7 +42,7 @@ type acpSession struct {
 	activeDone   chan struct{}
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, selectedOptions []agentcontrols.ConfigOption, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics) (*acpSession, bool, string, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, false, "", err
@@ -137,6 +138,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	resumed := false
 	recovery := ""
 	var configOptions []agentcontrols.ConfigOption
+	var managedConfig map[string]struct{}
 	previousNativeSessionID = strings.TrimSpace(previousNativeSessionID)
 	if previousNativeSessionID != "" && initResp.AgentCapabilities.LoadSession {
 		if sessionLogger != nil {
@@ -153,6 +155,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			nativeID = previousNativeSessionID
 			resumed = true
 			configOptions = agentcontrols.FromACPOptions(loaded.ConfigOptions)
+			configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
 			if sessionLogger != nil {
 				sessionLogger.Info("previous ACP session loaded",
 					slog.String("native_session_id", nativeID),
@@ -188,6 +191,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		}
 		nativeID = string(created.SessionId)
 		configOptions = agentcontrols.FromACPOptions(created.ConfigOptions)
+		configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
 		if sessionLogger != nil {
 			sessionLogger.Info("ACP session created",
 				slog.String("native_session_id", nativeID),
@@ -204,6 +208,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		nativeID:      nativeID,
 		logger:        sessionLogger,
 		configOptions: configOptions,
+		managedConfig: managedConfig,
 	}, resumed, recovery, nil
 }
 
@@ -268,11 +273,78 @@ func (m *SessionManager) SetSessionConfigOption(ctx context.Context, req SetSess
 	}
 	m.mu.Lock()
 	session := m.sessions[req.SessionID]
-	m.mu.Unlock()
 	if session == nil {
+		m.mu.Unlock()
 		return SetSessionConfigOptionResult{}, fmt.Errorf("%w: %q", ErrSessionNotActive, req.SessionID)
 	}
+	if session.isManagedConfigOption(req.ConfigID) {
+		result, err := session.SetManagedConfigOption(req)
+		if err != nil {
+			m.mu.Unlock()
+			return SetSessionConfigOptionResult{}, err
+		}
+		delete(m.sessions, req.SessionID)
+		m.mu.Unlock()
+		closeCtx, cancel := context.WithTimeout(context.Background(), acpShutdownCloseTimeout)
+		closeErr := session.Close(closeCtx)
+		cancel()
+		if closeErr != nil && session.logger != nil {
+			session.logger.Warn("close ACP session after launch config change failed", slog.Any("error", closeErr))
+		}
+		return result, nil
+	}
+	m.mu.Unlock()
 	return session.SetConfigOption(ctx, req)
+}
+
+func (s *acpSession) isManagedConfigOption(configID string) bool {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	if s.managedConfig == nil {
+		return false
+	}
+	_, ok := s.managedConfig[strings.TrimSpace(configID)]
+	return ok
+}
+
+func (s *acpSession) SetManagedConfigOption(req SetSessionConfigOptionRequest) (SetSessionConfigOptionResult, error) {
+	if req.BoolValue != nil {
+		return SetSessionConfigOptionResult{}, fmt.Errorf("launch config option %q requires a string value", req.ConfigID)
+	}
+	value := strings.TrimSpace(req.Value)
+	if value == "" {
+		return SetSessionConfigOptionResult{}, fmt.Errorf("value is required")
+	}
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	if s.managedConfig == nil {
+		return SetSessionConfigOptionResult{}, fmt.Errorf("config option %q is not managed by Hecate", req.ConfigID)
+	}
+	if _, ok := s.managedConfig[req.ConfigID]; !ok {
+		return SetSessionConfigOptionResult{}, fmt.Errorf("config option %q is not managed by Hecate", req.ConfigID)
+	}
+	options := cloneConfigOptions(s.configOptions)
+	for i := range options {
+		if options[i].ID != req.ConfigID {
+			continue
+		}
+		if !configOptionAllowsValue(options[i], value) {
+			return SetSessionConfigOptionResult{}, fmt.Errorf("value %q is not available for %s %s", value, s.adapter.Name, options[i].Name)
+		}
+		options[i].CurrentValue = value
+		s.configOptions = options
+		return SetSessionConfigOptionResult{ConfigOptions: cloneConfigOptions(options)}, nil
+	}
+	return SetSessionConfigOptionResult{}, fmt.Errorf("config option %q not found", req.ConfigID)
+}
+
+func configOptionAllowsValue(option agentcontrols.ConfigOption, value string) bool {
+	for _, candidate := range option.Options {
+		if candidate.Value == value {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *acpSession) SetConfigOption(ctx context.Context, req SetSessionConfigOptionRequest) (SetSessionConfigOptionResult, error) {

@@ -94,6 +94,15 @@ function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
   );
 }
 
+function isExpectedHecateChatSetupError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  return (
+    error.code === "chat.model_required" ||
+    error.code === "model_not_configured" ||
+    error.code === "route.no_routable_provider"
+  );
+}
+
 function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null): {
   provider: string;
   model: string;
@@ -220,6 +229,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   const {
     defaultChatTarget,
     agentAdapterID,
+    agentConfigOptions,
     agentWorkspace,
     activeChatSessionID,
     activeChatSession,
@@ -233,6 +243,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setDefaultChatTarget,
     setChatTargetBySessionID,
     setAgentAdapterID,
+    setAgentConfigOptions,
     setAgentWorkspace,
     setAgentWorkspaceBranch,
     setChatSessions,
@@ -330,11 +341,21 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
   function setNewChatAgent(nextAgentID: string) {
     if (nextAgentID === "hecate") {
+      setAgentConfigOptions([]);
       setDefaultChatTarget("agent");
       return;
     }
     setAgentAdapterID(nextAgentID);
+    const adapter = agentAdapters.find((item) => item.id === nextAgentID);
+    setAgentConfigOptions(adapter?.config_options ?? []);
     setDefaultChatTarget("external_agent");
+  }
+
+  function configOptionsForExternalAgent(agentID: string) {
+    if (agentID === agentAdapterID && agentConfigOptions.length > 0) {
+      return agentConfigOptions;
+    }
+    return agentAdapters.find((item) => item.id === agentID)?.config_options ?? [];
   }
 
   async function submitChat(event: SyntheticEvent<HTMLFormElement>) {
@@ -458,6 +479,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         }
       }
       if (!sessionID) {
+        const configOptions = isExternalAgent ? configOptionsForExternalAgent(turnAgentID) : [];
         const created = await createChatSessionRequest({
           title: deriveChatSessionTitle(content),
           ...(activeProjectID ? { project_id: activeProjectID } : {}),
@@ -470,6 +492,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
             : {}),
           ...(!isModelTurn ? { workspace: turnWorkspace } : {}),
           ...(!isExternalAgent ? { rtk_enabled: hecateRTKEnabled } : {}),
+          ...(isExternalAgent && configOptions.length > 0 ? { config_options: configOptions } : {}),
         });
         sessionID = created.data.id;
         setActiveChatSessionID(sessionID);
@@ -678,11 +701,13 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       clearChatErrorState();
       try {
         const adapter = agentAdapters.find((item) => item.id === externalAgentID);
+        const configOptions = configOptionsForExternalAgent(externalAgentID);
         const created = await createChatSessionRequest({
           title: adapter ? `${adapter.name} chat` : "External agent chat",
           ...(createProjectID ? { project_id: createProjectID } : {}),
           agent_id: externalAgentID,
           workspace,
+          ...(configOptions.length > 0 ? { config_options: configOptions } : {}),
         });
         setActiveChatSessionID(created.data.id);
         applyChatSession(created.data);
@@ -731,10 +756,12 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       applyChatSession(created.data);
     } catch (error) {
       setChatErrorState(error, "failed to create Hecate chat");
-      params.setNoticeMessage(
-        "error",
-        error instanceof Error ? error.message : "Failed to create Hecate chat.",
-      );
+      if (!isExpectedHecateChatSetupError(error)) {
+        params.setNoticeMessage(
+          "error",
+          error instanceof Error ? error.message : "Failed to create Hecate chat.",
+        );
+      }
     } finally {
       setChatLoading(false);
     }

@@ -4,7 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 
-import { NewChatAgentButton, chatAgentOptionStatus } from "./ChatAgentControls";
+import {
+  ExternalAgentConfigControls,
+  NewChatAgentButton,
+  chatAgentOptionStatus,
+} from "./ChatAgentControls";
 
 function makeAdapter(overrides: Partial<AgentAdapterRecord> = {}): AgentAdapterRecord {
   return {
@@ -208,5 +212,70 @@ describe("NewChatAgentButton", () => {
     await user.click(screen.getByRole("option", { name: /codex/i }));
 
     expect(onChange).toHaveBeenCalledWith("codex");
+  });
+
+  it("builds external-agent options from the adapter catalog", async () => {
+    const onChange = vi.fn();
+    render(
+      <NewChatAgentButton
+        value="hecate"
+        adapters={[
+          makeAdapter(),
+          makeAdapter({
+            id: "grok_build",
+            name: "Grok Build",
+            command: "grok",
+          }),
+        ]}
+        healthByID={new Map()}
+        onChange={onChange}
+        onCreate={() => {}}
+      />,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Choose agent for new chat" }));
+    expect(screen.getByRole("option", { name: /Grok Build/ })).toBeTruthy();
+
+    await user.click(screen.getByRole("option", { name: /Grok Build/ }));
+    expect(onChange).toHaveBeenCalledWith("grok_build");
+  });
+});
+
+describe("ExternalAgentConfigControls", () => {
+  it("renders a composer model picker for Grok Build launch models", async () => {
+    const onChange = vi.fn(async () => true);
+    render(
+      <ExternalAgentConfigControls
+        placement="composer"
+        session={{
+          id: "a1",
+          agent_id: "grok_build",
+          config_options: [
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              current_value: "__hecate_no_model_selected__",
+              options: [
+                { value: "__hecate_no_model_selected__", name: "Pick a model" },
+                { value: "model-a", name: "Model A" },
+              ],
+            },
+          ],
+        }}
+        onChange={onChange}
+      />,
+    );
+
+    const user = userEvent.setup();
+    const model = screen.getByRole("button", { name: "Model" });
+    expect(model).toHaveTextContent("Pick a model");
+
+    await user.click(model);
+    await user.click(screen.getByRole("option", { name: /Model A/ }));
+
+    expect(onChange).toHaveBeenCalledWith("a1", "model", "model-a");
   });
 });

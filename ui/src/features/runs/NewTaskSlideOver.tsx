@@ -293,7 +293,7 @@ export function NewTaskSlideOver({
     if (taskKind === "shell") return taskCommand.trim() !== "";
     if (taskKind === "git") return taskGitCommand.trim() !== "";
     if (taskKind === "file") return taskFilePath.trim() !== "";
-    if (taskKind === "agent_loop") return taskPrompt.trim() !== "";
+    if (taskKind === "agent_loop") return taskPrompt.trim() !== "" && effectiveTaskModel !== "";
     return false;
   }
 
@@ -975,7 +975,7 @@ export function NewTaskSlideOver({
 }
 
 function defaultModelID(models: ModelRecord[]): string {
-  return models.find((m) => m.metadata?.default)?.id || models[0]?.id || "";
+  return models.find((m) => m.metadata?.default)?.id || "";
 }
 
 // WorkspacePreview tells the operator where writes will land on

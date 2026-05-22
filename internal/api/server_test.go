@@ -1044,13 +1044,14 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	if response.Object != "agent_adapters" {
 		t.Fatalf("object = %q, want agent_adapters", response.Object)
 	}
-	if len(response.Data) != 3 {
-		t.Fatalf("adapter count = %d, want 3", len(response.Data))
+	if len(response.Data) != 4 {
+		t.Fatalf("adapter count = %d, want 4", len(response.Data))
 	}
 
 	foundCodex := false
 	foundClaude := false
 	foundCursor := false
+	foundGrok := false
 	for _, item := range response.Data {
 		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp" && item.Managed && item.ManagedPackage == "@zed-industries/codex-acp" && item.CostMode == "external" {
 			foundCodex = true
@@ -1060,6 +1061,9 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 		}
 		if item.ID == "cursor_agent" && item.Kind == "acp" && item.Command == "cursor-agent" && item.CostMode == "external" {
 			foundCursor = true
+		}
+		if item.ID == "grok_build" && item.Kind == "acp" && item.Command == "grok" && item.CostMode == "external" {
+			foundGrok = true
 		}
 		if item.Status == "" {
 			t.Fatalf("adapter %q missing status: %#v", item.ID, item)
@@ -1077,6 +1081,38 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	if !foundCursor {
 		t.Fatalf("missing cursor_agent adapter: %#v", response.Data)
 	}
+	if !foundGrok {
+		t.Fatalf("missing grok_build adapter: %#v", response.Data)
+	}
+}
+
+func TestAgentAdaptersIncludesLaunchConfigOptions(t *testing.T) {
+	t.Setenv("HECATE_AGENT_ADAPTER_DEV_OVERRIDES", "grok_build=ready")
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	client := newAPITestClient(t, handler)
+	response := mustRequestJSON[AgentAdapterResponse](client, http.MethodGet, "/hecate/v1/agent-adapters", "")
+
+	var grok *AgentAdapterResponseItem
+	for i := range response.Data {
+		if response.Data[i].ID == "grok_build" {
+			grok = &response.Data[i]
+			break
+		}
+	}
+	if grok == nil {
+		t.Fatalf("missing grok_build adapter: %#v", response.Data)
+	}
+	if len(grok.ConfigOptions) != 2 {
+		t.Fatalf("grok config options = %#v, want model and reasoning", grok.ConfigOptions)
+	}
+	if grok.ConfigOptions[0].ID != "model" || grok.ConfigOptions[0].CurrentValue == "" {
+		t.Fatalf("grok model option = %#v, want populated model picker", grok.ConfigOptions[0])
+	}
+	if grok.ConfigOptions[1].ID != "reasoning_effort" {
+		t.Fatalf("grok reasoning option = %#v, want reasoning_effort", grok.ConfigOptions[1])
+	}
 }
 
 func TestAgentAdaptersHonorsDiscoveryOverride(t *testing.T) {
@@ -1086,8 +1122,8 @@ func TestAgentAdaptersHonorsDiscoveryOverride(t *testing.T) {
 	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
 	client := newAPITestClient(t, handler)
 	response := mustRequestJSON[AgentAdapterResponse](client, http.MethodGet, "/hecate/v1/agent-adapters", "")
-	if len(response.Data) != 3 {
-		t.Fatalf("adapter count = %d, want 3", len(response.Data))
+	if len(response.Data) != 4 {
+		t.Fatalf("adapter count = %d, want 4", len(response.Data))
 	}
 	for _, item := range response.Data {
 		if item.Available || item.Status != agentadapters.StatusMissing || item.Path != "" {
@@ -2559,6 +2595,7 @@ type fakeAgentChatRunner struct {
 	prepareErr         error
 	setConfigErr       error
 	prepareRequests    []agentadapters.PrepareSessionRequest
+	runRequests        []agentadapters.RunRequest
 	prepareDeadline    time.Time
 	prepareHasDeadline bool
 	closedSessions     []string
@@ -2590,6 +2627,7 @@ func (r *fakeAgentChatRunner) PrepareSession(ctx context.Context, req agentadapt
 
 func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
 	started := time.Now().UTC()
+	r.runRequests = append(r.runRequests, req)
 	r.seenPreviousID = req.PreviousNativeSessionID
 	output := r.output
 	for _, activity := range r.activities {
@@ -2719,7 +2757,7 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	apiHandler.SetAgentChatRunner(runner)
 	handler := NewServer(logger, apiHandler)
 
-	created := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"codex","workspace":%q}`, dir)))
+	created := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"codex","workspace":%q,"config_options":[{"id":"model","type":"select","current_value":"smart"}]}`, dir)))
 	if len(runner.prepareRequests) != 1 {
 		t.Fatalf("prepare requests = %d, want 1", len(runner.prepareRequests))
 	}
@@ -2737,12 +2775,18 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	if got := runner.prepareRequests[0].AdapterID; got != "codex" {
 		t.Fatalf("prepare adapter = %q, want codex", got)
 	}
+	if got := runner.prepareRequests[0].ConfigOptions; len(got) != 1 || got[0].ID != "model" || got[0].CurrentValue != "smart" {
+		t.Fatalf("prepare config options = %#v, want selected draft model", got)
+	}
 	if got := created.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" || got[1].CurrentBool == nil || *got[1].CurrentBool {
 		t.Fatalf("config options after create = %#v, want fast model and auto_approve false", got)
 	}
 	afterRun := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`))
 	if got := afterRun.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" || got[1].CurrentBool == nil || *got[1].CurrentBool {
 		t.Fatalf("config options after run = %#v, want fast model and auto_approve false", got)
+	}
+	if got := runner.runRequests[0].ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" {
+		t.Fatalf("run request config options = %#v, want fast model", got)
 	}
 
 	updated := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"smart"}`))
@@ -2753,6 +2797,45 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	updated = decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/auto_approve", `{"value":true}`))
 	if got := updated.Data.ConfigOptions; len(got) != 2 || got[1].CurrentBool == nil || !*got[1].CurrentBool {
 		t.Fatalf("config options after boolean set = %#v, want auto_approve true", got)
+	}
+	afterSecondRun := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"again"}`))
+	if got := afterSecondRun.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "smart" || got[1].CurrentBool == nil || !*got[1].CurrentBool {
+		t.Fatalf("config options after second run = %#v, want smart model and auto_approve true", got)
+	}
+	if len(runner.runRequests) != 2 {
+		t.Fatalf("run requests = %d, want 2", len(runner.runRequests))
+	}
+	if got := runner.runRequests[1].ConfigOptions; len(got) != 2 || got[0].CurrentValue != "smart" || got[1].CurrentBool == nil || !*got[1].CurrentBool {
+		t.Fatalf("second run request config options = %#v, want updated options", got)
+	}
+}
+
+func TestAgentChatExternalLaunchModelRequired(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{prepareErr: agentadapters.ErrLaunchModelRequired})
+	handler := NewServer(logger, apiHandler)
+
+	recorder := performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"grok_build","workspace":%q,"config_options":[{"id":"model","type":"select","current_value":"__hecate_no_model_selected__"}]}`, dir))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", recorder.Code, recorder.Body.String())
+	}
+	var body struct {
+		Error struct {
+			Type           string `json:"type"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Type != errCodeModelRequired {
+		t.Fatalf("error type = %q, want %q", body.Error.Type, errCodeModelRequired)
+	}
+	if !strings.Contains(body.Error.UserMessage, "Choose a model") {
+		t.Fatalf("user message = %q, want choose-model guidance", body.Error.UserMessage)
 	}
 }
 
@@ -3119,6 +3202,99 @@ func TestAgentChatDeleteCancelsRunBeforeDeletingSession(t *testing.T) {
 	if getResp.StatusCode != http.StatusNotFound {
 		t.Fatalf("deleted session status = %d, want 404", getResp.StatusCode)
 	}
+}
+
+func TestAgentChatDeleteClosesIdleExternalSession(t *testing.T) {
+	dir := t.TempDir()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	runner := &fakeAgentChatRunner{nativeSessionID: "native_idle_delete", sessionStarted: true}
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"codex","workspace":%q}`, dir))
+	if created.Data.NativeSessionID != "native_idle_delete" {
+		t.Fatalf("native session id = %q, want prepared idle session", created.Data.NativeSessionID)
+	}
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
+	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != created.Data.ID {
+		t.Fatalf("closed sessions = %#v, want %q", runner.closedSessions, created.Data.ID)
+	}
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
+}
+
+func TestHecateChatDeleteCancelsBackingTaskRun(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+	workspace := t.TempDir()
+
+	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","workspace":%q,"provider":"openai","model":"gpt-4o-mini"}`, workspace))
+	now := time.Now().UTC()
+	task, err := apiHandler.taskStore.CreateTask(context.Background(), types.Task{
+		ID:                 "task_chat_delete",
+		Title:              "Delete backing task",
+		Prompt:             "keep running",
+		ExecutionKind:      "agent_loop",
+		ExecutionProfile:   "chat_agent",
+		OriginKind:         "chat",
+		OriginID:           created.Data.ID,
+		WorkingDirectory:   workspace,
+		SandboxAllowedRoot: workspace,
+		Status:             "running",
+		Priority:           "normal",
+		RequestedProvider:  "openai",
+		RequestedModel:     "gpt-4o-mini",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		StartedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run, err := apiHandler.taskStore.CreateRun(context.Background(), types.TaskRun{
+		ID:            "run_chat_delete",
+		TaskID:        task.ID,
+		Number:        1,
+		Status:        "running",
+		Model:         "gpt-4o-mini",
+		Provider:      "openai",
+		WorkspacePath: workspace,
+		StartedAt:     now,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := apiHandler.agentChat.UpdateSession(context.Background(), created.Data.ID, func(item *chat.Session) {
+		item.TaskID = task.ID
+		item.LatestRunID = run.ID
+		item.Status = "running"
+	}); err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+
+	client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
+	gotRun, found, err := apiHandler.taskStore.GetRun(context.Background(), task.ID, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if !found || gotRun.Status != "cancelled" {
+		t.Fatalf("run = %+v found=%v, want cancelled", gotRun, found)
+	}
+	if !strings.Contains(gotRun.LastError, "operator") {
+		t.Fatalf("run last_error = %q, want operator cancellation reason", gotRun.LastError)
+	}
+	gotTask, found, err := apiHandler.taskStore.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if !found || gotTask.Status != "cancelled" {
+		t.Fatalf("task = %+v found=%v, want cancelled", gotTask, found)
+	}
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
 }
 
 func TestAgentChatCloseKeepsHistoryAndClosesNativeSession(t *testing.T) {

@@ -127,6 +127,7 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 			session.Title = adapter.Name + " chat"
 		}
 		session.DriverKind = agentadapters.DriverKindACP
+		session.ConfigOptions = req.ConfigOptions
 	}
 	session, err = h.agentChat.Create(r.Context(), session)
 	if err != nil {
@@ -140,6 +141,7 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 			AdapterID:               session.AgentID,
 			Workspace:               session.Workspace,
 			PreviousNativeSessionID: session.NativeSessionID,
+			ConfigOptions:           session.ConfigOptions,
 		})
 		cancel()
 		if prepareErr != nil {
@@ -383,7 +385,22 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) HandleDeleteChatSession(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("id")
+	sessionID := strings.TrimSpace(r.PathValue("id"))
+	session, ok, err := h.agentChat.Get(r.Context(), sessionID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	if isHecateChatSession(session) {
+		if _, _, err := h.cancelHecateChatTaskRun(r.Context(), session); err != nil {
+			WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+			return
+		}
+	}
 	cancelCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	settled := h.agentChatLive.cancelRunAndWait(cancelCtx, sessionID)
 	cancel()
@@ -391,7 +408,7 @@ func (h *Handler) HandleDeleteChatSession(w http.ResponseWriter, r *http.Request
 		writeChatSessionStopping(w)
 		return
 	}
-	if h.agentChatRunner != nil {
+	if isExternalChatSession(session) && h.agentChatRunner != nil {
 		_ = h.agentChatRunner.CloseSession(r.Context(), sessionID)
 	}
 	if err := h.agentChat.Delete(r.Context(), sessionID); err != nil {
@@ -411,29 +428,20 @@ func (h *Handler) HandleCancelChatSession(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
-	if isHecateChatSession(session) && h.taskStore != nil && h.taskRunner != nil && session.TaskID != "" && session.LatestRunID != "" {
-		task, found, err := h.taskStore.GetTask(r.Context(), session.TaskID)
-		if err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	if run, found, err := h.cancelHecateChatTaskRun(r.Context(), session); err != nil {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	} else if found {
+		updated, updateErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+			item.Status = run.Status
+		})
+		if updateErr == nil {
+			h.agentChatLive.publishSession(updated)
+			WriteJSON(w, http.StatusAccepted, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
 			return
 		}
-		if found {
-			run, err := h.taskRunner.CancelRun(r.Context(), task, session.LatestRunID, "operator")
-			if err == nil {
-				updated, updateErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
-					item.Status = run.Status
-				})
-				if updateErr == nil {
-					h.agentChatLive.publishSession(updated)
-					WriteJSON(w, http.StatusAccepted, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
-					return
-				}
-			}
-			if err != nil && !strings.Contains(err.Error(), "already terminal") {
-				WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
-				return
-			}
-		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, updateErr.Error())
+		return
 	}
 	if !h.agentChatLive.cancelRun(session.ID) {
 		writeChatSessionNotRunning(w)
@@ -579,6 +587,13 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 }
 
 func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err error) {
+	if errors.Is(err, agentadapters.ErrLaunchModelRequired) {
+		WriteErrorDetails(w, http.StatusBadRequest, errCodeModelRequired, err.Error(), ErrorDetails{
+			UserMessage:    "Choose a model before starting this external-agent chat.",
+			OperatorAction: "Use the model picker in the composer, then start the chat again.",
+		})
+		return
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		WriteErrorDetails(w, http.StatusGatewayTimeout, errCodeAgentAdapterUnavailable, err.Error(), ErrorDetails{
 			UserMessage:    "The external agent did not respond while starting the session.",
@@ -623,6 +638,27 @@ func isExternalChatSession(session chat.Session) bool {
 
 func isHecateChatSession(session chat.Session) bool {
 	return !isExternalChatSession(session)
+}
+
+func (h *Handler) cancelHecateChatTaskRun(ctx context.Context, session chat.Session) (types.TaskRun, bool, error) {
+	if !isHecateChatSession(session) || h.taskStore == nil || h.taskRunner == nil || session.TaskID == "" || session.LatestRunID == "" {
+		return types.TaskRun{}, false, nil
+	}
+	task, found, err := h.taskStore.GetTask(ctx, session.TaskID)
+	if err != nil {
+		return types.TaskRun{}, false, err
+	}
+	if !found {
+		return types.TaskRun{}, false, nil
+	}
+	run, err := h.taskRunner.CancelRun(ctx, task, session.LatestRunID, "operator")
+	if err != nil {
+		if strings.Contains(err.Error(), "already terminal") {
+			return types.TaskRun{}, false, nil
+		}
+		return types.TaskRun{}, true, err
+	}
+	return run, true, nil
 }
 
 func agentChatConfigOptionSetRequest(sessionID, configID string, rawValue any) (agentadapters.SetSessionConfigOptionRequest, error) {
@@ -807,6 +843,7 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		AdapterID:               adapter.ID,
 		Workspace:               session.Workspace,
 		PreviousNativeSessionID: session.NativeSessionID,
+		ConfigOptions:           session.ConfigOptions,
 		Prompt:                  content,
 		Timeout:                 agentChatTimeout,
 		MaxOutputBytes:          agentChatMaxOutputBytes,

@@ -139,6 +139,20 @@ export const MOCK_AGENT_ADAPTERS = [
     cost_mode: "external",
     docs_url: "https://cursor.com/cli",
   },
+  {
+    id: "grok_build",
+    name: "Grok Build",
+    kind: "acp",
+    command: "grok",
+    args: ["agent", "stdio"],
+    available: false,
+    status: "missing",
+    error: "grok executable not found in PATH",
+    description:
+      "Run Grok Build through its ACP mode as a long-lived external coding-agent session supervised by Hecate.",
+    cost_mode: "external",
+    docs_url: "https://docs.x.ai/build/cli/headless-scripting#acp",
+  },
 ];
 
 // New model: providers are explicit. The list starts empty and stays empty

@@ -715,8 +715,10 @@ use `reason`, `provider_status`, `provider_blocked_reason`, and
 ### `GET /hecate/v1/agent-adapters`
 
 External coding-agent adapter catalog. This is the first discovery surface for
-External Agent chats: it reports the agent runtimes Hecate knows how to supervise and
-whether their direct command or Hecate-managed launcher can be started.
+External Agent chats: it reports the agent runtimes Hecate knows how to
+supervise, whether their direct command or Hecate-managed launcher can be
+started, and any Hecate-managed launch `config_options` that can be selected
+before a concrete chat session exists.
 
 ```json
 GET /hecate/v1/agent-adapters
@@ -739,6 +741,53 @@ GET /hecate/v1/agent-adapters
       "supported_range": ">=0.1.0",
       "version_outside_range": false,
       "auth_status": "ok"
+    },
+    {
+      "id": "grok_build",
+      "name": "Grok Build",
+      "kind": "acp",
+      "command": "grok",
+      "args": ["agent"],
+      "available": true,
+      "status": "available",
+      "path": "/Users/alice/.local/bin/grok",
+      "cost_mode": "external",
+      "docs_url": "https://docs.x.ai/build/cli/headless-scripting#acp",
+      "supported_range": ">=0.1.0",
+      "auth_status": "ok",
+      "config_options": [
+        {
+          "id": "model",
+          "name": "Model",
+          "description": "Model passed to the external-agent process when Hecate starts or restarts it.",
+          "category": "model",
+          "type": "select",
+          "current_value": "__hecate_no_model_selected__",
+          "options": [
+            {
+              "value": "__hecate_no_model_selected__",
+              "name": "Pick a model",
+              "description": "Do not pass --model when starting the external agent."
+            }
+          ]
+        },
+        {
+          "id": "reasoning_effort",
+          "name": "Reasoning",
+          "description": "Reasoning effort passed to Grok Build when Hecate starts or restarts it.",
+          "category": "thought_level",
+          "type": "select",
+          "current_value": "__hecate_no_reasoning_selected__",
+          "options": [
+            { "value": "__hecate_no_reasoning_selected__", "name": "Pick reasoning" },
+            { "value": "low", "name": "Low" },
+            { "value": "medium", "name": "Medium" },
+            { "value": "high", "name": "High" },
+            { "value": "xhigh", "name": "XHigh" },
+            { "value": "max", "name": "Max" }
+          ]
+        }
+      ]
     },
     {
       "id": "cursor_agent",
@@ -790,6 +839,13 @@ vars and login files without spawning the adapter. Use `POST
 These are **agent adapters**, not model providers. They run ACP-compatible
 external coding agents under Hecate supervision; cost is reported as `external`
 until an adapter can supply structured usage.
+
+`config_options` on an adapter row are Hecate-managed launch controls. Clients
+can render them before creating an External Agent chat and pass the selected
+options to `POST /hecate/v1/chat/sessions`. Values prefixed with
+`__hecate_no_` are explicit "not selected" sentinels. Some options are optional;
+launch-model options can be required by the adapter definition and cause
+`400 chat.model_required` at session creation until a real value is selected.
 
 ### `POST /hecate/v1/agent-adapters/{id}/probe`
 
@@ -1057,7 +1113,7 @@ chooses the chat owner:
   RTK command-output compaction with `rtk_enabled=true`; shell and git tool
   calls then launch as `rtk sh -lc <command>` while keeping Hecate approvals,
   policy validation, sandboxing, limits, and timeouts in place.
-- `agent_id="codex"`, `"claude_code"`, `"cursor_agent"`, or another
+- `agent_id="codex"`, `"claude_code"`, `"cursor_agent"`, `"grok_build"`, or another
   registered adapter id — the external adapter owns the native session while
   Hecate supervises lifecycle, transcript, diagnostics, and external-agent
   approvals. Turns use `execution_mode="external_agent"`.
@@ -1162,8 +1218,9 @@ Creates a chat session. `agent_id` chooses the session owner:
 - `hecate` (default) creates a Hecate Chat. It can later run
   `execution_mode="direct_model"` turns or `execution_mode="hecate_task"`
   turns.
-- Any registered external-agent id, such as `codex`, `claude_code`, or
-  `cursor_agent`, creates an External Agent chat and requires `workspace`.
+- Any registered external-agent id, such as `codex`, `claude_code`,
+  `cursor_agent`, or `grok_build`, creates an External Agent chat and requires
+  `workspace`.
 
 Hecate Chat sessions may be created as empty shells before a model or workspace
 is chosen. Hecate validates the selected model when the first message is sent.
@@ -1186,10 +1243,13 @@ external-agent run starts, so later runs use the resolved directory instead of
 failing only after execution starts.
 
 For external-agent `agent_id` values, session creation also starts or restores
-the native ACP session immediately. That lets clients render adapter-owned
-`config_options` before the first prompt. If the adapter binary is missing,
-unauthenticated, or fails its ACP handshake, session creation fails and Hecate
-removes the empty chat record.
+the native ACP session immediately. Clients may include `config_options`
+selected from the adapter catalog; Hecate validates required launch options and
+uses them when starting the adapter process. After the ACP session exists,
+adapter-owned `config_options` are returned with the session so clients can
+render them before the first prompt. If the adapter binary is missing,
+unauthenticated, missing a required launch option, or fails its ACP handshake,
+session creation fails and Hecate removes the empty chat record.
 
 ```json
 POST /hecate/v1/chat/sessions
@@ -1225,6 +1285,61 @@ POST /hecate/v1/chat/sessions
 }
 ```
 
+External Agent creation with launch options:
+
+```json
+POST /hecate/v1/chat/sessions
+{
+  "agent_id": "grok_build",
+  "workspace": "/Users/alice/src/my-app",
+  "config_options": [
+    {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "current_value": "chosen-model-id"
+    },
+    {
+      "id": "reasoning_effort",
+      "name": "Reasoning",
+      "category": "thought_level",
+      "type": "select",
+      "current_value": "medium"
+    }
+  ]
+}
+
+→ 200
+{
+  "object": "chat_session",
+  "data": {
+    "id": "chat_...",
+    "agent_id": "grok_build",
+    "workspace": "/Users/alice/src/my-app",
+    "driver_kind": "acp",
+    "status": "idle",
+    "config_options": [
+      {
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "current_value": "chosen-model-id"
+      },
+      {
+        "id": "reasoning_effort",
+        "name": "Reasoning",
+        "category": "thought_level",
+        "type": "select",
+        "current_value": "medium"
+      }
+    ],
+    "messages": []
+  }
+}
+```
+
 ### `GET /hecate/v1/chat/sessions/{id}`
 
 Returns the full session transcript, including user messages and assistant
@@ -1248,11 +1363,13 @@ latest run id, status, message count, and first/last timestamps.
 
 External Agent sessions may also include `config_options`, a normalized
 projection of ACP session configuration options reported by the adapter during
-`session/new`, `session/load`, or `session/set_config_option`. Because Hecate
-starts the ACP session during chat creation, clients can usually show these
-controls before the first prompt. These controls are adapter-owned; common
-`category` values include `model`, `mode`, and `thought_level`, but clients
-must handle missing or custom categories.
+`session/new`, `session/load`, or `session/set_config_option`, merged with any
+Hecate-managed launch controls that affected the adapter process. Because
+Hecate starts the ACP session during chat creation, clients can usually show
+session controls before the first prompt. Catalog launch controls can be shown
+even earlier from `GET /hecate/v1/agent-adapters`. Common `category` values
+include `model`, `mode`, and `thought_level`, but clients must handle missing
+or custom categories.
 
 ### `PATCH /hecate/v1/chat/sessions/{id}`
 
@@ -1303,8 +1420,8 @@ after the session has been restored.
 
 Updates Hecate-owned chat settings for future turns. This endpoint currently
 accepts `rtk_enabled` for `agent_id="hecate"` sessions. External Agent sessions
-reject it with `chat.runtime_mismatch` because Codex, Claude Code, Cursor, and
-other ACP adapters own their own command execution.
+reject it with `chat.runtime_mismatch` because Codex, Claude Code, Cursor
+Agent, Grok Build, and other ACP adapters own their own command execution.
 
 When an existing Hecate Chat session already has a backing task, the task
 record is updated too so later continued runs inherit the same setting.
@@ -1501,7 +1618,7 @@ Chat execution errors:
 | Status | `error.type`                     | Meaning                                                                                                                                                                                     |
 | ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `400`  | `chat.workspace_required`        | Task-backed Hecate Chat turns and External Agent sessions need a selected workspace path before the first turn.                                                                             |
-| `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or task-backed turns.                                                                                                      |
+| `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or task-backed turns, or an External Agent adapter requires a launch model before session start.                            |
 | `400`  | `chat.agent_id_invalid`          | The requested session owner is not `hecate` and does not match a registered external-agent adapter.                                                                                         |
 | `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `direct_model`, `hecate_task`, or `external_agent`.                                                                                         |
 | `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                            |
@@ -1653,6 +1770,9 @@ the external session.
 Deletes a chat session from the configured chat-session backend.
 If the session has an active native ACP adapter process, Hecate closes the
 native session and terminates the owned process as part of deletion.
+If the session is a task-backed Hecate Chat with a non-terminal backing run,
+Hecate cancels that run before removing the chat transcript. The backing Task
+record remains available from Tasks.
 
 ### `POST /hecate/v1/workspace-dialog`
 

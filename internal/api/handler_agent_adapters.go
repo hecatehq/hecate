@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -11,7 +12,7 @@ func (h *Handler) HandleAgentAdapters(w http.ResponseWriter, r *http.Request) {
 	items := agentadapters.List(r.Context())
 	data := make([]AgentAdapterResponseItem, 0, len(items))
 	for _, item := range items {
-		data = append(data, renderAgentAdapterItem(item))
+		data = append(data, renderAgentAdapterItem(r.Context(), item))
 	}
 
 	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
@@ -33,7 +34,7 @@ func (h *Handler) HandleAgentAdapterProbe(w http.ResponseWriter, r *http.Request
 		return
 	}
 	result := h.probeAgentAdapter(ctx, id)
-	item := renderAgentAdapterItem(status)
+	item := renderAgentAdapterItem(ctx, status)
 	if !agentadapters.DevOverrideActive(id) {
 		item.AuthStatus, item.AuthError = authStatusFromProbe(result, item.AuthStatus, item.AuthError)
 	}
@@ -63,7 +64,7 @@ func (h *Handler) HandleAgentAdapterRefreshLauncher(w http.ResponseWriter, r *ht
 	}
 	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
 		Object: "agent_adapters",
-		Data:   []AgentAdapterResponseItem{renderAgentAdapterItem(status)},
+		Data:   []AgentAdapterResponseItem{renderAgentAdapterItem(r.Context(), status)},
 	})
 }
 
@@ -77,7 +78,7 @@ type AgentAdapterProbeData struct {
 	Health  agentadapters.ProbeResult `json:"health"`
 }
 
-func renderAgentAdapterItem(item agentadapters.Status) AgentAdapterResponseItem {
+func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
 	rendered := AgentAdapterResponseItem{
 		ID:                  item.ID,
 		Name:                item.Name,
@@ -98,6 +99,7 @@ func renderAgentAdapterItem(item agentadapters.Status) AgentAdapterResponseItem 
 		VersionOutsideRange: item.VersionOutsideRange,
 		AuthStatus:          item.AuthStatus,
 		AuthError:           item.AuthError,
+		ConfigOptions:       agentadapters.LaunchConfigOptions(ctx, item),
 	}
 	if item.ID == "claude_code" {
 		rendered.ClaudeCodeCLI = &AgentAdapterSetupCommandStatusItem{

@@ -126,7 +126,7 @@ dev *args: _go-cache
 # surfaces but does not create fake adapter processes or make chat sends
 # succeed. Example:
 #   just dev-agent-adapters 'all=missing'
-#   just dev-agent-adapters 'claude_code=no_auth,codex=ready,cursor_agent=app_missing'
+#   just dev-agent-adapters 'claude_code=no_auth,codex=ready,cursor_agent=app_missing,grok_build=ready'
 # Optional arg after the override: --reset.
 dev-agent-adapters overrides *args: _go-cache
 	needs_reset=0; \

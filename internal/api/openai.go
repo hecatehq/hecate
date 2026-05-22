@@ -562,6 +562,7 @@ type AgentAdapterResponseItem struct {
 	VersionOutsideRange bool                                `json:"version_outside_range,omitempty"`
 	AuthStatus          string                              `json:"auth_status,omitempty"`
 	AuthError           string                              `json:"auth_error,omitempty"`
+	ConfigOptions       []agentcontrols.ConfigOption        `json:"config_options,omitempty"`
 	ClaudeCodeCLI       *AgentAdapterSetupCommandStatusItem `json:"claude_code_cli,omitempty"`
 }
 
@@ -572,13 +573,14 @@ type AgentAdapterSetupCommandStatusItem struct {
 }
 
 type CreateChatSessionRequest struct {
-	Title      string `json:"title,omitempty"`
-	ProjectID  string `json:"project_id,omitempty"`
-	AgentID    string `json:"agent_id,omitempty"`
-	Provider   string `json:"provider,omitempty"`
-	Model      string `json:"model,omitempty"`
-	Workspace  string `json:"workspace"`
-	RTKEnabled bool   `json:"rtk_enabled,omitempty"`
+	Title         string                       `json:"title,omitempty"`
+	ProjectID     string                       `json:"project_id,omitempty"`
+	AgentID       string                       `json:"agent_id,omitempty"`
+	Provider      string                       `json:"provider,omitempty"`
+	Model         string                       `json:"model,omitempty"`
+	Workspace     string                       `json:"workspace"`
+	RTKEnabled    bool                         `json:"rtk_enabled,omitempty"`
+	ConfigOptions []agentcontrols.ConfigOption `json:"config_options,omitempty"`
 }
 
 type CreateChatMessageRequest struct {

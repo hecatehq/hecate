@@ -371,7 +371,7 @@ Tasks rather than a new parallel agent runtime.
 
 ### External Agent
 
-Keeps the Codex / Claude Code / Cursor Agent flow. It remains unsandboxed and
+Keeps the Codex / Claude Code / Cursor Agent / Grok Build flow. It remains unsandboxed and
 adapter-owned; Hecate supervises the session, records transcript/diagnostics,
 and exposes external-agent approvals.
 

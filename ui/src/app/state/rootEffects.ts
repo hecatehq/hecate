@@ -189,8 +189,12 @@ export function RootEffects() {
     const nextProvider = defaultProviderForChat(models, configuredProviders, providers);
     if (nextProvider === providerFilter) return;
     setProviderFilter(nextProvider);
-    setModel(defaultModelForProvider(nextProvider, models, providers));
-  }, [models, providerFilter, providers, settingsConfig, setProviderFilter, setModel]);
+    const nextModel =
+      model && isModelValidForProvider(model, nextProvider, models, providers)
+        ? model
+        : defaultModelForProvider(nextProvider, models, providers);
+    setModel(nextModel);
+  }, [model, models, providerFilter, providers, settingsConfig, setProviderFilter, setModel]);
 
   useEffect(() => {
     if (!settingsConfig) return;
@@ -226,21 +230,13 @@ export function RootEffects() {
     setProviderFilter,
   ]);
 
-  useEffect(() => {
-    if (providerFilter === "auto" || model !== "" || models.length === 0) return;
-    const scopedModels = models.filter((m) => m.metadata?.provider === providerFilter);
-    if (scopedModels.length === 0) return;
-    setModel(defaultModelForProvider(providerFilter, models, providers));
-  }, [model, models, providers, providerFilter, setModel]);
-
-  // When models load, validate the selected model. If it's not in the list (e.g. stale localStorage),
-  // fall back to the gateway default. If no model is set at all, pick the default.
+  // When models load, validate the selected model. If it's not in the list
+  // (e.g. stale localStorage), clear it and let the operator pick.
   useEffect(() => {
     if (providerFilter !== "auto") return;
-    if (models.length === 0) return;
-    if (model !== "" && models.some((m) => m.id === model)) return;
-    const defaultM = models.find((m) => m.metadata?.default)?.id ?? models[0]?.id ?? "";
-    if (defaultM) setModel(defaultM);
+    if (model === "" || models.length === 0) return;
+    if (models.some((m) => m.id === model)) return;
+    setModel("");
   }, [model, models, providerFilter, setModel]);
 
   // Queued-message drain — sends the next queued message once the
