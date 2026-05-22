@@ -1037,11 +1037,9 @@ PATCH /hecate/v1/projects/proj_...
 
 ### `DELETE /hecate/v1/projects/{id}`
 
-Deletes the project catalog entry and its roots. This does not delete any
-workspace files or chat transcripts. Existing chat sessions that referenced the
-deleted project are still returned by the chat API; the operator UI groups them
-under **No project** because the durable project record no longer exists. Tasks
-are not linked to projects yet.
+Deletes the project catalog entry, its roots, and chat sessions scoped to that
+project. This does not delete workspace files. Unprojected chats and chats
+scoped to other projects stay untouched. Tasks are not linked to projects yet.
 
 ## Chat session endpoints
 
@@ -1167,13 +1165,15 @@ Creates a chat session. `agent_id` chooses the session owner:
 - Any registered external-agent id, such as `codex`, `claude_code`, or
   `cursor_agent`, creates an External Agent chat and requires `workspace`.
 
-Hecate Chat sessions require `model` when they are created. `provider` is
-optional; omit it to let Hecate route across configured providers that expose
-the selected model.
+Hecate Chat sessions may be created as empty shells before a model or workspace
+is chosen. Hecate validates the selected model when the first message is sent.
+When `provider` is omitted on a model-backed turn, Hecate routes across
+configured providers that expose the selected model.
 
 `project_id` is optional. When supplied, it must reference an existing project
 or Hecate returns `404 not_found`. Project-scoped sessions are still normal
-chat sessions: deleting the project later does not delete the transcript.
+chat sessions, but deleting the project later deletes those project-scoped
+transcripts as part of the project cleanup.
 
 For Hecate Chat sessions, `rtk_enabled` records the chat's command-output
 compaction preference. It is only applied when a future turn runs through the

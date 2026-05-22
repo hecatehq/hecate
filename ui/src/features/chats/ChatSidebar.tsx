@@ -509,7 +509,8 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
               (session) =>
                 session.id === chat.state.activeChatSessionID && session.project_id === projectID,
             );
-            await projects.actions.deleteProject(projectID);
+            const deleted = await projects.actions.deleteProject(projectID);
+            if (!deleted) return;
             chat.actions.setChatSessions((current) =>
               current.filter((session) => session.project_id !== projectID),
             );

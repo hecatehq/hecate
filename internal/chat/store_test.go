@@ -249,6 +249,47 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 	}
 }
 
+func runStoreDeleteByProjectID(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	seed := []Session{
+		{ID: "chat_project_a", ProjectID: "proj_delete", AgentID: DefaultAgentID},
+		{ID: "chat_project_b", ProjectID: "proj_delete", AgentID: "codex"},
+		{ID: "chat_other", ProjectID: "proj_other", AgentID: DefaultAgentID},
+		{ID: "chat_unprojected", AgentID: DefaultAgentID},
+	}
+	for _, session := range seed {
+		if _, err := store.Create(ctx, session); err != nil {
+			t.Fatalf("Create(%s): %v", session.ID, err)
+		}
+		if _, err := store.AppendMessage(ctx, session.ID, Message{
+			ID:      "msg_" + session.ID,
+			Role:    "user",
+			Content: "hello",
+		}); err != nil {
+			t.Fatalf("AppendMessage(%s): %v", session.ID, err)
+		}
+	}
+
+	if err := store.DeleteByProjectID(ctx, "proj_delete"); err != nil {
+		t.Fatalf("DeleteByProjectID: %v", err)
+	}
+	for _, id := range []string{"chat_project_a", "chat_project_b"} {
+		if _, ok, err := store.Get(ctx, id); err != nil || ok {
+			t.Fatalf("Get(%s) after project delete: ok=%v err=%v, want missing", id, ok, err)
+		}
+	}
+	for _, id := range []string{"chat_other", "chat_unprojected"} {
+		got, ok, err := store.Get(ctx, id)
+		if err != nil || !ok {
+			t.Fatalf("Get(%s) after project delete: ok=%v err=%v, want retained", id, ok, err)
+		}
+		if len(got.Messages) != 1 {
+			t.Fatalf("Get(%s) messages = %d, want retained message", id, len(got.Messages))
+		}
+	}
+}
+
 func runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()

@@ -138,6 +138,7 @@ type Store interface {
 	Get(ctx context.Context, id string) (Session, bool, error)
 	List(ctx context.Context) ([]Session, error)
 	Delete(ctx context.Context, id string) error
+	DeleteByProjectID(ctx context.Context, projectID string) error
 	UpdateSession(ctx context.Context, id string, update func(*Session)) (Session, error)
 	AppendMessage(ctx context.Context, sessionID string, message Message) (Session, error)
 	UpdateMessage(ctx context.Context, sessionID string, messageID string, update func(*Message)) (Session, error)
@@ -274,6 +275,17 @@ func (s *MemoryStore) Delete(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
+	return nil
+}
+
+func (s *MemoryStore) DeleteByProjectID(_ context.Context, projectID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, session := range s.sessions {
+		if session.ProjectID == projectID {
+			delete(s.sessions, id)
+		}
+	}
 	return nil
 }
 
