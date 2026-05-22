@@ -229,7 +229,7 @@ export type RuntimeConsoleFixtureActions = {
   selectProject: (id: string) => Promise<void>;
   createProjectFromFolder: () => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
-  deleteProject: (id: string) => Promise<void>;
+  deleteProject: (id: string) => Promise<boolean>;
   getChatApproval: (sessionID: string, approvalID: string) => Promise<unknown>;
   listChatMessageFiles: (sessionID: string, messageID: string) => Promise<unknown[]>;
   getChatMessageFileDiff: (sessionID: string, messageID: string, path: string) => Promise<unknown>;
@@ -298,7 +298,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     selectProject: async () => undefined,
     createProjectFromFolder: async () => null,
     renameProject: async () => undefined,
-    deleteProject: async () => undefined,
+    deleteProject: async () => true,
     getChatApproval: async () => null,
     listChatMessageFiles: async () => [],
     getChatMessageFileDiff: async () => null,

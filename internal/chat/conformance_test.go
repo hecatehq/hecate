@@ -37,4 +37,8 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreDeepCopiesConfigOptions(t, factory(t))
 	})
+	t.Run(name+"/DeleteByProjectID", func(t *testing.T) {
+		t.Parallel()
+		runStoreDeleteByProjectID(t, factory(t))
+	})
 }

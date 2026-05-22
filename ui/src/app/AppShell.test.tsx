@@ -541,7 +541,7 @@ describe("ConsoleShell navigation", () => {
   });
 
   it("confirms project deletion from the chat sidebar", async () => {
-    const deleteProject = vi.fn(async () => undefined);
+    const deleteProject = vi.fn(async () => true);
     const state = createRuntimeConsoleFixture({
       projects: [
         {
@@ -585,6 +585,48 @@ describe("ConsoleShell navigation", () => {
     await waitFor(() => {
       expect(screen.queryByText("Project chat")).toBeNull();
     });
+  });
+
+  it("keeps project chats visible when project deletion fails", async () => {
+    const deleteProject = vi.fn(async () => false);
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "proj_1",
+      chatSessions: [
+        {
+          id: "chat_project",
+          title: "Project chat",
+          project_id: "proj_1",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
+        state,
+        actions: { ...createRuntimeConsoleActions(), deleteProject },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand projects/i }));
+    const projectButton = screen.getByRole("button", { name: /Project Hecate/i });
+    fireEvent.mouseEnter(projectButton.parentElement as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: /Delete project Hecate/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete project$/i }));
+
+    expect(deleteProject).toHaveBeenCalledWith("proj_1");
+    expect(await screen.findByText("Project chat")).toBeInTheDocument();
   });
 
   it("confirms chat deletion from the chat sidebar", async () => {

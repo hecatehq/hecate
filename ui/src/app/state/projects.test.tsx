@@ -125,4 +125,24 @@ describe("ProjectsProvider", () => {
     expect(result.current.activeProjectID).toBe("");
     expect(window.localStorage.getItem("hecate.project")).toBeNull();
   });
+
+  it("returns false and keeps local state when project deletion fails", async () => {
+    window.localStorage.setItem("hecate.project", project.id);
+    vi.mocked(deleteProject).mockRejectedValue(new Error("delete failed"));
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [project] }}>{children}</ProjectsProvider>
+      ),
+    });
+
+    let deleted = true;
+    await act(async () => {
+      deleted = await result.current.actions.deleteProject(project.id);
+    });
+
+    expect(deleted).toBe(false);
+    expect(result.current.state.projects).toEqual([project]);
+    expect(result.current.activeProjectID).toBe(project.id);
+    expect(result.current.state.error).toBe("delete failed");
+  });
 });

@@ -254,19 +254,7 @@ func (h *Handler) deleteProjectChats(ctx context.Context, projectID string) erro
 	if h.agentChat == nil {
 		return nil
 	}
-	sessions, err := h.agentChat.List(ctx)
-	if err != nil {
-		return err
-	}
-	for _, session := range sessions {
-		if session.ProjectID != projectID {
-			continue
-		}
-		if err := h.agentChat.Delete(ctx, session.ID); err != nil {
-			return err
-		}
-	}
-	return nil
+	return h.agentChat.DeleteByProjectID(ctx, projectID)
 }
 
 func projectFromCreateRequest(req createProjectRequest) (projects.Project, error) {

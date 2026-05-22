@@ -193,6 +193,34 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *SQLiteStore) DeleteByProjectID(ctx context.Context, projectID string) error {
+	tx, err := s.client.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin sqlite agent chat project delete tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(
+		ctx,
+		fmt.Sprintf(
+			`DELETE FROM %s
+			 WHERE session_id IN (SELECT id FROM %s WHERE project_id = ?)`,
+			s.messagesTable,
+			s.sessionsTable,
+		),
+		projectID,
+	); err != nil {
+		return fmt.Errorf("delete sqlite agent chat project messages: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ?`, s.sessionsTable), projectID); err != nil {
+		return fmt.Errorf("delete sqlite agent chat project sessions: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sqlite agent chat project delete tx: %w", err)
+	}
+	return nil
+}
+
 func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(*Session)) (Session, error) {
 	session, err := s.loadSession(ctx, id)
 	if err != nil {

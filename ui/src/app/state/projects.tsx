@@ -35,7 +35,7 @@ export type ProjectsActions = {
   selectProject: (id: string) => Promise<void>;
   createProjectFromFolder: () => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
-  deleteProject: (id: string) => Promise<void>;
+  deleteProject: (id: string) => Promise<boolean>;
 };
 
 type ProjectsContextValue = {
@@ -68,6 +68,8 @@ function reducer(state: ProjectsState, action: Action): ProjectsState {
       return state.loading === action.value ? state : { ...state, loading: action.value };
     case "error/set":
       return state.error === action.value ? state : { ...state, error: action.value };
+    default:
+      return state;
   }
 }
 
@@ -194,9 +196,9 @@ export function ProjectsProvider({
   }, []);
 
   const deleteProject = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<boolean> => {
       const projectID = id.trim();
-      if (!projectID) return;
+      if (!projectID) return false;
       dispatch({ type: "error/set", value: "" });
       try {
         await deleteProjectRequest(projectID);
@@ -207,11 +209,13 @@ export function ProjectsProvider({
         if (activeProjectID === projectID) {
           setActiveProjectIDState("");
         }
+        return true;
       } catch (error) {
         dispatch({
           type: "error/set",
           value: error instanceof Error ? error.message : "Failed to delete project.",
         });
+        return false;
       }
     },
     [activeProjectID, setActiveProjectIDState],
