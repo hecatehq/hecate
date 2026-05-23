@@ -2714,6 +2714,25 @@ func TestAgentChatExternalLaunchConfigOptionStoresAfterAdapterFailure(t *testing
 	}
 }
 
+func TestAgentChatExternalLaunchConfigOptionSeedsMissingStoredOption(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	runner := &fakeAgentChatRunner{setConfigErr: errors.New("adapter rejected launch option")}
+	apiHandler.SetAgentChatRunner(runner)
+	handler := NewServer(logger, apiHandler)
+
+	created := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"grok_build","workspace":%q}`, dir)))
+	if len(created.Data.ConfigOptions) != 0 {
+		t.Fatalf("created config options = %#v, want stale session without stored launch options", created.Data.ConfigOptions)
+	}
+
+	updated := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"grok-latest"}`))
+	if got := updated.Data.ConfigOptions; len(got) != 1 || got[0].ID != "model" || got[0].CurrentValue != "grok-latest" {
+		t.Fatalf("config options after seeded launch set = %#v, want selected model", got)
+	}
+}
+
 func TestAgentChatExternalConfigOptionAdapterFailure(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))

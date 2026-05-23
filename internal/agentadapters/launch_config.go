@@ -149,6 +149,52 @@ func IsLaunchConfigOption(adapterID, configID string) bool {
 	return false
 }
 
+// LaunchConfigOptionForSet builds the Hecate-owned launch option for a
+// pending config update. It is used when an older persisted chat session has
+// no copy of the launch controls that the current adapter registry exposes.
+func LaunchConfigOptionForSet(adapterID, configID, value string) (agentcontrols.ConfigOption, bool) {
+	adapter, ok := BuiltInByID(adapterID)
+	if !ok {
+		return agentcontrols.ConfigOption{}, false
+	}
+	configID = strings.TrimSpace(configID)
+	value = strings.TrimSpace(value)
+	for _, config := range launchSelectConfigs(adapter) {
+		if config.ConfigID != configID {
+			continue
+		}
+		if value == "" {
+			return agentcontrols.ConfigOption{}, false
+		}
+		if !launchSelectIsUnset(config, value) && !launchConfigValueAllowed(config, value) {
+			return agentcontrols.ConfigOption{}, false
+		}
+		return agentcontrols.ConfigOption{
+			ID:           config.ConfigID,
+			Name:         config.Name,
+			Description:  strings.TrimSpace(config.Description),
+			Category:     strings.TrimSpace(config.Category),
+			Source:       agentcontrols.ConfigOptionSourceLaunch,
+			Type:         agentcontrols.ConfigOptionTypeSelect,
+			CurrentValue: value,
+			Options:      launchSelectOptions(config, config.Options, value),
+		}, true
+	}
+	return agentcontrols.ConfigOption{}, false
+}
+
+func launchConfigValueAllowed(config LaunchSelectConfig, value string) bool {
+	if len(config.Options) == 0 {
+		return true
+	}
+	for _, option := range config.Options {
+		if option.ID == value {
+			return true
+		}
+	}
+	return false
+}
+
 func launchConfigEnabled(adapter Adapter) bool {
 	return len(launchSelectConfigs(adapter)) > 0
 }
