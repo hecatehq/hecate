@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
+	"github.com/hecate/agent-runtime/internal/agentcontrols"
 	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/requestscope"
@@ -427,6 +428,21 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 	result, err := h.agentChatRunner.SetSessionConfigOption(setCtx, setReq)
 	cancel()
 	if err != nil {
+		if errors.Is(err, agentadapters.ErrSessionNotActive) {
+			configOptions, updateErr := updateStoredAgentChatConfigOption(session.ConfigOptions, setReq)
+			if updateErr == nil {
+				updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+					item.ConfigOptions = configOptions
+				})
+				if err != nil {
+					WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+					return
+				}
+				h.agentChatLive.publishSession(updated)
+				WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+				return
+			}
+		}
 		writeAgentChatConfigOptionError(w, session, err)
 		return
 	}
@@ -593,6 +609,46 @@ func agentChatConfigOptionSetRequest(sessionID, configID string, rawValue any) (
 	default:
 		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("value must be a string or boolean")
 	}
+}
+
+func updateStoredAgentChatConfigOption(options []agentcontrols.ConfigOption, req agentadapters.SetSessionConfigOptionRequest) ([]agentcontrols.ConfigOption, error) {
+	out := append([]agentcontrols.ConfigOption(nil), options...)
+	for i := range out {
+		if out[i].ID != req.ConfigID {
+			continue
+		}
+		switch {
+		case req.BoolValue != nil:
+			if out[i].Type != agentcontrols.ConfigOptionTypeBoolean {
+				return nil, fmt.Errorf("config option %q is not boolean", req.ConfigID)
+			}
+			value := *req.BoolValue
+			out[i].CurrentBool = &value
+		default:
+			value := strings.TrimSpace(req.Value)
+			if value == "" {
+				return nil, fmt.Errorf("value is required")
+			}
+			if out[i].Type == agentcontrols.ConfigOptionTypeSelect && !storedConfigOptionAllowsValue(out[i], value) {
+				return nil, fmt.Errorf("value %q is not available for %s", value, out[i].Name)
+			}
+			out[i].CurrentValue = value
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("config option %q not found", req.ConfigID)
+}
+
+func storedConfigOptionAllowsValue(option agentcontrols.ConfigOption, value string) bool {
+	if len(option.Options) == 0 {
+		return true
+	}
+	for _, candidate := range option.Options {
+		if candidate.Value == value {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request) {
