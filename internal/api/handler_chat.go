@@ -191,93 +191,7 @@ func (h *Handler) HandleChatSession(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
-	session = h.loadExternalChatSession(r.Context(), session)
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(session, h.agentChatSnapshotConfig())})
-}
-
-func (h *Handler) loadExternalChatSession(ctx context.Context, session chat.Session) chat.Session {
-	if !isExternalChatSession(session) || session.NativeSessionID == "" || session.Workspace == "" || h.agentChatRunner == nil {
-		return session
-	}
-	adapter, ok := agentadapters.BuiltInByID(session.AgentID)
-	if !ok {
-		return session
-	}
-	prepareCtx, cancel := context.WithTimeout(ctx, agentChatPrepareTimeout)
-	result, err := h.agentChatRunner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
-		SessionID:               session.ID,
-		AdapterID:               session.AgentID,
-		Workspace:               session.Workspace,
-		PreviousNativeSessionID: session.NativeSessionID,
-	})
-	cancel()
-	if err != nil {
-		if h.logger != nil {
-			h.logger.WarnContext(ctx, "chat.external_session.load_failed",
-				"session_id", session.ID,
-				"agent_id", session.AgentID,
-				"adapter_name", adapter.Name,
-				"native_session_id", session.NativeSessionID,
-				"error", err,
-			)
-		}
-		return session
-	}
-	if !result.SessionResumed {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
-		if result.SessionStarted {
-			if err := h.agentChatRunner.CloseSession(closeCtx, session.ID); err != nil && h.logger != nil {
-				h.logger.WarnContext(ctx, "chat.external_session.load_fallback_close_failed",
-					"session_id", session.ID,
-					"agent_id", session.AgentID,
-					"adapter_name", adapter.Name,
-					"native_session_id", session.NativeSessionID,
-					"fallback_native_session_id", result.NativeSessionID,
-					"session_started", result.SessionStarted,
-					"session_resumed", result.SessionResumed,
-					"recovery", result.SessionRecovery,
-					"error", err,
-				)
-			}
-		}
-		closeCancel()
-		if h.logger != nil {
-			eventName := "chat.external_session.load_returned_unresumed_session"
-			nativeSessionKey := "returned_native_session_id"
-			if result.SessionStarted {
-				eventName = "chat.external_session.load_started_fallback_session"
-				nativeSessionKey = "fallback_native_session_id"
-			}
-			h.logger.WarnContext(ctx, eventName,
-				"session_id", session.ID,
-				"agent_id", session.AgentID,
-				"adapter_name", adapter.Name,
-				"native_session_id", session.NativeSessionID,
-				nativeSessionKey, result.NativeSessionID,
-				"session_started", result.SessionStarted,
-				"session_resumed", result.SessionResumed,
-				"recovery", result.SessionRecovery,
-			)
-		}
-		return session
-	}
-	updated, err := h.agentChat.UpdateSession(ctx, session.ID, func(item *chat.Session) {
-		item.DriverKind = result.DriverKind
-		item.NativeSessionID = result.NativeSessionID
-		item.ConfigOptions = result.ConfigOptions
-	})
-	if err != nil {
-		if h.logger != nil {
-			h.logger.WarnContext(ctx, "chat.external_session.load_persist_failed",
-				"session_id", session.ID,
-				"agent_id", session.AgentID,
-				"native_session_id", result.NativeSessionID,
-				"error", err,
-			)
-		}
-		return session
-	}
-	return updated
 }
 
 func (h *Handler) HandleUpdateChatSession(w http.ResponseWriter, r *http.Request) {
@@ -332,7 +246,6 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
-	session = h.loadExternalChatSession(r.Context(), session)
 	updates, unsubscribe := h.agentChatLive.subscribe(session.ID)
 	defer unsubscribe()
 
