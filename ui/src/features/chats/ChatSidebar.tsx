@@ -13,6 +13,7 @@ import type { ProjectRecord } from "../../types/project";
 import { BrandAvatar, ConfirmModal, Icon, Icons } from "../shared/ui";
 
 import { NewChatAgentButton, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
+import { externalAgentRequiresModelSelection } from "./agentConfigOptions";
 import type { ChatAgentOptionID } from "./ChatAgentControls";
 
 export type SidebarSession = {
@@ -99,6 +100,12 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
       agentID === "hecate" ? undefined : agentAdapters.find((item) => item.id === agentID);
     const health = agentID === "hecate" ? undefined : agentAdapterHealthByID.get(agentID);
     return chatAgentOptionStatus(agentID, adapter, health);
+  }
+
+  function agentNeedsPreSessionSetup(agentID: ChatAgentOptionID) {
+    if (agentID === "hecate") return false;
+    const adapter = agentAdapters.find((item) => item.id === agentID);
+    return externalAgentRequiresModelSelection(adapter?.config_options ?? []);
   }
 
   function startProjectRename(project: ProjectRecord) {
@@ -231,6 +238,11 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
             onCreate={(agentID) => {
               if (!statusForAgent(agentID).ready) return;
               if (agentID !== newChatAgentID) chatActions.setNewChatAgent(agentID);
+              if (agentNeedsPreSessionSetup(agentID)) {
+                chat.actions.clearChatErrorState();
+                onSelectSession("");
+                return;
+              }
               onCreateChat(agentID, projects.activeProjectID);
             }}
           />

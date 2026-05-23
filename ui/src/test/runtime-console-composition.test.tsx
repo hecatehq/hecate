@@ -204,6 +204,53 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.model).toBe("");
   });
 
+  it("repairs stale persisted model selection with the first live provider model", async () => {
+    window.localStorage.setItem("hecate.providerFilter", "ollama");
+    window.localStorage.setItem("hecate.model", "ministral-3:latest");
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/settings": () =>
+          jsonResponse({
+            object: "settings",
+            data: {
+              backend: "memory",
+              providers: [
+                {
+                  id: "ollama",
+                  name: "Ollama",
+                  kind: "local",
+                  protocol: "openai",
+                  base_url: "http://127.0.0.1:11434/v1",
+                  credential_configured: true,
+                },
+              ],
+              policy_rules: [],
+              events: [],
+            },
+          }),
+        "/hecate/v1/providers/status": () =>
+          jsonResponse({
+            object: "provider_status",
+            data: [
+              {
+                name: "ollama",
+                kind: "local",
+                healthy: true,
+                status: "ok",
+                models: ["llama3.1:8b"],
+              },
+            ],
+          }),
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await waitFor(() => expect(result.current.state.providerFilter).toBe("ollama"));
+    expect(result.current.state.model).toBe("llama3.1:8b");
+  });
+
   it("keeps expected Hecate chat setup route failures out of the global notice", async () => {
     window.localStorage.setItem("hecate.chatTarget", "model");
     window.localStorage.setItem("hecate.providerFilter", "ollama");

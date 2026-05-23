@@ -174,13 +174,18 @@ describe("defaultModelForProvider", () => {
     expect(defaultModelForProvider("anthropic", [], [])).toBe("");
   });
 
-  it("leaves the model unselected when no provider default is reported", () => {
+  it("falls back to the first reported model when no provider default is reported", () => {
     const models: ModelRecord[] = [
       model({ id: "model-a", metadata: { provider: "openai" } }),
       model({ id: "model-b", metadata: { provider: "openai" } }),
     ];
     const providers = [provider({ name: "openai", models: ["model-a", "model-b"] })];
-    expect(defaultModelForProvider("openai", models, providers)).toBe("");
+    expect(defaultModelForProvider("openai", models, providers)).toBe("model-a");
+  });
+
+  it("falls back to the provider status model list when catalog models are not loaded", () => {
+    const providers = [provider({ name: "ollama", models: ["llama3.1:8b"] })];
+    expect(defaultModelForProvider("ollama", [], providers)).toBe("llama3.1:8b");
   });
 });
 

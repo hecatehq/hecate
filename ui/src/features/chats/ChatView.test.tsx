@@ -150,6 +150,7 @@ describe("ChatView input", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "grok_build",
+      newChatAgentID: "grok_build",
       agentWorkspace: "/tmp/hecate",
       activeChatSessionID: "",
       activeChatSession: null,
@@ -188,6 +189,53 @@ describe("ChatView input", () => {
     await user.click(screen.getByRole("option", { name: /Model A/ }));
 
     expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Model A");
+  });
+
+  it("keeps Grok Build in pre-session setup when the launch model is not selected", async () => {
+    const createChatSession = vi.fn(async () => undefined);
+    const selectChatSession = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentAdapterID: "grok_build",
+        newChatAgentID: "grok_build",
+        activeChatSessionID: "",
+        activeChatSession: null,
+        agentAdapters: [
+          {
+            id: "grok_build",
+            name: "Grok Build",
+            kind: "acp",
+            command: "grok",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            config_options: [
+              {
+                id: "model",
+                name: "Model",
+                category: "model",
+                type: "select",
+                current_value: "__hecate_no_model_selected__",
+                options: [
+                  { value: "__hecate_no_model_selected__", name: "Pick a model" },
+                  { value: "grok-build-0429a", name: "Grok Build 0429a" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      { createChatSession, selectChatSession },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "New Grok Build chat" }));
+
+    expect(createChatSession).not.toHaveBeenCalled();
+    expect(selectChatSession).toHaveBeenCalledWith("");
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Pick a model");
   });
 
   it("shows Grok Build model controls for an existing session without persisted config options", async () => {

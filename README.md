@@ -179,13 +179,13 @@ Configured providers show health, endpoint, credential state, model discovery, r
 
 External-agent readiness, Claude Code/Codex/Cursor Agent setup state, and durable approval grants are managed from the same Connections surface.
 
-![Chats first-run state — detected local providers and one-click Add selected setup](docs/screenshots/chat-empty.png)
+![Chats setup state — project-scoped sidebar, detected local providers, and one-click Add selected setup](docs/screenshots/chat-empty.png)
 
-Chats starts from setup-aware onboarding: local runtimes can be added quickly, or you can jump back to Connections for manual provider setup.
+Chats starts from a project-aware shell with setup-aware onboarding: local runtimes can be added quickly, or you can jump back to Connections for manual provider setup.
 
 ![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)
 
-Hecate Chat keeps direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
+Hecate Chat keeps project-scoped direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
 
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 

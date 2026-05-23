@@ -230,13 +230,14 @@ export function RootEffects() {
     setProviderFilter,
   ]);
 
-  // When models load, validate the selected model. If it's not in the list
-  // (e.g. stale localStorage), clear it and let the operator pick.
+  // When models load, validate the selected model. If localStorage points at
+  // a stale model, fall back to a discovered default instead of leaving the
+  // composer in a broken "model required" state.
   useEffect(() => {
     if (providerFilter !== "auto") return;
     if (model === "" || models.length === 0) return;
     if (models.some((m) => m.id === model)) return;
-    setModel("");
+    setModel(models.find((entry) => entry.metadata?.default)?.id ?? models[0]?.id ?? "");
   }, [model, models, providerFilter, setModel]);
 
   // Queued-message drain — sends the next queued message once the

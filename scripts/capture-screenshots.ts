@@ -126,11 +126,22 @@ async function optimize() {
         new Promise<void>((resolve) => {
           const before = statSync(path).size;
           const child = spawn(tool.name, tool.args(path), { stdio: ["ignore", "ignore", "pipe"] });
+          const timeout = setTimeout(() => {
+            child.kill("SIGTERM");
+            console.warn(`  ${path.split("/").pop()}: ${tool.name} timed out; leaving current file`);
+            resolve();
+          }, 20_000);
           let stderr = "";
           child.stderr?.on("data", (chunk) => {
             stderr += chunk.toString();
           });
+          child.on("error", (err) => {
+            clearTimeout(timeout);
+            console.warn(`  ${path.split("/").pop()}: ${tool.name} failed to start: ${err.message}`);
+            resolve();
+          });
           child.on("close", (code) => {
+            clearTimeout(timeout);
             if (code !== 0) {
               console.warn(
                 `  ${path.split("/").pop()}: ${tool.name} failed (${stderr.trim() || `exit ${code}`}); leaving original`,
