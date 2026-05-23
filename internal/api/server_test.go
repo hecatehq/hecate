@@ -2633,6 +2633,50 @@ func TestAgentChatExternalConfigOptionSessionNotActive(t *testing.T) {
 	}
 }
 
+func TestAgentChatExternalStoredConfigOptionUpdatesWhenSessionInactive(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	autoApprove := false
+	runner := &fakeAgentChatRunner{
+		configOptions: []agentcontrols.ConfigOption{
+			{
+				ID:           "model",
+				Name:         "Model",
+				Category:     "model",
+				Type:         agentcontrols.ConfigOptionTypeSelect,
+				CurrentValue: "fast",
+				Options: []agentcontrols.ConfigSelectOption{
+					{Value: "fast", Name: "Fast"},
+					{Value: "smart", Name: "Smart"},
+				},
+			},
+			{
+				ID:          "auto_approve",
+				Name:        "Auto approve",
+				Category:    "mode",
+				Type:        agentcontrols.ConfigOptionTypeBoolean,
+				CurrentBool: &autoApprove,
+			},
+		},
+	}
+	apiHandler.SetAgentChatRunner(runner)
+	handler := NewServer(logger, apiHandler)
+
+	created := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"codex","workspace":%q}`, dir)))
+	runner.setConfigErr = fmt.Errorf("%w: %q", agentadapters.ErrSessionNotActive, created.Data.ID)
+
+	updated := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"smart"}`))
+	if got := updated.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "smart" {
+		t.Fatalf("config options after inactive model set = %#v, want smart", got)
+	}
+
+	updated = decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/auto_approve", `{"value":true}`))
+	if got := updated.Data.ConfigOptions; len(got) != 2 || got[1].CurrentBool == nil || !*got[1].CurrentBool {
+		t.Fatalf("config options after inactive boolean set = %#v, want auto_approve true", got)
+	}
+}
+
 func TestAgentChatExternalConfigOptionAdapterFailure(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))

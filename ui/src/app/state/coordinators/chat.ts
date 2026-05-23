@@ -472,17 +472,25 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       }
 
       let sessionID = queued?.session_id ?? activeChatSessionID;
-      if (sessionID && !activeChatSession) {
-        // The server owns chat persistence. If localStorage points at a
-        // deleted or unavailable session, start clean instead of making the
-        // next prompt fail with a stale 404.
-        sessionID = "";
-        setActiveChatSessionID("");
+      let sessionForSubmit = activeChatSession;
+      if (sessionID && !sessionForSubmit) {
+        try {
+          const payload = await getChatSession(sessionID);
+          sessionForSubmit = payload.data;
+          applyChatSession(payload.data);
+        } catch {
+          // The server owns chat persistence. If localStorage points at a
+          // deleted or unavailable session, start clean instead of making the
+          // next prompt fail with a stale 404.
+          sessionID = "";
+          setActiveChatSessionID("");
+        }
       }
-      if (sessionID && activeChatSession?.agent_id) {
-        const activeExternal = activeChatSession.agent_id !== "hecate";
+      if (sessionID && sessionForSubmit?.agent_id) {
+        const activeExternal = sessionForSubmit.agent_id !== "hecate";
         if (activeExternal !== isExternalAgent) {
           sessionID = "";
+          sessionForSubmit = null;
           setActiveChatSessionID("");
           setActiveChatSession(null);
         }

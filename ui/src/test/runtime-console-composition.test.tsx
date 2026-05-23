@@ -2010,6 +2010,106 @@ describe("useRuntimeConsole", () => {
       await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
     });
 
+    it("submits into the selected external session after a transient hydrate failure", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "external_agent");
+      window.localStorage.setItem("hecate.agentAdapterID", "codex");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
+      window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+
+      let createPostCount = 0;
+      let messagePostCount = 0;
+      let sessionFetchCount = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/chat/sessions") {
+          if (init?.method === "POST") {
+            createPostCount += 1;
+            return jsonResponse({ object: "chat_session", data: {} });
+          }
+          return jsonResponse({
+            object: "chat_sessions",
+            data: [
+              {
+                id: "a1",
+                title: "Codex chat",
+                agent_id: "codex",
+                status: "completed",
+                workspace: "/workspace",
+                message_count: 0,
+                created_at: "2026-04-20T00:00:00Z",
+                updated_at: "2026-04-20T00:00:00Z",
+              },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          sessionFetchCount += 1;
+          if (sessionFetchCount === 1) {
+            return jsonResponse({ error: { message: "temporary load failure" } }, 500);
+          }
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Codex chat",
+              agent_id: "codex",
+              status: "completed",
+              workspace: "/workspace",
+              messages: [],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:00Z",
+            },
+          });
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          void init;
+          return jsonResponse({
+            object: "chat_session",
+            data: {
+              id: "a1",
+              title: "Codex chat",
+              agent_id: "codex",
+              status: "completed",
+              workspace: "/workspace",
+              messages: [
+                {
+                  id: "u1",
+                  agent_id: "codex",
+                  role: "user",
+                  content: "continue here",
+                  created_at: "2026-04-20T00:00:01Z",
+                },
+              ],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:01Z",
+            },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderRuntimeConsoleHook();
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      expect(result.current.state.activeChatSessionID).toBe("a1");
+      expect(result.current.state.activeChatSession).toBeNull();
+
+      act(() => {
+        result.current.actions.setMessage("continue here");
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(createPostCount).toBe(0);
+      expect(messagePostCount).toBe(1);
+      expect(result.current.state.activeChatSessionID).toBe("a1");
+      expect(result.current.state.activeChatSession?.agent_id).toBe("codex");
+    });
+
     it("restores queued prompts from local storage and persists edits", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.chatSessionID", "a1");
