@@ -153,6 +153,28 @@ func TestDetectVersionMissingBinaryReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestResolveVersionProbeUsesInjectedLookupForCandidatePaths(t *testing.T) {
+	t.Setenv("HOME", "/tmp/hecate-home")
+	probe := VersionProbe{CandidatePaths: []string{"${HOME}/bin/fake-adapter"}}
+	calledWith := ""
+	got, ok := resolveVersionProbe(probe, func(name string) (string, error) {
+		calledWith = name
+		if name == "/tmp/hecate-home/bin/fake-adapter" {
+			return "/resolved/fake-adapter", nil
+		}
+		return "", exec.ErrNotFound
+	})
+	if !ok {
+		t.Fatal("resolveVersionProbe = false, want candidate lookup success")
+	}
+	if got != "/resolved/fake-adapter" {
+		t.Fatalf("resolved path = %q, want injected lookup result", got)
+	}
+	if calledWith != "/tmp/hecate-home/bin/fake-adapter" {
+		t.Fatalf("lookup called with %q, want expanded candidate path", calledWith)
+	}
+}
+
 func TestDetectVersionTimeoutReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
