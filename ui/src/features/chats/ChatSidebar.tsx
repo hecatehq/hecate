@@ -238,9 +238,9 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
             onCreate={(agentID) => {
               if (!statusForAgent(agentID).ready) return;
               if (agentID !== newChatAgentID) chatActions.setNewChatAgent(agentID);
+              onSelectSession("");
               if (agentNeedsPreSessionSetup(agentID)) {
                 chat.actions.clearChatErrorState();
-                onSelectSession("");
                 return;
               }
               onCreateChat(agentID, projects.activeProjectID);

@@ -127,10 +127,6 @@ function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null)
   return { provider: session.provider ?? "", model: session.model ?? "" };
 }
 
-function chatGuardError(message: string, code: string, operatorAction: string): ApiError {
-  return new ApiError(message, 400, code, { operatorAction });
-}
-
 function effectiveHecateExecutionMode({
   requested,
   models,
@@ -146,6 +142,19 @@ function effectiveHecateExecutionMode({
   return modelSelectionHasNoToolCalling({ models, providerFilter, model })
     ? "direct_model"
     : requested;
+}
+
+function modelAvailableForProviderFilter(
+  models: ModelRecord[],
+  providerFilter: ProviderFilter,
+  model: string,
+): boolean {
+  if (!model.trim()) return false;
+  return models.some((entry) => {
+    if (entry.id !== model) return false;
+    if (!providerFilter || providerFilter === "auto") return true;
+    return entry.metadata?.provider === providerFilter;
+  });
 }
 
 function hecateTargetForExecutionMode(mode: ChatExecutionMode): HecateChatTarget {
@@ -688,13 +697,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       const externalAgentID = requestedAgentID || agentAdapterID;
       const workspace = agentWorkspace.trim();
       if (!workspace) {
-        setChatErrorState(
-          chatGuardError(
-            "Choose a workspace before starting an external-agent chat.",
-            "chat.workspace_required",
-            "Choose a workspace, then start the chat again.",
-          ),
-        );
+        clearChatErrorState();
+        setActiveChatSessionID("");
+        setActiveChatSession(null);
         return;
       }
       setChatLoading(true);
@@ -725,13 +730,25 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
     const requestedChatTarget = requestedAgentID === "hecate" ? "agent" : defaultChatTarget;
     const requestedExecutionMode = chatTargetToExecutionMode(requestedChatTarget);
+    const requestedModel =
+      requestedExecutionMode === "hecate_task" &&
+      model &&
+      !modelAvailableForProviderFilter(models, providerFilter, model)
+        ? ""
+        : model;
     const executionMode = effectiveHecateExecutionMode({
       requested: requestedExecutionMode,
       models,
       providerFilter,
-      model,
+      model: requestedModel,
     });
     const workspace = agentWorkspace.trim();
+    if (executionMode === "hecate_task" && !workspace) {
+      clearChatErrorState();
+      setActiveChatSessionID("");
+      setActiveChatSession(null);
+      return;
+    }
     setChatLoading(true);
     clearChatErrorState();
     try {
@@ -739,7 +756,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ...(createProjectID ? { project_id: createProjectID } : {}),
         agent_id: "hecate",
         provider: providerFilter === "auto" ? "" : providerFilter,
-        model,
+        model: requestedModel,
         ...(executionMode === "hecate_task"
           ? {
               workspace,

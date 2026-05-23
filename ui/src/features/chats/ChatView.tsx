@@ -135,6 +135,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [approvalModalID, setApprovalModalID] = useState<string | null>(null);
   const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+  const [draftChatStarted, setDraftChatStarted] = useState(false);
   const [rtkOnboardingDismissed, setRTKOnboardingDismissed] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [workspacePathValue, setWorkspacePathValue] = useState("");
@@ -407,13 +408,33 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const externalAgentModelRequired = externalAgentRequiresModelSelection(
     externalAgentConfigOptions,
   );
-  const composerVisible = selectedChatReady && isAgentChat;
+  const draftHecateReadyForComposer =
+    isHecateChat &&
+    draftChatStarted &&
+    !selectedChatReady &&
+    hecateChatModelReady &&
+    !selectedModelIssue &&
+    (!hecateTaskToolsAvailable || Boolean(state.agentWorkspace.trim()));
+  const draftExternalAgentReadyForComposer =
+    isExternalAgentChat &&
+    draftChatStarted &&
+    !selectedChatReady &&
+    Boolean(selectedAgent?.available) &&
+    !externalAgentSetupRequired &&
+    Boolean(state.agentWorkspace.trim());
+  const composerVisible =
+    isAgentChat &&
+    (selectedChatReady || draftHecateReadyForComposer || draftExternalAgentReadyForComposer);
   const hecateHasMessageControls =
     isHecateChat &&
     (hecateAgentModelLocked || hasConfiguredProviders || selectableModels.length > 0);
+  const externalMessageControlsVisible =
+    isExternalAgentChat &&
+    externalAgentHasConfigControls &&
+    (selectedChatReady || draftExternalAgentReadyForComposer);
   const messageControlsVisible =
-    (isExternalAgentChat && externalAgentHasConfigControls) ||
-    (selectedChatReady && hecateHasMessageControls);
+    externalMessageControlsVisible ||
+    ((selectedChatReady || draftHecateReadyForComposer) && hecateHasMessageControls);
   const composerShellVisible = selectedChatReady || messageControlsVisible;
   const composerRepair =
     composerVisible && !emptyStateAlreadyShowsRepair(chatSetupRepair, visibleMessages.length)
@@ -423,12 +444,18 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     visibleMessages.length === 0 &&
     (emptyStateAlreadyShowsModelRepair(chatSetupRepair, visibleMessages.length) ||
       (state.chatErrorCode === "model_not_configured" && modelRouteUnavailable));
+  const emptyStateExplainsSetupRepair =
+    emptyStateAlreadyShowsRepair(chatSetupRepair, visibleMessages.length) &&
+    (state.chatErrorCode === "chat.workspace_required" ||
+      state.chatErrorCode === "chat.model_required");
   const suppressComposerChatError =
-    (state.chatErrorCode === "chat.model_required" ||
-      state.chatErrorCode === "model_not_configured") &&
+    (state.chatErrorCode === "model_not_configured" ||
+      emptyStateExplainsSetupRepair ||
+      (state.chatErrorCode === "chat.model_required" &&
+        (emptyStateExplainsModelRoute || externalAgentModelRequired))) &&
     !streaming &&
     state.pendingToolCalls.length === 0 &&
-    emptyStateExplainsModelRoute;
+    (emptyStateExplainsModelRoute || emptyStateExplainsSetupRepair || externalAgentModelRequired);
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
   const messageSendBlocked =
@@ -463,6 +490,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     }
     onNavigate?.("connections");
   }
+
+  useEffect(() => {
+    if (selectedChatReady) setDraftChatStarted(false);
+  }, [selectedChatReady]);
 
   useEffect(() => {
     if (!focusComposerAfterNewChatRef.current || !composerVisible) return;
@@ -582,6 +613,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           createdDiscoveries[0];
         if (preferred?.preset_id) {
           actions.setProviderFilter(preferred.preset_id as ProviderFilter);
+          const preferredModel = preferred.models?.[0];
+          if (preferredModel) {
+            actions.setModel(preferredModel);
+          }
+          setDraftChatStarted(true);
+          focusComposerWhenReady();
         }
       }
       if (firstError) {
@@ -624,12 +661,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         <ChatSidebar
           isAgentChat={isAgentChat}
           onSelectSession={(sessionID) => {
+            setDraftChatStarted(!sessionID);
             focusComposerWhenReady();
             void actions.selectChatSession(sessionID);
             textareaRef.current?.focus();
           }}
           onCreateChat={(agentID, projectID) => {
             setChatSettingsOpen(false);
+            setDraftChatStarted(true);
             focusComposerWhenReady();
             void actions.createChatSession({ agentID, projectID });
           }}

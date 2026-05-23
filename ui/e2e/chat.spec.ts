@@ -20,6 +20,9 @@ const test = baseTest.extend<{ page: Page }>({
 });
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+  });
   await page.goto("/");
   // Chat is the default workspace
   await page.waitForSelector(".hecate-activitybar");
@@ -289,6 +292,177 @@ test("New chat creates an external-agent session with controls before the first 
   );
 });
 
+test("New Hecate chat asks for workspace before creating a tools-on session", async ({
+  page,
+}) => {
+  let createBody: any = null;
+  await page.route("/hecate/v1/chat/sessions", async (route) => {
+    if (route.request().method() === "POST") {
+      createBody = JSON.parse(route.request().postData() ?? "{}");
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { type: "unexpected", message: "unexpected create" } }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.removeItem("hecate.agentWorkspace");
+  });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+
+  await expect(page.getByText("Choose a workspace")).toBeVisible();
+  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.getByText("Model required")).toHaveCount(0);
+  await expect.poll(() => createBody).toBeNull();
+});
+
+test("New external-agent chat asks for workspace without flashing an inline error", async ({
+  page,
+}) => {
+  let createBody: any = null;
+  await page.route("/hecate/v1/agent-adapters*", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_adapters",
+        data: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("/hecate/v1/chat/sessions", async (route) => {
+    if (route.request().method() === "POST") {
+      createBody = JSON.parse(route.request().postData() ?? "{}");
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { type: "unexpected", message: "unexpected create" } }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "codex");
+    window.localStorage.removeItem("hecate.agentWorkspace");
+  });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByRole("button", { name: "New Codex chat", exact: true }).click();
+
+  await expect(page.getByText("Choose a workspace")).toBeVisible();
+  await expect(page.locator("textarea")).toHaveCount(0);
+  await expect(page.getByText("Workspace required")).toHaveCount(0);
+  await expect.poll(() => createBody).toBeNull();
+});
+
+test("New external-agent chat with model setup shows controls and composer together", async ({
+  page,
+}) => {
+  let createBody: any = null;
+  await page.route("/hecate/v1/agent-adapters*", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_adapters",
+        data: [
+          {
+            id: "grok_build",
+            name: "Grok Build",
+            kind: "acp",
+            command: "grok",
+            args: ["agent", "stdio"],
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            config_options: [
+              {
+                id: "model",
+                name: "Model",
+                category: "model",
+                type: "select",
+                current_value: "__hecate_no_model_selected__",
+                options: [
+                  { value: "__hecate_no_model_selected__", name: "Pick a model" },
+                  { value: "grok-build-0429", name: "Grok Build 0429" },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("/hecate/v1/chat/sessions", async (route) => {
+    if (route.request().method() === "POST") {
+      createBody = JSON.parse(route.request().postData() ?? "{}");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          object: "chat_session",
+          data: {
+            id: "grok-build-e2e",
+            title: "Grok Build chat",
+            agent_id: "grok_build",
+            agent_name: "Grok Build",
+            driver_kind: "acp",
+            native_session_id: "native-grok-build-e2e",
+            workspace: "/tmp/hecate-e2e",
+            status: "idle",
+            config_options: createBody.config_options ?? [],
+            messages: [],
+          },
+        }),
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "grok_build");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+  });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByRole("button", { name: "New Grok Build chat", exact: true }).click();
+
+  await expect(page.getByRole("button", { name: "Model" })).toContainText("Pick a model");
+  await expect(page.locator("textarea")).toBeVisible();
+  await page.locator("textarea").fill("Build a tiny app");
+  await expect(page.locator("button[type='submit']")).toBeDisabled();
+
+  await page.getByRole("button", { name: "Model" }).click();
+  await page.getByRole("option", { name: "Grok Build 0429" }).click();
+
+  await expect(page.getByRole("button", { name: "Model" })).toContainText("Grok Build 0429");
+  await expect(page.locator("button[type='submit']")).toBeEnabled();
+});
+
 test("New chat falls back to Hecate when the remembered external agent needs setup", async ({
   page,
 }) => {
@@ -461,11 +635,11 @@ test("system prompt editor opens and closes", async ({ page }) => {
   await switchToModel(page);
   const settingsBtn = page.getByRole("button", { name: "Chat settings" });
   await settingsBtn.click();
-  await expect(page.getByText("SYSTEM PROMPT / INSTRUCTIONS", { exact: true })).toBeVisible();
+  await expect(page.getByText("SYSTEM PROMPT / AGENT INSTRUCTIONS", { exact: true })).toBeVisible();
   await expect(page.locator("textarea").nth(1)).toBeVisible();
 
   await settingsBtn.click();
-  await expect(page.getByText("SYSTEM PROMPT / INSTRUCTIONS", { exact: true })).not.toBeVisible();
+  await expect(page.getByText("SYSTEM PROMPT / AGENT INSTRUCTIONS", { exact: true })).not.toBeVisible();
 });
 
 test("Enter-switch toggle is visible in the input toolbar and clickable", async ({ page }) => {
@@ -912,8 +1086,9 @@ test("local provider quick-add makes model chat runnable without detected-provid
   await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect.poll(() => [...createdPresets].sort()).toEqual(["lmstudio", "ollama"]);
-  await page.getByRole("button", { name: "Use model" }).click();
   await expect(page.getByText("Ready when you are")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /model picker/i })).toContainText("llama3.1:8b");
   await expect(page.getByText("No routable model")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
@@ -1552,7 +1727,6 @@ test("Hecate Chat falls back to direct chat when the selected model has no tools
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.providerFilter", "ollama");
     window.localStorage.setItem("hecate.model", "qwen2.5-coder");
-    window.localStorage.removeItem("hecate.agentWorkspace");
   });
   await mockGatewayAPIs(page, {
     settingsConfig: {
