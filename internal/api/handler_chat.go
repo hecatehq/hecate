@@ -428,7 +428,9 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 	result, err := h.agentChatRunner.SetSessionConfigOption(setCtx, setReq)
 	cancel()
 	if err != nil {
-		configOptions, updateErr := updateStoredAgentChatConfigOption(session.ConfigOptions, setReq, errors.Is(err, agentadapters.ErrSessionNotActive))
+		allowStoredOption := errors.Is(err, agentadapters.ErrSessionNotActive) ||
+			agentadapters.IsLaunchConfigOption(session.AgentID, setReq.ConfigID)
+		configOptions, updateErr := updateStoredAgentChatConfigOption(session.ConfigOptions, setReq, allowStoredOption)
 		if updateErr == nil {
 			updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
 				item.ConfigOptions = configOptions
