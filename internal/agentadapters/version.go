@@ -61,8 +61,8 @@ func resolveVersionProbe(probe VersionProbe, lookup LookupFunc) (string, bool) {
 		if path == "" {
 			continue
 		}
-		if _, err := exec.LookPath(path); err == nil {
-			return path, true
+		if resolved, err := lookup(path); err == nil {
+			return resolved, true
 		}
 	}
 	return "", false

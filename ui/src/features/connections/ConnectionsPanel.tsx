@@ -158,14 +158,13 @@ export function ConnectionsPanel({
   useEffect(() => {
     let focusTarget: string | null = null;
     try {
-      const raw =
-        sessionStorage.getItem("hecate.connectionsFocus") ||
-        sessionStorage.getItem("hecate.settingsFocus");
-      if (raw) {
-        sessionStorage.removeItem("hecate.connectionsFocus");
-        sessionStorage.removeItem("hecate.settingsFocus");
+      for (const key of ["hecate.connectionsFocus", "hecate.settingsFocus"]) {
+        const raw = sessionStorage.getItem(key);
+        if (raw && adapterFocusTargets.has(raw)) {
+          focusTarget = raw;
+          break;
+        }
       }
-      if (raw && adapterFocusTargets.has(raw)) focusTarget = raw;
     } catch {
       // sessionStorage unavailable — nothing to focus.
     }
@@ -178,6 +177,12 @@ export function ConnectionsPanel({
     const startHandle = window.setTimeout(() => {
       const card = document.querySelector(`[data-testid="${target}"]`);
       if (!card) return;
+      try {
+        sessionStorage.removeItem("hecate.connectionsFocus");
+        sessionStorage.removeItem("hecate.settingsFocus");
+      } catch {
+        // sessionStorage unavailable — focus still works without clearing.
+      }
       card.scrollIntoView({ behavior: "smooth", block: "center" });
       // Brief highlight so the operator's eye lands on it. Class is
       // toggled rather than inlined so the styling lives in CSS.

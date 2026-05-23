@@ -2087,7 +2087,6 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
   await expect(page.getByRole("button", { name: "Fixed model: qwen2.5" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop active task" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open task", exact: true })).toBeVisible();
-  await expect(page.getByText(/Hecate Chat is still working on this task/)).toBeVisible();
   await expect(page.getByText("Backing task")).toBeVisible();
 
   await page.locator("textarea").fill("try direct while busy");
@@ -2305,13 +2304,13 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
   await page.waitForSelector(".hecate-activitybar");
 
   await expect(page.getByTestId("hecate-task-approval-banner")).toBeVisible();
-  await expect(page.getByText(/Hecate Chat is still working on this task/)).toBeVisible();
   await expect(
     page
       .getByTestId("hecate-task-approval-banner")
       .getByRole("button", { name: "Open task", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("button[type='submit']")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+  await expect(page.getByText("Hecate Chat is working. New messages will queue.")).toBeVisible();
 
   await page.getByRole("button", { name: /Approve Agent tool call/i }).click();
   await expect(page.getByTestId("hecate-task-approval-banner")).toBeHidden();
