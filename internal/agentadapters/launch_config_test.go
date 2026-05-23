@@ -27,7 +27,7 @@ func TestLaunchConfig_AppendsGrokModelOptionWithUnsetSelection(t *testing.T) {
 		t.Fatalf("managed config ids = %#v, want reasoning_effort", managed)
 	}
 	option := got[0]
-	if option.ID != "model" || option.Category != "model" || option.CurrentValue != launchModelUnsetValue {
+	if option.ID != "model" || option.Category != "model" || option.Source != agentcontrols.ConfigOptionSourceLaunch || option.CurrentValue != launchModelUnsetValue {
 		t.Fatalf("launch model option = %#v, want model category with unset current", option)
 	}
 	if len(option.Options) != 1 || option.Options[0].Value != launchModelUnsetValue {
@@ -37,7 +37,7 @@ func TestLaunchConfig_AppendsGrokModelOptionWithUnsetSelection(t *testing.T) {
 		t.Fatalf("unset option name = %q, want Pick a model", option.Options[0].Name)
 	}
 	reasoning := got[1]
-	if reasoning.ID != "reasoning_effort" || reasoning.Category != "thought_level" {
+	if reasoning.ID != "reasoning_effort" || reasoning.Category != "thought_level" || reasoning.Source != agentcontrols.ConfigOptionSourceLaunch {
 		t.Fatalf("reasoning option = %#v, want thought_level launch option", reasoning)
 	}
 	if len(reasoning.Options) != 6 || reasoning.Options[0].Name != "Pick reasoning" {

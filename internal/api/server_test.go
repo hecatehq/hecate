@@ -1110,8 +1110,14 @@ func TestAgentAdaptersIncludesLaunchConfigOptions(t *testing.T) {
 	if grok.ConfigOptions[0].ID != "model" || grok.ConfigOptions[0].CurrentValue == "" {
 		t.Fatalf("grok model option = %#v, want populated model picker", grok.ConfigOptions[0])
 	}
+	if grok.ConfigOptions[0].Source != agentcontrols.ConfigOptionSourceLaunch {
+		t.Fatalf("grok model option source = %q, want launch", grok.ConfigOptions[0].Source)
+	}
 	if grok.ConfigOptions[1].ID != "reasoning_effort" {
 		t.Fatalf("grok reasoning option = %#v, want reasoning_effort", grok.ConfigOptions[1])
+	}
+	if grok.ConfigOptions[1].Source != agentcontrols.ConfigOptionSourceLaunch {
+		t.Fatalf("grok reasoning option source = %q, want launch", grok.ConfigOptions[1].Source)
 	}
 }
 
@@ -2674,6 +2680,38 @@ func TestAgentChatExternalStoredConfigOptionUpdatesWhenSessionInactive(t *testin
 	updated = decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/auto_approve", `{"value":true}`))
 	if got := updated.Data.ConfigOptions; len(got) != 2 || got[1].CurrentBool == nil || !*got[1].CurrentBool {
 		t.Fatalf("config options after inactive boolean set = %#v, want auto_approve true", got)
+	}
+}
+
+func TestAgentChatExternalLaunchConfigOptionStoresAfterAdapterFailure(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	runner := &fakeAgentChatRunner{
+		configOptions: []agentcontrols.ConfigOption{
+			{
+				ID:           "model",
+				Name:         "Model",
+				Category:     "model",
+				Source:       agentcontrols.ConfigOptionSourceLaunch,
+				Type:         agentcontrols.ConfigOptionTypeSelect,
+				CurrentValue: "fast",
+				Options: []agentcontrols.ConfigSelectOption{
+					{Value: "fast", Name: "Fast"},
+					{Value: "smart", Name: "Smart"},
+				},
+			},
+		},
+	}
+	apiHandler.SetAgentChatRunner(runner)
+	handler := NewServer(logger, apiHandler)
+
+	created := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"grok_build","workspace":%q}`, dir)))
+	runner.setConfigErr = errors.New("adapter rejected launch option")
+
+	updated := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"smart"}`))
+	if got := updated.Data.ConfigOptions; len(got) != 1 || got[0].CurrentValue != "smart" {
+		t.Fatalf("config options after launch set = %#v, want smart", got)
 	}
 }
 
