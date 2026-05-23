@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // SharedClientCache amortizes MCP-client startup across runs. Today

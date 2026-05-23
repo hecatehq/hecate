@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // blockingStreamProvider writes one SSE chunk then blocks until its context is

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 func resolveCapabilities(

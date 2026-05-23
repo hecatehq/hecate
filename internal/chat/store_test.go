@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentcontrols"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestMemoryStoreConformance(t *testing.T) {

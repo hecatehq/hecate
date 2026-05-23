@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type TaskFilter struct {

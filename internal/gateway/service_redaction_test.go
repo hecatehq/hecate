@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestRedactSensitiveTextMasksCommonSecrets(t *testing.T) {

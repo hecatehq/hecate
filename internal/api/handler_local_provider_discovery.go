@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 const localProviderDiscoveryTimeout = 700 * time.Millisecond

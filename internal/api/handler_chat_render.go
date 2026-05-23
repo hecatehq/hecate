@@ -3,9 +3,9 @@ package api
 import (
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/chat"
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 // agentChatSnapshotConfig captures the per-snapshot guardrail values

@@ -374,7 +374,7 @@ tauri-build-sidecars: ui-build _go-cache
 	if [ -z "$version" ]; then \
 	  echo "could not resolve Tauri sidecar version" && exit 1; \
 	fi; \
-	ldflags="-X github.com/hecate/agent-runtime/internal/version.Version=$version"; \
+	ldflags="-X github.com/hecatehq/hecate/internal/version.Version=$version"; \
 	echo "building Tauri sidecars at version $version"; \
 	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o "hecate$goexe" ./cmd/hecate
 

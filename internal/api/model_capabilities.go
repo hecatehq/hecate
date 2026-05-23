@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/gateway"
-	"github.com/hecate/agent-runtime/internal/modelcaps"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type modelReadinessError struct {

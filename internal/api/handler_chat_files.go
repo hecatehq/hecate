@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/chat"
+	"github.com/hecatehq/hecate/internal/chat"
 )
 
 func (h *Handler) HandleChatMessageFiles(w http.ResponseWriter, r *http.Request) {

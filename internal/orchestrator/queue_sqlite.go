@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/storage"
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 // SQLiteRunQueue mirrors the in-memory RunQueue surface with durable

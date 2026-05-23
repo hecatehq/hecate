@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/sandbox"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/internal/workspace"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type Executor interface {

@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/chat"
+	"github.com/hecatehq/hecate/internal/chat"
 )
 
 func (h *Handler) startAgentChatIdleSweeper() {

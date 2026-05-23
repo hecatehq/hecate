@@ -9,7 +9,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // Server is the MCP server core. Wire it with RegisterTool, then call

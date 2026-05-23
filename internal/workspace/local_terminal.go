@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/sandbox"
 )
 
 // localTerminal is the on-host implementation. Each terminal owns a

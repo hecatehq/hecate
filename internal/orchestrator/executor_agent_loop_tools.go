@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func (e *AgentLoopExecutor) isGated(toolName string, task types.Task) bool {

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 )
 
 const launchHelpDiscoveryTimeout = 2 * time.Second

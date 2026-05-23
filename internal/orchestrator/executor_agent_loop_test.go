@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/workspace"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // scriptedLLM returns a canned response on each call. Tests build the

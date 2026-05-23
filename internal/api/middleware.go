@@ -17,10 +17,10 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
-var httpServerTracer = otel.Tracer("github.com/hecate/agent-runtime/internal/api")
+var httpServerTracer = otel.Tracer("github.com/hecatehq/hecate/internal/api")
 
 type middleware func(http.Handler) http.Handler
 

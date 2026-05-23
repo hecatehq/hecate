@@ -13,7 +13,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
-	"github.com/hecate/agent-runtime/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 )
 
 func TestFakeACPAgentProcess(t *testing.T) {

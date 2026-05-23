@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/chat"
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/projects"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/projects"
 )
 
 func newProjectsTestServer() http.Handler {

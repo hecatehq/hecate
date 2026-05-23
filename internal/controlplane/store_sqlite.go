@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/storage"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 // SQLiteStore mirrors the memory Store-interface surface while keeping

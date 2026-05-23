@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/providers"
+	"github.com/hecatehq/hecate/internal/providers"
 )
 
 // fakeProvider lives in fake_provider_test.go (shared with

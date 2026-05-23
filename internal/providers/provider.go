@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type Kind string

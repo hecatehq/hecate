@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/version"
+	"github.com/hecatehq/hecate/internal/version"
 )
 
 func TestHandleHealthIncludesVersion(t *testing.T) {

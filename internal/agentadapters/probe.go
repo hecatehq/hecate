@@ -12,7 +12,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 // Probe statuses. The "ready" / "not_installed" / "auth_required" /

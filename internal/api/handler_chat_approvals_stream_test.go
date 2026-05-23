@@ -15,7 +15,7 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/hecate/agent-runtime/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentadapters"
 )
 
 // ─── SSE event capture ───────────────────────────────────────────────────────

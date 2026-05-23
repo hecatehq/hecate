@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // TestPrune_AgeAndCount exercises the retention sweep

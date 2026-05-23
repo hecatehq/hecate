@@ -3,7 +3,7 @@ package workspace
 import (
 	"context"
 
-	"github.com/hecate/agent-runtime/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/sandbox"
 )
 
 // LocalWorkspace is the on-host implementation. Every method delegates

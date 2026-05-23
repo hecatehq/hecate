@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/chat"
-	"github.com/hecate/agent-runtime/internal/gateway"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/gateway"
 )
 
 func writeAgentChatWorkspaceRequired(w http.ResponseWriter, mode string) {

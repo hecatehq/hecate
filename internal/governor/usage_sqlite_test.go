@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/storage"
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 func newSQLiteUsageTestStore(t *testing.T) *SQLiteUsageStore {

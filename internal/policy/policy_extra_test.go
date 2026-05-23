@@ -3,7 +3,7 @@ package policy
 import (
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 func TestErrorErrorMessageFallback(t *testing.T) {

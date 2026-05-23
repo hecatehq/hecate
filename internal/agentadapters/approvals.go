@@ -19,7 +19,7 @@ import (
 // approvalTracer is the OTel tracer for the approval coordinator. The
 // instrumentation name matches the Go module path so spans are easy
 // to filter in operator dashboards.
-var approvalTracer = otel.Tracer("github.com/hecate/agent-runtime/internal/agentadapters")
+var approvalTracer = otel.Tracer("github.com/hecatehq/hecate/internal/agentadapters")
 
 // ApprovalMode controls what the coordinator does with an incoming
 // RequestPermission. The package default is ModeAuto, which preserves

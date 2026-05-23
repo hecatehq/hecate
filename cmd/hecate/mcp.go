@@ -8,8 +8,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/hecate/agent-runtime/internal/mcp/server"
-	"github.com/hecate/agent-runtime/internal/version"
+	"github.com/hecatehq/hecate/internal/mcp/server"
+	"github.com/hecatehq/hecate/internal/version"
 )
 
 // runMCPServer is the entry point for `hecate mcp-server`. It runs an

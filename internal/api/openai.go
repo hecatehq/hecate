@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/agentcontrols"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // OpenAIMessageContent is the polymorphic OpenAI message-content

@@ -117,9 +117,9 @@ func TestOTelHTTPSpanMiddlewareEmitsRequestSpan(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	t.Cleanup(func() { otel.SetTracerProvider(previous) })
 
-	httpServerTracer = tp.Tracer("github.com/hecate/agent-runtime/internal/api")
+	httpServerTracer = tp.Tracer("github.com/hecatehq/hecate/internal/api")
 	t.Cleanup(func() {
-		httpServerTracer = otel.Tracer("github.com/hecate/agent-runtime/internal/api")
+		httpServerTracer = otel.Tracer("github.com/hecatehq/hecate/internal/api")
 	})
 
 	mux := http.NewServeMux()

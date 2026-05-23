@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/chat"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func (h *Handler) hecateAgentTiming(ctx context.Context, run types.TaskRun, chatStartedAt, chatCompletedAt time.Time) chat.Timing {

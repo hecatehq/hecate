@@ -58,7 +58,7 @@ func NormalizeError(adapterName string, err error) string {
 		return claudeCodeAuthErrorMessage()
 	}
 	if adapterName == "Grok Build" && strings.Contains(strings.ToLower(message), "no healthy upstream") {
-		return adapterName + " error: " + message + ". Check Grok Build/xAI service health, model availability, or XAI_API_KEY."
+		return adapterName + " error: " + message + ". Hecate is using Grok Build's ACP agent runtime; check Grok Build/xAI service health, the selected agent-mode model, or XAI_API_KEY/grok login."
 	}
 	if kind := parsed.Data.ErrorKind; kind != "" {
 		return adapterName + " error (" + kind + "): " + message

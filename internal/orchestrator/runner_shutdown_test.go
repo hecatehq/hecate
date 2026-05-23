@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/taskstate"
 )
 
 // newRunnerForShutdownTest is a thin wrapper around NewRunner that

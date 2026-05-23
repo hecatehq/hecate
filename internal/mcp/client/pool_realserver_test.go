@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // TestPool_RealServer_FilesystemRoundTrip is a hermetic smoke test

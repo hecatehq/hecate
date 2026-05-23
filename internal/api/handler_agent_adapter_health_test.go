@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 // TestAgentAdapterHealthSurfacesProbeResult covers the happy-path

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/secrets"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func newTestCipherForAPI(t *testing.T) secrets.Cipher {

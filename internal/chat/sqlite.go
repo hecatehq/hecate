@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentcontrols"
-	"github.com/hecate/agent-runtime/internal/storage"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/storage"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type SQLiteStore struct {

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/chat"
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 func renderAgentChatActivities(items []chat.Activity) []ChatActivityItem {

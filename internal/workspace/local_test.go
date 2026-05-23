@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/sandbox"
 )
 
 // Step 1 of the workspace refactor delivers a pass-through wrapper.

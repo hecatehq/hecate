@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentadapters"
 )
 
 func (h *Handler) HandleAgentAdapters(w http.ResponseWriter, r *http.Request) {

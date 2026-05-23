@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/projects"
+	"github.com/hecatehq/hecate/internal/projects"
 )
 
 type projectRootRequest struct {

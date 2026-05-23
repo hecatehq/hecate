@@ -3,7 +3,7 @@ package modelcaps
 import (
 	"testing"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestResolveProviderCapabilityBeatsCatalog(t *testing.T) {

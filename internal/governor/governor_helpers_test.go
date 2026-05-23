@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 func TestMemoryUsageStoreListEventsRespectsLimit(t *testing.T) {

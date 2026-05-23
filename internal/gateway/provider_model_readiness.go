@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/catalog"
-	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/catalog"
+	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type ProviderModelReadiness struct {

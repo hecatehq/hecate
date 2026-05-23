@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 // MemoryStore is an in-memory control plane store. State is lost on restart.

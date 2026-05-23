@@ -1,9 +1,9 @@
 package gateway
 
 import (
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func recordRouteDeniedCandidate(trace *profiler.Trace, candidate types.RouteDecision, preflightErr *RoutePreflightError, index int) {

@@ -12,10 +12,10 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
-	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/chat"
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/providers"
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/providers"
 )
 
 // approvalsHTTPFixture wires a test HTTP handler with an installed

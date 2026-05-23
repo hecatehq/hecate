@@ -1,4 +1,4 @@
-module github.com/hecate/agent-runtime
+module github.com/hecatehq/hecate
 
 go 1.26.2
 

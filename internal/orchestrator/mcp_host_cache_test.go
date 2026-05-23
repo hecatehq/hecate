@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
-	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/mcp"
+	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // fakeMCPHTTPServer spins up an httptest server that speaks just

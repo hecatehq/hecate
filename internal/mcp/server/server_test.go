@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // rwPipe wires an io.Pipe with a closer hook so we can simulate stdin

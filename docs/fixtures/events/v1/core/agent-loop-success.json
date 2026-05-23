@@ -141,7 +141,7 @@
     "data": {
       "tool_call_id": "call_01HX000000000000000001",
       "stream": "stdout",
-      "data": "ok  github.com/hecate/agent-runtime/internal/router  0.231s\n",
+      "data": "ok  github.com/hecatehq/hecate/internal/router  0.231s\n",
       "byte_offset": 0
     }
   },

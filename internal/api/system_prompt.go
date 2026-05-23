@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/orchestrator"
 )
 
 // agentWorkspacePromptFiles are the file names the agent loop honors

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/ratelimit"
+	"github.com/hecatehq/hecate/internal/ratelimit"
 )
 
 func TestStoreAllowConsumesToken(t *testing.T) {

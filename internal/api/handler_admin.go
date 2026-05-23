@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/gateway"
-	"github.com/hecate/agent-runtime/internal/governor"
-	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
-	"github.com/hecate/agent-runtime/internal/orchestrator"
-	"github.com/hecate/agent-runtime/internal/retention"
-	"github.com/hecate/agent-runtime/internal/sandbox"
-	"github.com/hecate/agent-runtime/internal/secrets"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/governor"
+	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/retention"
+	"github.com/hecatehq/hecate/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {

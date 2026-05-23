@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestIsGitRepositoryDetectsDotGitDir(t *testing.T) {

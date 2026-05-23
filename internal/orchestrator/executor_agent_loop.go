@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // AgentLLMClient is the seam the agent loop uses to talk to a model.

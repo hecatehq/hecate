@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // TestCache_RealSubprocess_ReusedAcrossPools is the e2e counterpart

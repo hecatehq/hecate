@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hecate/agent-runtime/internal/governor"
-	"github.com/hecate/agent-runtime/internal/retention"
+	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/retention"
 )
 
 func (s *Service) UsageSummaryWithFilter(ctx context.Context, filter governor.UsageFilter) (*UsageSummaryResult, error) {

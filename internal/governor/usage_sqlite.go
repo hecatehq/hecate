@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/storage"
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 // maxUsageEventListLimit caps how many usage event rows a single List

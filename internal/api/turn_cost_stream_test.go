@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // TestDecodeTurnCostFromEventData_LiftsAllFields confirms the helper

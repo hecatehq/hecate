@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 func TestOperatorURL(t *testing.T) {

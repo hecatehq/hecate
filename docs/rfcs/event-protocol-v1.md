@@ -454,7 +454,7 @@ Subprocess execution. Streams stdout/stderr; exits with a code.
 { "type": "tool.shell.output_chunk", "data": {
     "tool_call_id": "call_01JXMZ...",
     "stream": "stdout",
-    "data": "ok  \tgithub.com/hecate/agent-runtime/internal/governor\t0.231s\n",
+    "data": "ok  \tgithub.com/hecatehq/hecate/internal/governor\t0.231s\n",
     "byte_offset": 0
 }}
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentadapters"
 )
 
 // HandleListChatApprovals lists approvals for a chat session.

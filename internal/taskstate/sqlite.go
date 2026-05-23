@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/storage"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/storage"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // SQLiteStore mirrors the memory Store-interface surface with durable

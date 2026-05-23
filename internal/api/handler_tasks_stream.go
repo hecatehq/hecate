@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/eventprotocol"
-	"github.com/hecate/agent-runtime/internal/taskstate"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/eventprotocol"
+	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {

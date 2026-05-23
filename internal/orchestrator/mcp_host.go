@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
-	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
-	"github.com/hecate/agent-runtime/internal/secrets"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/internal/version"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/mcp"
+	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/version"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // AgentMCPHost is the seam the agent loop uses to talk to a bundle of

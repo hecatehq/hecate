@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 )
 
 func TestLaunchConfig_AppendsGrokModelOptionWithUnsetSelection(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 func TestTraceErrorAttrsIncludesOTelShapedErrorFields(t *testing.T) {

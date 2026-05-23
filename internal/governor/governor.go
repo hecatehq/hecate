@@ -6,9 +6,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/policy"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/policy"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type Governor interface {

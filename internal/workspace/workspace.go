@@ -15,7 +15,7 @@ package workspace
 import (
 	"context"
 
-	"github.com/hecate/agent-runtime/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/sandbox"
 )
 
 // Re-export sandbox value types so call sites can stay in the
