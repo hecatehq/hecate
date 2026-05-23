@@ -80,6 +80,10 @@ export function resolveChatSetupRepairState({
     return null;
   }
 
+  if (target === "agent" && hasConfiguredProviders && !workspace.trim()) {
+    return workspaceRepair();
+  }
+
   if (modelRouteUnavailable) {
     return {
       kind: hasConfiguredProviders ? "no_routable_model" : "no_provider",

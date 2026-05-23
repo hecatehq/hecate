@@ -181,10 +181,12 @@ describe("ChatView input", () => {
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /New Grok Build chat/i }));
+
     const modelPicker = await screen.findByRole("button", { name: "Model" });
     expect(modelPicker).toHaveTextContent("Pick a model");
 
-    const user = userEvent.setup();
     await user.click(modelPicker);
     await user.click(screen.getByRole("option", { name: /Model A/ }));
 
@@ -199,6 +201,7 @@ describe("ChatView input", () => {
         chatTarget: "external_agent",
         agentAdapterID: "grok_build",
         newChatAgentID: "grok_build",
+        agentWorkspace: "/tmp/hecate",
         activeChatSessionID: "",
         activeChatSession: null,
         agentAdapters: [
@@ -219,7 +222,7 @@ describe("ChatView input", () => {
                 current_value: "__hecate_no_model_selected__",
                 options: [
                   { value: "__hecate_no_model_selected__", name: "Pick a model" },
-                  { value: "grok-build-0429a", name: "Grok Build 0429a" },
+                  { value: "grok-latest", name: "Grok Latest" },
                 ],
               },
             ],
@@ -270,7 +273,7 @@ describe("ChatView input", () => {
               current_value: "__hecate_no_model_selected__",
               options: [
                 { value: "__hecate_no_model_selected__", name: "Pick a model" },
-                { value: "grok-build-0429a", name: "Grok Build 0429a" },
+                { value: "grok-latest", name: "Grok Latest" },
               ],
             },
             {
@@ -292,6 +295,7 @@ describe("ChatView input", () => {
 
     expect(await screen.findByRole("button", { name: "Model" })).toHaveTextContent("Pick a model");
     expect(screen.getByRole("button", { name: "Reasoning" })).toHaveTextContent("Pick reasoning");
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeTruthy();
   });
 
   it("toggles Hecate Chat between direct model chat and tool-backed agent mode", async () => {

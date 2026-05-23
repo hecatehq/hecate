@@ -70,6 +70,20 @@ describe("resolveChatSetupRepairState", () => {
     });
   });
 
+  it("asks for workspace before provider repair when a provider exists", () => {
+    const repair = resolveChatSetupRepairState({
+      ...base,
+      target: "agent",
+      workspace: "",
+      modelRouteUnavailable: true,
+    });
+
+    expect(repair).toMatchObject({
+      kind: "workspace_required",
+      action: "choose_workspace",
+    });
+  });
+
   it("routes unavailable external agents to Connections", () => {
     const repair = resolveChatSetupRepairState({
       ...base,

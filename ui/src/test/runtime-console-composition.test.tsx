@@ -473,7 +473,7 @@ describe("useRuntimeConsole", () => {
 
     expect(createBody).toMatchObject({
       agent_id: "hecate",
-      model: "gpt-4o-mini",
+      model: "",
       workspace: "/tmp/hecate",
     });
     expect(createBody).not.toHaveProperty("adapter_id");
@@ -695,7 +695,7 @@ describe("useRuntimeConsole", () => {
 
     expect(createBody).toMatchObject({
       agent_id: "hecate",
-      model: "gpt-4o-mini",
+      model: "",
       workspace: "/tmp/hecate",
       project_id: "proj_1",
     });
@@ -754,6 +754,37 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
   });
 
+  it("keeps external-agent workspace setup in the chat shell instead of emitting an error", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
+    window.localStorage.removeItem("hecate.agentWorkspace");
+    let createCalled = false;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/agent-adapters": () =>
+          jsonResponse({
+            object: "agent_adapters",
+            data: [{ id: "claude_code", name: "Claude Code", available: true }],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") createCalled = true;
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession({ agentID: "claude_code" });
+    });
+
+    expect(createCalled).toBe(false);
+    expect(result.current.state.activeChatSessionID).toBe("");
+    expect(result.current.state.chatError).toBe("");
+  });
+
   it("creates a Hecate chat shell when no model is selected", async () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
@@ -802,7 +833,52 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatError).toBe("");
   });
 
-  it("creates a Hecate chat shell when tools are on and no workspace is selected", async () => {
+  it("drops a stale selected model when creating a new Hecate chat shell", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
+    window.localStorage.setItem("hecate.model", "missing-model");
+    let createBody: any = null;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/v1/models": () => jsonResponse({ object: "list", data: [] }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_stale_model",
+                title: "Hecate Chat",
+                agent_id: "hecate",
+                provider: "",
+                model: "",
+                workspace: "/tmp/hecate",
+                status: "idle",
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession();
+    });
+
+    expect(createBody).toMatchObject({
+      agent_id: "hecate",
+      model: "",
+    });
+    expect(result.current.state.activeChatSessionID).toBe("chat_stale_model");
+    expect(result.current.state.chatError).toBe("");
+  });
+
+  it("keeps Hecate tools-on setup local when no workspace is selected", async () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.model", "llama3.1:8b");
     let createBody: any = null;
@@ -851,13 +927,9 @@ describe("useRuntimeConsole", () => {
       await result.current.actions.createChatSession();
     });
 
-    expect(createBody).toMatchObject({
-      agent_id: "hecate",
-      model: "llama3.1:8b",
-      workspace: "",
-    });
-    expect(result.current.state.activeChatSessionID).toBe("chat_no_workspace");
-    expect(result.current.state.activeChatSession?.agent_id).toBe("hecate");
+    expect(createBody).toBeNull();
+    expect(result.current.state.activeChatSessionID).toBe("");
+    expect(result.current.state.activeChatSession).toBeNull();
     expect(result.current.state.chatError).toBe("");
   });
 
@@ -920,7 +992,7 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatError).toBe("");
   });
 
-  it("surfaces a clear error when external-agent chat has no workspace", async () => {
+  it("keeps external-agent workspace setup in the chat shell when no workspace is selected", async () => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "codex");
     let createCalled = false;
@@ -949,10 +1021,8 @@ describe("useRuntimeConsole", () => {
 
     expect(createCalled).toBe(false);
     expect(result.current.state.activeChatSessionID).toBe("");
-    expect(result.current.state.chatError).toBe(
-      "Choose a workspace before using Hecate Chat tools or External Agent.",
-    );
-    expect(result.current.state.chatErrorCode).toBe("chat.workspace_required");
+    expect(result.current.state.chatError).toBe("");
+    expect(result.current.state.chatErrorCode).toBe("");
   });
 
   it("does not create or select a chat when eager external-agent prepare fails", async () => {
