@@ -374,9 +374,9 @@ tauri-build-sidecars: ui-build _go-cache
 	if [ -z "$version" ]; then \
 	  echo "could not resolve Tauri sidecar version" && exit 1; \
 	fi; \
-	ldflags="-X github.com/hecatehq/hecate/internal/version.Version=$version"; \
+	ldflags="-s -w -X github.com/hecatehq/hecate/internal/version.Version=$version"; \
 	echo "building Tauri sidecars at version $version"; \
-	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o "hecate$goexe" ./cmd/hecate
+	GOCACHE="$PWD/{{gocache}}" go build -trimpath -ldflags "$ldflags" -o "hecate$goexe" ./cmd/hecate
 
 # Build hecate and stage it as a Tauri sidecar. Pass an explicit
 # target triple in CI matrix builds; local builds auto-detect the host triple.
