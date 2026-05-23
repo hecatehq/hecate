@@ -131,11 +131,9 @@ export function RootEffects() {
   const { setChatCancelling, setModel, setProviderFilter, setQueuedChatMessages } = chat.actions;
   const { setHecateRTKEnabled: setHecateRTKEnabledState } = runtime.actions;
   const { models, providers } = providersAndModels.state;
-  const { agentAdapters } = providersAndModels.state;
   const { notice } = settings.state;
   const { dismissNoticeIfMatching } = settings.actions;
   const settingsConfig = settings.state.config;
-  const probedAgentAdapterIDsRef = useRef<Set<string>>(new Set());
 
   // Mount-time dashboard load. The facade ran the same effect; the
   // dashboard coordinator's loadDashboard is stable, so this is a
@@ -145,24 +143,6 @@ export function RootEffects() {
     void projects.actions.loadProjects();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    const adaptersToProbe = agentAdapters.filter((adapter) => {
-      if (!adapter.id || probedAgentAdapterIDsRef.current.has(adapter.id)) return false;
-      if (adapter.managed) return false;
-      probedAgentAdapterIDsRef.current.add(adapter.id);
-      return true;
-    });
-    if (adaptersToProbe.length === 0) return;
-
-    // Probe direct adapters together so the agent picker converges as
-    // soon as the dashboard knows which adapters exist. Managed
-    // adapters can run package managers such as npx, so they only run
-    // after an explicit operator check in Connections.
-    void Promise.allSettled(
-      adaptersToProbe.map((adapter) => providersAndModels.actions.probeAgentAdapter(adapter.id)),
-    );
-  }, [agentAdapters, providersAndModels.actions]);
 
   useEffect(() => {
     if (!chatLoading) {
