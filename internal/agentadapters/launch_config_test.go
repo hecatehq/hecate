@@ -139,7 +139,7 @@ Available models:
   * model-a (default)
   - model-b
 auto - Auto
-model-c - Model C
+model-c - Model C (default)
 Tip: use --model <id>
 `
 	got := parseLaunchModelList(raw)
@@ -154,6 +154,72 @@ Tip: use --model <id>
 	}
 	if got[3].Name != "Model C" {
 		t.Fatalf("cursor-style model name = %q, want Model C", got[3].Name)
+	}
+	if !got[0].Default {
+		t.Fatalf("model[0].Default = false, want true for the CLI default")
+	}
+	if !got[3].Default {
+		t.Fatalf("model[3].Default = false, want true for inline default marker")
+	}
+	for _, i := range []int{1, 2} {
+		if got[i].Default {
+			t.Fatalf("model[%d].Default = true, want false", i)
+		}
+	}
+}
+
+func TestLaunchConfig_SelectsDiscoveredDefaultModel(t *testing.T) {
+	resetLaunchDiscoveryCacheForTest(t)
+	t.Setenv("CODEX_LAUNCH_CONFIG_HELPER", "1")
+	countFile := filepath.Join(t.TempDir(), "count")
+	adapter := Adapter{
+		ID:   "grok_build",
+		Name: "Grok Build",
+		Args: []string{"-test.run=TestLaunchConfigHelperProcess", "--", "agent", countFile},
+		LaunchModel: LaunchModelConfig{
+			ArgTemplate: []string{"--model", "{model}"},
+			ListArgs:    []string{"-test.run=TestLaunchConfigHelperProcess", "--", "models-default", countFile},
+		},
+	}
+
+	got, managed := appendLaunchConfigOptions(context.Background(), os.Args[0], adapter, nil, nil)
+	if _, ok := managed["model"]; !ok {
+		t.Fatalf("managed config ids = %#v, want model", managed)
+	}
+	if len(got) != 1 {
+		t.Fatalf("options = %#v, want one model option", got)
+	}
+	if got[0].CurrentValue != "model-a" {
+		t.Fatalf("current model = %q, want discovered default model-a", got[0].CurrentValue)
+	}
+	if len(got[0].Options) != 3 || got[0].Options[1].Value != "model-a" || got[0].Options[2].Value != "model-b" {
+		t.Fatalf("model candidates = %#v, want unset plus discovered models", got[0].Options)
+	}
+}
+
+func TestLaunchConfig_PreservesExplicitUnsetSelection(t *testing.T) {
+	resetLaunchDiscoveryCacheForTest(t)
+	t.Setenv("CODEX_LAUNCH_CONFIG_HELPER", "1")
+	countFile := filepath.Join(t.TempDir(), "count")
+	adapter := Adapter{
+		ID:   "grok_build",
+		Name: "Grok Build",
+		Args: []string{"-test.run=TestLaunchConfigHelperProcess", "--", "agent", countFile},
+		LaunchModel: LaunchModelConfig{
+			ArgTemplate: []string{"--model", "{model}"},
+			ListArgs:    []string{"-test.run=TestLaunchConfigHelperProcess", "--", "models-default", countFile},
+		},
+	}
+
+	got, _ := appendLaunchConfigOptions(context.Background(), os.Args[0], adapter, nil, []agentcontrols.ConfigOption{{
+		ID:           "model",
+		CurrentValue: launchModelUnsetValue,
+	}})
+	if len(got) != 1 {
+		t.Fatalf("options = %#v, want one model option", got)
+	}
+	if got[0].CurrentValue != launchModelUnsetValue {
+		t.Fatalf("current model = %q, want explicit unset selection", got[0].CurrentValue)
 	}
 }
 
@@ -216,6 +282,11 @@ func TestLaunchConfigHelperProcess(t *testing.T) {
 	case "models":
 		fmt.Println("Available models:")
 		fmt.Println("model-a - Model A")
+	case "models-default":
+		fmt.Println("Default model: model-a")
+		fmt.Println("Available models:")
+		fmt.Println("* model-a (default)")
+		fmt.Println("- model-b")
 	default:
 		os.Exit(2)
 	}

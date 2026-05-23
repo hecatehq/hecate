@@ -81,7 +81,7 @@ func appendLaunchConfigOptions(ctx context.Context, command string, adapter Adap
 		if hasLaunchConfigOption(out, config) || !launchHelpSupportsTemplate(help, config.ArgTemplate) {
 			continue
 		}
-		current := selectedLaunchValue(config, selected)
+		current, selectedPresent := selectedLaunchValueWithPresence(config, selected)
 		if current == "" {
 			current = strings.TrimSpace(config.Default)
 		}
@@ -93,6 +93,11 @@ func appendLaunchConfigOptions(ctx context.Context, command string, adapter Adap
 			models := discoverLaunchModels(ctx, command, adapter)
 			if len(models) == 0 {
 				models = cloneLaunchModels(adapter.LaunchModel.FallbackModels)
+			}
+			if !selectedPresent && launchSelectIsUnset(config, current) {
+				if defaultModel := defaultLaunchModel(models); defaultModel != "" {
+					current = defaultModel
+				}
 			}
 			candidates = launchModelsToSelectOptions(models)
 		}
@@ -183,13 +188,18 @@ func selectedLaunchModel(config LaunchModelConfig, options []agentcontrols.Confi
 }
 
 func selectedLaunchValue(config LaunchSelectConfig, options []agentcontrols.ConfigOption) string {
+	value, _ := selectedLaunchValueWithPresence(config, options)
+	return value
+}
+
+func selectedLaunchValueWithPresence(config LaunchSelectConfig, options []agentcontrols.ConfigOption) (string, bool) {
 	configID := strings.TrimSpace(config.ConfigID)
 	for _, option := range options {
 		if option.ID == configID {
-			return strings.TrimSpace(option.CurrentValue)
+			return strings.TrimSpace(option.CurrentValue), true
 		}
 	}
-	return ""
+	return "", false
 }
 
 func launchModelIsUnset(value string) bool {
@@ -338,12 +348,19 @@ func storeLaunchDiscoveryCache(key launchDiscoveryCacheKey, entry launchDiscover
 func parseLaunchModelList(raw string) []LaunchModel {
 	seen := map[string]struct{}{}
 	var models []LaunchModel
+	defaultID := ""
 	inModels := false
 	scanner := bufio.NewScanner(strings.NewReader(raw))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		lower := strings.ToLower(line)
-		if line == "" || strings.HasPrefix(line, "Tip:") || strings.HasPrefix(lower, "default model:") || strings.HasPrefix(lower, "you are logged in") {
+		if strings.HasPrefix(lower, "default model:") {
+			if _, value, ok := strings.Cut(line, ":"); ok {
+				defaultID = strings.TrimSpace(value)
+			}
+			continue
+		}
+		if line == "" || strings.HasPrefix(line, "Tip:") || strings.HasPrefix(lower, "you are logged in") {
 			continue
 		}
 		if strings.TrimSuffix(lower, ":") == "available models" {
@@ -361,7 +378,10 @@ func parseLaunchModelList(raw string) []LaunchModel {
 		}
 		if strings.Contains(line, " - ") {
 			parts := strings.SplitN(line, " - ", 2)
-			models = appendLaunchModel(models, seen, parts[0], parts[1])
+			name := strings.TrimSpace(parts[1])
+			isDefault := strings.Contains(strings.ToLower(name), "(default)")
+			name = strings.TrimSpace(strings.TrimSuffix(name, "(default)"))
+			models = appendLaunchModel(models, seen, parts[0], name, isDefault)
 			continue
 		}
 		fields := strings.Fields(line)
@@ -370,13 +390,21 @@ func parseLaunchModelList(raw string) []LaunchModel {
 		}
 		id := fields[0]
 		name := strings.TrimSpace(strings.TrimPrefix(line, id))
+		isDefault := strings.Contains(strings.ToLower(name), "(default)")
 		name = strings.TrimSpace(strings.TrimSuffix(name, "(default)"))
-		models = appendLaunchModel(models, seen, id, name)
+		models = appendLaunchModel(models, seen, id, name, isDefault)
+	}
+	if defaultID != "" {
+		for i := range models {
+			if models[i].ID == defaultID {
+				models[i].Default = true
+			}
+		}
 	}
 	return models
 }
 
-func appendLaunchModel(models []LaunchModel, seen map[string]struct{}, id, name string) []LaunchModel {
+func appendLaunchModel(models []LaunchModel, seen map[string]struct{}, id, name string, isDefault ...bool) []LaunchModel {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return models
@@ -389,7 +417,20 @@ func appendLaunchModel(models []LaunchModel, seen map[string]struct{}, id, name 
 	if name == "" {
 		name = humanizeModelID(id)
 	}
-	return append(models, LaunchModel{ID: id, Name: name})
+	model := LaunchModel{ID: id, Name: name}
+	for _, value := range isDefault {
+		model.Default = model.Default || value
+	}
+	return append(models, model)
+}
+
+func defaultLaunchModel(models []LaunchModel) string {
+	for _, model := range models {
+		if model.Default && strings.TrimSpace(model.ID) != "" {
+			return strings.TrimSpace(model.ID)
+		}
+	}
+	return ""
 }
 
 func launchModelSelectOptions(models []LaunchModel, current string) []agentcontrols.ConfigSelectOption {

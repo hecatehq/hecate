@@ -85,6 +85,7 @@ type LaunchModel struct {
 	ID          string
 	Name        string
 	Description string
+	Default     bool
 }
 
 type LaunchSelectConfig struct {
