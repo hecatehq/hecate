@@ -292,9 +292,7 @@ test("New chat creates an external-agent session with controls before the first 
   );
 });
 
-test("New Hecate chat asks for workspace before creating a tools-on session", async ({
-  page,
-}) => {
+test("New Hecate chat asks for workspace before creating a tools-on session", async ({ page }) => {
   let createBody: any = null;
   await page.route("/hecate/v1/chat/sessions", async (route) => {
     if (route.request().method() === "POST") {
@@ -380,6 +378,7 @@ test("New external-agent chat with model setup shows controls and composer toget
   page,
 }) => {
   let createBody: any = null;
+  let createdSession: any = null;
   await page.route("/hecate/v1/agent-adapters*", async (route) => {
     if (route.request().method() !== "GET") return route.continue();
     await route.fulfill({
@@ -418,29 +417,48 @@ test("New external-agent chat with model setup shows controls and composer toget
   await page.route("/hecate/v1/chat/sessions", async (route) => {
     if (route.request().method() === "POST") {
       createBody = JSON.parse(route.request().postData() ?? "{}");
+      createdSession = {
+        id: "grok-build-e2e",
+        title: "Grok Build chat",
+        agent_id: "grok_build",
+        agent_name: "Grok Build",
+        driver_kind: "acp",
+        native_session_id: "native-grok-build-e2e",
+        workspace: "/tmp/hecate-e2e",
+        status: "idle",
+        config_options: createBody.config_options ?? [],
+        messages: [],
+      };
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           object: "chat_session",
-          data: {
-            id: "grok-build-e2e",
-            title: "Grok Build chat",
-            agent_id: "grok_build",
-            agent_name: "Grok Build",
-            driver_kind: "acp",
-            native_session_id: "native-grok-build-e2e",
-            workspace: "/tmp/hecate-e2e",
-            status: "idle",
-            config_options: createBody.config_options ?? [],
-            messages: [],
-          },
+          data: createdSession,
         }),
       });
       return;
     }
     await route.fallback();
   });
+  await page.route(
+    "/hecate/v1/chat/sessions/grok-build-e2e/config-options/model",
+    async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      const body = JSON.parse(route.request().postData() ?? "{}");
+      createdSession = {
+        ...createdSession,
+        config_options: (createdSession?.config_options ?? []).map((option: any) =>
+          option.id === "model" ? { ...option, current_value: String(body.value ?? "") } : option,
+        ),
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_session", data: createdSession }),
+      });
+    },
+  );
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "grok_build");
@@ -451,6 +469,10 @@ test("New external-agent chat with model setup shows controls and composer toget
 
   await page.getByRole("button", { name: "New Grok Build chat", exact: true }).click();
 
+  await expect.poll(() => createBody?.agent_id).toBe("grok_build");
+  await expect(
+    page.getByRole("button", { name: /Chat Grok Build chat, Grok Build/i }),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Model" })).toContainText("Pick a model");
   await expect(page.locator("textarea")).toBeVisible();
   await page.locator("textarea").fill("Build a tiny app");
@@ -639,7 +661,9 @@ test("system prompt editor opens and closes", async ({ page }) => {
   await expect(page.locator("textarea").nth(1)).toBeVisible();
 
   await settingsBtn.click();
-  await expect(page.getByText("SYSTEM PROMPT / AGENT INSTRUCTIONS", { exact: true })).not.toBeVisible();
+  await expect(
+    page.getByText("SYSTEM PROMPT / AGENT INSTRUCTIONS", { exact: true }),
+  ).not.toBeVisible();
 });
 
 test("Enter-switch toggle is visible in the input toolbar and clickable", async ({ page }) => {

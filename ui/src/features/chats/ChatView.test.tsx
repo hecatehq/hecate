@@ -193,7 +193,7 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Model A");
   });
 
-  it("keeps Grok Build in pre-session setup when the launch model is not selected", async () => {
+  it("creates a Grok Build chat before the launch model is selected", async () => {
     const createChatSession = vi.fn(async () => undefined);
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup(
@@ -236,9 +236,8 @@ describe("ChatView input", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "New Grok Build chat" }));
 
-    expect(createChatSession).not.toHaveBeenCalled();
+    expect(createChatSession).toHaveBeenCalledWith({ agentID: "grok_build", projectID: "" });
     expect(selectChatSession).toHaveBeenCalledWith("");
-    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Pick a model");
   });
 
   it("shows Grok Build model controls for an existing session without persisted config options", async () => {
@@ -1936,8 +1935,8 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
     const activeRunStatus = screen.getByLabelText("Active run status");
-    expect(activeRunStatus).toHaveTextContent(/Hecate Chat is still working on this task/);
-    expectBefore(activeRunStatus, screen.getByLabelText("Message"));
+    expect(activeRunStatus).toHaveTextContent(/Hecate Chat is working/);
+    expectBefore(screen.getByLabelText("Message"), activeRunStatus);
 
     rerender(
       withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }),
@@ -1946,7 +1945,7 @@ describe("ChatView input", () => {
     expect(document.querySelector('[aria-label="Fixed model: qwen2.5-coder"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Model picker: smollm2:135m"]')).toBeNull();
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
-    expect(screen.getByText(/Hecate Chat is still working on this task/)).toBeTruthy();
+    expect(screen.getByText(/Hecate Chat is working/)).toBeTruthy();
   });
 
   it("locks controls to the active task segment even when the session root is direct chat", () => {
@@ -2022,7 +2021,7 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeTruthy();
     expect(screen.queryByText("smollm2:135m")).toBeNull();
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
-    expect(screen.getByText(/New messages will queue until the active task finishes/)).toBeTruthy();
+    expect(screen.getByText(/New messages will queue/)).toBeTruthy();
     screen.getByRole("button", { name: "Open task" }).click();
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
   });
@@ -3249,6 +3248,9 @@ describe("ChatView external-agent target", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Open setup" }));
     expect(onNavigate).toHaveBeenCalledWith("connections");
+    expect(sessionStorage.getItem("hecate.connectionsFocus")).toBe(
+      "external-agent-auth-setup-claude_code",
+    );
   });
 
   it("shows Claude Code setup repair in empty sessions without a token form", () => {
@@ -4296,8 +4298,31 @@ describe("ChatView session title", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.queryByText("No chat selected")).toBeNull();
-    expect(screen.getByText("New chat")).toBeTruthy();
+    expect(screen.queryByText("New chat")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Chat settings" })).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+  });
+
+  it("does not show the session header for an unselected draft chat", async () => {
+    const createChatSession = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        activeChatSessionID: "",
+        activeChatSession: null,
+        message: "",
+      },
+      { createChatSession },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /New Hecate chat/i }));
+
+    expect(createChatSession).toHaveBeenCalled();
+    expect(screen.queryByText("New chat")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Chat settings" })).toBeNull();
+    expect(screen.queryByTitle("Choose workspace folder")).toBeNull();
   });
 
   it("shows the active session's title", () => {

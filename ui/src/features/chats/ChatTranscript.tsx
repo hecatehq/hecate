@@ -69,7 +69,7 @@ type Props = {
   onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
-  openClaudeCodeSetup: () => void;
+  openExternalAgentSetup: (adapterID?: string) => void;
 };
 
 export function ChatTranscript({
@@ -82,7 +82,7 @@ export function ChatTranscript({
   onNavigate,
   onOpenTask,
   onOpenTrace,
-  openClaudeCodeSetup,
+  openExternalAgentSetup,
 }: Props) {
   const chat = useChat();
   const chatTarget = useChatTarget();
@@ -224,26 +224,7 @@ export function ChatTranscript({
               agentUsage={role === "assistant" ? m.usage : undefined}
               agentTiming={role === "assistant" ? m.timing : undefined}
               error={role === "assistant" ? m.error : undefined}
-              setupAction={
-                // Render the "Open Claude Code setup" button only
-                // when the server-side message carries the
-                // claude_code_auth_required marker. Pattern-match
-                // (not strict equality) is deliberate — the marker
-                // is part of a paragraph that may be reworded over
-                // time; the token itself is stable contract between
-                // internal/agentadapters/auth_status.go and this UI
-                // handler.
-                role === "assistant" &&
-                m.agent_id === "claude_code" &&
-                typeof m.error === "string" &&
-                m.error.includes("claude_code_auth_required")
-                  ? {
-                      label: "Open Claude Code setup",
-                      title: "Open Connections and scroll to the guided setup card",
-                      onClick: openClaudeCodeSetup,
-                    }
-                  : undefined
-              }
+              setupAction={externalAgentSetupAction(role, m, openExternalAgentSetup)}
               onCopy={copyMsg}
               copied={copiedMsgId === m.id}
             />
@@ -547,6 +528,52 @@ function messageBrand(message: VisibleChatMessage, isHecateAgentChat: boolean): 
   if (message.agent_name) return message.agent_name;
   if (isHecateAgentChat) return message.provider || message.model || "hecate";
   return message.provider || message.model;
+}
+
+function externalAgentSetupAction(
+  role: string,
+  message: VisibleChatMessage,
+  openExternalAgentSetup: (adapterID?: string) => void,
+): { label: string; title: string; onClick: () => void } | undefined {
+  if (role !== "assistant" || !message.agent_id || message.agent_id === "hecate") return undefined;
+  const error = typeof message.error === "string" ? message.error : "";
+  if (!isExternalAgentSetupError(error)) return undefined;
+  const label = message.agent_name || externalAgentDisplayName(message.agent_id);
+  return {
+    label: `Open ${label} setup`,
+    title: `Open Connections and scroll to ${label} setup`,
+    onClick: () => openExternalAgentSetup(message.agent_id),
+  };
+}
+
+function isExternalAgentSetupError(error: string): boolean {
+  const normalized = error.toLowerCase();
+  return (
+    normalized.includes("auth_required") ||
+    normalized.includes("authentication required") ||
+    normalized.includes("unauthenticated") ||
+    normalized.includes("not authenticated") ||
+    normalized.includes("not signed in") ||
+    normalized.includes("not logged in") ||
+    normalized.includes("login required") ||
+    normalized.includes("command not found") ||
+    normalized.includes("not installed")
+  );
+}
+
+function externalAgentDisplayName(agentID: string): string {
+  switch (agentID) {
+    case "claude_code":
+      return "Claude Code";
+    case "codex":
+      return "Codex";
+    case "cursor_agent":
+      return "Cursor";
+    case "grok_build":
+      return "Grok Build";
+    default:
+      return "agent";
+  }
 }
 
 function formatTaskLinkLabel(taskID: string): string {

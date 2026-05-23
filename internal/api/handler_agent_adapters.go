@@ -28,12 +28,12 @@ func (h *Handler) HandleAgentAdapterProbe(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "adapter id is required")
 		return
 	}
-	status, ok := agentadapters.StatusForAdapter(ctx, id, nil)
-	if !ok {
+	if _, ok := agentadapters.FindAdapter(id); !ok {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "adapter not found")
 		return
 	}
 	result := h.probeAgentAdapter(ctx, id)
+	status, _ := agentadapters.StatusForAdapterAfterExplicitProbe(ctx, id, nil)
 	item := renderAgentAdapterItem(ctx, status)
 	if !agentadapters.DevOverrideActive(id) {
 		item.AuthStatus, item.AuthError = authStatusFromProbe(result, item.AuthStatus, item.AuthError)
@@ -94,7 +94,8 @@ func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) Agen
 		Description:         item.Description,
 		CostMode:            item.CostMode,
 		DocsURL:             item.DocsURL,
-		Version:             item.Version,
+		AdapterVersion:      item.AdapterVersion,
+		AgentVersion:        item.AgentVersion,
 		SupportedRange:      item.SupportedRange,
 		VersionOutsideRange: item.VersionOutsideRange,
 		AuthStatus:          item.AuthStatus,

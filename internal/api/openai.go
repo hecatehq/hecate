@@ -557,7 +557,8 @@ type AgentAdapterResponseItem struct {
 	Description         string                              `json:"description,omitempty"`
 	CostMode            string                              `json:"cost_mode,omitempty"`
 	DocsURL             string                              `json:"docs_url,omitempty"`
-	Version             string                              `json:"version,omitempty"`
+	AdapterVersion      string                              `json:"adapter_version,omitempty"`
+	AgentVersion        string                              `json:"agent_version,omitempty"`
 	SupportedRange      string                              `json:"supported_range,omitempty"`
 	VersionOutsideRange bool                                `json:"version_outside_range,omitempty"`
 	AuthStatus          string                              `json:"auth_status,omitempty"`

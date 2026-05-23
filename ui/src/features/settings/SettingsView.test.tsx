@@ -339,9 +339,11 @@ describe("Connections external-agent panel", () => {
     expect(setProviderAPIKey).toHaveBeenNthCalledWith(2, "anthropic", "");
   });
 
-  // Adapter status panel — surfaces auto-probe results when the tab
-  // opens. The section is hidden when no adapters are registered (no
-  // point showing an empty card); otherwise each row renders inline
+  // Adapter status panel — surfaces adapter readiness diagnostics.
+  // Direct binaries can be checked quietly; managed package-launcher
+  // adapters require an explicit confirmation before a manual check.
+  // The section is hidden when no adapters are registered (no point
+  // showing an empty card); otherwise each row renders inline
   // diagnostic copy when a result exists.
   describe("adapter status panel", () => {
     function withAdapter(overrides: Record<string, unknown> = {}) {
@@ -375,24 +377,29 @@ describe("Connections external-agent panel", () => {
       expect(screen.queryByTestId("external-agents-test-codex")).toBeNull();
     });
 
-    it("auto-runs adapter probes when the tab opens", async () => {
-      const probeAgentAdapter = vi.fn(async () => null);
-      const { state, actions } = setup(withAdapter(), { probeAgentAdapter });
+    it("shows adapter and underlying agent versions separately", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              adapter_version: "1.2.3",
+              agent_version: "0.48.0",
+            },
+          ],
+        }),
+      );
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-      expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
-    });
 
-    it("auto-runs adapter probes when adapters arrive after the tab opens", async () => {
-      const probeAgentAdapter = vi.fn(async () => null);
-      const { state, actions } = setup({ agentAdapters: [] }, { probeAgentAdapter });
-      const { rerender } = render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-      expect(probeAgentAdapter).not.toHaveBeenCalled();
-
-      const nextState = createRuntimeConsoleFixture(withAdapter());
-      rerender(withRuntimeConsole(<ConnectionsPanel />, { state: nextState, actions }));
-      expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
-      rerender(withRuntimeConsole(<ConnectionsPanel />, { state: { ...nextState }, actions }));
-      expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
+      const row = await screen.findByTestId("external-agents-adapter-codex");
+      expect(row).toHaveTextContent("adapter 1.2.3");
+      expect(row).toHaveTextContent("agent 0.48.0");
     });
 
     it("renders compact local sign-in when the cached probe says auth is missing", async () => {
@@ -569,6 +576,8 @@ describe("Connections external-agent panel", () => {
               name: "Claude Code",
               kind: "acp",
               command: "claude-agent-acp",
+              managed: true,
+              managed_package: "@agentclientprotocol/claude-agent-acp",
               available: true,
               status: "available",
               cost_mode: "external",
@@ -629,6 +638,8 @@ describe("Connections external-agent panel", () => {
               command: "claude-agent-acp",
               available: true,
               status: "available",
+              managed: true,
+              managed_package: "@agentclientprotocol/claude-agent-acp",
               cost_mode: "external",
               auth_status: "unauthenticated",
             },
@@ -654,6 +665,8 @@ describe("Connections external-agent panel", () => {
               command: "claude-agent-acp",
               available: true,
               status: "available",
+              managed: true,
+              managed_package: "@agentclientprotocol/claude-agent-acp",
               cost_mode: "external",
               auth_status: "unauthenticated",
             },
@@ -664,6 +677,12 @@ describe("Connections external-agent panel", () => {
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       await user.click(await screen.findByRole("button", { name: "Test again" }));
+      expect(probeAgentAdapter).not.toHaveBeenCalled();
+      expect(
+        await screen.findByRole("dialog", { name: "Run managed adapter check?" }),
+      ).toBeTruthy();
+      expect(screen.getByText(/@agentclientprotocol\/claude-agent-acp/)).toBeTruthy();
+      await user.click(screen.getByRole("button", { name: "Run check" }));
       expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
     });
   });

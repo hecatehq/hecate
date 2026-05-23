@@ -187,9 +187,11 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
     },
     providersAndModelsSlice: {
       refreshProviders: actions.refreshProviders,
+      probeAgentAdapter: actions.probeAgentAdapter,
     },
     projectsSlice: {
       setActiveProjectID: actions.setActiveProjectID,
+      loadProjects: actions.loadProjects,
       createProjectFromFolder: actions.createProjectFromFolder,
       selectProject: actions.selectProject,
       renameProject: actions.renameProject,

@@ -493,7 +493,8 @@ function agentReadyLabel(adapter: AgentAdapterRecord): string {
   if (adapter.auth_status === "unauthenticated" || adapter.auth_status === "billing") {
     return adapter.auth_error || `Auth status: ${adapter.auth_status}`;
   }
-  if (adapter.version) return `Ready · ${adapter.version}`;
+  if (adapter.agent_version) return `Ready · agent ${adapter.agent_version}`;
+  if (adapter.adapter_version) return `Ready · adapter ${adapter.adapter_version}`;
   return "Ready";
 }
 

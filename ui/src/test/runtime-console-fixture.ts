@@ -229,6 +229,7 @@ export type RuntimeConsoleFixtureActions = {
   setProviderName: (id: string, name: string) => Promise<void>;
   setProviderCustomName: (id: string, customName: string) => Promise<void>;
   setActiveProjectID: (id: string) => void;
+  loadProjects: () => Promise<void>;
   selectProject: (id: string) => Promise<void>;
   createProjectFromFolder: () => Promise<ProjectRecord | null>;
   renameProject: (id: string, name: string) => Promise<void>;
@@ -298,6 +299,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     setProviderName: async () => undefined,
     setProviderCustomName: async () => undefined,
     setActiveProjectID: () => undefined,
+    loadProjects: async () => undefined,
     selectProject: async () => undefined,
     createProjectFromFolder: async () => null,
     renameProject: async () => undefined,
