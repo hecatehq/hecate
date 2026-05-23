@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0   # goreleaser needs full history to compute the changelog
 
@@ -91,7 +91,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout master
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           ref: master
           fetch-depth: 0
