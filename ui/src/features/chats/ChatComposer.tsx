@@ -75,7 +75,7 @@ export type ChatComposerProps = {
 
   // Repair actions.
   chooseWorkspace: () => Promise<void> | void;
-  openClaudeCodeSetup: () => void;
+  openExternalAgentSetup: () => void;
 
   // Active task tracking + queue.
   activeHecateTaskID: string;
@@ -152,7 +152,7 @@ export function ChatComposer(props: ChatComposerProps) {
     selectableModels,
     onHecateModelChange,
     chooseWorkspace,
-    openClaudeCodeSetup,
+    openExternalAgentSetup,
     activeHecateTaskID,
     activeHecateRunID,
     activeQueuedChatMessages,
@@ -187,6 +187,17 @@ export function ChatComposer(props: ChatComposerProps) {
   const composerNoticeVisible = Boolean(
     composerRepair || chatError || (isHecateChat && selectedModelIssue),
   );
+  const activeRunStatusText = agentBusy
+    ? isExternalAgentChat
+      ? "External Agent is working. New messages will queue."
+      : "Hecate Chat is working. New messages will queue."
+    : "";
+  const baselineComposerStatus = isExternalAgentChat
+    ? "External agents run as your OS user in the selected workspace — no sandbox"
+    : hecateTaskToolsAvailable
+      ? "Tools use task approvals and per-call sandboxing in the selected workspace."
+      : "";
+  const composerStatusText = activeRunStatusText || baselineComposerStatus;
 
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
@@ -497,71 +508,6 @@ export function ChatComposer(props: ChatComposerProps) {
               ))}
             </div>
           )}
-          {agentBusy && (
-            <div
-              aria-label="Active run status"
-              style={{
-                maxWidth: 820,
-                margin: "0 auto 6px",
-                color: "var(--amber)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 11,
-                lineHeight: 1.45,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-              }}
-            >
-              <span>
-                {isExternalAgentChat
-                  ? "External Agent is still working. New messages will queue until it finishes."
-                  : "Hecate Chat is still working on this task. New messages will queue until the active task finishes."}
-              </span>
-              <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}
-              >
-                {onOpenTask && activeHecateTaskID && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10,
-                      padding: "2px 6px",
-                      color: "var(--amber)",
-                    }}
-                  >
-                    Open task
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
-                  title={
-                    chatCancelling
-                      ? "Stopping..."
-                      : isExternalAgentChat
-                        ? "Stop external agent"
-                        : "Stop active task"
-                  }
-                  onClick={chatActions.cancelAgentChat}
-                  disabled={chatCancelling}
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    padding: "2px 6px",
-                    color: "var(--danger)",
-                  }}
-                >
-                  Stop
-                </button>
-              </span>
-            </div>
-          )}
           <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
             <textarea
               ref={textareaRef}
@@ -600,63 +546,37 @@ export function ChatComposer(props: ChatComposerProps) {
               onFocus={(e) => (e.target.style.borderColor = "var(--teal)")}
               onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
             />
-            {agentBusy && !queueingMessage ? (
-              <button
-                type="button"
-                className="btn btn-danger"
-                aria-label="Stop current run"
-                disabled={chatCancelling}
-                title={chatCancelling ? "Stopping..." : "Stop current run"}
-                onClick={chatActions.cancelAgentChat}
-                style={{
-                  position: "absolute",
-                  right: 8,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  width: 28,
-                  height: 28,
-                  borderRadius: "var(--radius-sm)",
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Icon d={Icons.stop} size={13} fill="currentColor" strokeWidth={0} />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                aria-label={queueingMessage ? "Queue message" : "Send message"}
-                disabled={sendDisabled}
-                title={
-                  queueingMessage
-                    ? "Queue this message after the active run finishes"
-                    : messageSendBlocked
-                      ? "Complete chat setup before sending"
-                      : "Send message"
-                }
-                style={{
-                  position: "absolute",
-                  right: 8,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  width: 28,
-                  height: 28,
-                  borderRadius: "var(--radius-sm)",
-                  background: !sendDisabled ? "var(--teal)" : "var(--bg4)",
-                  border: "none",
-                  cursor: !sendDisabled ? "pointer" : "default",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  transition: "background 0.1s",
-                  color: !sendDisabled ? "var(--bg0)" : "var(--t3)",
-                }}
-              >
-                <Icon d={Icons.send} size={14} />
-              </button>
-            )}
+            <button
+              type="submit"
+              aria-label={queueingMessage ? "Queue message" : "Send message"}
+              disabled={sendDisabled}
+              title={
+                queueingMessage
+                  ? "Queue this message after the active run finishes"
+                  : messageSendBlocked
+                    ? "Complete chat setup before sending"
+                    : "Send message"
+              }
+              style={{
+                position: "absolute",
+                right: 8,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 28,
+                height: 28,
+                borderRadius: "var(--radius-sm)",
+                background: !sendDisabled ? "var(--teal)" : "var(--bg4)",
+                border: "none",
+                cursor: !sendDisabled ? "pointer" : "default",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "background 0.1s",
+                color: !sendDisabled ? "var(--bg0)" : "var(--t3)",
+              }}
+            >
+              <Icon d={Icons.send} size={14} />
+            </button>
           </div>
           {composerNoticeVisible && (
             <div
@@ -670,7 +590,7 @@ export function ChatComposer(props: ChatComposerProps) {
                     if (repair.action === "choose_workspace") {
                       void chooseWorkspace();
                     } else if (repair.action === "open_agent_setup") {
-                      openClaudeCodeSetup();
+                      openExternalAgentSetup();
                     } else if (repair.action === "open_connections") {
                       onNavigate?.("connections");
                     }
@@ -723,19 +643,69 @@ export function ChatComposer(props: ChatComposerProps) {
               alignItems: "center",
               gap: 10,
               justifyContent: "space-between",
+              minHeight: 22,
             }}
           >
-            {isExternalAgentChat ? (
-              <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-                External agents run as your OS user in the selected workspace — no sandbox
+            <span
+              aria-label={agentBusy ? "Active run status" : undefined}
+              style={{
+                minWidth: 0,
+                color: agentBusy ? "var(--amber)" : "var(--t3)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                {composerStatusText}
               </span>
-            ) : hecateTaskToolsAvailable ? (
-              <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-                Tools use task approvals and per-call sandboxing in the selected workspace.
-              </span>
-            ) : (
-              <span />
-            )}
+              {agentBusy && onOpenTask && activeHecateTaskID && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
+                  style={{
+                    flexShrink: 0,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    padding: "2px 6px",
+                    color: "var(--amber)",
+                  }}
+                >
+                  Open task
+                </button>
+              )}
+              {agentBusy && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
+                  title={
+                    chatCancelling
+                      ? "Stopping..."
+                      : isExternalAgentChat
+                        ? "Stop external agent"
+                        : "Stop active task"
+                  }
+                  onClick={chatActions.cancelAgentChat}
+                  disabled={chatCancelling}
+                  style={{
+                    flexShrink: 0,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    padding: "2px 6px",
+                    color: "var(--danger)",
+                  }}
+                >
+                  Stop
+                </button>
+              )}
+            </span>
             <button
               type="button"
               onClick={toggleModEnterMode}

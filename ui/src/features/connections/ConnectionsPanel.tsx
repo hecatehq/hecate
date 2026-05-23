@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useApprovals } from "../../app/state/approvals";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
@@ -27,7 +27,7 @@ import type {
   ConfiguredStateResponse,
   ProviderRecord,
 } from "../../types/provider";
-import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
+import { BrandAvatar, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
 
 type Props = {
   onNavigate?: (
@@ -125,13 +125,8 @@ export function ConnectionsPanel({
   const liveAnthropicProvider = findAnthropicProvider(settingsConfig?.providers ?? []);
   const [rememberedAnthropicProvider, setRememberedAnthropicProvider] =
     useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
-  const probedAdapterIDsRef = useRef<Set<string>>(new Set());
-  const adapterIDsKey = useMemo(
-    () =>
-      agentAdapters
-        .map((adapter) => adapter.id)
-        .sort()
-        .join(","),
+  const adapterFocusTargets = useMemo(
+    () => new Set(agentAdapters.map((adapter) => externalAgentSetupFocusTarget(adapter.id))),
     [agentAdapters],
   );
   const listChatGrants = approvals.actions.loadGrants;
@@ -140,18 +135,6 @@ export function ConnectionsPanel({
   useEffect(() => {
     if (liveAnthropicProvider) setRememberedAnthropicProvider(liveAnthropicProvider);
   }, [liveAnthropicProvider]);
-
-  useEffect(() => {
-    for (const adapter of agentAdapters) {
-      if (probedAdapterIDsRef.current.has(adapter.id)) continue;
-      probedAdapterIDsRef.current.add(adapter.id);
-      void probeAgentAdapter(adapter.id);
-    }
-    // `probeAgentAdapter` is a coordinator action that can be re-created
-    // by parent renders. Probe only when the adapter ID set changes; the
-    // ref prevents duplicate probes for IDs we've already checked.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adapterIDsKey]);
 
   useEffect(() => {
     void listChatGrants();
@@ -171,10 +154,8 @@ export function ConnectionsPanel({
   // injection class from an unexpected sessionStorage value (which
   // could happen via a stale entry, a third-party extension writing
   // into the same key, or a forward-compat token a newer build set
-  // that this build doesn't know about). Add new targets to the
-  // KNOWN_FOCUS_TARGETS set when more callers wire one in.
+  // that this build doesn't know about).
   useEffect(() => {
-    const KNOWN_FOCUS_TARGETS = new Set(["external-agent-auth-setup"]);
     let focusTarget: string | null = null;
     try {
       const raw =
@@ -184,7 +165,7 @@ export function ConnectionsPanel({
         sessionStorage.removeItem("hecate.connectionsFocus");
         sessionStorage.removeItem("hecate.settingsFocus");
       }
-      if (raw && KNOWN_FOCUS_TARGETS.has(raw)) focusTarget = raw;
+      if (raw && adapterFocusTargets.has(raw)) focusTarget = raw;
     } catch {
       // sessionStorage unavailable — nothing to focus.
     }
@@ -209,7 +190,7 @@ export function ConnectionsPanel({
       window.clearTimeout(startHandle);
       if (removeHandle !== null) window.clearTimeout(removeHandle);
     };
-  }, []);
+  }, [adapterFocusTargets]);
 
   // Adapter status uses the runtime slice for copyCommand because
   // clipboard writes are side-effects, not session mutations.
@@ -632,12 +613,11 @@ function AnthropicProviderKeyCard({
 }
 
 // AdapterStatusSection lists the configured external-agent adapters.
-// The parent tab auto-runs actions.probeAgentAdapter on mount, which
-// spawns each adapter, completes the ACP handshake, and returns a
-// typed health classification. That handshake is also the auth
-// check: auth failures surface as `auth_required`.
-// Probe state is cached on the hook so leaving and returning to the
-// tab doesn't lose the last-known status.
+// Quiet startup probes only touch direct binaries. Managed adapters may
+// invoke a package-manager launcher, so manual checks ask first before
+// spawning the adapter, completing the ACP handshake, and returning a
+// typed health classification. That handshake is also the auth check:
+// auth failures surface as `auth_required`.
 //
 // The section is read-only otherwise: adapter discovery and
 // availability are still owned by the dashboard fan-out's
@@ -656,9 +636,22 @@ function AdapterStatusSection({
   copyCommand: (command: string) => Promise<void>;
   onProbeAdapter: (adapterID: string) => void;
 }) {
+  const [managedProbeConfirm, setManagedProbeConfirm] = useState<AgentAdapterRecord | null>(null);
   if (!agentAdapters || agentAdapters.length === 0) {
     return null;
   }
+  const requestProbe = (adapter: AgentAdapterRecord) => {
+    if (adapter.managed) {
+      setManagedProbeConfirm(adapter);
+      return;
+    }
+    onProbeAdapter(adapter.id);
+  };
+  const confirmManagedProbe = () => {
+    if (!managedProbeConfirm) return;
+    onProbeAdapter(managedProbeConfirm.id);
+    setManagedProbeConfirm(null);
+  };
   return (
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
@@ -675,10 +668,40 @@ function AdapterStatusSection({
             health={agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
             onCopyCommand={(command) => void copyCommand(command)}
-            onProbeAdapter={onProbeAdapter}
+            onProbeAdapter={requestProbe}
           />
         ))}
       </div>
+      {managedProbeConfirm && (
+        <ConfirmModal
+          title="Run managed adapter check?"
+          confirmLabel="Run check"
+          onClose={() => setManagedProbeConfirm(null)}
+          onConfirm={confirmManagedProbe}
+          message={
+            <div>
+              <p style={{ marginTop: 0 }}>
+                Hecate will start {managedProbeConfirm.name} to verify readiness and auth. This
+                managed adapter can run its package-manager launcher
+                {managedProbeConfirm.managed_package ? (
+                  <>
+                    {" "}
+                    for{" "}
+                    <code style={{ fontFamily: "var(--font-mono)", color: "var(--t0)" }}>
+                      {managedProbeConfirm.managed_package}
+                    </code>
+                  </>
+                ) : null}
+                .
+              </p>
+              <p style={{ marginBottom: 0, color: "var(--t2)" }}>
+                Continue only if you trust this adapter package. Passive startup checks never run
+                package managers.
+              </p>
+            </div>
+          }
+        />
+      )}
     </div>
   );
 }
@@ -696,7 +719,7 @@ function AdapterStatusRow({
   health: AgentAdapterHealthRecord | null;
   loading: boolean;
   onCopyCommand: (command: string) => void;
-  onProbeAdapter: (adapterID: string) => void;
+  onProbeAdapter: (adapter: AgentAdapterRecord) => void;
 }) {
   // Collapse discovery, probe, and auth into one operator-facing state
   // so adapters don't show as both "missing" and "auth unknown".
@@ -707,7 +730,8 @@ function AdapterStatusRow({
   const localAuthNeedsRepair =
     displayAuthStatus === "unauthenticated" || health?.status === "auth_required";
   const showLocalAuthSetup = Boolean(loginCommand) && !probeVerifiedAuth && localAuthNeedsRepair;
-  const visibleHealthError = health && shouldShowProbeError(health) ? (health.error ?? "") : "";
+  const visibleHealthError =
+    health && shouldShowProbeError(health) ? humanizeProbeError(health.error ?? "") : "";
   const healthPath = health?.path ?? "";
   const state = adapterStatusState(adapter, health, displayAuthStatus, showLocalAuthSetup);
   const detail = adapterStatusDetail(adapter, health, state, visibleHealthError, displayAuthError);
@@ -790,9 +814,14 @@ function AdapterStatusRow({
               command <span style={{ color: "var(--t1)" }}>{adapter.command}</span>
             </span>
           )}
-          {adapter.version && (
+          {adapter.adapter_version && (
             <span>
-              version <span style={{ color: "var(--t1)" }}>{adapter.version}</span>
+              adapter <span style={{ color: "var(--t1)" }}>{adapter.adapter_version}</span>
+            </span>
+          )}
+          {adapter.agent_version && (
+            <span>
+              agent <span style={{ color: "var(--t1)" }}>{adapter.agent_version}</span>
             </span>
           )}
           {showAuthMetadata && (
@@ -850,9 +879,10 @@ function AdapterStatusRow({
         )}
         {showLocalAuthSetup && loginCommand && (
           <AdapterLocalAuthSetup
+            adapterID={adapter.id}
             loginCommand={loginCommand}
             onCopyCommand={onCopyCommand}
-            onTestAgain={() => onProbeAdapter(adapter.id)}
+            onTestAgain={() => onProbeAdapter(adapter)}
             testing={loading}
           />
         )}
@@ -875,11 +905,13 @@ function AdapterStatusRow({
 }
 
 function AdapterLocalAuthSetup({
+  adapterID,
   loginCommand,
   onCopyCommand,
   onTestAgain,
   testing,
 }: {
+  adapterID: string;
   loginCommand: string;
   onCopyCommand: (command: string) => void;
   onTestAgain: () => void;
@@ -889,7 +921,7 @@ function AdapterLocalAuthSetup({
 
   return (
     <div
-      data-testid="external-agent-auth-setup"
+      data-testid={externalAgentSetupFocusTarget(adapterID)}
       style={{
         marginTop: 10,
         padding: 10,
@@ -1093,8 +1125,31 @@ function adapterLoginCommand(adapter: AgentAdapterRecord): string {
       return "claude /login";
     case "cursor_agent":
       return "cursor-agent login";
+    case "grok_build":
+      return "grok login";
     default:
       return "";
+  }
+}
+
+function externalAgentSetupFocusTarget(adapterID: string): string {
+  return `external-agent-auth-setup-${adapterID}`;
+}
+
+function humanizeProbeError(error: string): string {
+  const trimmed = error.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      message?: unknown;
+      data?: { error?: unknown };
+    };
+    const message = typeof parsed.message === "string" ? parsed.message : "";
+    const detail = typeof parsed.data?.error === "string" ? parsed.data.error : "";
+    if (message && detail) return `${message}: ${detail}`;
+    return detail || message || trimmed;
+  } catch {
+    return trimmed;
   }
 }
 

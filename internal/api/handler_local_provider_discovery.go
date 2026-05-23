@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -157,13 +158,22 @@ func discoverLocalProviderPairsConcurrently(ctx context.Context, providers []loc
 }
 
 func findLocalProviderCommand(providerID string, lookPath localProviderLookPath) (string, string) {
-	for _, command := range localProviderCommandCandidates(providerID) {
+	candidates := localProviderCommandCandidates(providerID)
+	for _, command := range candidates {
 		path, err := lookPath(command)
 		if err == nil && strings.TrimSpace(path) != "" {
 			return command, path
 		}
 	}
-	candidates := localProviderCommandCandidates(providerID)
+	for _, candidate := range localProviderCommandPathCandidates(providerID) {
+		path, err := lookPath(expandLocalProviderPath(candidate))
+		if err == nil && strings.TrimSpace(path) != "" {
+			if len(candidates) == 0 {
+				return strings.TrimSpace(candidate), path
+			}
+			return candidates[0], path
+		}
+	}
 	if len(candidates) == 0 {
 		return "", ""
 	}
@@ -183,6 +193,57 @@ func localProviderCommandCandidates(providerID string) []string {
 	default:
 		return nil
 	}
+}
+
+func localProviderCommandPathCandidates(providerID string) []string {
+	switch providerID {
+	case "ollama":
+		return []string{
+			"${HOME}/.local/bin/ollama",
+			"/opt/homebrew/bin/ollama",
+			"/usr/local/bin/ollama",
+			"/Applications/Ollama.app/Contents/Resources/ollama",
+		}
+	case "lmstudio":
+		return []string{
+			"${HOME}/.lmstudio/bin/lms",
+			"${HOME}/.local/bin/lms",
+			"${HOME}/.volta/bin/lms",
+			"/opt/homebrew/bin/lms",
+			"/usr/local/bin/lms",
+		}
+	case "llamacpp":
+		return []string{
+			"${HOME}/.local/bin/llama-server",
+			"/opt/homebrew/bin/llama-server",
+			"/usr/local/bin/llama-server",
+		}
+	case "localai":
+		return []string{
+			"${HOME}/.local/bin/local-ai",
+			"${HOME}/.local/bin/localai",
+			"/opt/homebrew/bin/local-ai",
+			"/opt/homebrew/bin/localai",
+			"/usr/local/bin/local-ai",
+			"/usr/local/bin/localai",
+		}
+	default:
+		return nil
+	}
+}
+
+func expandLocalProviderPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		path = strings.ReplaceAll(path, "${HOME}", home)
+		if strings.HasPrefix(path, "~/") {
+			path = home + path[1:]
+		}
+	}
+	return path
 }
 
 func localProviderProbeURL(provider config.BuiltInProvider) string {

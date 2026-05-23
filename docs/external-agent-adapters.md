@@ -95,6 +95,11 @@ curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq
 
 Discovery reports command availability, tested version range, and lightweight
 auth hints (`auth_status`: `ok`, `unauthenticated`, `billing`, or `unknown`).
+When an ACP bridge or launcher is separate from the coding-agent CLI, Hecate
+reports both versions: `adapter_version` for the bridge and `agent_version` for
+the underlying agent (`codex`, `claude`, `cursor-agent`, `grok`). Managed package
+adapters avoid package-manager execution during passive discovery; their
+`adapter_version` is populated only after an explicit adapter test.
 
 Manual setup stays in the upstream CLIs:
 

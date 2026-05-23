@@ -15,7 +15,8 @@ export type AgentAdapterRecord = {
   description?: string;
   cost_mode?: string;
   docs_url?: string;
-  version?: string;
+  adapter_version?: string;
+  agent_version?: string;
   supported_range?: string;
   version_outside_range?: boolean;
   auth_status?: "ok" | "unauthenticated" | "billing" | "unknown" | string;

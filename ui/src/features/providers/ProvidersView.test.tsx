@@ -629,11 +629,9 @@ describe("ProvidersView table renders", () => {
 
   it("renders external-agent readiness and grants in the Connections workspace", async () => {
     const listChatGrants = vi.fn(async () => undefined);
-    const probeAgentAdapter = vi.fn(async () => null);
     const actions = {
       ...createRuntimeConsoleActions(),
       listChatGrants,
-      probeAgentAdapter,
     };
     const state = createRuntimeConsoleFixture({
       session: localSession,
@@ -681,7 +679,6 @@ describe("ProvidersView table renders", () => {
     expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
     expect(screen.getByTestId("external-agents-row-grant-1")).toBeTruthy();
     expect(listChatGrants).toHaveBeenCalled();
-    expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
   });
 
   it("blocks submit when the typed Endpoint URL is already taken", async () => {

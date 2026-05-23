@@ -56,6 +56,7 @@ type Adapter struct {
 	Command          string
 	Args             []string
 	CandidatePaths   []string
+	AgentVersion     VersionProbe
 	Managed          ManagedLauncher
 	LaunchSuffixArgs []string
 	LaunchModel      LaunchModelConfig
@@ -65,6 +66,12 @@ type Adapter struct {
 	CostMode         string
 	DocsURL          string
 	SupportedRange   string
+}
+
+type VersionProbe struct {
+	Command        string
+	Args           []string
+	CandidatePaths []string
 }
 
 type LaunchModelConfig struct {
@@ -116,7 +123,8 @@ type Status struct {
 	Status              string
 	Path                string
 	Error               string
-	Version             string
+	AdapterVersion      string
+	AgentVersion        string
 	VersionOutsideRange bool
 	AuthStatus          string
 	AuthError           string
@@ -216,6 +224,16 @@ func BuiltIns() []Adapter {
 				"/opt/homebrew/bin/codex-acp",
 				"/usr/local/bin/codex-acp",
 			},
+			AgentVersion: VersionProbe{
+				Command: "codex",
+				Args:    []string{"--version"},
+				CandidatePaths: []string{
+					"${HOME}/.local/bin/codex",
+					"${HOME}/.volta/bin/codex",
+					"/opt/homebrew/bin/codex",
+					"/usr/local/bin/codex",
+				},
+			},
 			Managed: ManagedLauncher{
 				Package: "@zed-industries/codex-acp",
 				Runners: []ManagedRunner{
@@ -236,6 +254,16 @@ func BuiltIns() []Adapter {
 				"${HOME}/.local/bin/claude-agent-acp",
 				"/opt/homebrew/bin/claude-agent-acp",
 				"/usr/local/bin/claude-agent-acp",
+			},
+			AgentVersion: VersionProbe{
+				Command: "claude",
+				Args:    []string{"--version"},
+				CandidatePaths: []string{
+					"${HOME}/.local/bin/claude",
+					"${HOME}/.volta/bin/claude",
+					"/opt/homebrew/bin/claude",
+					"/usr/local/bin/claude",
+				},
 			},
 			Managed: ManagedLauncher{
 				Package: "@agentclientprotocol/claude-agent-acp",
@@ -334,12 +362,24 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 	items := BuiltIns()
 	out := make([]Status, 0, len(items))
 	for _, item := range items {
-		out = append(out, statusForAdapter(ctx, item, lookup))
+		out = append(out, statusForAdapter(ctx, item, lookup, statusProbeOptions{}))
 	}
 	return out
 }
 
 func StatusForAdapter(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
+	return statusForAdapterByID(ctx, id, lookup, statusProbeOptions{})
+}
+
+func StatusForAdapterAfterExplicitProbe(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
+	return statusForAdapterByID(ctx, id, lookup, statusProbeOptions{allowManagedAdapterVersion: true})
+}
+
+type statusProbeOptions struct {
+	allowManagedAdapterVersion bool
+}
+
+func statusForAdapterByID(ctx context.Context, id string, lookup LookupFunc, opts statusProbeOptions) (Status, bool) {
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
@@ -347,12 +387,12 @@ func StatusForAdapter(ctx context.Context, id string, lookup LookupFunc) (Status
 		if item.ID != strings.TrimSpace(id) {
 			continue
 		}
-		return statusForAdapter(ctx, item, lookup), true
+		return statusForAdapter(ctx, item, lookup, opts), true
 	}
 	return Status{}, false
 }
 
-func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Status {
+func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc, opts statusProbeOptions) Status {
 	status := Status{
 		Adapter:    item,
 		Status:     StatusMissing,
@@ -379,20 +419,24 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Stat
 	status.Available = true
 	status.Status = StatusAvailable
 	status.Path = path
-	if shouldProbeVersionForStatus(item, path, lookup) {
+	if item.Managed.Package != "" && shouldProbeAdapterVersionForStatus(item, path, lookup, opts.allowManagedAdapterVersion) {
 		v := DetectVersion(ctx, path)
-		status.Version = v
-		status.VersionOutsideRange = !satisfiesRange(v, item.SupportedRange)
+		status.AdapterVersion = v
 	}
+	status.AgentVersion = detectAgentVersionForStatus(ctx, item, path, lookup)
+	status.VersionOutsideRange = !satisfiesRange(firstNonEmptyVersion(status.AdapterVersion, status.AgentVersion), item.SupportedRange)
 	status.AuthStatus, status.AuthError = DetectAuthStatus(item)
 	return status
 }
 
-func shouldProbeVersionForStatus(adapter Adapter, path string, lookup LookupFunc) bool {
+func shouldProbeAdapterVersionForStatus(adapter Adapter, path string, lookup LookupFunc, allowManaged bool) bool {
 	if !shouldProbeVersion(path) {
 		return false
 	}
 	if adapter.Managed.Package == "" {
+		return true
+	}
+	if allowManaged {
 		return true
 	}
 	planned, err := plannedManagedLauncher(adapter, lookup)
@@ -400,6 +444,26 @@ func shouldProbeVersionForStatus(adapter Adapter, path string, lookup LookupFunc
 		return true
 	}
 	return filepath.Clean(planned) != filepath.Clean(path)
+}
+
+func detectAgentVersionForStatus(ctx context.Context, adapter Adapter, path string, lookup LookupFunc) string {
+	if adapter.AgentVersion.Command != "" {
+		return DetectVersionProbe(ctx, adapter.AgentVersion, lookup)
+	}
+	if adapter.Managed.Package != "" {
+		return ""
+	}
+	return DetectVersion(ctx, path)
+}
+
+func firstNonEmptyVersion(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func shouldProbeVersion(path string) bool {
@@ -491,7 +555,8 @@ func normalizeAdapterDevOverride(value string) (string, bool) {
 }
 
 func applyAdapterDevOverride(status Status, override string) Status {
-	status.Version = ""
+	status.AdapterVersion = ""
+	status.AgentVersion = ""
 	status.VersionOutsideRange = false
 	status.AuthStatus = AuthStatusUnknown
 	status.AuthError = ""
@@ -542,7 +607,8 @@ func applyAdapterDevOverride(status Status, override string) Status {
 }
 
 func applyAdapterDiscoveryOverride(status Status, override string) Status {
-	status.Version = ""
+	status.AdapterVersion = ""
+	status.AgentVersion = ""
 	status.VersionOutsideRange = false
 	status.AuthStatus = AuthStatusUnknown
 	status.AuthError = ""
@@ -672,7 +738,7 @@ func RefreshManagedLauncher(ctx context.Context, id string, lookup LookupFunc) (
 	if _, err := ensureManagedLauncher(adapter, lookup); err != nil {
 		return Status{}, err
 	}
-	return statusForAdapter(ctx, adapter, lookup), nil
+	return statusForAdapter(ctx, adapter, lookup, statusProbeOptions{}), nil
 }
 
 func GCManagedLaunchers() (int, error) {

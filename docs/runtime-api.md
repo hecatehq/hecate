@@ -737,7 +737,8 @@ GET /hecate/v1/agent-adapters
       "status": "available",
       "path": "/Users/alice/Library/Caches/hecate/agent-adapters/codex-acp",
       "cost_mode": "external",
-      "version": "1.2.3",
+      "adapter_version": "1.2.3",
+      "agent_version": "0.48.0",
       "supported_range": ">=0.1.0",
       "version_outside_range": false,
       "auth_status": "ok"
@@ -799,7 +800,7 @@ GET /hecate/v1/agent-adapters
       "status": "available",
       "path": "/Users/alice/.local/bin/cursor-agent",
       "cost_mode": "external",
-      "version": "0.0.9",
+      "agent_version": "0.0.9",
       "supported_range": ">=0.1.0",
       "version_outside_range": true,
       "auth_status": "unauthenticated",
@@ -824,12 +825,16 @@ GET /hecate/v1/agent-adapters
 }
 ```
 
-`version` is populated by running the binary with `--version` and extracting
-the first semver-shaped token from stdout; it is absent when the adapter is
-missing or when the binary does not print a recognisable version string.
-`version_outside_range` is `true` when both `version` and `supported_range`
-are present and the version does not satisfy the constraint — the Connections UI
-shows an amber "outside tested range" chip in that case.
+`adapter_version` is the ACP bridge/launcher version when Hecate needs a
+separate adapter package or binary to speak ACP. Managed package adapters avoid
+package-manager execution during passive listing; their adapter version is only
+populated after an explicit adapter probe. `agent_version` is the underlying
+coding-agent CLI version, such as `codex`, `claude`, `cursor-agent`, or `grok`.
+Both fields are extracted from `--version` output and omitted when the command is
+missing or does not print a recognisable semver string. `version_outside_range`
+is `true` when the version subject to `supported_range` does not satisfy the
+constraint — the Connections UI shows an amber "outside tested range" chip in
+that case.
 
 `auth_status` is a lightweight dashboard hint, not a full login check. Values:
 `ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env

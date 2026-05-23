@@ -481,9 +481,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       (!hecateChatModelReady ||
         (!hecateAgentToolsDisabledForModel && !state.agentWorkspace.trim())));
 
-  function openAgentSetup() {
+  function openAgentSetup(adapterID = activeAgentAdapterID) {
     try {
-      sessionStorage.setItem("hecate.connectionsFocus", "external-agent-auth-setup");
+      if (adapterID) {
+        sessionStorage.setItem("hecate.connectionsFocus", `external-agent-auth-setup-${adapterID}`);
+      }
     } catch {
       // sessionStorage unavailable — navigation still
       // works, just no auto-scroll to the auth setup card.
@@ -686,27 +688,29 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
           position: "relative",
         }}
       >
-        <ChatHeader
-          sidebarOpen={sidebarOpen}
-          onOpenSidebar={() => setSidebarOpen(true)}
-          brand={activeHeaderBrand}
-          fallback={activeHeaderFallback}
-          title={activeTitle || "New chat"}
-          subline={activeHeaderSubline}
-          sublineHoverTitle={
-            isExternalAgentChat
-              ? formatAgentSessionTitle(state.activeChatSession, selectedAgent)
-              : activeHeaderSubline
-          }
-          isAgentChat={isAgentChat}
-          isExternalAgentChat={isExternalAgentChat}
-          showWorkspaceButton={showHeaderWorkspaceButton}
-          workspacePath={state.agentWorkspace}
-          chatSettingsOpen={chatSettingsOpen}
-          onChooseWorkspace={() => void chooseWorkspace()}
-          onToggleChatSettings={() => setChatSettingsOpen((open) => !open)}
-          activeChatSession={state.activeChatSession}
-        />
+        {selectedChatReady && (
+          <ChatHeader
+            sidebarOpen={sidebarOpen}
+            onOpenSidebar={() => setSidebarOpen(true)}
+            brand={activeHeaderBrand}
+            fallback={activeHeaderFallback}
+            title={activeTitle || "New chat"}
+            subline={activeHeaderSubline}
+            sublineHoverTitle={
+              isExternalAgentChat
+                ? formatAgentSessionTitle(state.activeChatSession, selectedAgent)
+                : activeHeaderSubline
+            }
+            isAgentChat={isAgentChat}
+            isExternalAgentChat={isExternalAgentChat}
+            showWorkspaceButton={showHeaderWorkspaceButton}
+            workspacePath={state.agentWorkspace}
+            chatSettingsOpen={chatSettingsOpen}
+            onChooseWorkspace={() => void chooseWorkspace()}
+            onToggleChatSettings={() => setChatSettingsOpen((open) => !open)}
+            activeChatSession={state.activeChatSession}
+          />
+        )}
 
         <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
           <div
@@ -802,7 +806,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               onNavigate={onNavigate}
               onOpenTask={onOpenTask}
               onOpenTrace={onOpenTrace}
-              openClaudeCodeSetup={openAgentSetup}
+              openExternalAgentSetup={openAgentSetup}
               emptyState={
                 <ChatEmptyState
                   isAgentChat={isAgentChat}
@@ -834,7 +838,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                     actions.setModel(model);
                   }}
                   onChooseWorkspace={() => void chooseWorkspace()}
-                  onOpenAgentSetup={openAgentSetup}
+                  onOpenAgentSetup={() => openAgentSetup()}
                   onQuickAddLocalProviders={quickAddLocalProviders}
                   onRefreshQuickLocalProviders={refreshQuickLocalProviders}
                   onSwitchTarget={actions.setChatTarget}
@@ -873,7 +877,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 selectableModels={selectableModels}
                 onHecateModelChange={handleHecateModelChange}
                 chooseWorkspace={chooseWorkspace}
-                openClaudeCodeSetup={openAgentSetup}
+                openExternalAgentSetup={openAgentSetup}
                 activeHecateTaskID={activeHecateTaskID}
                 activeHecateRunID={activeHecateRunID}
                 activeQueuedChatMessages={activeQueuedChatMessages}
@@ -884,7 +888,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               />
             )}
           </div>
-          {isAgentChat && chatSettingsOpen && (
+          {selectedChatReady && isAgentChat && chatSettingsOpen && (
             <ChatSettingsPanel
               showHecateControls={isHecateChat}
               toolsEnabled={isHecateAgentChat}
