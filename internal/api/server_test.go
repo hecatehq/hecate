@@ -2693,7 +2693,6 @@ func TestAgentChatExternalLaunchConfigOptionStoresAfterAdapterFailure(t *testing
 				ID:           "model",
 				Name:         "Model",
 				Category:     "model",
-				Source:       agentcontrols.ConfigOptionSourceLaunch,
 				Type:         agentcontrols.ConfigOptionTypeSelect,
 				CurrentValue: "fast",
 				Options: []agentcontrols.ConfigSelectOption{

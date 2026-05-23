@@ -133,6 +133,22 @@ func LaunchConfigOptions(ctx context.Context, status Status) []agentcontrols.Con
 	return options
 }
 
+// IsLaunchConfigOption reports whether configID is owned by Hecate's
+// launch-time adapter wrapper instead of the live ACP session.
+func IsLaunchConfigOption(adapterID, configID string) bool {
+	adapter, ok := BuiltInByID(adapterID)
+	if !ok {
+		return false
+	}
+	configID = strings.TrimSpace(configID)
+	for _, config := range launchSelectConfigs(adapter) {
+		if config.ConfigID == configID {
+			return true
+		}
+	}
+	return false
+}
+
 func launchConfigEnabled(adapter Adapter) bool {
 	return len(launchSelectConfigs(adapter)) > 0
 }
