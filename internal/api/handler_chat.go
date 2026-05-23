@@ -430,7 +430,11 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 	if err != nil {
 		allowStoredOption := errors.Is(err, agentadapters.ErrSessionNotActive) ||
 			agentadapters.IsLaunchConfigOption(session.AgentID, setReq.ConfigID)
-		configOptions, updateErr := updateStoredAgentChatConfigOption(session.ConfigOptions, setReq, allowStoredOption)
+		configOptions, updateErr := updateStoredAgentChatConfigOption(
+			seedLaunchConfigOptionForSet(session.ConfigOptions, session.AgentID, setReq),
+			setReq,
+			allowStoredOption,
+		)
 		if updateErr == nil {
 			updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
 				item.ConfigOptions = configOptions
@@ -455,6 +459,30 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 	}
 	h.agentChatLive.publishSession(updated)
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func seedLaunchConfigOptionForSet(options []agentcontrols.ConfigOption, agentID string, req agentadapters.SetSessionConfigOptionRequest) []agentcontrols.ConfigOption {
+	if req.BoolValue != nil {
+		return options
+	}
+	seed, ok := agentadapters.LaunchConfigOptionForSet(agentID, req.ConfigID, req.Value)
+	if !ok {
+		return options
+	}
+	out := append([]agentcontrols.ConfigOption(nil), options...)
+	for i := range out {
+		if out[i].ID != req.ConfigID {
+			continue
+		}
+		if out[i].Source == "" {
+			out[i].Source = agentcontrols.ConfigOptionSourceLaunch
+		}
+		if out[i].Type == agentcontrols.ConfigOptionTypeSelect && !storedConfigOptionAllowsValue(out[i], req.Value) {
+			out[i].Options = seed.Options
+		}
+		return out
+	}
+	return append(out, seed)
 }
 
 func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Request) {

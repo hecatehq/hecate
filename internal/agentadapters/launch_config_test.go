@@ -45,6 +45,39 @@ func TestLaunchConfig_AppendsGrokModelOptionWithUnsetSelection(t *testing.T) {
 	}
 }
 
+func TestLaunchConfig_OptionForSetSeedsMissingModel(t *testing.T) {
+	option, ok := LaunchConfigOptionForSet("grok_build", "model", "grok-latest")
+	if !ok {
+		t.Fatal("LaunchConfigOptionForSet(model) = false, want true")
+	}
+	if option.ID != "model" || option.Source != agentcontrols.ConfigOptionSourceLaunch {
+		t.Fatalf("option identity = %#v, want launch model", option)
+	}
+	if option.CurrentValue != "grok-latest" {
+		t.Fatalf("current value = %q, want requested model", option.CurrentValue)
+	}
+	found := false
+	for _, candidate := range option.Options {
+		found = found || candidate.Value == "grok-latest"
+	}
+	if !found {
+		t.Fatalf("options = %#v, want requested model included", option.Options)
+	}
+}
+
+func TestLaunchConfig_OptionForSetRejectsUnknownStaticOption(t *testing.T) {
+	if _, ok := LaunchConfigOptionForSet("grok_build", "reasoning_effort", "turbo"); ok {
+		t.Fatal("LaunchConfigOptionForSet(reasoning_effort=turbo) = true, want false")
+	}
+	option, ok := LaunchConfigOptionForSet("grok_build", "reasoning_effort", "high")
+	if !ok {
+		t.Fatal("LaunchConfigOptionForSet(reasoning_effort=high) = false, want true")
+	}
+	if option.CurrentValue != "high" {
+		t.Fatalf("current value = %q, want high", option.CurrentValue)
+	}
+}
+
 func TestLaunchConfig_UsesBaseArgsUntilModelSelected(t *testing.T) {
 	adapter, ok := BuiltInByID("grok_build")
 	if !ok {
