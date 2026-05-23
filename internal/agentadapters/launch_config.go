@@ -106,6 +106,7 @@ func appendLaunchConfigOptions(ctx context.Context, command string, adapter Adap
 			Name:         config.Name,
 			Description:  strings.TrimSpace(config.Description),
 			Category:     strings.TrimSpace(config.Category),
+			Source:       agentcontrols.ConfigOptionSourceLaunch,
 			Type:         agentcontrols.ConfigOptionTypeSelect,
 			CurrentValue: current,
 			Options:      launchSelectOptions(config, candidates, current),

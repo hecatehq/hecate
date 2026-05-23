@@ -10,6 +10,8 @@ const (
 	ConfigOptionTypeSelect  = "select"
 	ConfigOptionTypeBoolean = "boolean"
 	ConfigOptionTypeUnknown = "unknown"
+
+	ConfigOptionSourceLaunch = "launch"
 )
 
 // ConfigOption is Hecate's stable projection of ACP session config
@@ -21,6 +23,7 @@ type ConfigOption struct {
 	Name         string               `json:"name"`
 	Description  string               `json:"description,omitempty"`
 	Category     string               `json:"category,omitempty"`
+	Source       string               `json:"source,omitempty"`
 	Type         string               `json:"type"`
 	CurrentValue string               `json:"current_value,omitempty"`
 	CurrentBool  *bool                `json:"current_bool,omitempty"`

@@ -137,6 +137,7 @@ export type ChatConfigOptionRecord = {
   name: string;
   description?: string;
   category?: string;
+  source?: "launch" | (string & {});
   type: "select" | "boolean" | (string & {});
   current_value?: string;
   current_bool?: boolean;

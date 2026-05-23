@@ -428,20 +428,18 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 	result, err := h.agentChatRunner.SetSessionConfigOption(setCtx, setReq)
 	cancel()
 	if err != nil {
-		if errors.Is(err, agentadapters.ErrSessionNotActive) {
-			configOptions, updateErr := updateStoredAgentChatConfigOption(session.ConfigOptions, setReq)
-			if updateErr == nil {
-				updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
-					item.ConfigOptions = configOptions
-				})
-				if err != nil {
-					WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-					return
-				}
-				h.agentChatLive.publishSession(updated)
-				WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+		configOptions, updateErr := updateStoredAgentChatConfigOption(session.ConfigOptions, setReq, errors.Is(err, agentadapters.ErrSessionNotActive))
+		if updateErr == nil {
+			updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+				item.ConfigOptions = configOptions
+			})
+			if err != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 				return
 			}
+			h.agentChatLive.publishSession(updated)
+			WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+			return
 		}
 		writeAgentChatConfigOptionError(w, session, err)
 		return
@@ -611,11 +609,14 @@ func agentChatConfigOptionSetRequest(sessionID, configID string, rawValue any) (
 	}
 }
 
-func updateStoredAgentChatConfigOption(options []agentcontrols.ConfigOption, req agentadapters.SetSessionConfigOptionRequest) ([]agentcontrols.ConfigOption, error) {
+func updateStoredAgentChatConfigOption(options []agentcontrols.ConfigOption, req agentadapters.SetSessionConfigOptionRequest, allowInactiveAdapterOption bool) ([]agentcontrols.ConfigOption, error) {
 	out := append([]agentcontrols.ConfigOption(nil), options...)
 	for i := range out {
 		if out[i].ID != req.ConfigID {
 			continue
+		}
+		if !allowInactiveAdapterOption && out[i].Source != agentcontrols.ConfigOptionSourceLaunch {
+			return nil, fmt.Errorf("config option %q is not launch-managed", req.ConfigID)
 		}
 		switch {
 		case req.BoolValue != nil:
