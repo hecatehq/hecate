@@ -55,6 +55,7 @@ jobs:
             workflow:
               - '.github/workflows/*.yml'
               - 'Justfile'
+              - 'just/**'
             docker:
               - 'Dockerfile'
               - '.dockerignore'
@@ -85,6 +86,7 @@ jobs:
               - 'scripts/stamp-version.ts'
               - 'scripts/tauri-smoke.ts'
               - 'Justfile'
+              - 'just/**'
               - 'go.mod'
               - 'go.sum'
               - 'cmd/hecate/**'
