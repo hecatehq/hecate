@@ -1001,6 +1001,32 @@ func TestAgentLoop_GitDiffToolReturnsBoundedDiff(t *testing.T) {
 	}
 }
 
+func TestRunGitReadCommandCapsOutputWhileReading(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "big.txt")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(strings.Repeat("after\n", 200)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, truncated, err := runGitReadCommand(context.Background(), dir, 64, "diff", "--no-ext-diff", "--no-textconv", "--", "big.txt")
+	if err != nil {
+		t.Fatalf("runGitReadCommand: %v", err)
+	}
+	if !truncated {
+		t.Fatalf("truncated = false, want true; output=%q", out)
+	}
+	if len(out) != 64 {
+		t.Fatalf("len(output) = %d, want 64", len(out))
+	}
+}
+
 func TestAgentLoop_GitDiffToolDisablesTextconv(t *testing.T) {
 	dir := t.TempDir()
 	runGit(t, dir, "init")
@@ -1804,10 +1830,53 @@ func TestAgentLoop_ApplyPatchToolAppliesMultiFilePatch(t *testing.T) {
 	for _, event := range events {
 		if event.eventType == "tool.file.patch" && event.data["tool_name"] == "apply_patch" {
 			eventCount++
+			if _, ok := event.data["bytes_written"].(int); !ok {
+				t.Fatalf("bytes_written type = %T, want int", event.data["bytes_written"])
+			}
 		}
 	}
 	if eventCount != 2 {
 		t.Fatalf("tool.file.patch apply_patch events = %d, want 2: %+v", eventCount, events)
+	}
+}
+
+func TestAgentLoop_ApplyPatchToolIgnoresBlankSeparatorLines(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "old.txt"), []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patchText := "*** Begin Patch\n" +
+		"*** Update File: old.txt\n" +
+		"@@\n" +
+		" alpha\n" +
+		"-beta\n" +
+		"+gamma\n" +
+		"\n" +
+		"*** End Patch\n"
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "patch-1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "apply_patch",
+					Arguments: mustJSON(t, map[string]any{"patch_text": patchText}),
+				},
+			})),
+			makeChatResp(makeAssistantMsg("Patch applied.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(workspace.NewLocalWorkspace()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "old.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "alpha\ngamma\n" {
+		t.Fatalf("old.txt = %q, want patched content", string(content))
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -1239,7 +1240,7 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 			artifact.Description = "Proposed unified diff produced by apply_patch"
 		}
 		artifacts = append(artifacts, artifact)
-		emitInlinePatchEvent(spec, step.ID, toolCallID, toolName, op.Kind, artifact, item.beforeExists, int64(len(item.after)), args.Propose)
+		emitInlinePatchEvent(spec, step.ID, toolCallID, toolName, op.Kind, artifact, item.beforeExists, len(item.after), args.Propose)
 		summaries = append(summaries, fmt.Sprintf("%s %s patch_artifact_id=%s", op.Kind, op.Path, artifact.ID))
 	}
 	step.OutputSummary = map[string]any{
@@ -1629,23 +1630,62 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, "git", append([]string{"-C", root, "--no-pager"}, args...)...)
-	out, err := cmd.CombinedOutput()
+	output := &limitedCommandBuffer{limit: maxBytes}
+	cmd.Stdout = output
+	cmd.Stderr = output
+	err := cmd.Run()
 	if cmdCtx.Err() == context.DeadlineExceeded {
 		return "", false, fmt.Errorf("git command timed out")
 	}
+	out := output.String()
 	if err != nil {
-		text := strings.TrimSpace(string(out))
+		text := strings.TrimSpace(out)
 		if text != "" {
 			return "", false, fmt.Errorf("%w: %s", err, text)
 		}
 		return "", false, err
 	}
-	truncated := false
-	if len(out) > maxBytes {
-		out = out[:maxBytes]
-		truncated = true
+	return out, output.Truncated(), nil
+}
+
+type limitedCommandBuffer struct {
+	mu        sync.Mutex
+	limit     int
+	buf       []byte
+	truncated bool
+}
+
+func (b *limitedCommandBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.limit <= 0 {
+		b.truncated = true
+		return len(p), nil
 	}
-	return string(out), truncated, nil
+	remaining := b.limit - len(b.buf)
+	if remaining <= 0 {
+		b.truncated = true
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		b.buf = append(b.buf, p[:remaining]...)
+		b.truncated = true
+		return len(p), nil
+	}
+	b.buf = append(b.buf, p...)
+	return len(p), nil
+}
+
+func (b *limitedCommandBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.buf)
+}
+
+func (b *limitedCommandBuffer) Truncated() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.truncated
 }
 
 func readWorkspaceFileContent(abs, displayPath string, fileSize int64, maxBytes, startLine, endLine int) (string, string, int, bool, string) {
@@ -2058,7 +2098,7 @@ func applyPatchUpdate(current string, patchLines []string) (string, string) {
 	}
 	for _, line := range patchLines {
 		trimmed := strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(trimmed, "@@") || strings.HasPrefix(trimmed, `\ No newline`) {
+		if line == "" || isPatchSeparatorLine(line) || strings.HasPrefix(trimmed, "@@") || strings.HasPrefix(trimmed, `\ No newline`) {
 			continue
 		}
 		switch line[0] {
@@ -2092,7 +2132,19 @@ func writePatchOperation(abs, after, kind string) error {
 	}
 }
 
-func emitInlinePatchEvent(spec ExecutionSpec, stepID, toolCallID, toolName, operation string, artifact types.TaskArtifact, beforeExists bool, bytesWritten int64, proposed bool) {
+func isPatchSeparatorLine(line string) bool {
+	if strings.TrimSpace(line) != "" {
+		return false
+	}
+	switch line[0] {
+	case ' ', '+', '-':
+		return false
+	default:
+		return true
+	}
+}
+
+func emitInlinePatchEvent(spec ExecutionSpec, stepID, toolCallID, toolName, operation string, artifact types.TaskArtifact, beforeExists bool, bytesWritten int, proposed bool) {
 	if spec.EmitRunEvent == nil {
 		return
 	}
