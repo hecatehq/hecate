@@ -255,6 +255,7 @@ describe("ConsoleShell navigation", () => {
 
   it("keeps No project as the default chat-sidebar project context", () => {
     const state = createRuntimeConsoleFixture({
+      agentWorkspace: "/Users/alice/dev/hecate",
       projects: [
         {
           id: "proj_1",
@@ -364,6 +365,7 @@ describe("ConsoleShell navigation", () => {
   it("creates new chats inside the selected project scope", async () => {
     const createChatSession = vi.fn(async () => undefined);
     const state = createRuntimeConsoleFixture({
+      agentWorkspace: "/Users/alice/dev/hecate",
       projects: [
         {
           id: "proj_1",

@@ -12,6 +12,9 @@ async function expectComposerNotRunnable(page: Page) {
 }
 
 test("adding and deleting a provider keeps chat available", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+  });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 

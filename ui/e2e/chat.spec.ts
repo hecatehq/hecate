@@ -313,9 +313,9 @@ test("New Hecate chat asks for workspace before creating a tools-on session", as
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New Hecate chat", exact: true })).toBeDisabled();
 
-  await expect(page.getByText("Choose a workspace")).toBeVisible();
+  await expect(page.getByText("Choose a workspace", { exact: true })).toBeVisible();
   await expect(page.locator("textarea")).toHaveCount(0);
   await expect(page.getByText("Model required")).toHaveCount(0);
   await expect.poll(() => createBody).toBeNull();
@@ -366,9 +366,9 @@ test("New external-agent chat asks for workspace without flashing an inline erro
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  await page.getByRole("button", { name: "New Codex chat", exact: true }).click();
+  await expect(page.getByRole("button", { name: "New Codex chat", exact: true })).toBeDisabled();
 
-  await expect(page.getByText("Choose a workspace")).toBeVisible();
+  await expect(page.getByText("Choose a workspace", { exact: true })).toBeVisible();
   await expect(page.locator("textarea")).toHaveCount(0);
   await expect(page.getByText("Workspace required")).toHaveCount(0);
   await expect.poll(() => createBody).toBeNull();
@@ -945,6 +945,7 @@ test("empty model chat can add all detected local providers in one click", async
   await expect(page.getByText("LM Studio", { exact: true })).toBeVisible();
   await expect(page.getByText("Installed")).toBeVisible();
   await expect(page.getByText("Running")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Connections" })).toHaveCount(1);
 
   await page.getByRole("button", { name: "Add selected" }).click();
 
@@ -980,6 +981,7 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await expect(page.getByText("Detected locally")).toBeVisible();
   await expect(page.getByText("Ollama", { exact: true })).toBeVisible();
   await expect(page.getByText("LM Studio", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Connections" })).toHaveCount(1);
 
   await page.getByRole("button", { name: "Add selected" }).click();
 

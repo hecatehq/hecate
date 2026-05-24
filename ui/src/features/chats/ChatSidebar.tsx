@@ -93,6 +93,7 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const pendingDeleteChat = sessions.find((session) => session.id === deleteChatID) ?? null;
   const pendingDeleteProject =
     projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
+  const workspaceRequiredForNewChat = isAgentChat && !chat.state.agentWorkspace.trim();
 
   function statusForAgent(agentID: ChatAgentOptionID) {
     const adapter =
@@ -227,14 +228,34 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
             adapters={agentAdapters}
             healthByID={agentAdapterHealthByID}
             disableUnavailable
+            createDisabled={workspaceRequiredForNewChat}
+            createTitle={
+              workspaceRequiredForNewChat
+                ? "Choose a workspace before starting this chat"
+                : undefined
+            }
             onChange={(agentID) => chatActions.setNewChatAgent(agentID)}
             onCreate={(agentID) => {
+              if (workspaceRequiredForNewChat) return;
               if (!statusForAgent(agentID).ready) return;
               if (agentID !== newChatAgentID) chatActions.setNewChatAgent(agentID);
               onSelectSession("");
               onCreateChat(agentID, projects.activeProjectID);
             }}
           />
+          {workspaceRequiredForNewChat && (
+            <div
+              role="status"
+              style={{
+                color: "var(--yellow)",
+                fontSize: 11,
+                lineHeight: 1.35,
+                padding: "6px 2px 0",
+              }}
+            >
+              Choose a workspace in the chat view before starting agent chats.
+            </div>
+          )}
         </div>
         <div style={{ padding: "4px 8px 8px" }}>
           <input

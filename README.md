@@ -90,11 +90,11 @@ Pinned image tags, binary tarballs (linux/darwin × amd64/arm64), checksums, com
 
 ### Add a provider
 
-On first boot, Chats is already available. If Hecate detects a local runtime such as Ollama or LM Studio, the model chat setup can be one click: keep the detected runtimes selected, choose **Add selected**, and Hecate adds those local endpoints with the preset defaults.
+On first boot, Chats is already available. If Hecate detects a local runtime such as Ollama or LM Studio, the model chat setup can be one click: keep the detected runtimes selected, choose **Add selected**, and Hecate adds those local endpoints with the preset defaults. Use **Open Connections** from the same card when you want the full provider setup screen instead.
 
 ![Chats first-run state — detected local providers and one-click Add selected setup](docs/screenshots/chat-empty.png)
 
-Chats starts with a setup-first empty state: detected local runtimes can be added in one click, while Connections remains available for manual provider setup.
+Chats starts with a setup-first empty state: detected local runtimes can be added in one click, with Connections available from the same setup card for manual provider setup.
 
 You can still configure providers manually from **Connections → Add provider**:
 

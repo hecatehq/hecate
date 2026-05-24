@@ -73,6 +73,14 @@ export function ChatEmptyState({
 }: Props) {
   const hecateModelUnavailable =
     isHecateChat && (modelRouteUnavailable || Boolean(selectedModelIssue));
+  const hasQuickLocalProviderCandidates =
+    isHecateChat &&
+    modelRouteUnavailable &&
+    !hasConfiguredProviders &&
+    quickLocalProviders.some((discovery) => discovery.preset_id != null);
+  const showPrimaryRepairAction =
+    Boolean(setupRepair) &&
+    !(setupRepair?.kind === "no_provider" && hasQuickLocalProviderCandidates);
   const readyTitle = isExternalAgentChat
     ? `Ready for ${selectedAgent?.name || "the agent"}`
     : "Ready when you are";
@@ -161,7 +169,7 @@ export function ChatEmptyState({
         !rtkEnabled &&
         !hecateModelUnavailable &&
         !emptyRepairAction && <RTKOnboardingHint path={rtkPath} onEnable={onEnableRTK} />}
-      {(emptyRepairAction ||
+      {(showPrimaryRepairAction ||
         modelRouteUnavailable ||
         selectedModelIssue ||
         agentRouteUnavailable) && (
@@ -174,7 +182,7 @@ export function ChatEmptyState({
             flexWrap: "wrap",
           }}
         >
-          {emptyRepairAction && (
+          {showPrimaryRepairAction && emptyRepairAction && (
             <button
               className="btn btn-primary btn-sm"
               onClick={runEmptyRepairAction}
@@ -185,16 +193,19 @@ export function ChatEmptyState({
               {emptyRepairAction.actionLabel}
             </button>
           )}
-          {!emptyRepairAction && (modelRouteUnavailable || selectedModelIssue) && isHecateChat && (
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={onOpenProviders}
-              type="button"
-              style={{ display: "flex", alignItems: "center", gap: 4 }}
-            >
-              <Icon d={Icons.connections} size={13} /> Open Connections
-            </button>
-          )}
+          {!emptyRepairAction &&
+            (modelRouteUnavailable || selectedModelIssue) &&
+            isHecateChat &&
+            !hasQuickLocalProviderCandidates && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={onOpenProviders}
+                type="button"
+                style={{ display: "flex", alignItems: "center", gap: 4 }}
+              >
+                <Icon d={Icons.connections} size={13} /> Open Connections
+              </button>
+            )}
           {agentRouteUnavailable && !isAgentChat && (
             <button
               className="btn btn-ghost btn-sm"
@@ -231,6 +242,7 @@ export function ChatEmptyState({
           loading={quickLocalLoading}
           presets={providerPresets}
           adding={quickAddingProviders}
+          onOpenProviders={onOpenProviders}
           onAdd={onQuickAddLocalProviders}
           onRefresh={onRefreshQuickLocalProviders}
         />
@@ -544,6 +556,7 @@ function QuickLocalProviderAdd({
   loading,
   presets,
   adding,
+  onOpenProviders,
   onAdd,
   onRefresh,
 }: {
@@ -552,6 +565,7 @@ function QuickLocalProviderAdd({
   loading: boolean;
   presets: ProviderPresetRecord[];
   adding: boolean;
+  onOpenProviders: () => void;
   onAdd: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefresh: () => void;
 }) {
@@ -750,15 +764,25 @@ function QuickLocalProviderAdd({
               Selected {selectedCandidates.length} of {candidates.length}. You can edit names and
               URLs later in Connections.
             </span>
-            <button
-              className="btn btn-primary btn-sm"
-              disabled={adding || selectedCandidates.length === 0}
-              onClick={() => onAdd(selectedCandidates)}
-              type="button"
-              style={{ display: "flex", alignItems: "center" }}
-            >
-              {adding ? "Adding..." : "Add selected"}
-            </button>
+            <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={adding || selectedCandidates.length === 0}
+                onClick={() => onAdd(selectedCandidates)}
+                type="button"
+                style={{ display: "flex", alignItems: "center" }}
+              >
+                {adding ? "Adding..." : "Add selected"}
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                disabled={adding}
+                onClick={onOpenProviders}
+                type="button"
+              >
+                Open Connections
+              </button>
+            </div>
           </div>
         </div>
       )}

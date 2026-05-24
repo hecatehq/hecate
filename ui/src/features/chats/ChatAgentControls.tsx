@@ -19,6 +19,8 @@ export function NewChatAgentButton({
   adapters,
   healthByID,
   disableUnavailable = false,
+  createTitle,
+  createDisabled,
   onChange,
   onCreate,
 }: {
@@ -26,6 +28,8 @@ export function NewChatAgentButton({
   adapters: AgentAdapterRecord[];
   healthByID: Map<string, AgentAdapterHealthRecord>;
   disableUnavailable?: boolean;
+  createTitle?: string;
+  createDisabled?: boolean;
   onChange: (value: ChatAgentOptionID) => void;
   onCreate: (value: ChatAgentOptionID) => void;
 }) {
@@ -92,9 +96,11 @@ export function NewChatAgentButton({
       >
         <button
           className="btn btn-primary btn-sm"
+          disabled={createDisabled}
           type="button"
-          title={`Start a new ${effectiveSelected.label} chat`}
+          title={createTitle ?? `Start a new ${effectiveSelected.label} chat`}
           onClick={() => {
+            if (createDisabled) return;
             if (selectedDisabled && effectiveSelected.id !== selected.id) {
               onChange(effectiveSelected.id);
             }
@@ -108,8 +114,9 @@ export function NewChatAgentButton({
             justifyContent: "center",
             minHeight: 30,
             padding: "4px 12px",
-            background: "transparent",
-            color: "var(--accent-fg)",
+            background: createDisabled ? "var(--bg3)" : "transparent",
+            color: createDisabled ? "var(--t3)" : "var(--accent-fg)",
+            cursor: createDisabled ? "not-allowed" : undefined,
           }}
         >
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

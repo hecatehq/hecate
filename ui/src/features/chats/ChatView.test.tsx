@@ -69,6 +69,7 @@ function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
         } as any)
       : null;
   const state = createRuntimeConsoleFixture({
+    agentWorkspace: "/tmp/hecate",
     activeChatSessionID,
     activeChatSession,
     providerScopedModels: [
@@ -238,6 +239,46 @@ describe("ChatView input", () => {
 
     expect(createChatSession).toHaveBeenCalledWith({ agentID: "grok_build", projectID: "" });
     expect(selectChatSession).toHaveBeenCalledWith("");
+  });
+
+  it("disables new agent chat creation without a workspace and keeps setup on the canvas", async () => {
+    const createChatSession = vi.fn(async () => undefined);
+    const chooseAgentWorkspace = vi.fn(async () => true);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentAdapterID: "grok_build",
+        newChatAgentID: "grok_build",
+        agentWorkspace: "",
+        activeChatSessionID: "",
+        activeChatSession: null,
+        agentAdapters: [
+          {
+            id: "grok_build",
+            name: "Grok Build",
+            kind: "acp",
+            command: "grok",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { createChatSession, chooseAgentWorkspace },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    const newChatButton = screen.getByRole("button", { name: "New Grok Build chat" });
+    expect(newChatButton).toBeDisabled();
+    await user.click(newChatButton);
+
+    expect(
+      screen.getByText("Choose a workspace in the chat view before starting agent chats."),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Choose workspace" }));
+    expect(chooseAgentWorkspace).toHaveBeenCalled();
+    expect(createChatSession).not.toHaveBeenCalled();
   });
 
   it("shows Grok Build model controls for an existing session without persisted config options", async () => {
@@ -1047,6 +1088,7 @@ describe("ChatView input", () => {
     });
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
+    const onNavigate = vi.fn();
     const setProviderFilter = vi.fn();
     const { state, actions } = setup(
       {
@@ -1085,12 +1127,16 @@ describe("ChatView input", () => {
       },
       { createProvider, loadDashboard, setProviderFilter },
     );
-    render(withRuntimeConsole(<ChatView />, { state, actions }));
+    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
 
     const user = userEvent.setup();
     const quickAdd = await screen.findByRole("button", { name: /Add selected/i });
+    const connectionsActions = screen.getAllByRole("button", { name: "Open Connections" });
+    expect(connectionsActions).toHaveLength(1);
     expect(screen.getByText("Ollama")).toBeTruthy();
     expect(screen.getByText("LM Studio")).toBeTruthy();
+    await user.click(connectionsActions[0]);
+    expect(onNavigate).toHaveBeenCalledWith("connections");
     await user.click(quickAdd);
 
     expect(createProvider).toHaveBeenNthCalledWith(
@@ -4311,6 +4357,7 @@ describe("ChatView session title", () => {
         activeChatSessionID: "",
         activeChatSession: null,
         message: "",
+        agentWorkspace: "/tmp/hecate",
       },
       { createChatSession },
     );

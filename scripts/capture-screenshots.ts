@@ -128,7 +128,9 @@ async function optimize() {
           const child = spawn(tool.name, tool.args(path), { stdio: ["ignore", "ignore", "pipe"] });
           const timeout = setTimeout(() => {
             child.kill("SIGTERM");
-            console.warn(`  ${path.split("/").pop()}: ${tool.name} timed out; leaving current file`);
+            console.warn(
+              `  ${path.split("/").pop()}: ${tool.name} timed out; leaving current file`,
+            );
             resolve();
           }, 20_000);
           let stderr = "";
@@ -137,7 +139,9 @@ async function optimize() {
           });
           child.on("error", (err) => {
             clearTimeout(timeout);
-            console.warn(`  ${path.split("/").pop()}: ${tool.name} failed to start: ${err.message}`);
+            console.warn(
+              `  ${path.split("/").pop()}: ${tool.name} failed to start: ${err.message}`,
+            );
             resolve();
           });
           child.on("close", (code) => {
@@ -1422,12 +1426,14 @@ async function main() {
   await page.evaluate((workspaceKey) => {
     window.localStorage.setItem(workspaceKey, "chats");
     window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
   }, WORKSPACE_KEY);
   await page.reload();
   await openWorkspace(page, "chats");
   await page.getByRole("button", { name: /New Hecate chat/i }).click();
   await page.waitForSelector("text=Detected locally", { timeout: 5_000 });
   await page.waitForSelector("text=Add selected", { timeout: 5_000 });
+  await page.waitForSelector("text=Open Connections", { timeout: 5_000 });
   await snap(page, "chat-empty");
   await page.unroute(missingAgentAdapters);
   await page.unroute(`${HECATE_API}/settings/providers/local-discovery`);
