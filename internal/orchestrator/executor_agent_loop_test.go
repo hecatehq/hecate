@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1024,6 +1025,31 @@ func TestRunGitReadCommandCapsOutputWhileReading(t *testing.T) {
 	}
 	if len(out) != 64 {
 		t.Fatalf("len(output) = %d, want 64", len(out))
+	}
+}
+
+func TestRunGitReadCommandUsesSanitizedEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell script as a fake git binary")
+	}
+	dir := t.TempDir()
+	fakeBin := t.TempDir()
+	fakeGit := filepath.Join(fakeBin, "git")
+	if err := os.WriteFile(fakeGit, []byte("#!/bin/sh\nenv\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HECATE_TEST_SECRET", "must-not-leak")
+
+	out, _, err := runGitReadCommand(context.Background(), dir, 4096, "status")
+	if err != nil {
+		t.Fatalf("runGitReadCommand: %v", err)
+	}
+	if strings.Contains(out, "HECATE_TEST_SECRET=must-not-leak") {
+		t.Fatalf("git helper inherited non-allowlisted env:\n%s", out)
+	}
+	if !strings.Contains(out, "PATH=") {
+		t.Fatalf("sanitized env omitted PATH, fake output:\n%s", out)
 	}
 }
 
