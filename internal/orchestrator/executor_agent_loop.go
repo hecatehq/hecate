@@ -1183,6 +1183,9 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 	if len(ops) == 0 {
 		return "apply_patch: patch contains no file operations", nil, nil, nil
 	}
+	if !args.Propose && spec.Task.SandboxReadOnly {
+		return "apply_patch: sandbox policy denied: write access is disabled", nil, nil, nil
+	}
 
 	step := types.TaskStep{
 		ID:       spec.NewID("step"),
@@ -1207,6 +1210,9 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 
 	prepared := make([]preparedPatchOperation, 0, len(ops))
 	for _, op := range ops {
+		if errMsg := validatePatchOperationPath(op); errMsg != "" {
+			return errMsg, nil, nil, nil
+		}
 		if args.Propose && op.Kind == "delete" {
 			return "apply_patch: propose=true does not support delete sections because proposed-patch apply currently writes after-content rather than removing files", nil, nil, nil
 		}
@@ -2029,12 +2035,34 @@ func parseStructuredPatch(patchText string) ([]patchOperation, string) {
 	return nil, "apply_patch: patch missing *** End Patch"
 }
 
+func validatePatchOperationPath(op patchOperation) string {
+	if strings.TrimSpace(op.Path) == "" {
+		return fmt.Sprintf("apply_patch: %s file path is required", op.Kind)
+	}
+	return ""
+}
+
+func readPatchTargetFile(abs, path string) ([]byte, string) {
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, fmt.Sprintf("apply_patch: %v", err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Sprintf("apply_patch: %q is a directory", path)
+	}
+	if info.Size() > fileEditHardCapBytes {
+		return nil, fmt.Sprintf("apply_patch: %q is too large (%d bytes > %d)", path, info.Size(), fileEditHardCapBytes)
+	}
+	raw, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, fmt.Sprintf("apply_patch: %v", err)
+	}
+	return raw, ""
+}
+
 func preparePatchOperation(abs string, op patchOperation) (before, after string, beforeExists bool, errMsg string) {
 	switch op.Kind {
 	case "add":
-		if op.Path == "" {
-			return "", "", false, "apply_patch: add file path is required"
-		}
 		if _, err := os.Stat(abs); err == nil {
 			return "", "", false, fmt.Sprintf("apply_patch: %q already exists", op.Path)
 		} else if !os.IsNotExist(err) {
@@ -2042,15 +2070,15 @@ func preparePatchOperation(abs string, op patchOperation) (before, after string,
 		}
 		return "", patchAddedContent(op.Lines), false, ""
 	case "delete":
-		raw, err := os.ReadFile(abs)
-		if err != nil {
-			return "", "", false, fmt.Sprintf("apply_patch: %v", err)
+		raw, errMsg := readPatchTargetFile(abs, op.Path)
+		if errMsg != "" {
+			return "", "", false, errMsg
 		}
 		return string(raw), "", true, ""
 	case "update":
-		raw, err := os.ReadFile(abs)
-		if err != nil {
-			return "", "", false, fmt.Sprintf("apply_patch: %v", err)
+		raw, errMsg := readPatchTargetFile(abs, op.Path)
+		if errMsg != "" {
+			return "", "", false, errMsg
 		}
 		next, errMsg := applyPatchUpdate(string(raw), op.Lines)
 		if errMsg != "" {
