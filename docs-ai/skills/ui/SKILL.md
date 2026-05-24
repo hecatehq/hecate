@@ -309,6 +309,10 @@ Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-rende
 
 **Never `bun test`** — it skips testing-library DOM setup and panics with `document[isPrepared]`. Always `bun run test`.
 
+Playwright starts Vite with `VITE_DISABLE_API_PROXY=1`. E2E specs should mock
+every API route they depend on; missing mocks should fail quietly as 404s, not
+fall through to the Vite dev proxy and spam `ECONNREFUSED` for `:8765`.
+
 Oxc config lives at repo root in `.oxlintrc.json` and is shared by the UI and
 website. UI and website lint scripts run `oxlint --type-aware`, backed by the
 `oxlint-tsgolint` package. The config enables the React, JSX accessibility,

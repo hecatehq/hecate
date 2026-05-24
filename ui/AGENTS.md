@@ -35,6 +35,7 @@ ui/src/
 | `bun run test`       | Vitest run before committing — never `bun test` (skips testing-library DOM setup) |
 | `bun run test:watch` | Iteration                                                                         |
 | `bun run dev`        | Vite dev server on `:5173` proxying API to `:8765`                                |
+| `bun run test:e2e`   | Playwright with Vite's API proxy disabled; mock each API route explicitly         |
 
 Claude Code shortcut: `/test-affected` from the repo root when Go packages are touched. For UI work, run `bun run typecheck` and `bun run test` directly.
 
