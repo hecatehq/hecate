@@ -532,17 +532,32 @@ func fetchTraceByRequestID(ctx context.Context, client *GatewayClient, requestID
 }
 
 func traceListItemMatches(t traceListItem, query string) bool {
-	haystack := strings.Join([]string{
+	haystack := strings.Join(append([]string{
 		t.RequestID,
 		t.TraceID,
 		t.StatusCode,
 		t.StatusMessage,
-		t.Route.FinalProvider,
-		t.Route.FinalModel,
 		t.Route.FinalReason,
 		t.Route.FallbackFrom,
-	}, " ")
+	}, traceRouteSearchTerms(t.Route)...), " ")
 	return strings.Contains(strings.ToLower(haystack), strings.ToLower(query))
+}
+
+func traceRouteSearchTerms(route traceRouteRecord) []string {
+	terms := make([]string, 0, 5)
+	if route.FinalProvider != "" {
+		terms = append(terms, route.FinalProvider)
+	}
+	if route.FinalModel != "" {
+		terms = append(terms, route.FinalModel)
+	}
+	if route.FinalProvider != "" && route.FinalModel != "" {
+		terms = append(terms, route.FinalProvider+"/"+route.FinalModel)
+	}
+	if route.FallbackFrom != "" {
+		terms = append(terms, strings.ReplaceAll(route.FallbackFrom, "/", " "))
+	}
+	return terms
 }
 
 func writeTraceSummaryLine(b *strings.Builder, requestID, traceID, startedAt string, durationMS int64, statusCode, statusMessage string, route traceRouteRecord) {

@@ -191,6 +191,28 @@ func TestTool_SearchTraces_FiltersRecentTraceSummaries(t *testing.T) {
 	}
 }
 
+func TestTraceListItemMatches_RouteTargetFormats(t *testing.T) {
+	item := traceListItem{
+		RequestID: "req-anthropic",
+		Route: traceRouteRecord{
+			FinalProvider: "anthropic",
+			FinalModel:    "claude-opus-4-5",
+			FallbackFrom:  "openai/gpt-4.1",
+		},
+	}
+
+	for _, query := range []string{
+		"anthropic/claude-opus-4-5",
+		"anthropic claude-opus-4-5",
+		"openai/gpt-4.1",
+		"openai gpt-4.1",
+	} {
+		if !traceListItemMatches(item, query) {
+			t.Fatalf("traceListItemMatches(%q) = false, want true", query)
+		}
+	}
+}
+
 func TestTool_SearchTraces_FetchesExactTraceByRequestID(t *testing.T) {
 	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
