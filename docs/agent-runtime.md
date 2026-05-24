@@ -113,7 +113,7 @@ Three things bound the loop:
 
 ## Built-in tools
 
-The agent gets fourteen tools by default. None require operator config beyond the approval policies; `http_request` reads the network policy from env.
+The agent gets thirteen tools by default. None require operator config beyond the approval policies; `http_request` reads the network policy from env.
 
 | Tool            | What it does                                                         | Policy                                                                                                                                                                                                                                                                    |
 | --------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -128,7 +128,7 @@ The agent gets fourteen tools by default. None require operator config beyond th
 | `artifact_read` | Read an inline artifact from the current task by artifact ID         | Ungated by default; gate with `read_file` or `all_tools` policy. Only artifacts belonging to the current task are visible                                                                                                                                                 |
 | `list_dir`      | List entries under a workspace path                                  | Ungated unless `all_tools` is set. Path must resolve within the sandbox root                                                                                                                                                                                              |
 | `git_status`    | Return structured branch and changed-file status                     | Gated by `git_exec` or `all_tools` policy (default on); read-only wrapper around `git status --porcelain=v1 -b`                                                                                                                                                           |
-| `git_diff`      | Return a bounded workspace or staged diff                            | Gated by `git_exec` or `all_tools` policy (default on); read-only wrapper around `git diff --no-ext-diff`, optionally scoped to a workspace-relative path                                                                                                                 |
+| `git_diff`      | Return a bounded workspace or staged diff                            | Gated by `git_exec` or `all_tools` policy (default on); read-only wrapper around `git diff --no-ext-diff --no-textconv`, optionally scoped to a workspace-relative path                                                                                                   |
 | `http_request`  | Make an outbound HTTP request                                        | Gated by `network_egress` or `all_tools` policy; SSRF guards (private-IP block, scheme allowlist, optional host allowlist)                                                                                                                                                |
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
@@ -145,7 +145,7 @@ Enforcement is **best-effort static parsing** of the command string. Tools that 
 
 ## External MCP tools
 
-In addition to the fourteen built-ins, an `agent_loop` task can declare external MCP servers on the `mcp_servers` task field. Their tools join the LLM's catalog at run start under `mcp__<server>__<tool>` aliases — for example a `read_file` tool on a server aliased `fs` becomes `mcp__fs__read_file`. Approval gating is per-server (`auto` / `require_approval` / `block`), distinct from the built-in approval policy axis.
+In addition to the thirteen built-ins, an `agent_loop` task can declare external MCP servers on the `mcp_servers` task field. Their tools join the LLM's catalog at run start under `mcp__<server>__<tool>` aliases — for example a `read_file` tool on a server aliased `fs` becomes `mcp__fs__read_file`. Approval gating is per-server (`auto` / `require_approval` / `block`), distinct from the built-in approval policy axis.
 
 See [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client) for the full schema, transports (stdio + Streamable HTTP), secret-aware `env` / `headers`, lifecycle / caching contract, and dry-run probe.
 

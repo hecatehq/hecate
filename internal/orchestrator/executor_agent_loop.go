@@ -1,9 +1,11 @@
 package orchestrator
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -709,7 +711,7 @@ func agentToolDefinitions() []types.Tool {
 			Type: "function",
 			Function: types.ToolFunction{
 				Name:        "read_file",
-				Description: "Read the contents of a file in the task workspace. Use this instead of `shell_exec(cat ...)` — it's faster, doesn't need a shell, and isn't gated by approval.",
+				Description: "Read the contents of a file in the task workspace. Use this instead of `shell_exec(cat ...)` — it's faster and doesn't need a shell. Ungated by default, but operators can gate it with read_file or all_tools approval policy.",
 				Parameters: json.RawMessage(`{
 					"type": "object",
 					"properties": {
@@ -1275,38 +1277,9 @@ func readFileTool(spec ExecutionSpec, args readFileArgs, stepIndex int, startedA
 		return fmt.Sprintf("read_file: %q is a directory; use list_dir instead", args.Path), nil, nil, nil
 	}
 
-	f, err := os.Open(abs)
-	if err != nil {
-		return fmt.Sprintf("read_file: %v", err), nil, nil, nil
-	}
-	defer f.Close()
-
-	buf := make([]byte, maxBytes)
-	n, _ := f.Read(buf)
-	content := buf[:n]
-	truncated := info.Size() > int64(n)
-
-	// Crude but effective binary detection: if any of the first 512
-	// bytes is a NUL, treat as binary and don't return content. The
-	// LLM doesn't benefit from raw binary in its conversation.
-	probe := content
-	if len(probe) > 512 {
-		probe = probe[:512]
-	}
-	for _, b := range probe {
-		if b == 0 {
-			return fmt.Sprintf("read_file: %q is a binary file (%d bytes); skipped content. Use file_write to overwrite or shell_exec for inspection.", args.Path, info.Size()), nil, nil, nil
-		}
-	}
-
-	displayContent := string(content)
-	lineRange := ""
-	if args.StartLine > 0 || args.EndLine > 0 {
-		var rangeErr string
-		displayContent, lineRange, rangeErr = selectLineRange(displayContent, args.StartLine, args.EndLine)
-		if rangeErr != "" {
-			return "read_file: " + rangeErr, nil, nil, nil
-		}
+	displayContent, lineRange, n, truncated, errMsg := readWorkspaceFileContent(abs, args.Path, info.Size(), maxBytes, args.StartLine, args.EndLine)
+	if errMsg != "" {
+		return "read_file: " + errMsg, nil, nil, nil
 	}
 
 	step := buildReadFileStep(spec, stepIndex, startedAt, toolName, args.Path, info.Size(), int64(n), truncated)
@@ -1623,7 +1596,7 @@ func gitDiffTool(ctx context.Context, spec ExecutionSpec, args gitDiffArgs, step
 		maxBytes = gitDiffHardCapBytes
 	}
 	relPath := strings.TrimSpace(args.Path)
-	gitArgs := []string{"diff", "--no-ext-diff"}
+	gitArgs := []string{"diff", "--no-ext-diff", "--no-textconv"}
 	if args.Staged {
 		gitArgs = append(gitArgs, "--cached")
 	}
@@ -1655,7 +1628,7 @@ func gitDiffTool(ctx context.Context, spec ExecutionSpec, args gitDiffArgs, step
 func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...string) (string, bool, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, "git", append([]string{"-C", root}, args...)...)
+	cmd := exec.CommandContext(cmdCtx, "git", append([]string{"-C", root, "--no-pager"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if cmdCtx.Err() == context.DeadlineExceeded {
 		return "", false, fmt.Errorf("git command timed out")
@@ -1673,6 +1646,93 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 		truncated = true
 	}
 	return string(out), truncated, nil
+}
+
+func readWorkspaceFileContent(abs, displayPath string, fileSize int64, maxBytes, startLine, endLine int) (string, string, int, bool, string) {
+	f, err := os.Open(abs)
+	if err != nil {
+		return "", "", 0, false, err.Error()
+	}
+	defer f.Close()
+
+	probe := make([]byte, 512)
+	probeN, _ := f.Read(probe)
+	for _, b := range probe[:probeN] {
+		if b == 0 {
+			return "", "", 0, false, fmt.Sprintf("%q is a binary file (%d bytes); skipped content. Use file_write to overwrite or shell_exec for inspection.", displayPath, fileSize)
+		}
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", "", 0, false, err.Error()
+	}
+
+	if startLine > 0 || endLine > 0 {
+		content, lineRange, truncated, errMsg := readWorkspaceFileLineRange(f, maxBytes, startLine, endLine)
+		return content, lineRange, len(content), truncated, errMsg
+	}
+
+	buf := make([]byte, maxBytes)
+	n, _ := f.Read(buf)
+	content := string(buf[:n])
+	truncated := fileSize > int64(n)
+	return content, "", n, truncated, ""
+}
+
+func readWorkspaceFileLineRange(f *os.File, maxBytes, startLine, endLine int) (string, string, bool, string) {
+	if startLine <= 0 {
+		startLine = 1
+	}
+	if endLine > 0 && endLine < startLine {
+		return "", "", false, fmt.Sprintf("end_line (%d) must be >= start_line (%d)", endLine, startLine)
+	}
+
+	reader := bufio.NewReader(f)
+	var b strings.Builder
+	lineNo := 0
+	lastReturnedLine := 0
+	truncated := false
+
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			lineNo++
+			if lineNo >= startLine && (endLine <= 0 || lineNo <= endLine) {
+				lastReturnedLine = lineNo
+				if b.Len() < maxBytes {
+					remaining := maxBytes - b.Len()
+					if len(line) > remaining {
+						b.WriteString(line[:remaining])
+						truncated = true
+					} else {
+						b.WriteString(line)
+					}
+				} else {
+					truncated = true
+				}
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", "", false, err.Error()
+		}
+		if endLine > 0 && lineNo >= endLine {
+			break
+		}
+		if endLine <= 0 && b.Len() >= maxBytes && lineNo >= startLine {
+			truncated = true
+			break
+		}
+	}
+
+	if startLine > lineNo {
+		return "", "", false, fmt.Sprintf("start_line (%d) is beyond file line count (%d)", startLine, lineNo)
+	}
+	if lastReturnedLine == 0 {
+		lastReturnedLine = lineNo
+	}
+	return b.String(), fmt.Sprintf("%d-%d", startLine, lastReturnedLine), truncated, ""
 }
 
 func buildReadFileStep(spec ExecutionSpec, index int, startedAt time.Time, toolName, path string, fileSize, readBytes int64, truncated bool) types.TaskStep {
@@ -1765,29 +1825,6 @@ func buildGenericReadToolStep(spec ExecutionSpec, index int, startedAt time.Time
 		RequestID:  spec.RequestID,
 		TraceID:    spec.TraceID,
 	}
-}
-
-func selectLineRange(content string, startLine, endLine int) (string, string, string) {
-	if startLine <= 0 {
-		startLine = 1
-	}
-	if endLine > 0 && endLine < startLine {
-		return "", "", fmt.Sprintf("end_line (%d) must be >= start_line (%d)", endLine, startLine)
-	}
-	lines := strings.SplitAfter(content, "\n")
-	if len(lines) == 1 && lines[0] == "" {
-		lines = nil
-	}
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if startLine > len(lines) {
-		return "", "", fmt.Sprintf("start_line (%d) is beyond file line count (%d)", startLine, len(lines))
-	}
-	if endLine <= 0 || endLine > len(lines) {
-		endLine = len(lines)
-	}
-	return strings.Join(lines[startLine-1:endLine], ""), fmt.Sprintf("%d-%d", startLine, endLine), ""
 }
 
 func workspaceRoot(spec ExecutionSpec) (string, string) {
