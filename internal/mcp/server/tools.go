@@ -83,7 +83,7 @@ func RegisterDefaultTools(s *Server, client *GatewayClient) {
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"query": {"type": "string", "description": "Case-insensitive text to match against recent trace summaries: request id, trace id, status, provider, model, or route reason."},
+				"query": {"type": "string", "description": "Case-insensitive text to match against recent trace summaries: request id, trace id, status, route final provider/model, or route reason."},
 				"request_id": {"type": "string", "description": "Exact request id to fetch. When set, query is ignored and the detailed trace is returned."},
 				"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50, "description": "Maximum number of recent traces to inspect for query searches."}
 			}
@@ -300,15 +300,12 @@ type traceListItem struct {
 	RequestID     string           `json:"request_id"`
 	TraceID       string           `json:"trace_id,omitempty"`
 	StartedAt     string           `json:"started_at"`
+	SpanCount     int              `json:"span_count,omitempty"`
 	FinishedAt    string           `json:"finished_at,omitempty"`
 	DurationMS    int64            `json:"duration_ms,omitempty"`
-	Provider      string           `json:"provider,omitempty"`
-	Model         string           `json:"model,omitempty"`
 	StatusCode    string           `json:"status_code,omitempty"`
 	StatusMessage string           `json:"status_message,omitempty"`
 	StatusErr     bool             `json:"-"`
-	Tokens        int64            `json:"total_tokens,omitempty"`
-	CostUSD       float64          `json:"cost_usd,omitempty"`
 	Route         traceRouteRecord `json:"route,omitempty"`
 }
 
@@ -344,16 +341,15 @@ func summarizeRecentTrafficHandler(client *GatewayClient) ToolHandler {
 			count   int
 			errors  int
 			totalMS int64
-			tokens  int64
-			cost    float64
+			spans   int
 		}
 		byProvider := map[string]*bucket{}
 		var totalCount, totalErrors int
 		var totalLatency int64
 		for _, t := range resp.Data {
-			provider := t.Provider
+			provider := t.Route.FinalProvider
 			if provider == "" {
-				provider = "unknown"
+				provider = "unrouted"
 			}
 			b, ok := byProvider[provider]
 			if !ok {
@@ -362,8 +358,7 @@ func summarizeRecentTrafficHandler(client *GatewayClient) ToolHandler {
 			}
 			b.count++
 			b.totalMS += t.DurationMS
-			b.tokens += t.Tokens
-			b.cost += t.CostUSD
+			b.spans += t.SpanCount
 			isError := t.StatusCode == "error" || strings.HasPrefix(t.StatusCode, "5") || strings.HasPrefix(t.StatusCode, "4")
 			if isError {
 				b.errors++
@@ -387,11 +382,8 @@ func summarizeRecentTrafficHandler(client *GatewayClient) ToolHandler {
 			}
 			fmt.Fprintf(&b, "  - %s: %d req, %d errors (%.1f%%), avg %dms",
 				name, agg.count, agg.errors, percent(agg.errors, agg.count), avg)
-			if agg.tokens > 0 {
-				fmt.Fprintf(&b, ", %d tokens", agg.tokens)
-			}
-			if agg.cost > 0 {
-				fmt.Fprintf(&b, ", $%.4f", agg.cost)
+			if agg.spans > 0 {
+				fmt.Fprintf(&b, ", %d spans", agg.spans)
 			}
 			b.WriteByte('\n')
 		}
@@ -544,8 +536,6 @@ func traceListItemMatches(t traceListItem, query string) bool {
 		t.TraceID,
 		t.StatusCode,
 		t.StatusMessage,
-		t.Provider,
-		t.Model,
 		t.Route.FinalProvider,
 		t.Route.FinalModel,
 		t.Route.FinalReason,
