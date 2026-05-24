@@ -121,9 +121,9 @@ func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
 		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":[
-				{"request_id":"r1","provider":"openai","duration_ms":120,"status_code":"ok","total_tokens":150,"cost_usd":0.001},
-				{"request_id":"r2","provider":"openai","duration_ms":80,"status_code":"ok","total_tokens":100,"cost_usd":0.0008},
-				{"request_id":"r3","provider":"anthropic","duration_ms":300,"status_code":"error"}
+				{"request_id":"r1","span_count":4,"duration_ms":120,"status_code":"ok","route":{"final_provider":"openai","final_model":"gpt-4.1"}},
+				{"request_id":"r2","span_count":3,"duration_ms":80,"status_code":"ok","route":{"final_provider":"openai","final_model":"gpt-4.1"}},
+				{"request_id":"r3","span_count":2,"duration_ms":300,"status_code":"error","route":{"final_provider":"anthropic","final_model":"claude-opus-4-5"}}
 			]}`))
 		},
 	})
@@ -134,7 +134,7 @@ func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 	body := result.Content[0].Text
-	for _, want := range []string{"3 requests", "openai: 2 req", "anthropic: 1 req", "1 errors"} {
+	for _, want := range []string{"3 requests", "openai: 2 req", "anthropic: 1 req", "1 errors", "7 spans"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("want %q in output, got: %s", want, body)
 		}
