@@ -722,6 +722,17 @@ func TestAgentLoop_ReadFileLineRange(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_SelectLineRangeDoesNotExposePhantomTrailingLine(t *testing.T) {
+	content := "one\ntwo\n"
+	_, _, errMsg := selectLineRange(content, 3, 3)
+	if errMsg == "" {
+		t.Fatal("selectLineRange accepted phantom trailing line; want out-of-range error")
+	}
+	if !strings.Contains(errMsg, "line count (2)") {
+		t.Fatalf("error = %q, want real line count", errMsg)
+	}
+}
+
 func TestAgentLoop_GrepToolFindsMatches(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc Target() {}\n"), 0o644); err != nil {
@@ -1784,6 +1795,41 @@ func TestAgentLoop_ApplyPatchPreflightsAllFilesBeforeWriting(t *testing.T) {
 	}
 	if string(content) != "one\n" {
 		t.Fatalf("first file was partially patched before second failed: %q", string(content))
+	}
+}
+
+func TestAgentLoop_ParseStructuredPatchRequiresBeginMarker(t *testing.T) {
+	patchText := "*** Update File: file.txt\n" +
+		"@@\n" +
+		"-old\n" +
+		"+new\n" +
+		"*** End Patch\n"
+	if _, errMsg := parseStructuredPatch(patchText); errMsg == "" {
+		t.Fatal("parseStructuredPatch accepted patch without begin marker")
+	} else if !strings.Contains(errMsg, "*** Begin Patch") {
+		t.Fatalf("error = %q, want begin-marker guidance", errMsg)
+	}
+
+	if _, errMsg := parseStructuredPatch("*** End Patch\n"); errMsg == "" {
+		t.Fatal("parseStructuredPatch accepted end marker without begin marker")
+	}
+}
+
+func TestAgentLoop_ApplyPatchUpdateHandlesBlankLines(t *testing.T) {
+	current := "alpha\n\nbeta\n"
+	patchLines := []string{
+		"@@\n",
+		" alpha\n",
+		"-\n",
+		"+spacer\n",
+		" beta\n",
+	}
+	next, errMsg := applyPatchUpdate(current, patchLines)
+	if errMsg != "" {
+		t.Fatalf("applyPatchUpdate returned error: %s", errMsg)
+	}
+	if next != "alpha\nspacer\nbeta\n" {
+		t.Fatalf("updated content = %q, want blank line replaced", next)
 	}
 }
 
