@@ -97,10 +97,28 @@ function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
 function isExpectedHecateChatSetupError(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false;
   return (
+    error.code === "chat.workspace_required" ||
     error.code === "chat.model_required" ||
     error.code === "model_not_configured" ||
     error.code === "route.no_routable_provider"
   );
+}
+
+function chatWorkspaceRequiredError(): ApiError {
+  return new ApiError(
+    "Choose a workspace before using Hecate Chat tools or External Agent.",
+    400,
+    "chat.workspace_required",
+    {
+      operatorAction: "Choose a workspace, or use Hecate direct model chat.",
+    },
+  );
+}
+
+function chatModelRequiredError(): ApiError {
+  return new ApiError("Choose a model before starting this chat.", 400, "chat.model_required", {
+    operatorAction: "Open Connections or choose a model from the composer.",
+  });
 }
 
 function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null): {
@@ -463,11 +481,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
     try {
       if (!isModelTurn && !turnWorkspace) {
-        setChatError("Choose a workspace path before starting an agent chat.");
+        setChatErrorState(chatWorkspaceRequiredError());
         return;
       }
       if (!isExternalAgent && !turnModel) {
-        setChatError("Choose a model before sending through Hecate.");
+        setChatErrorState(chatModelRequiredError());
         return;
       }
 
@@ -705,7 +723,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       const externalAgentID = requestedAgentID || agentAdapterID;
       const workspace = agentWorkspace.trim();
       if (!workspace) {
-        clearChatErrorState();
+        setChatErrorState(chatWorkspaceRequiredError());
         setActiveChatSessionID("");
         setActiveChatSession(null);
         return;
@@ -752,7 +770,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     });
     const workspace = agentWorkspace.trim();
     if (executionMode === "hecate_task" && !workspace) {
-      clearChatErrorState();
+      setChatErrorState(chatWorkspaceRequiredError());
       setActiveChatSessionID("");
       setActiveChatSession(null);
       return;
