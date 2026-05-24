@@ -1927,6 +1927,77 @@ func TestAgentLoop_ApplyPatchToolCanProposeWithoutApplying(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_ApplyPatchToolRejectsReadOnlyWrites(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "old.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patchText := "*** Begin Patch\n" +
+		"*** Update File: old.txt\n" +
+		"@@\n" +
+		" alpha\n" +
+		"-beta\n" +
+		"+gamma\n" +
+		"*** End Patch\n"
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	spec.Task.SandboxReadOnly = true
+
+	output, step, artifacts, err := applyPatchTool(spec, applyPatchArgs{PatchText: patchText}, 1, time.Now().UTC(), "patch-1", "apply_patch")
+	if err != nil {
+		t.Fatalf("applyPatchTool: %v", err)
+	}
+	if step != nil || len(artifacts) != 0 {
+		t.Fatalf("expected preflight-only denial, got step=%+v artifacts=%+v", step, artifacts)
+	}
+	if !strings.Contains(output, "write access is disabled") {
+		t.Fatalf("output = %q, want read-only denial", output)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "alpha\nbeta\n" {
+		t.Fatalf("read-only patch changed file: %q", string(content))
+	}
+}
+
+func TestAgentLoop_ValidatePatchOperationPathRejectsEmptyPath(t *testing.T) {
+	for _, kind := range []string{"add", "delete", "update"} {
+		t.Run(kind, func(t *testing.T) {
+			errMsg := validatePatchOperationPath(patchOperation{Kind: kind, Path: " \t"})
+			if !strings.Contains(errMsg, "file path is required") {
+				t.Fatalf("error = %q, want path-required message", errMsg)
+			}
+		})
+	}
+}
+
+func TestAgentLoop_PreparePatchOperationRejectsLargeTargets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", fileEditHardCapBytes+1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"delete", "update"} {
+		t.Run(kind, func(t *testing.T) {
+			_, _, _, errMsg := preparePatchOperation(path, patchOperation{
+				Kind: kind,
+				Path: "large.txt",
+				Lines: []string{
+					"@@\n",
+					"-x\n",
+					"+y\n",
+				},
+			})
+			if !strings.Contains(errMsg, "too large") {
+				t.Fatalf("error = %q, want too-large guard", errMsg)
+			}
+		})
+	}
+}
+
 func TestAgentLoop_ApplyPatchPreflightsAllFilesBeforeWriting(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "one.txt"), []byte("one\n"), 0o644); err != nil {
