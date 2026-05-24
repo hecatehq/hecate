@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -1636,6 +1637,7 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(cmdCtx, "git", append([]string{"-C", root, "--no-pager"}, args...)...)
+	cmd.Env = sandbox.SanitizedEnv()
 	output := &limitedCommandBuffer{limit: maxBytes}
 	cmd.Stdout = output
 	cmd.Stderr = output
