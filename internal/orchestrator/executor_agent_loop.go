@@ -1181,7 +1181,6 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 		return "apply_patch: patch contains no file operations", nil, nil, nil
 	}
 
-	finishedAt := time.Now().UTC()
 	step := types.TaskStep{
 		ID:       spec.NewID("step"),
 		TaskID:   spec.Task.ID,
@@ -1198,10 +1197,9 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 			"propose":     args.Propose,
 			"file_count":  len(ops),
 		},
-		StartedAt:  startedAt,
-		FinishedAt: finishedAt,
-		RequestID:  spec.RequestID,
-		TraceID:    spec.TraceID,
+		StartedAt: startedAt,
+		RequestID: spec.RequestID,
+		TraceID:   spec.TraceID,
 	}
 
 	prepared := make([]preparedPatchOperation, 0, len(ops))
@@ -1227,6 +1225,8 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 		}
 	}
 
+	finishedAt := time.Now().UTC()
+	step.FinishedAt = finishedAt
 	artifacts := make([]types.TaskArtifact, 0, len(prepared))
 	var summaries []string
 	for _, item := range prepared {
@@ -1778,6 +1778,9 @@ func selectLineRange(content string, startLine, endLine int) (string, string, st
 	if len(lines) == 1 && lines[0] == "" {
 		lines = nil
 	}
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
 	if startLine > len(lines) {
 		return "", "", fmt.Sprintf("start_line (%d) is beyond file line count (%d)", startLine, len(lines))
 	}
@@ -1900,22 +1903,34 @@ func parseStructuredPatch(patchText string) ([]patchOperation, string) {
 		case trimmed == "*** Begin Patch":
 			seenBegin = true
 		case trimmed == "*** End Patch":
+			if !seenBegin {
+				return nil, "apply_patch: patch must start with *** Begin Patch"
+			}
 			if current != nil {
 				ops = append(ops, *current)
 				current = nil
 			}
 			return ops, ""
 		case strings.HasPrefix(trimmed, "*** Add File: "):
+			if !seenBegin {
+				return nil, "apply_patch: patch must start with *** Begin Patch"
+			}
 			if current != nil {
 				ops = append(ops, *current)
 			}
 			current = &patchOperation{Kind: "add", Path: strings.TrimSpace(strings.TrimPrefix(trimmed, "*** Add File: "))}
 		case strings.HasPrefix(trimmed, "*** Update File: "):
+			if !seenBegin {
+				return nil, "apply_patch: patch must start with *** Begin Patch"
+			}
 			if current != nil {
 				ops = append(ops, *current)
 			}
 			current = &patchOperation{Kind: "update", Path: strings.TrimSpace(strings.TrimPrefix(trimmed, "*** Update File: "))}
 		case strings.HasPrefix(trimmed, "*** Delete File: "):
+			if !seenBegin {
+				return nil, "apply_patch: patch must start with *** Begin Patch"
+			}
 			if current != nil {
 				ops = append(ops, *current)
 			}
@@ -2006,7 +2021,7 @@ func applyPatchUpdate(current string, patchLines []string) (string, string) {
 	}
 	for _, line := range patchLines {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "@@") || strings.HasPrefix(trimmed, `\ No newline`) {
+		if line == "" || strings.HasPrefix(trimmed, "@@") || strings.HasPrefix(trimmed, `\ No newline`) {
 			continue
 		}
 		switch line[0] {
