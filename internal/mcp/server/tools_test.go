@@ -208,6 +208,22 @@ func TestTool_SearchTraces_FetchesExactTraceByRequestID(t *testing.T) {
 	}
 }
 
+func TestTraceRouteFormattingIncludesReasonOnlyRouteMarker(t *testing.T) {
+	route := traceRouteRecord{FinalReason: "failover", FallbackFrom: "openai/gpt-4.1"}
+
+	var detail strings.Builder
+	writeTraceRoute(&detail, route)
+	if got, want := detail.String(), "Route: reason failover · fallback from openai/gpt-4.1\n"; got != want {
+		t.Fatalf("writeTraceRoute() = %q, want %q", got, want)
+	}
+
+	var summary strings.Builder
+	writeTraceSummaryLine(&summary, "req-1", "", "", 0, "", "", route)
+	if got := summary.String(); !strings.Contains(got, " · route reason failover · fallback from openai/gpt-4.1") {
+		t.Fatalf("summary route marker missing: %q", got)
+	}
+}
+
 // ─── create_task ─────────────────────────────────────────────────────
 
 func TestTool_CreateTask_PostsAgentLoopAndSummarizes(t *testing.T) {

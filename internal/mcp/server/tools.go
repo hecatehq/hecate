@@ -575,25 +575,34 @@ func writeTraceRoute(b *strings.Builder, route traceRouteRecord) {
 }
 
 func writeTraceRouteInline(b *strings.Builder, route traceRouteRecord, prefix string) {
+	parts := make([]string, 0, 3)
 	if route.FinalProvider != "" || route.FinalModel != "" {
-		if prefix != "" {
-			b.WriteString(prefix)
-		} else {
-			b.WriteString(" · route")
-		}
-		if route.FinalProvider != "" {
-			fmt.Fprintf(b, " %s", route.FinalProvider)
-		}
+		target := route.FinalProvider
 		if route.FinalModel != "" {
-			fmt.Fprintf(b, "/%s", route.FinalModel)
+			if target != "" {
+				target += "/" + route.FinalModel
+			} else {
+				target = route.FinalModel
+			}
 		}
+		parts = append(parts, target)
 	}
 	if route.FinalReason != "" {
-		fmt.Fprintf(b, " · reason %s", route.FinalReason)
+		parts = append(parts, "reason "+route.FinalReason)
 	}
 	if route.FallbackFrom != "" {
-		fmt.Fprintf(b, " · fallback from %s", route.FallbackFrom)
+		parts = append(parts, "fallback from "+route.FallbackFrom)
 	}
+	if len(parts) == 0 {
+		return
+	}
+	if prefix != "" {
+		b.WriteString(prefix)
+		b.WriteByte(' ')
+	} else {
+		b.WriteString(" · route ")
+	}
+	b.WriteString(strings.Join(parts, " · "))
 }
 
 // ─── create_task ─────────────────────────────────────────────────────
