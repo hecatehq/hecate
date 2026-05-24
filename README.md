@@ -9,6 +9,7 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/hecatehq/hecate)](go.mod)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
+[![SafeSkill 50/100](https://img.shields.io/badge/SafeSkill-50%2F100_Use%20with%20Caution-orange)](https://safeskill.dev/scan/hecatehq-hecate)
 
 <p align="center">
   <strong>Local-first AI gateway and agent console.</strong><br>
