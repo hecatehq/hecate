@@ -61,9 +61,9 @@ versioned GitHub Release assets below:
 
 | Platform              | Bundle                                                                                                                                                                                                                                                                                       |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.38_aarch64.dmg](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.38/Hecate_0.1.0-alpha.38_aarch64.dmg)                                                                                                                                                  |
-| Linux x86_64          | [Hecate_0.1.0-alpha.38_amd64.deb](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.38/Hecate_0.1.0-alpha.38_amd64.deb) or [Hecate_0.1.0-alpha.38_amd64.AppImage](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.38/Hecate_0.1.0-alpha.38_amd64.AppImage) |
-| Windows x86_64        | [Hecate_0.1.0-alpha.38_x64_en-US.msi](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.38/Hecate_0.1.0-alpha.38_x64_en-US.msi)                                                                                                                                              |
+| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.39_aarch64.dmg](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.39/Hecate_0.1.0-alpha.39_aarch64.dmg)                                                                                                                                                  |
+| Linux x86_64          | [Hecate_0.1.0-alpha.39_amd64.deb](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.39/Hecate_0.1.0-alpha.39_amd64.deb) or [Hecate_0.1.0-alpha.39_amd64.AppImage](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.39/Hecate_0.1.0-alpha.39_amd64.AppImage) |
+| Windows x86_64        | [Hecate_0.1.0-alpha.39_x64_en-US.msi](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.39/Hecate_0.1.0-alpha.39_x64_en-US.msi)                                                                                                                                              |
 
 <!-- desktop-release-links:end -->
 
@@ -79,7 +79,7 @@ Skip to [Add a provider](#add-a-provider) once it's running.
 
 ```bash
 docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
-  ghcr.io/hecatehq/hecate:0.1.0-alpha.38
+  ghcr.io/hecatehq/hecate:0.1.0-alpha.39
 ```
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.
