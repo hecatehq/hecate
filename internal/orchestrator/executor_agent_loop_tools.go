@@ -109,12 +109,54 @@ func (e *AgentLoopExecutor) dispatchToolCall(ctx context.Context, spec Execution
 		}
 		return readFileTool(spec, args, stepIndex, startedAt, call.Function.Name)
 
+	case "grep":
+		var args grepArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return fmt.Sprintf("invalid arguments for grep: %v", err), nil, nil, nil
+		}
+		return grepTool(spec, args, stepIndex, startedAt, call.Function.Name)
+
+	case "glob":
+		var args globArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return fmt.Sprintf("invalid arguments for glob: %v", err), nil, nil, nil
+		}
+		return globTool(spec, args, stepIndex, startedAt, call.Function.Name)
+
+	case "artifact_read":
+		var args artifactReadArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return fmt.Sprintf("invalid arguments for artifact_read: %v", err), nil, nil, nil
+		}
+		return artifactReadTool(spec, args, stepIndex, startedAt, call.Function.Name)
+
 	case "list_dir":
 		var args listDirArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 			return fmt.Sprintf("invalid arguments for list_dir: %v", err), nil, nil, nil
 		}
 		return listDirTool(spec, args, stepIndex, startedAt, call.Function.Name)
+
+	case "git_status":
+		var args gitStatusArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return fmt.Sprintf("invalid arguments for git_status: %v", err), nil, nil, nil
+		}
+		return gitStatusTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
+
+	case "git_diff":
+		var args gitDiffArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return fmt.Sprintf("invalid arguments for git_diff: %v", err), nil, nil, nil
+		}
+		return gitDiffTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
+
+	case "apply_patch":
+		var args applyPatchArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return fmt.Sprintf("invalid arguments for apply_patch: %v", err), nil, nil, nil
+		}
+		return applyPatchTool(spec, args, stepIndex, startedAt, call.ID, call.Function.Name)
 
 	case "http_request":
 		var args httpRequestArgs

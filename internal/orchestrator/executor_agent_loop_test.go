@@ -19,6 +19,15 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	return string(raw)
+}
+
 // scriptedLLM returns a canned response on each call. Tests build the
 // script in advance — { "turn 1 wants shell_exec(ls)", "turn 2 wants
 // final answer" } — and the loop drives through it. Each call records
@@ -675,6 +684,251 @@ func TestAgentLoop_ReadFileBinaryDetection(t *testing.T) {
 	}
 	if !hasBinary {
 		t.Errorf("binary file not flagged: %+v", llm.lastReqs[1].Messages)
+	}
+}
+
+func TestAgentLoop_ReadFileLineRange(t *testing.T) {
+	dir := t.TempDir()
+	content := "one\ntwo\nthree\nfour\n"
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "c1", Type: "function",
+				Function: types.ToolCallFunction{Name: "read_file", Arguments: `{"path":"notes.txt","start_line":2,"end_line":3}`},
+			})),
+			makeChatResp(makeAssistantMsg("Read the range.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "c1" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "lines=2-3") || !strings.Contains(toolResult, "two\nthree\n") {
+		t.Fatalf("range content missing from tool result: %q", toolResult)
+	}
+	if strings.Contains(toolResult, "one\n") || strings.Contains(toolResult, "four\n") {
+		t.Fatalf("range included out-of-range content: %q", toolResult)
+	}
+}
+
+func TestAgentLoop_GrepToolFindsMatches(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc Target() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("Target in docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "grep-1", Type: "function",
+				Function: types.ToolCallFunction{Name: "grep", Arguments: `{"pattern":"Target","include":"*.go"}`},
+			})),
+			makeChatResp(makeAssistantMsg("Found it.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "grep-1" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "main.go:2:func Target() {}") {
+		t.Fatalf("grep match missing: %s", toolResult)
+	}
+	if strings.Contains(toolResult, "README.md") {
+		t.Fatalf("grep include filter leaked README match: %s", toolResult)
+	}
+}
+
+func TestAgentLoop_GlobToolFindsWorkspacePaths(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "internal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"internal/a.go", "internal/b_test.go", "README.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "glob-1", Type: "function",
+				Function: types.ToolCallFunction{Name: "glob", Arguments: `{"pattern":"internal/*.go"}`},
+			})),
+			makeChatResp(makeAssistantMsg("Found Go files.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "glob-1" {
+			toolResult = m.Content
+		}
+	}
+	for _, want := range []string{"internal/a.go", "internal/b_test.go"} {
+		if !strings.Contains(toolResult, want) {
+			t.Fatalf("glob output missing %q: %s", want, toolResult)
+		}
+	}
+	if strings.Contains(toolResult, "README.md") {
+		t.Fatalf("glob leaked README match: %s", toolResult)
+	}
+}
+
+func TestAgentLoop_ArtifactReadToolReadsTaskArtifact(t *testing.T) {
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "artifact-1", Type: "function",
+				Function: types.ToolCallFunction{Name: "artifact_read", Arguments: `{"artifact_id":"artifact-123","max_bytes":11}`},
+			})),
+			makeChatResp(makeAssistantMsg("Read artifact.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.GetArtifact = func(taskID, artifactID string) (types.TaskArtifact, bool, error) {
+		if taskID != spec.Task.ID || artifactID != "artifact-123" {
+			return types.TaskArtifact{}, false, nil
+		}
+		return types.TaskArtifact{
+			ID:          artifactID,
+			TaskID:      taskID,
+			RunID:       spec.Run.ID,
+			Kind:        "stdout",
+			Name:        "stdout.txt",
+			MimeType:    "text/plain",
+			StorageKind: "inline",
+			ContentText: "hello world and beyond",
+			SizeBytes:   int64(len("hello world and beyond")),
+			Status:      "ready",
+		}, true, nil
+	}
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "artifact-1" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "artifact_id=artifact-123") || !strings.Contains(toolResult, "hello world") {
+		t.Fatalf("artifact content missing from tool result: %q", toolResult)
+	}
+	if strings.Contains(toolResult, "and beyond") || !strings.Contains(toolResult, "truncated=true") {
+		t.Fatalf("artifact content was not capped: %q", toolResult)
+	}
+}
+
+func TestAgentLoop_GitStatusToolReportsWorkspaceChanges(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "main.go")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "status-1", Type: "function",
+				Function: types.ToolCallFunction{Name: "git_status", Arguments: `{}`},
+			})),
+			makeChatResp(makeAssistantMsg("Status checked.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "status-1" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "main.go") || !strings.Contains(toolResult, "new.txt") {
+		t.Fatalf("git status output missing changed files: %q", toolResult)
+	}
+	if strings.Contains(toolResult, "diff --git") {
+		t.Fatalf("git_status should not include diff output: %q", toolResult)
+	}
+}
+
+func TestAgentLoop_GitDiffToolReturnsBoundedDiff(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "main.go")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "diff-1", Type: "function",
+				Function: types.ToolCallFunction{Name: "git_diff", Arguments: `{"path":"main.go","max_bytes":4096}`},
+			})),
+			makeChatResp(makeAssistantMsg("Diff checked.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "diff-1" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "diff --git") || !strings.Contains(toolResult, "+func main() {}") {
+		t.Fatalf("git diff output missing expected hunk: %q", toolResult)
 	}
 }
 
@@ -1367,6 +1621,169 @@ func TestAgentLoop_FileEditCanProposePatchWithoutApplying(t *testing.T) {
 	}
 	if !foundPatchEvent {
 		t.Fatalf("tool.file.patch event missing: %+v", events)
+	}
+}
+
+func TestAgentLoop_ApplyPatchToolAppliesMultiFilePatch(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "old.txt"), []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patchText := "*** Begin Patch\n" +
+		"*** Update File: old.txt\n" +
+		"@@\n" +
+		" alpha\n" +
+		"-beta\n" +
+		"+gamma\n" +
+		"*** Add File: new.txt\n" +
+		"+fresh\n" +
+		"*** End Patch\n"
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "patch-1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "apply_patch",
+					Arguments: mustJSON(t, map[string]any{"patch_text": patchText}),
+				},
+			})),
+			makeChatResp(makeAssistantMsg("Patch applied.")),
+		},
+	}
+	var events []capturedRunEvent
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(workspace.NewLocalWorkspace()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	spec.EmitRunEvent = func(eventType string, data map[string]any) {
+		events = append(events, capturedRunEvent{eventType: eventType, data: data})
+	}
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	updated, err := os.ReadFile(filepath.Join(dir, "old.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(updated) != "alpha\ngamma\n" {
+		t.Fatalf("old.txt = %q, want updated content", string(updated))
+	}
+	added, err := os.ReadFile(filepath.Join(dir, "new.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(added) != "fresh\n" {
+		t.Fatalf("new.txt = %q, want fresh", string(added))
+	}
+	patchCount := 0
+	for _, artifact := range res.Artifacts {
+		if artifact.Kind == "patch" {
+			patchCount++
+		}
+	}
+	if patchCount != 2 {
+		t.Fatalf("patch artifact count = %d, want 2; artifacts=%+v", patchCount, res.Artifacts)
+	}
+	eventCount := 0
+	for _, event := range events {
+		if event.eventType == "tool.file.patch" && event.data["tool_name"] == "apply_patch" {
+			eventCount++
+		}
+	}
+	if eventCount != 2 {
+		t.Fatalf("tool.file.patch apply_patch events = %d, want 2: %+v", eventCount, events)
+	}
+}
+
+func TestAgentLoop_ApplyPatchToolCanProposeWithoutApplying(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "old.txt"), []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patchText := "*** Begin Patch\n" +
+		"*** Update File: old.txt\n" +
+		"@@\n" +
+		" alpha\n" +
+		"-beta\n" +
+		"+gamma\n" +
+		"*** End Patch\n"
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "patch-1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "apply_patch",
+					Arguments: mustJSON(t, map[string]any{"patch_text": patchText, "propose": true}),
+				},
+			})),
+			makeChatResp(makeAssistantMsg("Patch proposed.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(workspace.NewLocalWorkspace()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "old.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "alpha\nbeta\n" {
+		t.Fatalf("proposed patch changed file: %q", string(content))
+	}
+	patch := findArtifactByKind(res.Artifacts, "patch")
+	if patch == nil {
+		t.Fatalf("patch artifact missing: %+v", res.Artifacts)
+	}
+	if patch.Status != "proposed" {
+		t.Fatalf("patch status = %q, want proposed", patch.Status)
+	}
+}
+
+func TestAgentLoop_ApplyPatchPreflightsAllFilesBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "one.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "two.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patchText := "*** Begin Patch\n" +
+		"*** Update File: one.txt\n" +
+		"@@\n" +
+		"-one\n" +
+		"+ONE\n" +
+		"*** Update File: two.txt\n" +
+		"@@\n" +
+		"-missing\n" +
+		"+TWO\n" +
+		"*** End Patch\n"
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "patch-1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "apply_patch",
+					Arguments: mustJSON(t, map[string]any{"patch_text": patchText}),
+				},
+			})),
+			makeChatResp(makeAssistantMsg("Patch failed.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(workspace.NewLocalWorkspace()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "one.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "one\n" {
+		t.Fatalf("first file was partially patched before second failed: %q", string(content))
 	}
 }
 
