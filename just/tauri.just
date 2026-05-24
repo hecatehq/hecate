@@ -58,6 +58,29 @@ tauri-sidecar target="": tauri-build-sidecars
 	echo "staging sidecar: $dest"; \
 	cp "$src" "$dest"
 
+# Stage a minimal executable sidecar placeholder for Cargo-only Tauri tests.
+# Tauri's build script validates that the externalBin file exists at compile
+# time, but Rust unit tests do not execute the gateway. Keeping this separate
+# avoids making `tauri-rust-test` rebuild the embedded UI and Go sidecar.
+# Stage placeholder sidecar for Tauri Rust tests.
+tauri-test-sidecar target="":
+	rust_target="{{target}}"; \
+	if [ -z "$rust_target" ]; then \
+	  rust_target=$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}'); \
+	fi; \
+	if [ -z "$rust_target" ]; then \
+	  echo "rustc not found — cannot determine host triple" && exit 1; \
+	fi; \
+	case "$rust_target" in \
+	  *windows*) suffix=".exe" ;; \
+	  *) suffix="" ;; \
+	esac; \
+	dest="tauri/src-tauri/binaries/hecate-$rust_target$suffix"; \
+	echo "staging test sidecar placeholder: $dest"; \
+	mkdir -p "$(dirname "$dest")"; \
+	printf '#!/bin/sh\nexit 0\n' > "$dest"; \
+	chmod +x "$dest"
+
 # Hot-reload development mode. Launches the Tauri window backed by a fresh
 # hecate sidecar build. The hecate binary is rebuilt first so the sidecar is up
 # to date; UI changes require a fresh `just tauri-sidecar` because the gateway
@@ -90,12 +113,12 @@ tauri-build-app: tauri-sidecar tauri-version
 	  cd tauri && bunx tauri build --bundles app; \
 	fi
 
-# Run the Tauri crate's Rust unit tests. Depends on tauri-sidecar because
-# build.rs validates the externalBin path at compile time — without a staged
-# sidecar, even `cargo test` fails before any test runs.
+# Run the Tauri crate's Rust tests. Depends on a lightweight placeholder
+# sidecar because build.rs validates the externalBin path at compile time —
+# without a staged sidecar, even `cargo test` fails before any test runs.
 # Run Tauri Rust unit tests.
-tauri-rust-test: tauri-sidecar
-	cd tauri/src-tauri && cargo test --lib
+tauri-rust-test: tauri-test-sidecar
+	cd tauri/src-tauri && cargo test
 
 # Build the native app bundle, launch it, wait for the hecate sidecar to answer
 # /healthz, quit the app, and verify the sidecar exits. It opens a real desktop

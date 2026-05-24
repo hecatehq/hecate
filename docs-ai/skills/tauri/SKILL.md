@@ -243,6 +243,7 @@ just test-tauri-smoke
 ```
 
 `cargo check` is the fast iteration loop. Full `tauri dev` is the integration test — it exercises the real binary, real port allocation, real healthz poll, and the webview navigation.
+`just tauri-rust-test` runs the Rust test suite with a placeholder sidecar; use it for Tauri Rust changes that don't need a real gateway binary.
 `just test-tauri-smoke` is the packaged-app lifecycle check for macOS; it is
 not part of `verify` because it opens a GUI window.
 
@@ -284,7 +285,7 @@ it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
 ### Pipeline footguns
 
 - **`tauri-action`'s auto-install is unreliable with `projectPath` set.** It silently skips `bun install` in `tauri/`, leaving `node_modules/.bin/tauri` missing — `bun run tauri build` then fails with "tauri: command not found". Always run `cd tauri && bun install --frozen-lockfile` ourselves before the action.
-- **`build.rs` validates `externalBin` paths at build-script run time.** Any step that compiles the Rust crate (`cargo check`, `cargo build`, `tauri build`) needs the sidecar staged at `binaries/hecate-{triple}[.exe]` first. Run `just tauri-sidecar <target>` before any Rust compile; it builds and stages the versioned sidecars in one step. Plain `just build` leaves the runtime version as `dev`; release/native bundles need the versioned sidecar path so `/healthz` and the UI status bar match the Tauri app version.
+- **`build.rs` validates `externalBin` paths at build-script run time.** Any step that compiles the Rust crate (`cargo check`, `cargo build`, `tauri build`) needs a sidecar file staged at `binaries/hecate-{triple}[.exe]` first. For Rust-only tests/checks, run `just tauri-test-sidecar` or `just tauri-rust-test`; those stage a lightweight placeholder because the gateway is not executed. For real dev/build/release bundles, run `just tauri-sidecar <target>` so `/healthz` and the UI status bar report the packaged Tauri version instead of `dev`.
 - **Just + Git Bash on Windows runners.** Set `defaults.run.shell: bash` job-wide. Default Windows shell is PowerShell; the Justfile shell recipes and our `cp`/`if` blocks only work in bash. On Windows runners, `bash` resolves to Git Bash.
 - **Go sidecar names differ by host and bundle target.** `just tauri-sidecar <target>` reads `go env GOEXE`, then stages `hecate$GOEXE` to `binaries/hecate-<target>$GOEXE`. A missing source fails at `cp`, which usually means the versioned sidecar build failed earlier in the recipe.
 - **`just tauri-build-sidecars` runs `just ui-build` which checks for `ui/node_modules/@vitejs/plugin-react`.** That's the canary file. CI must run `just ui-install` before building Tauri sidecars. Goreleaser handles the normal gateway build via its `before:` hook (`bun install --cwd ui --frozen-lockfile`); the Tauri matrix does it explicitly.

@@ -40,9 +40,12 @@ format: go-format ui-format website-format docs-format
 format-check: go-format-check ui-format-check website-format-check docs-format-check
 
 # Project verification gate. It intentionally runs only non-destructive
-# checks, but it is not cheap: Docker, Tauri Rust, and UI e2e can take a bit.
+# checks, but it is not cheap: Docker and UI e2e can take a bit.
 # Run the full project verification gate.
-verify: docs-env-check format-check test vet test-race test-docker-smoke ui-lint website-lint ui-test ui-test-e2e tauri-rust-test build
+verify: docs-env-check format-check test vet test-race test-docker-smoke ui-lint website-lint ui-test ui-test-e2e build
+
+# Run desktop-specific verification that requires Rust/Cargo and Tauri deps.
+verify-desktop: tauri-rust-test
 
 # Remove all build artifacts: Go cache, UI bundle contents, Tauri target,
 # staged sidecars. Preserves `.gitkeep` markers so the worktree stays clean.
