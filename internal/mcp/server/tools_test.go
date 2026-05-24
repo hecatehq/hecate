@@ -141,6 +141,24 @@ func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
 	}
 }
 
+func TestTool_SummarizeTraffic_ClampsLimitToTraceAPIMax(t *testing.T) {
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
+		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("limit") != "200" {
+				t.Errorf("limit query = %q, want 200", r.URL.Query().Get("limit"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		},
+	})
+	server := NewServer("t", "0")
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
+	_, err := registeredToolFor(t, server, "summarize_recent_traffic")(context.Background(), json.RawMessage(`{"limit":500}`))
+	if err != nil {
+		t.Fatalf("summarize_recent_traffic: %v", err)
+	}
+}
+
 func TestTool_SearchTraces_FiltersRecentTraceSummaries(t *testing.T) {
 	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {

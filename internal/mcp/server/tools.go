@@ -70,7 +70,7 @@ func RegisterDefaultTools(s *Server, client *GatewayClient) {
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100, "description": "Number of recent traces to inspect."}
+				"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 100, "description": "Number of recent traces to inspect."}
 			}
 		}`),
 		Annotations: readOnly,
@@ -301,11 +301,9 @@ type traceListItem struct {
 	TraceID       string           `json:"trace_id,omitempty"`
 	StartedAt     string           `json:"started_at"`
 	SpanCount     int              `json:"span_count,omitempty"`
-	FinishedAt    string           `json:"finished_at,omitempty"`
 	DurationMS    int64            `json:"duration_ms,omitempty"`
 	StatusCode    string           `json:"status_code,omitempty"`
 	StatusMessage string           `json:"status_message,omitempty"`
-	StatusErr     bool             `json:"-"`
 	Route         traceRouteRecord `json:"route,omitempty"`
 }
 
@@ -324,6 +322,9 @@ func summarizeRecentTrafficHandler(client *GatewayClient) ToolHandler {
 		}
 		if args.Limit <= 0 {
 			args.Limit = 100
+		}
+		if args.Limit > 200 {
+			args.Limit = 200
 		}
 		q := url.Values{}
 		q.Set("limit", fmt.Sprintf("%d", args.Limit))
