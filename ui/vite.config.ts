@@ -81,7 +81,7 @@ function preloadLikelyFirstWorkspace(): Plugin {
 const apiProxyTarget = "http://127.0.0.1:8765";
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, ".", "");
+  const env = loadEnv(mode, ".");
   const apiProxyDisabled = env.VITE_DISABLE_API_PROXY === "1";
 
   return {

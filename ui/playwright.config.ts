@@ -32,9 +32,10 @@ export default defineConfig({
   webServer: {
     // Playwright owns API mocking. Disable Vite's localhost proxy here so
     // missed mocks fail as quiet 404s instead of noisy ECONNREFUSED proxy logs.
-    command: "VITE_DISABLE_API_PROXY=1 bun run dev",
+    command: "bun run dev",
+    env: { VITE_DISABLE_API_PROXY: "1" },
     url: "http://localhost:5173",
-    reuseExistingServer: true,
+    reuseExistingServer: false,
     timeout: 30_000,
   },
 });
