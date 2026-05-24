@@ -88,6 +88,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), preloadLikelyFirstWorkspace(), preserveDistGitkeep()],
     server: {
       port: 5173,
+      strictPort: apiProxyDisabled,
       proxy: apiProxyDisabled
         ? undefined
         : {
