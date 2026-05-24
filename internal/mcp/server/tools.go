@@ -76,6 +76,21 @@ func RegisterDefaultTools(s *Server, client *GatewayClient) {
 		Annotations: readOnly,
 	}, summarizeRecentTrafficHandler(client))
 
+	s.RegisterTool(mcp.Tool{
+		Name:        "search_traces",
+		Title:       "Search traces",
+		Description: "Search recent local trace summaries, or fetch one exact trace by request_id. Returns request ids, route outcome, status, latency, and span/event details for exact lookups.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"query": {"type": "string", "description": "Case-insensitive text to match against recent trace summaries: request id, trace id, status, provider, model, or route reason."},
+				"request_id": {"type": "string", "description": "Exact request id to fetch. When set, query is ignored and the detailed trace is returned."},
+				"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50, "description": "Maximum number of recent traces to inspect for query searches."}
+			}
+		}`),
+		Annotations: readOnly,
+	}, searchTracesHandler(client))
+
 	// ─── write tools ─────────────────────────────────────────────────
 
 	s.RegisterTool(mcp.Tool{
@@ -278,18 +293,30 @@ type summarizeArgs struct {
 }
 
 type traceListResponse struct {
-	Data []struct {
-		RequestID  string  `json:"request_id"`
-		StartedAt  string  `json:"started_at"`
-		FinishedAt string  `json:"finished_at,omitempty"`
-		DurationMS int64   `json:"duration_ms,omitempty"`
-		Provider   string  `json:"provider,omitempty"`
-		Model      string  `json:"model,omitempty"`
-		StatusCode string  `json:"status_code,omitempty"`
-		StatusErr  bool    `json:"-"`
-		Tokens     int64   `json:"total_tokens,omitempty"`
-		CostUSD    float64 `json:"cost_usd,omitempty"`
-	} `json:"data"`
+	Data []traceListItem `json:"data"`
+}
+
+type traceListItem struct {
+	RequestID     string           `json:"request_id"`
+	TraceID       string           `json:"trace_id,omitempty"`
+	StartedAt     string           `json:"started_at"`
+	FinishedAt    string           `json:"finished_at,omitempty"`
+	DurationMS    int64            `json:"duration_ms,omitempty"`
+	Provider      string           `json:"provider,omitempty"`
+	Model         string           `json:"model,omitempty"`
+	StatusCode    string           `json:"status_code,omitempty"`
+	StatusMessage string           `json:"status_message,omitempty"`
+	StatusErr     bool             `json:"-"`
+	Tokens        int64            `json:"total_tokens,omitempty"`
+	CostUSD       float64          `json:"cost_usd,omitempty"`
+	Route         traceRouteRecord `json:"route,omitempty"`
+}
+
+type traceRouteRecord struct {
+	FinalProvider string `json:"final_provider,omitempty"`
+	FinalModel    string `json:"final_model,omitempty"`
+	FinalReason   string `json:"final_reason,omitempty"`
+	FallbackFrom  string `json:"fallback_from,omitempty"`
 }
 
 func summarizeRecentTrafficHandler(client *GatewayClient) ToolHandler {
@@ -369,6 +396,213 @@ func summarizeRecentTrafficHandler(client *GatewayClient) ToolHandler {
 			b.WriteByte('\n')
 		}
 		return mcp.CallToolResult{Content: mcp.TextContent(b.String())}, nil
+	}
+}
+
+// ─── search_traces ──────────────────────────────────────────────────
+
+type searchTracesArgs struct {
+	Query     string `json:"query"`
+	RequestID string `json:"request_id"`
+	Limit     int    `json:"limit"`
+}
+
+type traceDetailResponse struct {
+	Data struct {
+		RequestID string            `json:"request_id"`
+		TraceID   string            `json:"trace_id,omitempty"`
+		StartedAt string            `json:"started_at,omitempty"`
+		Route     traceRouteRecord  `json:"route,omitempty"`
+		Spans     []traceSpanRecord `json:"spans,omitempty"`
+	} `json:"data"`
+}
+
+type traceSpanRecord struct {
+	Name          string             `json:"name"`
+	Kind          string             `json:"kind,omitempty"`
+	StartTime     string             `json:"start_time,omitempty"`
+	EndTime       string             `json:"end_time,omitempty"`
+	StatusCode    string             `json:"status_code,omitempty"`
+	StatusMessage string             `json:"status_message,omitempty"`
+	Events        []traceEventRecord `json:"events,omitempty"`
+}
+
+type traceEventRecord struct {
+	Name string `json:"name"`
+}
+
+func searchTracesHandler(client *GatewayClient) ToolHandler {
+	return func(ctx context.Context, raw json.RawMessage) (mcp.CallToolResult, error) {
+		var args searchTracesArgs
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &args); err != nil {
+				return mcp.CallToolResult{}, fmt.Errorf("invalid arguments: %w", err)
+			}
+		}
+		requestID := strings.TrimSpace(args.RequestID)
+		if requestID != "" {
+			return fetchTraceByRequestID(ctx, client, requestID)
+		}
+
+		query := strings.TrimSpace(args.Query)
+		if args.Limit <= 0 {
+			args.Limit = 50
+		}
+		if args.Limit > 200 {
+			args.Limit = 200
+		}
+		q := url.Values{}
+		q.Set("limit", fmt.Sprintf("%d", args.Limit))
+
+		var resp traceListResponse
+		if err := client.Get(ctx, "/hecate/v1/traces", q, &resp); err != nil {
+			return mcp.CallToolResult{}, err
+		}
+		if len(resp.Data) == 0 {
+			return mcp.CallToolResult{Content: mcp.TextContent("No traces found.")}, nil
+		}
+
+		matches := resp.Data[:0]
+		for _, t := range resp.Data {
+			if query == "" || traceListItemMatches(t, query) {
+				matches = append(matches, t)
+			}
+		}
+		if len(matches) == 0 {
+			return mcp.CallToolResult{Content: mcp.TextContent(fmt.Sprintf("No traces matched %q in the last %d trace(s).", query, len(resp.Data)))}, nil
+		}
+
+		var b strings.Builder
+		if query == "" {
+			fmt.Fprintf(&b, "Recent traces (%d of %d):\n", len(matches), len(resp.Data))
+		} else {
+			fmt.Fprintf(&b, "Trace matches for %q (%d of %d):\n", query, len(matches), len(resp.Data))
+		}
+		for _, t := range matches {
+			writeTraceSummaryLine(&b, t.RequestID, t.TraceID, t.StartedAt, t.DurationMS, t.StatusCode, t.StatusMessage, t.Route)
+		}
+		b.WriteString("\nUse search_traces with request_id=<id> for span details.")
+		return mcp.CallToolResult{Content: mcp.TextContent(b.String())}, nil
+	}
+}
+
+func fetchTraceByRequestID(ctx context.Context, client *GatewayClient, requestID string) (mcp.CallToolResult, error) {
+	q := url.Values{}
+	q.Set("request_id", requestID)
+	var resp traceDetailResponse
+	if err := client.Get(ctx, "/hecate/v1/traces", q, &resp); err != nil {
+		return mcp.CallToolResult{}, err
+	}
+
+	t := resp.Data
+	var b strings.Builder
+	fmt.Fprintf(&b, "Trace %s\n", t.RequestID)
+	if t.TraceID != "" {
+		fmt.Fprintf(&b, "Trace ID: %s\n", t.TraceID)
+	}
+	if t.StartedAt != "" {
+		fmt.Fprintf(&b, "Started: %s\n", t.StartedAt)
+	}
+	writeTraceRoute(&b, t.Route)
+	if len(t.Spans) == 0 {
+		b.WriteString("No spans recorded.\n")
+		return mcp.CallToolResult{Content: mcp.TextContent(b.String())}, nil
+	}
+	fmt.Fprintf(&b, "\nSpans (%d):\n", len(t.Spans))
+	for _, span := range t.Spans {
+		fmt.Fprintf(&b, "  - %s", span.Name)
+		if span.Kind != "" {
+			fmt.Fprintf(&b, " [%s]", span.Kind)
+		}
+		if span.StatusCode != "" {
+			fmt.Fprintf(&b, " · status %s", span.StatusCode)
+		}
+		if span.StatusMessage != "" {
+			fmt.Fprintf(&b, " (%s)", span.StatusMessage)
+		}
+		if span.StartTime != "" {
+			fmt.Fprintf(&b, " · %s", span.StartTime)
+		}
+		b.WriteByte('\n')
+		if len(span.Events) > 0 {
+			b.WriteString("    Events:")
+			for i, event := range span.Events {
+				if i > 0 {
+					b.WriteString(",")
+				}
+				fmt.Fprintf(&b, " %s", event.Name)
+			}
+			b.WriteByte('\n')
+		}
+	}
+	return mcp.CallToolResult{Content: mcp.TextContent(b.String())}, nil
+}
+
+func traceListItemMatches(t traceListItem, query string) bool {
+	haystack := strings.Join([]string{
+		t.RequestID,
+		t.TraceID,
+		t.StatusCode,
+		t.StatusMessage,
+		t.Provider,
+		t.Model,
+		t.Route.FinalProvider,
+		t.Route.FinalModel,
+		t.Route.FinalReason,
+		t.Route.FallbackFrom,
+	}, " ")
+	return strings.Contains(strings.ToLower(haystack), strings.ToLower(query))
+}
+
+func writeTraceSummaryLine(b *strings.Builder, requestID, traceID, startedAt string, durationMS int64, statusCode, statusMessage string, route traceRouteRecord) {
+	fmt.Fprintf(b, "- %s", requestID)
+	if traceID != "" {
+		fmt.Fprintf(b, " · trace %s", shortID(traceID))
+	}
+	if startedAt != "" {
+		fmt.Fprintf(b, " · %s", startedAt)
+	}
+	if durationMS > 0 {
+		fmt.Fprintf(b, " · %dms", durationMS)
+	}
+	if statusCode != "" {
+		fmt.Fprintf(b, " · status %s", statusCode)
+	}
+	if statusMessage != "" {
+		fmt.Fprintf(b, " (%s)", statusMessage)
+	}
+	writeTraceRouteInline(b, route, "")
+	b.WriteByte('\n')
+}
+
+func writeTraceRoute(b *strings.Builder, route traceRouteRecord) {
+	if route.FinalProvider == "" && route.FinalModel == "" && route.FinalReason == "" && route.FallbackFrom == "" {
+		return
+	}
+	b.WriteString("Route")
+	writeTraceRouteInline(b, route, ":")
+	b.WriteByte('\n')
+}
+
+func writeTraceRouteInline(b *strings.Builder, route traceRouteRecord, prefix string) {
+	if route.FinalProvider != "" || route.FinalModel != "" {
+		if prefix != "" {
+			b.WriteString(prefix)
+		} else {
+			b.WriteString(" · route")
+		}
+		if route.FinalProvider != "" {
+			fmt.Fprintf(b, " %s", route.FinalProvider)
+		}
+		if route.FinalModel != "" {
+			fmt.Fprintf(b, "/%s", route.FinalModel)
+		}
+	}
+	if route.FinalReason != "" {
+		fmt.Fprintf(b, " · reason %s", route.FinalReason)
+	}
+	if route.FallbackFrom != "" {
+		fmt.Fprintf(b, " · fallback from %s", route.FallbackFrom)
 	}
 }
 
