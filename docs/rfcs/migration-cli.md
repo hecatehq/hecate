@@ -4,6 +4,9 @@
 > **Current source of truth:** [Deployment](../deployment.md) and
 > [Known limitations](../known-limitations.md) for today's backup/upgrade
 > guidance.
+> **Lives under:** the subcommand-dispatch umbrella defined by
+> [cli-structure.md](cli-structure.md) — `hecate migrate` is one verb in
+> that surface, not a freestanding binary.
 > **Next action:** design `hecate migrate` around the current per-package SQLite
 > migration pattern.
 
