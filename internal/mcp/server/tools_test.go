@@ -141,6 +141,73 @@ func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
 	}
 }
 
+func TestTool_SearchTraces_FiltersRecentTraceSummaries(t *testing.T) {
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
+		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("limit") != "7" {
+				t.Errorf("limit query = %q, want 7", r.URL.Query().Get("limit"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[
+				{"request_id":"req-openai","trace_id":"trace-openai-12345678","started_at":"2026-05-24T10:00:00Z","duration_ms":42,"status_code":"ok","route":{"final_provider":"openai","final_model":"gpt-4.1","final_reason":"selected"}},
+				{"request_id":"req-anthropic","trace_id":"trace-anthropic","started_at":"2026-05-24T10:01:00Z","duration_ms":99,"status_code":"error","status_message":"provider failed","route":{"final_provider":"anthropic","final_model":"claude-opus-4-5","final_reason":"failover"}}
+			]}`))
+		},
+	})
+	server := NewServer("t", "0")
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
+
+	result, err := registeredToolFor(t, server, "search_traces")(context.Background(),
+		json.RawMessage(`{"query":"claude","limit":7}`))
+	if err != nil {
+		t.Fatalf("search_traces: %v", err)
+	}
+	body := result.Content[0].Text
+	for _, want := range []string{"Trace matches for \"claude\"", "req-anthropic", "anthropic/claude-opus-4-5", "provider failed"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("want %q in output, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "req-openai") {
+		t.Errorf("non-matching trace leaked into output: %s", body)
+	}
+}
+
+func TestTool_SearchTraces_FetchesExactTraceByRequestID(t *testing.T) {
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
+		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("request_id") != "req-123" {
+				t.Errorf("request_id query = %q, want req-123", r.URL.Query().Get("request_id"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{
+				"request_id":"req-123",
+				"trace_id":"trace-abc",
+				"started_at":"2026-05-24T10:00:00Z",
+				"route":{"final_provider":"openai","final_model":"gpt-4.1","final_reason":"selected"},
+				"spans":[
+					{"name":"gateway.request","kind":"server","status_code":"ok","start_time":"2026-05-24T10:00:00Z","events":[{"name":"router.selected"},{"name":"provider.call.finished"}]},
+					{"name":"provider.call","kind":"client","status_code":"ok"}
+				]
+			}}`))
+		},
+	})
+	server := NewServer("t", "0")
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
+
+	result, err := registeredToolFor(t, server, "search_traces")(context.Background(),
+		json.RawMessage(`{"request_id":"req-123","query":"ignored"}`))
+	if err != nil {
+		t.Fatalf("search_traces: %v", err)
+	}
+	body := result.Content[0].Text
+	for _, want := range []string{"Trace req-123", "Trace ID: trace-abc", "Route:", "openai/gpt-4.1", "Spans (2)", "gateway.request", "router.selected", "provider.call.finished"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("want %q in output, got: %s", want, body)
+		}
+	}
+}
+
 // ─── create_task ─────────────────────────────────────────────────────
 
 func TestTool_CreateTask_PostsAgentLoopAndSummarizes(t *testing.T) {
@@ -350,6 +417,7 @@ func TestTool_WriteToolAnnotations(t *testing.T) {
 		{"list_tasks", true, false, false, true, false, false},
 		{"get_task_status", true, false, false, true, false, false},
 		{"summarize_recent_traffic", true, false, false, true, false, false},
+		{"search_traces", true, false, false, true, false, false},
 		// Creates — not destructive (creates new state, doesn't
 		// destroy existing); no annotations declared.
 		{"create_task", false, false, false, false, false, false},
