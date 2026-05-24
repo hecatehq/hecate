@@ -722,14 +722,72 @@ func TestAgentLoop_ReadFileLineRange(t *testing.T) {
 	}
 }
 
-func TestAgentLoop_SelectLineRangeDoesNotExposePhantomTrailingLine(t *testing.T) {
-	content := "one\ntwo\n"
-	_, _, errMsg := selectLineRange(content, 3, 3)
-	if errMsg == "" {
-		t.Fatal("selectLineRange accepted phantom trailing line; want out-of-range error")
+func TestAgentLoop_ReadFileLineRangeScansBeyondMaxBytes(t *testing.T) {
+	dir := t.TempDir()
+	var content strings.Builder
+	for i := 1; i <= 30; i++ {
+		fmt.Fprintf(&content, "line-%02d\n", i)
 	}
-	if !strings.Contains(errMsg, "line count (2)") {
-		t.Fatalf("error = %q, want real line count", errMsg)
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte(content.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "c1", Type: "function",
+				Function: types.ToolCallFunction{Name: "read_file", Arguments: `{"path":"notes.txt","start_line":20,"end_line":21,"max_bytes":64}`},
+			})),
+			makeChatResp(makeAssistantMsg("Read the range.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "c1" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "lines=20-21") || !strings.Contains(toolResult, "line-20\nline-21\n") {
+		t.Fatalf("range content missing from tool result: %q", toolResult)
+	}
+	if strings.Contains(toolResult, "line-01") {
+		t.Fatalf("range was selected from the initial max_bytes window instead of the full file: %q", toolResult)
+	}
+}
+
+func TestAgentLoop_ReadFileLineRangeDoesNotExposePhantomTrailingLine(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "c1", Type: "function",
+				Function: types.ToolCallFunction{Name: "read_file", Arguments: `{"path":"notes.txt","start_line":3,"end_line":3}`},
+			})),
+			makeChatResp(makeAssistantMsg("Handled.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "c1" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "start_line (3) is beyond file line count (2)") {
+		t.Fatalf("tool result = %q, want real out-of-range line count", toolResult)
 	}
 }
 
@@ -940,6 +998,53 @@ func TestAgentLoop_GitDiffToolReturnsBoundedDiff(t *testing.T) {
 	}
 	if !strings.Contains(toolResult, "diff --git") || !strings.Contains(toolResult, "+func main() {}") {
 		t.Fatalf("git diff output missing expected hunk: %q", toolResult)
+	}
+}
+
+func TestAgentLoop_GitDiffToolDisablesTextconv(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	runGit(t, dir, "config", "diff.failtextconv.textconv", "sh -c 'echo textconv should not run >&2; exit 42'")
+	if err := os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("*.txt diff=failtextconv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("before\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", ".gitattributes", "notes.txt")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("after\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "diff-1", Type: "function",
+				Function: types.ToolCallFunction{Name: "git_diff", Arguments: `{"path":"notes.txt","max_bytes":4096}`},
+			})),
+			makeChatResp(makeAssistantMsg("Diff checked.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "diff-1" {
+			toolResult = m.Content
+		}
+	}
+	if strings.Contains(toolResult, "textconv should not run") {
+		t.Fatalf("git diff invoked configured textconv: %q", toolResult)
+	}
+	if !strings.Contains(toolResult, "-before") || !strings.Contains(toolResult, "+after") {
+		t.Fatalf("git diff output missing raw hunk: %q", toolResult)
 	}
 }
 
