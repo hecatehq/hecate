@@ -792,6 +792,24 @@ func TestAgentLoop_ReadFileLineRangeDoesNotExposePhantomTrailingLine(t *testing.
 	}
 }
 
+func TestAgentLoop_ReadFileLineRangeRejectsOversizedFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", readFileHardCapBytes+1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	_, _, _, errMsg := readWorkspaceFileLineRange(f, readFileDefaultMaxBytes, 1, 1)
+	if !strings.Contains(errMsg, "too large for ranged read") {
+		t.Fatalf("error = %q, want ranged read size guard", errMsg)
+	}
+}
+
 func TestAgentLoop_GrepToolFindsMatches(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\nfunc Target() {}\n"), 0o644); err != nil {
@@ -2021,6 +2039,47 @@ func TestAgentLoop_PreparePatchOperationRejectsLargeTargets(t *testing.T) {
 				t.Fatalf("error = %q, want too-large guard", errMsg)
 			}
 		})
+	}
+}
+
+func TestAgentLoop_ApplyPatchToolRejectsSymlinkComponents(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.Symlink requires elevated privileges on Windows")
+	}
+	dir := t.TempDir()
+	outside := t.TempDir()
+	outsidePath := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	patchText := "*** Begin Patch\n" +
+		"*** Update File: linked/secret.txt\n" +
+		"@@\n" +
+		"-secret\n" +
+		"+leaked\n" +
+		"*** End Patch\n"
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+
+	output, step, artifacts, err := applyPatchTool(spec, applyPatchArgs{PatchText: patchText}, 1, time.Now().UTC(), "patch-1", "apply_patch")
+	if err != nil {
+		t.Fatalf("applyPatchTool: %v", err)
+	}
+	if step != nil || len(artifacts) != 0 {
+		t.Fatalf("expected preflight-only denial, got step=%+v artifacts=%+v", step, artifacts)
+	}
+	if !strings.Contains(output, "symlink component") {
+		t.Fatalf("output = %q, want symlink rejection", output)
+	}
+	content, err := os.ReadFile(outsidePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "secret\n" {
+		t.Fatalf("symlinked outside file changed: %q", string(content))
 	}
 }
 

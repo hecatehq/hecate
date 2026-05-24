@@ -1210,6 +1210,10 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 	}
 
 	prepared := make([]preparedPatchOperation, 0, len(ops))
+	root, rootErr := workspaceRoot(spec)
+	if rootErr != "" {
+		return "apply_patch: " + rootErr, nil, nil, nil
+	}
 	for _, op := range ops {
 		if errMsg := validatePatchOperationPath(op); errMsg != "" {
 			return errMsg, nil, nil, nil
@@ -1217,9 +1221,9 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 		if args.Propose && op.Kind == "delete" {
 			return "apply_patch: propose=true does not support delete sections because proposed-patch apply currently writes after-content rather than removing files", nil, nil, nil
 		}
-		abs, pathErr := resolveWorkspacePath(spec, op.Path)
-		if pathErr != "" {
-			return "apply_patch: " + pathErr, nil, nil, nil
+		abs, err := safeJoinWithinRoot(root, strings.TrimSpace(op.Path))
+		if err != nil {
+			return fmt.Sprintf("apply_patch: %v", err), nil, nil, nil
 		}
 		before, after, beforeExists, errMsg := preparePatchOperation(abs, op)
 		if errMsg != "" {
@@ -1733,15 +1737,22 @@ func readWorkspaceFileLineRange(f *os.File, maxBytes, startLine, endLine int) (s
 	if endLine > 0 && endLine < startLine {
 		return "", "", false, fmt.Sprintf("end_line (%d) must be >= start_line (%d)", endLine, startLine)
 	}
+	info, err := f.Stat()
+	if err != nil {
+		return "", "", false, err.Error()
+	}
+	if info.Size() > readFileHardCapBytes {
+		return "", "", false, fmt.Sprintf("file is too large for ranged read (%d bytes > %d)", info.Size(), readFileHardCapBytes)
+	}
 
-	reader := bufio.NewReader(f)
+	reader := bufio.NewReaderSize(f, readFileHardCapBytes+1)
 	var b strings.Builder
 	lineNo := 0
 	lastReturnedLine := 0
 	truncated := false
 
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadSlice('\n')
 		if len(line) > 0 {
 			lineNo++
 			if lineNo >= startLine && (endLine <= 0 || lineNo <= endLine) {
@@ -1749,10 +1760,10 @@ func readWorkspaceFileLineRange(f *os.File, maxBytes, startLine, endLine int) (s
 				if b.Len() < maxBytes {
 					remaining := maxBytes - b.Len()
 					if len(line) > remaining {
-						b.WriteString(line[:remaining])
+						b.Write(line[:remaining])
 						truncated = true
 					} else {
-						b.WriteString(line)
+						b.Write(line)
 					}
 				} else {
 					truncated = true
@@ -1761,6 +1772,9 @@ func readWorkspaceFileLineRange(f *os.File, maxBytes, startLine, endLine int) (s
 		}
 		if err == io.EOF {
 			break
+		}
+		if err == bufio.ErrBufferFull {
+			return "", "", false, fmt.Sprintf("line %d exceeds ranged read limit (%d bytes)", lineNo, readFileHardCapBytes)
 		}
 		if err != nil {
 			return "", "", false, err.Error()
