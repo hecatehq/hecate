@@ -54,7 +54,7 @@ This is the most-invoked form, and keeping it stable preserves backward compat f
 
 A small client that opens the web UI in the operator's default browser.
 
-- **`hecate open`** — resolves the runtime URL (default `http://127.0.0.1:8765`, override `--url` or `HECATE_GATEWAY_URL`) and launches the system browser via `open` (macOS), `xdg-open` (Linux), or `start` (Windows). Returns immediately. Useful when a runtime is already running locally, in Docker, or remotely.
+- **`hecate open`** — resolves the runtime URL (default `http://127.0.0.1:8765`, override `--url` or `HECATE_BASE_URL`) and launches the system browser via `open` (macOS), `xdg-open` (Linux), or `start` (Windows). Returns immediately. Useful when a runtime is already running locally, in Docker, or remotely. `HECATE_BASE_URL` is reused (not a new env var) because `hecate mcp serve` already uses it for the same concept.
 - **`hecate open --start`** — same, but also starts a local runtime in the foreground if `/healthz` doesn't answer. Polls until healthy, then opens the browser, then keeps the runtime in the foreground. Ctrl+C tears the runtime down. This is the one-shot "I just downloaded the tarball, give me the experience" command for new operators.
 
 If `hecate open` is run with no runtime reachable and no `--start`, it prints:
@@ -99,7 +99,7 @@ Per the existing [`migration-cli.md`](migration-cli.md) RFC. This RFC's only con
 
 ### `hecate status [--json] [--watch] [--url URL]`
 
-A thin HTTP client. Reads `/healthz` + `/hecate/v1/system/stats` from the configured runtime URL (default resolution: `--url` flag → `HECATE_GATEWAY_URL` env → `http://127.0.0.1:8765`). Renders a human-readable digest by default; `--json` emits the raw payload for scripting.
+A thin HTTP client. Reads `/healthz` + `/hecate/v1/system/stats` from the configured runtime URL (default resolution: `--url` flag → `HECATE_BASE_URL` env → `http://127.0.0.1:8765`). Renders a human-readable digest by default; `--json` emits the raw payload for scripting.
 
 Default output:
 
@@ -112,11 +112,11 @@ Hecate at http://127.0.0.1:8765 — healthy
   Version:  0.1.0-alpha.37
 ```
 
-With `--watch`, repaints every N seconds (default 2). With `--json`, prints the merged `/healthz` + `/system/stats` payload and exits. With `--watch --json`, emits one JSON object per interval to stdout (newline-delimited) — composable with `jq`/`grep`/`tee`.
+With `--watch`, repaints every N seconds (default 2). With `--json`, prints the merged `/healthz` + `/hecate/v1/system/stats` payload and exits. With `--watch --json`, emits one JSON object per interval to stdout (newline-delimited) — composable with `jq`/`grep`/`tee`.
 
 Exit codes: 0 = healthy, 1 = unhealthy (couldn't reach runtime), 2 = usage error.
 
-This single subcommand subsumes the most common operator one-liners today (`curl /healthz | jq`, `curl /system/stats | jq`).
+This single subcommand subsumes the most common operator one-liners today (`curl /healthz | jq`, `curl /hecate/v1/system/stats | jq`).
 
 ### `hecate version` / `--version` / `-v`
 
@@ -161,7 +161,7 @@ cmd/hecate/
 ├── cmd_mcp.go           # extends current mcp.go: dispatch `mcp <verb>` → mcpServe()
 ├── cmd_acp.go           # stub: prints "not implemented" for `acp serve`
 ├── cmd_migrate.go       # per migration-cli.md
-├── cmd_status.go        # new: HTTP client to /healthz + /system/stats
+├── cmd_status.go        # new: HTTP client to /healthz + /hecate/v1/system/stats
 ├── cmd_version.go       # extracted from current --version handling
 ├── cmd_help.go          # new: usage strings, per-subcommand help
 └── runtime_state.go     # existing
