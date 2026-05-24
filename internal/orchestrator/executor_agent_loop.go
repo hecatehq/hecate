@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -712,9 +714,60 @@ func agentToolDefinitions() []types.Tool {
 					"type": "object",
 					"properties": {
 						"path": {"type": "string", "description": "Relative path under the workspace."},
-						"max_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576, "default": 65536, "description": "Cap the read to this many bytes. Larger files are truncated; the truncation is reported in the result."}
+						"max_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576, "default": 65536, "description": "Cap the read to this many bytes. Larger files are truncated; the truncation is reported in the result."},
+						"start_line": {"type": "integer", "minimum": 1, "description": "Optional 1-based first line to return."},
+						"end_line": {"type": "integer", "minimum": 1, "description": "Optional 1-based final line to return, inclusive."}
 					},
 					"required": ["path"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        "grep",
+				Description: "Search text files in the workspace with a regular expression. Use this instead of `shell_exec(rg ...)` for structured, bounded code search.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"pattern": {"type": "string", "description": "Go regular expression to search for."},
+						"path": {"type": "string", "default": ".", "description": "Relative file or directory path to search under."},
+						"include": {"type": "string", "description": "Optional glob filter such as '*.go' or 'internal/**/*.go'."},
+						"case_sensitive": {"type": "boolean", "default": true},
+						"max_matches": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}
+					},
+					"required": ["pattern"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        "glob",
+				Description: "Find workspace files by glob pattern. Use this instead of `shell_exec(find ...)` for structured file discovery.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"pattern": {"type": "string", "description": "Glob pattern matched against workspace-relative paths, e.g. '**/*.go' or 'docs/*.md'."},
+						"path": {"type": "string", "default": ".", "description": "Relative directory to search under."},
+						"max_matches": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200}
+					},
+					"required": ["pattern"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        "artifact_read",
+				Description: "Read a persisted artifact from the current task by artifact_id. Use this to inspect prior outputs, summaries, stdout, or proposed patches without re-running tools.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"artifact_id": {"type": "string", "description": "Artifact ID from the current task."},
+						"max_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576, "default": 65536, "description": "Cap inline content to this many bytes. Larger artifacts are truncated."}
+					},
+					"required": ["artifact_id"]
 				}`),
 			},
 		},
@@ -728,6 +781,47 @@ func agentToolDefinitions() []types.Tool {
 					"properties": {
 						"path": {"type": "string", "default": ".", "description": "Relative path under the workspace. '.' or empty = workspace root."}
 					}
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        "git_status",
+				Description: "Return structured git status for the workspace. Use this instead of `git_exec(status)` when you only need branch and file state.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {}
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        "git_diff",
+				Description: "Return a bounded git diff for the workspace. Use this instead of `git_exec(diff)` for read-only diff inspection.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"path": {"type": "string", "description": "Optional relative file or directory path to diff."},
+						"staged": {"type": "boolean", "default": false, "description": "When true, return the staged diff using --cached."},
+						"max_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576, "default": 65536, "description": "Cap diff output to this many bytes. Larger diffs are truncated."}
+					}
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
+				Name:        "apply_patch",
+				Description: "Apply a structured patch to workspace files. Use for multi-file edits when exact file_edit calls would be tedious. Supports add, update, and delete patch sections.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"patch_text": {"type": "string", "description": "Patch text with *** Begin Patch / *** End Patch markers and Add File, Update File, or Delete File sections."},
+						"propose": {"type": "boolean", "default": false, "description": "Create proposed patch artifacts without writing files."}
+					},
+					"required": ["patch_text"]
 				}`),
 			},
 		},
@@ -776,12 +870,46 @@ type fileEditArgs struct {
 }
 
 type readFileArgs struct {
-	Path     string `json:"path"`
-	MaxBytes int    `json:"max_bytes,omitempty"`
+	Path      string `json:"path"`
+	MaxBytes  int    `json:"max_bytes,omitempty"`
+	StartLine int    `json:"start_line,omitempty"`
+	EndLine   int    `json:"end_line,omitempty"`
+}
+
+type grepArgs struct {
+	Pattern       string `json:"pattern"`
+	Path          string `json:"path,omitempty"`
+	Include       string `json:"include,omitempty"`
+	CaseSensitive *bool  `json:"case_sensitive,omitempty"`
+	MaxMatches    int    `json:"max_matches,omitempty"`
+}
+
+type globArgs struct {
+	Pattern    string `json:"pattern"`
+	Path       string `json:"path,omitempty"`
+	MaxMatches int    `json:"max_matches,omitempty"`
+}
+
+type artifactReadArgs struct {
+	ArtifactID string `json:"artifact_id"`
+	MaxBytes   int    `json:"max_bytes,omitempty"`
 }
 
 type listDirArgs struct {
 	Path string `json:"path,omitempty"`
+}
+
+type gitStatusArgs struct{}
+
+type gitDiffArgs struct {
+	Path     string `json:"path,omitempty"`
+	Staged   bool   `json:"staged,omitempty"`
+	MaxBytes int    `json:"max_bytes,omitempty"`
+}
+
+type applyPatchArgs struct {
+	PatchText string `json:"patch_text"`
+	Propose   bool   `json:"propose,omitempty"`
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -899,12 +1027,11 @@ func summarizeSubResult(r *ExecutionResult) string {
 
 // ─── Inline read tools ──────────────────────────────────────────────
 //
-// `read_file` and `list_dir` are deliberately implemented inline here
-// rather than going through the FileExecutor. They're read-only,
-// don't need a sandbox, and the LLM hits them frequently — keeping
-// them off the executor path saves goroutine + sandbox overhead, and
-// makes them naturally exempt from the approval gate (read-only is
-// always safe).
+// Read-only inspection tools are deliberately implemented inline here
+// rather than going through the FileExecutor. They don't need a
+// sandbox, and the LLM hits them frequently — keeping them off the
+// executor path saves goroutine + sandbox overhead while still
+// allowing operators to gate them through approval policy.
 //
 // Path safety: every relative path is resolved against the workspace
 // root and rejected if the result would land outside. This is the
@@ -914,6 +1041,15 @@ func summarizeSubResult(r *ExecutionResult) string {
 const (
 	readFileDefaultMaxBytes = 64 * 1024
 	readFileHardCapBytes    = 1024 * 1024
+	grepDefaultMaxMatches   = 100
+	grepHardCapMatches      = 500
+	grepFileHardCapBytes    = 1024 * 1024
+	globDefaultMaxMatches   = 200
+	globHardCapMatches      = 1000
+	artifactDefaultMaxBytes = 64 * 1024
+	artifactHardCapBytes    = 1024 * 1024
+	gitDiffDefaultMaxBytes  = 64 * 1024
+	gitDiffHardCapBytes     = 1024 * 1024
 	fileEditHardCapBytes    = 2 * 1024 * 1024
 	listDirEntryCap         = 500
 )
@@ -1036,6 +1172,85 @@ func proposedFileEditToolResult(spec ExecutionSpec, args fileEditArgs, stepIndex
 	return fmt.Sprintf("status=proposed\npatch_artifact_id=%s\npath=%s", artifact.ID, args.Path), &step, []types.TaskArtifact{artifact}, nil
 }
 
+func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, startedAt time.Time, toolCallID, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	ops, errMsg := parseStructuredPatch(args.PatchText)
+	if errMsg != "" {
+		return errMsg, nil, nil, nil
+	}
+	if len(ops) == 0 {
+		return "apply_patch: patch contains no file operations", nil, nil, nil
+	}
+
+	finishedAt := time.Now().UTC()
+	step := types.TaskStep{
+		ID:       spec.NewID("step"),
+		TaskID:   spec.Task.ID,
+		RunID:    spec.Run.ID,
+		Index:    stepIndex,
+		Kind:     "tool",
+		Title:    fmt.Sprintf("%s (%d files)", toolName, len(ops)),
+		Status:   "completed",
+		Phase:    "execution",
+		Result:   telemetry.ResultSuccess,
+		ToolName: toolName,
+		Input: map[string]any{
+			"patch_chars": len(args.PatchText),
+			"propose":     args.Propose,
+			"file_count":  len(ops),
+		},
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		RequestID:  spec.RequestID,
+		TraceID:    spec.TraceID,
+	}
+
+	prepared := make([]preparedPatchOperation, 0, len(ops))
+	for _, op := range ops {
+		if args.Propose && op.Kind == "delete" {
+			return "apply_patch: propose=true does not support delete sections because proposed-patch apply currently writes after-content rather than removing files", nil, nil, nil
+		}
+		abs, pathErr := resolveWorkspacePath(spec, op.Path)
+		if pathErr != "" {
+			return "apply_patch: " + pathErr, nil, nil, nil
+		}
+		before, after, beforeExists, errMsg := preparePatchOperation(abs, op)
+		if errMsg != "" {
+			return errMsg, nil, nil, nil
+		}
+		prepared = append(prepared, preparedPatchOperation{op: op, absPath: abs, before: before, after: after, beforeExists: beforeExists})
+	}
+	if !args.Propose {
+		for _, item := range prepared {
+			if err := writePatchOperation(item.absPath, item.after, item.op.Kind); err != nil {
+				return fmt.Sprintf("apply_patch: %v", err), nil, nil, nil
+			}
+		}
+	}
+
+	artifacts := make([]types.TaskArtifact, 0, len(prepared))
+	var summaries []string
+	for _, item := range prepared {
+		op := item.op
+		artifact := newPatchArtifact(spec, step.ID, op.Kind, op.Path, item.absPath, item.before, item.after, item.beforeExists, finishedAt)
+		if args.Propose {
+			artifact.Status = "proposed"
+			artifact.Description = "Proposed unified diff produced by apply_patch"
+		}
+		artifacts = append(artifacts, artifact)
+		emitInlinePatchEvent(spec, step.ID, toolCallID, toolName, op.Kind, artifact, item.beforeExists, int64(len(item.after)), args.Propose)
+		summaries = append(summaries, fmt.Sprintf("%s %s patch_artifact_id=%s", op.Kind, op.Path, artifact.ID))
+	}
+	step.OutputSummary = map[string]any{
+		"file_count": len(ops),
+		"proposed":   args.Propose,
+	}
+	status := "applied"
+	if args.Propose {
+		status = "proposed"
+	}
+	return fmt.Sprintf("status=%s\n%s", status, strings.Join(summaries, "\n")), &step, artifacts, nil
+}
+
 // readFileTool reads a workspace file and returns the content as the
 // tool result text. Bounded by max_bytes; binary files are reported
 // rather than dumped (to avoid pushing garbage into the conversation).
@@ -1084,17 +1299,223 @@ func readFileTool(spec ExecutionSpec, args readFileArgs, stepIndex int, startedA
 		}
 	}
 
+	displayContent := string(content)
+	lineRange := ""
+	if args.StartLine > 0 || args.EndLine > 0 {
+		var rangeErr string
+		displayContent, lineRange, rangeErr = selectLineRange(displayContent, args.StartLine, args.EndLine)
+		if rangeErr != "" {
+			return "read_file: " + rangeErr, nil, nil, nil
+		}
+	}
+
 	step := buildReadFileStep(spec, stepIndex, startedAt, toolName, args.Path, info.Size(), int64(n), truncated)
 	var b strings.Builder
 	fmt.Fprintf(&b, "path=%s size=%d bytes=%d", args.Path, info.Size(), n)
 	if truncated {
 		fmt.Fprintf(&b, " truncated=true")
 	}
+	if lineRange != "" {
+		fmt.Fprintf(&b, " lines=%s", lineRange)
+	}
 	b.WriteString("\n--- content ---\n")
-	b.Write(content)
+	b.WriteString(displayContent)
 	if truncated {
 		b.WriteString("\n…(truncated)")
 	}
+	return b.String(), &step, nil, nil
+}
+
+func grepTool(spec ExecutionSpec, args grepArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	if strings.TrimSpace(args.Pattern) == "" {
+		return "grep: pattern is required", nil, nil, nil
+	}
+	pattern := args.Pattern
+	caseSensitive := true
+	if args.CaseSensitive != nil {
+		caseSensitive = *args.CaseSensitive
+	}
+	if !caseSensitive {
+		pattern = "(?i)" + pattern
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return fmt.Sprintf("grep: invalid regex: %v", err), nil, nil, nil
+	}
+	maxMatches := args.MaxMatches
+	if maxMatches <= 0 {
+		maxMatches = grepDefaultMaxMatches
+	}
+	if maxMatches > grepHardCapMatches {
+		maxMatches = grepHardCapMatches
+	}
+	root, errMsg := resolveWorkspacePath(spec, args.Path)
+	if errMsg != "" {
+		return "grep: " + errMsg, nil, nil, nil
+	}
+	workspaceRoot, rootErr := workspaceRoot(spec)
+	if rootErr != "" {
+		return "grep: " + rootErr, nil, nil, nil
+	}
+
+	var matches []grepMatch
+	err = walkSearchFiles(root, func(path string, info os.FileInfo) error {
+		if len(matches) >= maxMatches {
+			return filepath.SkipAll
+		}
+		rel, _ := filepath.Rel(workspaceRoot, path)
+		rel = filepath.ToSlash(rel)
+		if args.Include != "" && !globPatternMatches(args.Include, rel) && !globPatternMatches(args.Include, filepath.Base(rel)) {
+			return nil
+		}
+		fileMatches, err := grepFile(path, rel, re, maxMatches-len(matches))
+		if err != nil {
+			return nil
+		}
+		matches = append(matches, fileMatches...)
+		return nil
+	})
+	if err != nil {
+		return fmt.Sprintf("grep: %v", err), nil, nil, nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "pattern=%q matches=%d", args.Pattern, len(matches))
+	if len(matches) >= maxMatches {
+		fmt.Fprintf(&b, " truncated=true")
+	}
+	b.WriteByte('\n')
+	for _, m := range matches {
+		fmt.Fprintf(&b, "%s:%d:%s\n", m.Path, m.Line, m.Text)
+	}
+	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
+		"pattern":        args.Pattern,
+		"path":           firstNonEmpty(args.Path, "."),
+		"include":        args.Include,
+		"case_sensitive": caseSensitive,
+		"matches":        len(matches),
+		"max_matches":    maxMatches,
+	})
+	return b.String(), &step, nil, nil
+}
+
+func globTool(spec ExecutionSpec, args globArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	if strings.TrimSpace(args.Pattern) == "" {
+		return "glob: pattern is required", nil, nil, nil
+	}
+	maxMatches := args.MaxMatches
+	if maxMatches <= 0 {
+		maxMatches = globDefaultMaxMatches
+	}
+	if maxMatches > globHardCapMatches {
+		maxMatches = globHardCapMatches
+	}
+	root, errMsg := resolveWorkspacePath(spec, args.Path)
+	if errMsg != "" {
+		return "glob: " + errMsg, nil, nil, nil
+	}
+	workspaceRoot, rootErr := workspaceRoot(spec)
+	if rootErr != "" {
+		return "glob: " + rootErr, nil, nil, nil
+	}
+	var matches []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if shouldSkipSearchDir(entry) {
+			return filepath.SkipDir
+		}
+		rel, _ := filepath.Rel(workspaceRoot, path)
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			return nil
+		}
+		if globPatternMatches(args.Pattern, rel) || globPatternMatches(args.Pattern, filepath.Base(rel)) {
+			suffix := ""
+			if entry.IsDir() {
+				suffix = "/"
+			}
+			matches = append(matches, rel+suffix)
+			if len(matches) >= maxMatches {
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Sprintf("glob: %v", err), nil, nil, nil
+	}
+	sort.Strings(matches)
+	var b strings.Builder
+	fmt.Fprintf(&b, "pattern=%q matches=%d", args.Pattern, len(matches))
+	if len(matches) >= maxMatches {
+		fmt.Fprintf(&b, " truncated=true")
+	}
+	b.WriteByte('\n')
+	for _, match := range matches {
+		b.WriteString(match)
+		b.WriteByte('\n')
+	}
+	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
+		"pattern":     args.Pattern,
+		"path":        firstNonEmpty(args.Path, "."),
+		"matches":     len(matches),
+		"max_matches": maxMatches,
+	})
+	return b.String(), &step, nil, nil
+}
+
+func artifactReadTool(spec ExecutionSpec, args artifactReadArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	artifactID := strings.TrimSpace(args.ArtifactID)
+	if artifactID == "" {
+		return "artifact_read: artifact_id is required", nil, nil, nil
+	}
+	if spec.GetArtifact == nil {
+		return "artifact_read: artifact lookup is not available for this run", nil, nil, nil
+	}
+	maxBytes := args.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = artifactDefaultMaxBytes
+	}
+	if maxBytes > artifactHardCapBytes {
+		maxBytes = artifactHardCapBytes
+	}
+	artifact, found, err := spec.GetArtifact(spec.Task.ID, artifactID)
+	if err != nil {
+		return fmt.Sprintf("artifact_read: %v", err), nil, nil, nil
+	}
+	if !found {
+		return fmt.Sprintf("artifact_read: artifact %q not found for task %q", artifactID, spec.Task.ID), nil, nil, nil
+	}
+
+	content := artifact.ContentText
+	truncated := false
+	if len(content) > maxBytes {
+		content = content[:maxBytes]
+		truncated = true
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "artifact_id=%s kind=%s name=%s storage=%s status=%s size=%d truncated=%v",
+		artifact.ID, artifact.Kind, artifact.Name, artifact.StorageKind, artifact.Status, artifact.SizeBytes, truncated)
+	if artifact.Path != "" {
+		fmt.Fprintf(&b, " path=%s", artifact.Path)
+	}
+	if artifact.MimeType != "" {
+		fmt.Fprintf(&b, " mime=%s", artifact.MimeType)
+	}
+	if content != "" {
+		fmt.Fprintf(&b, "\n--- content ---\n%s", content)
+	} else if artifact.StorageKind != "inline" {
+		fmt.Fprintf(&b, "\ncontent unavailable inline; storage_kind=%s object_ref=%s path=%s", artifact.StorageKind, artifact.ObjectRef, artifact.Path)
+	}
+
+	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
+		"artifact_id": artifactID,
+		"kind":        artifact.Kind,
+		"name":        artifact.Name,
+		"max_bytes":   maxBytes,
+		"truncated":   truncated,
+	})
 	return b.String(), &step, nil, nil
 }
 
@@ -1154,6 +1575,106 @@ func listDirTool(spec ExecutionSpec, args listDirArgs, stepIndex int, startedAt 
 	return b.String(), &step, nil, nil
 }
 
+func gitStatusTool(ctx context.Context, spec ExecutionSpec, _ gitStatusArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	root, errMsg := workspaceRoot(spec)
+	if errMsg != "" {
+		return "git_status: " + errMsg, nil, nil, nil
+	}
+	out, truncated, err := runGitReadCommand(ctx, root, gitDiffDefaultMaxBytes, "status", "--porcelain=v1", "-b")
+	if err != nil {
+		return fmt.Sprintf("git_status: %v", err), nil, nil, nil
+	}
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	branch := ""
+	var entries []string
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "## ") {
+			branch = strings.TrimPrefix(line, "## ")
+			continue
+		}
+		entries = append(entries, line)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "branch=%s entries=%d truncated=%v\n", branch, len(entries), truncated)
+	for _, entry := range entries {
+		fmt.Fprintf(&b, "%s\n", entry)
+	}
+	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
+		"branch":    branch,
+		"entries":   len(entries),
+		"truncated": truncated,
+	})
+	return b.String(), &step, nil, nil
+}
+
+func gitDiffTool(ctx context.Context, spec ExecutionSpec, args gitDiffArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+	root, errMsg := workspaceRoot(spec)
+	if errMsg != "" {
+		return "git_diff: " + errMsg, nil, nil, nil
+	}
+	maxBytes := args.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = gitDiffDefaultMaxBytes
+	}
+	if maxBytes > gitDiffHardCapBytes {
+		maxBytes = gitDiffHardCapBytes
+	}
+	relPath := strings.TrimSpace(args.Path)
+	gitArgs := []string{"diff", "--no-ext-diff"}
+	if args.Staged {
+		gitArgs = append(gitArgs, "--cached")
+	}
+	if relPath != "" {
+		if _, errMsg := resolveWorkspacePath(spec, relPath); errMsg != "" {
+			return "git_diff: " + errMsg, nil, nil, nil
+		}
+		gitArgs = append(gitArgs, "--", relPath)
+	}
+	out, truncated, err := runGitReadCommand(ctx, root, maxBytes, gitArgs...)
+	if err != nil {
+		return fmt.Sprintf("git_diff: %v", err), nil, nil, nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "path=%s staged=%v bytes=%d truncated=%v\n", firstNonEmpty(relPath, "."), args.Staged, len(out), truncated)
+	if out != "" {
+		b.WriteString(out)
+	}
+	step := buildGenericReadToolStep(spec, stepIndex, startedAt, toolName, map[string]any{
+		"path":      firstNonEmpty(relPath, "."),
+		"staged":    args.Staged,
+		"bytes":     len(out),
+		"max_bytes": maxBytes,
+		"truncated": truncated,
+	})
+	return b.String(), &step, nil, nil
+}
+
+func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...string) (string, bool, error) {
+	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "git", append([]string{"-C", root}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if cmdCtx.Err() == context.DeadlineExceeded {
+		return "", false, fmt.Errorf("git command timed out")
+	}
+	if err != nil {
+		text := strings.TrimSpace(string(out))
+		if text != "" {
+			return "", false, fmt.Errorf("%w: %s", err, text)
+		}
+		return "", false, err
+	}
+	truncated := false
+	if len(out) > maxBytes {
+		out = out[:maxBytes]
+		truncated = true
+	}
+	return string(out), truncated, nil
+}
+
 func buildReadFileStep(spec ExecutionSpec, index int, startedAt time.Time, toolName, path string, fileSize, readBytes int64, truncated bool) types.TaskStep {
 	return types.TaskStep{
 		ID:       spec.NewID("step"),
@@ -1204,6 +1725,342 @@ func buildListDirStep(spec ExecutionSpec, index int, startedAt time.Time, toolNa
 		RequestID:  spec.RequestID,
 		TraceID:    spec.TraceID,
 	}
+}
+
+type patchOperation struct {
+	Kind  string
+	Path  string
+	Lines []string
+}
+
+type preparedPatchOperation struct {
+	op           patchOperation
+	absPath      string
+	before       string
+	after        string
+	beforeExists bool
+}
+
+type grepMatch struct {
+	Path string
+	Line int
+	Text string
+}
+
+func buildGenericReadToolStep(spec ExecutionSpec, index int, startedAt time.Time, toolName string, input map[string]any) types.TaskStep {
+	return types.TaskStep{
+		ID:         spec.NewID("step"),
+		TaskID:     spec.Task.ID,
+		RunID:      spec.Run.ID,
+		Index:      index,
+		Kind:       "tool",
+		Title:      toolName,
+		Status:     "completed",
+		Phase:      "execution",
+		Result:     telemetry.ResultSuccess,
+		ToolName:   toolName,
+		Input:      input,
+		StartedAt:  startedAt,
+		FinishedAt: time.Now().UTC(),
+		RequestID:  spec.RequestID,
+		TraceID:    spec.TraceID,
+	}
+}
+
+func selectLineRange(content string, startLine, endLine int) (string, string, string) {
+	if startLine <= 0 {
+		startLine = 1
+	}
+	if endLine > 0 && endLine < startLine {
+		return "", "", fmt.Sprintf("end_line (%d) must be >= start_line (%d)", endLine, startLine)
+	}
+	lines := strings.SplitAfter(content, "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		lines = nil
+	}
+	if startLine > len(lines) {
+		return "", "", fmt.Sprintf("start_line (%d) is beyond file line count (%d)", startLine, len(lines))
+	}
+	if endLine <= 0 || endLine > len(lines) {
+		endLine = len(lines)
+	}
+	return strings.Join(lines[startLine-1:endLine], ""), fmt.Sprintf("%d-%d", startLine, endLine), ""
+}
+
+func workspaceRoot(spec ExecutionSpec) (string, string) {
+	root, errMsg := resolveWorkspacePath(spec, ".")
+	if errMsg != "" {
+		return "", errMsg
+	}
+	return root, ""
+}
+
+func walkSearchFiles(root string, visit func(path string, info os.FileInfo) error) error {
+	info, err := os.Stat(root)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return visit(root, info)
+	}
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if shouldSkipSearchDir(entry) {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return nil
+		}
+		return visit(path, info)
+	})
+}
+
+func shouldSkipSearchDir(entry os.DirEntry) bool {
+	if entry == nil || !entry.IsDir() {
+		return false
+	}
+	switch entry.Name() {
+	case ".git", "node_modules", ".gocache", "dist", "build":
+		return true
+	default:
+		return false
+	}
+}
+
+func grepFile(path, rel string, re *regexp.Regexp, remaining int) ([]grepMatch, error) {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() || info.Size() > grepFileHardCapBytes {
+		return nil, err
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	probe := raw
+	if len(probe) > 512 {
+		probe = probe[:512]
+	}
+	for _, b := range probe {
+		if b == 0 {
+			return nil, nil
+		}
+	}
+	lines := strings.Split(string(raw), "\n")
+	matches := make([]grepMatch, 0)
+	for i, line := range lines {
+		if re.MatchString(line) {
+			matches = append(matches, grepMatch{Path: rel, Line: i + 1, Text: line})
+			if len(matches) >= remaining {
+				break
+			}
+		}
+	}
+	return matches, nil
+}
+
+func globPatternMatches(pattern, rel string) bool {
+	pattern = filepath.ToSlash(strings.TrimSpace(pattern))
+	rel = filepath.ToSlash(rel)
+	if ok, _ := filepath.Match(pattern, rel); ok {
+		return true
+	}
+	re, err := regexp.Compile("^" + regexp.QuoteMeta(pattern) + "$")
+	if err != nil {
+		return false
+	}
+	expr := re.String()
+	expr = strings.ReplaceAll(expr, `\*\*`, `.*`)
+	expr = strings.ReplaceAll(expr, `\*`, `[^/]*`)
+	expr = strings.ReplaceAll(expr, `\?`, `[^/]`)
+	re, err = regexp.Compile(expr)
+	if err != nil {
+		return false
+	}
+	return re.MatchString(rel)
+}
+
+func parseStructuredPatch(patchText string) ([]patchOperation, string) {
+	lines := strings.SplitAfter(patchText, "\n")
+	var ops []patchOperation
+	var current *patchOperation
+	seenBegin := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "":
+			if current != nil {
+				current.Lines = append(current.Lines, line)
+			}
+		case trimmed == "*** Begin Patch":
+			seenBegin = true
+		case trimmed == "*** End Patch":
+			if current != nil {
+				ops = append(ops, *current)
+				current = nil
+			}
+			return ops, ""
+		case strings.HasPrefix(trimmed, "*** Add File: "):
+			if current != nil {
+				ops = append(ops, *current)
+			}
+			current = &patchOperation{Kind: "add", Path: strings.TrimSpace(strings.TrimPrefix(trimmed, "*** Add File: "))}
+		case strings.HasPrefix(trimmed, "*** Update File: "):
+			if current != nil {
+				ops = append(ops, *current)
+			}
+			current = &patchOperation{Kind: "update", Path: strings.TrimSpace(strings.TrimPrefix(trimmed, "*** Update File: "))}
+		case strings.HasPrefix(trimmed, "*** Delete File: "):
+			if current != nil {
+				ops = append(ops, *current)
+			}
+			ops = append(ops, patchOperation{Kind: "delete", Path: strings.TrimSpace(strings.TrimPrefix(trimmed, "*** Delete File: "))})
+			current = nil
+		default:
+			if !seenBegin {
+				return nil, "apply_patch: patch must start with *** Begin Patch"
+			}
+			if current == nil {
+				if strings.HasPrefix(trimmed, "***") {
+					return nil, fmt.Sprintf("apply_patch: unsupported patch directive %q", trimmed)
+				}
+				continue
+			}
+			current.Lines = append(current.Lines, line)
+		}
+	}
+	return nil, "apply_patch: patch missing *** End Patch"
+}
+
+func preparePatchOperation(abs string, op patchOperation) (before, after string, beforeExists bool, errMsg string) {
+	switch op.Kind {
+	case "add":
+		if op.Path == "" {
+			return "", "", false, "apply_patch: add file path is required"
+		}
+		if _, err := os.Stat(abs); err == nil {
+			return "", "", false, fmt.Sprintf("apply_patch: %q already exists", op.Path)
+		} else if !os.IsNotExist(err) {
+			return "", "", false, fmt.Sprintf("apply_patch: %v", err)
+		}
+		return "", patchAddedContent(op.Lines), false, ""
+	case "delete":
+		raw, err := os.ReadFile(abs)
+		if err != nil {
+			return "", "", false, fmt.Sprintf("apply_patch: %v", err)
+		}
+		return string(raw), "", true, ""
+	case "update":
+		raw, err := os.ReadFile(abs)
+		if err != nil {
+			return "", "", false, fmt.Sprintf("apply_patch: %v", err)
+		}
+		next, errMsg := applyPatchUpdate(string(raw), op.Lines)
+		if errMsg != "" {
+			return "", "", false, fmt.Sprintf("apply_patch: %s: %s", op.Path, errMsg)
+		}
+		if next == string(raw) {
+			return "", "", false, fmt.Sprintf("apply_patch: %s: patch produced no change", op.Path)
+		}
+		return string(raw), next, true, ""
+	default:
+		return "", "", false, fmt.Sprintf("apply_patch: unsupported operation %q", op.Kind)
+	}
+}
+
+func patchAddedContent(lines []string) string {
+	var b strings.Builder
+	for _, line := range lines {
+		if strings.HasPrefix(line, "+") {
+			b.WriteString(line[1:])
+		}
+	}
+	return b.String()
+}
+
+func applyPatchUpdate(current string, patchLines []string) (string, string) {
+	orig := strings.SplitAfter(current, "\n")
+	if len(orig) == 1 && orig[0] == "" {
+		orig = nil
+	}
+	pos := 0
+	out := make([]string, 0, len(orig)+len(patchLines))
+	consume := func(text string, keep bool) bool {
+		for pos < len(orig) && orig[pos] != text {
+			out = append(out, orig[pos])
+			pos++
+		}
+		if pos >= len(orig) {
+			return false
+		}
+		if keep {
+			out = append(out, orig[pos])
+		}
+		pos++
+		return true
+	}
+	for _, line := range patchLines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "@@") || strings.HasPrefix(trimmed, `\ No newline`) {
+			continue
+		}
+		switch line[0] {
+		case ' ':
+			if !consume(line[1:], true) {
+				return "", fmt.Sprintf("context line not found: %q", strings.TrimSuffix(line[1:], "\n"))
+			}
+		case '-':
+			if !consume(line[1:], false) {
+				return "", fmt.Sprintf("removal line not found: %q", strings.TrimSuffix(line[1:], "\n"))
+			}
+		case '+':
+			out = append(out, line[1:])
+		default:
+			return "", fmt.Sprintf("invalid update line %q", strings.TrimSuffix(line, "\n"))
+		}
+	}
+	out = append(out, orig[pos:]...)
+	return strings.Join(out, ""), ""
+}
+
+func writePatchOperation(abs, after, kind string) error {
+	switch kind {
+	case "delete":
+		return os.Remove(abs)
+	default:
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(abs, []byte(after), 0o644)
+	}
+}
+
+func emitInlinePatchEvent(spec ExecutionSpec, stepID, toolCallID, toolName, operation string, artifact types.TaskArtifact, beforeExists bool, bytesWritten int64, proposed bool) {
+	if spec.EmitRunEvent == nil {
+		return
+	}
+	status := artifact.Status
+	if proposed {
+		status = "proposed"
+		bytesWritten = 0
+	}
+	spec.EmitRunEvent("tool.file.patch", map[string]any{
+		"tool_call_id":    firstNonEmpty(toolCallID, stepID),
+		"tool_name":       toolName,
+		"kind":            "file",
+		"operation":       operation,
+		"path":            artifact.Path,
+		"artifact_id":     artifact.ID,
+		"bytes_written":   bytesWritten,
+		"diff_bytes":      artifact.SizeBytes,
+		"before_existed":  beforeExists,
+		"artifact_status": status,
+	})
 }
 
 // checkPublicHost returns an error message string if any of the
@@ -1489,7 +2346,7 @@ func environmentSystemMessage(spec ExecutionSpec) string {
 	b.WriteString("\n\n")
 	b.WriteString("Use this path (or paths under it) when calling tools. ")
 	b.WriteString("`shell_exec` / `git_exec` default their working_directory to the workspace when omitted; ")
-	b.WriteString("`read_file` / `list_dir` resolve relative paths from the workspace. ")
+	b.WriteString("`read_file` / `list_dir` / `grep` / `glob` / `git_diff` resolve relative paths from the workspace. ")
 	b.WriteString("Tool calls that target paths outside this directory are rejected by the sandbox — ")
 	b.WriteString("don't reuse paths from the user prompt verbatim if they fall outside the workspace.")
 	return b.String()

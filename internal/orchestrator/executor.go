@@ -36,6 +36,7 @@ type ExecutionSpec struct {
 	NewID            func(prefix string) string
 	UpsertStep       func(step types.TaskStep) error
 	UpsertArtifact   func(artifact types.TaskArtifact) error
+	GetArtifact      func(taskID, artifactID string) (types.TaskArtifact, bool, error)
 	// EmitRunEvent appends an event to the run's event stream. Used
 	// by executors that want to emit telemetry beyond steps and
 	// artifacts — currently the agent loop's MCP dispatcher, which

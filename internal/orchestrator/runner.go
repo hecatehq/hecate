@@ -346,20 +346,25 @@ func (r *Runner) hasPolicy(name string) bool {
 // agentLoopGatedTools translates the runner's task-level approval
 // policy set into the agent-loop tool gating set. The mapping:
 // task policy "shell_exec" gates the agent's shell_exec tool, etc.
-// Network egress maps to http_request; read_file maps to read_file.
+// Network egress maps to http_request; read_file maps to read-only
+// workspace/artifact inspection tools.
 // all_tools short-circuits to the full set of every agent tool.
 func agentLoopGatedTools(policies map[string]struct{}) []string {
 	// all_tools gates every tool the agent can call — no need to enumerate.
 	if _, ok := policies["all_tools"]; ok {
-		return []string{"shell_exec", "git_exec", "file_write", "file_edit", "read_file", "list_dir", "http_request"}
+		return []string{"shell_exec", "git_exec", "git_status", "git_diff", "file_write", "file_edit", "apply_patch", "read_file", "grep", "glob", "artifact_read", "list_dir", "http_request"}
 	}
 	out := make([]string, 0, len(policies))
 	for p := range policies {
 		switch p {
-		case "shell_exec", "git_exec", "read_file":
+		case "shell_exec":
 			out = append(out, p)
+		case "git_exec":
+			out = append(out, "git_exec", "git_status", "git_diff")
 		case "file_write":
-			out = append(out, "file_write", "file_edit")
+			out = append(out, "file_write", "file_edit", "apply_patch")
+		case "read_file":
+			out = append(out, "read_file", "grep", "glob", "artifact_read")
 		case "network_egress":
 			// `network_egress` is the historical name for the
 			// outbound-network policy applied to shell tasks. We
@@ -845,6 +850,9 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		NewID:            defaultResourceID,
 		UpsertStep:       func(step types.TaskStep) error { return r.upsertStep(ctx, step) },
 		UpsertArtifact:   func(artifact types.TaskArtifact) error { return r.upsertArtifact(ctx, artifact) },
+		GetArtifact: func(taskID, artifactID string) (types.TaskArtifact, bool, error) {
+			return r.store.GetArtifact(ctx, taskID, artifactID)
+		},
 		EmitRunEvent: func(eventType string, data map[string]any) {
 			_, _ = r.emitRunEvent(ctx, task.ID, run.ID, eventType, requestID, trace.TraceID, data)
 		},
