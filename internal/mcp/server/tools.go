@@ -79,7 +79,7 @@ func RegisterDefaultTools(s *Server, client *GatewayClient) {
 	s.RegisterTool(mcp.Tool{
 		Name:        "search_traces",
 		Title:       "Search traces",
-		Description: "Search recent local trace summaries, or fetch one exact trace by request_id. Returns request ids, route outcome, status, latency, and span/event details for exact lookups.",
+		Description: "Search recent local trace summaries, or fetch one exact trace by request_id. Returns request ids, route target/reason fields, status, latency, and span/event details for exact lookups.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -455,7 +455,7 @@ func searchTracesHandler(client *GatewayClient) ToolHandler {
 			return mcp.CallToolResult{Content: mcp.TextContent("No traces found.")}, nil
 		}
 
-		matches := resp.Data[:0]
+		matches := make([]traceListItem, 0, len(resp.Data))
 		for _, t := range resp.Data {
 			if query == "" || traceListItemMatches(t, query) {
 				matches = append(matches, t)
