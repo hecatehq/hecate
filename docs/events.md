@@ -417,23 +417,23 @@ The task's `approval_policy=block` short-circuited the call. The upstream was ne
 
 Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_write` / `file_edit` / `apply_patch`) writes or proposes a file change. Hecate stores an inline `patch` artifact containing a unified diff of the before/after file contents, then emits this event so operator UIs and CLIs can render the edit without re-running `git diff` against a moving workspace.
 
-| Extra key                          | Type     | Notes                                                                    |
-| ---------------------------------- | -------- | ------------------------------------------------------------------------ |
-| `tool_call_id`                     | `string` | Assistant tool call id, or the file step id for direct file tasks        |
+| Extra key                          | Type     | Notes                                                                                    |
+| ---------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `tool_call_id`                     | `string` | Assistant tool call id, or the file step id for direct file tasks                        |
 | `tool_name`                        | `string` | `file_write` / `file_edit` / `apply_patch` for agent tools; `file` for direct file tasks |
-| `kind`                             | `string` | Always `file`                                                            |
-| `operation`                        | `string` | `write`, `append`, `propose`, or `apply_patch` section kind (`add`, `update`, `delete`) |
-| `path`                             | `string` | Resolved path written by the sandbox                                     |
-| `artifact_id`                      | `string` | Patch artifact id                                                        |
-| `bytes_written`                    | `int`    | Bytes written by the file operation                                      |
-| `diff_bytes`                       | `int64`  | Patch body size                                                          |
-| `before_existed`                   | `bool`   | Whether the file existed before the write                                |
-| `artifact_status`                  | `string` | `applied`, `proposed`, or `reverted`                                     |
-| `hecate.tool.file.operation`       | `string` | File operation as an OTel-shaped event/span attribute                    |
-| `hecate.tool.file.bytes_written`   | `int`    | Bytes written as an OTel-shaped event/span attribute                     |
-| `hecate.tool.file.diff_bytes`      | `int64`  | Patch size as an OTel-shaped event/span attribute                        |
-| `hecate.tool.file.before_existed`  | `bool`   | Pre-write existence as an OTel-shaped event/span attribute               |
-| `hecate.tool.file.artifact_status` | `string` | Patch artifact status as an OTel-shaped event/span attribute             |
+| `kind`                             | `string` | Always `file`                                                                            |
+| `operation`                        | `string` | `write`, `append`, `propose`, or `apply_patch` section kind (`add`, `update`, `delete`)  |
+| `path`                             | `string` | Resolved path written by the sandbox                                                     |
+| `artifact_id`                      | `string` | Patch artifact id                                                                        |
+| `bytes_written`                    | `int`    | Bytes written by the file operation                                                      |
+| `diff_bytes`                       | `int64`  | Patch body size                                                                          |
+| `before_existed`                   | `bool`   | Whether the file existed before the write                                                |
+| `artifact_status`                  | `string` | `applied`, `proposed`, or `reverted`                                                     |
+| `hecate.tool.file.operation`       | `string` | File operation as an OTel-shaped event/span attribute                                    |
+| `hecate.tool.file.bytes_written`   | `int`    | Bytes written as an OTel-shaped event/span attribute                                     |
+| `hecate.tool.file.diff_bytes`      | `int64`  | Patch size as an OTel-shaped event/span attribute                                        |
+| `hecate.tool.file.before_existed`  | `bool`   | Pre-write existence as an OTel-shaped event/span attribute                               |
+| `hecate.tool.file.artifact_status` | `string` | Patch artifact status as an OTel-shaped event/span attribute                             |
 
 ### `tool.file.applied`
 
