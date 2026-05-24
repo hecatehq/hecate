@@ -270,7 +270,7 @@ Three workflow files split responsibilities:
 
 **PR-run behaviour:** `test.yml` owns PR validation. Its path filter scopes the
 desktop matrix to changes that could plausibly break a Tauri build (`tauri/**`,
-`cmd/hecate/**`, `Justfile`, version scripts, release
+`cmd/hecate/**`, `Justfile`, `just/**`, version scripts, release
 packaging files, and `.github/workflows/*.yml`). UI-only PRs do not trigger the
 desktop matrix; they are covered by the TypeScript jobs and by `build-hecate`,
 which rebuilds the embedded UI. The desktop matrix waits for the cheaper Go,

@@ -1,9 +1,9 @@
 # Hecate
 
-Open-source AI gateway and agent-task runtime. The gateway mediates
-OpenAI- and Anthropic-shaped client traffic to upstream providers, runs
-queued `agent_loop` tasks behind policy and approval gates, and emits
-OpenTelemetry traces. Gateway-local, deny-by-default, storage-tiered
+Open-source local AI runtime console. Hecate routes OpenAI- and
+Anthropic-shaped client traffic to upstream providers, runs queued
+`agent_loop` tasks behind policy and approval gates, supervises ACP coding
+agents, and emits OpenTelemetry traces. Local-first, deny-by-default, storage-tiered
 (memory / sqlite). Binds to 127.0.0.1 by default and is intended to run as
 a local operator console. The React operator UI is embedded via
 `//go:embed ui/dist`.

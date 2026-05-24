@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate — AI Gateway · Agent Runtime" width="720">
+  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate — Local AI Runtime Console" width="720">
 </h1>
 
 [![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases)
@@ -11,7 +11,7 @@
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
 <p align="center">
-  <strong>Local-first AI gateway and agent console.</strong><br>
+  <strong>Local-first AI runtime console.</strong><br>
   Route cloud/local models, run Hecate-owned tool agents, supervise Codex / Claude Code / Cursor Agent / Grok Build, and keep every decision observable.
 </p>
 
@@ -133,11 +133,11 @@ Chats can be renamed from the sidebar. The title is just operator-facing metadat
 
 ## Architecture
 
-The main `hecate` process owns the local UI/API, model gateway, and task runtime. External agents are separate local CLIs supervised from Chats.
+The main `hecate` process owns the local UI/API, model routing, and task runtime. External agents are separate local CLIs supervised from Chats.
 
 ```mermaid
 flowchart LR
-    Clients["UI + compatible API clients"] --> Hecate["hecate process<br/>gateway · tasks · approvals"]
+    Clients["UI + compatible API clients"] --> Hecate["hecate process<br/>routing · tasks · approvals"]
     Hecate --> Models["model providers"]
     Hecate --> Tools["sandboxed tools"]
     Hecate --> Agents["external agent CLIs<br/>Codex · Claude Code · Cursor Agent · Grok Build"]
@@ -219,7 +219,7 @@ Settings stays small; cleanup controls are separated from provider, adapter, and
 
 ## What Works Today
 
-Hecate is public-alpha software. The core gateway, Hecate Chat, and native task runtime are usable for alpha workflows; workspace modes, agent profiles, desktop signing, and sandbox hardening are intentionally still evolving.
+Hecate is public-alpha software. Model routing, Hecate Chat, and the native task runtime are usable for alpha workflows; workspace modes, agent profiles, desktop signing, and sandbox hardening are intentionally still evolving.
 
 Stability stages:
 
@@ -230,7 +230,7 @@ Stability stages:
 
 | Area                | State       | Notes                                                                                                                                                                                                                                                        |
 | ------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Model gateway       | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints.                                                                                                |
+| Model routing       | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints.                                                                                                |
 | Connections         | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics.                                                                                        |
 | Hecate Chat         | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, and inline task approvals. Workspace modes and agent profiles are still future work.             |
 | External Agent      | Alpha-ready | Codex, Claude Code, Cursor Agent, and Grok Build discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, adapter diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses.              |
@@ -267,7 +267,7 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 
 - [Telemetry](docs/telemetry.md) — OTLP traces / metrics / logs, response headers, local trace view.
 - [Security](docs/security.md) — local-first threat model, workspace safety, approvals, secrets, and advisory handling.
-- [Architecture](docs/architecture.md) — gateway request flow, task-runtime queue / lease / sandbox boundary.
+- [Architecture](docs/architecture.md) — model-routing request flow, task-runtime queue / lease / sandbox boundary.
 - [Development](docs/development.md) — source-build toolchain, local dev, website work, the test ladder, screenshot tooling.
 - [Release](docs/release.md) — cutting a tag, verification gate, recovery if CI fails.
 - [Alpha-to-beta roadmap](docs/beta-roadmap.md) — what must be true before the first beta tag.
