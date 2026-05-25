@@ -4290,6 +4290,71 @@ func TestTaskRunPatchRevertRestoresDeletedFile(t *testing.T) {
 	}
 }
 
+func TestTaskPatchRevertRejectsMissingTarget(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	tempDir := t.TempDir()
+	tasks := newTaskTestClient(t, handler)
+
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", fmt.Sprintf(`{"title":"Write file","prompt":"Write a file.","execution_kind":"file","file_operation":"write","file_path":"note.txt","file_content":"hello file","working_directory":%q}`, tempDir))
+	started := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/start", "")
+	waitForRunStatus(t, handler, created.Data.ID, started.Data.ID, "completed")
+
+	artifacts := mustTaskRequestJSON[TaskArtifactsResponse](tasks, http.MethodGet, "/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/artifacts", "")
+	var patchArtifact TaskArtifactItem
+	for _, artifact := range artifacts.Data {
+		if artifact.Kind == "patch" {
+			patchArtifact = artifact
+			break
+		}
+	}
+	if patchArtifact.ID == "" {
+		t.Fatalf("patch artifact missing: %#v", artifacts.Data)
+	}
+
+	target := filepath.Join(started.Data.WorkspacePath, "note.txt")
+	if err := os.Remove(target); err != nil {
+		t.Fatalf("remove patch target: %v", err)
+	}
+
+	tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/patches/"+patchArtifact.ID+"/revert", "")
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("revert should not recreate missing target, stat err=%v", err)
+	}
+
+	fetchedPatch := mustTaskRequestJSON[TaskPatchResponse](tasks, http.MethodGet, "/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/patches/"+patchArtifact.ID, "")
+	if fetchedPatch.Data.Status != "applied" {
+		t.Fatalf("patch status = %q, want applied after rejected revert", fetchedPatch.Data.Status)
+	}
+}
+
+func TestPatchContentMatchesAllowsOnlyFinalNewlineAmbiguity(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		current string
+		expect  string
+		want    bool
+	}{
+		{name: "exact", current: "hello", expect: "hello", want: true},
+		{name: "current has extra final newline", current: "hello\n", expect: "hello", want: false},
+		{name: "expected has final newline", current: "hello", expect: "hello\n", want: true},
+		{name: "content drift", current: "hello operator\n", expect: "hello\n", want: false},
+		{name: "extra non-final newline", current: "hello\n\n", expect: "hello", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := patchContentMatches([]byte(tc.current), tc.expect); got != tc.want {
+				t.Fatalf("patchContentMatches(%q, %q) = %v, want %v", tc.current, tc.expect, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTaskStartGitExecutor(t *testing.T) {
 	t.Parallel()
 
