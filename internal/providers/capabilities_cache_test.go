@@ -225,6 +225,76 @@ func TestResolveCapabilitiesConcurrentMissesShareInFlightDiscovery(t *testing.T)
 	}
 }
 
+func TestResolveCapabilitiesConcurrentManualRefreshesShareInFlightDiscovery(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	startedRefresh := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	harness := &capabilitiesCacheHarness{
+		discover: func(context.Context) (Capabilities, error) {
+			call := calls.Add(1)
+			if call == 1 {
+				return discoveredTestCapabilities("cached-model"), nil
+			}
+			if call == 2 {
+				close(startedRefresh)
+			}
+			<-releaseRefresh
+			return discoveredTestCapabilities("refreshed-model"), nil
+		},
+	}
+
+	if caps, err := harness.resolve(context.Background(), false); err != nil {
+		t.Fatalf("warm cache resolve error = %v", err)
+	} else if caps.Models[0] != "cached-model" {
+		t.Fatalf("warm cache model = %q, want cached-model", caps.Models[0])
+	}
+
+	const workers = 8
+	ready := make(chan struct{})
+	results := make(chan Capabilities, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			<-ready
+			caps, err := harness.resolve(context.Background(), true)
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- caps
+		}()
+	}
+
+	close(ready)
+	<-startedRefresh
+	time.Sleep(20 * time.Millisecond)
+	if got := calls.Load(); got != 2 {
+		close(releaseRefresh)
+		t.Fatalf("discovery calls while refresh is in flight = %d, want 2 including warm cache", got)
+	}
+	close(releaseRefresh)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		t.Fatalf("concurrent refresh error = %v", err)
+	}
+	for caps := range results {
+		if caps.Models[0] != "refreshed-model" {
+			t.Fatalf("model = %q, want refreshed-model", caps.Models[0])
+		}
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("discovery calls = %d, want 2 including warm cache", got)
+	}
+}
+
 func discoveredTestCapabilities(model string) Capabilities {
 	return Capabilities{
 		Name:            "test-provider",
