@@ -208,6 +208,12 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 
 `patches` is a review-focused projection over `patch` artifacts. File-writing tools create patches with `status=applied`; `file_edit` and `apply_patch` can also create `status=proposed` patches when called with `propose=true`. The apply endpoint writes the proposed after-content only when the current file still matches the captured before-content, then emits `tool.file.applied`. The revert endpoint restores the before-content captured in Hecate's patch artifact and updates the patch to `status=reverted`. Before reverting, Hecate verifies that the current file still matches the artifact's after-content (or is still present/absent as expected for create/delete patches). If it drifted, the endpoint returns `409 Conflict`, leaves the workspace unchanged, and emits no `tool.file.reverted` event. Repeated reverts of an already-reverted patch are clean no-ops. Reverting a new-file patch removes the file. Reverting emits `tool.file.reverted` on the run-event stream.
 
+Revert is also conflict-checked. Before touching the workspace, Hecate verifies
+that the current file still matches the patch artifact's captured after-content.
+If the operator or another agent changed or removed the file after the patch was
+applied, revert returns `409 conflict`, leaves the workspace unchanged, and keeps
+the patch artifact in `applied`.
+
 ## Approval endpoints
 
 - `GET /hecate/v1/tasks/{id}/approvals`

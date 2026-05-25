@@ -447,7 +447,7 @@ Emitted when an operator calls the patch apply endpoint for a proposed patch art
 
 ### `tool.file.reverted`
 
-Emitted when an operator calls the patch revert endpoint. The file is restored from Hecate's own patch artifact and the artifact status changes from `applied` to `reverted`.
+Emitted when an operator calls the patch revert endpoint. The file is restored from Hecate's own patch artifact and the artifact status changes from `applied` to `reverted`. The revert endpoint first verifies that the current file still matches the patch artifact's captured after-content; if the file drifted, the request returns `409 conflict` and no revert event is emitted.
 
 If the current workspace file no longer matches the patch artifact's expected after-content (or the file exists when reverting a patch that created a new file), the revert endpoint returns `409 Conflict`, leaves the workspace unchanged, and does not emit `tool.file.reverted`.
 
