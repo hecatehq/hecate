@@ -46,6 +46,20 @@ Use this before merging broad runtime changes, release prep, or anything that
 touches startup, config loading, Docker, UI e2e journeys, task execution, or
 the embedded runtime binary.
 
+### Nightly scheduled gate
+
+The GitHub Actions nightly maintenance workflow runs:
+
+```bash
+just maintenance-nightly
+```
+
+It writes `.maintenance/maintenance-report.md`, appends the same report to the
+GitHub Actions job summary, and uploads the whole `.maintenance/` directory as
+a short-lived artifact. Deterministic checks (`just maintenance` and
+`just test-race`) fail the workflow. External link rot is informational and is
+captured in the report without turning the run red.
+
 ## Branch and worktree hygiene
 
 Use `just branches-report` before pruning. Treat its output as a report, not an

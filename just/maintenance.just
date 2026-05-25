@@ -3,6 +3,10 @@
 # Run the cheap recurring maintenance gate.
 maintenance: docs-check go-format-check ui-format-check website-format-check vet test ui-lint website-lint ui-test
 
+# Run the nightly maintenance report locally.
+maintenance-nightly:
+	bun scripts/nightly-maintenance.ts
+
 # Report local branch and worktree cleanup candidates.
 branches-report:
 	git fetch origin --prune

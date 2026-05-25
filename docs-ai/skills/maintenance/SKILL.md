@@ -17,6 +17,7 @@ when the task is maintenance-shaped rather than feature-shaped.
 - Reviewing dependency drift across Go, UI, website, Tauri/Rust, Docker, or
   GitHub Actions.
 - Keeping CI/local verification recipes aligned.
+- Updating scheduled nightly maintenance checks and report behavior.
 
 ## Read first
 
@@ -37,6 +38,10 @@ when the task is maintenance-shaped rather than feature-shaped.
    broader upkeep.
 6. Summarize what was checked, what was intentionally skipped, and which
    cleanup candidates still need operator judgment.
+
+For nightly workflow changes, run `just maintenance-nightly` when feasible. If
+that is too expensive for the turn, run `just maintenance` plus the narrow
+script/workflow checks and say exactly what was skipped.
 
 ## Guardrails
 
