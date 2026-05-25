@@ -74,6 +74,7 @@ type Handler struct {
 	// SetAgentAdapterProbe so they can exercise the handler without
 	// spawning real ACP binaries.
 	agentAdapterProbe AgentAdapterProbe
+	stateCleaner      StateCleaner
 	// quitFunc is wired by main.go to request an orderly process
 	// shutdown — used by HandleSystemShutdown when the desktop app's
 	// close-window confirmation flow asks the gateway to quit. nil in
@@ -127,6 +128,10 @@ type ProviderRuntime interface {
 	RotateSecret(ctx context.Context, id, apiKey string) (controlplane.Provider, error)
 	DeleteCredential(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
+}
+
+type StateCleaner interface {
+	ClearData(ctx context.Context) (int, error)
 }
 
 // NewHandler wires the api.Handler from already-constructed dependencies.
@@ -379,6 +384,10 @@ func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {
 		return
 	}
 	h.agentChatRunner = runner
+}
+
+func (h *Handler) SetStateCleaner(cleaner StateCleaner) {
+	h.stateCleaner = cleaner
 }
 
 func (h *Handler) reconcileAgentChatStore(ctx context.Context) {

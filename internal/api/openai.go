@@ -908,6 +908,7 @@ type SystemResetDataResponseItem struct {
 	ProvidersDeleted           int `json:"providers_deleted"`
 	PolicyRulesDeleted         int `json:"policy_rules_deleted"`
 	AgentApprovalGrantsDeleted int `json:"agent_approval_grants_deleted"`
+	DatabaseRowsDeleted        int `json:"database_rows_deleted"`
 }
 
 type UsageSummaryResponseItem struct {

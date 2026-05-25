@@ -103,5 +103,6 @@ export type SystemResetDataResponse = {
     providers_deleted: number;
     policy_rules_deleted: number;
     agent_approval_grants_deleted: number;
+    database_rows_deleted: number;
   };
 };
