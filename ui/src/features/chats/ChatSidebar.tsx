@@ -93,7 +93,9 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const pendingDeleteChat = sessions.find((session) => session.id === deleteChatID) ?? null;
   const pendingDeleteProject =
     projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
-  const workspaceRequiredForNewChat = isAgentChat && !chat.state.agentWorkspace.trim();
+  const selectedNewChatUsesWorkspace = newChatAgentID !== "hecate" || chatTarget === "agent";
+  const workspaceRequiredForNewChat =
+    isAgentChat && selectedNewChatUsesWorkspace && !chat.state.agentWorkspace.trim();
 
   function statusForAgent(agentID: ChatAgentOptionID) {
     const adapter =
