@@ -27,6 +27,12 @@ type Provider interface {
 	Supports(model string) bool
 }
 
+// CapabilityRefresher is implemented by providers that can bypass their
+// discovery cache for explicit operator refreshes.
+type CapabilityRefresher interface {
+	RefreshCapabilities(ctx context.Context) (Capabilities, error)
+}
+
 // Streamer is an optional interface providers may implement to support SSE streaming.
 // ChatStream writes an OpenAI-compatible SSE body (including the final "data: [DONE]\n\n")
 // to w and returns when the stream is complete or the context is cancelled.

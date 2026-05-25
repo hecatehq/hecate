@@ -24,7 +24,13 @@ import (
 func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	result, err := h.service.ProviderStatus(ctx)
+	var result *gateway.ProviderStatusResult
+	var err error
+	if requestRefresh(r) {
+		result, err = h.service.RefreshProviderStatus(ctx)
+	} else {
+		result, err = h.service.ProviderStatus(ctx)
+	}
 	if err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.providers.status.failed",
 			slog.String("event.name", "gateway.providers.status.failed"),

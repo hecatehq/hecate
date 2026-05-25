@@ -25,6 +25,7 @@ type OpenAICompatibleProvider struct {
 	mu         sync.Mutex
 	cachedCaps Capabilities
 	capsExpiry time.Time
+	capsFlight *capabilityDiscoveryCall
 }
 
 const (
@@ -283,6 +284,14 @@ func (p *OpenAICompatibleProvider) DefaultModel() string {
 }
 
 func (p *OpenAICompatibleProvider) Capabilities(ctx context.Context) (Capabilities, error) {
+	return p.capabilities(ctx, false)
+}
+
+func (p *OpenAICompatibleProvider) RefreshCapabilities(ctx context.Context) (Capabilities, error) {
+	return p.capabilities(ctx, true)
+}
+
+func (p *OpenAICompatibleProvider) capabilities(ctx context.Context, refresh bool) (Capabilities, error) {
 	if p.config.StubMode {
 		return p.staticCapabilities("config"), nil
 	}
@@ -292,9 +301,11 @@ func (p *OpenAICompatibleProvider) Capabilities(ctx context.Context) (Capabiliti
 		p.Name(),
 		p.Kind(),
 		p.config.APIKey,
+		refresh,
 		&p.mu,
 		&p.cachedCaps,
 		&p.capsExpiry,
+		&p.capsFlight,
 		p.discoverCapabilities,
 		p.staticCapabilities,
 	)

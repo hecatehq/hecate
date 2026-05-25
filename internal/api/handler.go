@@ -509,7 +509,13 @@ func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	result, err := h.service.ListModels(ctx)
+	var result *gateway.ModelsResult
+	var err error
+	if requestRefresh(r) {
+		result, err = h.service.RefreshModels(ctx)
+	} else {
+		result, err = h.service.ListModels(ctx)
+	}
 	if err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.models.list.failed",
 			slog.String("event.name", "gateway.models.list.failed"),
@@ -541,6 +547,11 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   data,
 	})
+}
+
+func requestRefresh(r *http.Request) bool {
+	raw := strings.TrimSpace(r.URL.Query().Get("refresh"))
+	return raw == "1" || strings.EqualFold(raw, "true")
 }
 
 func renderModelReadiness(readiness types.ModelReadiness) ModelReadinessResponseItem {
