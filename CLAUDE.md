@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This is the Hecate repo — an open-source AI gateway and agent-task runtime (Go gateway with embedded React UI plus companion integration entrypoints). Shared agent guidance lives in [`docs-ai/`](docs-ai/README.md). This file is a thin Claude-specific adapter; the substance lives there.
+This is the Hecate repo — an open-source local AI runtime console (Go runtime with embedded React UI plus companion integration entrypoints). Shared agent guidance lives in [`docs-ai/`](docs-ai/README.md). This file is a thin Claude-specific adapter; the substance lives there.
 
 ## Start here
 

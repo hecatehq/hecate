@@ -28,8 +28,8 @@ Race suite is the floor for any change touching `internal/gateway`, `internal/ro
 
 ## Test layer choice (quick guide)
 
-- **Unit** — data transformation, wire-shape passthrough, error classification, tenant scoping, retry/failover, streaming wire shape, agent_loop tool dispatch, MCP tool registration, UI data-to-prop transformation, conditional rendering of critical states.
-- **Integration** — multi-package wiring within the gateway (governor + budget store; router + retention).
+- **Unit** — data transformation, wire-shape passthrough, error classification, retry/failover decisions, streaming wire shape, usage accumulation, agent_loop tool dispatch, MCP tool registration, UI data-to-prop transformation, conditional rendering of critical states.
+- **Integration** — multi-package wiring within the runtime, such as governor + usage store, router + retention, or orchestrator + taskstate.
 - **E2E** — api → orchestrator → providers/sandbox/mcp chain end-to-end; subprocess lifecycle; startup/config semantics; new SSE event sequences operators rely on; public HTTP contract changes.
 
 ## Pointers

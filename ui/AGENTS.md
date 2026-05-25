@@ -37,7 +37,7 @@ ui/src/
 | `bun run dev`        | Vite dev server on `:5173` proxying API to `:8765`                                |
 | `bun run test:e2e`   | Playwright with Vite's API proxy disabled; mock each API route explicitly         |
 
-Claude Code shortcut: `/test-affected` from the repo root when Go packages are touched. For UI work, run `bun run typecheck` and `bun run test` directly.
+Claude Code exposes `/test-affected` from the repo root when Go packages are touched. Other agents should run the equivalent focused `go test` command directly. For UI work, run `bun run typecheck` and `bun run test`.
 
 ## Where to go for depth
 

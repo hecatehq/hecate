@@ -12,9 +12,9 @@ For each change, run a pass on each axis. Cite `file:line` for every finding.
 
 1. **Correctness.** Does the change do what it claims? Edge cases handled? Errors classified correctly (`IsClientError`, `IsBudgetExceeded`, `IsRateLimited`, `IsDenied`)?
 2. **Maintainability.** Readable? Comments explain *why*, not *what*? Naming consistent with the surrounding code?
-3. **Architecture fit.** Respects the rings (`pkg/types/` → `internal/api/` → `internal/providers/`, imports inward only)? Mirrors the storage tier rule (memory + sqlite + postgres)? Does it duplicate what should be shared, or share what should be duplicated (api↔providers parallel-struct rule)?
+3. **Architecture fit.** Respects the rings (`pkg/types/` → `internal/api/` → `internal/providers/`, imports inward only)? Mirrors the storage tier rule (memory + sqlite)? Does it duplicate what should be shared, or share what should be duplicated (api↔providers parallel-struct rule)?
 4. **Test coverage.** Tests the seam? The error path? The cross-boundary wire shape? UI data-to-UI transformation and conditional rendering of critical states?
-5. **Security risk.** Auth scoping (`/v1/...` vs `/admin/...`); tenant scoping (no admin-path bypass); sandbox boundary; SSRF guards on `http_request`; secrets in env vs in code.
+5. **Security risk.** Local operator boundary; sandbox boundary; workspace path validation; SSRF guards on `http_request`; secrets in env vs in code.
 6. **Operational risk.** Env-var changes synced to `.env.example` and `docs/<feature>.md`? Schema migrations across storage tiers? Retention worker impact? OTel surface? Log volume?
 7. **Follow-ups.** What's left? What's known-incomplete? What needs a separate change?
 
