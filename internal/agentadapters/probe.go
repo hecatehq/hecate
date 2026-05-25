@@ -274,6 +274,9 @@ func claudeCodeErrorNeedsAdapterVisibleAuth(errText, stderr string) bool {
 // empty when we don't have a confident recommendation.
 func classifyAdapterError(errText, stderr string) (string, string) {
 	combined := strings.ToLower(errText + "\n" + stderr)
+	if matchesAny(combined, "context deadline exceeded", "deadline exceeded", "timed out", "timeout") {
+		return ProbeStatusError, "The adapter did not finish its ACP startup check in time. Check the CLI is responsive, signed in, and not waiting on a browser or network prompt, then retry from Connections."
+	}
 	if matchesAny(combined,
 		"authentication required",
 		"unauthenticated",
