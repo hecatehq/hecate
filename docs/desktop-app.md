@@ -58,6 +58,9 @@ What works:
   open the data directory, and quit.
 - Per-platform writable data dir (`~/Library/Application Support/sh.hecate.app/`,
   `%APPDATA%\sh.hecate.app\`, `~/.local/share/sh.hecate.app/`).
+- Durable sqlite storage in that data dir (`hecate.db`) for settings,
+  provider connections, projects, chats, tasks, usage, and approval state
+  across app launches.
 - Sidecar stderr piped to `<data_dir>/gateway.log` (truncated per launch);
   the startup splash shows failures with the log and data-directory paths, and
   adds a bootstrap-key recovery hint when startup fails before the gateway
