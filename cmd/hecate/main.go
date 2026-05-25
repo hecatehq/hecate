@@ -271,6 +271,7 @@ func main() {
 	handler.SetAgentChatStore(agentChatStore)
 	handler.SetProjectStore(projectStore)
 	handler.SetAgentApprovalStore(approvalStore)
+	handler.SetStateCleaner(sqliteClient)
 	// Wire the cipher into the handler and its underlying runner so MCP
 	// server env values are encrypted at task-creation time and decrypted
 	// at subprocess spawn time. SetSecretCipher is a no-op when cipher

@@ -113,6 +113,7 @@ function resetSummary(data: {
   providers_deleted: number;
   policy_rules_deleted: number;
   agent_approval_grants_deleted: number;
+  database_rows_deleted: number;
 }): string {
   const total =
     data.projects_deleted +
@@ -120,7 +121,8 @@ function resetSummary(data: {
     data.tasks_deleted +
     data.providers_deleted +
     data.policy_rules_deleted +
-    data.agent_approval_grants_deleted;
+    data.agent_approval_grants_deleted +
+    data.database_rows_deleted;
   if (total === 0) return "Local data was already clean.";
   return `Reset local data. Removed ${total} item${total === 1 ? "" : "s"}.`;
 }

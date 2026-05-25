@@ -111,6 +111,7 @@ describe("SettingsView maintenance cleanup", () => {
         providers_deleted: 1,
         policy_rules_deleted: 1,
         agent_approval_grants_deleted: 1,
+        database_rows_deleted: 3,
       },
     });
     const loadDashboard = vi.fn(async () => undefined);

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -148,4 +149,64 @@ func (c *SQLiteClient) TableName(name string) string {
 		return base
 	}
 	return c.tablePrefix + "_" + base
+}
+
+// ClearData deletes rows from every Hecate-prefixed application table while
+// preserving the schema, so a running gateway can start fresh without a
+// relaunch and without rerunning migrations.
+func (c *SQLiteClient) ClearData(ctx context.Context) (int, error) {
+	if c == nil || c.db == nil {
+		return 0, nil
+	}
+	prefix := c.tablePrefix + "_"
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT name
+		FROM sqlite_master
+		WHERE type = 'table' AND name LIKE ?
+	`, prefix+"%")
+	if err != nil {
+		return 0, fmt.Errorf("list sqlite tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return 0, fmt.Errorf("scan sqlite table: %w", err)
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("list sqlite tables: %w", err)
+	}
+	sort.Strings(tables)
+	if len(tables) == 0 {
+		return 0, nil
+	}
+
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin sqlite clear: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	deleted := 0
+	for _, table := range tables {
+		result, err := tx.ExecContext(ctx, `DELETE FROM `+quoteSQLiteIdentifier(table))
+		if err != nil {
+			return deleted, fmt.Errorf("clear sqlite table %q: %w", table, err)
+		}
+		if n, err := result.RowsAffected(); err == nil {
+			deleted += int(n)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return deleted, fmt.Errorf("commit sqlite clear: %w", err)
+	}
+	return deleted, nil
+}
+
+func quoteSQLiteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }

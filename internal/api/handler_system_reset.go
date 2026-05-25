@@ -63,6 +63,12 @@ func (h *Handler) resetSystemData(ctx context.Context) (SystemResetDataResponseI
 	stats.ProvidersDeleted = settingsStats.ProvidersDeleted
 	stats.PolicyRulesDeleted = settingsStats.PolicyRulesDeleted
 
+	rowsDeleted, err := h.clearRemainingState(ctx)
+	if err != nil {
+		return stats, err
+	}
+	stats.DatabaseRowsDeleted = rowsDeleted
+
 	return stats, nil
 }
 
@@ -195,4 +201,11 @@ func (h *Handler) deleteSettingsProvider(ctx context.Context, id string) error {
 		return h.providerRuntime.Delete(ctx, id)
 	}
 	return h.controlPlane.DeleteProvider(ctx, id)
+}
+
+func (h *Handler) clearRemainingState(ctx context.Context) (int, error) {
+	if h.stateCleaner == nil {
+		return 0, nil
+	}
+	return h.stateCleaner.ClearData(ctx)
 }

@@ -396,7 +396,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. Workspace files and external CLI auth files are not touched.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched.
 
 ```json
 → 200
@@ -408,7 +408,8 @@ Tool names come back un-namespaced — the operator wants to see what the upstre
     "tasks_deleted": 1,
     "providers_deleted": 1,
     "policy_rules_deleted": 1,
-    "agent_approval_grants_deleted": 1
+    "agent_approval_grants_deleted": 1,
+    "database_rows_deleted": 8
   }
 }
 ```
