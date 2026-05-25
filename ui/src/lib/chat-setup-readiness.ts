@@ -89,7 +89,7 @@ export function resolveChatSetupRepairState({
       kind: hasConfiguredProviders ? "no_routable_model" : "no_provider",
       title: hasConfiguredProviders ? "No routable model" : "No model provider configured",
       message: hasConfiguredProviders
-        ? "Hecate can see provider configuration, but no provider currently reports a routable model."
+        ? "Providers are configured, but none currently report a routable model. Start the local provider or refresh Connections after loading a model."
         : "Add a model provider before sending through Hecate.",
       action: "open_connections",
       actionLabel: "Open Connections",

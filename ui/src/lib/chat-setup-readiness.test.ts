@@ -33,6 +33,21 @@ describe("resolveChatSetupRepairState", () => {
     });
   });
 
+  it("explains that configured providers may need refresh or loaded models", () => {
+    const repair = resolveChatSetupRepairState({
+      ...base,
+      target: "model",
+      modelRouteUnavailable: true,
+    });
+
+    expect(repair).toMatchObject({
+      kind: "no_routable_model",
+      title: "No routable model",
+    });
+    expect(repair?.message).toContain("refresh Connections");
+    expect(repair?.message).toContain("loading a model");
+  });
+
   it("uses backend suggested models as the primary selected-model repair", () => {
     const repair = resolveChatSetupRepairState({
       ...base,
