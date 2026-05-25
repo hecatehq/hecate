@@ -112,6 +112,10 @@ Manual setup stays in the upstream CLIs:
 
 If an adapter readiness check reports an auth failure, run the matching command
 in Terminal, then return to Connections and test the adapter again.
+If it reports a timeout or `context deadline exceeded`, the adapter did not
+finish startup or ACP session creation inside the probe window. Hecate did not
+send a prompt; close any stuck browser or login prompt, fix the CLI if needed,
+then retry from Connections.
 
 Connections refreshes adapter readiness when opened. You can also
 call the probe endpoint for a full spawn + ACP handshake + no-op session check:
