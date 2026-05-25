@@ -1329,6 +1329,10 @@ describe("ObservabilityView", () => {
     expect(normalizedInlineStyle(eventFlow, "max-height")).toBe("min(320px,42vh)");
     expect(eventFlow.style.overflowY).toBe("auto");
     expect(eventFlow.textContent).toMatch(/\+1 more/);
+    expect(eventFlow.textContent).toMatch(/gen ai\.provider\.name/);
+    expect(
+      eventFlow.querySelector('[title="gen_ai.provider.name: openai"]'),
+    ).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/★/);
 
     // Click the longest child to expand its attributes inline.
