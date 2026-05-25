@@ -9,6 +9,10 @@ docs-format: _ui-deps
 docs-format-check: _ui-deps
 	git ls-files -z '*.md' '*.mdc' | xargs -0 ./ui/node_modules/.bin/oxfmt --check
 
+# Validate Mermaid diagrams embedded in Markdown.
+check-mermaid:
+	bun scripts/check-mermaid.ts
+
 # Catch alpha-risk documentation drift: removed env bootstrap surfaces
 # sneaking back into docs, and release docs going missing.
 # Check docs for removed env-bootstrap surfaces.
@@ -17,8 +21,9 @@ docs-env-check:
 	test -f docs/known-limitations.md
 	! rg -n 'HECATE_POLICY_RULES_JSON|HECATE_PRICEBOOK_JSON|HECATE_PROVIDERS|HECATE_[A-Z0-9_]+_BACKEND|PROVIDER_[A-Z0-9_]+_(PROTOCOL|API_VERSION|TIMEOUT)' README.md docs .env.example internal/config e2e .github
 
-# Run lychee against all markdown and .mdc files to catch broken relative
-# links and dead external URLs. Mirrors the CI Links workflow.
+# Run lychee against tracked markdown and .mdc files to catch broken relative
+# links. Mirrors the hard-fail half of the CI Links workflow; external URL
+# rot is checked separately because network and host failures are flaky.
 # Install lychee via: brew install lychee  OR  cargo install lychee
 # Check markdown links with lychee.
 check-links:
@@ -28,12 +33,34 @@ check-links:
 	  echo "  Cargo:  cargo install lychee"; \
 	  exit 1; \
 	}
-	lychee --no-progress --include-fragments \
+	git ls-files -z '*.md' '*.mdc' | xargs -0 lychee --no-progress --include-fragments \
+	  --scheme file \
 	  --exclude-path .gomodcache \
 	  --exclude-path ui/node_modules \
 	  --exclude-path website/node_modules \
-	  --exclude-path .claude/skills \
-	  './**/*.md' './**/*.mdc'
+	  --exclude-path tauri/node_modules \
+	  --exclude-path .claude/skills
+
+# Check external URLs. Informational locally; CI also runs this as a
+# continue-on-error job so transient host failures do not block PRs.
+check-links-external:
+	command -v lychee >/dev/null 2>&1 || { \
+	  echo "lychee not installed."; \
+	  echo "  macOS:  brew install lychee"; \
+	  echo "  Cargo:  cargo install lychee"; \
+	  exit 1; \
+	}
+	git ls-files -z '*.md' '*.mdc' | xargs -0 lychee --no-progress --include-fragments \
+	  --scheme https \
+	  --scheme http \
+	  --exclude-path .gomodcache \
+	  --exclude-path ui/node_modules \
+	  --exclude-path website/node_modules \
+	  --exclude-path tauri/node_modules \
+	  --exclude-path .claude/skills
+
+# Run all docs-specific verification.
+docs-check: docs-env-check docs-format-check check-mermaid check-links
 
 # One-shot end-to-end screenshot workflow:
 # reset -> build -> start hecate in the background -> wait for /healthz ->

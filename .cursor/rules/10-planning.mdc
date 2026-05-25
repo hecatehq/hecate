@@ -11,8 +11,8 @@ Substantial changes get a plan before code. Trivial changes (typo fixes, single-
 ## When a plan is required
 
 - Cross-package wire-field changes — the seven-step chain spans `pkg/types/` → `internal/api/` → `internal/providers/`.
-- New persisted things — must mirror memory + sqlite + postgres tiers.
-- New HTTP endpoints (public `/v1/...` or admin `/admin/...`).
+- New persisted things — must mirror memory + sqlite tiers.
+- New HTTP endpoints or changes to the Hecate-native / compatibility API contract.
 - New approval policies or sandbox capabilities.
 - New persistent UI surfaces (inspector, side rail, dashboard block, summary panel) — explicit user approval first.
 - Substantive refactors that cross ring boundaries or touch the api↔providers seam.

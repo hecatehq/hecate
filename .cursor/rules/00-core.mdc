@@ -6,16 +6,15 @@ alwaysApply: true
 
 # Hecate core rules
 
-Hecate is an open-source AI gateway and agent-task runtime. The Go gateway embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle.
+Hecate is an open-source local AI runtime console. The main Go runtime runs the local HTTP service, embeds the React operator UI, routes OpenAI- and Anthropic-shaped client traffic to upstream providers, runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does.
 
 The canonical, vendor-neutral instruction layer for this repo lives in [`docs-ai/`](../../docs-ai/README.md). Start there. This file is a thin Cursor adapter listing the top-level non-negotiables.
 
 ## Non-negotiables
 
 - **Architecture rings.** `pkg/types/` → `internal/api/` → `internal/providers/`. Cross-ring imports go inward only. `internal/orchestrator/` sits above providers, called by api.
-- **Storage tier rule.** Every persisted thing mirrors three tiers — memory (default, in-process), sqlite (`modernc.org`, no CGO), postgres (`pgx`).
-- **Auth is path-level.** `/v1/...` accepts tenant API keys; `/admin/...` requires admin bearer; `/v1/tasks/*` accepts both. Don't blur these.
-- **Tenant scoping is automatic.** Every store query gets `WHERE tenant = ?` injected once a request has a tenant principal. Do not bypass via the admin path.
+- **Storage tier rule.** Every persisted thing mirrors two tiers — memory (default, in-process) and sqlite (`modernc.org/sqlite`, no CGO).
+- **Local operator boundary.** Every request is processed as the operator. The runtime binds to `127.0.0.1` by default; bind elsewhere only behind a reverse proxy, firewall, or equivalent access control.
 - **Cost is `int64` micro-USD.** Never `float64`. `1_000_000` = `$1`.
 - **OTel is first-class.** New code paths add spans, not just log lines. Trace IDs surface in `X-Trace-Id`.
 - **The api↔providers parallel-struct rule.** `OpenAIChatMessage` (capital `O`, in `internal/api/`) and `openAIChatMessage` (lowercase `o`, in `internal/providers/`) duplicate the JSON shape on purpose. Mirror fields when adding; do not unify.
