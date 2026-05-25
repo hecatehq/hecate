@@ -319,6 +319,7 @@ export function TraceDetail({
                           .map(([key, value]) => (
                             <span
                               key={key}
+                              title={`${key}: ${String(value)}`}
                               style={{
                                 fontFamily: "var(--font-mono)",
                                 fontSize: 10,
@@ -331,6 +332,17 @@ export function TraceDetail({
                               </span>
                             </span>
                           ))}
+                        {Object.keys(event.attributes).length > 4 && (
+                          <span
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 10,
+                              color: "var(--t3)",
+                            }}
+                          >
+                            +{Object.keys(event.attributes).length - 4} more
+                          </span>
+                        )}
                       </div>
                     )
                   )}
