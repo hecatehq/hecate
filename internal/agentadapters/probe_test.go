@@ -92,6 +92,17 @@ func TestClassifyAdapterError(t *testing.T) {
 			t.Fatalf("hint = %q, want retry guidance", hint)
 		}
 	})
+
+	t.Run("timeout in stderr includes operator hint", func(t *testing.T) {
+		t.Parallel()
+		status, hint := classifyAdapterError("initialize failed", "Error: context deadline exceeded")
+		if status != ProbeStatusError {
+			t.Fatalf("status = %q, want %q", status, ProbeStatusError)
+		}
+		if !strings.Contains(hint, "retry from Connections") {
+			t.Fatalf("hint = %q, want retry guidance", hint)
+		}
+	})
 }
 
 func TestClaudeCodeErrorNeedsAdapterVisibleAuth(t *testing.T) {

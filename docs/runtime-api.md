@@ -926,7 +926,9 @@ GET /hecate/v1/agent-adapters/codex/health
   an auth-shaped error (`Authentication required`, `Please log in`, `API key`,
   `Credit balance is too low`, `401`, `403`, …).
 - `error` — anything else. `error` and `stderr` carry the verbatim diagnostic
-  so the operator can act on it.
+  so the operator can act on it. Timeout and deadline diagnostics stay in this
+  bucket with a hint to retry from Connections after resolving stuck CLI,
+  browser, or login prompts.
 
 `stage` reports which step in the sequence completed (on success) or failed (on
 error): `lookup` / `spawn` / `initialize` / `new_session` / `ready`.
