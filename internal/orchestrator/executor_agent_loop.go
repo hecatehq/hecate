@@ -9,16 +9,15 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/hecatehq/hecate/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -1058,10 +1057,7 @@ const (
 	listDirEntryCap         = 500
 )
 
-// resolveWorkspacePath joins relPath onto the run's workspace root and
-// rejects the result if it escapes. Returns the absolute path (safe
-// to read) or an error message suitable for the tool result.
-func resolveWorkspacePath(spec ExecutionSpec, relPath string) (string, string) {
+func workspaceFileSystem(spec ExecutionSpec) (*workspacefs.FS, string) {
 	root := strings.TrimSpace(spec.Task.WorkingDirectory)
 	if root == "" {
 		// No workspace configured — operate from current dir as a
@@ -1069,20 +1065,38 @@ func resolveWorkspacePath(spec ExecutionSpec, relPath string) (string, string) {
 		// this to the run's WorkspacePath before dispatching.
 		root, _ = os.Getwd()
 	}
+	fsys, err := workspacefs.New(root)
+	if err != nil {
+		return nil, err.Error()
+	}
+	return fsys, ""
+}
+
+func workspaceFSPath(spec ExecutionSpec, relPath string) (*workspacefs.FS, string, string, string) {
 	rel := strings.TrimSpace(relPath)
 	if rel == "" || rel == "." {
-		return root, ""
+		rel = "."
 	}
-	// Reject absolute paths outright — agent must operate inside the
-	// workspace. Path-traversal via `..` is caught below by the prefix
-	// check on the cleaned absolute path.
-	if filepath.IsAbs(rel) {
-		return "", fmt.Sprintf("path must be relative to the workspace, got absolute: %q", rel)
+	fsys, errMsg := workspaceFileSystem(spec)
+	if errMsg != "" {
+		return nil, "", "", errMsg
 	}
-	abs := filepath.Clean(filepath.Join(root, rel))
-	rootClean := filepath.Clean(root)
-	if abs != rootClean && !strings.HasPrefix(abs, rootClean+string(filepath.Separator)) {
-		return "", fmt.Sprintf("path %q escapes the workspace root", rel)
+	abs, err := fsys.Resolve(rel)
+	if err != nil {
+		if filepath.IsAbs(rel) {
+			return nil, "", "", fmt.Sprintf("path must be relative to the workspace, got absolute: %q", rel)
+		}
+		return nil, "", "", err.Error()
+	}
+	return fsys, rel, abs, ""
+}
+
+// resolveWorkspacePath joins relPath onto the run's workspace root using the
+// same symlink-aware resolver as sandboxed file writes.
+func resolveWorkspacePath(spec ExecutionSpec, relPath string) (string, string) {
+	_, _, abs, errMsg := workspaceFSPath(spec, relPath)
+	if errMsg != "" {
+		return "", errMsg
 	}
 	return abs, ""
 }
@@ -1094,11 +1108,11 @@ func prepareFileEditTask(spec ExecutionSpec, args fileEditArgs) (types.Task, str
 	if args.OldText == "" {
 		return types.Task{}, "", "", "", "file_edit: old_text is required"
 	}
-	abs, errMsg := resolveWorkspacePath(spec, args.Path)
+	fsys, rel, abs, errMsg := workspaceFSPath(spec, args.Path)
 	if errMsg != "" {
 		return types.Task{}, "", "", "", errMsg
 	}
-	info, err := os.Stat(abs)
+	info, _, err := fsys.Stat(rel)
 	if err != nil {
 		return types.Task{}, "", "", "", fmt.Sprintf("file_edit: %v", err)
 	}
@@ -1108,7 +1122,7 @@ func prepareFileEditTask(spec ExecutionSpec, args fileEditArgs) (types.Task, str
 	if info.Size() > fileEditHardCapBytes {
 		return types.Task{}, "", "", "", fmt.Sprintf("file_edit: %q is too large (%d bytes > %d)", args.Path, info.Size(), fileEditHardCapBytes)
 	}
-	raw, err := os.ReadFile(abs)
+	raw, _, err := fsys.ReadFile(rel)
 	if err != nil {
 		return types.Task{}, "", "", "", fmt.Sprintf("file_edit: %v", err)
 	}
@@ -1210,10 +1224,6 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 	}
 
 	prepared := make([]preparedPatchOperation, 0, len(ops))
-	root, rootErr := workspaceRoot(spec)
-	if rootErr != "" {
-		return "apply_patch: " + rootErr, nil, nil, nil
-	}
 	for _, op := range ops {
 		if errMsg := validatePatchOperationPath(op); errMsg != "" {
 			return errMsg, nil, nil, nil
@@ -1221,19 +1231,23 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 		if args.Propose && op.Kind == "delete" {
 			return "apply_patch: propose=true does not support delete sections because proposed-patch apply currently writes after-content rather than removing files", nil, nil, nil
 		}
-		abs, err := safeJoinWithinRoot(root, strings.TrimSpace(op.Path))
-		if err != nil {
-			return fmt.Sprintf("apply_patch: %v", err), nil, nil, nil
+		fsys, rel, abs, errMsg := workspaceFSPath(spec, op.Path)
+		if errMsg != "" {
+			return "apply_patch: " + errMsg, nil, nil, nil
 		}
-		before, after, beforeExists, errMsg := preparePatchOperation(abs, op)
+		before, after, beforeExists, errMsg := preparePatchOperation(fsys, rel, op)
 		if errMsg != "" {
 			return errMsg, nil, nil, nil
 		}
-		prepared = append(prepared, preparedPatchOperation{op: op, absPath: abs, before: before, after: after, beforeExists: beforeExists})
+		prepared = append(prepared, preparedPatchOperation{op: op, relPath: rel, absPath: abs, before: before, after: after, beforeExists: beforeExists})
 	}
 	if !args.Propose {
 		for _, item := range prepared {
-			if err := writePatchOperation(item.absPath, item.after, item.op.Kind); err != nil {
+			fsys, _, _, errMsg := workspaceFSPath(spec, item.relPath)
+			if errMsg != "" {
+				return "apply_patch: " + errMsg, nil, nil, nil
+			}
+			if err := writePatchOperation(fsys, item.relPath, item.after, item.op.Kind); err != nil {
 				return fmt.Sprintf("apply_patch: %v", err), nil, nil, nil
 			}
 		}
@@ -1269,7 +1283,7 @@ func applyPatchTool(spec ExecutionSpec, args applyPatchArgs, stepIndex int, star
 // tool result text. Bounded by max_bytes; binary files are reported
 // rather than dumped (to avoid pushing garbage into the conversation).
 func readFileTool(spec ExecutionSpec, args readFileArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
-	abs, errMsg := resolveWorkspacePath(spec, args.Path)
+	fsys, rel, _, errMsg := workspaceFSPath(spec, args.Path)
 	if errMsg != "" {
 		return errMsg, nil, nil, nil
 	}
@@ -1281,7 +1295,7 @@ func readFileTool(spec ExecutionSpec, args readFileArgs, stepIndex int, startedA
 		maxBytes = readFileHardCapBytes
 	}
 
-	info, err := os.Stat(abs)
+	info, _, err := fsys.Stat(rel)
 	if err != nil {
 		return fmt.Sprintf("read_file: %v", err), nil, nil, nil
 	}
@@ -1289,7 +1303,7 @@ func readFileTool(spec ExecutionSpec, args readFileArgs, stepIndex int, startedA
 		return fmt.Sprintf("read_file: %q is a directory; use list_dir instead", args.Path), nil, nil, nil
 	}
 
-	displayContent, lineRange, n, truncated, errMsg := readWorkspaceFileContent(abs, args.Path, info.Size(), maxBytes, args.StartLine, args.EndLine)
+	displayContent, lineRange, n, truncated, errMsg := readWorkspaceFileContent(fsys, rel, args.Path, info.Size(), maxBytes, args.StartLine, args.EndLine)
 	if errMsg != "" {
 		return "read_file: " + errMsg, nil, nil, nil
 	}
@@ -1334,33 +1348,34 @@ func grepTool(spec ExecutionSpec, args grepArgs, stepIndex int, startedAt time.T
 	if maxMatches > grepHardCapMatches {
 		maxMatches = grepHardCapMatches
 	}
-	root, errMsg := resolveWorkspacePath(spec, args.Path)
+	fsys, rootRel, _, errMsg := workspaceFSPath(spec, args.Path)
 	if errMsg != "" {
 		return "grep: " + errMsg, nil, nil, nil
 	}
-	workspaceRoot, rootErr := workspaceRoot(spec)
-	if rootErr != "" {
-		return "grep: " + rootErr, nil, nil, nil
-	}
 
 	var matches []grepMatch
-	err = walkSearchFiles(root, func(path string, info os.FileInfo) error {
+	err = fsys.WalkDir(rootRel, func(_ string, rel string, entry workspacefs.DirEntry) error {
 		if len(matches) >= maxMatches {
 			return filepath.SkipAll
 		}
-		rel, _ := filepath.Rel(workspaceRoot, path)
-		rel = filepath.ToSlash(rel)
-		if args.Include != "" && !globPatternMatches(args.Include, rel) && !globPatternMatches(args.Include, filepath.Base(rel)) {
+		if shouldSkipSearchDir(entry) {
+			return filepath.SkipDir
+		}
+		if entry.IsDir {
 			return nil
 		}
-		fileMatches, err := grepFile(path, rel, re, maxMatches-len(matches))
+		displayRel := filepath.ToSlash(rel)
+		if args.Include != "" && !globPatternMatches(args.Include, displayRel) && !globPatternMatches(args.Include, filepath.Base(displayRel)) {
+			return nil
+		}
+		fileMatches, err := grepFile(fsys, rel, displayRel, re, maxMatches-len(matches))
 		if err != nil {
 			return nil
 		}
 		matches = append(matches, fileMatches...)
 		return nil
 	})
-	if err != nil {
+	if err != nil && err != filepath.SkipAll {
 		return fmt.Sprintf("grep: %v", err), nil, nil, nil
 	}
 	var b strings.Builder
@@ -1394,40 +1409,32 @@ func globTool(spec ExecutionSpec, args globArgs, stepIndex int, startedAt time.T
 	if maxMatches > globHardCapMatches {
 		maxMatches = globHardCapMatches
 	}
-	root, errMsg := resolveWorkspacePath(spec, args.Path)
+	fsys, rootRel, _, errMsg := workspaceFSPath(spec, args.Path)
 	if errMsg != "" {
 		return "glob: " + errMsg, nil, nil, nil
 	}
-	workspaceRoot, rootErr := workspaceRoot(spec)
-	if rootErr != "" {
-		return "glob: " + rootErr, nil, nil, nil
-	}
 	var matches []string
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
+	err := fsys.WalkDir(rootRel, func(_ string, rel string, entry workspacefs.DirEntry) error {
 		if shouldSkipSearchDir(entry) {
 			return filepath.SkipDir
 		}
-		rel, _ := filepath.Rel(workspaceRoot, path)
-		rel = filepath.ToSlash(rel)
-		if rel == "." {
+		displayRel := filepath.ToSlash(rel)
+		if displayRel == "." {
 			return nil
 		}
-		if globPatternMatches(args.Pattern, rel) || globPatternMatches(args.Pattern, filepath.Base(rel)) {
+		if globPatternMatches(args.Pattern, displayRel) || globPatternMatches(args.Pattern, filepath.Base(displayRel)) {
 			suffix := ""
-			if entry.IsDir() {
+			if entry.IsDir {
 				suffix = "/"
 			}
-			matches = append(matches, rel+suffix)
+			matches = append(matches, displayRel+suffix)
 			if len(matches) >= maxMatches {
 				return filepath.SkipAll
 			}
 		}
 		return nil
 	})
-	if err != nil {
+	if err != nil && err != filepath.SkipAll {
 		return fmt.Sprintf("glob: %v", err), nil, nil, nil
 	}
 	sort.Strings(matches)
@@ -1508,24 +1515,24 @@ func artifactReadTool(spec ExecutionSpec, args artifactReadArgs, stepIndex int, 
 // with kind (file/dir/link) and size. Capped at listDirEntryCap so
 // huge directories don't bloat the conversation.
 func listDirTool(spec ExecutionSpec, args listDirArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
-	abs, errMsg := resolveWorkspacePath(spec, args.Path)
+	fsys, rel, _, errMsg := workspaceFSPath(spec, args.Path)
 	if errMsg != "" {
 		return errMsg, nil, nil, nil
 	}
-	info, err := os.Stat(abs)
+	info, _, err := fsys.Stat(rel)
 	if err != nil {
 		return fmt.Sprintf("list_dir: %v", err), nil, nil, nil
 	}
 	if !info.IsDir() {
 		return fmt.Sprintf("list_dir: %q is not a directory", args.Path), nil, nil, nil
 	}
-	entries, err := os.ReadDir(abs)
+	entries, _, err := fsys.ReadDir(rel)
 	if err != nil {
 		return fmt.Sprintf("list_dir: %v", err), nil, nil, nil
 	}
 	// Sort for deterministic output — saves token churn across
 	// equivalent calls in different turns.
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 
 	relPath := args.Path
 	if relPath == "" {
@@ -1544,15 +1551,15 @@ func listDirTool(spec ExecutionSpec, args listDirArgs, stepIndex int, startedAt 
 		}
 		kind := "file"
 		size := int64(0)
-		if entry.IsDir() {
+		if entry.IsDir {
 			kind = "dir"
-		} else if entry.Type()&os.ModeSymlink != 0 {
+		} else if entry.Type&os.ModeSymlink != 0 {
 			kind = "link"
 		}
-		if fi, err := entry.Info(); err == nil && !fi.IsDir() {
-			size = fi.Size()
+		if !entry.IsDir {
+			size = entry.Size
 		}
-		fmt.Fprintf(&b, "%-4s %10d  %s\n", kind, size, entry.Name())
+		fmt.Fprintf(&b, "%-4s %10d  %s\n", kind, size, entry.Name)
 		emitted++
 	}
 
@@ -1640,16 +1647,15 @@ func gitDiffTool(ctx context.Context, spec ExecutionSpec, args gitDiffArgs, step
 func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...string) (string, bool, error) {
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, "git", append([]string{"-C", root, "--no-pager"}, args...)...)
-	cmd.Env = sandbox.SanitizedEnv()
-	output := &limitedCommandBuffer{limit: maxBytes}
-	cmd.Stdout = output
-	cmd.Stderr = output
-	err := cmd.Run()
+	gitArgs := append([]string{"--no-pager"}, args...)
+	result, err := gitrunner.NewLocalRunner().RunLimited(cmdCtx, root, int64(maxBytes), gitArgs...)
 	if cmdCtx.Err() == context.DeadlineExceeded {
 		return "", false, fmt.Errorf("git command timed out")
 	}
-	out := output.String()
+	out := result.Stdout
+	if strings.TrimSpace(result.Stderr) != "" {
+		out += result.Stderr
+	}
 	if err != nil {
 		text := strings.TrimSpace(out)
 		if text != "" {
@@ -1657,51 +1663,11 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 		}
 		return "", false, err
 	}
-	return out, output.Truncated(), nil
+	return out, result.StdoutTruncated || result.StderrTruncated, nil
 }
 
-type limitedCommandBuffer struct {
-	mu        sync.Mutex
-	limit     int
-	buf       []byte
-	truncated bool
-}
-
-func (b *limitedCommandBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.limit <= 0 {
-		b.truncated = true
-		return len(p), nil
-	}
-	remaining := b.limit - len(b.buf)
-	if remaining <= 0 {
-		b.truncated = true
-		return len(p), nil
-	}
-	if len(p) > remaining {
-		b.buf = append(b.buf, p[:remaining]...)
-		b.truncated = true
-		return len(p), nil
-	}
-	b.buf = append(b.buf, p...)
-	return len(p), nil
-}
-
-func (b *limitedCommandBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return string(b.buf)
-}
-
-func (b *limitedCommandBuffer) Truncated() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.truncated
-}
-
-func readWorkspaceFileContent(abs, displayPath string, fileSize int64, maxBytes, startLine, endLine int) (string, string, int, bool, string) {
-	f, err := os.Open(abs)
+func readWorkspaceFileContent(fsys *workspacefs.FS, rel, displayPath string, fileSize int64, maxBytes, startLine, endLine int) (string, string, int, bool, string) {
+	f, _, err := fsys.Open(rel)
 	if err != nil {
 		return "", "", 0, false, err.Error()
 	}
@@ -1857,6 +1823,7 @@ type patchOperation struct {
 
 type preparedPatchOperation struct {
 	op           patchOperation
+	relPath      string
 	absPath      string
 	before       string
 	after        string
@@ -1897,37 +1864,11 @@ func workspaceRoot(spec ExecutionSpec) (string, string) {
 	return root, ""
 }
 
-func walkSearchFiles(root string, visit func(path string, info os.FileInfo) error) error {
-	info, err := os.Stat(root)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return visit(root, info)
-	}
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if shouldSkipSearchDir(entry) {
-			return filepath.SkipDir
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return nil
-		}
-		return visit(path, info)
-	})
-}
-
-func shouldSkipSearchDir(entry os.DirEntry) bool {
-	if entry == nil || !entry.IsDir() {
+func shouldSkipSearchDir(entry workspacefs.DirEntry) bool {
+	if !entry.IsDir {
 		return false
 	}
-	switch entry.Name() {
+	switch entry.Name {
 	case ".git", "node_modules", ".gocache", "dist", "build":
 		return true
 	default:
@@ -1935,12 +1876,12 @@ func shouldSkipSearchDir(entry os.DirEntry) bool {
 	}
 }
 
-func grepFile(path, rel string, re *regexp.Regexp, remaining int) ([]grepMatch, error) {
-	info, err := os.Stat(path)
+func grepFile(fsys *workspacefs.FS, rel, displayRel string, re *regexp.Regexp, remaining int) ([]grepMatch, error) {
+	info, _, err := fsys.Stat(rel)
 	if err != nil || info.IsDir() || info.Size() > grepFileHardCapBytes {
 		return nil, err
 	}
-	raw, err := os.ReadFile(path)
+	raw, _, err := fsys.ReadFile(rel)
 	if err != nil {
 		return nil, err
 	}
@@ -1957,7 +1898,7 @@ func grepFile(path, rel string, re *regexp.Regexp, remaining int) ([]grepMatch, 
 	matches := make([]grepMatch, 0)
 	for i, line := range lines {
 		if re.MatchString(line) {
-			matches = append(matches, grepMatch{Path: rel, Line: i + 1, Text: line})
+			matches = append(matches, grepMatch{Path: displayRel, Line: i + 1, Text: line})
 			if len(matches) >= remaining {
 				break
 			}
@@ -2058,8 +1999,8 @@ func validatePatchOperationPath(op patchOperation) string {
 	return ""
 }
 
-func readPatchTargetFile(abs, path string) ([]byte, string) {
-	info, err := os.Stat(abs)
+func readPatchTargetFile(fsys *workspacefs.FS, rel, path string) ([]byte, string) {
+	info, _, err := fsys.Stat(rel)
 	if err != nil {
 		return nil, fmt.Sprintf("apply_patch: %v", err)
 	}
@@ -2069,30 +2010,30 @@ func readPatchTargetFile(abs, path string) ([]byte, string) {
 	if info.Size() > fileEditHardCapBytes {
 		return nil, fmt.Sprintf("apply_patch: %q is too large (%d bytes > %d)", path, info.Size(), fileEditHardCapBytes)
 	}
-	raw, err := os.ReadFile(abs)
+	raw, _, err := fsys.ReadFile(rel)
 	if err != nil {
 		return nil, fmt.Sprintf("apply_patch: %v", err)
 	}
 	return raw, ""
 }
 
-func preparePatchOperation(abs string, op patchOperation) (before, after string, beforeExists bool, errMsg string) {
+func preparePatchOperation(fsys *workspacefs.FS, rel string, op patchOperation) (before, after string, beforeExists bool, errMsg string) {
 	switch op.Kind {
 	case "add":
-		if _, err := os.Stat(abs); err == nil {
+		if _, _, err := fsys.Stat(rel); err == nil {
 			return "", "", false, fmt.Sprintf("apply_patch: %q already exists", op.Path)
 		} else if !os.IsNotExist(err) {
 			return "", "", false, fmt.Sprintf("apply_patch: %v", err)
 		}
 		return "", patchAddedContent(op.Lines), false, ""
 	case "delete":
-		raw, errMsg := readPatchTargetFile(abs, op.Path)
+		raw, errMsg := readPatchTargetFile(fsys, rel, op.Path)
 		if errMsg != "" {
 			return "", "", false, errMsg
 		}
 		return string(raw), "", true, ""
 	case "update":
-		raw, errMsg := readPatchTargetFile(abs, op.Path)
+		raw, errMsg := readPatchTargetFile(fsys, rel, op.Path)
 		if errMsg != "" {
 			return "", "", false, errMsg
 		}
@@ -2164,15 +2105,14 @@ func applyPatchUpdate(current string, patchLines []string) (string, string) {
 	return strings.Join(out, ""), ""
 }
 
-func writePatchOperation(abs, after, kind string) error {
+func writePatchOperation(fsys *workspacefs.FS, rel, after, kind string) error {
 	switch kind {
 	case "delete":
-		return os.Remove(abs)
+		_, err := fsys.Remove(rel)
+		return err
 	default:
-		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(abs, []byte(after), 0o644)
+		_, err := fsys.WriteFile(rel, []byte(after), 0o644)
+		return err
 	}
 }
 

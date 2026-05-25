@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -21,20 +21,21 @@ func (r *Runner) gitSummaryArtifact(ctx context.Context, task types.Task, run ty
 	}
 	gitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if output, err := exec.CommandContext(gitCtx, "git", "-C", workspace, "rev-parse", "--is-inside-work-tree").CombinedOutput(); err != nil || strings.TrimSpace(string(output)) != "true" {
+	git := gitrunner.NewLocalRunner()
+	if !git.IsWorkTree(gitCtx, workspace) {
 		return types.TaskArtifact{}, false
 	}
-	statusOut, err := exec.CommandContext(gitCtx, "git", "-C", workspace, "status", "--porcelain=v1").CombinedOutput()
+	statusOut, err := git.Run(gitCtx, workspace, "status", "--porcelain=v1")
 	if err != nil {
 		return types.TaskArtifact{}, false
 	}
-	changes := parseGitPorcelainStatus(string(statusOut))
+	changes := parseGitPorcelainStatus(statusOut.Stdout)
 	if len(changes) == 0 {
 		return types.TaskArtifact{}, false
 	}
 	diffStat := ""
-	if diffStatOut, err := exec.CommandContext(gitCtx, "git", "-C", workspace, "diff", "--stat", "HEAD", "--").CombinedOutput(); err == nil {
-		diffStat = strings.TrimSpace(string(diffStatOut))
+	if diffStatOut, err := git.Run(gitCtx, workspace, "diff", "--stat", "HEAD", "--"); err == nil {
+		diffStat = strings.TrimSpace(diffStatOut.Stdout)
 	}
 	payload := gitSummaryArtifactPayload{
 		WorkspacePath: workspace,

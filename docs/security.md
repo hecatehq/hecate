@@ -31,11 +31,12 @@ Hecate supports isolated generated workspaces and opt-in in-place workspaces.
 - In isolated mode, when the task source is a Git repository, Hecate clones it with `git clone --no-hardlinks -- <source> <workspace>`.
 - In isolated mode, when the task source is a plain directory, Hecate copies it into the generated workspace.
 - Generated workspace paths reject traversal and existing symlink components before Hecate creates files.
+- Hecate-mediated workspace file operations use the shared WorkspaceFS resolver. This covers native `agent_loop` file/search tools, sandboxed file writes, generated workspace setup, and ACP adapter read/write callbacks. It does not sandbox external-agent subprocess internals.
 - Operator-selected source directories are canonicalized. Symlinked source repos/folders are allowed by design, because operators may intentionally select them.
 - `workspace_mode=in_place` skips clone/copy and runs tools directly in the selected source directory. Treat it as destructive.
 - Adding or selecting a workspace in the UI does not clone it. Clone/copy happens only when a native task run provisions an isolated workspace.
 
-Git is used for workspace setup and change review, not as a security boundary. Hecate also uses Git status/diff information to show branch state, changed files, and revertable workspace changes.
+Git is used for workspace setup and change review, not as a security boundary. Hecate also uses Git status/diff information to show branch state, changed files, and revertable workspace changes. Hecate-owned Git calls go through the shared GitRunner seam, which validates the workspace directory and runs Git with a sanitized environment; external-agent subprocesses can still run their own Git commands internally.
 
 ## Approvals
 

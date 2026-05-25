@@ -38,6 +38,7 @@ import (
 	"github.com/hecatehq/hecate/internal/retention"
 	"github.com/hecatehq/hecate/internal/router"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -5503,26 +5504,31 @@ func TestPatchContentExtractsBeforeAndAfter(t *testing.T) {
 func TestVerifyPatchApplyPreconditionRejectsDrift(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "main.go")
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	fsys, err := workspacefs.New(root)
+	if err != nil {
+		t.Fatalf("New workspacefs: %v", err)
+	}
 	if err := os.WriteFile(path, []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyPatchApplyPrecondition(path, "original\n", true); err == nil {
+	if err := verifyPatchApplyPrecondition(fsys, "main.go", "original\n", true); err == nil {
 		t.Fatal("verifyPatchApplyPrecondition() error = nil, want conflict")
 	}
 	if err := os.WriteFile(path, []byte("original\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyPatchApplyPrecondition(path, "original\n", true); err != nil {
+	if err := verifyPatchApplyPrecondition(fsys, "main.go", "original\n", true); err != nil {
 		t.Fatalf("verifyPatchApplyPrecondition() error = %v", err)
 	}
-	if err := verifyPatchApplyPrecondition(path, "", false); err == nil {
+	if err := verifyPatchApplyPrecondition(fsys, "main.go", "", false); err == nil {
 		t.Fatal("verifyPatchApplyPrecondition(new file) error = nil for existing file, want conflict")
 	}
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyPatchApplyPrecondition(path, "", false); err != nil {
+	if err := verifyPatchApplyPrecondition(fsys, "main.go", "", false); err != nil {
 		t.Fatalf("verifyPatchApplyPrecondition(new file) error = %v", err)
 	}
 }

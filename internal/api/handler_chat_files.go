@@ -6,11 +6,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/gitrunner"
 )
 
 func (h *Handler) HandleChatMessageFiles(w http.ResponseWriter, r *http.Request) {
@@ -180,8 +180,7 @@ func normalizeRevertPaths(paths []string) []string {
 }
 
 func ensureGitWorkspace(ctx context.Context, workspace string) error {
-	out, err := runGit(ctx, workspace, "rev-parse", "--is-inside-work-tree")
-	if err != nil || strings.TrimSpace(out) != "true" {
+	if !gitrunner.NewLocalRunner().IsWorkTree(ctx, workspace) {
 		return errors.New("agent chat revert requires a git workspace")
 	}
 	return nil
@@ -191,9 +190,21 @@ func runGit(ctx context.Context, workspace string, args ...string) (string, erro
 	if strings.TrimSpace(workspace) == "" {
 		return "", errors.New("workspace is required")
 	}
-	cmdArgs := append([]string{"-C", workspace}, args...)
-	out, err := exec.CommandContext(ctx, "git", cmdArgs...).CombinedOutput()
-	return string(out), err
+	result, err := gitrunner.NewLocalRunner().Run(ctx, workspace, args...)
+	return combinedProcessOutput(result), err
+}
+
+func combinedProcessOutput(result gitrunner.Result) string {
+	out := strings.TrimSpace(result.Stdout)
+	errText := strings.TrimSpace(result.Stderr)
+	switch {
+	case out != "" && errText != "":
+		return out + "\n" + errText
+	case out != "":
+		return out
+	default:
+		return errText
+	}
 }
 
 func renderChatChangedFile(file chat.ChangedFile) ChatChangedFileItem {

@@ -6,10 +6,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/hecatehq/hecate/internal/gitrunner"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -107,8 +108,19 @@ func provisionGitWorkspace(ctx context.Context, sourcePath, workspacePath string
 	if err := ensureWorkspaceParent(workspacePath); err != nil {
 		return err
 	}
-	if output, err := exec.CommandContext(ctx, "git", "clone", "--quiet", "--no-hardlinks", "--", sourcePath, workspacePath).CombinedOutput(); err != nil {
-		return fmt.Errorf("clone workspace: %w: %s", err, string(output))
+	result, err := gitrunner.NewLocalRunner().Clone(ctx, sourcePath, workspacePath)
+	if err != nil {
+		output := strings.TrimSpace(result.Stdout)
+		if stderr := strings.TrimSpace(result.Stderr); stderr != "" {
+			if output != "" {
+				output += "\n"
+			}
+			output += stderr
+		}
+		if output != "" {
+			return fmt.Errorf("clone workspace: %w: %s", err, output)
+		}
+		return fmt.Errorf("clone workspace: %w", err)
 	}
 	return nil
 }
@@ -235,49 +247,11 @@ func workspacePathSegment(field, value string) (string, error) {
 }
 
 func safeJoinWithinRoot(root, relativePath string) (string, error) {
-	if !filepath.IsLocal(relativePath) {
-		return "", fmt.Errorf("unsafe relative workspace path %q", relativePath)
-	}
-	root = filepath.Clean(root)
-	target := filepath.Clean(filepath.Join(root, relativePath))
-	rel, err := filepath.Rel(root, target)
-	if err != nil {
-		return "", err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("workspace path escapes root: %q", relativePath)
-	}
-	if err := rejectExistingSymlinkComponents(root, rel); err != nil {
-		return "", err
-	}
-	return target, nil
+	return workspacefs.SafeJoin(root, relativePath)
 }
 
 func rejectExistingSymlinkComponents(root, relativePath string) error {
-	rootDir, err := os.OpenRoot(root)
-	if err != nil {
-		return err
-	}
-	defer rootDir.Close()
-
-	current := "."
-	for _, segment := range strings.Split(relativePath, string(os.PathSeparator)) {
-		if segment == "" || segment == "." {
-			continue
-		}
-		current = filepath.Join(current, segment)
-		info, err := rootDir.Lstat(current)
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("workspace path uses symlink component %q", filepath.Join(root, current))
-		}
-	}
-	return nil
+	return workspacefs.RejectExistingSymlinkComponents(root, relativePath)
 }
 
 func copyFile(sourcePath, destinationPath string, mode fs.FileMode) error {

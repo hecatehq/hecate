@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -645,12 +646,55 @@ func TestAgentLoop_ReadFileRejectsTraversal(t *testing.T) {
 	secondReq := llm.lastReqs[1]
 	hasEscape := false
 	for _, m := range secondReq.Messages {
-		if m.Role == "tool" && strings.Contains(m.Content, "escapes the workspace root") {
+		if m.Role == "tool" && (strings.Contains(m.Content, "escapes the workspace root") || strings.Contains(m.Content, "unsafe relative workspace path")) {
 			hasEscape = true
 		}
 	}
 	if !hasEscape {
 		t.Errorf("traversal not rejected with workspace-escape error: %+v", secondReq.Messages)
+	}
+}
+
+func TestAgentLoop_ReadFileRejectsSymlinkComponent(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "c1", Type: "function",
+				Function: types.ToolCallFunction{Name: "read_file", Arguments: `{"path":"linked/secret.txt"}`},
+			})),
+			makeChatResp(makeAssistantMsg("Denied.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("Status = %q, want completed", res.Status)
+	}
+	var toolResult string
+	for _, m := range llm.lastReqs[1].Messages {
+		if m.Role == "tool" && m.ToolCallID == "c1" {
+			toolResult = m.Content
+		}
+	}
+	if !strings.Contains(toolResult, "symlink component") {
+		t.Fatalf("tool result = %q, want symlink rejection", toolResult)
+	}
+	if strings.Contains(toolResult, "secret") {
+		t.Fatalf("tool result leaked outside file content: %q", toolResult)
 	}
 }
 
@@ -2020,13 +2064,16 @@ func TestAgentLoop_ValidatePatchOperationPathRejectsEmptyPath(t *testing.T) {
 
 func TestAgentLoop_PreparePatchOperationRejectsLargeTargets(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "large.txt")
-	if err := os.WriteFile(path, []byte(strings.Repeat("x", fileEditHardCapBytes+1)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "large.txt"), []byte(strings.Repeat("x", fileEditHardCapBytes+1)), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	fsys, err := workspacefs.New(dir)
+	if err != nil {
+		t.Fatalf("New workspacefs: %v", err)
 	}
 	for _, kind := range []string{"delete", "update"} {
 		t.Run(kind, func(t *testing.T) {
-			_, _, _, errMsg := preparePatchOperation(path, patchOperation{
+			_, _, _, errMsg := preparePatchOperation(fsys, "large.txt", patchOperation{
 				Kind: kind,
 				Path: "large.txt",
 				Lines: []string{
