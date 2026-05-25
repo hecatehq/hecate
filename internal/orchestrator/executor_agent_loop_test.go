@@ -1115,6 +1115,47 @@ func TestRunGitReadCommandUsesSanitizedEnvironment(t *testing.T) {
 	}
 }
 
+func TestCombineGitReadOutputSeparatesStdoutAndStderr(t *testing.T) {
+	cases := []struct {
+		name   string
+		stdout string
+		stderr string
+		want   string
+	}{
+		{
+			name:   "stdout without trailing newline",
+			stdout: "stdout",
+			stderr: "stderr",
+			want:   "stdout\nstderr",
+		},
+		{
+			name:   "stdout with trailing newline",
+			stdout: "stdout\n",
+			stderr: "stderr",
+			want:   "stdout\nstderr",
+		},
+		{
+			name:   "stderr only",
+			stdout: "",
+			stderr: "stderr",
+			want:   "stderr",
+		},
+		{
+			name:   "blank stderr ignored",
+			stdout: "stdout",
+			stderr: " \n",
+			want:   "stdout",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := combineGitReadOutput(tc.stdout, tc.stderr); got != tc.want {
+				t.Fatalf("combineGitReadOutput() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAgentLoop_GitDiffToolDisablesTextconv(t *testing.T) {
 	dir := t.TempDir()
 	runGit(t, dir, "init")

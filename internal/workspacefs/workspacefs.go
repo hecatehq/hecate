@@ -224,8 +224,6 @@ func dirEntryFromDirEntry(entry fs.DirEntry) DirEntry {
 	result := DirEntry{Name: entry.Name(), Type: entry.Type(), IsDir: entry.IsDir()}
 	if info, err := entry.Info(); err == nil {
 		result.Size = info.Size()
-		result.Type = info.Mode().Type()
-		result.IsDir = info.IsDir()
 	}
 	return result
 }
