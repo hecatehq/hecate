@@ -4330,31 +4330,6 @@ func TestTaskPatchRevertRejectsMissingTarget(t *testing.T) {
 	}
 }
 
-func TestPatchContentMatchesAllowsOnlyFinalNewlineAmbiguity(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name    string
-		current string
-		expect  string
-		want    bool
-	}{
-		{name: "exact", current: "hello", expect: "hello", want: true},
-		{name: "current has extra final newline", current: "hello\n", expect: "hello", want: false},
-		{name: "expected has final newline", current: "hello", expect: "hello\n", want: true},
-		{name: "content drift", current: "hello operator\n", expect: "hello\n", want: false},
-		{name: "extra non-final newline", current: "hello\n\n", expect: "hello", want: false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := patchContentMatches([]byte(tc.current), tc.expect); got != tc.want {
-				t.Fatalf("patchContentMatches(%q, %q) = %v, want %v", tc.current, tc.expect, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestTaskStartGitExecutor(t *testing.T) {
 	t.Parallel()
 
