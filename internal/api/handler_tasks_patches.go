@@ -165,7 +165,7 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
-	after, err := patchAfterContent(artifact.ContentText)
+	after, afterExisted, err := patchAfterContent(artifact.ContentText)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
@@ -179,7 +179,7 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
-	if err := verifyPatchRevertPrecondition(fsys, rel, after); err != nil {
+	if err := verifyPatchRevertPrecondition(fsys, rel, after, afterExisted); err != nil {
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
 		return
 	}
@@ -236,7 +236,7 @@ func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
-	after, err := patchAfterContent(artifact.ContentText)
+	after, _, err := patchAfterContent(artifact.ContentText)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
@@ -310,8 +310,17 @@ func (h *Handler) loadTaskRunPatch(ctx context.Context, w http.ResponseWriter, r
 	return run, artifact, true
 }
 
-func verifyPatchRevertPrecondition(fsys *workspacefs.FS, rel, after string) error {
+func verifyPatchRevertPrecondition(fsys *workspacefs.FS, rel, after string, afterExisted bool) error {
 	current, _, err := fsys.ReadFile(rel)
+	if !afterExisted {
+		if err == nil {
+			return fmt.Errorf("patch target changed before revert: file exists")
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("patch target cannot be checked before revert: %w", err)
+	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("patch target changed before revert: file is missing")

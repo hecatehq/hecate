@@ -4257,6 +4257,39 @@ func TestTaskRunPatchRevertRepeatedRequestConflictsAndLeavesFile(t *testing.T) {
 	}
 }
 
+func TestTaskRunPatchRevertRestoresDeletedFile(t *testing.T) {
+	handler, tasks, fixture := newTaskPatchRevertFixture(t, "", "applied")
+	if err := os.Remove(fixture.absPath); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	artifact, found, err := handler.taskStore.GetArtifact(context.Background(), fixture.taskID, fixture.artifactID)
+	if err != nil {
+		t.Fatalf("GetArtifact() error = %v", err)
+	}
+	if !found {
+		t.Fatal("patch artifact not found")
+	}
+	artifact.ContentText = strings.Join([]string{
+		"--- a/src/app.go",
+		"+++ /dev/null",
+		"@@ -1,1 +0,0 @@",
+		"-original",
+		"",
+	}, "\n")
+	if _, err := handler.taskStore.UpdateArtifact(context.Background(), artifact); err != nil {
+		t.Fatalf("UpdateArtifact() error = %v", err)
+	}
+
+	reverted := mustTaskRequestJSON[TaskPatchResponse](tasks, http.MethodPost, fixture.revertPath(), "")
+	if reverted.Data.Status != "reverted" {
+		t.Fatalf("reverted patch status = %q, want reverted", reverted.Data.Status)
+	}
+	content := readTaskPatchFixtureFile(t, fixture)
+	if string(content) != "original\n" {
+		t.Fatalf("file content = %q, want original", string(content))
+	}
+}
+
 func TestTaskStartGitExecutor(t *testing.T) {
 	t.Parallel()
 
@@ -5545,9 +5578,12 @@ func TestPatchContentExtractsBeforeAndAfter(t *testing.T) {
 	if before != "package main\n\n" {
 		t.Fatalf("before = %q", before)
 	}
-	after, err := patchAfterContent(diff)
+	after, afterExisted, err := patchAfterContent(diff)
 	if err != nil {
 		t.Fatalf("patchAfterContent() error = %v", err)
+	}
+	if !afterExisted {
+		t.Fatal("afterExisted = false, want true")
 	}
 	if after != "package main\n\nfunc main() {}\n" {
 		t.Fatalf("after = %q", after)
@@ -5598,20 +5634,26 @@ func TestVerifyPatchRevertPreconditionRejectsDrift(t *testing.T) {
 	if err := os.WriteFile(path, []byte("changed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyPatchRevertPrecondition(fsys, "main.go", "applied\n"); err == nil {
+	if err := verifyPatchRevertPrecondition(fsys, "main.go", "applied\n", true); err == nil {
 		t.Fatal("verifyPatchRevertPrecondition() error = nil, want conflict")
 	}
 	if err := os.WriteFile(path, []byte("applied\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyPatchRevertPrecondition(fsys, "main.go", "applied\n"); err != nil {
+	if err := verifyPatchRevertPrecondition(fsys, "main.go", "applied\n", true); err != nil {
 		t.Fatalf("verifyPatchRevertPrecondition() error = %v", err)
+	}
+	if err := verifyPatchRevertPrecondition(fsys, "main.go", "", false); err == nil {
+		t.Fatal("verifyPatchRevertPrecondition(deleted file) error = nil for existing file, want conflict")
 	}
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyPatchRevertPrecondition(fsys, "main.go", "applied\n"); err == nil {
+	if err := verifyPatchRevertPrecondition(fsys, "main.go", "applied\n", true); err == nil {
 		t.Fatal("verifyPatchRevertPrecondition(missing file) error = nil, want conflict")
+	}
+	if err := verifyPatchRevertPrecondition(fsys, "main.go", "", false); err != nil {
+		t.Fatalf("verifyPatchRevertPrecondition(deleted file) error = %v", err)
 	}
 }
 
