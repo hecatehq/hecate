@@ -281,6 +281,31 @@ describe("ChatView input", () => {
     expect(createChatSession).not.toHaveBeenCalled();
   });
 
+  it("allows direct Hecate model chats before a workspace is selected", async () => {
+    const createChatSession = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "model",
+        agentWorkspace: "",
+        activeChatSessionID: "",
+        activeChatSession: null,
+      },
+      { createChatSession },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    const newChatButton = screen.getByRole("button", { name: "New Hecate chat" });
+    expect(newChatButton).not.toBeDisabled();
+    expect(
+      screen.queryByText("Choose a workspace in the chat view before starting agent chats."),
+    ).toBeNull();
+
+    await user.click(newChatButton);
+
+    expect(createChatSession).toHaveBeenCalledWith({ agentID: "hecate", projectID: "" });
+  });
+
   it("shows Grok Build model controls for an existing session without persisted config options", async () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
