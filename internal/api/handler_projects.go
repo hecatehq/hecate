@@ -235,6 +235,10 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.deleteProjectChats(r.Context(), id); err != nil {
+		if errors.Is(err, errChatSessionDeleteConflict) {
+			WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -254,7 +258,23 @@ func (h *Handler) deleteProjectChats(ctx context.Context, projectID string) erro
 	if h.agentChat == nil {
 		return nil
 	}
-	return h.agentChat.DeleteByProjectID(ctx, projectID)
+	sessions, err := h.agentChat.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		if session.ProjectID != projectID {
+			continue
+		}
+		stopping, err := h.deleteExistingChatSession(ctx, session)
+		if err != nil {
+			return err
+		}
+		if stopping {
+			return fmt.Errorf("%w: chat session %q is still stopping", errChatSessionDeleteConflict, session.ID)
+		}
+	}
+	return nil
 }
 
 func projectFromCreateRequest(req createProjectRequest) (projects.Project, error) {

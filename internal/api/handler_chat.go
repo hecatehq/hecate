@@ -309,27 +309,44 @@ func (h *Handler) HandleDeleteChatSession(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
-	if isHecateChatSession(session) {
-		if _, _, err := h.cancelHecateChatTaskRun(r.Context(), session); err != nil {
-			WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
-			return
-		}
-	}
-	cancelCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	settled := h.agentChatLive.cancelRunAndWait(cancelCtx, sessionID)
-	cancel()
-	if !settled {
-		writeChatSessionStopping(w)
+	stopping, err := h.deleteExistingChatSession(r.Context(), session)
+	if errors.Is(err, errChatSessionDeleteConflict) {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
 		return
 	}
-	if isExternalChatSession(session) && h.agentChatRunner != nil {
-		_ = h.agentChatRunner.CloseSession(r.Context(), sessionID)
-	}
-	if err := h.agentChat.Delete(r.Context(), sessionID); err != nil {
+	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	if stopping {
+		writeChatSessionStopping(w)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+var errChatSessionDeleteConflict = errors.New("chat session delete conflict")
+
+func (h *Handler) deleteExistingChatSession(ctx context.Context, session chat.Session) (bool, error) {
+	sessionID := session.ID
+	if isHecateChatSession(session) {
+		if _, _, err := h.cancelHecateChatTaskRun(ctx, session); err != nil {
+			return false, fmt.Errorf("%w: %v", errChatSessionDeleteConflict, err)
+		}
+	}
+	cancelCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	settled := h.agentChatLive.cancelRunAndWait(cancelCtx, sessionID)
+	cancel()
+	if !settled {
+		return true, nil
+	}
+	if isExternalChatSession(session) && h.agentChatRunner != nil {
+		_ = h.agentChatRunner.CloseSession(ctx, sessionID)
+	}
+	if err := h.agentChat.Delete(ctx, sessionID); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func (h *Handler) HandleCancelChatSession(w http.ResponseWriter, r *http.Request) {
