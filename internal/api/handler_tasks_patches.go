@@ -165,6 +165,11 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	after, err := patchAfterContent(artifact.ContentText)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
 	if artifact.Path == "" {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is empty")
 		return
@@ -172,6 +177,10 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 	fsys, rel, err := patchWorkspaceTarget(run.WorkspacePath, artifact.Path)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if err := verifyPatchRevertPrecondition(fsys, rel, after); err != nil {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
 		return
 	}
 	if beforeExisted {
@@ -300,13 +309,28 @@ func (h *Handler) loadTaskRunPatch(ctx context.Context, w http.ResponseWriter, r
 	}
 	return run, artifact, true
 }
+
+func verifyPatchRevertPrecondition(fsys *workspacefs.FS, rel, after string) error {
+	current, _, err := fsys.ReadFile(rel)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("patch target changed before revert: file is missing")
+		}
+		return fmt.Errorf("patch target cannot be checked before revert: %w", err)
+	}
+	if !patchContentMatches(current, after) {
+		return fmt.Errorf("patch target changed before revert")
+	}
+	return nil
+}
+
 func verifyPatchApplyPrecondition(fsys *workspacefs.FS, rel, before string, beforeExisted bool) error {
 	current, _, err := fsys.ReadFile(rel)
 	if beforeExisted {
 		if err != nil {
 			return fmt.Errorf("patch target changed before apply: %w", err)
 		}
-		if string(current) != before {
+		if !patchContentMatches(current, before) {
 			return fmt.Errorf("patch target changed before apply")
 		}
 		return nil
@@ -318,6 +342,13 @@ func verifyPatchApplyPrecondition(fsys *workspacefs.FS, rel, before string, befo
 		return nil
 	}
 	return fmt.Errorf("patch target cannot be checked before apply: %w", err)
+}
+
+func patchContentMatches(current []byte, expected string) bool {
+	if string(current) == expected {
+		return true
+	}
+	return strings.HasSuffix(expected, "\n") && string(current) == strings.TrimSuffix(expected, "\n")
 }
 
 func patchWorkspaceTarget(root, path string) (*workspacefs.FS, string, error) {
