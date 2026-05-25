@@ -18,6 +18,7 @@ docs-ai/
     planning.md                   how to write a plan when "stop and plan first" fires
     implementation.md             how to implement once a plan exists
     debugging.md                  how to debug deliberately
+    maintenance.md                recurring upkeep: checks, branches, docs drift, dependencies
     refactoring.md                how to reshape code without changing behavior
     code-review.md                review rubric and output format
     release.md                    cut a release tag (pre-flight, snapshot, gate, recovery)
@@ -30,6 +31,7 @@ docs-ai/
     architect/SKILL.md            posture skill: plan-first for substantial changes
     tester/SKILL.md               posture skill: test strategy and verification reporting
     devops/SKILL.md               posture skill: delivery surfaces and rollback paths
+    maintenance/SKILL.md          posture skill: recurring upkeep, docs drift, branch/worktree hygiene
 ```
 
 ## What to load
@@ -47,6 +49,7 @@ commit question.
 | Native desktop (`tauri/`)                   | `skills/tauri/SKILL.md`                           | `core/project-context.md`, `core/verification.md` |
 | Substantial change — plan first             | `skills/architect/SKILL.md` + `tasks/planning.md` | `core/project-context.md`                         |
 | Debugging                                   | `tasks/debugging.md`                              | skill for the relevant area                       |
+| Maintenance / cleanup                       | `skills/maintenance/SKILL.md`                     | `tasks/maintenance.md`, `core/verification.md`    |
 | Code review                                 | `tasks/code-review.md`                            | skill for the relevant area                       |
 | Test strategy / coverage                    | `skills/tester/SKILL.md`                          | `core/verification.md`                            |
 | Delivery / CI / env vars / schema           | `skills/devops/SKILL.md`                          | `core/verification.md`                            |
