@@ -269,6 +269,8 @@ func TestProjectsAPI_DeleteProjectDeletesProjectChats(t *testing.T) {
 	handler.SetProjectStore(projects.NewMemoryStore())
 	chatStore := chat.NewMemoryStore()
 	handler.SetAgentChatStore(chatStore)
+	runner := &fakeAgentChatRunner{}
+	handler.SetAgentChatRunner(runner)
 	server := NewServer(logger, handler)
 
 	rec := httptest.NewRecorder()
@@ -289,6 +291,16 @@ func TestProjectsAPI_DeleteProjectDeletesProjectChats(t *testing.T) {
 		AgentID:   chat.DefaultAgentID,
 	}); err != nil {
 		t.Fatalf("create project chat: %v", err)
+	}
+	if _, err := chatStore.Create(ctx, chat.Session{
+		ID:              "chat_project_external",
+		Title:           "Project external chat",
+		ProjectID:       created.Data.ID,
+		AgentID:         "codex",
+		DriverKind:      "acp",
+		NativeSessionID: "native_project_external",
+	}); err != nil {
+		t.Fatalf("create project external chat: %v", err)
 	}
 	if _, err := chatStore.Create(ctx, chat.Session{
 		ID:        "chat_other",
@@ -326,7 +338,13 @@ func TestProjectsAPI_DeleteProjectDeletesProjectChats(t *testing.T) {
 	if ids["chat_project"] {
 		t.Fatalf("project chat was not deleted")
 	}
+	if ids["chat_project_external"] {
+		t.Fatalf("project external chat was not deleted")
+	}
 	if !ids["chat_other"] || !ids["chat_unprojected"] {
 		t.Fatalf("unrelated chats = %v, want other project and unprojected chats retained", ids)
+	}
+	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != "chat_project_external" {
+		t.Fatalf("closed sessions = %#v, want project external chat closed", runner.closedSessions)
 	}
 }
