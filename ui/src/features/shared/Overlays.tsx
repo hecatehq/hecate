@@ -260,6 +260,7 @@ export function ConfirmModal({
   confirmLabel,
   danger = false,
   pending = false,
+  confirmDisabled = false,
   onConfirm,
   onClose,
 }: {
@@ -268,6 +269,7 @@ export function ConfirmModal({
   confirmLabel: string;
   danger?: boolean;
   pending?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
 }) {
@@ -280,7 +282,7 @@ export function ConfirmModal({
         <button
           className={`btn ${danger ? "btn-danger" : "btn-primary"}`}
           style={{ width: "100%", justifyContent: "center" }}
-          disabled={pending}
+          disabled={pending || confirmDisabled}
           onClick={() => void onConfirm()}
         >
           {pending ? "Working…" : confirmLabel}

@@ -4,6 +4,7 @@ import type {
   RuntimeHeaders,
   RuntimeStatsResponse,
   SessionResponse,
+  SystemResetDataResponse,
 } from "../types/runtime";
 import type { ModelResponse } from "../types/model";
 import type {
@@ -220,6 +221,12 @@ export async function getRuntimeStats(): Promise<RuntimeStatsResponse> {
 
 export async function getMCPCacheStats(): Promise<MCPCacheStatsResponse> {
   return fetchJSON<MCPCacheStatsResponse>(`${HECATE_API}/system/mcp/cache`);
+}
+
+export async function resetSystemData(): Promise<SystemResetDataResponse> {
+  return fetchJSON<SystemResetDataResponse>(`${HECATE_API}/system/reset-data`, {
+    method: "POST",
+  });
 }
 
 export async function getProviderPresets(): Promise<ProviderPresetResponse> {

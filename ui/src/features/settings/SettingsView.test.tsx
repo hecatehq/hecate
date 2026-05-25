@@ -1,7 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetSystemData } from "../../lib/api";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
 import {
@@ -9,6 +10,11 @@ import {
   createRuntimeConsoleFixture,
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
+
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  resetSystemData: vi.fn(),
+}));
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
   const state = createRuntimeConsoleFixture(stateOverrides);
@@ -93,6 +99,34 @@ describe("SettingsView maintenance cleanup", () => {
 
     expect(await screen.findByText(/Last run/i)).toBeTruthy();
     expect(screen.getByText("0 removed")).toBeTruthy();
+  });
+
+  it("resets local data after typed confirmation and refreshes dashboard state", async () => {
+    vi.mocked(resetSystemData).mockResolvedValue({
+      object: "system_reset",
+      data: {
+        projects_deleted: 1,
+        chat_sessions_deleted: 2,
+        tasks_deleted: 1,
+        providers_deleted: 1,
+        policy_rules_deleted: 1,
+        agent_approval_grants_deleted: 1,
+      },
+    });
+    const loadDashboard = vi.fn(async () => undefined);
+    const { state, actions, user } = setup({}, { loadDashboard });
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    await user.click(await screen.findByRole("button", { name: /Reset/i }));
+    const confirm = screen.getByRole("button", { name: "Reset local data" });
+    expect(confirm).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/Type RESET/i), "RESET");
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+
+    await waitFor(() => expect(resetSystemData).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(loadDashboard).toHaveBeenCalledTimes(1));
   });
 });
 
