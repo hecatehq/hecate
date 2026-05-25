@@ -5590,6 +5590,30 @@ func TestPatchContentExtractsBeforeAndAfter(t *testing.T) {
 	}
 }
 
+func TestPatchContentMatchesAllowsOnlyFinalNewlineAmbiguity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		current string
+		expect  string
+		want    bool
+	}{
+		{name: "exact", current: "hello\n", expect: "hello\n", want: true},
+		{name: "expected has final newline current omitted", current: "hello", expect: "hello\n", want: true},
+		{name: "current has final newline expected omitted", current: "hello\n", expect: "hello", want: false},
+		{name: "different content", current: "hello\n", expect: "goodbye\n", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := patchContentMatches([]byte(tc.current), tc.expect); got != tc.want {
+				t.Fatalf("patchContentMatches(%q, %q) = %v, want %v", tc.current, tc.expect, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestVerifyPatchApplyPreconditionRejectsDrift(t *testing.T) {
 	t.Parallel()
 
