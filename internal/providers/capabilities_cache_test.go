@@ -225,6 +225,59 @@ func TestResolveCapabilitiesConcurrentMissesShareInFlightDiscovery(t *testing.T)
 	}
 }
 
+func TestResolveCapabilitiesRefreshPiggybacksOnInFlightNormalCall(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	started := make(chan struct{})
+	release := make(chan struct{})
+	harness := &capabilitiesCacheHarness{
+		discover: func(context.Context) (Capabilities, error) {
+			if calls.Add(1) == 1 {
+				close(started)
+			}
+			<-release
+			return discoveredTestCapabilities("shared-model"), nil
+		},
+	}
+
+	type result struct {
+		caps Capabilities
+		err  error
+	}
+	results := make(chan result, 2)
+	go func() {
+		caps, err := harness.resolve(context.Background(), false)
+		results <- result{caps: caps, err: err}
+	}()
+
+	<-started
+	go func() {
+		caps, err := harness.resolve(context.Background(), true)
+		results <- result{caps: caps, err: err}
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	if got := calls.Load(); got != 1 {
+		close(release)
+		t.Fatalf("discovery calls while normal miss is in flight = %d, want 1", got)
+	}
+	close(release)
+
+	for range 2 {
+		res := <-results
+		if res.err != nil {
+			t.Fatalf("resolve error = %v", res.err)
+		}
+		if res.caps.Models[0] != "shared-model" {
+			t.Fatalf("model = %q, want shared-model", res.caps.Models[0])
+		}
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("discovery calls = %d, want 1", got)
+	}
+}
+
 func TestResolveCapabilitiesConcurrentManualRefreshesShareInFlightDiscovery(t *testing.T) {
 	t.Parallel()
 

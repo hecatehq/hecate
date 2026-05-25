@@ -550,6 +550,7 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func requestRefresh(r *http.Request) bool {
+	// Accept explicit booleans only so accidental ?refresh does not bypass cache.
 	raw := strings.TrimSpace(r.URL.Query().Get("refresh"))
 	return raw == "1" || strings.EqualFold(raw, "true")
 }
