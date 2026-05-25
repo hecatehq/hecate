@@ -896,6 +896,20 @@ type MCPCacheStatsResponseItem struct {
 	Idle int `json:"idle"`
 }
 
+type SystemResetDataResponse struct {
+	Object string                      `json:"object"`
+	Data   SystemResetDataResponseItem `json:"data"`
+}
+
+type SystemResetDataResponseItem struct {
+	ProjectsDeleted            int `json:"projects_deleted"`
+	ChatSessionsDeleted        int `json:"chat_sessions_deleted"`
+	TasksDeleted               int `json:"tasks_deleted"`
+	ProvidersDeleted           int `json:"providers_deleted"`
+	PolicyRulesDeleted         int `json:"policy_rules_deleted"`
+	AgentApprovalGrantsDeleted int `json:"agent_approval_grants_deleted"`
+}
+
 type UsageSummaryResponseItem struct {
 	Key           string `json:"key"`
 	Scope         string `json:"scope"`

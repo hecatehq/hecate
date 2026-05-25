@@ -93,3 +93,15 @@ export type MCPCacheStatsResponse = {
     idle: number;
   };
 };
+
+export type SystemResetDataResponse = {
+  object: string;
+  data: {
+    projects_deleted: number;
+    chat_sessions_deleted: number;
+    tasks_deleted: number;
+    providers_deleted: number;
+    policy_rules_deleted: number;
+    agent_approval_grants_deleted: number;
+  };
+};

@@ -1,8 +1,10 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRetention, type RetentionState } from "../../app/state/retention";
 import { useRetentionActions } from "../../app/state/coordinators/retention";
+import { useWiredDashboardActions } from "../../app/state/coordinators/wired";
 import { useSettings } from "../../app/state/settings";
-import { Badge, Icon, Icons, InlineError } from "../shared/ui";
+import { resetSystemData } from "../../lib/api";
+import { Badge, ConfirmModal, Icon, Icons, InlineError } from "../shared/ui";
 
 export function SettingsView() {
   const retention = useRetention();
@@ -10,7 +12,12 @@ export function SettingsView() {
   // shim used to wire success/failure banner toggles through.
   const settings = useSettings();
   const { runRetention } = useRetentionActions({ setNotice: settings.actions.setNotice });
+  const dashboardActions = useWiredDashboardActions();
   const loadRetentionRuns = retention.actions.loadRuns;
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetConfirmation, setResetConfirmation] = useState("");
+  const [resetPending, setResetPending] = useState(false);
+  const [resetError, setResetError] = useState("");
   // Retention runs aren't in the boot-time dashboard snapshot —
   // fetch on first SettingsView mount so the user doesn't see a
   // permanently empty list. `loadRuns` is a stable useCallback, so
@@ -23,6 +30,29 @@ export function SettingsView() {
     void loadRetentionRuns();
   }, [loadRetentionRuns]);
 
+  async function handleResetData() {
+    if (resetConfirmation !== "RESET") return;
+    setResetPending(true);
+    setResetError("");
+    settings.actions.setNotice(null);
+    try {
+      const response = await resetSystemData();
+      await dashboardActions.loadDashboard();
+      setResetOpen(false);
+      setResetConfirmation("");
+      settings.actions.setNotice({
+        kind: "success",
+        message: resetSummary(response.data),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to reset local data.";
+      setResetError(message);
+      settings.actions.setNotice({ kind: "error", message });
+    } finally {
+      setResetPending(false);
+    }
+  }
+
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
@@ -30,10 +60,69 @@ export function SettingsView() {
           state={retention.state}
           setRetentionSubsystems={retention.actions.setSubsystems}
           runRetention={runRetention}
+          onOpenReset={() => {
+            setResetError("");
+            setResetConfirmation("");
+            setResetOpen(true);
+          }}
         />
       </div>
+      {resetOpen && (
+        <ConfirmModal
+          title="Reset local data"
+          danger
+          pending={resetPending}
+          confirmDisabled={resetConfirmation !== "RESET"}
+          confirmLabel="Reset local data"
+          onClose={() => {
+            if (!resetPending) setResetOpen(false);
+          }}
+          onConfirm={handleResetData}
+          message={
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                This deletes projects, chats, task history, provider setup, policy rules, and saved
+                external-agent grants from Hecate. Running external-agent sessions are closed first.
+              </div>
+              <div style={{ color: "var(--t3)" }}>
+                Workspace files and external CLI auth files stay on disk.
+              </div>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "var(--t3)" }}>Type RESET to continue</span>
+                <input
+                  className="input"
+                  autoFocus
+                  value={resetConfirmation}
+                  disabled={resetPending}
+                  onChange={(event) => setResetConfirmation(event.target.value)}
+                />
+              </label>
+              {resetError && <InlineError message={resetError} />}
+            </div>
+          }
+        />
+      )}
     </div>
   );
+}
+
+function resetSummary(data: {
+  projects_deleted: number;
+  chat_sessions_deleted: number;
+  tasks_deleted: number;
+  providers_deleted: number;
+  policy_rules_deleted: number;
+  agent_approval_grants_deleted: number;
+}): string {
+  const total =
+    data.projects_deleted +
+    data.chat_sessions_deleted +
+    data.tasks_deleted +
+    data.providers_deleted +
+    data.policy_rules_deleted +
+    data.agent_approval_grants_deleted;
+  if (total === 0) return "Local data was already clean.";
+  return `Reset local data. Removed ${total} item${total === 1 ? "" : "s"}.`;
 }
 
 function SectionHeader({
@@ -143,10 +232,12 @@ function RetentionSettings({
   state,
   setRetentionSubsystems,
   runRetention,
+  onOpenReset,
 }: {
   state: RetentionState;
   setRetentionSubsystems: (value: string) => void;
   runRetention: () => Promise<void>;
+  onOpenReset: () => void;
 }) {
   const runs = state.runs ?? [];
   const lastRun = state.lastRun;
@@ -426,6 +517,38 @@ function RetentionSettings({
           No retention runs yet.
         </div>
       )}
+
+      <SectionHeader
+        title="Danger zone"
+        description="Start over without relaunching the app. External-agent sessions are closed before their chat rows are removed."
+      />
+      <div
+        className="card"
+        style={{
+          padding: "14px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: 3 }}>
+            Reset local data
+          </div>
+          <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+            Delete projects, chats, tasks, provider setup, policy rules, and saved external-agent
+            grants. Workspace files and external CLI auth files are not touched.
+          </div>
+        </div>
+        <button
+          type="button"
+          className="btn btn-danger btn-sm"
+          style={{ marginLeft: "auto", flexShrink: 0 }}
+          onClick={onOpenReset}
+        >
+          <Icon d={Icons.trash} size={13} /> Reset…
+        </button>
+      </div>
     </>
   );
 }
