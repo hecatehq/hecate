@@ -93,6 +93,9 @@ The trace endpoint returns:
 - the final provider, model, and route reason
 
 The Observability workspace in the operator UI surfaces traces, request history, and run-state cards.
+The event flow keeps high-signal attributes compact by showing the first few
+inline, while hover titles and the trace details drawer preserve the complete
+attribute keys and values for debugging.
 
 ![Observability workspace — request history, run-state cards, and span tree](screenshots/observe.png)
 
