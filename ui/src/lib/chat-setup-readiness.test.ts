@@ -71,6 +71,29 @@ describe("resolveChatSetupRepairState", () => {
     });
   });
 
+  it("routes stale selected models without a suggestion back to Connections", () => {
+    const repair = resolveChatSetupRepairState({
+      ...base,
+      target: "agent",
+      selectedModelIssue: {
+        title: "Selected model is unavailable",
+        message: "No routable provider reports mistral.",
+        providerLabel: "Ollama",
+        model: "mistral",
+        suggestedModel: "",
+        details: [],
+        steps: [],
+      },
+    });
+
+    expect(repair).toMatchObject({
+      kind: "selected_model_not_ready",
+      action: "open_connections",
+      actionLabel: "Open Connections",
+      suggestedModel: "",
+    });
+  });
+
   it("requires a workspace for task-backed Hecate Chat", () => {
     const repair = resolveChatSetupRepairState({
       ...base,
