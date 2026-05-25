@@ -12,10 +12,18 @@ import (
 )
 
 func (s *Service) ListModels(ctx context.Context) (*ModelsResult, error) {
+	return s.listModels(ctx, false)
+}
+
+func (s *Service) RefreshModels(ctx context.Context) (*ModelsResult, error) {
+	return s.listModels(ctx, true)
+}
+
+func (s *Service) listModels(ctx context.Context, refresh bool) (*ModelsResult, error) {
 	seen := make(map[string]struct{})
 	modelsOut := make([]types.ModelInfo, 0, 16)
 
-	for _, entry := range s.catalog.Snapshot(ctx) {
+	for _, entry := range s.catalogSnapshot(ctx, refresh) {
 		for _, modelID := range entry.Models {
 			key := entry.Name + "/" + modelID
 			if _, ok := seen[key]; ok {
@@ -40,7 +48,15 @@ func (s *Service) ListModels(ctx context.Context) (*ModelsResult, error) {
 }
 
 func (s *Service) ProviderStatus(ctx context.Context) (*ProviderStatusResult, error) {
-	entries := s.catalog.Snapshot(ctx)
+	return s.providerStatus(ctx, false)
+}
+
+func (s *Service) RefreshProviderStatus(ctx context.Context) (*ProviderStatusResult, error) {
+	return s.providerStatus(ctx, true)
+}
+
+func (s *Service) providerStatus(ctx context.Context, refresh bool) (*ProviderStatusResult, error) {
+	entries := s.catalogSnapshot(ctx, refresh)
 	statuses := make([]types.ProviderStatus, 0, len(entries))
 	for _, entry := range entries {
 		status := types.ProviderStatus{
@@ -88,6 +104,19 @@ func (s *Service) ProviderStatus(ctx context.Context) (*ProviderStatusResult, er
 	}
 
 	return &ProviderStatusResult{Providers: statuses}, nil
+}
+
+type refreshableCatalog interface {
+	SnapshotRefresh(ctx context.Context) []catalog.Entry
+}
+
+func (s *Service) catalogSnapshot(ctx context.Context, refresh bool) []catalog.Entry {
+	if refresh {
+		if refresher, ok := s.catalog.(refreshableCatalog); ok {
+			return refresher.SnapshotRefresh(ctx)
+		}
+	}
+	return s.catalog.Snapshot(ctx)
 }
 
 func (s *Service) ProviderModelReadiness(ctx context.Context, provider, model string) (*ProviderModelReadinessResult, error) {

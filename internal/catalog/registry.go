@@ -30,10 +30,18 @@ func NewRegistryCatalogWithSelfAddr(registry providers.Registry, healthTracker p
 }
 
 func (c *RegistryCatalog) Snapshot(ctx context.Context) []Entry {
+	return c.snapshot(ctx, false)
+}
+
+func (c *RegistryCatalog) SnapshotRefresh(ctx context.Context) []Entry {
+	return c.snapshot(ctx, true)
+}
+
+func (c *RegistryCatalog) snapshot(ctx context.Context, refresh bool) []Entry {
 	items := c.registry.All()
 	out := make([]Entry, 0, len(items))
 	for _, provider := range items {
-		out = append(out, c.entryForProvider(ctx, provider))
+		out = append(out, c.entryForProvider(ctx, provider, refresh))
 	}
 	return out
 }
@@ -43,10 +51,10 @@ func (c *RegistryCatalog) Get(ctx context.Context, name string) (Entry, bool) {
 	if !ok {
 		return Entry{}, false
 	}
-	return c.entryForProvider(ctx, provider), true
+	return c.entryForProvider(ctx, provider, false), true
 }
 
-func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider providers.Provider) Entry {
+func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider providers.Provider, refresh bool) Entry {
 	baseURL := providerBaseURL(provider)
 	credentialState := providerCredentialState(provider)
 
@@ -82,7 +90,17 @@ func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider provide
 		}
 	}
 
-	caps, err := provider.Capabilities(ctx)
+	var caps providers.Capabilities
+	var err error
+	if refresh {
+		if refresher, ok := provider.(providers.CapabilityRefresher); ok {
+			caps, err = refresher.RefreshCapabilities(ctx)
+		} else {
+			caps, err = provider.Capabilities(ctx)
+		}
+	} else {
+		caps, err = provider.Capabilities(ctx)
+	}
 
 	defaultModel := caps.DefaultModel
 	if defaultModel == "" {

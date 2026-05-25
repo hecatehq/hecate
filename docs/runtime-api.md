@@ -519,6 +519,11 @@ Runtime provider readiness snapshot. The UI uses this endpoint to explain
 whether a configured provider can receive traffic right now and why it may be
 skipped by routing.
 
+Pass `refresh=true` or `refresh=1` when the operator explicitly asks to
+refresh provider discovery. Normal reads keep using the provider capability
+cache; explicit refresh bypasses the completed cache while still sharing any
+same-provider discovery request already in flight.
+
 ```json
 GET /hecate/v1/providers/status
 → 200
@@ -655,6 +660,10 @@ operator adds a provider.
 Lists models currently known to configured providers. Each row includes Hecate
 metadata under `metadata`, including the effective model capability snapshot
 used by the Chats target picker.
+
+Pass `refresh=true` or `refresh=1` for an explicit operator refresh. Without
+that query parameter, the endpoint keeps normal provider discovery cache
+behavior.
 
 ```json
 GET /v1/models
