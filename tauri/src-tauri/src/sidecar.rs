@@ -31,6 +31,8 @@ use tauri::{AppHandle, Manager};
 pub struct GatewayPaths {
     /// Writable app data directory, resolved through Tauri.
     pub data_dir: PathBuf,
+    /// Durable sqlite database used by native app launches.
+    pub sqlite_path: PathBuf,
     /// Gateway stderr log captured for the most recent launch.
     pub log_path: PathBuf,
     /// Runtime state written for native diagnostics and future local helpers.
@@ -178,6 +180,7 @@ pub fn diagnostic_paths(app: &AppHandle) -> Result<GatewayPaths, String> {
 
 fn paths_for_data_dir(dir: PathBuf) -> GatewayPaths {
     GatewayPaths {
+        sqlite_path: dir.join("hecate.db"),
         log_path: dir.join("gateway.log"),
         state_path: dir.join("hecate.runtime.json"),
         data_dir: dir,
@@ -295,8 +298,10 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     // without an async runtime.
     let mut child = std::process::Command::new(&bin)
         .env("HECATE_ADDRESS", &addr)
+        .env("HECATE_BACKEND", "sqlite")
         .env("HECATE_PUBLIC_URL", &base_url)
         .env("HECATE_DATA_DIR", &paths.data_dir)
+        .env("HECATE_SQLITE_PATH", &paths.sqlite_path)
         // Suppress inherited terminal so the gateway doesn't fight the Tauri
         // process for stdin/stdout in dev mode.
         .stdin(std::process::Stdio::null())
@@ -413,6 +418,7 @@ mod tests {
         let paths = paths_for_data_dir(data_dir.clone());
 
         assert_eq!(paths.data_dir, data_dir);
+        assert_eq!(paths.sqlite_path, paths.data_dir.join("hecate.db"));
         assert_eq!(paths.log_path, paths.data_dir.join("gateway.log"));
         assert_eq!(paths.state_path, paths.data_dir.join("hecate.runtime.json"));
     }
