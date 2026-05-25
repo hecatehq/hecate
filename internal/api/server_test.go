@@ -4204,6 +4204,59 @@ func TestTaskStartFileExecutor(t *testing.T) {
 	}
 }
 
+func TestTaskRunPatchRevertSucceedsWhenCurrentMatchesAfterContent(t *testing.T) {
+	handler, tasks, fixture := newTaskPatchRevertFixture(t, "applied\n", "applied")
+
+	reverted := mustTaskRequestJSON[TaskPatchResponse](tasks, http.MethodPost, fixture.revertPath(), "")
+	if reverted.Data.Status != "reverted" {
+		t.Fatalf("reverted patch status = %q, want reverted", reverted.Data.Status)
+	}
+	content := readTaskPatchFixtureFile(t, fixture)
+	if string(content) != "original\n" {
+		t.Fatalf("file content = %q, want original", string(content))
+	}
+	revertEvents := waitForRunEvent(t, NewServer(slog.New(slog.NewJSONHandler(io.Discard, nil)), handler), fixture.taskID, fixture.runID, "tool.file.reverted")
+	if countTaskRunEvents(revertEvents.Data, "tool.file.reverted") != 1 {
+		t.Fatalf("tool.file.reverted event missing: %+v", revertEvents.Data)
+	}
+}
+
+func TestTaskRunPatchRevertConflictsWhenCurrentContentDiverged(t *testing.T) {
+	_, tasks, fixture := newTaskPatchRevertFixture(t, "operator edit\n", "applied")
+
+	tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, fixture.revertPath(), "")
+	content := readTaskPatchFixtureFile(t, fixture)
+	if string(content) != "operator edit\n" {
+		t.Fatalf("file content changed on conflict: %q", string(content))
+	}
+}
+
+func TestTaskRunPatchRevertConflictsWhenTargetMissing(t *testing.T) {
+	_, tasks, fixture := newTaskPatchRevertFixture(t, "", "applied")
+
+	if err := os.Remove(fixture.absPath); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, fixture.revertPath(), "")
+	if _, err := os.Stat(fixture.absPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing file changed on conflict, stat err=%v", err)
+	}
+}
+
+func TestTaskRunPatchRevertRepeatedRequestConflictsAndLeavesFile(t *testing.T) {
+	_, tasks, fixture := newTaskPatchRevertFixture(t, "applied\n", "applied")
+
+	reverted := mustTaskRequestJSON[TaskPatchResponse](tasks, http.MethodPost, fixture.revertPath(), "")
+	if reverted.Data.Status != "reverted" {
+		t.Fatalf("reverted patch status = %q, want reverted", reverted.Data.Status)
+	}
+	tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, fixture.revertPath(), "")
+	content := readTaskPatchFixtureFile(t, fixture)
+	if string(content) != "original\n" {
+		t.Fatalf("file content changed after repeated revert: %q", string(content))
+	}
+}
+
 func TestTaskStartGitExecutor(t *testing.T) {
 	t.Parallel()
 
@@ -5531,6 +5584,129 @@ func TestVerifyPatchApplyPreconditionRejectsDrift(t *testing.T) {
 	if err := verifyPatchApplyPrecondition(fsys, "main.go", "", false); err != nil {
 		t.Fatalf("verifyPatchApplyPrecondition(new file) error = %v", err)
 	}
+}
+
+func TestVerifyPatchRevertPreconditionRejectsDrift(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "main.go")
+	fsys, err := workspacefs.New(root)
+	if err != nil {
+		t.Fatalf("New workspacefs: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPatchRevertPrecondition(fsys, "main.go", "applied\n"); err == nil {
+		t.Fatal("verifyPatchRevertPrecondition() error = nil, want conflict")
+	}
+	if err := os.WriteFile(path, []byte("applied\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPatchRevertPrecondition(fsys, "main.go", "applied\n"); err != nil {
+		t.Fatalf("verifyPatchRevertPrecondition() error = %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPatchRevertPrecondition(fsys, "main.go", "applied\n"); err == nil {
+		t.Fatal("verifyPatchRevertPrecondition(missing file) error = nil, want conflict")
+	}
+}
+
+type taskPatchRevertFixture struct {
+	taskID     string
+	runID      string
+	artifactID string
+	absPath    string
+}
+
+func (f taskPatchRevertFixture) revertPath() string {
+	return "/hecate/v1/tasks/" + f.taskID + "/runs/" + f.runID + "/patches/" + f.artifactID + "/revert"
+}
+
+func newTaskPatchRevertFixture(t *testing.T, currentContent, artifactStatus string) (*Handler, taskTestClient, taskPatchRevertFixture) {
+	t.Helper()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	tasks := newTaskTestClient(t, NewServer(logger, apiHandler))
+	workspace := t.TempDir()
+	relPath := filepath.Join("src", "app.go")
+	absPath := filepath.Join(workspace, relPath)
+	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(absPath, []byte(currentContent), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	now := time.Now().UTC()
+	task, err := apiHandler.taskStore.CreateTask(context.Background(), types.Task{
+		ID:                 "task_patch_revert",
+		Title:              "Patch revert",
+		Prompt:             "Patch revert",
+		ExecutionKind:      "agent_loop",
+		WorkingDirectory:   workspace,
+		SandboxAllowedRoot: workspace,
+		Status:             "completed",
+		Priority:           "normal",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	run, err := apiHandler.taskStore.CreateRun(context.Background(), types.TaskRun{
+		ID:            "run_patch_revert",
+		TaskID:        task.ID,
+		Number:        1,
+		Status:        "completed",
+		WorkspacePath: workspace,
+		StartedAt:     now,
+		FinishedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	artifact, err := apiHandler.taskStore.CreateArtifact(context.Background(), types.TaskArtifact{
+		ID:       "artifact_patch_revert",
+		TaskID:   task.ID,
+		RunID:    run.ID,
+		Kind:     "patch",
+		Name:     "app.go.patch",
+		MimeType: "text/x-diff",
+		Path:     absPath,
+		ContentText: strings.Join([]string{
+			"--- a/src/app.go",
+			"+++ b/src/app.go",
+			"@@ -1,1 +1,1 @@",
+			"-original",
+			"+applied",
+			"",
+		}, "\n"),
+		Status:    artifactStatus,
+		CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateArtifact() error = %v", err)
+	}
+	return apiHandler, tasks, taskPatchRevertFixture{
+		taskID:     task.ID,
+		runID:      run.ID,
+		artifactID: artifact.ID,
+		absPath:    absPath,
+	}
+}
+
+func readTaskPatchFixtureFile(t *testing.T, fixture taskPatchRevertFixture) []byte {
+	t.Helper()
+	content, err := os.ReadFile(fixture.absPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	return content
 }
 
 type apiTestClient struct {
