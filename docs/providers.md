@@ -287,3 +287,6 @@ the empty-chat state: compact readiness copy must still show the
 discovered-model count plus the highest-signal health/block/error diagnostics
 and a short repair path, so operators are not forced to send a doomed prompt or
 inspect raw provider JSON.
+If configured local providers appear in the empty-chat state but no routable
+model is available, treat it as a discovery freshness issue first: start the
+local provider app, pull or load a model there, then refresh Connections.
