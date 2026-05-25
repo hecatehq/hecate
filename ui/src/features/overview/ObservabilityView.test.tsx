@@ -1234,7 +1234,13 @@ describe("ObservabilityView", () => {
           {
             name: "provider.request.started",
             timestamp: new Date(t0.getTime() + 55).toISOString(),
-            attributes: { "gen_ai.provider.name": "openai" },
+            attributes: {
+              "gen_ai.provider.name": "openai",
+              "gen_ai.request.model": "gpt-4o",
+              "hecate.provider.kind": "cloud",
+              "hecate.route.reason": "selected",
+              "hecate.extra": "kept in diagnostics",
+            },
           },
         ],
       },
@@ -1322,6 +1328,7 @@ describe("ObservabilityView", () => {
     const eventFlow = expectHTMLElement('[data-testid="trace-event-flow"]');
     expect(normalizedInlineStyle(eventFlow, "max-height")).toBe("min(320px,42vh)");
     expect(eventFlow.style.overflowY).toBe("auto");
+    expect(eventFlow.textContent).toMatch(/\+1 more/);
     expect(document.body.textContent).not.toMatch(/★/);
 
     // Click the longest child to expand its attributes inline.
