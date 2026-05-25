@@ -24,6 +24,7 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 }
 
 beforeEach(() => {
+  vi.mocked(resetSystemData).mockReset();
   sessionStorage.removeItem("hecate.settingsFocus");
   sessionStorage.removeItem("hecate.connectionsFocus");
 });
@@ -101,6 +102,30 @@ describe("SettingsView maintenance cleanup", () => {
     expect(screen.getByText("0 removed")).toBeTruthy();
   });
 
+  it("labels the reset affordance as runtime-only on memory backend", async () => {
+    const { state, actions, user } = setup({
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+    });
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(screen.getByText("Reset runtime state")).toBeTruthy();
+    expect(screen.getByText(/current in-memory state/i)).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: /Reset/i }));
+
+    expect(screen.getByText(/memory storage/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reset runtime state" })).toBeDisabled();
+  });
+
+  it("labels the reset affordance as local data cleanup on sqlite backend", async () => {
+    const { state, actions } = setup({
+      settingsConfig: { backend: "sqlite", providers: [], policy_rules: [], events: [] },
+    });
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(screen.getByText("Reset local data")).toBeTruthy();
+    expect(screen.getByText(/remaining Hecate database rows/i)).toBeTruthy();
+  });
+
   it("resets local data after typed confirmation and refreshes dashboard state", async () => {
     vi.mocked(resetSystemData).mockResolvedValue({
       object: "system_reset",
@@ -115,7 +140,10 @@ describe("SettingsView maintenance cleanup", () => {
       },
     });
     const loadDashboard = vi.fn(async () => undefined);
-    const { state, actions, user } = setup({}, { loadDashboard });
+    const { state, actions, user } = setup(
+      { settingsConfig: { backend: "sqlite", providers: [], policy_rules: [], events: [] } },
+      { loadDashboard },
+    );
     render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
     await user.click(await screen.findByRole("button", { name: /Reset/i }));

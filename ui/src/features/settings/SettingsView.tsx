@@ -14,6 +14,8 @@ export function SettingsView() {
   const { runRetention } = useRetentionActions({ setNotice: settings.actions.setNotice });
   const dashboardActions = useWiredDashboardActions();
   const loadRetentionRuns = retention.actions.loadRuns;
+  const storageBackend = settings.state.config?.backend ?? "memory";
+  const durableBackend = storageBackend === "sqlite";
   const [resetOpen, setResetOpen] = useState(false);
   const [resetConfirmation, setResetConfirmation] = useState("");
   const [resetPending, setResetPending] = useState(false);
@@ -57,6 +59,7 @@ export function SettingsView() {
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
         <RetentionSettings
+          storageBackend={storageBackend}
           state={retention.state}
           setRetentionSubsystems={retention.actions.setSubsystems}
           runRetention={runRetention}
@@ -69,11 +72,11 @@ export function SettingsView() {
       </div>
       {resetOpen && (
         <ConfirmModal
-          title="Reset local data"
+          title={durableBackend ? "Reset local data" : "Reset runtime state"}
           danger
           pending={resetPending}
           confirmDisabled={resetConfirmation !== "RESET"}
-          confirmLabel="Reset local data"
+          confirmLabel={durableBackend ? "Reset local data" : "Reset runtime state"}
           onClose={() => {
             if (!resetPending) setResetOpen(false);
           }}
@@ -84,6 +87,12 @@ export function SettingsView() {
                 This deletes projects, chats, task history, provider setup, policy rules, and saved
                 external-agent grants from Hecate. Running external-agent sessions are closed first.
               </div>
+              {!durableBackend && (
+                <div style={{ color: "var(--t3)" }}>
+                  This server is using memory storage, so the reset clears the current dev runtime
+                  state only.
+                </div>
+              )}
               <div style={{ color: "var(--t3)" }}>
                 Workspace files and external CLI auth files stay on disk.
               </div>
@@ -231,16 +240,19 @@ function relativeTime(iso: string): string {
 }
 
 function RetentionSettings({
+  storageBackend,
   state,
   setRetentionSubsystems,
   runRetention,
   onOpenReset,
 }: {
+  storageBackend: string;
   state: RetentionState;
   setRetentionSubsystems: (value: string) => void;
   runRetention: () => Promise<void>;
   onOpenReset: () => void;
 }) {
+  const durableBackend = storageBackend === "sqlite";
   const runs = state.runs ?? [];
   const lastRun = state.lastRun;
   const lastRunResults = lastRun?.results ?? [];
@@ -522,7 +534,11 @@ function RetentionSettings({
 
       <SectionHeader
         title="Danger zone"
-        description="Start over without relaunching the app. External-agent sessions are closed before their chat rows are removed."
+        description={
+          durableBackend
+            ? "Start over without relaunching the app. External-agent sessions are closed before their chat rows are removed."
+            : "Clear this dev server's current in-memory state without relaunching it."
+        }
       />
       <div
         className="card"
@@ -535,11 +551,12 @@ function RetentionSettings({
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: 3 }}>
-            Reset local data
+            {durableBackend ? "Reset local data" : "Reset runtime state"}
           </div>
           <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-            Delete projects, chats, tasks, provider setup, policy rules, and saved external-agent
-            grants. Workspace files and external CLI auth files are not touched.
+            {durableBackend
+              ? "Delete projects, chats, tasks, provider setup, policy rules, saved external-agent grants, and remaining Hecate database rows. Workspace files and external CLI auth files are not touched."
+              : "Delete projects, chats, tasks, provider setup, policy rules, and saved external-agent grants from this in-memory process. Workspace files and external CLI auth files are not touched."}
           </div>
         </div>
         <button

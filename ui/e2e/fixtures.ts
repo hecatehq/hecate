@@ -159,6 +159,7 @@ export const MOCK_AGENT_ADAPTERS = [
 // until the operator adds at least one via POST /hecate/v1/settings/providers.
 // Tests that need an existing provider opt into MOCK_SETTINGS_CONFIG_WITH_PROVIDERS.
 export const MOCK_SETTINGS_CONFIG = {
+  backend: "memory",
   providers: [] as Array<{
     id: string;
     name: string;
@@ -183,6 +184,7 @@ export const MOCK_SETTINGS_CONFIG = {
 // Name field (preset names are fixed) and the operator reaches for
 // custom_name to disambiguate.
 export const MOCK_SETTINGS_CONFIG_WITH_PROVIDERS = {
+  backend: "memory",
   providers: [
     {
       id: "anthropic",
@@ -793,6 +795,30 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   await page.route("/hecate/v1/system/retention/runs*", (r) =>
     r.fulfill(ok({ object: "list", data: [] })),
   );
+
+  await page.route("/hecate/v1/system/reset-data", async (route) => {
+    if (route.request().method() === "POST") {
+      state.providers = [];
+      state.policy_rules = [];
+      chatSessions.splice(0, chatSessions.length);
+      await route.fulfill(
+        ok({
+          object: "system_reset",
+          data: {
+            projects_deleted: 0,
+            chat_sessions_deleted: 0,
+            tasks_deleted: 0,
+            providers_deleted: 0,
+            policy_rules_deleted: 0,
+            agent_approval_grants_deleted: 0,
+            database_rows_deleted: state.backend === "sqlite" ? 2 : 0,
+          },
+        }),
+      );
+      return;
+    }
+    await route.fallback();
+  });
 
   await page.route("/hecate/v1/system/stats*", (r) =>
     r.fulfill(ok({ object: "runtime_stats", data: {} })),
