@@ -16,6 +16,7 @@ import (
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -314,7 +315,7 @@ func (e *FileExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*Execut
 	if err != nil {
 		return fileFailure(spec, operation, spec.Task.FilePath, err.Error(), fileErrorKind(err)), nil
 	}
-	afterContent, err := os.ReadFile(fileResult.Path)
+	afterContent, err := readFileWithWorkspacePolicy(request, fileResult.Path)
 	if err != nil {
 		return fileFailure(spec, operation, spec.Task.FilePath, err.Error(), fileErrorKind(err)), nil
 	}
@@ -713,7 +714,7 @@ func fileContentBeforeWrite(request sandbox.FileRequest) (content string, exists
 	if err != nil {
 		return "", false, "", err
 	}
-	raw, err := os.ReadFile(resolvedPath)
+	raw, err := readFileWithWorkspacePolicy(request, resolvedPath)
 	if err == nil {
 		return string(raw), true, resolvedPath, nil
 	}
@@ -721,6 +722,27 @@ func fileContentBeforeWrite(request sandbox.FileRequest) (content string, exists
 		return "", false, resolvedPath, nil
 	}
 	return "", false, resolvedPath, err
+}
+
+func readFileWithWorkspacePolicy(request sandbox.FileRequest, path string) ([]byte, error) {
+	allowedRoot := strings.TrimSpace(request.Policy.AllowedRoot)
+	if allowedRoot == "" {
+		return os.ReadFile(path)
+	}
+	root, err := filepath.Abs(allowedRoot)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return nil, err
+	}
+	fsys, err := workspacefs.New(root)
+	if err != nil {
+		return nil, err
+	}
+	raw, _, err := fsys.ReadFile(rel)
+	return raw, err
 }
 
 func newPatchArtifact(spec ExecutionSpec, stepID, operation, displayPath, artifactPath, before, after string, beforeExists bool, createdAt time.Time) types.TaskArtifact {

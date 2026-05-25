@@ -3,7 +3,6 @@ package agentadapters
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -11,6 +10,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 )
 
 type acpChatClient struct {
@@ -91,11 +91,11 @@ func (c *acpChatClient) RequestPermission(ctx context.Context, params acp.Reques
 }
 
 func (c *acpChatClient) ReadTextFile(_ context.Context, params acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
-	path, err := c.workspacePath(params.Path)
+	fsys, path, err := c.workspaceFS(params.Path)
 	if err != nil {
 		return acp.ReadTextFileResponse{}, err
 	}
-	data, err := os.ReadFile(path)
+	data, _, err := fsys.ReadFile(path)
 	if err != nil {
 		return acp.ReadTextFileResponse{}, err
 	}
@@ -116,14 +116,11 @@ func (c *acpChatClient) ReadTextFile(_ context.Context, params acp.ReadTextFileR
 }
 
 func (c *acpChatClient) WriteTextFile(_ context.Context, params acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
-	path, err := c.workspacePath(params.Path)
+	fsys, path, err := c.workspaceFS(params.Path)
 	if err != nil {
 		return acp.WriteTextFileResponse{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return acp.WriteTextFileResponse{}, err
-	}
-	if err := os.WriteFile(path, []byte(params.Content), 0o644); err != nil {
+	if _, err := fsys.WriteFile(path, []byte(params.Content), 0o644); err != nil {
 		return acp.WriteTextFileResponse{}, err
 	}
 	return acp.WriteTextFileResponse{}, nil
@@ -154,21 +151,32 @@ func (c *acpChatClient) WaitForTerminalExit(ctx context.Context, _ acp.WaitForTe
 	return acp.WaitForTerminalExitResponse{}, terminalRPCUnsupported("terminal/wait")
 }
 
-func (c *acpChatClient) workspacePath(path string) (string, error) {
+func (c *acpChatClient) workspaceFS(path string) (*workspacefs.FS, string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", fmt.Errorf("path is required")
+		return nil, "", fmt.Errorf("path is required")
 	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(c.workspace, path)
-	}
-	clean := filepath.Clean(path)
-	rel, err := filepath.Rel(c.workspace, clean)
+	fsys, err := workspacefs.New(c.workspace)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q escapes workspace", path)
+	if filepath.IsAbs(path) {
+		root := fsys.Root()
+		clean := filepath.Clean(path)
+		rel, err := filepath.Rel(root, clean)
+		if err != nil {
+			return nil, "", err
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, "", fmt.Errorf("path %q escapes workspace", path)
+		}
+		if _, err := fsys.Resolve(rel); err != nil {
+			return nil, "", err
+		}
+		return fsys, rel, nil
 	}
-	return clean, nil
+	if _, err := fsys.Resolve(path); err != nil {
+		return nil, "", err
+	}
+	return fsys, path, nil
 }

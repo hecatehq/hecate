@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hecatehq/hecate/internal/processrunner"
 )
 
 func TestLocalExecutorSeparatesStdoutAndStderr(t *testing.T) {
@@ -63,6 +65,72 @@ func TestLocalExecutorUsesRTKWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestLocalExecutorStreamsThroughProcessRunner(t *testing.T) {
+	t.Parallel()
+	reset := SetWrapperForTesting(WrapperNone)
+	defer reset()
+
+	workspace := t.TempDir()
+	process := &recordingProcessRunner{
+		result: processrunner.Result{Stdout: "streamed", ExitCode: 0},
+		chunks: []processrunner.Chunk{{Stream: "stdout", Text: "streamed"}},
+	}
+	exec := &LocalExecutor{processes: process}
+
+	var chunks []OutputChunk
+	result, err := exec.RunStreaming(context.Background(), Command{
+		Command:          `printf streamed`,
+		WorkingDirectory: workspace,
+		Timeout:          time.Second,
+		Limits:           ResourceLimits{MaxOutputBytes: 10},
+	}, func(chunk OutputChunk) {
+		chunks = append(chunks, chunk)
+	})
+
+	if err != nil {
+		t.Fatalf("RunStreaming() error = %v", err)
+	}
+	if result.Stdout != "streamed" {
+		t.Fatalf("stdout = %q, want streamed", result.Stdout)
+	}
+	if process.req.Command != "sh" {
+		t.Fatalf("process command = %q, want sh", process.req.Command)
+	}
+	if got := strings.Join(process.req.Args, "\x00"); got != "-lc\x00printf streamed" {
+		t.Fatalf("process args = %q, want shell argv", got)
+	}
+	if process.req.Dir != workspace {
+		t.Fatalf("process dir = %q, want %q", process.req.Dir, workspace)
+	}
+	if process.req.MaxStdoutBytes != 10 || process.req.MaxStderrBytes != 10 {
+		t.Fatalf("process caps = stdout %d stderr %d, want 10/10", process.req.MaxStdoutBytes, process.req.MaxStderrBytes)
+	}
+	if len(chunks) != 1 || chunks[0].Text != "streamed" {
+		t.Fatalf("chunks = %+v, want streamed chunk", chunks)
+	}
+}
+
+func TestLocalExecutorOutputLimitCancelsThroughProcessRunner(t *testing.T) {
+	t.Parallel()
+
+	exec := NewLocalExecutor()
+	result, err := exec.Run(context.Background(), Command{
+		Command: `printf abcdef`,
+		Timeout: time.Second,
+		Limits:  ResourceLimits{MaxOutputBytes: 3},
+	})
+
+	if !IsOutputLimitExceeded(err) {
+		t.Fatalf("Run() error = %v, want output limit exceeded", err)
+	}
+	if result.Stdout != "abc" {
+		t.Fatalf("stdout = %q, want capped abc", result.Stdout)
+	}
+	if result.ExitCode != -1 {
+		t.Fatalf("exit_code = %d, want -1", result.ExitCode)
+	}
+}
+
 func TestShellArgvUsesRTKOnlyWhenEnabled(t *testing.T) {
 	got := strings.Join(ShellArgv(Command{Command: "go test ./...", RTKEnabled: true}), "\x00")
 	want := strings.Join([]string{"rtk", "sh", "-lc", "go test ./..."}, "\x00")
@@ -74,6 +142,26 @@ func TestShellArgvUsesRTKOnlyWhenEnabled(t *testing.T) {
 	if got != want {
 		t.Fatalf("plain argv = %q, want %q", got, want)
 	}
+}
+
+type recordingProcessRunner struct {
+	req    processrunner.Request
+	result processrunner.Result
+	chunks []processrunner.Chunk
+}
+
+func (r *recordingProcessRunner) Run(ctx context.Context, req processrunner.Request) (processrunner.Result, error) {
+	return r.RunStreaming(ctx, req, nil)
+}
+
+func (r *recordingProcessRunner) RunStreaming(_ context.Context, req processrunner.Request, onChunk func(processrunner.Chunk)) (processrunner.Result, error) {
+	r.req = req
+	for _, chunk := range r.chunks {
+		if onChunk != nil {
+			onChunk(chunk)
+		}
+	}
+	return r.result, nil
 }
 
 func TestRTKAvailableReportsPathPresence(t *testing.T) {
@@ -383,5 +471,53 @@ func TestLocalExecutorWritesFile(t *testing.T) {
 	}
 	if result.Path == "" {
 		t.Fatal("result path is empty")
+	}
+}
+
+func TestLocalExecutorWriteFileRejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	exec := NewLocalExecutor()
+	_, err := exec.WriteFile(context.Background(), FileRequest{
+		WorkingDirectory: root,
+		Path:             "linked/escape.txt",
+		Content:          "nope",
+		Policy:           Policy{AllowedRoot: root},
+	})
+	if !IsPolicyDenied(err) {
+		t.Fatalf("WriteFile() error = %v, want policy denial", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "escape.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("outside file stat error = %v, want not exist", statErr)
+	}
+}
+
+func TestLocalExecutorAppendFileRejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	exec := NewLocalExecutor()
+	_, err := exec.AppendFile(context.Background(), FileRequest{
+		WorkingDirectory: root,
+		Path:             "linked/escape.txt",
+		Content:          "nope",
+		Policy:           Policy{AllowedRoot: root},
+	})
+	if !IsPolicyDenied(err) {
+		t.Fatalf("AppendFile() error = %v, want policy denial", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "escape.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("outside file stat error = %v, want not exist", statErr)
 	}
 }

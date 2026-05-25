@@ -3,6 +3,8 @@ package agentadapters
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -139,6 +141,61 @@ func TestAcpChatClientTerminalRPCsTolerateNilMetrics(t *testing.T) {
 		t.Fatal("CreateTerminal: want error, got nil")
 	} else if !errors.Is(err, ErrTerminalRPCUnsupported) {
 		t.Fatalf("CreateTerminal: errors.Is(err, ErrTerminalRPCUnsupported) = false; err = %v", err)
+	}
+}
+
+func TestAcpChatClientReadTextFileRejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	client := &acpChatClient{
+		sessionID: "chat_test",
+		adapterID: "codex",
+		workspace: workspace,
+	}
+
+	_, err := client.ReadTextFile(context.Background(), acp.ReadTextFileRequest{Path: "linked/secret.txt"})
+	if err == nil {
+		t.Fatal("ReadTextFile() error = nil, want symlink rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink component") {
+		t.Fatalf("ReadTextFile() error = %v, want symlink rejection", err)
+	}
+}
+
+func TestAcpChatClientWriteTextFileRejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(workspace, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	client := &acpChatClient{
+		sessionID: "chat_test",
+		adapterID: "codex",
+		workspace: workspace,
+	}
+
+	_, err := client.WriteTextFile(context.Background(), acp.WriteTextFileRequest{
+		Path:    "linked/escape.txt",
+		Content: "nope",
+	})
+	if err == nil {
+		t.Fatal("WriteTextFile() error = nil, want symlink rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink component") {
+		t.Fatalf("WriteTextFile() error = %v, want symlink rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "escape.txt")); !os.IsNotExist(statErr) {
+		t.Fatalf("outside file stat error = %v, want not exist", statErr)
 	}
 }
 

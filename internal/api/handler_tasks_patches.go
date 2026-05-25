@@ -13,6 +13,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -168,17 +169,18 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is empty")
 		return
 	}
-	if !pathWithinRoot(artifact.Path, run.WorkspacePath) {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is outside the run workspace")
+	fsys, rel, err := patchWorkspaceTarget(run.WorkspacePath, artifact.Path)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
 	if beforeExisted {
-		if err := os.WriteFile(artifact.Path, []byte(before), 0o644); err != nil {
+		if _, err := fsys.WriteFile(rel, []byte(before), 0o644); err != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		}
 	} else {
-		if err := os.Remove(artifact.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if _, err := fsys.Remove(rel); err != nil && !errors.Is(err, os.ErrNotExist) {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		}
@@ -234,15 +236,16 @@ func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is empty")
 		return
 	}
-	if !pathWithinRoot(artifact.Path, run.WorkspacePath) {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is outside the run workspace")
+	fsys, rel, err := patchWorkspaceTarget(run.WorkspacePath, artifact.Path)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
-	if err := verifyPatchApplyPrecondition(artifact.Path, before, beforeExisted); err != nil {
+	if err := verifyPatchApplyPrecondition(fsys, rel, before, beforeExisted); err != nil {
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
 		return
 	}
-	if err := os.WriteFile(artifact.Path, []byte(after), 0o644); err != nil {
+	if _, err := fsys.WriteFile(rel, []byte(after), 0o644); err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -297,8 +300,8 @@ func (h *Handler) loadTaskRunPatch(ctx context.Context, w http.ResponseWriter, r
 	}
 	return run, artifact, true
 }
-func verifyPatchApplyPrecondition(path, before string, beforeExisted bool) error {
-	current, err := os.ReadFile(path)
+func verifyPatchApplyPrecondition(fsys *workspacefs.FS, rel, before string, beforeExisted bool) error {
+	current, _, err := fsys.ReadFile(rel)
 	if beforeExisted {
 		if err != nil {
 			return fmt.Errorf("patch target changed before apply: %w", err)
@@ -317,8 +320,25 @@ func verifyPatchApplyPrecondition(path, before string, beforeExisted bool) error
 	return fmt.Errorf("patch target cannot be checked before apply: %w", err)
 }
 
-func pathWithinRoot(path, root string) bool {
-	path = filepath.Clean(path)
-	root = filepath.Clean(root)
-	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
+func patchWorkspaceTarget(root, path string) (*workspacefs.FS, string, error) {
+	root = strings.TrimSpace(root)
+	path = strings.TrimSpace(path)
+	if root == "" {
+		return nil, "", fmt.Errorf("patch artifact workspace is empty")
+	}
+	fsys, err := workspacefs.New(root)
+	if err != nil {
+		return nil, "", err
+	}
+	rel := path
+	if filepath.IsAbs(path) {
+		rel, err = filepath.Rel(fsys.Root(), filepath.Clean(path))
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	if _, err := fsys.Resolve(rel); err != nil {
+		return nil, "", fmt.Errorf("patch artifact path is outside the run workspace")
+	}
+	return fsys, rel, nil
 }

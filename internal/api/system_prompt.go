@@ -2,11 +2,10 @@ package api
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 )
 
 // agentWorkspacePromptFiles are the file names the agent loop honors
@@ -56,18 +55,19 @@ func buildSystemPromptResolver(globalDefault string) orchestrator.SystemPromptRe
 // empty when no file is present, the path is empty, or the file is
 // too short to be meaningful.
 //
-// Path safety isn't a concern here — we're reading files inside the
-// workspace the runner provisioned; an attacker who can write a
-// CLAUDE.md inside the workspace can already do worse via the agent's
-// tools. The cap is purely about token cost / prompt sanity.
+// The read still goes through WorkspaceFS so prompt discovery follows the
+// same workspace-boundary behavior as other Hecate-mediated file reads.
 func loadWorkspaceSystemPrompt(workspacePath string) string {
 	workspacePath = strings.TrimSpace(workspacePath)
 	if workspacePath == "" {
 		return ""
 	}
+	fsys, err := workspacefs.New(workspacePath)
+	if err != nil {
+		return ""
+	}
 	for _, name := range agentWorkspacePromptFiles {
-		path := filepath.Join(workspacePath, name)
-		raw, err := os.ReadFile(path)
+		raw, _, err := fsys.ReadFile(name)
 		if err != nil {
 			continue
 		}

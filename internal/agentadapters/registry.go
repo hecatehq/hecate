@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/gitrunner"
 )
 
 const (
@@ -974,26 +974,7 @@ func sanitizedEnvForAdapter(adapterID string, env []string) []string {
 }
 
 func captureGitDiff(ctx context.Context, workspace string, maxBytes int64) (string, string) {
-	diffCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if strings.TrimSpace(runGitCapture(diffCtx, workspace, 1024, "rev-parse", "--is-inside-work-tree")) != "true" {
-		return "", ""
-	}
-	return runGitCapture(diffCtx, workspace, maxBytes, "diff", "--stat"), runGitCapture(diffCtx, workspace, maxBytes, "diff", "--no-ext-diff", "--binary")
-}
-
-func runGitCapture(ctx context.Context, workspace string, maxBytes int64, args ...string) string {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = workspace
-	cmd.Env = sanitizedEnv(os.Environ())
-	var out limitedBuffer
-	out.limit = maxBytes
-	cmd.Stdout = &out
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(out.String())
+	return gitrunner.NewLocalRunner().Diff(ctx, workspace, maxBytes)
 }
 
 type limitedBuffer struct {

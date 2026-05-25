@@ -166,17 +166,50 @@ func probeWrapper(ctx context.Context) (WrapperKind, string) {
 // network alone and lets the policy validation upstream decide which
 // hosts the command can reach (best-effort, string-match).
 func applyWrapper(cmd *exec.Cmd, workspace string, network bool) {
+	argv := wrappedArgv(cmd.Args, workspace, network)
+	if len(argv) == 0 {
+		return
+	}
+	if equalStringSlices(argv, cmd.Args) {
+		return
+	}
+	cmd.Path = argv[0]
+	cmd.Args = argv
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func wrappedArgv(argv []string, workspace string, network bool) []string {
 	switch DetectWrapper(context.Background()) {
 	case WrapperBwrap:
-		applyBwrap(cmd, workspace, network)
+		return bwrapArgv(argv, workspace, network)
 	case WrapperSandboxExec:
-		applySandboxExec(cmd, network)
+		return sandboxExecArgv(argv, network)
 	default:
-		// WrapperNone — leave cmd unchanged.
+		return argv
 	}
 }
 
 func applyBwrap(cmd *exec.Cmd, workspace string, network bool) {
+	argv := bwrapArgv(cmd.Args, workspace, network)
+	if len(argv) == 0 {
+		return
+	}
+	cmd.Path = argv[0]
+	cmd.Args = argv
+}
+
+func bwrapArgv(argv []string, workspace string, network bool) []string {
 	args := []string{
 		"--ro-bind", "/", "/",
 		// Procfs and devfs need explicit mounts; bwrap does NOT bind
@@ -200,13 +233,25 @@ func applyBwrap(cmd *exec.Cmd, workspace string, network bool) {
 		args = append(args, "--unshare-net")
 	}
 	// Append the original argv (sh -lc <command>).
-	args = append(args, cmd.Args...)
+	args = append(args, argv...)
 
-	cmd.Path = WrapperPath()
-	cmd.Args = args
+	path := WrapperPath()
+	if path == "" {
+		path = bwrapPath
+	}
+	return append([]string{path}, args...)
 }
 
 func applySandboxExec(cmd *exec.Cmd, network bool) {
+	argv := sandboxExecArgv(cmd.Args, network)
+	if len(argv) == 0 {
+		return
+	}
+	cmd.Path = argv[0]
+	cmd.Args = argv
+}
+
+func sandboxExecArgv(argv []string, network bool) []string {
 	// v1: network-only profile. File-write confinement to the workspace
 	// is roadmap work — Seatbelt SBPL needs careful tuning to allow
 	// macOS frameworks (Mach IPC, sysctl reads, /private/var/folders
@@ -216,12 +261,10 @@ func applySandboxExec(cmd *exec.Cmd, network bool) {
 		// so the LLM-supplied policy + host allowlist stay the only check.
 		// (We don't emit a no-op profile because that adds a fork+exec
 		// cost for nothing.)
-		return
+		return argv
 	}
 	const profile = `(version 1)(deny network*)(allow default)`
-	args := append([]string{sandboxExecBinary, "-p", profile}, cmd.Args...)
-	cmd.Path = sandboxExecBinary
-	cmd.Args = args
+	return append([]string{sandboxExecBinary, "-p", profile}, argv...)
 }
 
 // WrapperHealthInfo is the shape served on /healthz under

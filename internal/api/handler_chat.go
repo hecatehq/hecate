@@ -7,13 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/requestscope"
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -1258,24 +1258,7 @@ func workspaceGitBranch(workspace string) string {
 	if workspace == "" {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	out, err := exec.CommandContext(ctx, "git", "-C", workspace, "branch", "--show-current").Output()
-	if err == nil {
-		if branch := strings.TrimSpace(string(out)); branch != "" {
-			return branch
-		}
-	}
-	out, err = exec.CommandContext(ctx, "git", "-C", workspace, "rev-parse", "--short", "HEAD").Output()
-	if err != nil {
-		return ""
-	}
-	commit := strings.TrimSpace(string(out))
-	if commit == "" {
-		return ""
-	}
-	return "detached@" + commit
+	return gitrunner.NewLocalRunner().CurrentRef(context.Background(), workspace)
 }
 
 func newChatID(prefix string) string {
