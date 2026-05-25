@@ -39,6 +39,9 @@ func resolveCapabilities(
 	if *inFlight != nil {
 		call := *inFlight
 		mu.Unlock()
+		// Refresh callers join any in-flight discovery for this provider. That
+		// still bypasses completed cache entries, but avoids starting a duplicate
+		// upstream probe when a normal cache miss is already discovering state.
 		return waitForCapabilityDiscovery(ctx, call)
 	}
 	call := &capabilityDiscoveryCall{done: make(chan struct{})}
