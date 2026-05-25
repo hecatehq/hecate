@@ -75,7 +75,7 @@ func providerModelReadiness(entries []catalog.Entry, provider, model string) Pro
 		}
 		out.Reason = "provider_missing"
 		out.Message = fmt.Sprintf("Provider %q is not configured.", provider)
-		out.OperatorAction = "Choose Auto routing, select a configured provider, or add this provider in Settings."
+		out.OperatorAction = "Choose Auto routing, select a configured provider, or add this provider in Connections."
 		out.SuggestedModels = suggestedModels(entries, "")
 		return out
 	}
