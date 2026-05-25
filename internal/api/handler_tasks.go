@@ -1089,9 +1089,8 @@ func patchBeforeContent(diff string) (string, bool, error) {
 	return content, beforeExisted, err
 }
 
-func patchAfterContent(diff string) (string, error) {
-	content, _, err := patchContent(diff, "+")
-	return content, err
+func patchAfterContent(diff string) (string, bool, error) {
+	return patchContent(diff, "+")
 }
 
 func patchContent(diff, prefix string) (string, bool, error) {
@@ -1099,9 +1098,12 @@ func patchContent(diff, prefix string) (string, bool, error) {
 	if len(lines) < 3 {
 		return "", false, fmt.Errorf("patch artifact diff is malformed")
 	}
-	beforeExisted := !strings.HasPrefix(lines[0], "--- /dev/null")
 	if !strings.HasPrefix(lines[0], "--- ") || !strings.HasPrefix(lines[1], "+++ ") || !strings.HasPrefix(lines[2], "@@ ") {
 		return "", false, fmt.Errorf("patch artifact diff is malformed")
+	}
+	existed := !strings.HasPrefix(lines[0], "--- /dev/null")
+	if prefix == "+" {
+		existed = !strings.HasPrefix(lines[1], "+++ /dev/null")
 	}
 	contentLines := make([]string, 0)
 	for _, line := range lines[3:] {
@@ -1113,9 +1115,9 @@ func patchContent(diff, prefix string) (string, bool, error) {
 		}
 	}
 	if len(contentLines) == 0 {
-		return "", beforeExisted, nil
+		return "", existed, nil
 	}
-	return strings.Join(contentLines, "\n") + "\n", beforeExisted, nil
+	return strings.Join(contentLines, "\n") + "\n", existed, nil
 }
 
 // decodeTurnCostFromEventData lifts the per-turn cost figures out of
