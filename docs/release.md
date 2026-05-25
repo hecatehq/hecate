@@ -73,7 +73,10 @@ five Actions jobs:
 2. **`tauri / build`** (matrix, ~10–15 min, runs after goreleaser) —
    three legs building native desktop bundles and uploading them to the same
    Release entry: `.dmg` (macOS arm64), `.deb` + `.AppImage` (Linux x86_64),
-   `.msi` (Windows x86_64).
+   `.msi` (Windows x86_64). This is packaging validation, not platform
+   confidence: maintainers currently launch-test the macOS Apple Silicon
+   desktop path only. Linux and Windows desktop bundles are CI-built but not
+   manually exercised on real machines yet.
 3. **`tauri / publish updater manifest`** — stitches signed updater payloads
    into `latest.json` and uploads the GitHub Release copy.
 4. **`tauri / publish updater manifest to website`** — commits the same
@@ -94,6 +97,9 @@ Acceptance after the run:
 - Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
   If any is missing, the matrix leg silently skipped upload — open the run
   to see what failed.
+- Release notes and README copy keep the desktop-platform caveat honest:
+  macOS Apple Silicon is launch-tested; Linux and Windows desktop bundles are
+  experimental until real-machine smoke coverage exists.
 - README Desktop app table and pinned install examples point at the release
   tag. The workflow commits this docs-only refresh to `master` with `[skip ci]`.
 - `https://hecate.sh/releases/alpha/latest.json` serves the same version as

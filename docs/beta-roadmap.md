@@ -31,7 +31,7 @@ is released in alpha tags only after it merges.
 | Observability | The UI answers "what happened?" without JSON archaeology: request history, route report, trace viewer, skipped providers, policy denial, usage, cache path, provider failure, and final outcome.                                                                                                   |
 | Settings      | Settings stays focused on retention and OTel/export knobs when needed. Provider readiness and External Agent setup/grants live in Connections.                                                                                                                                                     |
 | Usage         | Usage clearly separates Hecate-measured cloud-provider tokens and known/reported cost from adapter-reported external-agent usage. There are no global spend controls.                                                                                                                              |
-| Desktop app   | Before beta, decide whether unsigned desktop bundles are acceptable. If not, complete signing/notarization or clearly keep desktop labelled alpha while the rest of Hecate enters beta.                                                                                                            |
+| Desktop app   | Before beta, decide whether the desktop surface enters beta with the rest of Hecate or stays alpha-labelled per platform. macOS Apple Silicon is signed, notarized, and launch-tested; Linux and Windows bundles are CI-built but not yet manually exercised on real machines.                     |
 
 ## Cleanup And Refactoring
 

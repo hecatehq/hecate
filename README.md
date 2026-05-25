@@ -15,7 +15,7 @@
   Route cloud/local models, run Hecate-owned tool agents, supervise Codex / Claude Code / Cursor Agent / Grok Build, and keep every decision observable.
 </p>
 
-> **Status: public alpha.** Gateway routing, provider onboarding, Hecate Chat, External Agent sessions, and native task runs are usable for alpha workflows. Desktop signing, workspace modes, agent profiles, and sandbox hardening are still evolving. Read [known limitations](docs/known-limitations.md) before depending on it.
+> **Status: public alpha.** Gateway routing, provider onboarding, Hecate Chat, External Agent sessions, and native task runs are usable for alpha workflows. The desktop app is currently exercised on macOS; Linux and Windows bundles are built by CI but have not yet been manually tested. Workspace modes, agent profiles, and sandbox hardening are still evolving. Read [known limitations](docs/known-limitations.md) before depending on it.
 
 ## Table Of Contents
 
@@ -47,10 +47,10 @@ credentials. See [External agent adapters](docs/external-agent-adapters.md).
 
 ## Quick Start
 
-| Path                        | Best for                                             |
-| --------------------------- | ---------------------------------------------------- |
-| [Desktop app](#desktop-app) | Personal use on your laptop. No terminal, no Docker. |
-| [Docker](#docker)           | Local container, scripted local deploys.             |
+| Path                        | Best for                                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------------------------- |
+| [Desktop app](#desktop-app) | macOS personal use on your laptop. No terminal, no Docker. Linux/Windows bundles are experimental. |
+| [Docker](#docker)           | Local container, scripted local deploys, and the safer Linux/Windows alpha path today.             |
 
 ### Desktop app
 
@@ -67,11 +67,13 @@ versioned GitHub Release assets below:
 
 <!-- desktop-release-links:end -->
 
-Open the bundle and launch Hecate. The app starts the gateway sidecar, waits for it to become healthy, and opens the embedded operator UI automatically. State lives in the platform data dir (`~/Library/Application Support/sh.hecate.app/` on macOS, `%APPDATA%\sh.hecate.app\` on Windows, `~/.local/share/sh.hecate.app/` on Linux).
+Open the bundle and launch Hecate. The app starts the bundled Hecate runtime on a private loopback port, waits for it to become healthy, and opens the operator UI automatically. State lives in the platform data dir (`~/Library/Application Support/sh.hecate.app/` on macOS, `%APPDATA%\sh.hecate.app\` on Windows, `~/.local/share/sh.hecate.app/` on Linux).
 
-> macOS bundles released after the codesign+notarization rollout are signed with a Developer ID Application certificate and notarized — first launch needs no Gatekeeper bypass. Earlier alpha bundles, plus any future release built before the `APPLE_*` repo secrets are configured (e.g. fork builds, the brief window between this PR and the next tag), remain unsigned and need **right-click → Open** on first launch. Windows bundles are not yet signed; click **More info → Run anyway** on the SmartScreen warning. Subsequent launches work normally. Full footguns and roadmap in [docs/desktop-app.md](docs/desktop-app.md).
+> **Desktop platform status:** macOS Apple Silicon is the only desktop bundle currently launch-tested by maintainers. Linux `.deb` / `.AppImage` and Windows `.msi` artifacts are produced by CI but have not yet been manually tested on real machines, so expect bugs. If you need reliability on Linux or Windows today, prefer Docker or the standalone binary tarballs.
 >
-> Existing installs from alpha.28 onward auto-update through the signed `https://hecate.sh/releases/alpha/latest.json` channel. Older alpha builds used GitHub's `/releases/latest/download/latest.json` updater endpoint and should be reinstalled manually from the current alpha.
+> macOS release bundles are signed with a Developer ID Application certificate and notarized — first launch needs no Gatekeeper bypass. Fork builds or releases cut without the `APPLE_*` repo secrets remain unsigned and need **right-click → Open** on first launch. Windows bundles are not yet signed and will show SmartScreen warnings once they are tested. Full footguns and roadmap live in [docs/desktop-app.md](docs/desktop-app.md).
+>
+> Existing macOS installs from alpha.28 onward auto-update through the signed `https://hecate.sh/releases/alpha/latest.json` channel. Linux and Windows updater behavior is part of the still-untested desktop surface.
 
 Skip to [Add a provider](#add-a-provider) once it's running.
 
@@ -228,17 +230,17 @@ Stability stages:
 - **Early**: works in some paths, but still rough or incomplete.
 - **Not shipped**: planned, not available.
 
-| Area                | State       | Notes                                                                                                                                                                                                                                                        |
-| ------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Model routing       | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints.                                                                                                |
-| Connections         | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics.                                                                                        |
-| Hecate Chat         | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, and inline task approvals. Workspace modes and agent profiles are still future work.             |
-| External Agent      | Alpha-ready | Codex, Claude Code, Cursor Agent, and Grok Build discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, adapter diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses.              |
-| Task runtime        | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing.                                                                                 |
-| Observability       | Alpha-ready | OTLP traces/metrics/logs, response trace headers, local trace view, route reports, timing buckets, and runtime stats.                                                                                                                                        |
-| Storage             | Alpha-ready | Memory or SQLite per subsystem; SQLite persists chat/task/provider state. Pending approval reconciliation runs on startup.                                                                                                                                   |
-| Desktop app         | Early       | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. macOS release builds are signed/notarized and auto-update is active through the `hecate.sh` alpha channel; Windows signing and Linux/Windows launch smoke are still pending. |
-| Execution isolation | Early       | Per-call subprocess + env sanitisation + output cap + timeout, with `bwrap` / `sandbox-exec` where available. Not container-level isolation.                                                                                                                 |
+| Area                | State       | Notes                                                                                                                                                                                                                                                |
+| ------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Model routing       | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints.                                                                                        |
+| Connections         | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics.                                                                                |
+| Hecate Chat         | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, and inline task approvals. Workspace modes and agent profiles are still future work.     |
+| External Agent      | Alpha-ready | Codex, Claude Code, Cursor Agent, and Grok Build discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, adapter diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses.      |
+| Task runtime        | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing.                                                                         |
+| Observability       | Alpha-ready | OTLP traces/metrics/logs, response trace headers, local trace view, route reports, timing buckets, and runtime stats.                                                                                                                                |
+| Storage             | Alpha-ready | Memory or SQLite per subsystem; SQLite persists chat/task/provider state. Pending approval reconciliation runs on startup.                                                                                                                           |
+| Desktop app         | Early       | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. macOS Apple Silicon is the only launch-tested desktop path; Linux and Windows artifacts are CI-built but untested, so expect bugs. Windows signing is still pending. |
+| Execution isolation | Early       | Per-call subprocess + env sanitisation + output cap + timeout, with `bwrap` / `sandbox-exec` where available. Not container-level isolation.                                                                                                         |
 
 Read [docs/known-limitations.md](docs/known-limitations.md) before treating Hecate as production-stable.
 

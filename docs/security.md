@@ -16,10 +16,10 @@ Hecate assumes the operator trusts their own machine, local user account, and se
 
 Hecate has two different execution surfaces with different trust levels.
 
-| Surface                                               | Boundary                                                                                                                                                                                                                                                    |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hecate Chat with tools on / native `agent_loop` tasks | Hecate owns the task loop. Tool calls run as per-call subprocesses with env sanitisation, output caps, timeouts, policy checks, approvals, and `bwrap` / `sandbox-exec` wrappers where available. This is not a VM or container boundary.                   |
-| External Agent adapters                               | Codex, Claude Code, Cursor Agent, Grok Build, and similar adapters run as trusted local subprocesses in the selected workspace. Hecate supervises lifecycle, approvals, diagnostics, and Git diffs, but it does not sandbox the adapter's internal runtime. |
+| Surface                                               | Boundary                                                                                                                                                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hecate Chat with tools on / native `agent_loop` tasks | Hecate owns the task loop. Tool calls use WorkspaceFS, ProcessRunner, or GitRunner as appropriate, with env sanitisation, output caps, timeouts, policy checks, approvals, and `bwrap` / `sandbox-exec` wrappers where available. This is not a VM or container boundary. |
+| External Agent adapters                               | Codex, Claude Code, Cursor Agent, Grok Build, and similar adapters run as trusted local subprocesses in the selected workspace. Hecate supervises lifecycle, approvals, diagnostics, and Git diffs, but it does not sandbox the adapter's internal runtime.               |
 
 If you need a hard isolation boundary, run Hecate and its workspaces inside a VM, container, or dedicated OS user that you are comfortable letting tools modify.
 
@@ -129,7 +129,9 @@ The desktop app is a Tauri shell that bundles the main `hecate` runtime, which
 it launches in gateway mode as its sidecar.
 
 - The app launches `hecate` as a sidecar on a free loopback port.
-- Windows bundles are not yet code-signed, so SmartScreen warnings are expected on first launch. macOS bundles cut by `release.yml` with the `APPLE_*` secrets configured are signed + notarized (Developer ID Application) and don't trip Gatekeeper.
+- macOS release bundles cut by `release.yml` with the `APPLE_*` secrets configured are signed + notarized (Developer ID Application) and are the only desktop bundles maintainers currently launch-test.
+- Linux and Windows desktop artifacts are CI-built but have not yet been manually tested on real machines. Treat them as experimental and expect platform-specific bugs until that smoke coverage exists.
+- Windows bundles are not yet code-signed, so SmartScreen warnings are expected on first launch once the MSI is manually tested.
 - Quitting the app should stop the sidecar; closing a window may not quit the app on every platform.
 
 ## Dependency and advisory handling

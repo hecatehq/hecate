@@ -296,7 +296,11 @@ it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
 
 macOS bundles are signed with a Developer ID Application certificate and notarized by Apple **on release-workflow runs when the seven `APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets are configured**. "Release-workflow run" = any invocation of `release.yml` (tag push or `workflow_dispatch`); both pass a non-empty `tagName` to the reusable workflow. The CI workflow in `.github/workflows/_tauri-shared.yml` reads the secrets via env, gated on two conditions in series: `matrix.os == 'macos-latest'` AND `inputs.tagName != ''`. PR validation in `test.yml` and manual `tauri-build.yml` rebuilds deliberately do not use `secrets: inherit`, so they always produce unsigned bundles by design — they're throwaway artifacts. Maintainer-side setup checklist for the secrets is in [`docs/macos-signing.md`](../../../docs/macos-signing.md), including a verification recipe and a rotation playbook. Operators downloading an unsigned build (PR validation, fork builds, releases cut before secrets landed) need right-click → Open on first launch.
 
-Windows MSI signing (Authenticode + EV cert ~$300+/yr) is not yet wired. SmartScreen warns until it lands; document in release notes.
+macOS Apple Silicon is the only desktop path maintainers currently launch-test.
+Linux `.deb` / `.AppImage` and Windows `.msi` bundles are CI-built but have not
+yet been manually exercised on real machines; keep README, release notes, and
+docs honest about that. Windows MSI signing (Authenticode + EV cert ~$300+/yr)
+is not yet wired, so SmartScreen warnings are expected once the MSI is tested.
 
 ### Auto-update
 

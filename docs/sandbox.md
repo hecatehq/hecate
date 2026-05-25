@@ -1,13 +1,15 @@
 # Sandbox
 
-Hecate executes shell commands, git operations, and file writes inside
-a per-call subprocess that the gateway spawns directly. Every
-`shell_exec`, `git_exec`, and `file_write` tool call goes through the
-same code path: validate the task's policy, sanitise the environment,
-cap output and wall-clock time, optionally wrap with an OS-level
-confinement tool (`bwrap` / `sandbox-exec`), then `exec` the shell. A
-misbehaving command runs in its own process and cannot crash the
-gateway.
+Hecate executes workspace-bound tool calls through shared seams before
+they touch the host. File and search tools resolve paths through
+WorkspaceFS. Shell commands use ProcessRunner and the sandbox executor.
+Hecate-owned Git helpers use GitRunner where they do not need the broad
+`git_exec` shell-shaped interface. Every bounded subprocess still goes
+through the same safety model: validate the task's policy, sanitise the
+environment, cap output and wall-clock time, optionally wrap with an
+OS-level confinement tool (`bwrap` / `sandbox-exec`), then start the
+child process. A misbehaving command runs in its own process and cannot
+crash the gateway.
 
 There is no separate sandbox daemon. The safety properties below are
 applied per-call inside the gateway process.
@@ -19,6 +21,7 @@ Code: [`internal/sandbox/`](../internal/sandbox/) · policy reference: [`agent-r
 ## Contents
 
 - [How it works](#how-it-works)
+- [Relationship to WorkspaceFS and runners](#relationship-to-workspacefs-and-runners)
 - [Pre-execution policy validation](#pre-execution-policy-validation)
 - [Isolation layers](#isolation-layers)
 - [Environment variables](#environment-variables)
@@ -26,20 +29,25 @@ Code: [`internal/sandbox/`](../internal/sandbox/) · policy reference: [`agent-r
 
 ## How it works
 
-For every `shell_exec`, `git_exec`, or `file_write` tool call the
-gateway:
+For every Hecate-owned workspace tool call that can touch the filesystem
+or start a subprocess, the gateway:
 
 1. **Validates the task's policy.** Allowed-root path containment,
    read-only mode, network gate, host allowlist, private-IP block.
    Best-effort static parsing of the command. Violations return a
    `PolicyError` and the command never runs.
-2. **Builds an `exec.Cmd`** for `sh -lc <command>` (or
-   `rtk sh -lc <command>` when that specific Hecate Chat has compact
-   command output enabled) and then applies the bwrap /
-   sandbox-exec wrapper when available — see
-   [Layer 2](#layer-2--os-level-isolation).
-3. **Sanitises the environment** — explicit allowlist of variables
-   the shell command will see; gateway secrets stay out of scope.
+2. **Dispatches through the appropriate seam.** File/search/write tools
+   resolve workspace paths through WorkspaceFS. Shell commands build
+   `sh -lc <command>` (or `rtk sh -lc <command>` when that specific
+   Hecate Chat has compact command output enabled), the sandbox executor
+   wraps that argv with bwrap / sandbox-exec when available, then
+   ProcessRunner starts the child process — see
+   [Layer 2](#layer-2--os-level-isolation). Hecate-owned Git helper calls
+   build a GitRunner request rather than shelling out ad hoc; broad
+   `git_exec` still goes through the sandbox command executor.
+3. **Sanitises subprocess environments** — explicit allowlist of
+   variables shell and Git commands will see; gateway secrets stay out
+   of scope.
 4. **Spawns the subprocess** under the task's wall-clock timeout and
    reads stdout / stderr through bounded pipes. Combined output is
    capped (`HECATE_TASK_MAX_OUTPUT_BYTES`); over-cap commands are
@@ -48,9 +56,34 @@ gateway:
    The agent runtime turns that into a tool-result message for the
    LLM.
 
-No daemon. No JSON-RPC envelope. No binary-resolution dance. The
-shell subprocess is the only process boundary, and it's the one
-`os/exec` gives you for free.
+No daemon. No JSON-RPC envelope. No binary-resolution dance. The child
+process is the process boundary, with WorkspaceFS / ProcessRunner /
+GitRunner keeping workspace-bound behavior on the shared path.
+
+## Relationship to WorkspaceFS and runners
+
+The sandbox executor is the policy and isolation layer; it is not the
+only workspace abstraction.
+
+- **WorkspaceFS** (`internal/workspacefs`) resolves Hecate-mediated
+  file, search, and write paths and rejects workspace escapes before
+  filesystem IO.
+- **ProcessRunner** (`internal/processrunner`) is the bounded process
+  seam for command-style subprocesses. It owns cwd, environment,
+  timeout, streaming output, and output caps.
+- **GitRunner** (`internal/gitrunner`) is the Git-specific seam for
+  helper-style operations. It validates the workspace, runs Git with a
+  sanitised environment, and routes Git through ProcessRunner instead of
+  direct ad hoc subprocesses. The broad `git_exec` tool remains on the
+  sandbox command executor because it accepts a shell-shaped Git
+  subcommand string.
+
+External-agent subprocess internals are different: Codex, Claude Code,
+Cursor Agent, Grok Build, and similar adapters may run their own file,
+shell, and Git operations inside the selected workspace. Hecate applies
+WorkspaceFS / ProcessRunner / GitRunner to Hecate-mediated calls and ACP
+callbacks, not to arbitrary internal behavior of a trusted external
+agent.
 
 ## Pre-execution policy validation
 
@@ -83,12 +116,13 @@ approval policy. See
 
 ### Layer 0 — Subprocess boundary
 
-Every shell, git, and file command runs as a `sh` child process
-spawned via `exec.Command`. A misbehaving or panicking command can't
-crash the gateway: when the child exits, the kernel reclaims its file
-descriptors, virtual memory, and any descendants. This is what
-`os/exec` gives you for free; it's named here only because it is
-part of the safety story.
+Every shell command and Hecate-owned Git helper runs as a child process
+spawned by ProcessRunner. Broad `git_exec` also gets its own child
+process through the sandbox command executor. A misbehaving or panicking
+command can't crash the gateway: when the child exits, the kernel
+reclaims its file descriptors, virtual memory, and any descendants. This
+is the basic `os/exec` boundary; it's named here only because it is part
+of the safety story.
 
 What this layer is **not**: a chroot, a container, or a VM. The
 subprocess runs as the same OS user as the gateway and inherits the

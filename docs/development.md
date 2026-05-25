@@ -3,7 +3,9 @@
 This guide covers the source-build toolchain, local-build path, UI hot reload,
 website development, the test surface, and the screenshot tooling. For the
 simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the
-desktop app is the recommended on-ramp for personal use; Docker for server use.
+desktop app is the recommended on-ramp for macOS personal use; Docker is the
+more predictable path for server use and for Linux/Windows until those desktop
+bundles are manually tested.
 The Tauri desktop app's local build (`just tauri-dev`) lives in
 [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md).
 
@@ -202,8 +204,9 @@ Desktop packaging is intentionally gated inside `test.yml`: the
 `Tauri desktop bundles` matrix waits for the cheaper Go, TypeScript, e2e,
 Docker smoke, and Tauri Rust jobs to pass (or skip by path filter) before
 building macOS, Linux, and Windows bundles. PR bundle validation does **not**
-upload unsigned artifacts; it only proves the bundles build. Release tags still
-upload signed/notarized artifacts through `release.yml`.
+upload unsigned artifacts; it only proves the bundles build. It does not
+manually launch Linux or Windows desktop artifacts. Release tags still upload
+signed/notarized artifacts through `release.yml`.
 
 This shape keeps PR feedback fast for normal code changes and avoids burning
 desktop runner minutes when a cheaper test has already failed. If a desktop

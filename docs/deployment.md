@@ -92,14 +92,17 @@ State lives in the platform data dir, not next to the binary:
 
 First-launch behavior depends on the platform and on how the bundle was built:
 
-- **macOS** is signed with a Developer ID Application certificate and notarized when the bundle was produced by a release-workflow run (`.github/workflows/release.yml` — tag push or manual `workflow_dispatch`) with the `APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets configured (see [`macos-signing.md`](macos-signing.md)). Such bundles launch with no Gatekeeper warning and drag-install to `/Applications` cleanly. Earlier alpha bundles, plus any release built before the secrets landed (or any future fork build that doesn't have access to them), remain unsigned — Gatekeeper blocks the first launch with "Apple cannot check it for malicious software." Right-click `Hecate.app` → **Open**, confirm in the dialog. Subsequent launches work normally.
-- **Windows** bundles are not yet signed. SmartScreen shows a "Windows protected your PC" warning. Click **More info** → **Run anyway**. Reputation builds over hundreds of installs; full Authenticode signing is roadmap.
-- **Linux** has no Gatekeeper-equivalent. `.deb` installs as a normal package; `.AppImage` needs `chmod +x` before running.
+- **macOS Apple Silicon** is the maintainer-tested desktop path. Release bundles are signed with a Developer ID Application certificate and notarized when produced by a release-workflow run (`.github/workflows/release.yml` — tag push or manual `workflow_dispatch`) with the `APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets configured (see [`macos-signing.md`](macos-signing.md)). Such bundles launch with no Gatekeeper warning and drag-install to `/Applications` cleanly. Earlier alpha bundles, plus any release built before the secrets landed (or any future fork build that doesn't have access to them), remain unsigned — Gatekeeper blocks the first launch with "Apple cannot check it for malicious software." Right-click `Hecate.app` → **Open**, confirm in the dialog. Subsequent launches work normally.
+- **Windows** bundles are CI-built but have not yet been manually installed or exercised. They are not code-signed, so SmartScreen is expected to show a "Windows protected your PC" warning once tested. Full Authenticode signing is roadmap.
+- **Linux** bundles are CI-built but have not yet been manually launched or exercised. `.deb` installs as a normal package; `.AppImage` needs `chmod +x` before running. Expect bugs until real-machine smoke coverage exists.
+
+For Linux or Windows today, Docker or the standalone binary tarballs are the
+more predictable alpha paths.
 
 Desktop app distinct from `docker run` / bare binary:
 
 - No port conflict with a separately-running gateway — the app picks a free loopback port at launch.
-- Quitting the app via `cmd+Q` (macOS) / **File → Quit** (Windows / Linux) kills the sidecar; closing only the window does not (macOS hides the window, Windows / Linux behave per WM).
+- Quitting the app via `cmd+Q` (macOS) / **File → Quit** (Windows / Linux) is designed to stop the sidecar; this is smoke-tested on macOS and still untested on Linux/Windows.
 - Multi-machine users keep separate config per OS — settings on macOS don't migrate to Linux even on the same release.
 
 Full state, footguns, and roadmap: [`desktop-app.md`](desktop-app.md).

@@ -21,7 +21,7 @@ Pick the path closest to what you are doing.
 | Doc                                       | What it answers                                                                                                                               |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Deployment](deployment.md)               | Docker, binary install, image pinning, storage backends, rate limits, lost-token recovery.                                                    |
-| [Desktop app](desktop-app.md)             | Native bundles, first-launch warnings, platform data dirs, sidecar lifecycle, roadmap.                                                        |
+| [Desktop app](desktop-app.md)             | Native bundles, tested-platform status, first-launch warnings, platform data dirs, sidecar lifecycle, roadmap.                                |
 | [Security](security.md)                   | Local-first threat model, runtime boundaries, workspace safety, approvals, secrets, and advisory handling.                                    |
 | [Providers](providers.md)                 | Built-in provider presets, OpenAI-compatible custom endpoints, credentials, model discovery, health, circuit breaking.                        |
 | [Chat sessions](chat-sessions.md)         | Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queued prompts, approvals in Chats, and shared activity rendering. |

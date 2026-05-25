@@ -16,9 +16,14 @@ internal/providers/        outbound HTTP per provider (openai, anthropic)
                              openAIChatMessage, openAIMessageContent (lowercase)
                              — same JSON shape as api/, deliberate duplication
 internal/orchestrator/     task runtime (queue, runner, agent_loop, sandbox)
-internal/sandbox/          per-call sh subprocess: policy validation,
-                             env sanitisation, output cap, optional
-                             bwrap/sandbox-exec wrapper
+internal/workspacefs/      shared workspace path resolver for file/search/write
+                             operations owned by Hecate
+internal/processrunner/    bounded local subprocess seam: cwd, env, timeout,
+                             streaming output, output caps
+internal/gitrunner/        Git-specific runner for Hecate-owned Git helpers
+internal/sandbox/          policy validation + OS isolation wrapper for tool
+                             subprocesses; shell uses ProcessRunner, broad git_exec
+                             still runs through this executor
 internal/taskstate/        task / run / step / artifact / approval persistence
 internal/storage/          sqlite client wrappers
 internal/retention/        retention worker (subsystems: traces, usage_events, audit,
@@ -77,7 +82,7 @@ When adding a new persisted thing, mirror both. Add a `<thing>_test.go` that run
 
 These earn extra scrutiny; changes here are not drive-by territory.
 
-- **Sandbox boundary** (`internal/sandbox/`) — per-call `sh` subprocess spawned directly from the gateway after policy validation, env sanitisation, output cap, and a wall-clock timeout (Layer 1). On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (Layer 2 — auto-detected at startup via `internal/sandbox/wrapper.go`, no opt-in flag). No separate `sandboxd` daemon — the safety properties run inline. CPU / FD / address-space caps are _not_ applied per-call (`setrlimit` would shrink the long-running gateway) — operators who need them run under systemd or in a container with `--cpus` / `--memory` flags. New tool kinds follow the same `internal/sandbox/` shape. See `docs/sandbox.md` for the layer model and `docs/agent-runtime.md` for the network-egress policy that sits on top.
+- **Workspace and subprocess boundary** (`internal/workspacefs/`, `internal/processrunner/`, `internal/gitrunner/`, `internal/sandbox/`) — Hecate-mediated file/search/write operations resolve paths through WorkspaceFS. Shell commands go through the sandbox executor and ProcessRunner; Hecate-owned Git helpers use GitRunner where they do not need the broad `git_exec` shell-shaped interface. The sandbox layer still applies policy validation, env sanitisation, output caps, wall-clock timeout, and optional `bwrap` / `sandbox-exec` OS isolation (auto-detected at startup via `internal/sandbox/wrapper.go`, no opt-in flag). No separate `sandboxd` daemon — the safety properties run inline. CPU / FD / address-space caps are _not_ applied per-call (`setrlimit` would shrink the long-running gateway) — operators who need them run under systemd or in a container with `--cpus` / `--memory` flags. New workspace tool kinds use WorkspaceFS / ProcessRunner / GitRunner as appropriate rather than raw filesystem, process, or git calls. See `docs/sandbox.md` for the layer model and `docs/agent-runtime.md` for the network-egress policy that sits on top.
 - **Approval lifecycle** (`internal/taskstate`, `awaiting_approval`) — pre-execution and mid-loop approvals halt the run. New gates use the same `TaskApproval` shape.
 - **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `trace_snapshots`, `usage_events`, `audit_events`, `provider_history`, `turn_events`, `chat_approvals`. Persisted things must mirror.
 - **Usage/cost fields** — money fields are `int64` micro-USD (`1_000_000` = `$1`) when present. Never `float64`; Hecate records usage events for visibility, not spend enforcement.

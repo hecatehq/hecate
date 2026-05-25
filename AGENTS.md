@@ -56,8 +56,14 @@ internal/
   catalog/, models/     provider catalog + model registry
   modelcaps/            shared model capability table (streaming, tools, vision, …)
   orchestrator/         task runtime: queue, runner, agent_loop, sandbox boundary
-  sandbox/              per-call sh subprocess: policy validation, env sanitisation,
-                          output cap + timeout, auto-detected bwrap/sandbox-exec wrapper
+  workspacefs/          shared workspace path resolver for Hecate-mediated
+                          file/search/write operations
+  processrunner/        bounded local subprocess seam: cwd, env, timeout,
+                          streaming output, output caps
+  gitrunner/            Git-specific runner used by Hecate-owned Git helpers
+  sandbox/              policy validation + OS isolation wrapper for tool
+                          subprocesses; shell calls dispatch through ProcessRunner
+                          and broad git_exec still runs through this executor
   taskstate/            task / run / step / artifact / approval persistence
   agentadapters/        ACP/process adapters for Codex, Claude Code, Cursor
   eventprotocol/        agent-runtime event protocol v1 envelopes (API-facing shape)
@@ -96,7 +102,8 @@ Non-negotiable rules of the system. Read them before writing code that
 touches request handling, persistence, or tool execution.
 
 - **Local operator boundary.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; bind elsewhere only behind a reverse proxy, firewall, or equivalent access control.
-- **Sandbox is per-call subprocess, applied inline.** Shell, file, and git tool calls spawn a fresh `sh` from inside the gateway after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (auto-detected at startup). No separate sandbox daemon, no per-call rlimits (those would shrink the long-running gateway). New tools follow the same pattern.
+- **WorkspaceFS / runners are the workspace boundary.** Hecate-mediated file/search/write operations resolve paths through `internal/workspacefs`. Shell commands go through the sandbox executor and `internal/processrunner`; Hecate-owned Git helper calls go through `internal/gitrunner` where they do not need the broad `git_exec` shell-shaped interface. Avoid raw `os.*` path access, raw `exec.Command`, or direct `git` subprocesses for workspace-bound behavior unless you are inside those seams or writing a narrowly scoped test.
+- **Sandbox is per-call and applied inline.** Tool subprocesses run after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (auto-detected at startup). No separate sandbox daemon, no per-call rlimits (those would shrink the long-running gateway). New workspace tools follow WorkspaceFS / ProcessRunner / GitRunner as appropriate.
 - **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the `TaskApproval` shape.
 - **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/events.md`.
 - **Cost is `int64` micro-USD when present.** Never `float64` for money. Hecate records usage events for visibility; it does not enforce global spend controls.

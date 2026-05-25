@@ -28,6 +28,18 @@ is manual-only for explicit desktop rebuild/debug runs from the Actions tab. To
 test-launch a bundle before merge, dispatch `tauri-build.yml` manually from the
 PR branch.
 
+Build success is not the same as platform confidence:
+
+| Platform              | Current confidence                                                                                                                                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS (Apple Silicon) | Maintainer-tested alpha path. Release bundles are signed, notarized, launch-smoked, and covered by the local `just test-tauri-smoke` macOS app smoke.       |
+| Linux x86_64          | CI-built only. The `.deb` and `.AppImage` have not yet been manually launched or exercised on a Linux desktop, so expect packaging and runtime bugs.        |
+| Windows x86_64        | CI-built only. The `.msi` has not yet been manually installed or exercised on Windows, and it is not code-signed yet, so SmartScreen warnings are expected. |
+
+For Linux or Windows operators who need the safest path today, use Docker or
+the standalone binary tarballs until the desktop bundles get real-machine
+smoke coverage.
+
 ## Current state — `v0.1.0-alpha.39`
 
 What works:
@@ -71,14 +83,16 @@ What works:
   the app, confirm the hecate sidecar listens on loopback and `/healthz`
   returns `ok`, then quit and confirm both app and hecate processes exit.
 - Linux and Windows bundles build green in CI, including Tauri Rust tests and
-  sidecar staging. They still need manual launch smoke on real hardware before
-  we describe them as fully platform-tested.
+  sidecar staging. They have not yet been manually launched on real hardware,
+  so treat them as experimental and expect bugs until smoke coverage exists.
 - Auto-update is active. Each release emits a signed `latest.json`
   manifest as a GitHub Release asset and publishes the same manifest
   to `https://hecate.sh/releases/alpha/latest.json`, which alpha.28+
   desktop bundles read on launch. When a newer version is published,
   Hecate surfaces "Hecate X.Y.Z is available — Install and Restart"
-  with live download progress. Maintainer-side keypair custody and rotation playbook:
+  with live download progress. This flow is exercised on macOS; Linux and
+  Windows updater behavior still needs real-machine testing. Maintainer-side
+  keypair custody and rotation playbook:
   [`desktop-updater-signing.md`](desktop-updater-signing.md).
 
 What doesn't yet:
@@ -90,8 +104,8 @@ What doesn't yet:
   a cask would help app distribution. macOS now signs+notarizes via
   `APPLE_*` repo secrets; a cask would still be additional polish.
 - No tray and no deep links.
-- Linux and Windows: build-only. Need an actual launch on each platform
-  before claiming they work.
+- Linux and Windows: build-only and currently untested by maintainers. Need an
+  actual launch on each platform before claiming they work.
 
 ## Roadmap
 

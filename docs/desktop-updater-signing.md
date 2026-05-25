@@ -91,6 +91,10 @@ them to sign the platform bundles (`.app.tar.gz`, `.AppImage`,
    can recover from a stuck Pages deploy even when the manifest
    commit itself is a no-op.
 
+This verifies signed updater artifact production and manifest publication. It
+does not prove the Linux or Windows desktop updater path works on a real
+machine yet; only the macOS desktop update flow is currently exercised.
+
 Both secrets are scoped to `inputs.tagName != ''` in
 `.github/workflows/_tauri-shared.yml`, so PR-validation runs of
 `tauri-build.yml` never see them.
