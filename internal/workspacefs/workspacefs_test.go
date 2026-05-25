@@ -178,6 +178,36 @@ func TestReadDirRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestReadDirReportsSymlinkWithoutFollowing(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	entries, _, err := fsys.ReadDir(".")
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Name != "linked" {
+			continue
+		}
+		if entry.Type&os.ModeSymlink == 0 {
+			t.Fatalf("linked type = %v, want symlink bit", entry.Type)
+		}
+		if entry.IsDir {
+			t.Fatal("linked IsDir = true, want false for symlink entry")
+		}
+		return
+	}
+	t.Fatal("linked entry not found")
+}
+
 func TestWalkDirRejectsSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -195,6 +225,44 @@ func TestWalkDirRejectsSymlinkEscape(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected walk through symlink component to be rejected")
+	}
+}
+
+func TestWalkDirDoesNotRecurseIntoSymlinkDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linked")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	fsys, err := New(root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	var got []string
+	err = fsys.WalkDir(".", func(_ string, rel string, entry DirEntry) error {
+		got = append(got, filepath.ToSlash(rel))
+		if rel == "linked" {
+			if entry.Type&os.ModeSymlink == 0 {
+				t.Fatalf("linked type = %v, want symlink bit", entry.Type)
+			}
+			if entry.IsDir {
+				t.Fatal("linked IsDir = true, want false for symlink entry")
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkDir: %v", err)
+	}
+	if !containsString(got, "linked") {
+		t.Fatalf("walked paths = %#v, want linked", got)
+	}
+	if containsString(got, "linked/secret.txt") {
+		t.Fatalf("walked symlink target file: %#v", got)
 	}
 }
 
@@ -224,4 +292,13 @@ func TestWalkDirVisitsWorkspaceRelativePaths(t *testing.T) {
 	if want := []string{"a/b/file.txt"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("walked files = %#v, want %#v", got, want)
 	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

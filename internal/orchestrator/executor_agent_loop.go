@@ -1652,10 +1652,7 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 	if cmdCtx.Err() == context.DeadlineExceeded {
 		return "", false, fmt.Errorf("git command timed out")
 	}
-	out := result.Stdout
-	if strings.TrimSpace(result.Stderr) != "" {
-		out += result.Stderr
-	}
+	out := combineGitReadOutput(result.Stdout, result.Stderr)
 	if err != nil {
 		text := strings.TrimSpace(out)
 		if text != "" {
@@ -1664,6 +1661,19 @@ func runGitReadCommand(ctx context.Context, root string, maxBytes int, args ...s
 		return "", false, err
 	}
 	return out, result.StdoutTruncated || result.StderrTruncated, nil
+}
+
+func combineGitReadOutput(stdout, stderr string) string {
+	if strings.TrimSpace(stderr) == "" {
+		return stdout
+	}
+	if strings.TrimSpace(stdout) == "" {
+		return stderr
+	}
+	if strings.HasSuffix(stdout, "\n") {
+		return stdout + stderr
+	}
+	return stdout + "\n" + stderr
 }
 
 func readWorkspaceFileContent(fsys *workspacefs.FS, rel, displayPath string, fileSize int64, maxBytes, startLine, endLine int) (string, string, int, bool, string) {
