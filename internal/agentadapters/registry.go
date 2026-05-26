@@ -295,38 +295,14 @@ func BuiltIns() []Adapter {
 			SupportedRange: ">=0.1.0",
 		},
 		{
-			ID:               "grok_build",
-			Name:             "Grok Build",
-			Command:          "grok",
-			Args:             []string{"agent"},
-			LaunchSuffixArgs: []string{"stdio"},
+			ID:      "grok_build",
+			Name:    "Grok Build",
+			Command: "grok",
+			Args:    []string{"agent", "stdio"},
 			CandidatePaths: []string{
 				"${HOME}/.local/bin/grok",
 				"/opt/homebrew/bin/grok",
 				"/usr/local/bin/grok",
-			},
-			LaunchOptions: []LaunchSelectConfig{
-				// Grok Build exposes model selection through ACP session
-				// model state, but reasoning is still a launch flag rather
-				// than an ACP session config option.
-				{
-					ConfigID:         "reasoning_effort",
-					Name:             "Reasoning",
-					Description:      "Reasoning effort passed to Grok Build when Hecate starts or restarts it.",
-					Category:         "thought_level",
-					UnsetValue:       "__hecate_no_reasoning_selected__",
-					UnsetName:        "Pick reasoning",
-					UnsetDescription: "Use Grok Build's default reasoning effort.",
-					ArgTemplate:      []string{"--reasoning-effort", "{reasoning_effort}"},
-					Options: []LaunchSelectOption{
-						{ID: "none", Name: "None"},
-						{ID: "minimal", Name: "Minimal"},
-						{ID: "low", Name: "Low"},
-						{ID: "medium", Name: "Medium"},
-						{ID: "high", Name: "High"},
-						{ID: "xhigh", Name: "XHigh"},
-					},
-				},
 			},
 			Kind:           "acp",
 			Description:    "Run Grok Build through its ACP mode as a long-lived external coding-agent session supervised by Hecate.",
