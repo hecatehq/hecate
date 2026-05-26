@@ -423,7 +423,7 @@ func (s *acpSession) SetACPModel(ctx context.Context, req SetSessionConfigOption
 		SessionId: acp.SessionId(s.nativeID),
 		ModelId:   acp.UnstableModelId(value),
 	}); err != nil {
-		return SetSessionConfigOptionResult{}, err
+		return SetSessionConfigOptionResult{}, fmt.Errorf("select ACP model for %q: %w", s.adapter.ID, err)
 	}
 
 	s.configMu.Lock()
@@ -503,6 +503,8 @@ func mergeACPSessionConfigOptions(options []agentcontrols.ConfigOption, models *
 	if !ok || hasModelConfigOption(options) {
 		return options
 	}
+	// Surfacing ACP model state as a writable control relies on the adapter
+	// also supporting the matching unstable set-model RPC.
 	return append(options, modelOption)
 }
 
