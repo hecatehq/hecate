@@ -71,18 +71,19 @@ export function buildTraceTimeline(
   spans: TraceSpanRecord[],
   traceStartedAt?: string,
 ): TraceTimelineItem[] {
-  const flattened: TraceTimelineItem[] = [];
+  const byEvent = new Map<string, { item: TraceTimelineItem; rootMirror: boolean }>();
   const startSource = traceStartedAt || spans[0]?.start_time || "";
   const startMs = parseISOWithSubMs(startSource);
 
   for (const span of spans) {
+    const rootMirror = !span.parent_span_id && span.name === "gateway.request";
     for (const event of span.events ?? []) {
       const currentMs = parseISOWithSubMs(event.timestamp);
       const offsetMs =
         Number.isFinite(startMs) && Number.isFinite(currentMs)
           ? Math.max(0, currentMs - startMs)
           : 0;
-      flattened.push({
+      const item = {
         name: event.name,
         timestamp: event.timestamp,
         offsetMs,
@@ -91,12 +92,39 @@ export function buildTraceTimeline(
         spanKind: span.kind || "internal",
         phase: tracePhaseFromEvent(event.name),
         attributes: event.attributes,
-      });
+      };
+      const key = traceTimelineEventKey(event);
+      const existing = byEvent.get(key);
+      if (!existing || (existing.rootMirror && !rootMirror)) {
+        byEvent.set(key, { item, rootMirror });
+      }
     }
   }
 
+  const flattened = Array.from(byEvent.values(), ({ item }) => item);
   flattened.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
   return flattened;
+}
+
+function traceTimelineEventKey(event: {
+  name: string;
+  timestamp: string;
+  attributes?: unknown;
+}): string {
+  return [event.name, event.timestamp, stableTraceValueKey(event.attributes ?? null)].join(
+    "\u0000",
+  );
+}
+
+function stableTraceValueKey(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableTraceValueKey).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableTraceValueKey(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function formatTraceOffsetMs(ms: number): string {

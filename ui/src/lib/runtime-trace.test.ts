@@ -531,6 +531,51 @@ describe("buildSpanWaterfall", () => {
 });
 
 describe("buildTraceTimeline", () => {
+  it("dedupes root-span mirror events in the operator event flow", () => {
+    const timeline = buildTraceTimeline(
+      [
+        span({
+          span_id: "root",
+          name: "gateway.request",
+          start_time: "2026-05-11T06:14:05.428427Z",
+          events: [
+            {
+              name: "chat.run.started",
+              timestamp: "2026-05-11T06:14:05.428427Z",
+              attributes: {
+                "hecate.agent_adapter.id": "grok_build",
+                "hecate.agent_adapter.name": "Grok Build",
+              },
+            },
+          ],
+        }),
+        span({
+          span_id: "chat",
+          parent_span_id: "root",
+          name: "agent_chat.run",
+          events: [
+            {
+              name: "chat.run.started",
+              timestamp: "2026-05-11T06:14:05.428427Z",
+              attributes: {
+                "hecate.agent_adapter.name": "Grok Build",
+                "hecate.agent_adapter.id": "grok_build",
+              },
+            },
+          ],
+        }),
+      ],
+      "2026-05-11T06:14:05.428427Z",
+    );
+
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      name: "chat.run.started",
+      spanName: "agent_chat.run",
+      phase: "chat",
+    });
+  });
+
   it("uses sub-ms event offsets instead of collapsing them to 0 ms", () => {
     const timeline = buildTraceTimeline(
       [
