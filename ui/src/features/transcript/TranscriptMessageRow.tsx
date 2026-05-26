@@ -556,6 +556,8 @@ function isTerminalSessionMetadata(activity: ChatActivityRecord): boolean {
 }
 
 function isFilesChangedActivity(activity: ChatActivityRecord): boolean {
+  // Keep in sync with changed-file activity rows emitted from
+  // internal/api/handler_chat_activities.go and handler_chat_files.go.
   return activity.type === "changed_files" || activity.type === "files_changed";
 }
 

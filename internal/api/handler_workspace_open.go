@@ -33,6 +33,10 @@ func (h *Handler) HandleWorkspaceOpen(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusForbidden, errCodeInvalidRequest, "workspace open is only available to local loopback clients")
 		return
 	}
+	if hasForwardedClientHeaders(r) {
+		WriteError(w, http.StatusForbidden, errCodeInvalidRequest, "workspace open rejects forwarded client headers")
+		return
+	}
 	var req WorkspaceOpenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid JSON body")
@@ -66,6 +70,11 @@ func isLoopbackRemoteAddr(remoteAddr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func hasForwardedClientHeaders(r *http.Request) bool {
+	return strings.TrimSpace(r.Header.Get("X-Forwarded-For")) != "" ||
+		strings.TrimSpace(r.Header.Get("X-Real-IP")) != ""
 }
 
 func validateWorkspaceOpenRequest(path, target string) (string, workspaceOpenTarget, error) {

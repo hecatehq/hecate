@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 560;
+const KEYBOARD_RESIZE_STEP = 8;
 
 export function ChatRightPanel({
   ariaLabel,
@@ -51,11 +52,11 @@ export function ChatRightPanel({
         onKeyDown={(event) => {
           if (event.key === "ArrowLeft") {
             event.preventDefault();
-            updateWidth(width + 24);
+            updateWidth(width + KEYBOARD_RESIZE_STEP);
           }
           if (event.key === "ArrowRight") {
             event.preventDefault();
-            updateWidth(width - 24);
+            updateWidth(width - KEYBOARD_RESIZE_STEP);
           }
         }}
         onPointerDown={(event) => {

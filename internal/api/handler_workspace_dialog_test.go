@@ -3,12 +3,17 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/hecatehq/hecate/internal/config"
 	"github.com/ncruces/zenity"
 )
 
@@ -105,5 +110,38 @@ func TestWorkspaceDialogRejectsSelectedFile(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "selected workspace is not a directory") {
 		t.Fatalf("chooseWorkspaceDirectoryWithPicker() error = %v, want selected-file error", err)
+	}
+}
+
+func TestWorkspaceDialogRejectsNonLoopbackClient(t *testing.T) {
+	t.Parallel()
+
+	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, config.Config{})
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/workspace-dialog", nil)
+	req.RemoteAddr = "203.0.113.12:4321"
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d, body=%s", recorder.Code, http.StatusForbidden, recorder.Body.String())
+	}
+}
+
+func TestWorkspaceDialogRejectsForwardedClientHeaders(t *testing.T) {
+	t.Parallel()
+
+	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, config.Config{})
+	for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
+		req := httptest.NewRequest(http.MethodPost, "/hecate/v1/workspace-dialog", nil)
+		req.RemoteAddr = "127.0.0.1:4321"
+		req.Header.Set(header, "203.0.113.12")
+		recorder := httptest.NewRecorder()
+
+		handler.ServeHTTP(recorder, req)
+
+		if recorder.Code != http.StatusForbidden {
+			t.Fatalf("%s status = %d, want %d, body=%s", header, recorder.Code, http.StatusForbidden, recorder.Body.String())
+		}
 	}
 }

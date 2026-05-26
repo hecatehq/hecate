@@ -42,7 +42,7 @@ describe("ChatRightPanel", () => {
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
     fireEvent.keyDown(handle, { key: "ArrowRight" });
 
-    expect(onWidthChange).toHaveBeenCalledWith(404);
-    expect(onWidthChange).toHaveBeenCalledWith(356);
+    expect(onWidthChange).toHaveBeenCalledWith(388);
+    expect(onWidthChange).toHaveBeenCalledWith(372);
   });
 });

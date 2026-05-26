@@ -15,6 +15,7 @@ import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
 
 const WORKSPACE_OPEN_DEFAULT_KEY = "hecate.workspaceOpen.defaultTarget";
+const WORKSPACE_OPEN_DEFAULT_VERSION = 1;
 
 export function WorkspaceOpenMenu({ workspacePath }: { workspacePath: string }) {
   const [error, setError] = useState("");
@@ -182,7 +183,12 @@ export function WorkspaceOpenMenu({ workspacePath }: { workspacePath: string }) 
 
 function readDefaultWorkspaceOpenTarget(): string {
   try {
-    return localStorage.getItem(WORKSPACE_OPEN_DEFAULT_KEY) ?? "";
+    const raw = localStorage.getItem(WORKSPACE_OPEN_DEFAULT_KEY);
+    if (!raw) return "";
+    const parsed = JSON.parse(raw) as { v?: unknown; target?: unknown };
+    return parsed.v === WORKSPACE_OPEN_DEFAULT_VERSION && typeof parsed.target === "string"
+      ? parsed.target
+      : "";
   } catch {
     return "";
   }
@@ -190,7 +196,10 @@ function readDefaultWorkspaceOpenTarget(): string {
 
 function rememberDefaultWorkspaceOpenTarget(target: WorkspaceOpenTarget["id"]) {
   try {
-    localStorage.setItem(WORKSPACE_OPEN_DEFAULT_KEY, target);
+    localStorage.setItem(
+      WORKSPACE_OPEN_DEFAULT_KEY,
+      JSON.stringify({ v: WORKSPACE_OPEN_DEFAULT_VERSION, target }),
+    );
   } catch {
     // Best-effort preference only.
   }

@@ -19,6 +19,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
 });
 
 afterEach(() => {
+  localStorage.removeItem("hecate.chat.rightPanelWidth");
   vi.mocked(discoverLocalProviders).mockReset();
   vi.mocked(discoverLocalProviders).mockResolvedValue({
     object: "local_provider_discovery",
@@ -3855,11 +3856,34 @@ describe("ChatView external-agent target", () => {
     fireEvent.pointerDown(handle, { clientX: 800, pointerId: 1 });
     fireEvent.pointerMove(handle, { clientX: 740, pointerId: 1 });
     expect(settingsPanel).toHaveStyle({ width: "440px" });
+    expect(localStorage.getItem("hecate.chat.rightPanelWidth")).toBe("440");
 
     await user.click(screen.getByRole("button", { name: "Workspace changes" }));
     expect(await screen.findByLabelText("Workspace changes panel")).toHaveStyle({
       width: "440px",
     });
+  });
+
+  it("restores the saved right panel width", async () => {
+    localStorage.setItem("hecate.chat.rightPanelWidth", "432");
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentWorkspace: "/tmp/hecate",
+      activeChatSessionID: "a1",
+      activeChatSession: {
+        id: "a1",
+        title: "Review files",
+        agent_id: "codex",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Chat settings" }));
+
+    expect(screen.getByLabelText("Chat settings panel")).toHaveStyle({ width: "432px" });
   });
 
   it("surfaces current workspace diff load failures", async () => {

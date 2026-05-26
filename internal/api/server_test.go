@@ -1790,6 +1790,39 @@ func TestChatWorkspaceDiffReturnsCurrentGitDiff(t *testing.T) {
 	}
 }
 
+func TestChatWorkspaceDiffRejectsInvalidWorkspaces(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		workspace string
+	}{
+		{name: "non_git", workspace: t.TempDir()},
+		{name: "missing", workspace: filepath.Join(t.TempDir(), "missing")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := chat.NewMemoryStore()
+			sessionID := "chat_workspace_diff_" + tc.name
+			if _, err := store.Create(context.Background(), chat.Session{
+				ID:        sessionID,
+				Title:     "Diff",
+				AgentID:   "codex",
+				Workspace: tc.workspace,
+				Status:    "completed",
+			}); err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+			apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+			apiHandler.SetAgentChatStore(store)
+			client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+			rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+			if !strings.Contains(rec.Body.String(), "chat workspace is not a git worktree") {
+				t.Fatalf("body = %s, want git worktree error", rec.Body.String())
+			}
+		})
+	}
+}
+
 func chatChangedFilesContain(files []ChatChangedFileItem, path string) bool {
 	for _, file := range files {
 		if file.Path == path {

@@ -23,6 +23,14 @@ describe("TranscriptMarkdown", () => {
     expect(screen.getByText("ui/").closest("strong")).not.toBeNull();
   });
 
+  it("renders inline code inside italic labels", () => {
+    const { container } = render(<TranscriptMarkdown content="*UI (`ui/`)*" />);
+
+    expect(container.textContent).toBe("UI (ui/)");
+    expect(screen.getByText("ui/").tagName).toBe("CODE");
+    expect(screen.getByText("ui/").closest("em")).not.toBeNull();
+  });
+
   it("renders fenced code blocks", () => {
     render(<TranscriptMarkdown content={"```ts\nconst x = 1;\n```"} />);
     expect(screen.getByText(/const x = 1/)).toBeInTheDocument();
