@@ -6,6 +6,7 @@ import type {
   ChatActivityRecord,
   ChatChangedFileDiffRecord,
   ChatChangedFileRecord,
+  ChatContextPacketRecord,
   ChatTimingRecord,
   ChatUsageRecord,
 } from "../../types/chat";
@@ -201,6 +202,37 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText(/bottleneck · model 8\.5s/)).toBeInTheDocument();
     expect(screen.getByText(/total 12s/)).toBeInTheDocument();
     expect(screen.getByText(/2 turns · 1 tool/)).toBeInTheDocument();
+  });
+
+  it("renders a collapsed context inspector for assistant context packets", async () => {
+    const user = userEvent.setup();
+    const contextPacket: ChatContextPacketRecord = {
+      execution_mode: "hecate_task",
+      provider: "ollama",
+      model: "llama3.1:8b",
+      workspace: "/tmp/hecate",
+      message_count: 3,
+      sources: [
+        {
+          kind: "system_prompt",
+          label: "System prompt",
+          detail: "Configured for this turn",
+          trust: "system",
+          included: true,
+        },
+      ],
+    };
+
+    render(<TranscriptMessageRow {...baseProps} contextPacket={contextPacket} />);
+    const summary = screen.getByText(/context · 3 messages · ollama · llama3\.1:8b/);
+    expect(summary).toBeInTheDocument();
+
+    await user.click(summary);
+
+    expect(screen.getByText("Hecate task runtime")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/hecate")).toBeInTheDocument();
+    expect(screen.getByText("System prompt")).toBeInTheDocument();
+    expect(screen.getByText("Configured for this turn")).toBeInTheDocument();
   });
 
   it("links failed tools to related stdout and stderr artifacts", async () => {

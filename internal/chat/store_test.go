@@ -82,6 +82,31 @@ func runStoreLifecycle(t *testing.T, store Store) {
 		Status:        "running",
 		CostMode:      "hecate",
 		Workspace:     "/tmp/hecate",
+		Context: ContextPacket{
+			Version:              "chat.context.v1",
+			ExecutionMode:        ExecutionModeHecateTask,
+			Provider:             "openai",
+			Model:                "gpt-4o-mini",
+			Workspace:            "/tmp/hecate",
+			SystemPromptIncluded: true,
+			MessageCount:         2,
+			Sources: []ContextSource{
+				{
+					Kind:     "workspace",
+					Label:    "Workspace",
+					Detail:   "/tmp/hecate",
+					Trust:    "workspace",
+					Included: true,
+				},
+				{
+					Kind:     "task_runtime",
+					Label:    "Hecate task runtime",
+					Detail:   "Continuing the existing task-backed agent loop",
+					Trust:    "runtime",
+					Included: true,
+				},
+			},
+		},
 	}); err != nil {
 		t.Fatalf("AppendMessage(assistant): %v", err)
 	}
@@ -165,6 +190,17 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if got.Messages[1].Provider != "openai" || got.Messages[1].Model != "gpt-4o-mini" || got.Messages[1].Capabilities.ToolCalling != "basic" {
 		t.Fatalf("persisted message model snapshot = provider %q model %q caps %+v", got.Messages[1].Provider, got.Messages[1].Model, got.Messages[1].Capabilities)
+	}
+	if got.Messages[1].Context.Version != "chat.context.v1" || got.Messages[1].Context.MessageCount != 2 || len(got.Messages[1].Context.Sources) != 2 {
+		t.Fatalf("persisted context packet = %+v, want version/count/sources", got.Messages[1].Context)
+	}
+	got.Messages[1].Context.Sources[0].Detail = "mutated"
+	got, ok, err = store.Get(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get after context mutation: ok=%v err=%v", ok, err)
+	}
+	if got.Messages[1].Context.Sources[0].Detail != "/tmp/hecate" {
+		t.Fatalf("context packet source mutated through get snapshot: %+v", got.Messages[1].Context.Sources[0])
 	}
 
 	list, err := store.List(ctx)

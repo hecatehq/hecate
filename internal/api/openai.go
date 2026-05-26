@@ -701,6 +701,26 @@ type ChatMessageItem struct {
 	Activities      []ChatActivityItem      `json:"activities,omitempty"`
 	Usage           *ChatUsageItem          `json:"usage,omitempty"`
 	Timing          *ChatTimingItem         `json:"timing,omitempty"`
+	ContextPacket   *ChatContextPacketItem  `json:"context_packet,omitempty"`
+}
+
+type ChatContextPacketItem struct {
+	Version              string                  `json:"version,omitempty"`
+	ExecutionMode        string                  `json:"execution_mode,omitempty"`
+	Provider             string                  `json:"provider,omitempty"`
+	Model                string                  `json:"model,omitempty"`
+	Workspace            string                  `json:"workspace,omitempty"`
+	SystemPromptIncluded bool                    `json:"system_prompt_included,omitempty"`
+	MessageCount         int                     `json:"message_count,omitempty"`
+	Sources              []ChatContextSourceItem `json:"sources,omitempty"`
+}
+
+type ChatContextSourceItem struct {
+	Kind     string `json:"kind"`
+	Label    string `json:"label"`
+	Detail   string `json:"detail,omitempty"`
+	Trust    string `json:"trust,omitempty"`
+	Included bool   `json:"included"`
 }
 
 type ChatChangedFileItem struct {
