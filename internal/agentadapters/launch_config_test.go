@@ -11,57 +11,43 @@ import (
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 )
 
-func TestLaunchConfig_AppendsGrokModelOptionWithUnsetSelection(t *testing.T) {
+func TestLaunchConfig_AppendsGrokReasoningOption(t *testing.T) {
 	adapter, ok := BuiltInByID("grok_build")
 	if !ok {
 		t.Fatal("grok_build adapter not found")
 	}
 	got, managed := appendLaunchConfigOptions(context.Background(), "", adapter, nil, nil)
-	if len(got) != 2 {
-		t.Fatalf("options = %#v, want model and reasoning launch options", got)
-	}
-	if _, ok := managed["model"]; !ok {
-		t.Fatalf("managed config ids = %#v, want model", managed)
+	if len(got) != 1 {
+		t.Fatalf("options = %#v, want reasoning launch option", got)
 	}
 	if _, ok := managed["reasoning_effort"]; !ok {
 		t.Fatalf("managed config ids = %#v, want reasoning_effort", managed)
 	}
-	option := got[0]
-	if option.ID != "model" || option.Category != "model" || option.Source != agentcontrols.ConfigOptionSourceLaunch || option.CurrentValue != launchModelUnsetValue {
-		t.Fatalf("launch model option = %#v, want model category with unset current", option)
-	}
-	if len(option.Options) != 1 || option.Options[0].Value != launchModelUnsetValue {
-		t.Fatalf("model candidates = %#v, want unset option only without discovery", option.Options)
-	}
-	if option.Options[0].Name != "Pick a model" {
-		t.Fatalf("unset option name = %q, want Pick a model", option.Options[0].Name)
-	}
-	reasoning := got[1]
+	reasoning := got[0]
 	if reasoning.ID != "reasoning_effort" || reasoning.Category != "thought_level" || reasoning.Source != agentcontrols.ConfigOptionSourceLaunch {
 		t.Fatalf("reasoning option = %#v, want thought_level launch option", reasoning)
 	}
-	if len(reasoning.Options) != 6 || reasoning.Options[0].Name != "Pick reasoning" {
+	if len(reasoning.Options) != 7 || reasoning.Options[0].Name != "Pick reasoning" {
 		t.Fatalf("reasoning candidates = %#v, want unset plus levels", reasoning.Options)
+	}
+	if reasoning.Options[1].Value != "none" || reasoning.Options[2].Value != "minimal" || reasoning.Options[len(reasoning.Options)-1].Value != "xhigh" {
+		t.Fatalf("reasoning candidates = %#v, want Grok-accepted levels", reasoning.Options)
 	}
 }
 
-func TestLaunchConfig_OptionForSetSeedsMissingModel(t *testing.T) {
-	option, ok := LaunchConfigOptionForSet("grok_build", "model", "grok-latest")
+func TestLaunchConfig_OptionForSetSeedsMissingReasoning(t *testing.T) {
+	option, ok := LaunchConfigOptionForSet("grok_build", "reasoning_effort", "high")
 	if !ok {
-		t.Fatal("LaunchConfigOptionForSet(model) = false, want true")
+		t.Fatal("LaunchConfigOptionForSet(reasoning_effort) = false, want true")
 	}
-	if option.ID != "model" || option.Source != agentcontrols.ConfigOptionSourceLaunch {
-		t.Fatalf("option identity = %#v, want launch model", option)
+	if option.ID != "reasoning_effort" || option.Source != agentcontrols.ConfigOptionSourceLaunch {
+		t.Fatalf("option identity = %#v, want launch reasoning", option)
 	}
-	if option.CurrentValue != "grok-latest" {
-		t.Fatalf("current value = %q, want requested model", option.CurrentValue)
+	if option.CurrentValue != "high" {
+		t.Fatalf("current value = %q, want requested reasoning", option.CurrentValue)
 	}
-	found := false
-	for _, candidate := range option.Options {
-		found = found || candidate.Value == "grok-latest"
-	}
-	if !found {
-		t.Fatalf("options = %#v, want requested model included", option.Options)
+	if _, ok := LaunchConfigOptionForSet("grok_build", "model", "grok-latest"); ok {
+		t.Fatal("LaunchConfigOptionForSet(model) = true, want Grok model owned by ACP")
 	}
 }
 
@@ -69,47 +55,46 @@ func TestLaunchConfig_OptionForSetRejectsUnknownStaticOption(t *testing.T) {
 	if _, ok := LaunchConfigOptionForSet("grok_build", "reasoning_effort", "turbo"); ok {
 		t.Fatal("LaunchConfigOptionForSet(reasoning_effort=turbo) = true, want false")
 	}
-	option, ok := LaunchConfigOptionForSet("grok_build", "reasoning_effort", "high")
-	if !ok {
-		t.Fatal("LaunchConfigOptionForSet(reasoning_effort=high) = false, want true")
+	if _, ok := LaunchConfigOptionForSet("grok_build", "reasoning_effort", "max"); ok {
+		t.Fatal("LaunchConfigOptionForSet(reasoning_effort=max) = true, want false")
 	}
-	if option.CurrentValue != "high" {
-		t.Fatalf("current value = %q, want high", option.CurrentValue)
+	option, ok := LaunchConfigOptionForSet("grok_build", "reasoning_effort", "minimal")
+	if !ok {
+		t.Fatal("LaunchConfigOptionForSet(reasoning_effort=minimal) = false, want true")
+	}
+	if option.CurrentValue != "minimal" {
+		t.Fatalf("current value = %q, want minimal", option.CurrentValue)
+	}
+	for _, candidate := range option.Options {
+		if candidate.Value == "max" {
+			t.Fatalf("options = %#v, want no rejected max value", option.Options)
+		}
 	}
 }
 
-func TestLaunchConfig_UsesBaseArgsUntilModelSelected(t *testing.T) {
+func TestLaunchConfig_UsesBaseArgsWithoutGrokReasoning(t *testing.T) {
 	adapter, ok := BuiltInByID("grok_build")
 	if !ok {
 		t.Fatal("grok_build adapter not found")
 	}
-	got := adapterWithLaunchConfig(adapter, []agentcontrols.ConfigOption{{
-		ID:           "model",
-		CurrentValue: launchModelUnsetValue,
-	}})
+	got := adapterWithLaunchConfig(adapter, nil)
 	want := []string{"agent", "stdio"}
 	if !sameArgs(got.Args, want) {
 		t.Fatalf("args = %#v, want %#v", got.Args, want)
 	}
 }
 
-func TestLaunchConfig_RequiresExplicitModelSelection(t *testing.T) {
+func TestLaunchConfig_DoesNotRequireGrokLaunchModelSelection(t *testing.T) {
 	adapter, ok := BuiltInByID("grok_build")
 	if !ok {
 		t.Fatal("grok_build adapter not found")
 	}
-	if err := validateLaunchConfig(adapter, nil); err == nil {
-		t.Fatal("validateLaunchConfig accepted a missing launch model")
-	}
-	if err := validateLaunchConfig(adapter, []agentcontrols.ConfigOption{{ID: "model", CurrentValue: launchModelUnsetValue}}); err == nil {
-		t.Fatal("validateLaunchConfig accepted an unset launch model")
-	}
-	if err := validateLaunchConfig(adapter, []agentcontrols.ConfigOption{{ID: "model", CurrentValue: "model-a"}}); err != nil {
-		t.Fatalf("validateLaunchConfig returned error with selected model: %v", err)
+	if err := validateLaunchConfig(adapter, nil); err != nil {
+		t.Fatalf("validateLaunchConfig returned error without Grok launch model: %v", err)
 	}
 }
 
-func TestLaunchConfig_UsesSelectedModelInArgs(t *testing.T) {
+func TestLaunchConfig_IgnoresGrokACPModelInLaunchArgs(t *testing.T) {
 	adapter, ok := BuiltInByID("grok_build")
 	if !ok {
 		t.Fatal("grok_build adapter not found")
@@ -118,7 +103,7 @@ func TestLaunchConfig_UsesSelectedModelInArgs(t *testing.T) {
 		ID:           "model",
 		CurrentValue: "model-a",
 	}})
-	want := []string{"agent", "--model", "model-a", "stdio"}
+	want := []string{"agent", "stdio"}
 	if !sameArgs(got.Args, want) {
 		t.Fatalf("args = %#v, want %#v", got.Args, want)
 	}
@@ -133,16 +118,27 @@ func TestLaunchConfig_UsesSelectedReasoningInArgs(t *testing.T) {
 		{ID: "model", CurrentValue: "model-a"},
 		{ID: "reasoning_effort", CurrentValue: "high"},
 	})
-	want := []string{"agent", "--model", "model-a", "--reasoning-effort", "high", "stdio"}
+	want := []string{"agent", "--reasoning-effort", "high", "stdio"}
 	if !sameArgs(got.Args, want) {
 		t.Fatalf("args = %#v, want %#v", got.Args, want)
 	}
 }
 
 func TestLaunchConfig_DoesNotAppendModelWhenACPAlreadyProvidesModel(t *testing.T) {
-	adapter, ok := BuiltInByID("grok_build")
-	if !ok {
-		t.Fatal("grok_build adapter not found")
+	adapter := Adapter{
+		ID:   "custom",
+		Name: "Custom",
+		LaunchModel: LaunchModelConfig{
+			ConfigID:    "model",
+			ArgTemplate: []string{"--model", "{model}"},
+		},
+		LaunchOptions: []LaunchSelectConfig{{
+			ConfigID:    "reasoning_effort",
+			Name:        "Reasoning",
+			Category:    "thought_level",
+			ArgTemplate: []string{"--reasoning", "{reasoning_effort}"},
+			Options:     []LaunchSelectOption{{ID: "high", Name: "High"}},
+		}},
 	}
 	options := []agentcontrols.ConfigOption{{
 		ID:       "native_model",

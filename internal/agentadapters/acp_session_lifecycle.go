@@ -150,12 +150,27 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			Cwd:        workspace,
 			McpServers: []acp.McpServer{},
 		})
-		cancel()
 		if loadErr == nil {
 			nativeID = previousNativeSessionID
 			resumed = true
 			configOptions = agentcontrols.FromACPOptions(loaded.ConfigOptions)
+			configOptions = appendACPModelConfigOption(configOptions, loaded.Models)
 			configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
+			configOptions, loadErr = applySelectedACPModel(loadCtx, conn, nativeID, adapter, configOptions, selectedOptions)
+			if loadErr != nil {
+				recovery = fmt.Sprintf("could not restore ACP session %s: %v", previousNativeSessionID, loadErr)
+				if sessionLogger != nil {
+					sessionLogger.Warn("previous ACP session model selection failed",
+						slog.String("native_session_id", previousNativeSessionID),
+						slog.Any("error", loadErr),
+					)
+				}
+				nativeID = ""
+				resumed = false
+			}
+		}
+		cancel()
+		if loadErr == nil && nativeID != "" {
 			if sessionLogger != nil {
 				sessionLogger.Info("previous ACP session loaded",
 					slog.String("native_session_id", nativeID),
@@ -181,8 +196,8 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			Cwd:        workspace,
 			McpServers: []acp.McpServer{},
 		})
-		cancel()
 		if err != nil {
+			cancel()
 			if sessionLogger != nil {
 				sessionLogger.Warn("ACP session creation failed", slog.Any("error", err))
 			}
@@ -191,7 +206,17 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		}
 		nativeID = string(created.SessionId)
 		configOptions = agentcontrols.FromACPOptions(created.ConfigOptions)
+		configOptions = appendACPModelConfigOption(configOptions, created.Models)
 		configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
+		configOptions, err = applySelectedACPModel(newCtx, conn, nativeID, adapter, configOptions, selectedOptions)
+		cancel()
+		if err != nil {
+			if sessionLogger != nil {
+				sessionLogger.Warn("ACP session model selection failed", slog.Any("error", err))
+			}
+			terminateProcess(cmd)
+			return nil, false, "", fmt.Errorf("select ACP model for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+		}
 		if sessionLogger != nil {
 			sessionLogger.Info("ACP session created",
 				slog.String("native_session_id", nativeID),
@@ -293,6 +318,10 @@ func (m *SessionManager) SetSessionConfigOption(ctx context.Context, req SetSess
 		}
 		return result, nil
 	}
+	if session.isACPModelConfigOption(req.ConfigID) {
+		m.mu.Unlock()
+		return session.SetACPModel(ctx, req)
+	}
 	m.mu.Unlock()
 	return session.SetConfigOption(ctx, req)
 }
@@ -305,6 +334,18 @@ func (s *acpSession) isManagedConfigOption(configID string) bool {
 	}
 	_, ok := s.managedConfig[strings.TrimSpace(configID)]
 	return ok
+}
+
+func (s *acpSession) isACPModelConfigOption(configID string) bool {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	configID = strings.TrimSpace(configID)
+	for _, option := range s.configOptions {
+		if option.ID == configID && option.Source == agentcontrols.ConfigOptionSourceACPModel {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *acpSession) SetManagedConfigOption(req SetSessionConfigOptionRequest) (SetSessionConfigOptionResult, error) {
@@ -345,6 +386,53 @@ func configOptionAllowsValue(option agentcontrols.ConfigOption, value string) bo
 		}
 	}
 	return false
+}
+
+func (s *acpSession) SetACPModel(ctx context.Context, req SetSessionConfigOptionRequest) (SetSessionConfigOptionResult, error) {
+	if req.BoolValue != nil {
+		return SetSessionConfigOptionResult{}, fmt.Errorf("ACP model option %q requires a string value", req.ConfigID)
+	}
+	value := strings.TrimSpace(req.Value)
+	if value == "" {
+		return SetSessionConfigOptionResult{}, fmt.Errorf("value is required")
+	}
+	s.configMu.Lock()
+	options := cloneConfigOptions(s.configOptions)
+	modelIndex := -1
+	for i := range options {
+		if options[i].ID == req.ConfigID && options[i].Source == agentcontrols.ConfigOptionSourceACPModel {
+			modelIndex = i
+			break
+		}
+	}
+	if modelIndex < 0 {
+		s.configMu.Unlock()
+		return SetSessionConfigOptionResult{}, fmt.Errorf("ACP model option %q not found", req.ConfigID)
+	}
+	if !configOptionAllowsValue(options[modelIndex], value) {
+		s.configMu.Unlock()
+		return SetSessionConfigOptionResult{}, fmt.Errorf("value %q is not available for %s %s", value, s.adapter.Name, options[modelIndex].Name)
+	}
+	s.configMu.Unlock()
+
+	if _, err := s.conn.UnstableSetSessionModel(ctx, acp.UnstableSetSessionModelRequest{
+		SessionId: acp.SessionId(s.nativeID),
+		ModelId:   acp.UnstableModelId(value),
+	}); err != nil {
+		return SetSessionConfigOptionResult{}, err
+	}
+
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	options = cloneConfigOptions(s.configOptions)
+	for i := range options {
+		if options[i].ID == req.ConfigID && options[i].Source == agentcontrols.ConfigOptionSourceACPModel {
+			options[i].CurrentValue = value
+			s.configOptions = options
+			return SetSessionConfigOptionResult{ConfigOptions: cloneConfigOptions(options)}, nil
+		}
+	}
+	return SetSessionConfigOptionResult{}, fmt.Errorf("ACP model option %q not found", req.ConfigID)
 }
 
 func (s *acpSession) SetConfigOption(ctx context.Context, req SetSessionConfigOptionRequest) (SetSessionConfigOptionResult, error) {
@@ -402,6 +490,51 @@ func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.Co
 		copy(out[i].Options, options[i].Options)
 	}
 	return out
+}
+
+func appendACPModelConfigOption(options []agentcontrols.ConfigOption, models *acp.SessionModelState) []agentcontrols.ConfigOption {
+	modelOption, ok := agentcontrols.FromACPModelState(models)
+	if !ok || hasModelConfigOption(options) {
+		return options
+	}
+	return append(options, modelOption)
+}
+
+func applySelectedACPModel(ctx context.Context, conn *acp.ClientSideConnection, nativeID string, adapter Adapter, options, selected []agentcontrols.ConfigOption) ([]agentcontrols.ConfigOption, error) {
+	value := selectedConfigOptionValue(selected, "model")
+	if value == "" || strings.HasPrefix(value, "__hecate_no_") {
+		return options, nil
+	}
+	out := cloneConfigOptions(options)
+	for i := range out {
+		if out[i].ID != "model" || out[i].Source != agentcontrols.ConfigOptionSourceACPModel {
+			continue
+		}
+		if out[i].CurrentValue == value {
+			return out, nil
+		}
+		if !configOptionAllowsValue(out[i], value) {
+			return nil, fmt.Errorf("value %q is not available for %s %s", value, adapter.Name, out[i].Name)
+		}
+		if _, err := conn.UnstableSetSessionModel(ctx, acp.UnstableSetSessionModelRequest{
+			SessionId: acp.SessionId(nativeID),
+			ModelId:   acp.UnstableModelId(value),
+		}); err != nil {
+			return nil, err
+		}
+		out[i].CurrentValue = value
+		return out, nil
+	}
+	return options, nil
+}
+
+func selectedConfigOptionValue(options []agentcontrols.ConfigOption, id string) string {
+	for _, option := range options {
+		if option.ID == id {
+			return strings.TrimSpace(option.CurrentValue)
+		}
+	}
+	return ""
 }
 
 func (s *acpSession) Close(ctx context.Context) error {

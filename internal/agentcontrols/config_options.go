@@ -11,7 +11,8 @@ const (
 	ConfigOptionTypeBoolean = "boolean"
 	ConfigOptionTypeUnknown = "unknown"
 
-	ConfigOptionSourceLaunch = "launch"
+	ConfigOptionSourceLaunch   = "launch"
+	ConfigOptionSourceACPModel = "acp_model"
 )
 
 // ConfigOption is Hecate's stable projection of ACP session config
@@ -64,6 +65,51 @@ func FromACPOptions(options []acp.SessionConfigOption) []ConfigOption {
 		}
 	}
 	return out
+}
+
+// FromACPModelState converts ACP's model-specific state into the same stable
+// option projection the UI already uses for model pickers.
+func FromACPModelState(models *acp.SessionModelState) (ConfigOption, bool) {
+	if models == nil {
+		return ConfigOption{}, false
+	}
+	current := string(models.CurrentModelId)
+	options := make([]ConfigSelectOption, 0, len(models.AvailableModels))
+	foundCurrent := current == ""
+	for _, model := range models.AvailableModels {
+		value := string(model.ModelId)
+		if value == "" {
+			continue
+		}
+		name := model.Name
+		if name == "" {
+			name = value
+		}
+		if value == current {
+			foundCurrent = true
+		}
+		options = append(options, ConfigSelectOption{
+			Value:       value,
+			Name:        name,
+			Description: derefString(model.Description),
+		})
+	}
+	if !foundCurrent {
+		options = append([]ConfigSelectOption{{
+			Value: current,
+			Name:  current,
+		}}, options...)
+	}
+	return ConfigOption{
+		ID:           "model",
+		Name:         "Model",
+		Description:  "Model selected through the agent's ACP session.",
+		Category:     "model",
+		Source:       ConfigOptionSourceACPModel,
+		Type:         ConfigOptionTypeSelect,
+		CurrentValue: current,
+		Options:      options,
+	}, true
 }
 
 // BuildACPSetRequest converts a SetConfigOptionRequest to the ACP wire shape.

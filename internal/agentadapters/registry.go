@@ -305,11 +305,6 @@ func BuiltIns() []Adapter {
 				"/opt/homebrew/bin/grok",
 				"/usr/local/bin/grok",
 			},
-			LaunchModel: LaunchModelConfig{
-				ConfigID:    "model",
-				ArgTemplate: []string{"--model", "{model}"},
-				ListArgs:    []string{"models"},
-			},
 			LaunchOptions: []LaunchSelectConfig{
 				{
 					ConfigID:         "reasoning_effort",
@@ -321,11 +316,12 @@ func BuiltIns() []Adapter {
 					UnsetDescription: "Use Grok Build's default reasoning effort.",
 					ArgTemplate:      []string{"--reasoning-effort", "{reasoning_effort}"},
 					Options: []LaunchSelectOption{
+						{ID: "none", Name: "None"},
+						{ID: "minimal", Name: "Minimal"},
 						{ID: "low", Name: "Low"},
 						{ID: "medium", Name: "Medium"},
 						{ID: "high", Name: "High"},
 						{ID: "xhigh", Name: "XHigh"},
-						{ID: "max", Name: "Max"},
 					},
 				},
 			},

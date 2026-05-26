@@ -21,7 +21,7 @@ it, Hecate starts a fresh native session and keeps the Hecate transcript.
 | Codex        | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex auth visible to the adapter                   |
 | Claude Code  | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code / Anthropic auth visible to Claude Code |
 | Cursor Agent | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent`         |
-| Grok Build   | `grok agent ... stdio`; selected launch controls add `--model <id>` and optional `--reasoning-effort <effort>`            | Operator-owned Grok auth or `XAI_API_KEY` visible to `grok`        |
+| Grok Build   | `grok agent ... stdio`; ACP model state drives the model picker; optional launch controls add `--reasoning-effort <effort>` | Operator-owned Grok auth or `XAI_API_KEY` visible to `grok`        |
 
 ## Credential and account boundaries
 
@@ -50,8 +50,9 @@ adapter process, while authentication and billing stay with the provider.
    agent picker.
 3. Choose the workspace directory the external agent is allowed to work in.
 4. If model, reasoning, or mode controls appear above the message composer,
-   choose the values you want before creating the chat. Grok Build requires an
-   explicit model; reasoning is optional and can stay at **Pick reasoning**.
+   choose the values you want. Grok Build reports its model picker through ACP
+   after the chat session is prepared; reasoning is optional and can stay at
+   **Pick reasoning**.
 5. Click **New chat**. Hecate starts the adapter session immediately. The
    message input appears after that session exists, while launch controls can be
    shown earlier so required values can be selected first.
@@ -75,10 +76,12 @@ External Agent controls have two sources:
 - **Launch controls** come from Hecate's adapter catalog and can appear before a
   concrete chat session exists. Hecate passes the selected values as process
   arguments when it starts or restarts the adapter. Grok Build uses this path
-  for `--model` and `--reasoning-effort`.
+  for `--reasoning-effort`.
 - **ACP session controls** come from the adapter during `session/new`,
   `session/load`, or `session/set_config_option`. Hecate surfaces them in the
-  composer and chat settings after the External Agent chat exists.
+  composer and chat settings after the External Agent chat exists. Grok Build
+  exposes models through ACP model state; changing that picker uses ACP
+  `session/set_model`.
 
 The controls are adapter-defined: Codex / Claude Code / Cursor Agent / Grok
 Build decide which model, mode, or reasoning selectors exist and what the labels
@@ -132,16 +135,12 @@ but `npx` is available, Hecate creates a small launcher in the operator cache
 directory and runs the official ACP npm package from there. Cursor Agent still
 requires the Cursor Agent CLI because its ACP mode is shipped by `cursor-agent`.
 Grok Build similarly requires the `grok` CLI because its ACP mode is shipped by
-`grok agent stdio`. Hecate does not pin a Grok model by default. When
-`grok models` is available, Hecate uses that output to populate the Grok Build
-model selector; if the command is unavailable or empty, the selector still shows
-the explicit "Pick a model" state. Open Terminal and check `grok models` (or
-re-test the adapter from Connections) if no real choices appear. Hecate keeps a
-short in-process cache of launch help and model-list output so repeated catalog
-refreshes do not keep spawning the CLI. Session creation returns
-`chat.model_required` until a real model can be selected. Choosing a model starts
-or restarts the adapter with `--model <id>`. Choosing reasoning starts or
-restarts it with `--reasoning-effort <effort>`.
+`grok agent stdio`. Hecate does not pin a Grok model by default. Grok's ACP
+`session/new` / `session/load` responses provide the model list and current
+model, and Hecate applies model changes with ACP `session/set_model`. Choosing
+reasoning starts or restarts the adapter with `--reasoning-effort <effort>`;
+current Grok Build CLIs accept `none`, `minimal`, `low`, `medium`, `high`, and
+`xhigh`.
 
 By default the managed launcher directory is the user cache location:
 
