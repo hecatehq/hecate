@@ -153,8 +153,10 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		if loadErr == nil {
 			nativeID = previousNativeSessionID
 			resumed = true
-			configOptions = agentcontrols.FromACPOptions(loaded.ConfigOptions)
-			configOptions = appendACPModelConfigOption(configOptions, loaded.Models)
+			configOptions = mergeACPSessionConfigOptions(
+				agentcontrols.FromACPOptions(loaded.ConfigOptions),
+				loaded.Models,
+			)
 			configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
 			configOptions, loadErr = applySelectedACPModel(loadCtx, conn, nativeID, adapter, configOptions, selectedOptions)
 			if loadErr != nil {
@@ -205,8 +207,10 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			return nil, false, "", fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 		}
 		nativeID = string(created.SessionId)
-		configOptions = agentcontrols.FromACPOptions(created.ConfigOptions)
-		configOptions = appendACPModelConfigOption(configOptions, created.Models)
+		configOptions = mergeACPSessionConfigOptions(
+			agentcontrols.FromACPOptions(created.ConfigOptions),
+			created.Models,
+		)
 		configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
 		configOptions, err = applySelectedACPModel(newCtx, conn, nativeID, adapter, configOptions, selectedOptions)
 		cancel()
@@ -445,6 +449,7 @@ func (s *acpSession) SetConfigOption(ctx context.Context, req SetSessionConfigOp
 	if err != nil {
 		return SetSessionConfigOptionResult{}, err
 	}
+	previousOptions := s.configOptionsSnapshot()
 	resp, err := s.conn.SetSessionConfigOption(ctx, acpReq)
 	if err != nil {
 		return SetSessionConfigOptionResult{}, err
@@ -453,6 +458,7 @@ func (s *acpSession) SetConfigOption(ctx context.Context, req SetSessionConfigOp
 	if resp.ConfigOptions != nil && options == nil {
 		options = []agentcontrols.ConfigOption{}
 	}
+	options = preserveACPModelConfigOption(options, previousOptions)
 	s.setConfigOptions(options)
 	return SetSessionConfigOptionResult{ConfigOptions: options}, nil
 }
@@ -492,12 +498,24 @@ func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.Co
 	return out
 }
 
-func appendACPModelConfigOption(options []agentcontrols.ConfigOption, models *acp.SessionModelState) []agentcontrols.ConfigOption {
+func mergeACPSessionConfigOptions(options []agentcontrols.ConfigOption, models *acp.SessionModelState) []agentcontrols.ConfigOption {
 	modelOption, ok := agentcontrols.FromACPModelState(models)
 	if !ok || hasModelConfigOption(options) {
 		return options
 	}
 	return append(options, modelOption)
+}
+
+func preserveACPModelConfigOption(options, previous []agentcontrols.ConfigOption) []agentcontrols.ConfigOption {
+	if hasModelConfigOption(options) {
+		return options
+	}
+	for _, option := range previous {
+		if option.Source == agentcontrols.ConfigOptionSourceACPModel {
+			return append(options, cloneConfigOptions([]agentcontrols.ConfigOption{option})...)
+		}
+	}
+	return options
 }
 
 func applySelectedACPModel(ctx context.Context, conn *acp.ClientSideConnection, nativeID string, adapter Adapter, options, selected []agentcontrols.ConfigOption) ([]agentcontrols.ConfigOption, error) {

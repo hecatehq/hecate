@@ -81,7 +81,8 @@ External Agent controls have two sources:
   `session/load`, or `session/set_config_option`. Hecate surfaces them in the
   composer and chat settings after the External Agent chat exists. Grok Build
   exposes models through ACP model state; changing that picker uses ACP
-  `session/set_model`.
+  `session/set_model`. The same ACP model-state bridge is shared by any ACP
+  adapter that reports `models` from `session/new` or `session/load`.
 
 The controls are adapter-defined: Codex / Claude Code / Cursor Agent / Grok
 Build decide which model, mode, or reasoning selectors exist and what the labels
@@ -137,10 +138,11 @@ requires the Cursor Agent CLI because its ACP mode is shipped by `cursor-agent`.
 Grok Build similarly requires the `grok` CLI because its ACP mode is shipped by
 `grok agent stdio`. Hecate does not pin a Grok model by default. Grok's ACP
 `session/new` / `session/load` responses provide the model list and current
-model, and Hecate applies model changes with ACP `session/set_model`. Choosing
-reasoning starts or restarts the adapter with `--reasoning-effort <effort>`;
-current Grok Build CLIs accept `none`, `minimal`, `low`, `medium`, `high`, and
-`xhigh`.
+model, and Hecate applies model changes with ACP `session/set_model`. Grok Build
+does not currently expose reasoning as an ACP session configuration option, so
+choosing reasoning starts or restarts the adapter with
+`--reasoning-effort <effort>`; current Grok Build CLIs accept `none`, `minimal`,
+`low`, `medium`, `high`, and `xhigh`.
 
 By default the managed launcher directory is the user cache location:
 
