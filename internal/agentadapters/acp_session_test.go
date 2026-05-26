@@ -215,6 +215,35 @@ func TestSessionManagerChangesACPModelWithoutRestartingSession(t *testing.T) {
 	}
 }
 
+func TestSessionManagerWrapsACPModelSetErrors(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
+	t.Setenv("HECATE_FAKE_ACP_SET_MODEL_ERROR", "adapter rejected model switch")
+	installFakeACPExecutable(t, "grok")
+	manager := NewSessionManager()
+
+	_, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_grok_model_error",
+		AdapterID: "grok_build",
+		Workspace: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+
+	_, err = manager.SetSessionConfigOption(context.Background(), SetSessionConfigOptionRequest{
+		SessionID: "chat_grok_model_error",
+		ConfigID:  "model",
+		Value:     "model-b",
+	})
+	if err == nil {
+		t.Fatal("SetSessionConfigOption(model) succeeded, want wrapped ACP model error")
+	}
+	errText := err.Error()
+	if !strings.Contains(errText, `select ACP model for "grok_build":`) || !strings.Contains(errText, "adapter rejected model switch") {
+		t.Fatalf("error = %q, want wrapped ACP model selection context", errText)
+	}
+}
+
 func TestSessionManagerPreservesACPModelWhenAdapterConfigOptionsChange(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
 	t.Setenv("HECATE_FAKE_ACP_CONFIG_OPTIONS", "1")
@@ -1529,11 +1558,12 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
 		os.Getenv("HECATE_FAKE_ACP_MODELS"),
 		os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS"),
+		os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR"),
 		os.Args[0],
 	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -1693,6 +1723,9 @@ func (a *fakeACPAgent) SetSessionConfigOption(_ context.Context, params acp.SetS
 }
 
 func (a *fakeACPAgent) UnstableSetSessionModel(_ context.Context, params acp.UnstableSetSessionModelRequest) (acp.UnstableSetSessionModelResponse, error) {
+	if errMessage := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR")); errMessage != "" {
+		return acp.UnstableSetSessionModelResponse{}, fmt.Errorf("%s", errMessage)
+	}
 	session, err := a.session(params.SessionId)
 	if err != nil {
 		return acp.UnstableSetSessionModelResponse{}, err
