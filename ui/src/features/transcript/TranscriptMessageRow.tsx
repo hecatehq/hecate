@@ -90,12 +90,16 @@ export function TranscriptMessageRow({
   const [hovered, setHovered] = useState(false);
   const isAssistant = role === "assistant";
   const hasTokenData = isAssistant && (promptTokens ?? 0) > 0;
-  const showRawOutput =
-    isAssistant && rawOutput && rawOutput.trim() && rawOutput.trim() !== content.trim();
-  const waitingForAgentOutput =
-    isAssistant && !content.trim() && activities?.some(isActiveAgentActivity);
   const failed = isAssistant && badge === "failed";
   const cancelled = isAssistant && badge === "cancelled";
+  const showRawOutput =
+    isAssistant &&
+    rawOutput &&
+    rawOutput.trim() &&
+    rawOutput.trim() !== content.trim() &&
+    !(cancelled && isRoutineCancellationRawOutput(rawOutput));
+  const waitingForAgentOutput =
+    isAssistant && !content.trim() && activities?.some(isActiveAgentActivity);
   const thinkingForAgent =
     isAssistant &&
     badge === "running" &&
@@ -105,6 +109,7 @@ export function TranscriptMessageRow({
   const visibleActivities =
     isAssistant && activities?.length
       ? activities.filter((activity) => {
+          if ((failed || cancelled) && isTerminalSessionMetadata(activity)) return false;
           if ((failed || cancelled) && isStaleTerminalPlaceholder(activity)) return false;
           if (failed && duplicatesFailureNotice(activity, error || content)) return false;
           return true;
@@ -485,6 +490,16 @@ function isStaleTerminalPlaceholder(activity: ChatActivityRecord): boolean {
   return (
     isActiveAgentActivity(activity) && (activity.type === "running" || activity.type === "started")
   );
+}
+
+function isTerminalSessionMetadata(activity: ChatActivityRecord): boolean {
+  return (
+    activity.type === "resumed" || activity.type === "started" || activity.type === "recovered"
+  );
+}
+
+function isRoutineCancellationRawOutput(rawOutput: string): boolean {
+  return rawOutput.trim().toLowerCase() === "context canceled";
 }
 
 function shouldRenderFailedContent(content: string, error?: string): boolean {

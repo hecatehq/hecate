@@ -155,6 +155,34 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText("Ran git")).toBeInTheDocument();
   });
 
+  it("hides resumed-session metadata after a cancelled run", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="cancelled"
+        content=""
+        activities={[
+          {
+            type: "resumed",
+            title: "Resumed external session",
+            status: "completed",
+            detail: "Grok Build restored native-1",
+          },
+          {
+            type: "cancelled",
+            title: "Cancelled",
+            status: "cancelled",
+            detail: "stopped before the run finished",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("agent run cancelled")).toBeInTheDocument();
+    expect(screen.queryByText("Resumed external session")).toBeNull();
+    expect(screen.getByText("Cancelled")).toBeInTheDocument();
+  });
+
   it("keeps diagnostic failed activity rows with distinct details", () => {
     render(
       <TranscriptMessageRow
@@ -547,5 +575,31 @@ describe("TranscriptMessageRow", () => {
   it("does not render the raw adapter output details when rawOutput equals content", () => {
     render(<TranscriptMessageRow {...baseProps} content="final answer" rawOutput="final answer" />);
     expect(screen.queryByText(/raw adapter output/)).toBeNull();
+  });
+
+  it("does not render routine cancellation raw output", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="cancelled"
+        content=""
+        rawOutput="context canceled"
+      />,
+    );
+    expect(screen.getByText("agent run cancelled")).toBeInTheDocument();
+    expect(screen.queryByText(/raw adapter output/)).toBeNull();
+    expect(screen.queryByText("context canceled")).toBeNull();
+  });
+
+  it("keeps non-routine raw output on cancelled runs", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="cancelled"
+        content=""
+        rawOutput="adapter refused cancellation: pending approval"
+      />,
+    );
+    expect(screen.getByText(/raw adapter output/)).toBeInTheDocument();
   });
 });
