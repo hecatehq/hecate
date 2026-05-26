@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/projects"
 )
 
 func TestChatContextPacketsUseVisibleTranscriptCount(t *testing.T) {
@@ -25,15 +28,15 @@ func TestChatContextPacketsUseVisibleTranscriptCount(t *testing.T) {
 	}{
 		{
 			name:   "direct model",
-			packet: directModelContextPacket(session, "ollama", "llama3.1:8b", "system"),
+			packet: (&Handler{}).directModelContextPacket(context.Background(), session, "ollama", "llama3.1:8b", "system"),
 		},
 		{
 			name:   "hecate task",
-			packet: hecateTaskContextPacket(session, "ollama", "llama3.1:8b", "system", false),
+			packet: (&Handler{}).hecateTaskContextPacket(context.Background(), session, "ollama", "llama3.1:8b", "system", false),
 		},
 		{
 			name:   "external agent",
-			packet: externalAgentContextPacket(session, "Cursor Agent"),
+			packet: (&Handler{}).externalAgentContextPacket(context.Background(), session, "Cursor Agent"),
 		},
 	}
 
@@ -44,4 +47,103 @@ func TestChatContextPacketsUseVisibleTranscriptCount(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestChatContextPacketsIncludeEnabledProjectSources(t *testing.T) {
+	ctx := context.Background()
+	projectStore := projects.NewMemoryStore()
+	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
+	if _, err := projectStore.Create(ctx, projects.Project{
+		ID:        "proj_1",
+		Name:      "Hecate",
+		CreatedAt: now,
+		UpdatedAt: now,
+		ContextSources: []projects.ContextSource{
+			{
+				ID:        "ctxsrc_readme",
+				Kind:      "doc",
+				Title:     "README",
+				Path:      "README.md",
+				Enabled:   true,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			{
+				ID:        "ctxsrc_notes",
+				Kind:      "notes",
+				Path:      "docs/notes.md",
+				Enabled:   true,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			{
+				ID:        "ctxsrc_disabled",
+				Kind:      "doc",
+				Title:     "Disabled",
+				Path:      "private.md",
+				Enabled:   false,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	handler := &Handler{projects: projectStore}
+	session := chat.Session{
+		ID:        "chat_1",
+		ProjectID: "proj_1",
+		Workspace: "/tmp/hecate",
+		Messages:  []chat.Message{{ID: "u1", Role: "user", Content: "first"}},
+	}
+
+	packets := []struct {
+		name   string
+		packet chat.ContextPacket
+	}{
+		{
+			name:   "direct model",
+			packet: handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", ""),
+		},
+		{
+			name:   "hecate task",
+			packet: handler.hecateTaskContextPacket(ctx, session, "ollama", "llama3.1:8b", "", false),
+		},
+		{
+			name:   "external agent",
+			packet: handler.externalAgentContextPacket(ctx, session, "Cursor Agent"),
+		},
+	}
+
+	for _, tc := range packets {
+		t.Run(tc.name, func(t *testing.T) {
+			assertContextSource(t, tc.packet, chat.ContextSource{
+				Kind:   "workspace_doc",
+				Label:  "README",
+				Detail: "README.md",
+				Trust:  "project",
+			})
+			assertContextSource(t, tc.packet, chat.ContextSource{
+				Kind:   "project_notes",
+				Label:  "docs/notes.md",
+				Detail: "docs/notes.md",
+				Trust:  "project",
+			})
+			for _, source := range tc.packet.Sources {
+				if source.Detail == "private.md" {
+					t.Fatalf("disabled project context source was included: %+v", source)
+				}
+			}
+		})
+	}
+}
+
+func assertContextSource(t *testing.T, packet chat.ContextPacket, want chat.ContextSource) {
+	t.Helper()
+	for _, got := range packet.Sources {
+		if got == want {
+			return
+		}
+	}
+	t.Fatalf("context source %+v not found in packet sources: %+v", want, packet.Sources)
 }

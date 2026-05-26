@@ -1,6 +1,6 @@
 # Context Assembly And Injection Boundaries
 
-> **Status:** proposed; not implemented.
+> **Status:** proposed; partially implemented.
 > **Current source of truth:** [Chat sessions](../chat-sessions.md),
 > [Agent runtime](../agent-runtime.md), and [Security](../security.md) for
 > today's prompt, workspace, tool, and approval behavior.
@@ -102,9 +102,11 @@ Candidate sources are collected from the active runtime surface:
 
 Discovery is allowed to over-collect candidates. Later stages decide inclusion.
 The current project API stores only project context-source metadata (`path`,
-`kind`, `title`, `enabled`). Context assembly is the future layer that may
-resolve those sources through WorkspaceFS, label them, and decide whether they
-belong in a packet.
+`kind`, `title`, `enabled`). Chat message context packets already snapshot
+enabled project sources as provenance metadata for Hecate Chat, direct model
+turns, and External Agent turns. Context assembly is still the future layer
+that may resolve those sources through WorkspaceFS, label their contents, and
+decide whether they belong in a rendered prompt.
 
 ### 2. Trust Classification
 
@@ -127,7 +129,10 @@ evidence, not as a system message.
 ### 3. Context Packet Snapshot
 
 The assembly output is a `ContextPacket`: a durable, inspectable description of
-what was prepared for a model call.
+what was prepared for a model or adapter call. The current implementation stores
+a lightweight packet on assistant chat messages, including execution mode,
+provider/model or adapter identity, workspace, transcript count, and enabled
+project context-source metadata. It does not store source bodies yet.
 
 Sketch:
 
