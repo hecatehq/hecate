@@ -1,269 +1,415 @@
 # CLI structure for `hecate`
 
 > **Status:** proposed; not implemented.
-> **Current source of truth:** [`cmd/hecate/main.go`](../../cmd/hecate/main.go) (current manual flag parse) and [`docs/mcp.md`](../mcp.md) (operator-facing `hecate mcp-server` documentation).
-> **Next action:** land a thin subcommand dispatcher and ship `hecate status` + the `mcp serve` rename together; sequence everything else behind it.
+> **Current source of truth:** [`cmd/hecate/main.go`](../../cmd/hecate/main.go) (current manual flag parse) and [`docs/mcp.md`](../mcp.md) (operator-facing MCP documentation).
+> **Next action:** land a structured command package, move runtime startup to `hecate serve`, and make bare `hecate` the terminal operator UI.
 
 ## Problem
 
-The `hecate` binary today routes one flag (`--version`/`-v`/`version`) and one ad-hoc subcommand (`mcp-server`), then falls through to "start the runtime." Three pressures push toward a real subcommand structure:
+The `hecate` binary today routes one flag (`--version`/`-v`/`version`) and one
+ad-hoc subcommand (`mcp-server`), then falls through to "start the runtime."
+That made sense when Hecate was mostly a local gateway process. It no longer
+matches the product:
 
-1. **The runtime is one of several surfaces the binary already exposes.** Today: HTTP runtime + MCP server. Future: ACP server, migration commands, status/diagnostic commands. The current "start runtime by default, with one hardcoded `switch`" scales to one subcommand, not five.
-2. **[`migration-cli.md`](migration-cli.md) is blocked on this.** Adding `hecate migrate status/apply/snapshot/restore/verify` requires a real subcommand router — without one, we'd grow ad-hoc string switches in `main.go` forever.
-3. **Operators have no in-band ergonomics today.** Health and operational status come from `curl /hecate/v1/system/stats | jq`. Opening the web UI means typing `http://127.0.0.1:8765` into a browser by hand. A handful of small subcommands closes that gap.
-
-The current binary's UX is also internally inconsistent: `hecate mcp-server` is kebab-case, lives in a hand-written `switch` in `main.go`, and shares no plumbing with the hypothetical other subcommands.
+1. **Hecate is an operator console, not only a server.** The binary now
+   represents multiple surfaces: local runtime, browser UI, MCP server,
+   supervised ACP agents, diagnostics, and future migration / auth commands.
+2. **Humans need a better default.** Operators should be able to type
+   `hecate` and land in an interactive terminal control surface. Long-running
+   runtime startup should be explicit as `hecate serve`.
+3. **Protocol and maintenance commands need a real command tree.**
+   [`migration-cli.md`](migration-cli.md) is blocked on a structured dispatcher,
+   and `hecate mcp-server` does not scale as more protocol surfaces appear.
+4. **Browser UI launch needs a precise name.** `open` is too vague: it could
+   mean open a project, workspace, file, or browser. The command should say
+   what it opens.
 
 ## Goals
 
-- A small, hand-rolled subcommand dispatcher that scales to ~10 verbs cleanly.
-- Consistent naming convention for protocol surfaces (`<surface> serve`).
-- Cross-distribution feature parity: every subcommand works in Hecate Desktop, Hecate standalone (tarball), and Hecate Docker.
-- Backward-compatible bare invocation: `hecate` with no arguments still starts the runtime, so Docker images, systemd units, the Tauri sidecar, and operator shell habits keep working unchanged.
+- Make bare `hecate` the terminal operator UI.
+- Move the long-running runtime process to explicit `hecate serve`.
+- Add a clear browser-UI launcher: `hecate ui`.
+- Keep protocol surfaces under noun + `serve` (`hecate mcp serve`).
+- Reserve root auth verbs (`login`, `logout`, `whoami`) for Hecate/operator
+  identity without designing external-agent auth in this RFC.
+- Keep command parsing and presentation separate from runtime behavior so the
+  command tree can grow without spreading CLI concerns through `internal/`.
+- Cross-distribution feature parity: every command works in Hecate Desktop,
+  Hecate standalone tarballs, Hecate Docker, and future Homebrew distribution
+  where the command makes sense.
 
 ## Non-goals
 
-- **No TUI.** A terminal UI for Hecate was considered and explicitly dropped. The web UI is the canonical operator surface; SSH-only operators port-forward via `ssh -L` or rely on `hecate status` / `hecate open`. Revisit only if real demand appears.
-- **No `cobra`/`urfave/cli`.** Stdlib `flag` + manual subcommand `switch` is enough for the verbs we have. We're not building auto-completion, structured help generation, or subcommand trees deeper than two levels.
-- **No wholesale rewrite of config loading.** Config stays env-driven for `hecate` (the runtime); CLI flags are added per-subcommand only where they're operator-meaningful (`--json`, `--watch`, `--url`, `--start`).
-- **Not a plugin system.** No external subcommand discovery, no `hecate-foo` PATH lookup.
-- **Not a service manager.** We don't compete with `systemd`/`launchd`/`docker run`; the runtime is the foreground process those tools wrap.
+- **No full terminal clone of the web UI.** The first TUI is a local operator
+  control panel: runtime status, quick actions, recent projects/chats/tasks,
+  connection readiness, and diagnostics. Full chat, provider editing,
+  observability waterfall, and patch review stay in the browser UI for now.
+- **No TTY auto-detection.** `hecate` always means TUI. `hecate serve` always
+  means runtime. Different behavior based on stdin/stdout shape is too
+  surprising for SSH, scripts, and service managers.
+- **No wholesale rewrite of config loading.** Runtime config stays env-driven
+  for `hecate serve`; CLI flags are added only where they are meaningful for
+  command UX (`--format`, `--watch`, `--url`, `--start`).
+- **Not a plugin system.** No external subcommand discovery, no `hecate-foo`
+  PATH lookup.
+- **Not a service manager.** Hecate can start its runtime for local UX, but it
+  does not replace `systemd`, `launchd`, Docker, or a future updater.
 
 ## Proposal
 
-A new subcommand surface, dispatched from `cmd/hecate/main.go`:
+The command surface becomes:
 
 ```text
-hecate                    # start the runtime (today's behavior — unchanged)
-hecate open [flags]       # open web UI in default browser
-hecate mcp serve          # MCP server over stdio (renames today's `hecate mcp-server`)
-hecate acp serve          # FUTURE: ACP server over stdio (reserved namespace; not implemented here)
-hecate migrate <sub>      # per migration-cli.md RFC
-hecate status [flags]     # runtime health snapshot via HTTP
-hecate version            # print version; --version / -v aliases
-hecate help [topic]       # usage
+hecate                         # terminal operator UI
+hecate serve                   # start the runtime / HTTP API / embedded UI server
+hecate ui [flags]              # open local browser UI
+hecate status [flags]          # runtime health snapshot
+hecate about [flags]           # version + environment/runtime summary
+hecate doctor [flags]          # local setup diagnostics
+hecate login                   # FUTURE: authenticate Hecate/operator identity
+hecate logout                  # FUTURE
+hecate whoami [flags]          # FUTURE
+hecate mcp serve               # MCP server over stdio
+hecate acp serve               # FUTURE: ACP server over stdio (reserved)
+hecate migrate <sub>           # per migration-cli.md RFC
+hecate version                 # print version; --version / -v aliases
+hecate help [topic]            # usage
 ```
 
-### Bare `hecate` (no args) — unchanged
+Conceptual split:
 
-Starts the runtime. Same env-driven config, same lifecycle (the SIGINT/SIGTERM + `/hecate/v1/system/shutdown` graceful path lands as-is). No flags initially; everything stays env-driven.
+```text
+hecate       = terminal operator console
+hecate ui    = local browser operator console
+hecate serve = runtime process
+```
 
-This is the most-invoked form, and keeping it stable preserves backward compat for every existing operator script, Docker `CMD`, systemd `ExecStart`, the Tauri sidecar resolver, the e2e Go test helpers, and operator muscle memory.
+### Bare `hecate` — terminal operator UI
 
-### `hecate open [--url URL] [--start]`
+Launches the terminal UI. If a runtime is already reachable, the TUI connects
+to it. If not, it offers to start a local runtime process and then connects.
 
-A small client that opens the web UI in the operator's default browser.
+Initial TUI scope:
 
-- **`hecate open`** — resolves the runtime URL (default `http://127.0.0.1:8765`, override `--url` or `HECATE_BASE_URL`) and launches the system browser via `open` (macOS), `xdg-open` (Linux), or `start` (Windows). Returns immediately. Useful when a runtime is already running locally, in Docker, or remotely. `HECATE_BASE_URL` is reused (not a new env var) because `hecate mcp serve` already uses it for the same concept.
-- **`hecate open --start`** — same, but also starts a local runtime in the foreground if `/healthz` doesn't answer. Polls until healthy, then opens the browser, then keeps the runtime in the foreground. Ctrl+C tears the runtime down. This is the one-shot "I just downloaded the tarball, give me the experience" command for new operators.
+- runtime state: running/stopped, URL, version, storage, data dir
+- quick actions: start runtime, open browser UI, copy diagnostics, run doctor
+- project / chat / task summary: selected project, recent chats, running tasks,
+  awaiting approvals
+- connections summary: provider readiness and external-agent readiness/auth
+- recent errors/log tail for startup and supervised-agent failures
 
-If `hecate open` is run with no runtime reachable and no `--start`, it prints:
+The TUI may start `hecate serve` as a child for local convenience. When it does,
+the TUI owns that child lifecycle and shuts it down on exit unless the operator
+chooses to leave it running.
+
+### `hecate serve`
+
+Starts the runtime. This is the old bare `hecate` behavior under an explicit
+verb: env-driven config, HTTP API, embedded React UI, OpenAI/Anthropic-compatible
+endpoints, task runtime, ACP supervision, telemetry, and graceful shutdown.
+
+`hecate serve` is the command for non-interactive runtime launch sites:
+
+- Docker `CMD`
+- systemd / launchd
+- Tauri sidecar
+- e2e test helpers
+- operator scripts that want the foreground runtime process
+
+### `hecate ui [--url URL] [--start]`
+
+Opens the local browser UI in the operator's default browser.
+
+- **`hecate ui`** resolves the runtime URL (default
+  `http://127.0.0.1:8765`, override `--url` or `HECATE_BASE_URL`) and launches
+  the system browser via `open` (macOS), `xdg-open` (Linux), or `start`
+  (Windows). It returns immediately.
+- **`hecate ui --start`** starts a local runtime if `/healthz` does not answer,
+  waits until healthy, opens the browser UI, then keeps the runtime in the
+  foreground. Ctrl+C tears it down.
+
+If `hecate ui` is run with no reachable runtime and no `--start`, it prints:
 
 ```text
 no Hecate runtime reachable at http://127.0.0.1:8765
-  start one in another shell: hecate
-  or open this command in start mode: hecate open --start
+  start one in another shell: hecate serve
+  or start and open the browser UI: hecate ui --start
 ```
 
 Exit code 1.
 
-### `hecate mcp serve`
+### `hecate status [--format text|json] [--watch] [--url URL]`
 
-Renames today's `hecate mcp-server`. Same behavior — stdio JSON-RPC server bridging MCP clients (Claude Desktop, Cursor, Zed) to a running Hecate runtime over HTTP. Same env interface (`HECATE_BASE_URL`), same wire protocol, same logs. The only change is the invocation:
-
-```diff
-- args: ["mcp-server"]
-+ args: ["mcp", "serve"]
-```
-
-For one release, `hecate mcp-server` aliases to `hecate mcp serve` with a stderr deprecation warning to give in-the-wild Claude Desktop / Cursor / Zed configurations a soft landing.
-
-### `hecate acp serve` — reserved, not implemented
-
-Namespace placeholder for a future ACP server (Hecate as ACP-protocol agent backend for external clients like Zed). Today Hecate is an ACP **client** ([`internal/agentadapters`](../../internal/agentadapters/)); the inverse direction does not yet exist.
-
-This RFC reserves the `hecate acp` namespace and the `serve` verb under it. The implementation design (HTTP vs stdio transport, auth, session scoping, what subset of runtime functionality is reachable) is out of scope; it gets its own RFC when prioritized.
-
-Invoking `hecate acp serve` until that RFC lands prints:
-
-```text
-hecate acp serve: not implemented yet.
-See https://github.com/hecatehq/hecate/blob/master/docs/rfcs/ for proposals.
-```
-
-Exit code 2.
-
-### `hecate migrate <sub>`
-
-Per the existing [`migration-cli.md`](migration-cli.md) RFC. This RFC's only contribution to migrate is establishing the dispatcher and verb conventions; the migrate-specific design is unchanged.
-
-### `hecate status [--json] [--watch] [--url URL]`
-
-A thin HTTP client. Reads `/healthz` + `/hecate/v1/system/stats` from the configured runtime URL (default resolution: `--url` flag → `HECATE_BASE_URL` env → `http://127.0.0.1:8765`). Renders a human-readable digest by default; `--json` emits the raw payload for scripting.
+A thin HTTP client. Reads `/healthz` and `/hecate/v1/system/stats` from the
+configured runtime URL (resolution: `--url` → `HECATE_BASE_URL` →
+`http://127.0.0.1:8765`).
 
 Default output:
 
 ```text
 $ hecate status
 Hecate at http://127.0.0.1:8765 — healthy
-  Queue:    2 pending, 4 workers, depth 6 / 1000
+  Queue:    2 pending, 4 task runners, depth 6 / 1000
   Runs:     3 running, 1 awaiting approval, 12 queued
   Backend:  sqlite (.data/hecate.db)
-  Version:  0.1.0-alpha.37
+  Version:  0.1.0-alpha.41
 ```
 
-With `--watch`, repaints every N seconds (default 2). With `--json`, prints the merged `/healthz` + `/hecate/v1/system/stats` payload and exits. With `--watch --json`, emits one JSON object per interval to stdout (newline-delimited) — composable with `jq`/`grep`/`tee`.
+`--format json` emits the merged payload for scripting. `--watch` repaints
+every N seconds (default 2). `--watch --format json` emits newline-delimited
+JSON.
 
-Exit codes: 0 = healthy, 1 = unhealthy (couldn't reach runtime), 2 = usage error.
+Exit codes: 0 = healthy, 1 = unhealthy / unreachable, 2 = usage error.
 
-This single subcommand subsumes the most common operator one-liners today (`curl /healthz | jq`, `curl /hecate/v1/system/stats | jq`).
+### `hecate about [--format text|json]`
+
+Prints version and environment information that is useful in support requests:
+
+- Hecate version and git revision when available
+- OS / architecture
+- runtime URL resolution
+- data dir
+- storage backend
+- whether a runtime is reachable
+- Tauri sidecar marker when running inside the desktop app, if available
+
+`hecate version` stays intentionally small; `about` is the richer diagnostic
+summary.
+
+### `hecate doctor`
+
+Runs local diagnostics without mutating configuration:
+
+- checks runtime reachability
+- checks data dir writability
+- checks configured providers/adapters enough to explain obvious setup issues
+- checks common local commands (`ollama`, `lms`, external-agent CLIs) when
+  available
+- prints actionable repair hints
+
+`doctor` may grow command groups later (`hecate doctor agents`,
+`hecate doctor providers`), but the first version can be a single command.
+
+### `hecate login` / `logout` / `whoami`
+
+Reserved for future Hecate/operator identity. They should not be overloaded to
+mean "log in to Claude Code", "log in to Grok Build", or other external-agent
+auth flows.
+
+External-agent auth belongs in a future namespaced surface, for example:
+
+```text
+hecate agent status
+hecate agent login claude-code
+hecate agent logout grok-build
+```
+
+That future surface is out of scope for this RFC.
+
+### Future additive surfaces
+
+The command tree should leave room for read-only operator shortcuts without
+making them part of the first implementation:
+
+```text
+hecate models [--format text|json]      # routable model inventory
+hecate agents [--format text|json]      # supervised-agent readiness
+hecate projects [list|show|...]         # project inventory
+hecate chat [list|show|...]             # transcript inspection / scripting
+```
+
+These are deliberately not in the initial command contract. The browser UI and
+TUI remain the primary operator surfaces; root commands should be added only
+when they are useful for scripting, diagnostics, or quick terminal inspection.
+
+### `hecate mcp serve`
+
+Renames today's `hecate mcp-server`. Same behavior: stdio JSON-RPC server
+bridging MCP clients (Claude Desktop, Cursor, Zed) to a running Hecate runtime
+over HTTP. Same env interface (`HECATE_BASE_URL`), same wire protocol, logs and
+errors to stderr.
+
+```diff
+- args: ["mcp-server"]
++ args: ["mcp", "serve"]
+```
+
+Hecate is pre-1.0, so this RFC does not require a compatibility shim for
+`mcp-server`.
+
+### `hecate acp serve` — reserved, not implemented
+
+Namespace placeholder for a future ACP server (Hecate as ACP-protocol agent
+backend for external clients like Zed). Today Hecate is an ACP **client**
+([`internal/agentadapters`](../../internal/agentadapters/)); the inverse
+direction does not yet exist.
+
+Invoking `hecate acp serve` until that RFC lands prints:
+
+```text
+hecate acp serve: not implemented yet.
+See docs/rfcs/ for proposals.
+```
+
+Exit code 2.
+
+### `hecate migrate <sub>`
+
+Per the existing [`migration-cli.md`](migration-cli.md) RFC. This RFC's only
+contribution is establishing the command tree and naming convention.
 
 ### `hecate version` / `--version` / `-v`
 
-All three print the version string and exit. Preserves today's behavior so scripts that grep `hecate --version` keep working.
+All three print the version string and exit.
 
 ### `hecate help [topic]`
 
-Prints top-level usage when invoked without arguments; subcommand-specific help when given a topic (`hecate help mcp serve`, `hecate help status`). Same content reachable via `hecate <subcommand> --help`.
+Prints top-level usage without arguments and subcommand-specific usage with a
+topic (`hecate help mcp serve`, `hecate help status`). Same content is reachable
+through `hecate <subcommand> --help`.
 
 ## Naming conventions
 
-Codified here so we don't bikeshed each new subcommand:
-
-- **Verbs are lowercase, single words.** `serve`, `status`, `migrate`, `version`, `open`. No `start-runtime`, no `mcp_server`.
-- **Protocol surfaces are nouns followed by `serve`.** `mcp serve`, `acp serve`. Reserves room for variants under each namespace later (`mcp probe`, `acp serve --http`, etc.).
-- **Bare `hecate` runs the runtime.** Not a subcommand. The runtime hosts multiple protocol families (OpenAI-compat, Anthropic-compat, Hecate operator API) in one process; it's the default "what does this binary do" answer.
-- **`--flag-with-dashes`, kebab-case for multi-word flags.** Matches Go convention via stdlib `flag`.
-- **`--json` is the canonical machine-output flag.** Wherever a subcommand has structured data to emit, `--json` switches from human to machine output.
-- **Exit codes:** 0 = success, 1 = expected failure (unhealthy, validation failure, etc.), 2 = usage error / invalid invocation.
+- **Bare `hecate` is the terminal UI.** Humans get the interactive operator
+  entrypoint by default.
+- **Runtime launch is explicit.** Use `hecate serve`.
+- **Browser UI launch is explicit.** Use `hecate ui`, not `web` (sounds
+  internet-hosted) and not `open` (too ambiguous).
+- **Protocol surfaces are nouns followed by `serve`.** `mcp serve`, `acp serve`.
+- **Verbs are lowercase, single words.** `serve`, `status`, `about`, `doctor`,
+  `login`, `logout`, `whoami`, `version`.
+- **`--format text|json` is the canonical machine-output switch.** Use it for
+  commands with structured output (`status`, `about`, `whoami`). Prefer it over
+  a one-off `--json` flag.
+- **Exit codes:** 0 = success, 1 = expected failure (unhealthy, unreachable,
+  validation failure), 2 = usage error / invalid invocation.
 
 ## What changes per distribution channel
 
-| Channel                  | Today                      | After                                                                            |
-| ------------------------ | -------------------------- | -------------------------------------------------------------------------------- |
-| Hecate Desktop (Tauri)   | Sidecar spawns `hecate`    | **Unchanged.** Bare invocation still starts the runtime.                         |
-| Hecate standalone        | Operator runs `./hecate`   | **Unchanged.** Plus new convenience: `hecate open --start` for one-shot setup.   |
-| Hecate Docker            | `CMD ["hecate"]`           | **Unchanged.** Plus `docker exec hecate hecate status` becomes useful.           |
-| Hecate Homebrew (future) | One binary                 | One binary, more verbs.                                                          |
-| MCP clients (Zed etc.)   | Launch `hecate mcp-server` | Launch `hecate mcp serve` (one-release alias preserves the old name with a warn) |
+| Channel                  | Today                   | After                                                                  |
+| ------------------------ | ----------------------- | ---------------------------------------------------------------------- |
+| Hecate Desktop (Tauri)   | Sidecar spawns `hecate` | Sidecar spawns `hecate serve`.                                         |
+| Hecate standalone        | Operator runs `hecate`  | `hecate` opens the TUI; `hecate ui --start` gives browser-first setup. |
+| Hecate Docker            | `CMD ["hecate"]`        | `CMD ["hecate", "serve"]`; `docker exec hecate hecate status` works.   |
+| Hecate Homebrew (future) | One binary              | One binary; `hecate` is the local terminal UI.                         |
+| MCP clients              | `hecate mcp-server`     | `hecate mcp serve`.                                                    |
 
-No second-binary problem; no spawn-site coordination across multiple repositories; no Tauri `externalBin` adjustment.
+This is intentionally breaking while Hecate is alpha. The migration is clear:
+non-interactive process launchers use `hecate serve`; humans use `hecate`.
 
 ## Implementation sketch
 
-`cmd/hecate/main.go` grows a thin dispatcher. Each subcommand lives in its own file:
+The command tree should be structured as commands plus behavior packages, not
+one growing `main.go` switch. Suggested layout:
 
 ```text
 cmd/hecate/
-├── main.go              # dispatcher (~50 LOC)
-├── cmd_runtime.go       # current main() body, extracted (bare-invocation entrypoint)
-├── cmd_open.go          # new: URL resolution + cross-platform browser launch
-├── cmd_mcp.go           # extends current mcp.go: dispatch `mcp <verb>` → mcpServe()
-├── cmd_acp.go           # stub: prints "not implemented" for `acp serve`
-├── cmd_migrate.go       # per migration-cli.md
-├── cmd_status.go        # new: HTTP client to /healthz + /hecate/v1/system/stats
-├── cmd_version.go       # extracted from current --version handling
-├── cmd_help.go          # new: usage strings, per-subcommand help
-└── runtime_state.go     # existing
+├── main.go              # calls cli.Execute()
+└── cli/
+    ├── root.go          # command tree, global help, shared URL resolution
+    ├── serve.go         # runtime command
+    ├── ui.go            # browser UI command
+    ├── status.go
+    ├── about.go
+    ├── doctor.go
+    ├── auth.go          # login/logout/whoami placeholders or future impl
+    ├── mcp.go
+    ├── migrate.go
+    └── version.go
+
+internal/runtimeapp/     # current runtime startup extracted from main
+internal/tui/            # terminal operator UI
+internal/browseropen/    # cross-platform local browser opener if worth splitting
 ```
 
-Dispatcher sketch (~50 LOC):
-
-```go
-func main() {
-    if len(os.Args) < 2 {
-        runRuntime(nil) // bare hecate — start the runtime
-        return
-    }
-    switch os.Args[1] {
-    case "open":
-        runOpen(os.Args[2:])
-    case "mcp":
-        runMCP(os.Args[2:])
-    case "acp":
-        runACP(os.Args[2:])
-    case "migrate":
-        runMigrate(os.Args[2:])
-    case "status":
-        runStatus(os.Args[2:])
-    case "version", "--version", "-v":
-        printVersion()
-    case "help", "--help", "-h":
-        printHelp(os.Args[2:])
-    case "mcp-server": // backward-compat alias for one release; logs deprecation
-        fmt.Fprintln(os.Stderr, "deprecated: use `hecate mcp serve`")
-        runMCP([]string{"serve"})
-    default:
-        // Treat unknown first-arg as runtime args until proven otherwise.
-        // The runtime ignores all CLI args today; preserving this lets
-        // operators with malformed scripts hit the runtime path instead
-        // of a usage error.
-        runRuntime(os.Args[1:])
-    }
-}
-```
-
-Each `cmd_*.go` owns its own flag parsing via stdlib `flag.NewFlagSet`. No shared global flag state.
-
-Shared helpers (config load, runtime-state file resolution) live in `cmd/hecate/` (or `cmd/hecate/internal/` if it grows).
+`cmd/hecate/cli` owns command parsing and presentation. Runtime behavior lives
+under `internal/` so tests can exercise it without shelling out to the binary.
 
 ## Breaking changes and migration
 
-One small breaking change:
+Breaking changes:
 
-- **`hecate mcp-server` is deprecated.** Continues to work for one release with a stderr deprecation warning; removed in the release after. Configs in Claude Desktop / Cursor / Zed update from `args: ["mcp-server"]` to `args: ["mcp", "serve"]`.
+- Bare `hecate` opens the terminal UI instead of starting the runtime.
+- Runtime startup moves to `hecate serve`.
+- `hecate mcp-server` is replaced by `hecate mcp serve`.
 
-That's it. Bare `hecate` keeps working. Tauri sidecar, Docker, systemd, e2e tests — none need changes.
+Required updates:
 
-Pre-1.0 alpha, so one release note callout is enough:
+- Dockerfile / compose / release image: `CMD ["hecate", "serve"]`
+- Tauri sidecar spawn: `hecate serve`
+- systemd / launchd examples: `ExecStart=/path/to/hecate serve`
+- MCP client configs: `args: ["mcp", "serve"]`
+- e2e helpers and local scripts that expect a runtime: call `hecate serve`
 
-> **Deprecated:** `hecate mcp-server` is renamed to `hecate mcp serve`. The old name continues to work with a stderr warning in this release; remove it in the next. Update Claude Desktop / Cursor / Zed `mcpServers` configurations.
+Release note:
+
+> **Breaking:** `hecate` now opens the terminal operator UI. Use
+> `hecate serve` to start the runtime process. MCP server configs should use
+> `hecate mcp serve` instead of `hecate mcp-server`.
 
 ## Implications for the migration-cli RFC
 
-[`migration-cli.md`](migration-cli.md) is unblocked but unchanged in its core design. A small alignment patch lands alongside this RFC:
+[`migration-cli.md`](migration-cli.md) is unblocked but unchanged in its core
+design. Add a cross-reference near the top:
 
-1. Cross-reference at the top of `migration-cli.md` ("Lives under the umbrella defined by [cli-structure.md](cli-structure.md).").
-
-No other changes to `migration-cli.md`.
+> Migration commands live under the command tree defined by
+> [cli-structure.md](cli-structure.md).
 
 ## Open questions
 
-1. **`hecate mcp-server` backward-compat alias: one release or none?** A soft-deprecation release is kinder to in-the-wild configs but adds a few lines of dispatcher code. Voting recommendation: yes, one release, then remove.
-2. **Should `hecate status` poll once or stream by default?** Single-shot keeps it composable with shell pipelines; `--watch` opts into streaming. Voting recommendation: single-shot.
-3. **Should `hecate open --start` daemonize, or stay foreground?** Foreground (the current proposal) makes Ctrl+C tear down cleanly and matches `docker compose up` semantics. Daemonizing complicates the lifecycle for marginal convenience. Voting recommendation: foreground only; operators who want a daemonized runtime use bare `hecate &` or a service manager.
-4. **Where should `hecate help` text live — inline strings or embedded markdown?** Inline strings (simpler, ships in one file). Markdown gets us nicer rendering with `glow` etc. but adds a dep. Voting recommendation: inline.
+1. **How much should TUI v1 include?** Recommendation: status, quick actions,
+   project/chat/task summaries, connection readiness, and diagnostics. Full
+   chat and editing stay in the browser UI.
+2. **Should `hecate ui --start` keep the runtime foreground?** Recommendation:
+   yes. Foreground keeps lifecycle obvious; service managers own daemonization.
+3. **Should `hecate serve --ui` also exist?** Recommendation: maybe later as
+   convenience, but keep `hecate ui --start` as the primary human path.
+4. **Should root auth commands land as stubs or wait?** Recommendation: reserve
+   the names in the RFC, but implement only when Hecate/operator auth exists.
 
 ## Risks
 
-- **Surface creep.** Once the dispatcher exists, every minor diagnostic tempts a new subcommand. Mitigation: this RFC's verb inventory is the v1 contract; any new verb gets its own RFC or a documented justification.
-- **`hecate open` is browser-dependent on Linux.** `xdg-open` is the convention but distros vary. Falls back to printing the URL if launch fails. Documented in `--help`.
-- **`hecate status` may be confused with `hecate help`/`hecate version` as "the inert command."** It hits the network, can time out, can fail. The 1-vs-2 exit-code split documented above lets scripts distinguish.
+- **Breaking runtime invocation muscle memory.** Mitigation: release notes,
+  docs, and obvious `hecate` TUI copy that says "Use `hecate serve` for the
+  runtime process."
+- **TUI surface creep.** Mitigation: TUI v1 is a control panel, not a second
+  full frontend.
+- **Command tree creep.** Mitigation: the RFC's verb inventory is the initial
+  contract; new root verbs need their own rationale.
+- **Browser opener variance.** `xdg-open` differs across Linux distros. If
+  launch fails, print the URL and exit with a clear message.
 
 ## Alternatives considered
 
-### TUI as bare `hecate`
+### Keep bare `hecate` as runtime
 
-Considered in an earlier draft of this RFC. Dropped because:
+Rejected. It preserves scripts but leaves humans with a server process as the
+default experience. Hecate is now more than a gateway process; the command name
+should open the operator surface.
 
-- Bare `hecate` becoming a TUI is a breaking change that ripples through Docker `CMD`, systemd `ExecStart`, the Tauri sidecar spawn, e2e test helpers, and every operator shell habit.
-- The web UI is the canonical operator surface; a TUI would be a second surface to maintain.
-- SSH-only operators have working alternatives (`ssh -L` port-forward, `hecate status`, `hecate open --url`).
+### `hecate web`
 
-Revisit only if real demand for a TUI appears.
+Rejected. The browser UI is local and does not require internet access. `web`
+can read like "open the website." `ui` is clearer and more neutral.
 
-### `hecate up` as a separate "runtime + open browser" verb
+### `hecate open`
 
-Considered when the TUI version was on the table. Without TUI in the picture, `hecate open --start` covers the same use case under a more descriptive verb that ALSO handles the "runtime already running" case. `up` is not added.
+Rejected. Too vague: future commands may open projects, workspaces, files, or
+the browser UI. `hecate ui` says what it opens.
 
-### Use `cobra` for the dispatcher
+### `hecate serve --open` as the primary browser path
 
-Standard Go CLI library, more ergonomic for large command surfaces. Rejected: ~10 transitive deps for ~50 LOC of dispatch logic. Stdlib `flag` is enough for our verb count.
+Useful as a possible future convenience, but not the main UX. If the user's
+intent is "show me the UI," the command should start with `ui`; starting the
+runtime is an implementation detail handled by `--start`.
 
-### Single binary that auto-detects mode by TTY
+### TTY auto-detection
 
-`hecate` with a TTY → something interactive; without TTY → runtime. Rejected: surprising semantics, breaks `ssh server hecate` and `hecate &` in opposite ways, hard to document.
+Rejected. `hecate` with a TTY versus without a TTY would behave differently,
+which is surprising for SSH, shell scripts, background jobs, and service
+managers.
 
-### Ship `hecate` and `hecate-cli` as separate binaries
+### Separate `hecate` and `hecate-cli` binaries
 
-Common pattern (one for the daemon, one for the CLI client). Rejected: doubles distribution complexity, requires a second bundle in Tauri, and we already have everything we need in one binary.
+Rejected. Doubles distribution complexity and forces every packaging surface to
+coordinate two binaries. One binary with explicit subcommands is enough.
