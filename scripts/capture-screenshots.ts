@@ -1224,6 +1224,195 @@ async function unrouteTaskDiagnosticsDocsFixture(page: Page) {
   await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/stream?after_sequence=0`);
 }
 
+async function routeObservabilityDocsFixture(page: Page) {
+  const requestID = "f5894684f2aa8a";
+  const traceID = "f5894684f206b30159aa8a92";
+  const startedAt = new Date(Date.now() - 15_000);
+  const at = (offsetMs: number) => new Date(startedAt.getTime() + offsetMs).toISOString();
+  const trace = {
+    request_id: requestID,
+    trace_id: traceID,
+    started_at: startedAt.toISOString(),
+    span_count: 7,
+    duration_ms: 8550,
+    status_code: "ok",
+    route: {
+      final_provider: "ollama",
+      final_provider_kind: "local",
+      final_model: "llama3.1:8b",
+      final_reason: "pinned_provider_and_model",
+      candidates: [
+        {
+          provider: "ollama",
+          provider_kind: "local",
+          model: "llama3.1:8b",
+          outcome: "selected",
+          reason: "pinned_provider_and_model",
+          latency_ms: 8550,
+        },
+        {
+          provider: "lmstudio",
+          provider_kind: "local",
+          model: "ministral-3:latest",
+          outcome: "skipped",
+          skip_reason: "provider_not_requested",
+        },
+      ],
+    },
+  };
+  const spans = [
+    {
+      trace_id: traceID,
+      span_id: "span_gateway",
+      name: "gateway.request",
+      kind: "server",
+      start_time: at(0),
+      end_time: at(8550),
+      status_code: "ok",
+      attributes: {
+        "http.route": "/v1/chat/completions",
+        "gen_ai.request.model": "llama3.1:8b",
+        "hecate.request.id": requestID,
+      },
+      events: [
+        {
+          name: "gateway.request.started",
+          timestamp: at(0),
+          attributes: { "hecate.request.id": requestID, "http.route": "/v1/chat/completions" },
+        },
+        {
+          name: "governor.check",
+          timestamp: at(1),
+          attributes: { "hecate.governor.decision": "allow" },
+        },
+        {
+          name: "router.selected",
+          timestamp: at(8),
+          attributes: {
+            "hecate.route.provider": "ollama",
+            "hecate.route.model": "llama3.1:8b",
+            "hecate.route.reason": "pinned_provider_and_model",
+          },
+        },
+        {
+          name: "provider.response.finished",
+          timestamp: at(8548),
+          attributes: { "gen_ai.usage.input_tokens": 82, "gen_ai.usage.output_tokens": 36 },
+        },
+        {
+          name: "gateway.response.sent",
+          timestamp: at(8550),
+          attributes: { "http.status_code": 200 },
+        },
+      ],
+    },
+    {
+      trace_id: traceID,
+      span_id: "span_parse",
+      parent_span_id: "span_gateway",
+      name: "gateway.request.parse",
+      kind: "internal",
+      start_time: at(0),
+      end_time: at(1),
+      status_code: "ok",
+    },
+    {
+      trace_id: traceID,
+      span_id: "span_governor",
+      parent_span_id: "span_gateway",
+      name: "gateway.governor",
+      kind: "internal",
+      start_time: at(1),
+      end_time: at(2),
+      status_code: "ok",
+    },
+    {
+      trace_id: traceID,
+      span_id: "span_router",
+      parent_span_id: "span_gateway",
+      name: "gateway.router",
+      kind: "internal",
+      start_time: at(7),
+      end_time: at(9),
+      status_code: "ok",
+    },
+    {
+      trace_id: traceID,
+      span_id: "span_provider",
+      parent_span_id: "span_gateway",
+      name: "provider.chat",
+      kind: "client",
+      start_time: at(10),
+      end_time: at(8540),
+      status_code: "ok",
+      attributes: {
+        "gen_ai.system": "ollama",
+        "gen_ai.request.model": "llama3.1:8b",
+      },
+    },
+    {
+      trace_id: traceID,
+      span_id: "span_usage",
+      parent_span_id: "span_gateway",
+      name: "gateway.usage",
+      kind: "internal",
+      start_time: at(8541),
+      end_time: at(8543),
+      status_code: "ok",
+    },
+    {
+      trace_id: traceID,
+      span_id: "span_response",
+      parent_span_id: "span_gateway",
+      name: "gateway.response",
+      kind: "internal",
+      start_time: at(8548),
+      end_time: at(8550),
+      status_code: "ok",
+    },
+  ];
+
+  await page.route(`${HECATE_API}/traces?limit=50`, (route) =>
+    fulfillJSON(route, { object: "trace_list", data: [trace] }),
+  );
+  await page.route(`${HECATE_API}/traces?request_id=${requestID}`, (route) =>
+    fulfillJSON(route, {
+      object: "trace",
+      data: {
+        ...trace,
+        spans,
+      },
+    }),
+  );
+  await page.route(`${HECATE_API}/usage/events?limit=20`, (route) =>
+    fulfillJSON(route, {
+      object: "usage_events",
+      data: [
+        {
+          type: "chat_completion",
+          scope: "provider",
+          provider: "ollama",
+          model: "llama3.1:8b",
+          request_id: requestID,
+          actor: "operator",
+          amount_micros_usd: 0,
+          amount_usd: "0.00000",
+          prompt_tokens: 82,
+          completion_tokens: 36,
+          total_tokens: 118,
+          timestamp: at(8550),
+        },
+      ],
+    }),
+  );
+}
+
+async function unrouteObservabilityDocsFixture(page: Page) {
+  await page.unroute(`${HECATE_API}/traces?limit=50`);
+  await page.unroute(`${HECATE_API}/traces?request_id=f5894684f2aa8a`);
+  await page.unroute(`${HECATE_API}/usage/events?limit=20`);
+}
+
 async function routeLocalProviderDiscoveryDocsFixture(page: Page) {
   await page.route(`${HECATE_API}/settings/providers/local-discovery`, (route) =>
     route.fulfill({
@@ -1566,13 +1755,15 @@ async function main() {
 
   // ── 9. Observability — pick a trace first ───────────────────────────────────
   console.log("→ observe (trace selected)");
+  await routeObservabilityDocsFixture(page);
   await openWorkspace(page, "overview");
   await page.waitForTimeout(800);
   try {
     const firstRow = page.locator("[data-trace-row], tbody tr").first();
     if ((await firstRow.count()) > 0 && (await firstRow.isVisible())) {
       await firstRow.click({ timeout: 2_000 });
-      await page.waitForTimeout(800);
+      await page.waitForSelector('[data-testid="trace-event-flow"]', { timeout: 3_000 });
+      await page.waitForTimeout(500);
     } else {
       console.warn("  no trace rows found — taking the empty-list shot");
     }
@@ -1580,6 +1771,7 @@ async function main() {
     console.warn(`  trace click skipped: ${(err as Error).message}`);
   }
   await snap(page, "observe");
+  await unrouteObservabilityDocsFixture(page);
 
   // ── 10. Usage workspace ────────────────────────────────────────────
   console.log("→ usage");
