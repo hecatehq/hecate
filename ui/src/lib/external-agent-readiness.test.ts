@@ -55,6 +55,32 @@ describe("resolveExternalAgentReadiness", () => {
     });
   });
 
+  it("uses sign-in guidance instead of install copy for installed unauthenticated agents", () => {
+    const readiness = resolveExternalAgentReadiness(
+      adapter({ auth_status: "unauthenticated", auth_error: "" }),
+      null,
+    );
+
+    expect(readiness).toMatchObject({
+      kind: "sign_in",
+      detail: "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment.",
+      needsRepair: true,
+    });
+    expect(readiness.detail).not.toContain("Install");
+  });
+
+  it("keeps unprobed available agents muted until a probe verifies readiness", () => {
+    const readiness = resolveExternalAgentReadiness(adapter({ auth_status: "unknown" }), null);
+
+    expect(readiness).toMatchObject({
+      kind: "unverified",
+      label: "not verified",
+      tone: "muted",
+      needsRepair: false,
+      verifiedByProbe: false,
+    });
+  });
+
   it("uses adapter-specific setup guidance for Grok Build", () => {
     const readiness = resolveExternalAgentReadiness(
       adapter({
