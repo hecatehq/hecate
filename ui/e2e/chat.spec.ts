@@ -2939,6 +2939,147 @@ type ClaudeAdapterFixture = {
   healthStatus?: "ready" | "auth_required" | "not_installed" | "error";
 };
 
+type ExternalAdapterFixture = ClaudeAdapterFixture & {
+  id: string;
+  name: string;
+  command: string;
+  args?: string[];
+};
+
+async function openExternalAgentReadinessFixture(page: Page, fixture: ExternalAdapterFixture) {
+  const sessionID = `${fixture.id}-onboarding-e2e`;
+  const adapter = {
+    id: fixture.id,
+    name: fixture.name,
+    kind: "acp",
+    command: fixture.command,
+    args: fixture.args,
+    available: fixture.available ?? true,
+    status: fixture.available === false ? "missing" : "available",
+    error: fixture.available === false ? `${fixture.command} command not found` : undefined,
+    description: `Run ${fixture.name} through ACP as a long-lived external coding-agent session supervised by Hecate.`,
+    cost_mode: "external",
+    auth_status: fixture.authStatus ?? "unknown",
+    auth_error:
+      fixture.authStatus === "unauthenticated"
+        ? `Run ${fixture.command.replace(/\s+.*/, "")} login`
+        : undefined,
+  };
+  const status = fixture.available === false ? "not_installed" : (fixture.healthStatus ?? "ready");
+
+  await page.route("/hecate/v1/agent-adapters*", async (route) => {
+    const method = route.request().method();
+    const url = route.request().url();
+    if (method === "POST" && url.includes(`/${fixture.id}/probe`)) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          object: "agent_adapter_probe",
+          data: {
+            adapter:
+              status === "ready"
+                ? { ...adapter, auth_status: "ok", auth_error: undefined }
+                : adapter,
+            health: {
+              adapter_id: fixture.id,
+              status,
+              stage:
+                status === "ready"
+                  ? "ready"
+                  : status === "not_installed"
+                    ? "lookup"
+                    : "new_session",
+              path: fixture.available === false ? undefined : `/usr/local/bin/${fixture.command}`,
+              hint:
+                status === "auth_required"
+                  ? `${fixture.name} needs local sign-in before use.`
+                  : undefined,
+              error:
+                status === "not_installed" ? `${fixture.command} command not found` : undefined,
+              duration_ms: 20,
+            },
+          },
+        }),
+      });
+      return;
+    }
+    if (method === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_adapters", data: [adapter] }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  const session = {
+    id: sessionID,
+    title: `${fixture.name} chat`,
+    agent_id: fixture.id,
+    agent_name: fixture.name,
+    driver_kind: "acp",
+    native_session_id: `native-${fixture.id}-e2e`,
+    workspace: "/tmp/hecate-e2e",
+    status: "idle",
+    message_count: 0,
+    config_options: [],
+    messages: [],
+    created_at: "2026-05-14T10:00:00Z",
+    updated_at: "2026-05-14T10:00:00Z",
+  };
+  await page.route(/\/hecate\/v1\/chat\/sessions(?:\/.*)?(?:\?.*)?$/, async (route) => {
+    const method = route.request().method();
+    const path = new URL(route.request().url()).pathname;
+    if (method === "GET" && path === "/hecate/v1/chat/sessions") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_sessions", data: [session] }),
+      });
+      return;
+    }
+    if (method === "GET" && path === `/hecate/v1/chat/sessions/${sessionID}`) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_session", data: session }),
+      });
+      return;
+    }
+    if (method === "GET" && path === `/hecate/v1/chat/sessions/${sessionID}/stream`) {
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
+      return;
+    }
+    if (method === "GET" && path === `/hecate/v1/chat/sessions/${sessionID}/approvals`) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "chat_approvals", data: [] }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.addInitScript(
+    ({ adapterID, chatSessionID }) => {
+      window.localStorage.setItem("hecate.chatTarget", "external_agent");
+      window.localStorage.setItem("hecate.agentAdapterID", adapterID);
+      window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+      window.localStorage.setItem("hecate.chatSessionID", chatSessionID);
+    },
+    { adapterID: fixture.id, chatSessionID: sessionID },
+  );
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page
+    .getByRole("button", { name: new RegExp(`Chat ${fixture.name} chat, ${fixture.name}`) })
+    .click();
+}
+
 async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture = {}) {
   const adapter = {
     id: "claude_code",
@@ -3129,6 +3270,42 @@ test("Claude Code setup stays visible when the probe requires local auth", async
   await expect(page.getByText("Set up Claude Code")).toBeVisible();
   await expect(page.getByText(/Claude Code needs local CLI sign-in/)).toBeVisible();
   await page.locator("textarea").fill("hello from Claude Code");
+  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+});
+
+test("Cursor Agent setup explains CLI sign-in without launching the CLI", async ({ page }) => {
+  await openExternalAgentReadinessFixture(page, {
+    id: "cursor_agent",
+    name: "Cursor Agent",
+    command: "cursor-agent",
+    available: true,
+    authStatus: "unauthenticated",
+    healthStatus: "auth_required",
+  });
+
+  await expect(page.getByText("Set up Cursor Agent")).toBeVisible();
+  await expect(page.getByText(/cursor-agent login/)).toBeVisible();
+  await page.locator("textarea").fill("hello from Cursor Agent");
+  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+});
+
+test("Grok Build setup mentions CLI sign-in and model selection without launching the CLI", async ({
+  page,
+}) => {
+  await openExternalAgentReadinessFixture(page, {
+    id: "grok_build",
+    name: "Grok Build",
+    command: "grok",
+    args: ["agent", "stdio"],
+    available: true,
+    authStatus: "unauthenticated",
+    healthStatus: "auth_required",
+  });
+
+  await expect(page.getByText("Set up Grok Build")).toBeVisible();
+  await expect(page.getByText(/grok login/)).toBeVisible();
+  await expect(page.getByText(/model selected/)).toBeVisible();
+  await page.locator("textarea").fill("hello from Grok Build");
   await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
 });
 
