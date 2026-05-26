@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -51,44 +52,7 @@ func TestChatContextPacketsUseVisibleTranscriptCount(t *testing.T) {
 
 func TestChatContextPacketsIncludeEnabledProjectSources(t *testing.T) {
 	ctx := context.Background()
-	projectStore := projects.NewMemoryStore()
-	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
-	if _, err := projectStore.Create(ctx, projects.Project{
-		ID:        "proj_1",
-		Name:      "Hecate",
-		CreatedAt: now,
-		UpdatedAt: now,
-		ContextSources: []projects.ContextSource{
-			{
-				ID:        "ctxsrc_readme",
-				Kind:      "doc",
-				Title:     "README",
-				Path:      "README.md",
-				Enabled:   true,
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-			{
-				ID:        "ctxsrc_notes",
-				Kind:      "notes",
-				Path:      "docs/notes.md",
-				Enabled:   true,
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-			{
-				ID:        "ctxsrc_disabled",
-				Kind:      "doc",
-				Title:     "Disabled",
-				Path:      "private.md",
-				Enabled:   false,
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-		},
-	}); err != nil {
-		t.Fatalf("Create project: %v", err)
-	}
+	projectStore := newContextPacketProjectStore(t, ctx)
 	handler := &Handler{projects: projectStore}
 	session := chat.Session{
 		ID:        "chat_1",
@@ -138,6 +102,90 @@ func TestChatContextPacketsIncludeEnabledProjectSources(t *testing.T) {
 	}
 }
 
+func TestChatContextPacketSourceOrdering(t *testing.T) {
+	ctx := context.Background()
+	handler := &Handler{projects: newContextPacketProjectStore(t, ctx)}
+	session := chat.Session{
+		ID:        "chat_1",
+		ProjectID: "proj_1",
+		Workspace: "/tmp/hecate",
+		Messages:  []chat.Message{{ID: "u1", Role: "user", Content: "first"}},
+	}
+
+	tests := []struct {
+		name string
+		got  []string
+		want []string
+	}{
+		{
+			name: "direct model",
+			got:  sourceKinds(handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", "system")),
+			want: []string{"system_prompt", "workspace_doc", "project_notes", "transcript"},
+		},
+		{
+			name: "hecate task",
+			got:  sourceKinds(handler.hecateTaskContextPacket(ctx, session, "ollama", "llama3.1:8b", "system", false)),
+			want: []string{"system_prompt", "workspace", "workspace_doc", "project_notes", "transcript", "task_runtime"},
+		},
+		{
+			name: "external agent",
+			got:  sourceKinds(handler.externalAgentContextPacket(ctx, session, "Cursor Agent")),
+			want: []string{"workspace", "workspace_doc", "project_notes", "transcript", "adapter_session"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if !slices.Equal(tc.got, tc.want) {
+				t.Fatalf("source kinds = %v, want %v", tc.got, tc.want)
+			}
+		})
+	}
+}
+
+func newContextPacketProjectStore(t *testing.T, ctx context.Context) projects.Store {
+	t.Helper()
+	projectStore := projects.NewMemoryStore()
+	now := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
+	if _, err := projectStore.Create(ctx, projects.Project{
+		ID:        "proj_1",
+		Name:      "Hecate",
+		CreatedAt: now,
+		UpdatedAt: now,
+		ContextSources: []projects.ContextSource{
+			{
+				ID:        "ctxsrc_readme",
+				Kind:      "doc",
+				Title:     "README",
+				Path:      "README.md",
+				Enabled:   true,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			{
+				ID:        "ctxsrc_notes",
+				Kind:      "notes",
+				Path:      "docs/notes.md",
+				Enabled:   true,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			{
+				ID:        "ctxsrc_disabled",
+				Kind:      "doc",
+				Title:     "Disabled",
+				Path:      "private.md",
+				Enabled:   false,
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	return projectStore
+}
+
 func assertContextSource(t *testing.T, packet chat.ContextPacket, want chat.ContextSource) {
 	t.Helper()
 	for _, got := range packet.Sources {
@@ -146,4 +194,12 @@ func assertContextSource(t *testing.T, packet chat.ContextPacket, want chat.Cont
 		}
 	}
 	t.Fatalf("context source %+v not found in packet sources: %+v", want, packet.Sources)
+}
+
+func sourceKinds(packet chat.ContextPacket) []string {
+	kinds := make([]string, 0, len(packet.Sources))
+	for _, source := range packet.Sources {
+		kinds = append(kinds, source.Kind)
+	}
+	return kinds
 }

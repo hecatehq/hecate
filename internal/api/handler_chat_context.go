@@ -125,6 +125,8 @@ func projectContextSourceKind(kind string) string {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	switch kind {
 	case "", "doc":
+		// Operator-configured docs should render beside native workspace
+		// sources; other project kinds stay namespaced to avoid collisions.
 		return "workspace_doc"
 	default:
 		return "project_" + strings.NewReplacer(" ", "_", "-", "_").Replace(kind)
