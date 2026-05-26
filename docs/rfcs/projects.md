@@ -211,6 +211,10 @@ Context assembly should include both project and workspace metadata:
 - `workspace_context`: files, diffs, tool output, and runtime artifacts from the concrete workspace.
 
 This prevents future context systems from confusing “same path today” with “same durable project.”
+Today, chat message context packets already snapshot enabled project
+context-source metadata for Hecate Chat, direct model turns, and External Agent
+turns. The snapshot is provenance-only: it records configured source paths and
+labels, but does not read or inject file contents.
 
 ## UI Shape
 
@@ -261,7 +265,7 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 2. Add UI list/create/rename/delete basics.
 3. Add `project_id` to chat sessions.
 4. Add `project_id` to tasks.
-5. Thread project identity into context packets.
+5. Thread project identity into chat context packets. Done for project context-source metadata.
 6. Add project-scoped memory.
 7. Add agent-profile memory-source selection.
 8. Move relevant defaults from ad hoc chat/task state into project defaults.

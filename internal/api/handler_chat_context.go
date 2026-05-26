@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -9,7 +10,7 @@ import (
 
 const chatContextPacketVersion = "chat.context.v1"
 
-func directModelContextPacket(session chat.Session, provider, model, systemPrompt string) chat.ContextPacket {
+func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Session, provider, model, systemPrompt string) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeDirectModel, provider, model, session.Workspace)
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
@@ -21,11 +22,12 @@ func directModelContextPacket(session chat.Session, provider, model, systemPromp
 			Trust:  "system",
 		})
 	}
+	packet.Sources = append(packet.Sources, h.projectContextSources(ctx, session)...)
 	packet.Sources = append(packet.Sources, transcriptContextSource(packet.MessageCount))
 	return packet
 }
 
-func hecateTaskContextPacket(session chat.Session, provider, model, systemPrompt string, forceNewTask bool) chat.ContextPacket {
+func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Session, provider, model, systemPrompt string, forceNewTask bool) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, session.Workspace)
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
@@ -45,6 +47,7 @@ func hecateTaskContextPacket(session chat.Session, provider, model, systemPrompt
 			Trust:  "workspace",
 		})
 	}
+	packet.Sources = append(packet.Sources, h.projectContextSources(ctx, session)...)
 	taskDetail := "Continuing the existing task-backed agent loop"
 	if forceNewTask || strings.TrimSpace(session.TaskID) == "" {
 		taskDetail = "Starting a new task-backed agent loop"
@@ -61,7 +64,7 @@ func hecateTaskContextPacket(session chat.Session, provider, model, systemPrompt
 	return packet
 }
 
-func externalAgentContextPacket(session chat.Session, adapterName string) chat.ContextPacket {
+func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.Session, adapterName string) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeExternalAgent, "", "", session.Workspace)
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	if strings.TrimSpace(session.Workspace) != "" {
@@ -72,6 +75,7 @@ func externalAgentContextPacket(session chat.Session, adapterName string) chat.C
 			Trust:  "workspace",
 		})
 	}
+	packet.Sources = append(packet.Sources, h.projectContextSources(ctx, session)...)
 	if strings.TrimSpace(adapterName) == "" {
 		adapterName = "External agent"
 	}
@@ -85,6 +89,46 @@ func externalAgentContextPacket(session chat.Session, adapterName string) chat.C
 		},
 	)
 	return packet
+}
+
+func (h *Handler) projectContextSources(ctx context.Context, session chat.Session) []chat.ContextSource {
+	if h == nil || h.projects == nil || strings.TrimSpace(session.ProjectID) == "" {
+		return nil
+	}
+	project, ok, err := h.projects.Get(ctx, session.ProjectID)
+	if err != nil || !ok {
+		return nil
+	}
+	sources := make([]chat.ContextSource, 0, len(project.ContextSources))
+	for _, source := range project.ContextSources {
+		if !source.Enabled {
+			continue
+		}
+		label := strings.TrimSpace(source.Title)
+		if label == "" {
+			label = strings.TrimSpace(source.Path)
+		}
+		if label == "" {
+			continue
+		}
+		sources = append(sources, chat.ContextSource{
+			Kind:   projectContextSourceKind(source.Kind),
+			Label:  label,
+			Detail: strings.TrimSpace(source.Path),
+			Trust:  "project",
+		})
+	}
+	return sources
+}
+
+func projectContextSourceKind(kind string) string {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	switch kind {
+	case "", "doc":
+		return "workspace_doc"
+	default:
+		return "project_" + strings.NewReplacer(" ", "_", "-", "_").Replace(kind)
+	}
 }
 
 func baseChatContextPacket(mode, provider, model, workspace string) chat.ContextPacket {

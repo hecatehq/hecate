@@ -1026,9 +1026,10 @@ This first implementation is intentionally lightweight:
 `HECATE_BACKEND=sqlite` persists them. Chat sessions can carry an optional
 `project_id` so the operator UI can group history by project. Projects can
 also remember context-source metadata (`path`, `kind`, `title`, and whether the
-source is enabled), but Hecate does not inject those files into prompts yet.
-Tasks, memory, profiles, presets, and context packets are not linked to
-`project_id` yet.
+source is enabled). Chat message context packets include enabled source
+metadata for inspection, but Hecate does not inject those files into prompts
+yet. Tasks, memory, profiles, presets, and source-content injection are not
+linked to `project_id` yet.
 
 ### `GET /hecate/v1/projects`
 

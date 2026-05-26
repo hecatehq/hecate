@@ -832,7 +832,7 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		Status:        "running",
 		CostMode:      adapter.CostMode,
 		Workspace:     session.Workspace,
-		Context:       externalAgentContextPacket(session, adapter.Name),
+		Context:       h.externalAgentContextPacket(r.Context(), session, adapter.Name),
 		CreatedAt:     time.Now().UTC(),
 		StartedAt:     startedAt,
 		Activities: []chat.Activity{
@@ -1132,7 +1132,7 @@ func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Re
 	h.agentChatLive.publishSession(updated)
 
 	history := agentChatModelHistory(session, strings.TrimSpace(req.SystemPrompt), content)
-	contextPacket := directModelContextPacket(session, provider, model, strings.TrimSpace(req.SystemPrompt))
+	contextPacket := h.directModelContextPacket(r.Context(), session, provider, model, strings.TrimSpace(req.SystemPrompt))
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: chat.ExecutionModeDirectModel,
