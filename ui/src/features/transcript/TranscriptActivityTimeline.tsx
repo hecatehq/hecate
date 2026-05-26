@@ -107,7 +107,7 @@ export function TranscriptActivityTimeline({
   defaultOpen?: boolean;
   renderAdvancedActivity?: (activity: ChatActivityRecord) => ReactNode;
 }) {
-  const visible = orderVisibleActivities(compactAgentActivities(activities));
+  const visible = orderVisibleActivities(compactAgentActivities(activities, Boolean(diffStat)));
   const details = orderVisibleActivities(compactDetailActivities(activities, Boolean(diffStat)));
   const primary = diffStat ? [...visible, fileChangesActivity(diffStat)] : visible;
   const terminal = terminalAgentActivity(activities);

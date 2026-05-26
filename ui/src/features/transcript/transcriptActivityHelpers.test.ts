@@ -194,6 +194,15 @@ describe("compactAgentActivities", () => {
     ];
     expect(compactAgentActivities(items)).toEqual([items[1]]);
   });
+
+  it("drops backend files_changed rows when a diffStat row will be synthesized", () => {
+    const items = [
+      activity({ type: "tool_call", title: "Ran tool" }),
+      activity({ type: "files_changed", title: "Files changed", detail: "2 files changed" }),
+    ];
+    expect(compactAgentActivities(items, true)).toEqual([items[0]]);
+    expect(compactAgentActivities(items, false)).toEqual(items);
+  });
 });
 
 describe("compactDetailActivities", () => {
@@ -288,6 +297,18 @@ describe("activityDisplay", () => {
       title: "Thinking",
       detail: "3 model turns completed",
     });
+  });
+
+  it("does not surface verbose adapter thinking text in the activity row", () => {
+    expect(
+      activityDisplay(
+        activity({
+          type: "thinking",
+          title: "Thinking",
+          detail: "The user wants to see the current git diff in their repository.",
+        }),
+      ),
+    ).toEqual({ title: "Thinking" });
   });
 
   it("renders the files_changed summary directly", () => {

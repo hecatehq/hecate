@@ -298,6 +298,29 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("1 file changed, 2 insertions(+), 1 deletion(-)")).toBeInTheDocument();
   });
 
+  it("does not duplicate backend files_changed rows when diffStat is supplied", () => {
+    const activities: ChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec", status: "completed" },
+      {
+        type: "files_changed",
+        title: "Files changed",
+        status: "completed",
+        detail: "2 files changed, 72 insertions(+), 3 deletions(-)",
+      },
+    ];
+    render(
+      <TranscriptActivityTimeline
+        activities={activities}
+        diffStat="ui/src/a.tsx | 54 ++++++++++++++++++\nui/src/b.tsx | 21 +++++++--\n2 files changed, 72 insertions(+), 3 deletions(-)"
+      />,
+    );
+
+    expect(screen.getAllByText("Files changed")).toHaveLength(1);
+    expect(screen.getAllByText("2 files changed, 72 insertions(+), 3 deletions(-)")).toHaveLength(
+      1,
+    );
+  });
+
   it("hides the 'started' activity when a terminal activity has appeared", () => {
     const activities: ChatActivityRecord[] = [
       { type: "started", title: "Started" },
