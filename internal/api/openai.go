@@ -716,11 +716,10 @@ type ChatContextPacketItem struct {
 }
 
 type ChatContextSourceItem struct {
-	Kind     string `json:"kind"`
-	Label    string `json:"label"`
-	Detail   string `json:"detail,omitempty"`
-	Trust    string `json:"trust,omitempty"`
-	Included bool   `json:"included"`
+	Kind   string `json:"kind"`
+	Label  string `json:"label"`
+	Detail string `json:"detail,omitempty"`
+	Trust  string `json:"trust,omitempty"`
 }
 
 type ChatChangedFileItem struct {

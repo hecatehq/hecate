@@ -91,7 +91,6 @@ export type ChatContextSourceRecord = {
   label: string;
   detail?: string;
   trust?: string;
-  included?: boolean;
 };
 
 export type ChatSegmentRecord = {

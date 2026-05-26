@@ -80,12 +80,14 @@ Assistant turns may also expose a collapsed **context** inspector. This is a
 metadata snapshot that answers "what kind of context did this turn use?"
 without storing the prompt body. The packet records execution mode,
 provider/model when Hecate owns routing, workspace path, whether a system
-prompt was included, the message count used for that turn, and high-level
+prompt was included, the visible transcript message count for that turn, and high-level
 sources such as transcript, workspace, task runtime, or adapter session. It
 deliberately does not persist full system prompts, raw transcript text, file
-contents, or adapter-private prompt packing. Future project memory and context
-assembly should add source IDs/provenance to this packet rather than inventing
-a separate transcript debug surface.
+contents, or adapter-private prompt packing. The message count is an
+operator-facing transcript count, not a provider token count or a guarantee
+that every counted message was packed into the provider/adapter prompt. Future
+project memory and context assembly should add source IDs/provenance to this
+packet rather than inventing a separate transcript debug surface.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct

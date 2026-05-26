@@ -575,7 +575,7 @@ function AgentUsage({ usage }: { usage: ChatUsageRecord }) {
 
 function ContextInspector({ packet }: { packet: ChatContextPacketRecord }) {
   const modelLabel = [packet.provider, packet.model].filter(Boolean).join(" · ");
-  const includedSources = (packet.sources ?? []).filter((source) => source.included !== false);
+  const sources = packet.sources ?? [];
   const summaryParts = [
     "context",
     packet.message_count
@@ -611,9 +611,9 @@ function ContextInspector({ packet }: { packet: ChatContextPacketRecord }) {
           <ContextRow label="mode" value={humanExecutionMode(packet.execution_mode)} />
         )}
         {packet.workspace && <ContextRow label="workspace" value={packet.workspace} />}
-        {includedSources.length > 0 && (
+        {sources.length > 0 && (
           <div style={{ display: "grid", gap: 5 }}>
-            {includedSources.map((source, index) => (
+            {sources.map((source, index) => (
               <ContextSourceRow key={`${source.kind}-${source.label}-${index}`} source={source} />
             ))}
           </div>
@@ -744,7 +744,7 @@ function contextPacketEmpty(packet: ChatContextPacketRecord): boolean {
     !packet.workspace &&
     !packet.system_prompt_included &&
     !packet.message_count &&
-    !(packet.sources ?? []).some((source) => source.included !== false)
+    (packet.sources ?? []).length === 0
   );
 }
 

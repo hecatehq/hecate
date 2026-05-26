@@ -77,10 +77,9 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 			MessageCount:  2,
 			Sources: []ContextSource{
 				{
-					Kind:     "adapter_session",
-					Label:    "Cursor Agent ACP session",
-					Trust:    "adapter",
-					Included: true,
+					Kind:  "adapter_session",
+					Label: "Cursor Agent ACP session",
+					Trust: "adapter",
 				},
 			},
 		},

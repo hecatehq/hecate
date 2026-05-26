@@ -8,9 +8,9 @@ observability. Higher-level assistant behavior should be built from those
 primitives through agent profiles, presets, project memory, and context
 assembly rather than hidden prompt glue or provider-specific shortcuts.
 Model-backed assistant turns should carry a small context-inspector packet:
-execution mode, route/workspace metadata, included-source provenance, and
-counts. Do not store full prompt bodies, raw transcript text, file contents, or
-adapter-private prompt packing in that packet.
+execution mode, route/workspace metadata, source provenance, and visible
+transcript counts. Do not store full prompt bodies, raw transcript text, file
+contents, or adapter-private prompt packing in that packet.
 
 ## Repository layout
 

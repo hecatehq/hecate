@@ -72,7 +72,10 @@ type Message struct {
 	Activities      []Activity
 	Usage           Usage
 	Timing          Timing
-	Context         ContextPacket
+	// Context is attached to assistant messages. It records metadata about the
+	// context sources visible to the operator, without prompt bodies or file
+	// contents.
+	Context ContextPacket
 }
 
 type Activity struct {
@@ -108,11 +111,10 @@ type ContextPacket struct {
 }
 
 type ContextSource struct {
-	Kind     string `json:"kind"`
-	Label    string `json:"label"`
-	Detail   string `json:"detail,omitempty"`
-	Trust    string `json:"trust,omitempty"`
-	Included bool   `json:"included"`
+	Kind   string `json:"kind"`
+	Label  string `json:"label"`
+	Detail string `json:"detail,omitempty"`
+	Trust  string `json:"trust,omitempty"`
 }
 
 func (packet ContextPacket) Empty() bool {

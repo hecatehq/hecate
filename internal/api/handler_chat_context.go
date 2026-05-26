@@ -5,48 +5,44 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/chat"
-	"github.com/hecatehq/hecate/pkg/types"
 )
 
 const chatContextPacketVersion = "chat.context.v1"
 
-func directModelContextPacket(session chat.Session, provider, model, systemPrompt string, history []types.Message) chat.ContextPacket {
+func directModelContextPacket(session chat.Session, provider, model, systemPrompt string) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeDirectModel, provider, model, session.Workspace)
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
-	packet.MessageCount = chatHistoryMessageCount(history)
+	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	if packet.SystemPromptIncluded {
 		packet.Sources = append(packet.Sources, chat.ContextSource{
-			Kind:     "system_prompt",
-			Label:    "System prompt",
-			Detail:   "Configured for this direct model turn",
-			Trust:    "system",
-			Included: true,
+			Kind:   "system_prompt",
+			Label:  "System prompt",
+			Detail: "Configured for this direct model turn",
+			Trust:  "system",
 		})
 	}
 	packet.Sources = append(packet.Sources, transcriptContextSource(packet.MessageCount))
 	return packet
 }
 
-func hecateTaskContextPacket(session chat.Session, provider, model, systemPrompt string, messageCount int, forceNewTask bool) chat.ContextPacket {
+func hecateTaskContextPacket(session chat.Session, provider, model, systemPrompt string, forceNewTask bool) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, session.Workspace)
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
-	packet.MessageCount = messageCount
+	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	if packet.SystemPromptIncluded {
 		packet.Sources = append(packet.Sources, chat.ContextSource{
-			Kind:     "system_prompt",
-			Label:    "System prompt",
-			Detail:   "Stored on the backing task for this task segment",
-			Trust:    "system",
-			Included: true,
+			Kind:   "system_prompt",
+			Label:  "System prompt",
+			Detail: "Stored on the backing task for this task segment",
+			Trust:  "system",
 		})
 	}
 	if strings.TrimSpace(session.Workspace) != "" {
 		packet.Sources = append(packet.Sources, chat.ContextSource{
-			Kind:     "workspace",
-			Label:    "Workspace",
-			Detail:   session.Workspace,
-			Trust:    "workspace",
-			Included: true,
+			Kind:   "workspace",
+			Label:  "Workspace",
+			Detail: session.Workspace,
+			Trust:  "workspace",
 		})
 	}
 	taskDetail := "Continuing the existing task-backed agent loop"
@@ -54,13 +50,12 @@ func hecateTaskContextPacket(session chat.Session, provider, model, systemPrompt
 		taskDetail = "Starting a new task-backed agent loop"
 	}
 	packet.Sources = append(packet.Sources,
-		transcriptContextSource(messageCount),
+		transcriptContextSource(packet.MessageCount),
 		chat.ContextSource{
-			Kind:     "task_runtime",
-			Label:    "Hecate task runtime",
-			Detail:   taskDetail,
-			Trust:    "runtime",
-			Included: true,
+			Kind:   "task_runtime",
+			Label:  "Hecate task runtime",
+			Detail: taskDetail,
+			Trust:  "runtime",
 		},
 	)
 	return packet
@@ -68,14 +63,13 @@ func hecateTaskContextPacket(session chat.Session, provider, model, systemPrompt
 
 func externalAgentContextPacket(session chat.Session, adapterName string) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeExternalAgent, "", "", session.Workspace)
-	packet.MessageCount = terminalChatMessageCount(session.Messages) + 1
+	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	if strings.TrimSpace(session.Workspace) != "" {
 		packet.Sources = append(packet.Sources, chat.ContextSource{
-			Kind:     "workspace",
-			Label:    "Workspace",
-			Detail:   session.Workspace,
-			Trust:    "workspace",
-			Included: true,
+			Kind:   "workspace",
+			Label:  "Workspace",
+			Detail: session.Workspace,
+			Trust:  "workspace",
 		})
 	}
 	if strings.TrimSpace(adapterName) == "" {
@@ -84,11 +78,10 @@ func externalAgentContextPacket(session chat.Session, adapterName string) chat.C
 	packet.Sources = append(packet.Sources,
 		transcriptContextSource(packet.MessageCount),
 		chat.ContextSource{
-			Kind:     "adapter_session",
-			Label:    adapterName + " ACP session",
-			Detail:   "The adapter owns model packing inside its native session",
-			Trust:    "adapter",
-			Included: true,
+			Kind:   "adapter_session",
+			Label:  adapterName + " ACP session",
+			Detail: "The adapter owns model packing inside its native session",
+			Trust:  "adapter",
 		},
 	)
 	return packet
@@ -110,29 +103,17 @@ func transcriptContextSource(count int) chat.ContextSource {
 		detail = fmt.Sprintf("%d chat messages including this turn", count)
 	}
 	return chat.ContextSource{
-		Kind:     "transcript",
-		Label:    "Chat transcript",
-		Detail:   detail,
-		Trust:    "operator",
-		Included: true,
+		Kind:   "transcript",
+		Label:  "Chat transcript",
+		Detail: detail,
+		Trust:  "operator",
 	}
 }
 
-func chatHistoryMessageCount(history []types.Message) int {
-	count := 0
-	for _, message := range history {
-		if message.Role == "system" {
-			continue
-		}
-		if strings.TrimSpace(message.Content) == "" {
-			continue
-		}
-		count++
-	}
-	return count
-}
-
-func terminalChatMessageCount(messages []chat.Message) int {
+// chatTranscriptMessageCount intentionally counts visible, terminal transcript
+// messages. It is an operator-facing history count, not a promise that every
+// counted byte was packed into the provider or adapter prompt.
+func chatTranscriptMessageCount(messages []chat.Message) int {
 	count := 0
 	for _, message := range messages {
 		if message.Role != "user" && message.Role != "assistant" {
