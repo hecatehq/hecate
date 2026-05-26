@@ -358,7 +358,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     r.fulfill(ok({ object: "agent_adapters", data: MOCK_AGENT_ADAPTERS })),
   );
 
-  await page.route("/hecate/v1/chat/sessions*", async (route) => {
+  await page.route(/\/hecate\/v1\/chat\/sessions(?:\/.*)?(?:\?.*)?$/, async (route) => {
     const request = route.request();
     const method = request.method();
     const url = new URL(request.url());
@@ -408,7 +408,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           message_count: 0,
           created_at: now(),
           updated_at: now(),
-          config_options: isExternal ? [] : undefined,
+          config_options: isExternal ? (body.config_options ?? []) : undefined,
           segments: [],
           messages: [],
         };
@@ -461,6 +461,50 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       return;
     }
 
+    if (parts[1] === "cancel" && method === "POST") {
+      const activeSegment = [...(session.segments ?? [])]
+        .reverse()
+        .find((segment: any) =>
+          ["running", "in_progress", "awaiting_approval", "pending"].includes(
+            String(segment.status || ""),
+          ),
+        );
+      const assistant = [...(session.messages ?? [])]
+        .reverse()
+        .find((message: any) => message.role === "assistant");
+
+      session.status = "cancelled";
+      session.updated_at = now();
+      if (activeSegment) {
+        activeSegment.status = "cancelled";
+        activeSegment.updated_at = now();
+      }
+      if (assistant) {
+        assistant.status = "cancelled";
+        assistant.error = assistant.error || "Stopped by operator.";
+        assistant.completed_at = now();
+        assistant.activities = [
+          ...(assistant.activities ?? []).map((activity: any) =>
+            ["running", "in_progress", "pending", "awaiting_approval"].includes(
+              String(activity.status || ""),
+            )
+              ? { ...activity, status: "cancelled" }
+              : activity,
+          ),
+          {
+            id: `cancelled-${chatSequence}`,
+            type: "cancelled",
+            title: "Run cancelled",
+            status: "cancelled",
+            terminal: true,
+            created_at: now(),
+          },
+        ];
+      }
+      await route.fulfill(ok({ object: "chat_session", data: session }));
+      return;
+    }
+
     if (parts[1] === "settings" && method === "PATCH") {
       const body = JSON.parse(request.postData() || "{}");
       if (typeof body.rtk_enabled === "boolean") session.rtk_enabled = body.rtk_enabled;
@@ -488,30 +532,99 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const executionMode =
         body.execution_mode ||
         (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "direct_model");
+      const sequence = chatSequence;
+      const segmentID = `segment-${sequence}`;
+      const isExternal = executionMode === "external_agent";
+      const keepRunning = isExternal && content.includes("[[keep-running]]");
+      if (isExternal) {
+        session.segments = [
+          ...(session.segments ?? []),
+          {
+            id: segmentID,
+            execution_mode: executionMode,
+            workspace: session.workspace,
+            status: keepRunning ? "running" : "completed",
+            message_count: 2,
+            started_at: now(),
+            updated_at: now(),
+          },
+        ];
+      }
       session.messages.push(
         {
-          id: `agent-msg-user-${chatSequence}`,
+          id: `agent-msg-user-${sequence}`,
           execution_mode: executionMode,
+          segment_id: isExternal ? segmentID : undefined,
           role: "user",
           content,
           created_at: now(),
         },
         {
-          id: `agent-msg-assistant-${chatSequence}`,
+          id: `agent-msg-assistant-${sequence}`,
           execution_mode: executionMode,
+          segment_id: isExternal ? segmentID : undefined,
           role: "assistant",
           content:
             executionMode === "direct_model"
               ? `Direct response to: ${content}`
-              : `Agent response to: ${content}`,
-          status: "completed",
+              : keepRunning
+                ? "I'll inspect that now."
+                : `Agent response to: ${content}`,
+          status: keepRunning ? "running" : "completed",
+          raw_output: isExternal
+            ? [
+                `{"type":"agent_message_chunk","text":"${keepRunning ? "I'll inspect that now." : `Agent response to: ${content}`}"}`,
+                `{"type":"session_update","status":"${keepRunning ? "running" : "completed"}"}`,
+              ].join("\n")
+            : undefined,
+          activities: isExternal
+            ? [
+                {
+                  id: `started-${sequence}`,
+                  type: "started",
+                  title: `${session.agent_name || "External agent"} started`,
+                  status: "completed",
+                  created_at: now(),
+                },
+                {
+                  id: `thinking-${sequence}`,
+                  type: "thinking",
+                  title: "Thinking",
+                  detail: "Read the prompt and planned the response.",
+                  status: keepRunning ? "running" : "completed",
+                  created_at: now(),
+                },
+                {
+                  id: `stdout-${sequence}`,
+                  type: "artifact",
+                  title: "agent-stdout.txt",
+                  status: "ready",
+                  kind: "stdout",
+                  artifact_id: `stdout-${sequence}`,
+                  artifact_size_bytes: 32,
+                  artifact_preview: "fake adapter wrote a transcript event",
+                  created_at: now(),
+                },
+                ...(keepRunning
+                  ? []
+                  : [
+                      {
+                        id: `completed-${sequence}`,
+                        type: "completed",
+                        title: "Run completed",
+                        status: "completed",
+                        terminal: true,
+                        created_at: now(),
+                      },
+                    ]),
+              ]
+            : undefined,
           provider: body.provider || session.provider,
           model: body.model || session.model,
           workspace: session.workspace,
-          run_id:
-            executionMode === "direct_model" ? `model_run_${chatSequence}` : `run_${chatSequence}`,
-          request_id: `req_${chatSequence}`,
-          trace_id: `trace_${chatSequence}`,
+          run_id: executionMode === "direct_model" ? `model_run_${sequence}` : `run_${sequence}`,
+          request_id: `req_${sequence}`,
+          trace_id: `trace_${sequence}`,
           cost_mode: executionMode === "external_agent" ? "external" : "hecate",
           created_at: now(),
         },
@@ -519,7 +632,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       chatSequence += 1;
       session.provider = body.provider || session.provider;
       session.model = body.model || session.model;
-      session.status = "completed";
+      session.status = keepRunning ? "running" : "completed";
       session.message_count = session.messages.length;
       session.updated_at = now();
       await route.fulfill(ok({ object: "chat_session", data: session }));

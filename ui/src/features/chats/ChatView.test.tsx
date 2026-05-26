@@ -3893,6 +3893,56 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Stopping...")).toBeTruthy();
   });
 
+  it("shows stop controls for a restored running external-agent session", async () => {
+    const cancelAgentChat = vi.fn(async () => undefined);
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        chatLoading: false,
+        agentWorkspace: "/tmp/hecate",
+        agentAdapters: [
+          {
+            id: "grok_build",
+            name: "Grok Build",
+            kind: "acp",
+            command: "grok",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Running work",
+          agent_id: "grok_build",
+          driver_kind: "acp",
+          workspace: "/tmp/hecate",
+          status: "idle",
+          segments: [
+            {
+              id: "seg_1",
+              execution_mode: "external_agent",
+              workspace: "/tmp/hecate",
+              status: "running",
+              message_count: 2,
+            },
+          ],
+          messages: [],
+        } as any,
+      },
+      { cancelAgentChat },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    expect(screen.getByRole("button", { name: "Stop external agent" })).toBeTruthy();
+    expect(screen.getByText("External Agent is working. New messages will queue.")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Stop external agent" }));
+    expect(cancelAgentChat).toHaveBeenCalledTimes(1);
+  });
+
   it("renders failed agent runs as an error notice with raw diagnostics separate", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",

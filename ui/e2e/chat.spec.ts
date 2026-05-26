@@ -66,6 +66,58 @@ async function switchToModel(page: Page, selectModel = true) {
   }
 }
 
+async function mockAvailableAgentAdapters(page: Page) {
+  await page.route("/hecate/v1/agent-adapters*", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_adapters",
+        data: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+          {
+            id: "grok_build",
+            name: "Grok Build",
+            kind: "acp",
+            command: "grok",
+            args: ["agent", "stdio"],
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      }),
+    });
+  });
+}
+
 test("renders the message textarea and send button", async ({ page }) => {
   await startHecateChat(page);
   await expect(page.locator("textarea")).toBeVisible();
@@ -483,6 +535,81 @@ test("New external-agent chat with model setup shows controls and composer toget
 
   await expect(page.getByRole("button", { name: "Model" })).toContainText("Grok Build 0429");
   await expect(page.locator("button[type='submit']")).toBeEnabled();
+});
+
+test("external-agent chat uses the shared fake lifecycle for transcript and delete", async ({
+  page,
+}) => {
+  await mockAvailableAgentAdapters(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+  });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByRole("button", { name: "New Claude Code chat", exact: true }).click();
+  const chatRow = page.getByRole("button", {
+    name: /Chat Claude Code chat, Claude Code/i,
+  });
+  await expect(chatRow).toBeVisible();
+
+  await page.locator("textarea").fill("Summarize the current workspace");
+  await page.locator("button[type='submit']").click();
+
+  await expect(page.getByText("Summarize the current workspace", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Agent response to: Summarize the current workspace", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("completed").first()).toBeVisible();
+  await expect(page.getByText("raw adapter output · 2 lines")).toBeVisible();
+  await page.getByText("raw adapter output · 2 lines").click();
+  await expect(page.getByText(/agent_message_chunk/)).toBeVisible();
+
+  await chatRow.hover();
+  await page.getByRole("button", { name: "Delete chat Claude Code chat" }).click();
+  await page.getByRole("button", { name: "Delete chat", exact: true }).last().click();
+  await expect(chatRow).toHaveCount(0);
+});
+
+test("external-agent running turns keep controls stable and request cancel through the fake backend", async ({
+  page,
+}) => {
+  await mockAvailableAgentAdapters(page);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "grok_build");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+  });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  let cancelPosts = 0;
+  await page.route("/hecate/v1/chat/sessions/*/cancel", async (route) => {
+    cancelPosts += 1;
+    await route.fallback();
+  });
+
+  await page.getByRole("button", { name: "New Grok Build chat", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: /Chat Grok Build chat, Grok Build/i }),
+  ).toBeVisible();
+
+  await page.locator("textarea").fill("Keep running while I inspect the controls [[keep-running]]");
+  await page.locator("button[type='submit']").click();
+
+  await expect(page.getByRole("button", { name: "Choose agent for new chat" })).toBeVisible();
+  await expect(page.locator("textarea")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop external agent" })).toBeVisible();
+
+  const stop = page.getByRole("button", { name: "Stop external agent" });
+  await stop.click();
+
+  await expect.poll(() => cancelPosts).toBe(1);
+  await expect(stop).toBeDisabled();
+  await expect(stop).toHaveAttribute("title", "Stopping...");
+  await expect(page.getByText("Stopping...")).toBeVisible();
 });
 
 test("New chat falls back to Hecate when the remembered external agent needs setup", async ({

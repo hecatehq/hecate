@@ -330,6 +330,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
   const activeHecateAgentSegment = activeTaskBackedHecateSegment(state.activeChatSession);
   const hecateAgentBusy = isHecateChat && Boolean(activeHecateAgentSegment);
+  const externalAgentBusy =
+    isExternalAgentChat && externalAgentSessionIsBusy(state.activeChatSession);
   const activeHecateTaskID = activeHecateAgentSegment?.task_id || "";
   const activeHecateRunID = activeHecateAgentSegment?.latest_run_id || "";
   const hecateAgentModelLocked = isHecateChat && Boolean(activeHecateAgentSegment);
@@ -456,7 +458,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     !streaming &&
     state.pendingToolCalls.length === 0 &&
     (emptyStateExplainsModelRoute || emptyStateExplainsSetupRepair || externalAgentModelRequired);
-  const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
+  const agentBusy = isAgentChat && (streaming || hecateAgentBusy || externalAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
   const messageSendBlocked =
     !agentBusy &&
@@ -1096,6 +1098,27 @@ function findLatestAgentUsage(session: ChatSessionRecord | null): ChatUsageRecor
     if (usage && !agentUsageEmpty(usage)) return usage;
   }
   return null;
+}
+
+function externalAgentSessionIsBusy(session: ChatSessionRecord | null): boolean {
+  const busy = (status?: string) =>
+    status === "queued" ||
+    status === "running" ||
+    status === "in_progress" ||
+    status === "awaiting_approval" ||
+    status === "pending";
+  if (!session?.agent_id || session.agent_id === "hecate") return false;
+  if (busy(session.status)) return true;
+  if (
+    (session.segments ?? []).some(
+      (segment) => segment.execution_mode === "external_agent" && busy(segment.status),
+    )
+  ) {
+    return true;
+  }
+  return (session.messages ?? []).some(
+    (message) => message.role === "assistant" && busy(message.status),
+  );
 }
 
 function agentUsageEmpty(usage: ChatUsageRecord): boolean {
