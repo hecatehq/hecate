@@ -407,4 +407,31 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 	if count != 0 {
 		t.Fatalf("second reconciled count = %d, want 0", count)
 	}
+
+	orphaned, err := store.Create(ctx, Session{
+		ID:              "chat_orphaned_external",
+		Title:           "Orphaned external run",
+		AgentID:         "grok_build",
+		DriverKind:      "acp",
+		NativeSessionID: "native_orphaned",
+		Workspace:       "/tmp/hecate",
+		Status:          "running",
+	})
+	if err != nil {
+		t.Fatalf("Create(orphaned): %v", err)
+	}
+	count, err = ReconcileInterruptedRuns(ctx, store, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatalf("ReconcileInterruptedRuns orphaned: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("orphaned reconciled count = %d, want 1", count)
+	}
+	got, ok, err = store.Get(ctx, orphaned.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get(orphaned): ok=%v err=%v", ok, err)
+	}
+	if got.Status != "cancelled" {
+		t.Fatalf("orphaned session status = %q, want cancelled", got.Status)
+	}
 }
