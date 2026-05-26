@@ -1087,7 +1087,7 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	}
 }
 
-func TestAgentAdaptersIncludesLaunchConfigOptions(t *testing.T) {
+func TestAgentAdaptersOmitsCatalogConfigOptionsForGrok(t *testing.T) {
 	t.Setenv("HECATE_AGENT_ADAPTER_DEV_OVERRIDES", "grok_build=ready")
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -1105,14 +1105,8 @@ func TestAgentAdaptersIncludesLaunchConfigOptions(t *testing.T) {
 	if grok == nil {
 		t.Fatalf("missing grok_build adapter: %#v", response.Data)
 	}
-	if len(grok.ConfigOptions) != 1 {
-		t.Fatalf("grok config options = %#v, want launch reasoning only before ACP session", grok.ConfigOptions)
-	}
-	if grok.ConfigOptions[0].ID != "reasoning_effort" {
-		t.Fatalf("grok reasoning option = %#v, want reasoning_effort", grok.ConfigOptions[0])
-	}
-	if grok.ConfigOptions[0].Source != agentcontrols.ConfigOptionSourceLaunch {
-		t.Fatalf("grok reasoning option source = %q, want launch", grok.ConfigOptions[0].Source)
+	if len(grok.ConfigOptions) != 0 {
+		t.Fatalf("grok config options = %#v, want ACP-owned controls only", grok.ConfigOptions)
 	}
 }
 
@@ -2675,57 +2669,6 @@ func TestAgentChatExternalStoredConfigOptionUpdatesWhenSessionInactive(t *testin
 	updated = decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/auto_approve", `{"value":true}`))
 	if got := updated.Data.ConfigOptions; len(got) != 2 || got[1].CurrentBool == nil || !*got[1].CurrentBool {
 		t.Fatalf("config options after inactive boolean set = %#v, want auto_approve true", got)
-	}
-}
-
-func TestAgentChatExternalLaunchConfigOptionStoresAfterAdapterFailure(t *testing.T) {
-	dir := t.TempDir()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
-	runner := &fakeAgentChatRunner{
-		configOptions: []agentcontrols.ConfigOption{
-			{
-				ID:           "reasoning_effort",
-				Name:         "Reasoning",
-				Category:     "thought_level",
-				Source:       agentcontrols.ConfigOptionSourceLaunch,
-				Type:         agentcontrols.ConfigOptionTypeSelect,
-				CurrentValue: "medium",
-				Options: []agentcontrols.ConfigSelectOption{
-					{Value: "medium", Name: "Medium"},
-					{Value: "high", Name: "High"},
-				},
-			},
-		},
-	}
-	apiHandler.SetAgentChatRunner(runner)
-	handler := NewServer(logger, apiHandler)
-
-	created := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"grok_build","workspace":%q}`, dir)))
-	runner.setConfigErr = errors.New("adapter rejected launch option")
-
-	updated := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/reasoning_effort", `{"value":"high"}`))
-	if got := updated.Data.ConfigOptions; len(got) != 1 || got[0].CurrentValue != "high" {
-		t.Fatalf("config options after launch set = %#v, want high", got)
-	}
-}
-
-func TestAgentChatExternalLaunchConfigOptionSeedsMissingStoredOption(t *testing.T) {
-	dir := t.TempDir()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
-	runner := &fakeAgentChatRunner{setConfigErr: errors.New("adapter rejected launch option")}
-	apiHandler.SetAgentChatRunner(runner)
-	handler := NewServer(logger, apiHandler)
-
-	created := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"grok_build","workspace":%q}`, dir)))
-	if len(created.Data.ConfigOptions) != 0 {
-		t.Fatalf("created config options = %#v, want stale session without stored launch options", created.Data.ConfigOptions)
-	}
-
-	updated := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/reasoning_effort", `{"value":"high"}`))
-	if got := updated.Data.ConfigOptions; len(got) != 1 || got[0].ID != "reasoning_effort" || got[0].CurrentValue != "high" {
-		t.Fatalf("config options after seeded launch set = %#v, want selected reasoning", got)
 	}
 }
 

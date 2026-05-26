@@ -790,40 +790,7 @@ GET /hecate/v1/agent-adapters
       "cost_mode": "external",
       "docs_url": "https://docs.x.ai/build/cli/headless-scripting#acp",
       "supported_range": ">=0.1.0",
-      "auth_status": "ok",
-      "config_options": [
-        {
-          "id": "model",
-          "name": "Model",
-          "description": "Model passed to the external-agent process when Hecate starts or restarts it.",
-          "category": "model",
-          "type": "select",
-          "current_value": "__hecate_no_model_selected__",
-          "options": [
-            {
-              "value": "__hecate_no_model_selected__",
-              "name": "Pick a model",
-              "description": "Do not pass --model when starting the external agent."
-            }
-          ]
-        },
-        {
-          "id": "reasoning_effort",
-          "name": "Reasoning",
-          "description": "Reasoning effort passed to Grok Build when Hecate starts or restarts it.",
-          "category": "thought_level",
-          "type": "select",
-          "current_value": "__hecate_no_reasoning_selected__",
-          "options": [
-            { "value": "__hecate_no_reasoning_selected__", "name": "Pick reasoning" },
-            { "value": "low", "name": "Low" },
-            { "value": "medium", "name": "Medium" },
-            { "value": "high", "name": "High" },
-            { "value": "xhigh", "name": "XHigh" },
-            { "value": "max", "name": "Max" }
-          ]
-        }
-      ]
+      "auth_status": "ok"
     },
     {
       "id": "cursor_agent",
@@ -1318,12 +1285,13 @@ failing only after execution starts.
 
 For external-agent `agent_id` values, session creation also starts or restores
 the native ACP session immediately. Clients may include `config_options`
-selected from the adapter catalog; Hecate validates required launch options and
-uses them when starting the adapter process. After the ACP session exists,
-adapter-owned `config_options` are returned with the session so clients can
-render them before the first prompt. If the adapter binary is missing,
-unauthenticated, missing a required launch option, or fails its ACP handshake,
-session creation fails and Hecate removes the empty chat record.
+selected from the adapter catalog when a catalog row exposes Hecate-managed
+launch controls; Hecate validates required launch options and uses them when
+starting the adapter process. After the ACP session exists, adapter-owned
+`config_options` are returned with the session so clients can render them before
+the first prompt. If the adapter binary is missing, unauthenticated, missing a
+required launch option, or fails its ACP handshake, session creation fails and
+Hecate removes the empty chat record.
 
 ```json
 POST /hecate/v1/chat/sessions
@@ -1359,7 +1327,7 @@ POST /hecate/v1/chat/sessions
 }
 ```
 
-External Agent creation with launch options:
+External Agent creation with ACP session controls:
 
 ```json
 POST /hecate/v1/chat/sessions
@@ -1372,14 +1340,8 @@ POST /hecate/v1/chat/sessions
       "name": "Model",
       "category": "model",
       "type": "select",
+      "source": "acp_model",
       "current_value": "chosen-model-id"
-    },
-    {
-      "id": "reasoning_effort",
-      "name": "Reasoning",
-      "category": "thought_level",
-      "type": "select",
-      "current_value": "medium"
     }
   ]
 }
@@ -1399,14 +1361,8 @@ POST /hecate/v1/chat/sessions
         "name": "Model",
         "category": "model",
         "type": "select",
+        "source": "acp_model",
         "current_value": "chosen-model-id"
-      },
-      {
-        "id": "reasoning_effort",
-        "name": "Reasoning",
-        "category": "thought_level",
-        "type": "select",
-        "current_value": "medium"
       }
     ],
     "messages": []
