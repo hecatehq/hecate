@@ -2793,7 +2793,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
   expect(resolveCalls).toBe(1);
 });
 
-test("agent changed-files review inspects and reverts a captured file", async ({ page }) => {
+test("workspace changes review inspects and discards a current file", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatSessionID", "a-diff-1");
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
@@ -2864,52 +2864,74 @@ test("agent changed-files review inspects and reverts a captured file", async ({
     });
   });
 
-  await page.route("/hecate/v1/chat/sessions/a-diff-1/messages/m-agent/files", (route) => {
-    void route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        object: "chat_changed_files",
-        data: [
-          { path: "README.md", additions: 2, deletions: 1, status: "modified" },
-          { path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" },
-        ],
-      }),
-    });
-  });
-
-  await page.route(
-    "/hecate/v1/chat/sessions/a-diff-1/messages/m-agent/files/README.md",
-    (route) => {
+  await page.route("/hecate/v1/chat/sessions/a-diff-1/workspace-diff", (route) => {
+    if (route.request().method() === "POST") {
       void route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          object: "chat_changed_file_diff",
+          object: "chat_workspace_diff",
           data: {
-            path: "README.md",
-            additions: 2,
-            deletions: 1,
-            status: "modified",
-            diff: "diff --git a/README.md b/README.md\n+new line",
+            workspace: "/tmp/e2e",
+            diff_stat: "docs/runtime-api.md | 4 ++++\n1 file changed, 4 insertions(+)",
+            diff: "diff --git a/docs/runtime-api.md b/docs/runtime-api.md\n+kept line",
+            has_changes: true,
+            files: [{ path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" }],
           },
         }),
       });
-    },
-  );
-
-  let revertedPaths: string[] | null = null;
-  await page.route("/hecate/v1/chat/sessions/a-diff-1/messages/m-agent/revert", async (route) => {
-    revertedPaths = (await route.request().postDataJSON()).paths;
+      return;
+    }
     void route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        object: "chat_revert",
+        object: "chat_workspace_diff",
         data: {
-          reverted: true,
-          paths: revertedPaths,
+          workspace: "/tmp/e2e",
+          diff_stat:
+            "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
+          diff: "diff --git a/README.md b/README.md\n+current line",
+          has_changes: true,
+          files: [
+            { path: "README.md", additions: 2, deletions: 1, status: "modified" },
+            { path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" },
+          ],
+        },
+      }),
+    });
+  });
+
+  await page.route("/hecate/v1/chat/sessions/a-diff-1/workspace-diff/files/README.md", (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "chat_workspace_file_diff",
+        data: {
+          path: "README.md",
+          additions: 2,
+          deletions: 1,
+          status: "modified",
+          diff: "diff --git a/README.md b/README.md\n+current line",
+        },
+      }),
+    });
+  });
+
+  let discardedPaths: string[] | null = null;
+  await page.route("/hecate/v1/chat/sessions/a-diff-1/workspace-diff/revert", async (route) => {
+    discardedPaths = (await route.request().postDataJSON()).paths;
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "chat_workspace_diff",
+        data: {
+          workspace: "/tmp/e2e",
           diff_stat: "docs/runtime-api.md | 4 ++++\n1 file changed, 4 insertions(+)",
+          diff: "diff --git a/docs/runtime-api.md b/docs/runtime-api.md\n+kept line",
+          has_changes: true,
           files: [{ path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" }],
         },
       }),
@@ -2920,17 +2942,21 @@ test("agent changed-files review inspects and reverts a captured file", async ({
   await page.waitForSelector(".hecate-activitybar");
 
   await expect(page.getByText("Updated the docs.")).toBeVisible();
-  await page.getByRole("button", { name: "Workspace changes: 1 change set" }).click();
-  await expect(page.getByText("2 changed files")).toBeVisible();
+  await expect(
+    page.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Workspace changes" }).click();
+  await expect(page.getByText("2 current changed files")).toBeVisible();
 
-  await page.getByRole("button", { name: "Inspect README.md" }).click();
-  await expect(page.getByText("diff · README.md")).toBeVisible();
-  await expect(page.locator("body")).toContainText("+new line");
+  await page.getByRole("button", { name: "Show diff README.md" }).click();
+  await expect(page.getByText("current diff · README.md")).toBeVisible();
+  await expect(page.locator("body")).toContainText("+current line");
 
-  await page.getByRole("button", { name: "Revert README.md" }).click();
-  await expect(page.getByRole("button", { name: "Confirm revert README.md" })).toBeVisible();
-  await page.getByRole("button", { name: "Confirm revert README.md" }).click();
-  await expect.poll(() => revertedPaths).toEqual(["README.md"]);
+  await page.getByRole("button", { name: "Discard README.md" }).click();
+  await expect(page.getByRole("button", { name: "Confirm discard README.md" })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm discard README.md" }).click();
+  await expect.poll(() => discardedPaths).toEqual(["README.md"]);
+  await expect(page.getByText("1 current changed file")).toBeVisible();
 });
 
 type ClaudeAdapterFixture = {
