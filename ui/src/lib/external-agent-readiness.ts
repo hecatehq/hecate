@@ -1,6 +1,12 @@
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../types/agent-adapter";
 
-export type ExternalAgentReadinessKind = "ready" | "sign_in" | "setup" | "billing" | "issue";
+export type ExternalAgentReadinessKind =
+  | "ready"
+  | "unverified"
+  | "sign_in"
+  | "setup"
+  | "billing"
+  | "issue";
 export type ExternalAgentReadinessTone = "green" | "amber" | "red" | "muted";
 
 export type ExternalAgentReadiness = {
@@ -10,6 +16,7 @@ export type ExternalAgentReadiness = {
   needsRepair: boolean;
   loginCommand: string;
   setupHint: string;
+  signInHint: string;
   detail?: string;
   authStatus?: string;
   authError?: string;
@@ -28,6 +35,7 @@ export function resolveExternalAgentReadiness(
       needsRepair: true,
       loginCommand: "",
       setupHint: "Choose an available external agent in Connections.",
+      signInHint: "Choose an available external agent in Connections.",
       verifiedByProbe: false,
     };
   }
@@ -37,6 +45,7 @@ export function resolveExternalAgentReadiness(
   const authError = verifiedByProbe ? "" : adapter.auth_error;
   const loginCommand = externalAgentLoginCommand(adapter);
   const setupHint = externalAgentSetupHint(adapter);
+  const signInHint = externalAgentSignInHint(adapter);
   const localAuthNeedsRepair =
     authStatus === "unauthenticated" || health?.status === "auth_required";
   const visibleProbeError =
@@ -50,6 +59,7 @@ export function resolveExternalAgentReadiness(
       needsRepair: false,
       loginCommand,
       setupHint,
+      signInHint,
       authStatus,
       authError,
       verifiedByProbe,
@@ -64,6 +74,7 @@ export function resolveExternalAgentReadiness(
       needsRepair: true,
       loginCommand,
       setupHint,
+      signInHint,
       detail: health?.hint || authError || visibleProbeError || "Check billing or subscription.",
       authStatus,
       authError,
@@ -79,7 +90,8 @@ export function resolveExternalAgentReadiness(
       needsRepair: true,
       loginCommand,
       setupHint,
-      detail: health?.hint || authError || setupHint,
+      signInHint,
+      detail: health?.hint || authError || signInHint,
       authStatus,
       authError,
       verifiedByProbe,
@@ -94,6 +106,7 @@ export function resolveExternalAgentReadiness(
       needsRepair: true,
       loginCommand,
       setupHint,
+      signInHint,
       detail: health?.hint || authError || setupHint,
       authStatus,
       authError,
@@ -112,6 +125,7 @@ export function resolveExternalAgentReadiness(
       needsRepair: true,
       loginCommand,
       setupHint,
+      signInHint,
       detail: health?.hint || authError || visibleProbeError || setupHint,
       authStatus,
       authError,
@@ -120,12 +134,14 @@ export function resolveExternalAgentReadiness(
   }
 
   return {
-    kind: "ready",
-    tone: "green",
-    label: "ready",
+    kind: "unverified",
+    tone: "muted",
+    label: "not verified",
     needsRepair: false,
     loginCommand,
     setupHint,
+    signInHint,
+    detail: "Test this agent in Connections to verify local auth before the first prompt.",
     authStatus,
     authError,
     verifiedByProbe,
@@ -144,6 +160,21 @@ export function externalAgentLoginCommand(adapter: AgentAdapterRecord): string {
       return "grok login";
     default:
       return "";
+  }
+}
+
+export function externalAgentSignInHint(adapter: AgentAdapterRecord): string {
+  switch (adapter.id) {
+    case "codex":
+      return "Run codex login in Terminal, then test the agent again.";
+    case "claude_code":
+      return "Run claude /login in Terminal, then test Claude Code again.";
+    case "cursor_agent":
+      return "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment.";
+    case "grok_build":
+      return "Run grok login, or set XAI_API_KEY for the adapter environment.";
+    default:
+      return externalAgentSetupHint(adapter);
   }
 }
 
@@ -198,6 +229,9 @@ function isBillingStatus(
 }
 
 function isSetupProbe(health: AgentAdapterHealthRecord | null): boolean {
+  // The gateway currently reports setup-shaped probe failures as normalized
+  // hint/error text instead of a structured reason. Keep this parser local to
+  // the readiness helper until the probe response grows a reason field.
   if (!health || health.status !== "error") return false;
   const text = `${health.hint ?? ""} ${health.error ?? ""}`.toLowerCase();
   return (
