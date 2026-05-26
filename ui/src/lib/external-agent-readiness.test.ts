@@ -69,6 +69,26 @@ describe("resolveExternalAgentReadiness", () => {
     expect(readiness.detail).not.toContain("Install");
   });
 
+  it("includes Claude Code token alternatives in sign-in guidance", () => {
+    const readiness = resolveExternalAgentReadiness(
+      adapter({
+        id: "claude_code",
+        name: "Claude Code",
+        command: "claude",
+        auth_status: "unauthenticated",
+        auth_error: "",
+      }),
+      null,
+    );
+
+    expect(readiness).toMatchObject({
+      kind: "sign_in",
+      detail:
+        "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment.",
+      needsRepair: true,
+    });
+  });
+
   it("keeps unprobed available agents muted until a probe verifies readiness", () => {
     const readiness = resolveExternalAgentReadiness(adapter({ auth_status: "unknown" }), null);
 

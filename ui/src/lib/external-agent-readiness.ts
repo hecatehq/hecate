@@ -168,7 +168,7 @@ export function externalAgentSignInHint(adapter: AgentAdapterRecord): string {
     case "codex":
       return "Run codex login in Terminal, then test the agent again.";
     case "claude_code":
-      return "Run claude /login in Terminal, then test Claude Code again.";
+      return "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment.";
     case "cursor_agent":
       return "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment.";
     case "grok_build":
