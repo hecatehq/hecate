@@ -74,10 +74,27 @@ describe("workspace open targets", () => {
     expect(openWorkspaceTargetViaAPI).not.toHaveBeenCalled();
   });
 
+  it("surfaces native open command failures", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    invokeMock.mockRejectedValueOnce(new Error("unknown command open_workspace_target"));
+
+    await expect(openWorkspaceTarget("/Users/alice/dev/hecate", "terminal")).rejects.toThrow(
+      "unknown command open_workspace_target",
+    );
+  });
+
   it("calls the local gateway outside the desktop runtime", async () => {
     await openWorkspaceTarget("/Users/alice/dev/hecate", "vscode");
 
     expect(openWorkspaceTargetViaAPI).toHaveBeenCalledWith("/Users/alice/dev/hecate", "vscode");
     expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces local gateway open failures", async () => {
+    vi.mocked(openWorkspaceTargetViaAPI).mockRejectedValueOnce(new Error("request failed (500)"));
+
+    await expect(openWorkspaceTarget("/Users/alice/dev/hecate", "vscode")).rejects.toThrow(
+      "request failed (500)",
+    );
   });
 });

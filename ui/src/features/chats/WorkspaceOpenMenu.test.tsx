@@ -39,7 +39,10 @@ describe("WorkspaceOpenMenu", () => {
     await userEvent.click(screen.getByRole("button", { name: "Open workspace in VS Code" }));
 
     expect(openWorkspaceTarget).toHaveBeenCalledWith("/Users/alice/dev/hecate", "vscode");
-    expect(localStorage.getItem("hecate.workspaceOpen.defaultTarget")).toBe("vscode");
+    expect(JSON.parse(localStorage.getItem("hecate.workspaceOpen.defaultTarget") ?? "")).toEqual({
+      v: 1,
+      target: "vscode",
+    });
   });
 
   it("opens the selected workspace target in the desktop runtime", async () => {
@@ -53,14 +56,20 @@ describe("WorkspaceOpenMenu", () => {
     await user.click(screen.getByRole("menuitem", { name: /Terminal/ }));
 
     expect(openWorkspaceTarget).toHaveBeenCalledWith("/Users/alice/dev/hecate", "terminal");
-    expect(localStorage.getItem("hecate.workspaceOpen.defaultTarget")).toBe("terminal");
+    expect(JSON.parse(localStorage.getItem("hecate.workspaceOpen.defaultTarget") ?? "")).toEqual({
+      v: 1,
+      target: "terminal",
+    });
     await waitFor(() => {
       expect(screen.queryByRole("menu")).toBeNull();
     });
   });
 
   it("uses the last selected target as the next default", async () => {
-    localStorage.setItem("hecate.workspaceOpen.defaultTarget", "cursor");
+    localStorage.setItem(
+      "hecate.workspaceOpen.defaultTarget",
+      JSON.stringify({ v: 1, target: "cursor" }),
+    );
 
     render(<WorkspaceOpenMenu workspacePath="/Users/alice/dev/hecate" />);
 
@@ -70,7 +79,10 @@ describe("WorkspaceOpenMenu", () => {
   });
 
   it("puts the saved target first in the picker", async () => {
-    localStorage.setItem("hecate.workspaceOpen.defaultTarget", "terminal");
+    localStorage.setItem(
+      "hecate.workspaceOpen.defaultTarget",
+      JSON.stringify({ v: 1, target: "terminal" }),
+    );
 
     render(<WorkspaceOpenMenu workspacePath="/Users/alice/dev/hecate" />);
 
@@ -78,6 +90,16 @@ describe("WorkspaceOpenMenu", () => {
 
     const items = screen.getAllByRole("menuitem");
     expect(items[0]).toHaveTextContent("Terminal");
+  });
+
+  it("ignores stale opener preferences without a version envelope", async () => {
+    localStorage.setItem("hecate.workspaceOpen.defaultTarget", "cursor");
+
+    render(<WorkspaceOpenMenu workspacePath="/Users/alice/dev/hecate" />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Open workspace in VS Code" }));
+
+    expect(openWorkspaceTarget).toHaveBeenCalledWith("/Users/alice/dev/hecate", "vscode");
   });
 
   it("renders theme-aware target icons in the desktop runtime", async () => {

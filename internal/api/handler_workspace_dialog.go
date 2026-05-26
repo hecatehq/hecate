@@ -18,6 +18,14 @@ const workspaceDialogTimeout = 2 * time.Minute
 var workspaceDialogActive atomic.Bool
 
 func (h *Handler) HandleWorkspaceDialog(w http.ResponseWriter, r *http.Request) {
+	if !isLoopbackRemoteAddr(r.RemoteAddr) {
+		WriteError(w, http.StatusForbidden, errCodeInvalidRequest, "workspace folder dialog is only available to local loopback clients")
+		return
+	}
+	if hasForwardedClientHeaders(r) {
+		WriteError(w, http.StatusForbidden, errCodeInvalidRequest, "workspace folder dialog rejects forwarded client headers")
+		return
+	}
 	path, err := chooseWorkspaceDirectory(r.Context())
 	if err != nil {
 		status := http.StatusBadRequest

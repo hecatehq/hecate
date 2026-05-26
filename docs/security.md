@@ -10,6 +10,7 @@ Hecate assumes the operator trusts their own machine, local user account, and se
 - Browser requests are same-origin checked, but same-origin is not a network security boundary.
 - Hecate is not designed to be exposed directly on a network.
 - If you bind Hecate to anything other than loopback, put your own firewall, reverse proxy, or access-control layer in front.
+- Do not put local-only endpoints such as workspace folder selection or "open in editor" behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can open local OS UI on the operator's machine.
 - Do not run Hecate on a shared host where untrusted local users can access the gateway port or data directory.
 
 ## Runtime boundaries

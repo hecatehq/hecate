@@ -31,6 +31,25 @@ func TestWorkspaceOpenRejectsNonLoopbackClient(t *testing.T) {
 	}
 }
 
+func TestWorkspaceOpenRejectsForwardedClientHeaders(t *testing.T) {
+	t.Parallel()
+
+	handler := newTestHTTPHandlerWithConfig(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"}, config.Config{})
+	for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
+		req := httptest.NewRequest(http.MethodPost, "/hecate/v1/workspace-open", strings.NewReader(`{"path":"/tmp","target":"finder"}`))
+		req.RemoteAddr = "127.0.0.1:4321"
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(header, "203.0.113.12")
+		recorder := httptest.NewRecorder()
+
+		handler.ServeHTTP(recorder, req)
+
+		if recorder.Code != http.StatusForbidden {
+			t.Fatalf("%s status = %d, want %d, body=%s", header, recorder.Code, http.StatusForbidden, recorder.Body.String())
+		}
+	}
+}
+
 func TestWorkspaceOpenLaunchesValidatedLocalTarget(t *testing.T) {
 	dir := t.TempDir()
 	resolved, err := filepath.EvalSymlinks(dir)

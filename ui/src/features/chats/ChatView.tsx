@@ -51,6 +51,9 @@ type Props = {
   onOpenTrace?: (requestID: string) => void;
 };
 
+const RIGHT_PANEL_WIDTH_KEY = "hecate.chat.rightPanelWidth";
+const DEFAULT_RIGHT_PANEL_WIDTH = 380;
+
 export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const runtime = useRuntime();
   const chat = useChat();
@@ -141,7 +144,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const workspaceDialogOpenRef = useRef(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [workspaceChangesOpen, setWorkspaceChangesOpen] = useState(false);
-  const [rightPanelWidth, setRightPanelWidth] = useState(380);
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => readStoredRightPanelWidth());
   const [draftChatStarted, setDraftChatStarted] = useState(false);
   const [rtkOnboardingDismissed, setRTKOnboardingDismissed] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
@@ -149,6 +152,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [quickLocalProviders, setQuickLocalProviders] = useState<LocalProviderDiscoveryRecord[]>(
     [],
   );
+
+  function updateRightPanelWidth(width: number) {
+    setRightPanelWidth(width);
+    rememberRightPanelWidth(width);
+  }
   const [quickLocalLoading, setQuickLocalLoading] = useState(false);
   const [quickLocalError, setQuickLocalError] = useState("");
   const [quickAddingProviders, setQuickAddingProviders] = useState(false);
@@ -934,7 +942,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             <ChatRightPanel
               ariaLabel={rightPanelLabel}
               width={rightPanelWidth}
-              onWidthChange={setRightPanelWidth}
+              onWidthChange={updateRightPanelWidth}
             >
               {chatSettingsPanelOpen ? (
                 <ChatSettingsPanel
@@ -1173,4 +1181,21 @@ function agentUsageEmpty(usage: ChatUsageRecord): boolean {
     !(usage.context_size ?? 0) &&
     !(usage.context_used ?? 0)
   );
+}
+
+function readStoredRightPanelWidth(): number {
+  try {
+    const value = Number.parseInt(localStorage.getItem(RIGHT_PANEL_WIDTH_KEY) ?? "", 10);
+    return Number.isFinite(value) && value > 0 ? value : DEFAULT_RIGHT_PANEL_WIDTH;
+  } catch {
+    return DEFAULT_RIGHT_PANEL_WIDTH;
+  }
+}
+
+function rememberRightPanelWidth(width: number) {
+  try {
+    localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(width));
+  } catch {
+    // Best-effort preference only.
+  }
 }
