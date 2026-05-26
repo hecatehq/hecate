@@ -16,11 +16,11 @@ it, Hecate starts a fresh native session and keeps the Hecate transcript.
 
 ## Supported adapters
 
-| Adapter      | How Hecate starts it                                                                                                      | Auth expected by the underlying agent                              |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Codex        | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Operator-owned Codex auth visible to the adapter                   |
-| Claude Code  | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Operator-owned Claude Code / Anthropic auth visible to Claude Code |
-| Cursor Agent | `cursor-agent acp`                                                                                                        | Operator-owned Cursor Agent auth visible to `cursor-agent`         |
+| Adapter      | How Hecate starts it                                                                                                        | Auth expected by the underlying agent                              |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Codex        | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                      | Operator-owned Codex auth visible to the adapter                   |
+| Claude Code  | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works   | Operator-owned Claude Code / Anthropic auth visible to Claude Code |
+| Cursor Agent | `cursor-agent acp`                                                                                                          | Operator-owned Cursor Agent auth visible to `cursor-agent`         |
 | Grok Build   | `grok agent ... stdio`; ACP model state drives the model picker; optional launch controls add `--reasoning-effort <effort>` | Operator-owned Grok auth or `XAI_API_KEY` visible to `grok`        |
 
 ## Credential and account boundaries
