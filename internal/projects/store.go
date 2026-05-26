@@ -178,6 +178,7 @@ func normalizeProject(project Project, now time.Time) Project {
 	for idx := range project.ContextSources {
 		project.ContextSources[idx] = normalizeContextSource(project.ContextSources[idx], now)
 	}
+	sortContextSources(project.ContextSources)
 	if len(project.Roots) == 0 {
 		project.DefaultRootID = ""
 	} else if project.DefaultRootID == "" {
@@ -428,4 +429,16 @@ func projectSortTime(project Project) time.Time {
 		return project.UpdatedAt
 	}
 	return project.CreatedAt
+}
+
+func sortContextSources(sources []ContextSource) {
+	sort.SliceStable(sources, func(i, j int) bool {
+		if sources[i].Enabled != sources[j].Enabled {
+			return sources[i].Enabled
+		}
+		if sources[i].Path != sources[j].Path {
+			return sources[i].Path < sources[j].Path
+		}
+		return sources[i].ID < sources[j].ID
+	})
 }
