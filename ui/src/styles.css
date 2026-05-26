@@ -367,6 +367,65 @@ textarea {
   color: var(--t0);
   border-color: transparent;
 }
+.chat-header-action:hover {
+  background: var(--bg3) !important;
+  border-color: var(--border);
+  color: var(--t0) !important;
+}
+.chat-header-action[aria-expanded="true"]:hover {
+  background: color-mix(in oklch, var(--teal-bg) 82%, var(--bg3)) !important;
+  color: var(--teal) !important;
+}
+.workspace-open-trigger {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--t0) 8%, transparent);
+  height: 30px;
+}
+.workspace-open-trigger-main,
+.workspace-open-trigger-chevron {
+  border: 0;
+  box-shadow: none;
+  height: 28px;
+  justify-content: center;
+}
+.workspace-open-trigger-main {
+  min-width: 38px;
+  padding: 0 7px;
+}
+.workspace-open-trigger-chevron {
+  border-left: 1px solid var(--border);
+  min-width: 28px;
+  padding: 0 7px;
+}
+.workspace-open-trigger-main:hover,
+.workspace-open-trigger-chevron:hover {
+  background: var(--bg3) !important;
+}
+.chat-right-panel-resize-handle {
+  bottom: 0;
+  cursor: col-resize;
+  left: -4px;
+  position: absolute;
+  top: 0;
+  width: 7px;
+  z-index: 2;
+}
+.chat-right-panel-resize-handle::after {
+  background: transparent;
+  bottom: 0;
+  content: "";
+  left: 3px;
+  position: absolute;
+  top: 0;
+  transition: background 0.1s;
+  width: 1px;
+}
+.chat-right-panel-resize-handle:hover::after,
+.chat-right-panel-resize-handle:focus-visible::after {
+  background: var(--teal);
+}
 .btn-danger {
   background: var(--red-bg);
   border-color: var(--red-border);
@@ -501,6 +560,8 @@ textarea {
   border: 1px solid var(--border);
   overflow: hidden;
   margin: 4px 0;
+  max-width: 100%;
+  min-width: 0;
 }
 .code-block-header {
   display: flex;
@@ -543,6 +604,42 @@ textarea {
   line-height: 1.6;
   overflow-x: auto;
   white-space: pre;
+  max-width: 100%;
+  min-width: 0;
+}
+.code-pre-diff {
+  padding: 0;
+}
+.diff-code {
+  display: block;
+  min-width: 100%;
+  padding: 8px 0;
+  width: max-content;
+}
+.diff-line {
+  display: block;
+  min-height: 1.6em;
+  padding: 0 12px;
+  white-space: pre;
+}
+.diff-line-add {
+  background: color-mix(in oklch, var(--green-bg) 54%, transparent);
+  color: var(--green);
+}
+.diff-line-remove {
+  background: color-mix(in oklch, var(--red-bg) 58%, transparent);
+  color: var(--red);
+}
+.diff-line-hunk {
+  background: color-mix(in oklch, var(--amber-bg) 45%, transparent);
+  color: var(--amber);
+}
+.diff-line-meta {
+  background: var(--bg2);
+  color: var(--t2);
+}
+.diff-line-context {
+  color: var(--t1);
 }
 
 /* ─── Dropdown ─── */
@@ -587,6 +684,25 @@ textarea {
 }
 .dropdown-item.selected {
   color: var(--teal);
+}
+.workspace-open-menu {
+  padding: 4px 0;
+}
+.workspace-open-item {
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 12px;
+}
+.workspace-open-label {
+  color: var(--t0);
+  flex: 1;
+  font-size: 12px;
+  font-weight: 450;
+  letter-spacing: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .dropdown-section-label {
   padding: 6px 12px 3px;

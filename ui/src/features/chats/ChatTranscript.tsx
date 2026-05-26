@@ -75,7 +75,6 @@ type Props = {
   onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
-  onOpenWorkspaceChanges?: (messageID?: string) => void;
   openExternalAgentSetup: (adapterID?: string) => void;
 };
 
@@ -89,7 +88,6 @@ export function ChatTranscript({
   onNavigate,
   onOpenTask,
   onOpenTrace,
-  onOpenWorkspaceChanges,
   openExternalAgentSetup,
 }: Props) {
   const chat = useChat();
@@ -204,6 +202,8 @@ export function ChatTranscript({
               model={agentModel}
               brand={messageBrand(m, isHecateAgentChat)}
               content={content}
+              diffStat={role === "assistant" ? m.diff_stat : undefined}
+              diff={role === "assistant" ? m.diff : undefined}
               time={time}
               badge={role === "assistant" ? m.agent_status || m.cost_mode : undefined}
               runtimeMeta={agentRuntime}
@@ -238,7 +238,6 @@ export function ChatTranscript({
                   ? {
                       label: compactWorkspaceChangeLabel(m.diff_stat),
                       title: changedFilesSummary,
-                      onClick: () => onOpenWorkspaceChanges?.(m.id),
                     }
                   : undefined
               }

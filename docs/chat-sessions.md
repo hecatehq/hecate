@@ -49,7 +49,7 @@ The chat setup surface has one repair contract shared by the empty state, the
 composer notice, and disabled-send copy. When a prompt cannot be sent, the UI
 should pick one primary operator action: **Go to Connections**, **Choose
 workspace**, **Enable tools**, **Use suggested model**, or **Open setup** for a
-coding-agent adapter. Avoid adding local one-off blockers in the Chat view; put
+coding-agent integration. Avoid adding local one-off blockers in the Chat view; put
 new send blockers behind the shared readiness resolver so the same reason and
 CTA are visible before and after the transcript has messages.
 
@@ -67,13 +67,13 @@ on, the same text becomes the per-task system prompt for the Hecate-owned
 so historical segments keep the instructions they were created with; start a
 new chat to change them. External Agent chats do not use this field because
 Codex, Claude Code, Cursor Agent, and Grok Build own their own
-prompt/configuration surface; adapter model and mode controls appear near the
-message composer when the adapter exposes them. Hecate-managed launch controls,
-such as Grok Build's model picker, can appear before the first External Agent
-chat session exists; the message input itself appears only after the chat
-session has been created.
+prompt/configuration surface; external-agent model, reasoning, and mode
+controls appear near the message composer when the agent exposes them.
+Hecate-managed launch controls can appear before the first External Agent chat
+session exists when a local agent requires startup choices; the message input
+itself appears only after the chat session has been created.
 External-agent context and reported cost are intentionally shown in the active
-chat, not the Usage workspace, because those values are adapter-reported and
+chat, not the Usage workspace, because those values are agent-reported and
 only meaningful alongside the session that produced them.
 
 Assistant turns may also expose a collapsed **context** inspector. This is a
@@ -81,11 +81,11 @@ metadata snapshot that answers "what kind of context did this turn use?"
 without storing the prompt body. The packet records execution mode,
 provider/model when Hecate owns routing, workspace path, whether a system
 prompt was included, the visible transcript message count for that turn, and high-level
-sources such as transcript, workspace, task runtime, or adapter session. It
+sources such as transcript, workspace, task runtime, or native agent session. It
 deliberately does not persist full system prompts, raw transcript text, file
-contents, or adapter-private prompt packing. The message count is an
+contents, or agent-private prompt packing. The message count is an
 operator-facing transcript count, not a provider token count or a guarantee
-that every counted message was packed into the provider/adapter prompt. Future
+that every counted message was packed into the provider or agent prompt. Future
 project memory and context assembly should add source IDs/provenance to this
 packet rather than inventing a separate transcript debug surface.
 
@@ -144,24 +144,24 @@ each message records the execution mode that produced it:
   artifact history.
   When the backing provider supports streaming, the running assistant message
   updates from the task conversation artifact before the task run completes.
-- **External Agent** sessions map one chat session to one supervised adapter
-  session such as Codex, Claude Code, Cursor Agent, or Grok Build. Adapter
+- **External Agent** sessions map one chat session to one supervised ACP
+  session such as Codex, Claude Code, Cursor Agent, or Grok Build. Composer
   controls may be ACP-owned session options or Hecate-managed launch options;
   they stay separate from Hecate provider/model routing.
 
 External Agent sessions persist Hecate's operator-facing shell plus the
-adapter-owned native session handle. Listing chat sessions does not start or
-reattach adapters. Opening a single External Agent session, or subscribing to
+agent-owned native session handle. Listing chat sessions does not start or
+reattach agents. Opening a single External Agent session, or subscribing to
 its stream, attempts to load the stored ACP session handle so Hecate can refresh
-adapter controls before the next prompt. If the adapter cannot restore that
+agent controls before the next prompt. If the agent cannot restore that
 native session, the transcript still opens from Hecate's store; the next send or
-adapter setup action can start a fresh native session and keep the shell intact.
+agent setup action can start a fresh native session and keep the shell intact.
 Opening a chat never silently replaces the stored native session handle with a
-fresh adapter session.
+fresh agent session.
 
 The chat session API shape used by the operator UI is in
-[`runtime-api.md`](runtime-api.md#get-hecatev1chatsessions), and external
-adapter behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
+[`runtime-api.md`](runtime-api.md#get-hecatev1chatsessions), and external-agent
+behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
 
 ## Activity rendering
 
@@ -172,7 +172,7 @@ they stay in Chats or open the canonical Task/run view.
 Chat titles are operator metadata and can be renamed from the Chats sidebar.
 Renaming works the same way for Hecate Chat, direct model turns, and External
 Agent sessions: it only changes the visible session title, not the transcript,
-workspace, runtime segment, provider/model snapshot, or adapter-owned native
+workspace, runtime segment, provider/model snapshot, or agent-owned native
 session.
 
 The shared renderer keeps the high-signal path visible:

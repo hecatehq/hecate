@@ -346,7 +346,7 @@ describe("TranscriptMessageRow", () => {
     expect(meta).toHaveAttribute("title", "Run run_123 · Native session native_123");
   });
 
-  it("renders the agent usage line when adapter-reported usage is present", () => {
+  it("renders the agent usage line when reported usage is present", () => {
     const usage: ChatUsageRecord = {
       reported_cost_amount: "0.42",
       reported_cost_currency: "USD",
@@ -356,7 +356,7 @@ describe("TranscriptMessageRow", () => {
     render(<TranscriptMessageRow {...baseProps} agentUsage={usage} />);
     expect(screen.getByText(/0\.42 USD/)).toBeInTheDocument();
     expect(screen.getByText(/12000\/200000 context/)).toBeInTheDocument();
-    expect(screen.getByText(/reported by adapter/)).toBeInTheDocument();
+    expect(screen.getByText(/reported usage/)).toBeInTheDocument();
   });
 
   it("hides the agent usage line when all usage fields are empty/zero", () => {
@@ -367,7 +367,7 @@ describe("TranscriptMessageRow", () => {
       context_size: 0,
     };
     render(<TranscriptMessageRow {...baseProps} agentUsage={usage} />);
-    expect(screen.queryByText(/reported by adapter/)).toBeNull();
+    expect(screen.queryByText(/reported usage/)).toBeNull();
   });
 
   it("renders the Hecate Chat timing summary when timing is present", () => {
@@ -533,7 +533,7 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText("command output")).toBeInTheDocument();
   });
 
-  it("renders the raw adapter output details when rawOutput differs from content", () => {
+  it("renders the raw agent output details when rawOutput differs from content", () => {
     render(
       <TranscriptMessageRow
         {...baseProps}
@@ -541,12 +541,12 @@ describe("TranscriptMessageRow", () => {
         rawOutput="I'll do this. final answer"
       />,
     );
-    expect(screen.getByText(/raw adapter output/)).toBeInTheDocument();
+    expect(screen.getByText(/raw agent output/)).toBeInTheDocument();
   });
 
-  it("does not render the raw adapter output details when rawOutput equals content", () => {
+  it("does not render the raw agent output details when rawOutput equals content", () => {
     render(<TranscriptMessageRow {...baseProps} content="final answer" rawOutput="final answer" />);
-    expect(screen.queryByText(/raw adapter output/)).toBeNull();
+    expect(screen.queryByText(/raw agent output/)).toBeNull();
   });
 
   it("does not render routine cancellation raw output", () => {
@@ -559,7 +559,7 @@ describe("TranscriptMessageRow", () => {
       />,
     );
     expect(screen.getByText("agent run cancelled")).toBeInTheDocument();
-    expect(screen.queryByText(/raw adapter output/)).toBeNull();
+    expect(screen.queryByText(/raw agent output/)).toBeNull();
     expect(screen.queryByText("context canceled")).toBeNull();
   });
 
@@ -572,6 +572,6 @@ describe("TranscriptMessageRow", () => {
         rawOutput="adapter refused cancellation: pending approval"
       />,
     );
-    expect(screen.getByText(/raw adapter output/)).toBeInTheDocument();
+    expect(screen.getByText(/raw agent output/)).toBeInTheDocument();
   });
 });

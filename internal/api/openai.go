@@ -745,6 +745,19 @@ type ChatChangedFilesResponse struct {
 	Data   []ChatChangedFileItem `json:"data"`
 }
 
+type ChatWorkspaceDiffItem struct {
+	Workspace  string                `json:"workspace,omitempty"`
+	DiffStat   string                `json:"diff_stat,omitempty"`
+	Diff       string                `json:"diff,omitempty"`
+	HasChanges bool                  `json:"has_changes"`
+	Files      []ChatChangedFileItem `json:"files"`
+}
+
+type ChatWorkspaceDiffResponse struct {
+	Object string                `json:"object"`
+	Data   ChatWorkspaceDiffItem `json:"data"`
+}
+
 type ChatChangedFileDiffItem struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
@@ -760,6 +773,21 @@ type ChatChangedFileDiffResponse struct {
 
 type RevertChatMessageFilesRequest struct {
 	Paths []string `json:"paths,omitempty"`
+}
+
+type WorkspaceOpenRequest struct {
+	Path   string `json:"path"`
+	Target string `json:"target"`
+}
+
+type WorkspaceOpenResponseItem struct {
+	Path   string `json:"path"`
+	Target string `json:"target"`
+}
+
+type WorkspaceOpenResponse struct {
+	Object string                    `json:"object"`
+	Data   WorkspaceOpenResponseItem `json:"data"`
 }
 
 type ChatRevertItem struct {

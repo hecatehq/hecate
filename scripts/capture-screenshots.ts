@@ -300,7 +300,7 @@ function docsAgentSession() {
         id: "agent-docs-assistant-1",
         role: "assistant",
         content:
-          "I found the runtime API section and prepared a small docs patch. Hecate needs your approval before the adapter writes the file.",
+          "I found the runtime API section and prepared a small docs patch. Hecate needs your approval before the agent writes the file.",
         adapter_id: "codex",
         adapter_name: "Codex",
         driver_kind: "acp",

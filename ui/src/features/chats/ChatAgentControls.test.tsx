@@ -69,15 +69,15 @@ describe("NewChatAgentButton", () => {
         duration_ms: 80,
       },
     );
-    expect(probed.title).toContain("verified adapter startup, auth, and ACP session creation");
+    expect(probed.title).toContain("verified agent startup, auth, and ACP session creation");
   });
 
-  it("preserves an external-agent selection while the adapter catalog loads", () => {
+  it("preserves an external-agent selection while the agent catalog loads", () => {
     const option = chatAgentOption("grok_build", []);
 
     expect(option.id).toBe("grok_build");
     expect(option.label).toBe("Grok Build");
-    expect(option.title).toContain("adapter catalog");
+    expect(option.title).toContain("agent catalog");
   });
 
   it("creates a Hecate chat from a compact primary button", async () => {
@@ -223,7 +223,7 @@ describe("NewChatAgentButton", () => {
     expect(onChange).toHaveBeenCalledWith("codex");
   });
 
-  it("builds external-agent options from the adapter catalog", async () => {
+  it("builds external-agent options from the agent catalog", async () => {
     const onChange = vi.fn();
     render(
       <NewChatAgentButton

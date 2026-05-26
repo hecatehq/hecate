@@ -105,7 +105,7 @@ export function ChatEmptyState({
     isAgentChat && selectedAgentUnavailable
       ? `Hecate could not start ${selectedAgent?.name || "the selected agent"} because its CLI is not ready in this environment.`
       : isExternalAgentChat && agentRouteUnavailable
-        ? "Hecate did not find any supported coding-agent CLI or local adapter runner in the known operator locations."
+        ? "Hecate did not find any supported coding-agent CLI or managed local runner in the known operator locations."
         : nothingRunnable
           ? "Add a model provider or install a supported coding-agent CLI before sending a message."
           : selectedModelIssue
@@ -278,7 +278,7 @@ function AgentSetupHints({
           lineHeight: 1.5,
         }}
       >
-        No agent adapters are registered by this Hecate build.
+        No external agents are registered by this Hecate build.
       </div>
     );
   }
@@ -493,7 +493,7 @@ function agentSetupHint(adapter: AgentAdapterRecord): {
     default:
       return {
         label: adapter.command || adapter.id,
-        action: "Install the adapter command and test it in Connections.",
+        action: "Install the local agent command and test it in Connections.",
         commands: adapter.command
           ? [{ label: "Check", command: `${adapter.command} --version` }]
           : [],
@@ -506,7 +506,7 @@ function agentReadyLabel(adapter: AgentAdapterRecord): string {
     return adapter.auth_error || `Auth status: ${adapter.auth_status}`;
   }
   if (adapter.agent_version) return `Ready · agent ${adapter.agent_version}`;
-  if (adapter.adapter_version) return `Ready · adapter ${adapter.adapter_version}`;
+  if (adapter.adapter_version) return `Ready · bridge ${adapter.adapter_version}`;
   return "Ready";
 }
 

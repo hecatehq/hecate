@@ -69,18 +69,14 @@ export function ChatSettingsPanel({
     ? externalAgentRTKInfo(externalAgentID || "", rtkAvailable, rtkPath)
     : null;
   return (
-    <aside
-      aria-label="Chat settings panel"
+    <div
       style={{
-        width: "min(380px, 36vw)",
-        minWidth: 320,
-        maxWidth: 420,
-        flexShrink: 0,
-        borderLeft: "1px solid var(--border)",
         background: "var(--bg1)",
         display: "flex",
         flexDirection: "column",
+        flex: 1,
         minHeight: 0,
+        minWidth: 0,
       }}
     >
       <div
@@ -98,7 +94,7 @@ export function ChatSettingsPanel({
           <div style={{ marginTop: 4, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
             {showHecateControls
               ? "Controls for future turns in this Hecate Chat. Running task turns keep the settings they started with."
-              : "Adapter controls and session details for this External Agent chat. Options apply to future turns in this session."}
+              : "Session details and agent-provided text settings for this External Agent chat."}
           </div>
         </div>
       </div>
@@ -124,7 +120,7 @@ export function ChatSettingsPanel({
           </>
         )}
         {!showHecateControls && externalSession?.config_options?.length ? (
-          <ChatSettingsSection title="Adapter controls">
+          <ChatSettingsSection title="Agent settings">
             <ExternalAgentSettingsControls
               session={externalSession}
               onChange={onConfigOptionChange}
@@ -168,7 +164,7 @@ export function ChatSettingsPanel({
               <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
                 {usageSource === "hecate"
                   ? "Measured by Hecate when it controls the provider or task-backed turn. Values can be empty for local providers or older turns."
-                  : "Reported by the adapter for orientation. Hecate does not enforce external-agent billing."}
+                  : "Reported by the agent for orientation. Hecate does not enforce external-agent billing."}
               </div>
             </div>
           </ChatSettingsSection>
@@ -197,7 +193,7 @@ export function ChatSettingsPanel({
           </div>
         </ChatSettingsSection>
       </div>
-    </aside>
+    </div>
   );
 }
 

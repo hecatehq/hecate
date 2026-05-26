@@ -42,10 +42,10 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 - Hecate records token usage events for gateway-controlled model calls, but it
   does not enforce global spend controls.
 - Provider cost is shown only when it is known from provider-reported fields or
-  adapter-reported usage. Treat it as operator visibility, not billing
+  agent-reported usage. Treat it as operator visibility, not billing
   enforcement.
-- External Agent sessions often run through the adapter's own subscription or
-  account. Hecate labels those values as adapter-reported and does not enforce
+- External Agent sessions often run through the agent's own subscription or
+  account. Hecate labels those values as agent-reported and does not enforce
   external spend.
 - Local models report tokens when the runtime provides them; host, GPU, and
   electricity cost are not measured.
@@ -107,13 +107,13 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   patch review. Chats projects the high-signal run activity and approval
   controls, but it is not a replacement for every Task Detail inspection flow.
 
-## External Agent Adapters
+## External Agents
 
 - Codex, Claude Code, Cursor Agent, and Grok Build run as trusted local subprocesses in the
   selected workspace. Hecate supervises lifecycle, approvals, timeouts,
   diagnostics, and Git diff capture, but it does not sandbox those agents or
   own their internal runtime loops.
-- Adapter auth and billing state belongs to the underlying CLI account. Hecate
+- Agent auth and billing state belongs to the underlying CLI account. Hecate
   can probe common failures and surface friendly hints, but operators still
   need to use each agent's own login/status flow when credentials expire.
 - Readiness fixtures are diagnostic only. They can force Connections and Chats

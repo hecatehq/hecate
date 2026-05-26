@@ -213,6 +213,19 @@ export type ChatChangedFilesResponse = {
   data: ChatChangedFileRecord[];
 };
 
+export type ChatWorkspaceDiffRecord = {
+  workspace?: string;
+  diff_stat?: string;
+  diff?: string;
+  has_changes: boolean;
+  files: ChatChangedFileRecord[];
+};
+
+export type ChatWorkspaceDiffResponse = {
+  object: string;
+  data: ChatWorkspaceDiffRecord;
+};
+
 export type ChatChangedFileDiffRecord = ChatChangedFileRecord & {
   diff: string;
 };

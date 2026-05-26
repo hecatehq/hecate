@@ -32,13 +32,11 @@ import { AddProviderModal } from "../providers/AddProviderModal";
 import { ChatComposer } from "./ChatComposer";
 import { ChatEmptyState } from "./ChatEmptyState";
 import { ChatHeader } from "./ChatHeader";
+import { ChatRightPanel } from "./ChatRightPanel";
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
 import { ChatSidebar, sidebarSessionAgentLabel, sidebarSessionBrand } from "./ChatSidebar";
 import { ChatTranscript, buildTranscriptItems, type VisibleChatMessage } from "./ChatTranscript";
-import {
-  ChatWorkspaceChangesPanel,
-  collectChatWorkspaceChanges,
-} from "./ChatWorkspaceChangesPanel";
+import { ChatWorkspaceChangesPanel } from "./ChatWorkspaceChangesPanel";
 import { externalAgentRequiresModelSelection, mergeAgentConfigOptions } from "./agentConfigOptions";
 import { chatAgentOption } from "./ChatAgentControls";
 import {
@@ -139,9 +137,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   // we only carry the id here.
   const [approvalModalID, setApprovalModalID] = useState<string | null>(null);
   const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
+  const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
+  const workspaceDialogOpenRef = useRef(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [workspaceChangesOpen, setWorkspaceChangesOpen] = useState(false);
-  const [workspaceChangesFocusID, setWorkspaceChangesFocusID] = useState<string | null>(null);
+  const [rightPanelWidth, setRightPanelWidth] = useState(380);
   const [draftChatStarted, setDraftChatStarted] = useState(false);
   const [rtkOnboardingDismissed, setRTKOnboardingDismissed] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
@@ -221,7 +221,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     state.activeChatSession?.segments,
     isHecateChat,
   );
-  const workspaceChanges = collectChatWorkspaceChanges(visibleMessages);
   const streaming = state.chatLoading;
   const chatDiagnostic = describeGatewayError(
     state.chatErrorCode,
@@ -381,6 +380,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         model: state.model,
       });
   const hecateTaskToolsAvailable = isHecateAgentChat && !hecateAgentToolsDisabledForModel;
+  const activeWorkspacePath = state.activeChatSession?.workspace || state.agentWorkspace;
+  const workspaceChangesPanelOpen =
+    selectedChatReady && isAgentChat && workspaceChangesOpen && Boolean(activeWorkspacePath.trim());
+  const chatSettingsPanelOpen = selectedChatReady && isAgentChat && chatSettingsOpen;
+  const rightPanelOpen = chatSettingsPanelOpen || workspaceChangesPanelOpen;
+  const rightPanelLabel = chatSettingsPanelOpen ? "Chat settings panel" : "Workspace changes panel";
   const chatSetupRepairTarget =
     isHecateAgentChat && hecateAgentToolsDisabledForModel ? "model" : state.chatTarget;
   const hecateChatModelReady =
@@ -512,11 +517,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }, [selectedChatReady]);
 
   useEffect(() => {
-    if (!selectedChatReady || workspaceChanges.length === 0) {
+    if (!selectedChatReady || !activeWorkspacePath.trim()) {
       setWorkspaceChangesOpen(false);
-      setWorkspaceChangesFocusID(null);
     }
-  }, [selectedChatReady, workspaceChanges.length]);
+  }, [activeWorkspacePath, selectedChatReady]);
 
   useEffect(() => {
     if (!focusComposerAfterNewChatRef.current || !composerVisible) return;
@@ -546,10 +550,18 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }, [isHecateChat, modelRouteUnavailable, hasConfiguredProviders]);
 
   async function chooseWorkspace() {
+    if (workspaceDialogOpenRef.current) return;
+    workspaceDialogOpenRef.current = true;
+    setWorkspaceDialogOpen(true);
     setWorkspacePathValue(state.agentWorkspace);
-    const selected = await actions.chooseAgentWorkspace();
-    if (!selected) {
-      setWorkspaceEntryOpen(true);
+    try {
+      const selected = await actions.chooseAgentWorkspace();
+      if (!selected) {
+        setWorkspaceEntryOpen(true);
+      }
+    } finally {
+      workspaceDialogOpenRef.current = false;
+      setWorkspaceDialogOpen(false);
     }
   }
 
@@ -558,13 +570,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     if (!next) return;
     actions.setAgentWorkspace(next);
     setWorkspaceEntryOpen(false);
-  }
-
-  function openWorkspaceChanges(messageID?: string) {
-    if (workspaceChanges.length === 0) return;
-    setWorkspaceChangesFocusID(messageID ?? null);
-    setChatSettingsOpen(false);
-    setWorkspaceChangesOpen(true);
   }
 
   async function refreshQuickLocalProviders() {
@@ -732,13 +737,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             isAgentChat={isAgentChat}
             isExternalAgentChat={isExternalAgentChat}
             showWorkspaceButton={showHeaderWorkspaceButton}
-            workspacePath={state.agentWorkspace}
-            workspaceChangesCount={workspaceChanges.length}
+            workspacePath={activeWorkspacePath}
+            workspaceDialogOpen={workspaceDialogOpen}
             workspaceChangesOpen={workspaceChangesOpen}
             chatSettingsOpen={chatSettingsOpen}
             onChooseWorkspace={() => void chooseWorkspace()}
             onToggleWorkspaceChanges={() => {
-              setWorkspaceChangesFocusID(null);
               setChatSettingsOpen(false);
               setWorkspaceChangesOpen((open) => !open);
             }}
@@ -844,7 +848,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               onNavigate={onNavigate}
               onOpenTask={onOpenTask}
               onOpenTrace={onOpenTrace}
-              onOpenWorkspaceChanges={openWorkspaceChanges}
               openExternalAgentSetup={openAgentSetup}
               emptyState={
                 <ChatEmptyState
@@ -927,49 +930,52 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               />
             )}
           </div>
-          {selectedChatReady && isAgentChat && chatSettingsOpen && (
-            <ChatSettingsPanel
-              showHecateControls={isHecateChat}
-              toolsEnabled={isHecateAgentChat}
-              toolsDisabledForModel={hecateAgentToolsDisabledForModel}
-              rtkEnabled={Boolean(state.hecateRTKEnabled)}
-              rtkAvailable={Boolean(state.hecateRTKAvailable)}
-              rtkPath={state.hecateRTKPath}
-              externalAgentID={isExternalAgentChat ? activeAgentAdapterID : ""}
-              taskID={state.activeChatSession?.task_id}
-              agentName={selectedAgent?.name || activeHeaderFallback}
-              model={state.model}
-              provider={selectedProviderName}
-              workspace={state.activeChatSession?.workspace || state.agentWorkspace}
-              status={state.activeChatSession?.status || ""}
-              messageCount={state.activeChatSession?.messages?.length ?? 0}
-              agentUsage={latestChatUsage}
-              usageSource={isHecateChat ? "hecate" : "adapter"}
-              externalSession={isExternalAgentChat ? state.activeChatSession : null}
-              instructionsAvailable={instructionsAvailable}
-              isHecateAgentChat={isHecateAgentChat}
-              instructionsLocked={messages.length > 0}
-              systemPrompt={state.systemPrompt}
-              onToolsChange={(enabled) => actions.setChatTarget(enabled ? "agent" : "model")}
-              onRTKChange={handleRTKChange}
-              onConfigOptionChange={actions.setChatConfigOption}
-              onSystemPromptChange={actions.setSystemPrompt}
-              onCopyCommand={actions.copyCommand}
-            />
+          {rightPanelOpen && (
+            <ChatRightPanel
+              ariaLabel={rightPanelLabel}
+              width={rightPanelWidth}
+              onWidthChange={setRightPanelWidth}
+            >
+              {chatSettingsPanelOpen ? (
+                <ChatSettingsPanel
+                  showHecateControls={isHecateChat}
+                  toolsEnabled={isHecateAgentChat}
+                  toolsDisabledForModel={hecateAgentToolsDisabledForModel}
+                  rtkEnabled={Boolean(state.hecateRTKEnabled)}
+                  rtkAvailable={Boolean(state.hecateRTKAvailable)}
+                  rtkPath={state.hecateRTKPath}
+                  externalAgentID={isExternalAgentChat ? activeAgentAdapterID : ""}
+                  taskID={state.activeChatSession?.task_id}
+                  agentName={selectedAgent?.name || activeHeaderFallback}
+                  model={state.model}
+                  provider={selectedProviderName}
+                  workspace={state.activeChatSession?.workspace || state.agentWorkspace}
+                  status={state.activeChatSession?.status || ""}
+                  messageCount={state.activeChatSession?.messages?.length ?? 0}
+                  agentUsage={latestChatUsage}
+                  usageSource={isHecateChat ? "hecate" : "adapter"}
+                  externalSession={isExternalAgentChat ? state.activeChatSession : null}
+                  instructionsAvailable={instructionsAvailable}
+                  isHecateAgentChat={isHecateAgentChat}
+                  instructionsLocked={messages.length > 0}
+                  systemPrompt={state.systemPrompt}
+                  onToolsChange={(enabled) => actions.setChatTarget(enabled ? "agent" : "model")}
+                  onRTKChange={handleRTKChange}
+                  onConfigOptionChange={actions.setChatConfigOption}
+                  onSystemPromptChange={actions.setSystemPrompt}
+                  onCopyCommand={actions.copyCommand}
+                />
+              ) : (
+                <ChatWorkspaceChangesPanel
+                  sessionID={activeSessionID}
+                  workspace={activeWorkspacePath}
+                  onGetWorkspaceDiff={chatActions.getChatWorkspaceDiff}
+                  onGetWorkspaceFileDiff={chatActions.getChatWorkspaceFileDiff}
+                  onRevertWorkspaceFiles={chatActions.revertChatWorkspaceFiles}
+                />
+              )}
+            </ChatRightPanel>
           )}
-          {selectedChatReady &&
-            isAgentChat &&
-            workspaceChangesOpen &&
-            workspaceChanges.length > 0 && (
-              <ChatWorkspaceChangesPanel
-                changes={workspaceChanges}
-                sessionID={activeSessionID}
-                focusMessageID={workspaceChangesFocusID}
-                onListFiles={chatActions.listChatMessageFiles}
-                onGetFileDiff={chatActions.getChatMessageFileDiff}
-                onRevertFiles={chatActions.revertChatMessageFiles}
-              />
-            )}
         </div>
       </div>
 
@@ -1119,7 +1125,7 @@ function formatAgentSessionTitle(
   if (!session) {
     return adapter?.available
       ? `A new ${adapter.name} session will be created on send.`
-      : "Install or authenticate an agent adapter before sending.";
+      : "Install or authenticate the local agent before sending.";
   }
   const parts = [
     `${session.title || "Agent chat"} is backed by a persistent ${session.driver_kind || "agent"} session.`,

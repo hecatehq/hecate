@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -88,6 +88,28 @@ describe("ProjectsProvider", () => {
     expect(result.current.activeProjectID).toBe("");
     expect(window.localStorage.getItem("hecate.project")).toBeNull();
     expect(updateProject).not.toHaveBeenCalled();
+  });
+
+  it("persists the last selected project", async () => {
+    const opened = { ...project, last_opened_at: "2026-05-21T11:00:00Z" };
+    vi.mocked(updateProject).mockResolvedValue({ object: "project", data: opened });
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: ({ children }) => (
+        <ProjectsProvider initialState={{ projects: [project] }}>{children}</ProjectsProvider>
+      ),
+    });
+
+    await act(async () => {
+      await result.current.actions.selectProject(project.id);
+    });
+
+    expect(updateProject).toHaveBeenCalledWith(project.id, {
+      last_opened_at: expect.any(String) as string,
+    });
+    expect(result.current.activeProjectID).toBe(project.id);
+    await waitFor(() => {
+      expect(window.localStorage.getItem("hecate.project")).toBe(project.id);
+    });
   });
 
   it("renames a project and upserts the returned record", async () => {

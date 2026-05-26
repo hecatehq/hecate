@@ -352,7 +352,7 @@ For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy fo
 
 `GET /hecate/v1/system/stats` also reports queue health fields including queue depth, queue capacity, worker count, and `queue_backend`.
 
-The response also surfaces `agent_adapter_approval_mode` — the configured mode for the external-agent adapter approval coordinator: `"auto"`, `"prompt"`, or `"deny"`. Operators surface a danger banner in the UI when this is `"auto"` since every adapter `RequestPermission` is permitted without review. Empty when the gateway was built without an approval coordinator (legacy configs / test fixtures).
+The response also surfaces `agent_adapter_approval_mode` — the configured mode for the external-agent approval coordinator: `"auto"`, `"prompt"`, or `"deny"`. Operators surface a danger banner in the UI when this is `"auto"` since every agent `RequestPermission` is permitted without review. Empty when the gateway was built without an approval coordinator (legacy configs / test fixtures).
 
 The same payload includes `rtk_available` and optional `rtk_path` so the UI can offer the per-chat **Compact command output** toggle only when the optional `rtk` helper is installed in the gateway process `PATH`. Hecate never enables RTK automatically; new chats default to compact output off.
 
@@ -426,8 +426,8 @@ Hecate records usage for operator visibility, not global spend enforcement.
 Cloud-provider calls may include measured tokens and known or provider-reported
 cost. Local-provider rows are still recorded as usage events, but the Usage UI
 hides them from the cloud-spend table because they do not consume cloud-provider
-tokens. External-agent usage remains adapter-reported and is surfaced on chat
-messages when the adapter provides it.
+tokens. External-agent usage remains agent-reported and is surfaced on chat
+messages when the agent provides it.
 
 ### `GET /hecate/v1/usage/summary`
 
@@ -749,7 +749,7 @@ use `reason`, `provider_status`, `provider_blocked_reason`, and
 
 ### `GET /hecate/v1/agent-adapters`
 
-External coding-agent adapter catalog. This is the first discovery surface for
+External coding-agent catalog. This is the first discovery surface for
 External Agent chats: it reports the agent runtimes Hecate knows how to
 supervise, whether their direct command or Hecate-managed launcher can be
 started, and any Hecate-managed launch `config_options` that can be selected
@@ -806,7 +806,7 @@ GET /hecate/v1/agent-adapters
       "supported_range": ">=0.1.0",
       "version_outside_range": true,
       "auth_status": "unauthenticated",
-      "auth_error": "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment."
+      "auth_error": "Run cursor-agent login, or set CURSOR_API_KEY for the agent environment."
     },
     {
       "id": "claude_code",
@@ -828,9 +828,9 @@ GET /hecate/v1/agent-adapters
 ```
 
 `adapter_version` is the ACP bridge/launcher version when Hecate needs a
-separate adapter package or binary to speak ACP. Managed package adapters avoid
-package-manager execution during passive listing; their adapter version is only
-populated after an explicit adapter probe. `agent_version` is the underlying
+separate bridge package or binary to speak ACP. Managed package launchers avoid
+package-manager execution during passive listing; their bridge version is only
+populated after an explicit readiness probe. `agent_version` is the underlying
 coding-agent CLI version, such as `codex`, `claude`, `cursor-agent`, or `grok`.
 Both fields are extracted from `--version` output and omitted when the command is
 missing or does not print a recognisable semver string. `version_outside_range`
@@ -840,21 +840,21 @@ that case.
 
 `auth_status` is a lightweight dashboard hint, not a full login check. Values:
 `ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env
-vars and login files without spawning the adapter. Use `POST
+vars and login files without spawning the agent. Use `POST
 /hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake.
 
-These are **agent adapters**, not model providers. They run ACP-compatible
-external coding agents under Hecate supervision; cost is reported as `external`
-until an adapter can supply structured usage.
+These are **external agents**, not model providers. They run ACP-compatible
+coding agents under Hecate supervision; cost is reported as `external`
+until an agent can supply structured usage.
 
-`config_options` on an adapter row are Hecate-managed launch controls. Clients
+`config_options` on a catalog row are Hecate-managed launch controls. Clients
 can render them before creating an External Agent chat and pass the selected
 options to `POST /hecate/v1/chat/sessions`. Values prefixed with
 `__hecate_no_` are explicit "not selected" sentinels. Some options are optional;
 launch-model options can be required by the adapter definition and cause
 `400 chat.model_required` at session creation until a real value is selected.
-Adapter-owned ACP model state appears on the prepared chat session instead of
-the catalog row and is updated with ACP `session/set_model`. When an adapter
+Agent-owned ACP model state appears on the prepared chat session instead of
+the catalog row and is updated with ACP `session/set_model`. When an agent
 uses CLI help or model-list commands to populate launch controls, the catalog
 endpoint reuses a short in-process cache instead of spawning the CLI on every
 refresh.
@@ -941,12 +941,12 @@ Status codes:
 
 - `200 OK` with the typed result on every classification (`ready`,
   `not_installed`, `auth_required`, `error`). The probe completing
-  successfully is itself a 200; the adapter's status lives in the body.
+  successfully is itself a 200; the agent status lives in the body.
 - `404 not_found` when the adapter id is not registered.
 
-The probe creates and immediately abandons a fresh ACP session, so adapters
-that bill on session creation will see one no-op session per call. Adapters
-that bill on prompt completion see no charge.
+The probe creates and immediately abandons a fresh ACP session, so agents that
+bill on session creation will see one no-op session per call. Agents that bill
+on prompt completion see no charge.
 
 ### `POST /hecate/v1/agent-adapters/{id}/refresh-launcher`
 
@@ -1285,9 +1285,9 @@ failing only after execution starts.
 
 For external-agent `agent_id` values, session creation also starts or restores
 the native ACP session immediately. Clients may include `config_options`
-selected from the adapter catalog when a catalog row exposes Hecate-managed
+selected from the agent catalog when a catalog row exposes Hecate-managed
 launch controls; Hecate validates required launch options and uses them when
-starting the adapter process. After the ACP session exists, adapter-owned
+starting the agent process. After the ACP session exists, agent-owned
 `config_options` are returned with the session so clients can render them before
 the first prompt. If the adapter binary is missing, unauthenticated, missing a
 required launch option, or fails its ACP handshake, session creation fails and
@@ -1392,9 +1392,9 @@ contains its `execution_mode`, provider/model snapshot, optional `task_id`,
 latest run id, status, message count, and first/last timestamps.
 
 External Agent sessions may also include `config_options`, a normalized
-projection of ACP session configuration options reported by the adapter during
+projection of ACP session configuration options reported by the agent during
 `session/new`, `session/load`, or `session/set_config_option`, merged with any
-Hecate-managed launch controls that affected the adapter process. Because
+Hecate-managed launch controls that affected the agent process. Because
 Hecate starts the ACP session during chat creation, clients can usually show
 session controls before the first prompt. Catalog launch controls can be shown
 even earlier from `GET /hecate/v1/agent-adapters`. Common `category` values
@@ -1751,6 +1751,85 @@ After a successful revert, Hecate refreshes the message's stored `diff` and
 activity, and publishes an updated chat session snapshot. Non-Git
 workspaces return `400 invalid_request` with a human-readable limitation.
 
+### `GET /hecate/v1/chat/sessions/{id}/workspace-diff`
+
+Returns the current Git diff for the chat session's selected workspace. This is
+live working-tree state, not the captured diff from any assistant message.
+
+```json
+GET /hecate/v1/chat/sessions/chat_.../workspace-diff
+→ 200
+{
+  "object": "chat_workspace_diff",
+  "data": {
+    "workspace": "/Users/alice/project",
+    "diff_stat": "README.md | 1 +",
+    "diff": "diff --git a/README.md b/README.md\n...",
+    "has_changes": true,
+    "files": [
+      {
+        "path": "README.md",
+        "additions": 1,
+        "deletions": 0,
+        "status": "modified"
+      }
+    ]
+  }
+}
+```
+
+Sessions without a workspace return an empty diff response. Non-Git
+workspaces return `400 invalid_request`.
+
+### `GET /hecate/v1/chat/sessions/{id}/workspace-diff/files/{path}`
+
+Returns the live unified diff for one file currently present in the session
+workspace diff. Encode the path as a URL path component.
+
+```json
+GET /hecate/v1/chat/sessions/chat_.../workspace-diff/files/README.md
+→ 200
+{
+  "object": "chat_workspace_file_diff",
+  "data": {
+    "path": "README.md",
+    "additions": 1,
+    "deletions": 0,
+    "status": "modified",
+    "diff": "diff --git a/README.md b/README.md\n..."
+  }
+}
+```
+
+The path must appear in the current workspace diff; Hecate rejects arbitrary
+paths.
+
+### `POST /hecate/v1/chat/sessions/{id}/workspace-diff/revert`
+
+Restores selected tracked files from the current Git workspace diff. Pass a
+non-empty `paths` array to restore selected files, or an empty array to restore
+every currently changed tracked file.
+
+```json
+POST /hecate/v1/chat/sessions/chat_.../workspace-diff/revert
+{
+  "paths": ["README.md"]
+}
+
+→ 200
+{
+  "object": "chat_workspace_diff",
+  "data": {
+    "workspace": "/Users/alice/project",
+    "has_changes": false,
+    "files": []
+  }
+}
+```
+
+Only paths present in the current diff can be restored. The endpoint refreshes
+and returns the live workspace diff after Git restore completes.
+
 ### `GET /hecate/v1/chat/sessions/{id}/stream`
 
 Streams live chat session snapshots as Server-Sent Events. This is an
@@ -1791,14 +1870,14 @@ currently running, the endpoint returns `409 invalid_request`.
 
 ### `POST /hecate/v1/chat/sessions/{id}/close`
 
-Closes the native ACP adapter session while keeping the Hecate chat history.
+Closes the native ACP agent session while keeping the Hecate chat history.
 If a turn is currently running, Hecate cancels and waits briefly before closing
 the external session.
 
 ### `DELETE /hecate/v1/chat/sessions/{id}`
 
 Deletes a chat session from the configured chat-session backend.
-If the session has an active native ACP adapter process, Hecate closes the
+If the session has an active native ACP agent process, Hecate closes the
 native session and terminates the owned process as part of deletion.
 If the session is a task-backed Hecate Chat with a non-terminal backing run,
 Hecate cancels that run before removing the chat transcript. The backing Task
@@ -1824,10 +1903,41 @@ POST /hecate/v1/workspace-dialog
 }
 ```
 
-Current native-dialog support is macOS via `osascript`; unsupported platforms
-return `501`. The UI falls back to a manual path entry so Chats remains
-usable on Linux and Windows. If the operator cancels the dialog, the endpoint
-returns the standard error envelope and the UI keeps the workspace unchanged.
+The local gateway uses a cross-platform native-dialog helper for folder
+selection. If the host has no usable dialog backend, the endpoint returns
+`501` and the UI falls back to a manual path entry. If the operator cancels
+the dialog, the endpoint returns `200` with an empty path and the UI keeps the
+workspace unchanged. Hecate allows only one folder picker at a time; concurrent
+requests return `409 conflict`.
+
+### `POST /hecate/v1/workspace-open`
+
+Opens a validated local workspace directory in an editor, terminal, or file
+manager from the gateway process. This is the browser fallback for the Chats
+header open-workspace menu; the Tauri app uses its native command path instead.
+
+```json
+POST /hecate/v1/workspace-open
+{
+  "path": "/Users/alice/project",
+  "target": "cursor"
+}
+
+→ 200
+{
+  "object": "workspace_open",
+  "data": {
+    "path": "/Users/alice/project",
+    "target": "cursor"
+  }
+}
+```
+
+`target` is one of `vscode`, `vscode_insiders`, `cursor`, `zed`, `finder`,
+`terminal`, `iterm2`, or `xcode`. The endpoint accepts only loopback clients,
+canonicalizes `path`, requires it to be a directory, and returns `403` for
+non-local callers so a remotely hosted Hecate cannot unexpectedly launch apps
+on the server machine.
 
 ## Rate-limit headers on chat / messages
 

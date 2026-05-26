@@ -623,17 +623,17 @@ function AnthropicProviderKeyCard({
   );
 }
 
-// AdapterStatusSection lists the configured external-agent adapters.
-// Quiet startup probes only touch direct binaries. Managed adapters may
+// AdapterStatusSection lists the configured external agents.
+// Quiet startup probes only touch direct binaries. Managed launchers may
 // invoke a package-manager launcher, so manual checks ask first before
-// spawning the adapter, completing the ACP handshake, and returning a
+// spawning the agent bridge, completing the ACP handshake, and returning a
 // typed health classification. That handshake is also the auth check:
 // auth failures surface as `auth_required`.
 //
-// The section is read-only otherwise: adapter discovery and
+// The section is read-only otherwise: agent discovery and
 // availability are still owned by the dashboard fan-out's
 // /hecate/v1/agent-adapters response. We just surface the additional
-// per-adapter "can I actually use this?" check here.
+// per-agent "can I actually use this?" check here.
 function AdapterStatusSection({
   agentAdapters,
   agentAdapterHealthByID,
@@ -666,9 +666,9 @@ function AdapterStatusSection({
   return (
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
-        title="Adapters"
-        description="Checks adapter readiness and auth by starting the adapter, completing the ACP handshake, and creating a session. Auth-required failures show here before a chat fails."
-        meta={`${agentAdapters.length} adapter${agentAdapters.length === 1 ? "" : "s"}`}
+        title="External agents"
+        description="Checks local agent readiness and auth by starting the agent bridge, completing the ACP handshake, and creating a session. Auth-required failures show here before a chat fails."
+        meta={`${agentAdapters.length} agent${agentAdapters.length === 1 ? "" : "s"}`}
       />
       <div className="card" style={{ overflow: "hidden" }}>
         {agentAdapters.map((adapter, i) => (
@@ -685,7 +685,7 @@ function AdapterStatusSection({
       </div>
       {managedProbeConfirm && (
         <ConfirmModal
-          title="Run managed adapter check?"
+          title="Run managed agent check?"
           confirmLabel="Run check"
           onClose={() => setManagedProbeConfirm(null)}
           onConfirm={confirmManagedProbe}
@@ -693,7 +693,7 @@ function AdapterStatusSection({
             <div>
               <p style={{ marginTop: 0 }}>
                 Hecate will start {managedProbeConfirm.name} to verify readiness and auth. This
-                managed adapter can run its package-manager launcher
+                managed agent can run its package-manager launcher
                 {managedProbeConfirm.managed_package ? (
                   <>
                     {" "}
@@ -706,7 +706,7 @@ function AdapterStatusSection({
                 .
               </p>
               <p style={{ marginBottom: 0, color: "var(--t2)" }}>
-                Continue only if you trust this adapter package. Passive startup checks never run
+                Continue only if you trust this agent package. Passive startup checks never run
                 package managers.
               </p>
             </div>
@@ -819,7 +819,7 @@ function AdapterStatusRow({
           )}
           {adapter.adapter_version && (
             <span>
-              adapter <span style={{ color: "var(--t1)" }}>{adapter.adapter_version}</span>
+              bridge <span style={{ color: "var(--t1)" }}>{adapter.adapter_version}</span>
             </span>
           )}
           {adapter.agent_version && (

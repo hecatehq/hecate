@@ -15,7 +15,7 @@ import {
   formatMicrosUSD,
 } from "../../lib/format";
 import { providerDisplayName } from "../../lib/provider-utils";
-import { Badge, BrandAvatar, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
+import { Badge, BrandAvatar, CodeBlock, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
 
 import { AgentConversationView } from "./TaskAgentConversation";
@@ -1252,37 +1252,9 @@ export function TaskDetail({
 
 function PatchDiffPreview({ diff }: { diff: string }) {
   return (
-    <pre
-      data-testid="patch-diff-preview"
-      style={{
-        margin: 0,
-        maxHeight: "56vh",
-        overflow: "auto",
-        padding: 12,
-        borderRadius: "var(--radius-sm)",
-        border: "1px solid var(--border)",
-        background: "var(--bg0)",
-        fontFamily: "var(--font-mono)",
-        fontSize: 12,
-        lineHeight: 1.7,
-      }}
-    >
-      {diff.split("\n").map((line, index) => {
-        const color =
-          line.startsWith("+") && !line.startsWith("+++")
-            ? "var(--green)"
-            : line.startsWith("-") && !line.startsWith("---")
-              ? "var(--red)"
-              : line.startsWith("@@")
-                ? "var(--amber)"
-                : "var(--t1)";
-        return (
-          <div key={index} style={{ color }}>
-            {line || " "}
-          </div>
-        );
-      })}
-    </pre>
+    <div data-testid="patch-diff-preview">
+      <CodeBlock code={diff} lang="diff" />
+    </div>
   );
 }
 

@@ -1,5 +1,6 @@
 import type { ChatSessionRecord } from "../../types/chat";
 import { BrandAvatar, Icon, Icons } from "../shared/ui";
+import { WorkspaceOpenMenu } from "./WorkspaceOpenMenu";
 
 type Props = {
   sidebarOpen: boolean;
@@ -19,7 +20,7 @@ type Props = {
   isExternalAgentChat: boolean;
   showWorkspaceButton: boolean;
   workspacePath: string;
-  workspaceChangesCount: number;
+  workspaceDialogOpen: boolean;
   workspaceChangesOpen: boolean;
   chatSettingsOpen: boolean;
   onChooseWorkspace: () => void;
@@ -44,7 +45,7 @@ export function ChatHeader(props: Props) {
     isExternalAgentChat,
     showWorkspaceButton,
     workspacePath,
-    workspaceChangesCount,
+    workspaceDialogOpen,
     workspaceChangesOpen,
     chatSettingsOpen,
     onChooseWorkspace,
@@ -153,9 +154,16 @@ export function ChatHeader(props: Props) {
         >
           {showWorkspaceButton && (
             <button
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost btn-sm chat-header-action"
               onClick={onChooseWorkspace}
-              title={workspacePath ? `Workspace: ${workspacePath}` : "Choose workspace folder"}
+              disabled={workspaceDialogOpen}
+              title={
+                workspaceDialogOpen
+                  ? "Workspace folder dialog is already open"
+                  : workspacePath
+                    ? `Workspace: ${workspacePath}`
+                    : "Choose workspace folder"
+              }
               aria-label={workspacePath ? `Workspace: ${workspacePath}` : "Choose workspace folder"}
               type="button"
               style={{
@@ -164,42 +172,36 @@ export function ChatHeader(props: Props) {
                 padding: 0,
                 justifyContent: "center",
                 color: "var(--t2)",
-                borderColor: "transparent",
-                background: "transparent",
                 boxShadow: "none",
               }}
             >
               <Icon d={Icons.folder} size={13} />
             </button>
           )}
-          {workspaceChangesCount > 0 && (
+          <WorkspaceOpenMenu workspacePath={workspacePath} />
+          {workspacePath.trim() && (
             <button
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost btn-sm chat-header-action"
               type="button"
               aria-expanded={workspaceChangesOpen}
-              aria-label={`Workspace changes: ${workspaceChangesCount} change set${workspaceChangesCount === 1 ? "" : "s"}`}
+              aria-label="Workspace changes"
               onClick={onToggleWorkspaceChanges}
-              title={`${workspaceChangesCount} workspace change set${workspaceChangesCount === 1 ? "" : "s"}`}
+              title="Show current workspace diff"
               style={{
-                minWidth: 30,
+                width: 30,
                 height: 30,
-                padding: "0 7px",
-                gap: 5,
+                padding: 0,
                 justifyContent: "center",
                 color: workspaceChangesOpen ? "var(--teal)" : "var(--t2)",
-                borderColor: "transparent",
                 background: workspaceChangesOpen ? "var(--teal-bg)" : "transparent",
                 boxShadow: "none",
               }}
             >
               <Icon d={Icons.branch} size={13} />
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>
-                {workspaceChangesCount}
-              </span>
             </button>
           )}
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-sm chat-header-action"
             type="button"
             aria-expanded={chatSettingsOpen}
             aria-label="Chat settings"
@@ -212,7 +214,6 @@ export function ChatHeader(props: Props) {
               gap: 6,
               justifyContent: "center",
               color: chatSettingsOpen ? "var(--teal)" : "var(--t2)",
-              borderColor: "transparent",
               background: chatSettingsOpen ? "var(--teal-bg)" : "transparent",
               boxShadow: "none",
             }}

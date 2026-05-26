@@ -4,7 +4,7 @@
 // machinery (loading flag, streaming content, chat result,
 // pending tool calls + thread), the chat-error cluster, queued
 // chat messages, target routing (default target + per-session
-// override map), workspace + adapter selection, and the
+// override map), workspace + external-agent selection, and the
 // pagination state for agent chat sessions.
 //
 // Eight fields are persisted via `usePersistedState`; the rest

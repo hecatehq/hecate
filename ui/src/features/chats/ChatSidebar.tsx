@@ -37,7 +37,7 @@ type Props = {
   // coordination on the parent side avoids the sidebar reaching across
   // the canvas for the composer ref.
   onSelectSession: (sessionID: string) => void;
-  // New-chat creation. Gated on adapter readiness inside the sidebar.
+  // New-chat creation. Gated on agent readiness inside the sidebar.
   onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
 };
 

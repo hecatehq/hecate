@@ -28,6 +28,7 @@ import type {
   ChatSessionResponse,
   ChatSessionsResponse,
   ChatStreamEvent,
+  ChatWorkspaceDiffResponse,
   WorkspaceDialogResponse,
 } from "../types/chat";
 import type {
@@ -383,6 +384,31 @@ export async function listChatMessageFiles(
   );
 }
 
+export async function getChatWorkspaceDiff(sessionID: string): Promise<ChatWorkspaceDiffResponse> {
+  return fetchJSON<ChatWorkspaceDiffResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/workspace-diff`,
+  );
+}
+
+export async function getChatWorkspaceFileDiff(
+  sessionID: string,
+  path: string,
+): Promise<ChatChangedFileDiffResponse> {
+  return fetchJSON<ChatChangedFileDiffResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/workspace-diff/files/${encodeURIComponent(path)}`,
+  );
+}
+
+export async function revertChatWorkspaceFiles(
+  sessionID: string,
+  paths: string[] = [],
+): Promise<ChatWorkspaceDiffResponse> {
+  return fetchJSON<ChatWorkspaceDiffResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/workspace-diff/revert`,
+    { method: "POST", body: { paths } },
+  );
+}
+
 export async function getChatMessageFileDiff(
   sessionID: string,
   messageID: string,
@@ -587,6 +613,13 @@ export async function chooseWorkspaceDirectory(): Promise<WorkspaceDialogRespons
   return fetchJSON<WorkspaceDialogResponse>(`${HECATE_API}/workspace-dialog`, {
     method: "POST",
     body: {},
+  });
+}
+
+export async function openWorkspaceTargetViaAPI(path: string, target: string): Promise<unknown> {
+  return fetchJSON(`${HECATE_API}/workspace-open`, {
+    method: "POST",
+    body: { path, target },
   });
 }
 
@@ -1132,7 +1165,7 @@ async function errorPayload(
   traceId: string;
 }> {
   try {
-    const payload = (await response.json()) as ErrorPayload;
+    const payload = (await response.clone().json()) as ErrorPayload;
     return {
       message: payload.error?.message ?? fallback,
       code: payload.error?.type ?? "",
@@ -1142,8 +1175,10 @@ async function errorPayload(
       traceId: payload.error?.trace_id ?? "",
     };
   } catch {
+    const text = await response.text().catch(() => "");
+    const detail = text.trim();
     return {
-      message: fallback,
+      message: detail ? `${fallback} (${response.status}): ${detail}` : fallback,
       code: "",
       userMessage: "",
       operatorAction: "",

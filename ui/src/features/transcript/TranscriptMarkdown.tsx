@@ -158,8 +158,8 @@ export function TranscriptMarkdown({ content }: { content: string }) {
 
 function renderInline(text: string): React.ReactNode {
   return parseInlineNodes(text).map((node, i) => {
-    if (node.t === "bold") return <strong key={i}>{node.v}</strong>;
-    if (node.t === "italic") return <em key={i}>{node.v}</em>;
+    if (node.t === "bold") return <strong key={i}>{renderInline(node.v)}</strong>;
+    if (node.t === "italic") return <em key={i}>{renderInline(node.v)}</em>;
     if (node.t === "code")
       return (
         <code
@@ -169,6 +169,7 @@ function renderInline(text: string): React.ReactNode {
             fontSize: "0.9em",
             background: "var(--bg3)",
             padding: "1px 4px",
+            margin: "0 1px",
             borderRadius: "var(--radius-sm)",
             color: "var(--teal)",
           }}

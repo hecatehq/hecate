@@ -1709,6 +1709,157 @@ diff --git a/src/app.go b/src/app.go
 	}
 }
 
+func TestChatWorkspaceDiffReturnsCurrentGitDiff(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "src", "app.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write src/app.go: %v", err)
+	}
+	runTestGit(t, workspace, "add", "README.md")
+	runTestGit(t, workspace, "add", "src/app.go")
+	runTestGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatalf("modify README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "src", "app.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatalf("modify src/app.go: %v", err)
+	}
+	store := chat.NewMemoryStore()
+	sessionID := "chat_workspace_diff"
+	if _, err := store.Create(context.Background(), chat.Session{
+		ID:        sessionID,
+		Title:     "Diff",
+		AgentID:   "codex",
+		Workspace: workspace,
+		Status:    "completed",
+		Messages: []chat.Message{
+			{
+				ID:       "captured",
+				Role:     "assistant",
+				Status:   "completed",
+				DiffStat: "old.txt | 1 +",
+				Diff:     "diff --git a/old.txt b/old.txt\n+old",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	resp := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff", "")
+	if resp.Object != "chat_workspace_diff" {
+		t.Fatalf("object = %q, want chat_workspace_diff", resp.Object)
+	}
+	if !resp.Data.HasChanges {
+		t.Fatalf("has_changes = false, want true")
+	}
+	if !strings.Contains(resp.Data.DiffStat, "README.md") {
+		t.Fatalf("diff_stat = %q, want current README diff", resp.Data.DiffStat)
+	}
+	if strings.Contains(resp.Data.Diff, "old.txt") {
+		t.Fatalf("workspace diff used captured message diff: %q", resp.Data.Diff)
+	}
+	if len(resp.Data.Files) != 2 || !chatChangedFilesContain(resp.Data.Files, "README.md") || !chatChangedFilesContain(resp.Data.Files, "src/app.go") {
+		t.Fatalf("files = %#v, want current README and nested src/app.go files", resp.Data.Files)
+	}
+
+	fileDiff := mustRequestJSON[ChatChangedFileDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/files/"+url.PathEscape("README.md"), "")
+	if fileDiff.Object != "chat_workspace_file_diff" {
+		t.Fatalf("file diff object = %q, want chat_workspace_file_diff", fileDiff.Object)
+	}
+	if fileDiff.Data.Path != "README.md" || !strings.Contains(fileDiff.Data.Diff, "+world") {
+		t.Fatalf("file diff = %#v, want current README diff", fileDiff.Data)
+	}
+	if strings.Contains(fileDiff.Data.Diff, "old.txt") {
+		t.Fatalf("file diff used captured message diff: %q", fileDiff.Data.Diff)
+	}
+	nestedDiff := mustRequestJSON[ChatChangedFileDiffResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/files/"+url.PathEscape("src/app.go"), "")
+	if nestedDiff.Data.Path != "src/app.go" || !strings.Contains(nestedDiff.Data.Diff, "func main") {
+		t.Fatalf("nested file diff = %#v, want src/app.go diff", nestedDiff.Data)
+	}
+}
+
+func chatChangedFilesContain(files []ChatChangedFileItem, path string) bool {
+	for _, file := range files {
+		if file.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "notes.md"), []byte("note\n"), 0o644); err != nil {
+		t.Fatalf("write notes: %v", err)
+	}
+	runTestGit(t, workspace, "add", ".")
+	runTestGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatalf("modify README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "notes.md"), []byte("note\nmore\n"), 0o644); err != nil {
+		t.Fatalf("modify notes: %v", err)
+	}
+	store := chat.NewMemoryStore()
+	sessionID := "chat_workspace_revert"
+	if _, err := store.Create(context.Background(), chat.Session{
+		ID:        sessionID,
+		Title:     "Diff",
+		AgentID:   "codex",
+		Workspace: workspace,
+		Status:    "completed",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	resp := mustRequestJSON[ChatWorkspaceDiffResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-diff/revert", `{"paths":["README.md"]}`)
+	if resp.Object != "chat_workspace_diff" {
+		t.Fatalf("object = %q, want chat_workspace_diff", resp.Object)
+	}
+	if strings.Contains(resp.Data.DiffStat, "README.md") {
+		t.Fatalf("diff_stat still contains reverted path: %q", resp.Data.DiffStat)
+	}
+	if !strings.Contains(resp.Data.DiffStat, "notes.md") {
+		t.Fatalf("diff_stat = %q, want remaining notes.md diff", resp.Data.DiffStat)
+	}
+	readme, err := os.ReadFile(filepath.Join(workspace, "README.md"))
+	if err != nil {
+		t.Fatalf("read README: %v", err)
+	}
+	if got := string(readme); got != "hello\n" {
+		t.Fatalf("README after revert = %q, want original", got)
+	}
+	notes, err := os.ReadFile(filepath.Join(workspace, "notes.md"))
+	if err != nil {
+		t.Fatalf("read notes: %v", err)
+	}
+	if got := string(notes); got != "note\nmore\n" {
+		t.Fatalf("notes after revert = %q, want untouched modification", got)
+	}
+}
+
 func TestRevertChatMessageFilesRestoresSelectedPaths(t *testing.T) {
 	workspace := t.TempDir()
 	runTestGit(t, workspace, "init")
