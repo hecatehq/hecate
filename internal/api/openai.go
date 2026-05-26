@@ -262,21 +262,22 @@ type ProjectResponse struct {
 }
 
 type ProjectResponseItem struct {
-	ID                       string                    `json:"id"`
-	Name                     string                    `json:"name"`
-	Description              string                    `json:"description,omitempty"`
-	Roots                    []ProjectRootResponseItem `json:"roots"`
-	DefaultRootID            string                    `json:"default_root_id,omitempty"`
-	DefaultProvider          string                    `json:"default_provider,omitempty"`
-	DefaultModel             string                    `json:"default_model,omitempty"`
-	DefaultAgentProfile      string                    `json:"default_agent_profile,omitempty"`
-	DefaultToolsEnabled      *bool                     `json:"default_tools_enabled,omitempty"`
-	DefaultWorkspaceMode     string                    `json:"default_workspace_mode,omitempty"`
-	DefaultSystemPrompt      string                    `json:"default_system_prompt,omitempty"`
-	DefaultCompactToolOutput *bool                     `json:"default_compact_tool_output,omitempty"`
-	CreatedAt                string                    `json:"created_at"`
-	UpdatedAt                string                    `json:"updated_at"`
-	LastOpenedAt             string                    `json:"last_opened_at,omitempty"`
+	ID                       string                             `json:"id"`
+	Name                     string                             `json:"name"`
+	Description              string                             `json:"description,omitempty"`
+	Roots                    []ProjectRootResponseItem          `json:"roots"`
+	ContextSources           []ProjectContextSourceResponseItem `json:"context_sources"`
+	DefaultRootID            string                             `json:"default_root_id,omitempty"`
+	DefaultProvider          string                             `json:"default_provider,omitempty"`
+	DefaultModel             string                             `json:"default_model,omitempty"`
+	DefaultAgentProfile      string                             `json:"default_agent_profile,omitempty"`
+	DefaultToolsEnabled      *bool                              `json:"default_tools_enabled,omitempty"`
+	DefaultWorkspaceMode     string                             `json:"default_workspace_mode,omitempty"`
+	DefaultSystemPrompt      string                             `json:"default_system_prompt,omitempty"`
+	DefaultCompactToolOutput *bool                              `json:"default_compact_tool_output,omitempty"`
+	CreatedAt                string                             `json:"created_at"`
+	UpdatedAt                string                             `json:"updated_at"`
+	LastOpenedAt             string                             `json:"last_opened_at,omitempty"`
 }
 
 type ProjectRootResponseItem struct {
@@ -286,6 +287,16 @@ type ProjectRootResponseItem struct {
 	GitRemote string `json:"git_remote,omitempty"`
 	GitBranch string `json:"git_branch,omitempty"`
 	Active    bool   `json:"active"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type ProjectContextSourceResponseItem struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title,omitempty"`
+	Path      string `json:"path"`
+	Enabled   bool   `json:"enabled"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }

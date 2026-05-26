@@ -21,6 +21,11 @@ func TestMemoryStore_ProjectLifecycle(t *testing.T) {
 			Path:   " /tmp/hecate ",
 			Active: true,
 		}},
+		ContextSources: []ContextSource{{
+			ID:      "ctx_readme",
+			Path:    " README.md ",
+			Enabled: true,
+		}},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -31,14 +36,21 @@ func TestMemoryStore_ProjectLifecycle(t *testing.T) {
 	if project.Roots[0].Path != "/tmp/hecate" || project.Roots[0].Kind != "local" {
 		t.Fatalf("root = %+v, want normalized local root", project.Roots[0])
 	}
+	if project.ContextSources[0].Path != "README.md" || project.ContextSources[0].Kind != "doc" {
+		t.Fatalf("context source = %+v, want normalized doc source", project.ContextSources[0])
+	}
 
 	project.Roots[0].Path = "/mutated"
+	project.ContextSources[0].Path = "mutated.md"
 	got, ok, err := store.Get(ctx, "proj_alpha")
 	if err != nil || !ok {
 		t.Fatalf("Get ok=%v err=%v, want project", ok, err)
 	}
 	if got.Roots[0].Path != "/tmp/hecate" {
 		t.Fatalf("stored root path mutated to %q", got.Roots[0].Path)
+	}
+	if got.ContextSources[0].Path != "README.md" {
+		t.Fatalf("stored context source path mutated to %q", got.ContextSources[0].Path)
 	}
 
 	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
@@ -186,6 +198,80 @@ func TestMemoryStore_UpdatePreservesExistingRootCreatedAt(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_UpdatePreservesExistingContextSourceCreatedAt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	sourceCreatedAt := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC)
+	if _, err := store.Create(ctx, Project{
+		ID:   "proj_alpha",
+		Name: "Alpha",
+		ContextSources: []ContextSource{{
+			ID:        "ctx_readme",
+			Kind:      "doc",
+			Title:     "README",
+			Path:      "README.md",
+			Enabled:   true,
+			CreatedAt: sourceCreatedAt,
+			UpdatedAt: sourceCreatedAt,
+		}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.ContextSources = []ContextSource{{ID: "ctx_readme", Path: "docs/README.md", Enabled: true}}
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(updated.ContextSources) != 1 {
+		t.Fatalf("context sources = %+v, want one source", updated.ContextSources)
+	}
+	if !updated.ContextSources[0].CreatedAt.Equal(sourceCreatedAt) {
+		t.Fatalf("source CreatedAt = %s, want %s", updated.ContextSources[0].CreatedAt, sourceCreatedAt)
+	}
+	if !updated.ContextSources[0].UpdatedAt.After(sourceCreatedAt) {
+		t.Fatalf("source UpdatedAt = %s, want after %s", updated.ContextSources[0].UpdatedAt, sourceCreatedAt)
+	}
+}
+
+func TestMemoryStore_UpdatePreservesUnchangedContextSourceUpdatedAt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	sourceCreatedAt := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC)
+	sourceUpdatedAt := sourceCreatedAt.Add(time.Hour)
+	if _, err := store.Create(ctx, Project{
+		ID:   "proj_alpha",
+		Name: "Alpha",
+		ContextSources: []ContextSource{{
+			ID:        "ctx_readme",
+			Kind:      "doc",
+			Title:     "README",
+			Path:      "README.md",
+			Enabled:   true,
+			CreatedAt: sourceCreatedAt,
+			UpdatedAt: sourceUpdatedAt,
+		}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.ContextSources = []ContextSource{{ID: "ctx_readme", Title: "README", Path: "README.md", Enabled: true}}
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if len(updated.ContextSources) != 1 {
+		t.Fatalf("context sources = %+v, want one source", updated.ContextSources)
+	}
+	if !updated.ContextSources[0].UpdatedAt.Equal(sourceUpdatedAt) {
+		t.Fatalf("source UpdatedAt = %s, want unchanged %s", updated.ContextSources[0].UpdatedAt, sourceUpdatedAt)
+	}
+}
+
 func TestMemoryStore_RejectsInvalidProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -201,6 +287,18 @@ func TestMemoryStore_RejectsInvalidProject(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Create duplicate root error = %v, want ErrInvalid", err)
+	}
+
+	_, err = store.Create(ctx, Project{
+		ID:   "proj_beta",
+		Name: "Beta",
+		ContextSources: []ContextSource{
+			{ID: "ctx_dup", Path: "README.md", Enabled: true},
+			{ID: "ctx_dup", Path: "docs/README.md", Enabled: true},
+		},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Create duplicate context source error = %v, want ErrInvalid", err)
 	}
 }
 

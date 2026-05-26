@@ -28,6 +28,7 @@ func TestProjectsAPI_CRUD(t *testing.T) {
 		"name":"Hecate",
 		"description":"main repo",
 		"roots":[{"path":"/tmp/hecate","kind":"local","git_remote":"git@example.com:hecate/hecate.git","git_branch":"main"}],
+		"context_sources":[{"path":"README.md","title":"README"}],
 		"default_provider":"ollama",
 		"default_model":"llama3.1:8b",
 		"default_tools_enabled":true
@@ -47,12 +48,22 @@ func TestProjectsAPI_CRUD(t *testing.T) {
 	if created.Data.DefaultRootID != created.Data.Roots[0].ID {
 		t.Fatalf("default_root_id = %q, want first root id %q", created.Data.DefaultRootID, created.Data.Roots[0].ID)
 	}
+	if len(created.Data.ContextSources) != 1 || created.Data.ContextSources[0].ID == "" {
+		t.Fatalf("created project missing generated context source id: %+v", created.Data)
+	}
+	if created.Data.ContextSources[0].Kind != "doc" || !created.Data.ContextSources[0].Enabled {
+		t.Fatalf("context source = %+v, want enabled doc source", created.Data.ContextSources[0])
+	}
 	if created.Data.LastOpenedAt != "" {
 		t.Fatalf("last_opened_at = %q, want omitted until explicitly opened", created.Data.LastOpenedAt)
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{"name":"Renamed","default_model":"ministral-3:latest"}`))))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
+		"name":"Renamed",
+		"default_model":"ministral-3:latest",
+		"context_sources":[{"id":"ctx_architecture","path":"docs/architecture.md","enabled":false}]
+	}`))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
@@ -62,6 +73,9 @@ func TestProjectsAPI_CRUD(t *testing.T) {
 	}
 	if updated.Data.Name != "Renamed" || updated.Data.DefaultModel != "ministral-3:latest" {
 		t.Fatalf("updated project = %+v, want patched name/model", updated.Data)
+	}
+	if len(updated.Data.ContextSources) != 1 || updated.Data.ContextSources[0].ID != "ctx_architecture" || updated.Data.ContextSources[0].Enabled {
+		t.Fatalf("updated context sources = %+v, want disabled architecture source", updated.Data.ContextSources)
 	}
 
 	openedAt := time.Date(2026, 5, 20, 12, 30, 0, 0, time.UTC)

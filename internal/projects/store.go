@@ -20,6 +20,7 @@ type Project struct {
 	Name                     string
 	Description              string
 	Roots                    []Root
+	ContextSources           []ContextSource
 	DefaultRootID            string
 	DefaultProvider          string
 	DefaultModel             string
@@ -40,6 +41,16 @@ type Root struct {
 	GitRemote string
 	GitBranch string
 	Active    bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type ContextSource struct {
+	ID        string
+	Kind      string
+	Title     string
+	Path      string
+	Enabled   bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -110,6 +121,7 @@ func (s *MemoryStore) Update(_ context.Context, id string, update func(*Project)
 	originalID := project.ID
 	originalCreatedAt := project.CreatedAt
 	originalRoots := projectRootsByID(project.Roots)
+	originalContextSources := contextSourcesByID(project.ContextSources)
 	if update != nil {
 		update(&project)
 	}
@@ -121,6 +133,7 @@ func (s *MemoryStore) Update(_ context.Context, id string, update func(*Project)
 	now := time.Now().UTC()
 	project.UpdatedAt = now
 	project.Roots = preserveExistingRootTimestamps(project.Roots, originalRoots, now)
+	project.ContextSources = preserveExistingContextSourceTimestamps(project.ContextSources, originalContextSources, now)
 	project = normalizeProject(project, now)
 	if err := validateProject(project); err != nil {
 		return Project{}, err
@@ -162,6 +175,9 @@ func normalizeProject(project Project, now time.Time) Project {
 	for idx := range project.Roots {
 		project.Roots[idx] = normalizeRoot(project.Roots[idx], now)
 	}
+	for idx := range project.ContextSources {
+		project.ContextSources[idx] = normalizeContextSource(project.ContextSources[idx], now)
+	}
 	if len(project.Roots) == 0 {
 		project.DefaultRootID = ""
 	} else if project.DefaultRootID == "" {
@@ -191,6 +207,26 @@ func normalizeRoot(root Root, now time.Time) Root {
 	return root
 }
 
+func normalizeContextSource(source ContextSource, now time.Time) ContextSource {
+	source.ID = strings.TrimSpace(source.ID)
+	source.Kind = strings.TrimSpace(source.Kind)
+	source.Title = strings.TrimSpace(source.Title)
+	source.Path = strings.TrimSpace(source.Path)
+	if source.Kind == "" {
+		source.Kind = "doc"
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if source.CreatedAt.IsZero() {
+		source.CreatedAt = now
+	}
+	if source.UpdatedAt.IsZero() {
+		source.UpdatedAt = source.CreatedAt
+	}
+	return source
+}
+
 func projectRootsByID(roots []Root) map[string]Root {
 	if len(roots) == 0 {
 		return nil
@@ -200,6 +236,20 @@ func projectRootsByID(roots []Root) map[string]Root {
 		id := strings.TrimSpace(root.ID)
 		if id != "" {
 			index[id] = root
+		}
+	}
+	return index
+}
+
+func contextSourcesByID(sources []ContextSource) map[string]ContextSource {
+	if len(sources) == 0 {
+		return nil
+	}
+	index := make(map[string]ContextSource, len(sources))
+	for _, source := range sources {
+		id := strings.TrimSpace(source.ID)
+		if id != "" {
+			index[id] = source
 		}
 	}
 	return index
@@ -229,6 +279,30 @@ func preserveExistingRootTimestamps(roots []Root, existing map[string]Root, now 
 	return roots
 }
 
+func preserveExistingContextSourceTimestamps(sources []ContextSource, existing map[string]ContextSource, now time.Time) []ContextSource {
+	if len(existing) == 0 {
+		return sources
+	}
+	for idx := range sources {
+		source := &sources[idx]
+		previous, ok := existing[strings.TrimSpace(source.ID)]
+		if !ok {
+			continue
+		}
+		if source.CreatedAt.IsZero() {
+			source.CreatedAt = previous.CreatedAt
+		}
+		if source.UpdatedAt.IsZero() {
+			if contextSourceMetadataEqual(*source, previous) {
+				source.UpdatedAt = previous.UpdatedAt
+			} else {
+				source.UpdatedAt = now
+			}
+		}
+	}
+	return sources
+}
+
 func rootMetadataEqual(next, previous Root) bool {
 	return strings.TrimSpace(next.ID) == strings.TrimSpace(previous.ID) &&
 		strings.TrimSpace(next.Path) == strings.TrimSpace(previous.Path) &&
@@ -236,6 +310,22 @@ func rootMetadataEqual(next, previous Root) bool {
 		strings.TrimSpace(next.GitRemote) == strings.TrimSpace(previous.GitRemote) &&
 		strings.TrimSpace(next.GitBranch) == strings.TrimSpace(previous.GitBranch) &&
 		next.Active == previous.Active
+}
+
+func contextSourceMetadataEqual(next, previous ContextSource) bool {
+	return strings.TrimSpace(next.ID) == strings.TrimSpace(previous.ID) &&
+		strings.TrimSpace(next.Path) == strings.TrimSpace(previous.Path) &&
+		normalizeContextSourceKind(next.Kind) == normalizeContextSourceKind(previous.Kind) &&
+		strings.TrimSpace(next.Title) == strings.TrimSpace(previous.Title) &&
+		next.Enabled == previous.Enabled
+}
+
+func normalizeContextSourceKind(kind string) string {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return "doc"
+	}
+	return kind
 }
 
 func normalizeRootKind(kind string) string {
@@ -266,6 +356,19 @@ func validateProject(project Project) error {
 		}
 		rootIDs[root.ID] = struct{}{}
 	}
+	sourceIDs := make(map[string]struct{}, len(project.ContextSources))
+	for _, source := range project.ContextSources {
+		if source.ID == "" {
+			return fmt.Errorf("%w: project context source id is required", ErrInvalid)
+		}
+		if source.Path == "" {
+			return fmt.Errorf("%w: project context source path is required", ErrInvalid)
+		}
+		if _, exists := sourceIDs[source.ID]; exists {
+			return fmt.Errorf("%w: duplicate project context source id %q", ErrInvalid, source.ID)
+		}
+		sourceIDs[source.ID] = struct{}{}
+	}
 	if project.DefaultRootID != "" {
 		if _, ok := rootIDs[project.DefaultRootID]; !ok {
 			return fmt.Errorf("%w: default_root_id %q does not match a project root", ErrInvalid, project.DefaultRootID)
@@ -289,6 +392,7 @@ func hasRootID(roots []Root, id string) bool {
 
 func cloneProject(project Project) Project {
 	project.Roots = append([]Root(nil), project.Roots...)
+	project.ContextSources = append([]ContextSource(nil), project.ContextSources...)
 	project.DefaultToolsEnabled = cloneBoolPtr(project.DefaultToolsEnabled)
 	project.DefaultCompactToolOutput = cloneBoolPtr(project.DefaultCompactToolOutput)
 	return project
