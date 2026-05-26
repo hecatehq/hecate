@@ -306,6 +306,9 @@ func BuiltIns() []Adapter {
 				"/usr/local/bin/grok",
 			},
 			LaunchOptions: []LaunchSelectConfig{
+				// Grok Build exposes model selection through ACP session
+				// model state, but reasoning is still a launch flag rather
+				// than an ACP session config option.
 				{
 					ConfigID:         "reasoning_effort",
 					Name:             "Reasoning",
