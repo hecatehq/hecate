@@ -15,6 +15,12 @@ import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
 import { formatLocaleDateTime } from "../../lib/format";
 import {
+  humanizeProbeError,
+  resolveExternalAgentReadiness,
+  shouldShowProbeError,
+  type ExternalAgentReadinessTone,
+} from "../../lib/external-agent-readiness";
+import {
   providerFleetRepairHint,
   providerReadinessMeaning,
   providerRepairActionLabel,
@@ -726,28 +732,22 @@ function AdapterStatusRow({
   onCopyCommand: (command: string) => void;
   onProbeAdapter: (adapter: AgentAdapterRecord) => void;
 }) {
-  // Collapse discovery, probe, and auth into one operator-facing state
-  // so adapters don't show as both "missing" and "auth unknown".
-  const probeVerifiedAuth = health?.status === "ready";
-  const displayAuthStatus = probeVerifiedAuth ? "ok" : adapter.auth_status;
-  const displayAuthError = probeVerifiedAuth ? "" : adapter.auth_error;
-  const loginCommand = adapterLoginCommand(adapter);
-  const localAuthNeedsRepair =
-    displayAuthStatus === "unauthenticated" || health?.status === "auth_required";
-  const showLocalAuthSetup = Boolean(loginCommand) && !probeVerifiedAuth && localAuthNeedsRepair;
+  const readiness = resolveExternalAgentReadiness(adapter, health);
+  const loginCommand = readiness.loginCommand;
+  const showLocalAuthSetup =
+    Boolean(loginCommand) && !readiness.verifiedByProbe && readiness.kind === "sign_in";
   const visibleHealthError =
     health && shouldShowProbeError(health) ? humanizeProbeError(health.error ?? "") : "";
   const healthPath = health?.path ?? "";
-  const state = adapterStatusState(adapter, health, displayAuthStatus, showLocalAuthSetup);
-  const detail = adapterStatusDetail(adapter, health, state, visibleHealthError, displayAuthError);
+  const detail = adapterStatusDetail(readiness, visibleHealthError);
   const showHealthDetail = Boolean(
-    detail && health && !showLocalAuthSetup && (health.hint || visibleHealthError),
+    detail && health && !showLocalAuthSetup && (readiness.detail || visibleHealthError),
   );
   const showAuthDetail = Boolean(detail && !health && !showLocalAuthSetup);
   const showAuthMetadata = Boolean(
-    displayAuthStatus && displayAuthStatus === "ok" && !showLocalAuthSetup && !health,
+    readiness.authStatus && readiness.authStatus === "ok" && !showLocalAuthSetup && !health,
   );
-  const showHealthDebugMetadata = state?.kind === "ready" || state?.kind === "issue";
+  const showHealthDebugMetadata = readiness.kind === "ready" || readiness.kind === "issue";
   const showHealthPath = Boolean(
     healthPath && showHealthDebugMetadata && !showLocalAuthSetup && !isDevOverridePath(healthPath),
   );
@@ -776,19 +776,17 @@ function AdapterStatusRow({
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
             {adapter.id}
           </span>
-          {state && (
-            <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                color: chipColor(state.tone),
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-              }}
-            >
-              {state.label}
-            </span>
-          )}
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: chipColor(readiness.tone),
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            {readiness.label}
+          </span>
           {adapter.version_outside_range && (
             <span
               data-testid={`external-agents-adapter-${adapter.id}-version-warning`}
@@ -831,7 +829,7 @@ function AdapterStatusRow({
           )}
           {showAuthMetadata && (
             <span>
-              auth <span style={{ color: "var(--t1)" }}>{displayAuthStatus}</span>
+              auth <span style={{ color: "var(--t1)" }}>{readiness.authStatus}</span>
             </span>
           )}
           {showHealthPath && (
@@ -1009,104 +1007,28 @@ function isDevOverridePath(path: string): boolean {
   return path.startsWith("dev-override://");
 }
 
-function shouldShowProbeError(health: AgentAdapterHealthRecord): boolean {
-  const error = health.error?.trim() ?? "";
-  if (!error) return false;
-  if (error.includes("HECATE_AGENT_ADAPTER_DEV_OVERRIDES")) return false;
-  if (error.startsWith("forced ")) return false;
-  return true;
-}
-
-type ChipTone = "green" | "amber" | "red" | "muted";
-type AdapterStatusKind = "ready" | "sign_in" | "setup" | "billing" | "issue";
-type AdapterStatusState = {
-  kind: AdapterStatusKind;
-  tone: ChipTone;
-  label: string;
-};
+type ChipTone = ExternalAgentReadinessTone;
 type AdapterStatusDetail = {
   tone: ChipTone;
   message: string;
 };
 
-function adapterStatusState(
-  adapter: AgentAdapterRecord,
-  health: AgentAdapterHealthRecord | null,
-  authStatus: string | undefined,
-  showLocalAuthSetup: boolean,
-): AdapterStatusState | null {
-  if (health?.status === "ready") return { kind: "ready", tone: "green", label: "ready" };
-  if (isBillingStatus(authStatus, health))
-    return { kind: "billing", tone: "amber", label: "billing" };
-  if (
-    showLocalAuthSetup ||
-    authStatus === "unauthenticated" ||
-    health?.status === "auth_required"
-  ) {
-    return { kind: "sign_in", tone: "amber", label: "sign in" };
-  }
-  if (!adapter.available || health?.status === "not_installed" || isSetupProbe(health)) {
-    return { kind: "setup", tone: "muted", label: "not configured" };
-  }
-  if (health?.status === "error") {
-    return { kind: "issue", tone: "amber", label: "needs attention" };
-  }
-  if (authStatus && authStatus !== "ok" && authStatus !== "unknown") {
-    return { kind: "issue", tone: "amber", label: "needs attention" };
-  }
-  return null;
-}
-
 function adapterStatusDetail(
-  adapter: AgentAdapterRecord,
-  health: AgentAdapterHealthRecord | null,
-  state: AdapterStatusState | null,
+  readiness: ReturnType<typeof resolveExternalAgentReadiness>,
   visibleHealthError: string,
-  authError: string | undefined,
 ): AdapterStatusDetail | null {
-  if (!state) return null;
-  if (state.kind === "ready" || state.kind === "sign_in") return null;
+  if (readiness.kind === "ready" || readiness.kind === "sign_in") return null;
 
-  if (state.kind === "setup") {
+  if (readiness.kind === "setup") {
     return {
       tone: "muted",
-      message: `Set up to use: ${health?.hint || authError || adapterSetupHint(adapter)}`,
+      message: `Set up to use: ${readiness.detail || readiness.setupHint}`,
     };
   }
 
-  const message = health?.hint || authError || visibleHealthError;
+  const message = readiness.detail || visibleHealthError;
   if (!message) return null;
-  return { tone: state.tone, message };
-}
-
-function isBillingStatus(
-  authStatus: string | undefined,
-  health: AgentAdapterHealthRecord | null,
-): boolean {
-  if (authStatus === "billing") return true;
-  const text = `${health?.hint ?? ""} ${health?.error ?? ""}`.toLowerCase();
-  return Boolean(health?.status === "error" && text.includes("billing"));
-}
-
-function isSetupProbe(health: AgentAdapterHealthRecord | null): boolean {
-  if (!health || health.status !== "error") return false;
-  const text = `${health.hint ?? ""} ${health.error ?? ""}`.toLowerCase();
-  return (
-    text.includes("app cli missing") ||
-    text.includes("command was not found") ||
-    text.includes("setup docs:") ||
-    text.startsWith("install ")
-  );
-}
-
-function adapterSetupHint(adapter: AgentAdapterRecord): string {
-  if (adapter.managed_package) {
-    return `Install Node/npm so Hecate can manage "${adapter.managed_package}", or install ${adapter.command} directly.`;
-  }
-  if (adapter.docs_url) {
-    return `Install ${adapter.name} and ensure ${adapter.command} is on PATH. Setup docs: ${adapter.docs_url}`;
-  }
-  return `Install ${adapter.name} and ensure ${adapter.command} is on PATH.`;
+  return { tone: readiness.tone, message };
 }
 
 function chipColor(tone: ChipTone): string {
@@ -1122,40 +1044,8 @@ function chipColor(tone: ChipTone): string {
   }
 }
 
-function adapterLoginCommand(adapter: AgentAdapterRecord): string {
-  switch (adapter.id) {
-    case "codex":
-      return "codex login";
-    case "claude_code":
-      return "claude /login";
-    case "cursor_agent":
-      return "cursor-agent login";
-    case "grok_build":
-      return "grok login";
-    default:
-      return "";
-  }
-}
-
 function externalAgentSetupFocusTarget(adapterID: string): string {
   return `external-agent-auth-setup-${adapterID}`;
-}
-
-function humanizeProbeError(error: string): string {
-  const trimmed = error.trim();
-  if (!trimmed) return "";
-  try {
-    const parsed = JSON.parse(trimmed) as {
-      message?: unknown;
-      data?: { error?: unknown };
-    };
-    const message = typeof parsed.message === "string" ? parsed.message : "";
-    const detail = typeof parsed.data?.error === "string" ? parsed.data.error : "";
-    if (message && detail) return `${message}: ${detail}`;
-    return detail || message || trimmed;
-  } catch {
-    return trimmed;
-  }
 }
 
 function GrantRow({

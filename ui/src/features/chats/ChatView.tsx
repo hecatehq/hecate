@@ -20,9 +20,10 @@ import {
   type ChatSetupRepairState,
 } from "../../lib/chat-setup-readiness";
 import { describeGatewayError } from "../../lib/error-diagnostics";
+import { resolveExternalAgentReadiness } from "../../lib/external-agent-readiness";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
+import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatConfigOptionRecord, ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
 import type { LocalProviderDiscoveryRecord, ProviderFilter } from "../../types/provider";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
@@ -237,7 +238,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     ? (state.agentAdapterHealthByID.get(activeAgentAdapterID) ?? null)
     : null;
 
-  const externalAgentSetupRequired = needsExternalAgentSetup(selectedAgent, selectedAgentHealth);
+  const externalAgentSetupRequired = resolveExternalAgentReadiness(
+    selectedAgent,
+    selectedAgentHealth,
+  ).needsRepair;
   const availableAgents = state.agentAdapters.filter((adapter) => adapter.available);
   const configuredProviders = state.settingsConfig?.providers ?? [];
   const providerConfigLoaded = state.settingsConfig !== null;
@@ -991,17 +995,6 @@ function composerVisibleRepair(repair: ChatSetupRepairState | null): ChatSetupRe
     default:
       return null;
   }
-}
-
-function needsExternalAgentSetup(
-  adapter: AgentAdapterRecord | undefined,
-  health: AgentAdapterHealthRecord | null,
-): boolean {
-  if (!adapter) return false;
-  if (health?.status === "ready") return false;
-  if (!adapter.available || health?.status === "not_installed") return true;
-  if (health?.status === "auth_required" || health?.status === "error") return true;
-  return adapter.auth_status === "unauthenticated" || adapter.auth_status === "billing";
 }
 
 function emptyStateAlreadyShowsRepair(
