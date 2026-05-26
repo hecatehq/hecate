@@ -42,8 +42,8 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	if got := found["grok_build"]; strings.Join(got.Args, " ") != "agent" || strings.Join(got.LaunchSuffixArgs, " ") != "stdio" {
 		t.Fatalf("grok_build adapter args = %#v", got.Args)
 	}
-	if got := found["grok_build"]; got.LaunchModel.ConfigID != "model" || len(got.LaunchModel.ListArgs) == 0 {
-		t.Fatalf("grok_build launch model config = %#v", got.LaunchModel)
+	if got := found["grok_build"]; got.LaunchModel.ConfigID != "" || len(got.LaunchModel.ListArgs) != 0 || len(got.LaunchModel.ArgTemplate) != 0 {
+		t.Fatalf("grok_build launch model config = %#v, want ACP-owned model state", got.LaunchModel)
 	}
 	if got := found["grok_build"]; len(got.LaunchOptions) != 1 || got.LaunchOptions[0].ConfigID != "reasoning_effort" {
 		t.Fatalf("grok_build launch options = %#v", got.LaunchOptions)

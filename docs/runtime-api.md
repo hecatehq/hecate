@@ -886,9 +886,11 @@ options to `POST /hecate/v1/chat/sessions`. Values prefixed with
 `__hecate_no_` are explicit "not selected" sentinels. Some options are optional;
 launch-model options can be required by the adapter definition and cause
 `400 chat.model_required` at session creation until a real value is selected.
-When an adapter uses CLI help or model-list commands to populate launch controls,
-the catalog endpoint reuses a short in-process cache instead of spawning the CLI
-on every refresh.
+Adapter-owned ACP model state appears on the prepared chat session instead of
+the catalog row and is updated with ACP `session/set_model`. When an adapter
+uses CLI help or model-list commands to populate launch controls, the catalog
+endpoint reuses a short in-process cache instead of spawning the CLI on every
+refresh.
 
 ### `POST /hecate/v1/agent-adapters/{id}/probe`
 
