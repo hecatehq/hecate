@@ -32,6 +32,22 @@ Implemented runtime behavior lives in the main docs:
 | [External agent adapters](external-agent-adapters.md)                   | Accepted. Codex, Claude Code, Cursor Agent, readiness, guardrails, approvals, diagnostics, ACP controls, streaming, cancellation, and diff inspect/revert have alpha coverage.                                                                                                      | Keep improving adapter-specific mapping, patch review UX, and convergence with task-runtime primitives.            |
 | [Projects](projects.md)                                                 | Accepted. The project store and CRUD API foundation exist with memory and SQLite backends. Chat sessions can be grouped by `project_id`; tasks, memory, profiles, and context packets are not linked yet.                                                                           | Attach tasks to projects, then layer context packets and project-scoped memory on top.                             |
 
+## Projects, Context, And Memory Track
+
+These RFCs are intentionally small and layered:
+
+1. [Projects](projects.md) provide durable identity for a codebase or work area.
+2. Agent profiles describe reusable runtime behavior for Hecate Chat or an
+   external agent. Presets are templates that create or update profiles/project
+   defaults; they are not runtime identity.
+3. [Agent memory](agent-memory.md) stores operator-approved durable context,
+   with project memory as the default shared scope.
+4. [Context assembly](context-assembly-and-injection-boundaries.md) turns chat,
+   project, profile, memory, workspace, and runtime inputs into an inspectable
+   context packet.
+5. [Context window management](llm-context-window-management.md) fits that
+   packet into a model limit without changing trust labels or source authority.
+
 ## Active Proposals
 
 | RFC                                                                                       | Status                                                                                               | Next action                                                                                        |
