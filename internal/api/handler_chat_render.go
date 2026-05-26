@@ -128,11 +128,10 @@ func renderChatContextPacket(packet chat.ContextPacket) *ChatContextPacketItem {
 	sources := make([]ChatContextSourceItem, 0, len(packet.Sources))
 	for _, source := range packet.Sources {
 		sources = append(sources, ChatContextSourceItem{
-			Kind:     source.Kind,
-			Label:    source.Label,
-			Detail:   source.Detail,
-			Trust:    source.Trust,
-			Included: source.Included,
+			Kind:   source.Kind,
+			Label:  source.Label,
+			Detail: source.Detail,
+			Trust:  source.Trust,
 		})
 	}
 	return &ChatContextPacketItem{

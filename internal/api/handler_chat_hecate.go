@@ -117,7 +117,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	}
 	h.agentChatLive.publishSession(updated)
 
-	contextPacket := hecateTaskContextPacket(session, messageSnapshot.Provider, messageSnapshot.Model, strings.TrimSpace(req.SystemPrompt), len(session.Messages)+1, forceNewTask)
+	contextPacket := hecateTaskContextPacket(session, messageSnapshot.Provider, messageSnapshot.Model, strings.TrimSpace(req.SystemPrompt), forceNewTask)
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: messageSnapshot.ExecutionMode,

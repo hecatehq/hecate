@@ -218,7 +218,6 @@ describe("TranscriptMessageRow", () => {
           label: "System prompt",
           detail: "Configured for this turn",
           trust: "system",
-          included: true,
         },
       ],
     };

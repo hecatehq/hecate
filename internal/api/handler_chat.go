@@ -1132,7 +1132,7 @@ func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Re
 	h.agentChatLive.publishSession(updated)
 
 	history := agentChatModelHistory(session, strings.TrimSpace(req.SystemPrompt), content)
-	contextPacket := directModelContextPacket(session, provider, model, strings.TrimSpace(req.SystemPrompt), history)
+	contextPacket := directModelContextPacket(session, provider, model, strings.TrimSpace(req.SystemPrompt))
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: chat.ExecutionModeDirectModel,
