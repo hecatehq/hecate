@@ -268,10 +268,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     ? (state.agentAdapterHealthByID.get(activeAgentAdapterID) ?? null)
     : null;
 
-  const externalAgentSetupRequired = resolveExternalAgentReadiness(
-    selectedAgent,
-    selectedAgentHealth,
-  ).needsRepair;
+  const selectedAgentReadiness = resolveExternalAgentReadiness(selectedAgent, selectedAgentHealth);
+  const externalAgentSetupRequired = selectedAgentReadiness.needsRepair;
   const availableAgents = state.agentAdapters.filter((adapter) => adapter.available);
   const configuredProviders = state.settingsConfig?.providers ?? [];
   const providerConfigLoaded = state.settingsConfig !== null;
@@ -447,6 +445,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     selectedAgentAvailable: Boolean(selectedAgent?.available),
     anyAgentAvailable: availableAgents.length > 0,
     externalAgentSetupRequired,
+    selectedAgentReadiness,
   });
   const externalAgentModelRequired = externalAgentRequiresModelSelection(
     externalAgentConfigOptions,

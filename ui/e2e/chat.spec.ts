@@ -3375,7 +3375,7 @@ test("Claude Code setup stays visible when the probe requires local auth", async
   });
 
   await expect(page.getByText("Set up Claude Code")).toBeVisible();
-  await expect(page.getByText(/Claude Code needs local CLI sign-in/)).toBeVisible();
+  await expect(page.getByText(/claude \/login/)).toBeVisible();
   await page.locator("textarea").fill("hello from Claude Code");
   await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
 });
@@ -3396,9 +3396,7 @@ test("Cursor Agent setup explains CLI sign-in without launching the CLI", async 
   await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
 });
 
-test("Grok Build setup mentions CLI sign-in and model selection without launching the CLI", async ({
-  page,
-}) => {
+test("Grok Build setup mentions CLI sign-in without launching the CLI", async ({ page }) => {
   await openExternalAgentReadinessFixture(page, {
     id: "grok_build",
     name: "Grok Build",
@@ -3411,7 +3409,6 @@ test("Grok Build setup mentions CLI sign-in and model selection without launchin
 
   await expect(page.getByText("Set up Grok Build")).toBeVisible();
   await expect(page.getByText(/grok login/)).toBeVisible();
-  await expect(page.getByText(/model selected/)).toBeVisible();
   await page.locator("textarea").fill("hello from Grok Build");
   await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
 });
