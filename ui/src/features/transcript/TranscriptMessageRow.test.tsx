@@ -40,6 +40,113 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText("adapter exited 1")).toBeInTheDocument();
   });
 
+  it("keeps failed run content when it differs from the error", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="failed"
+        content="I updated the README before the tool failed."
+        error="adapter exited 1"
+      />,
+    );
+
+    expect(screen.getByText("I updated the README before the tool failed.")).toBeInTheDocument();
+    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getByText("adapter exited 1")).toBeInTheDocument();
+  });
+
+  it("does not duplicate failed run content when content is just the error", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="failed"
+        content="adapter exited 1"
+        error="adapter exited 1"
+      />,
+    );
+
+    expect(screen.getAllByText("adapter exited 1")).toHaveLength(1);
+  });
+
+  it("does not render whitespace-only failed run content", () => {
+    render(
+      <TranscriptMessageRow {...baseProps} badge="failed" content="   " error="adapter exited 1" />,
+    );
+
+    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getByText("adapter exited 1")).toBeInTheDocument();
+    expect(screen.queryByText(/^\s+$/)).toBeNull();
+  });
+
+  it("hides generic failed activity rows that repeat the failure notice", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="failed"
+        content=""
+        error="launch model required: select a model for Grok Build before starting the external agent"
+        activities={[
+          {
+            type: "failed",
+            title: "Failed",
+            status: "failed",
+            detail:
+              "launch model required: select a model for Grok Build before starting the external agent",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getAllByText(/launch model required/)).toHaveLength(1);
+    expect(screen.queryByText("Failed")).toBeNull();
+  });
+
+  it("keeps diagnostic failed activity rows with distinct details", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="failed"
+        content=""
+        error="agent run failed"
+        activities={[
+          {
+            type: "run_result",
+            title: "LLM call failed on turn 2: timeout",
+            status: "failed",
+            terminal: true,
+            detail: "rate limit exceeded",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("LLM call failed on turn 2: timeout")).toBeInTheDocument();
+  });
+
+  it("keeps failed tool-call rows even when their title looks generic", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="failed"
+        content=""
+        error="tool failed"
+        activities={[
+          {
+            type: "tool_call",
+            title: "failed",
+            status: "failed",
+            detail: "tool failed",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.getByText(/1 failed tool/)).toBeInTheDocument();
+    expect(screen.getAllByText("failed")).toHaveLength(2);
+  });
+
   it("strips the recovery marker from the visible failure message", () => {
     render(
       <TranscriptMessageRow

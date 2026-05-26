@@ -102,10 +102,16 @@ export function TranscriptMessageRow({
     content.trim() !== "" &&
     isLikelyTransientAgentNarration(content) &&
     !(activities ?? []).some((activity) => activity.type === "tool_call");
-  const renderActivityAdvanced =
+  const visibleActivities =
     isAssistant && activities?.length
+      ? activities.filter(
+          (activity) => !failed || !duplicatesFailureNotice(activity, error || content),
+        )
+      : activities;
+  const renderActivityAdvanced =
+    isAssistant && visibleActivities?.length
       ? (activity: ChatActivityRecord) =>
-          renderAgentActivityAdvanced(activity, activities, taskLink)
+          renderAgentActivityAdvanced(activity, visibleActivities, taskLink)
       : undefined;
 
   return (
@@ -194,9 +200,15 @@ export function TranscriptMessageRow({
             </div>
           </div>
           {failed ? (
-            <AgentRunNotice status="failed" message={error || content} action={setupAction} />
+            <>
+              {shouldRenderFailedContent(content, error) ? (
+                <TranscriptMarkdown content={content} />
+              ) : null}
+              <AgentRunNotice status="failed" message={error || content} action={setupAction} />
+            </>
           ) : cancelled ? (
             <>
+              {/* Cancel messages may be normalized by the backend; preserve partial text as-is. */}
               {content.trim() ? <TranscriptMarkdown content={content} /> : null}
               <AgentRunNotice
                 status="cancelled"
@@ -231,9 +243,9 @@ export function TranscriptMessageRow({
           ) : (
             <TranscriptMarkdown content={content} />
           )}
-          {isAssistant && activities && activities.length > 0 && (
+          {isAssistant && visibleActivities && visibleActivities.length > 0 && (
             <TranscriptActivityTimeline
-              activities={activities}
+              activities={visibleActivities}
               diffStat={diffStat}
               renderAdvancedActivity={renderActivityAdvanced}
             />
@@ -465,6 +477,25 @@ function isLikelyTransientAgentNarration(text: string): boolean {
 
 function isActiveAgentActivity(activity: ChatActivityRecord): boolean {
   return activity.status === "running" || activity.status === "in_progress";
+}
+
+function shouldRenderFailedContent(content: string, error?: string): boolean {
+  const visible = content.trim();
+  if (!visible) return false;
+  return visible !== (error ?? "").trim();
+}
+
+function duplicatesFailureNotice(activity: ChatActivityRecord, message: string): boolean {
+  if (activity.type !== "failed" && activity.status !== "failed") return false;
+  if (activity.type === "tool_call") return false;
+  // Keep this title list in sync with generic terminal failure rows from
+  // internal/api/handler_chat_activities.go and handler_chat.go. Richer
+  // diagnostic titles should remain visible in the activity timeline.
+  const title = activity.title.trim().toLowerCase();
+  if (title !== "failed" && title !== "run failed") return false;
+  const detail = activity.detail?.trim() ?? "";
+  if (!detail) return true;
+  return detail === message.trim();
 }
 
 function AgentRunNotice({
