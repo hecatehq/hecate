@@ -406,6 +406,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     modelRouteUnavailable,
     selectedModelIssue,
     workspace: state.agentWorkspace,
+    selectedAgentID: selectedAgent?.id,
     selectedAgentName: selectedAgent?.name,
     selectedAgentAvailable: Boolean(selectedAgent?.available),
     anyAgentAvailable: availableAgents.length > 0,
