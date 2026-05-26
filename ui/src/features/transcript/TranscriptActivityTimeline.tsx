@@ -263,8 +263,9 @@ function TimelineActivityLine({
 }
 
 function advancedSummaryLabel(activity: ChatActivityRecord): string {
-  if (activity.type === "output") return "Preview";
-  if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Preview";
+  if (activity.type === "changed_files" || activity.type === "files_changed") return "Files";
+  if (activity.type === "output") return "Output";
+  if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Output";
   return "Advanced";
 }
 

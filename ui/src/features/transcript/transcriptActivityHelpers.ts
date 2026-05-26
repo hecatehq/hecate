@@ -7,7 +7,11 @@ export function formatDiffStatSummary(diffStat: string): string {
     .split(/\\n|\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  return lines.find((line) => /\bfiles? changed\b/.test(line)) || lines[0] || "";
+  const summary = lines.find((line) => /\bfiles? changed\b/.test(line));
+  if (summary) return summary;
+  const rows = parseDiffStatRows(diffStat);
+  if (rows.length > 0) return `${rows.length} changed file${rows.length === 1 ? "" : "s"}`;
+  return compactInlineDetail(lines[0] || "");
 }
 
 export function fileChangesActivity(diffStat: string): ChatActivityRecord {
@@ -232,7 +236,10 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
     return { title: "Output", detail: outputActivityDetail(activity) };
   }
   if (activity.type === "changed_files") {
-    return { title: "Changed files", detail: cleanActivityDetail(activity) || activity.title };
+    return {
+      title: "Files changed",
+      detail: formatDiffStatSummary(cleanActivityDetail(activity) || activity.title),
+    };
   }
   if (activity.type === "final_answer") {
     return {
@@ -372,9 +379,31 @@ function toolKindLabel(kind?: string): string | undefined {
 }
 
 function outputActivityDetail(activity: ChatActivityRecord): string | undefined {
-  const detail = cleanActivityDetail(activity) || activity.title;
+  const preview = activity.artifact_preview?.trim() || cleanActivityDetail(activity);
+  const lineCount = preview ? formatTextLineCount(preview) : undefined;
+  const stream = outputActivityLabel(activity);
   const size = formatBytes(activity.artifact_size_bytes);
-  return [detail, size].filter(Boolean).join(" · ") || undefined;
+  return [stream, lineCount, size].filter(Boolean).join(" · ") || undefined;
+}
+
+function outputActivityLabel(activity: ChatActivityRecord): string | undefined {
+  const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
+  if (label.includes("stderr")) return "stderr";
+  if (label.includes("stdout")) return "stdout";
+  const title = activity.title.trim();
+  if (!title || title.toLowerCase() === "output") return undefined;
+  return compactInlineDetail(title);
+}
+
+function formatTextLineCount(text: string): string {
+  const count = text.split(/\r?\n/).length;
+  return `${count} line${count === 1 ? "" : "s"}`;
+}
+
+function compactInlineDetail(value: string, max = 72): string {
+  const oneLine = value.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= max) return oneLine;
+  return `${oneLine.slice(0, max - 1)}…`;
 }
 
 function formatBytes(bytes?: number): string | undefined {

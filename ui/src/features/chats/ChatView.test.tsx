@@ -3188,7 +3188,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView onOpenTrace={onOpenTrace} />, { state, actions }));
 
     expect(screen.queryByDisplayValue("/tmp/hecate")).toBeNull();
-    expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Workspace: /tmp/hecate" })).toBeTruthy();
     expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
     expect(screen.getByText("Codex session · Completed · /tmp/hecate")).toBeTruthy();
     expect(screen.getByLabelText("External agent message controls")).toBeTruthy();
@@ -3206,14 +3206,14 @@ describe("ChatView external-agent target", () => {
     const traceButton = screen.getByRole("button", { name: /Open Trace req_code/i });
     expect(traceButton).toBeTruthy();
     expect(screen.queryByText("Starting external agent")).toBeNull();
-    expect(screen.getByText("completed · 1/2 plan · 1 tool · files changed")).toBeTruthy();
+    expect(screen.getByText("completed · 1/2 plan · 1 tool")).toBeTruthy();
     expect(screen.getByText("Inspect changes")).toBeTruthy();
     expect(screen.getByText("Summarize result")).toBeTruthy();
     expect(screen.getByText("Ran command")).toBeTruthy();
     expect(screen.getByText("README.md:12")).toBeTruthy();
-    expect(
-      screen.getByText("files changed · 2 files changed, 10 insertions(+), 4 deletions(-)"),
-    ).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
+    expect(screen.getByText("Workspace changes")).toBeTruthy();
+    expect(screen.getByText("2 files changed, 10 insertions(+), 4 deletions(-)")).toBeTruthy();
     expect(screen.getByText("README.md")).toBeTruthy();
     expect(screen.getByText("2 +-")).toBeTruthy();
     expect(screen.getByText("ui/src/features/chats/ChatView.tsx")).toBeTruthy();
@@ -3681,9 +3681,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(
-      screen.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)"),
-    );
+    await user.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
 
     expect(await screen.findByText("2 changed files")).toBeTruthy();
     expect(listChatMessageFiles).toHaveBeenCalledWith("a1", "m2");
@@ -3741,9 +3739,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(
-      screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"),
-    );
+    await user.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
     expect(await screen.findByText("1 changed file")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Inspect README.md" }));
@@ -3799,9 +3795,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(
-      screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"),
-    );
+    await user.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
     expect(
       await screen.findByText(
         "Could not load changed files. The captured diff may no longer be available.",
@@ -3847,9 +3841,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(
-      screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"),
-    );
+    await user.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
     expect(await screen.findByText("1 changed file")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Revert all" }));

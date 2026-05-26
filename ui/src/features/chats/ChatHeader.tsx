@@ -19,8 +19,11 @@ type Props = {
   isExternalAgentChat: boolean;
   showWorkspaceButton: boolean;
   workspacePath: string;
+  workspaceChangesCount: number;
+  workspaceChangesOpen: boolean;
   chatSettingsOpen: boolean;
   onChooseWorkspace: () => void;
+  onToggleWorkspaceChanges: () => void;
   onToggleChatSettings: () => void;
 
   // External-agent turn budget pill — only renders when the active
@@ -41,8 +44,11 @@ export function ChatHeader(props: Props) {
     isExternalAgentChat,
     showWorkspaceButton,
     workspacePath,
+    workspaceChangesCount,
+    workspaceChangesOpen,
     chatSettingsOpen,
     onChooseWorkspace,
+    onToggleWorkspaceChanges,
     onToggleChatSettings,
     activeChatSession,
   } = props;
@@ -164,6 +170,32 @@ export function ChatHeader(props: Props) {
               }}
             >
               <Icon d={Icons.folder} size={13} />
+            </button>
+          )}
+          {workspaceChangesCount > 0 && (
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-expanded={workspaceChangesOpen}
+              aria-label={`Workspace changes: ${workspaceChangesCount} change set${workspaceChangesCount === 1 ? "" : "s"}`}
+              onClick={onToggleWorkspaceChanges}
+              title={`${workspaceChangesCount} workspace change set${workspaceChangesCount === 1 ? "" : "s"}`}
+              style={{
+                minWidth: 30,
+                height: 30,
+                padding: "0 7px",
+                gap: 5,
+                justifyContent: "center",
+                color: workspaceChangesOpen ? "var(--teal)" : "var(--t2)",
+                borderColor: "transparent",
+                background: workspaceChangesOpen ? "var(--teal-bg)" : "transparent",
+                boxShadow: "none",
+              }}
+            >
+              <Icon d={Icons.branch} size={13} />
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                {workspaceChangesCount}
+              </span>
             </button>
           )}
           <button

@@ -1049,7 +1049,7 @@ test("agent chat previews failed tool stdout and stderr in Advanced details", as
   await expect(page.getByText("On branch feature/chat-message-queue")).toBeVisible();
   await expect(page.getByText("fatal: not a git repository")).toBeVisible();
   await expect(page.getByText("Open task output")).toBeVisible();
-  await expect(page.getByText("Preview unavailable in this snapshot.")).toHaveCount(0);
+  await expect(page.getByText("No output preview was captured for this snapshot.")).toHaveCount(0);
 });
 
 test("empty model chat can add all detected local providers in one click", async ({ page }) => {
@@ -2920,7 +2920,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
   await page.waitForSelector(".hecate-activitybar");
 
   await expect(page.getByText("Updated the docs.")).toBeVisible();
-  await page.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)").click();
+  await page.getByRole("button", { name: "Workspace changes: 1 change set" }).click();
   await expect(page.getByText("2 changed files")).toBeVisible();
 
   await page.getByRole("button", { name: "Inspect README.md" }).click();

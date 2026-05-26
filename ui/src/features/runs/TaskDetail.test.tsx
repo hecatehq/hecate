@@ -294,7 +294,7 @@ describe("TaskDetail runtime activity and patches", () => {
 
     expect(screen.getByText("Ran git")).toBeTruthy();
     expect(screen.getByText("Artifacts · 2 items")).toBeTruthy();
-    expect(screen.getByText("Changed files")).toBeTruthy();
+    expect(screen.getByText("Files changed")).toBeTruthy();
     expect(screen.getAllByText("git-changes.json").length).toBeGreaterThan(0);
     expect(screen.getByText("Final answer artifact")).toBeTruthy();
     expect(screen.getAllByText("agent-final-answer.txt").length).toBeGreaterThan(0);
@@ -430,7 +430,7 @@ describe("TaskDetail runtime activity and patches", () => {
     render();
 
     await user.click(screen.getByText("Artifacts · 1 item"));
-    await user.click(screen.getByText("Preview"));
+    await user.click(screen.getByText("Output"));
 
     expect(screen.getByText("git-stdout.txt")).toBeTruthy();
     expect(screen.getByText(/On branch feature\/runtime/)).toBeTruthy();
