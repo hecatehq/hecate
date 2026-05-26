@@ -34,7 +34,10 @@ export function parseDiffStatRows(diffStat: string): Array<{ path: string; chang
     .filter((row): row is { path: string; change: string } => row !== null);
 }
 
-export function compactAgentActivities(activities: ChatActivityRecord[]): ChatActivityRecord[] {
+export function compactAgentActivities(
+  activities: ChatActivityRecord[],
+  hasDiffStat = false,
+): ChatActivityRecord[] {
   const hiddenTypes = new Set(["artifact", "changed_files", "final_answer", "output"]);
   const terminalIndex = pickTerminalActivityIndex(activities);
   const lastTaskRunIndex = lastIndexOfTaskRunActivity(activities);
@@ -42,6 +45,7 @@ export function compactAgentActivities(activities: ChatActivityRecord[]): ChatAc
   const out: ChatActivityRecord[] = [];
   for (const [index, activity] of activities.entries()) {
     if (hiddenTypes.has(activity.type)) continue;
+    if (hasDiffStat && activity.type === "files_changed") continue;
     if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
     if (isTerminalRunSummary(activity)) continue;
     // Drop terminal-shaped rows that aren't the chosen one. The
@@ -211,6 +215,9 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
   }
   if (activity.type === "thinking" && isModelTurnActivity(activity)) {
     return { title: "Thinking", detail: modelTurnDetail(activity) };
+  }
+  if (activity.type === "thinking") {
+    return { title: "Thinking" };
   }
   if (activity.type === "model_turns") {
     return { title: "Thinking", detail: activity.detail };
