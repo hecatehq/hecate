@@ -563,8 +563,8 @@ test("external-agent chat uses the shared fake lifecycle for transcript and dele
     page.getByText("Agent response to: Summarize the current workspace", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("completed").first()).toBeVisible();
-  await expect(page.getByText("raw adapter output · 2 lines")).toBeVisible();
-  await page.getByText("raw adapter output · 2 lines").click();
+  await expect(page.getByText("raw agent output · 2 lines")).toBeVisible();
+  await page.getByText("raw agent output · 2 lines").click();
   await expect(page.getByText(/agent_message_chunk/)).toBeVisible();
 
   await chatRow.hover();

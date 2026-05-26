@@ -69,6 +69,10 @@ What works:
   startup, gateway sidecar spawn/readiness/shutdown, update-check dispatch,
   badge failures, and fallback sidecar termination. Use `gateway.log` for the
   gateway process stderr and `app.log` for the desktop wrapper lifecycle.
+- Chats with a workspace show an **Open workspace** menu in the header. In the
+  desktop app it launches common local editors, Finder/folder, or a terminal via
+  Tauri commands; in the browser UI the local gateway handles the same action
+  for loopback clients.
 - Startup splash fonts are vendored for offline startup; their OFL license
   texts live next to the font files under `tauri/splash/fonts/`.
 - Window size and position persistence across launches.

@@ -123,13 +123,13 @@ function adapterProbeLooksLikeSetupState(health: AgentAdapterHealthRecord): bool
 
 function adapterReadyTitle(adapter: AgentAdapterRecord, path: string | undefined): string {
   const suffix = path ? ` Path: ${path}` : "";
-  return `${adapter.name} is ready. Hecate verified adapter startup, auth, and ACP session creation.${suffix}`;
+  return `${adapter.name} is ready. Hecate verified agent startup, auth, and ACP session creation.${suffix}`;
 }
 
 function adapterAvailableTitle(adapter: AgentAdapterRecord): string {
   const command = adapter.path || adapter.command;
   const suffix = command ? ` Command: ${command}` : "";
-  return `${adapter.name} is available. Hecate found the adapter and local auth looks configured; open Connections to run the full ACP readiness check.${suffix}`;
+  return `${adapter.name} is available. Hecate found the local agent command and auth looks configured; open Connections to run the full ACP readiness check.${suffix}`;
 }
 
 export function AgentAdapterPicker({
@@ -199,7 +199,7 @@ export function AgentAdapterPicker({
     <div className="dropdown-wrap" ref={ref}>
       <button
         ref={triggerRef}
-        aria-label="External agent adapter"
+        aria-label="External agent"
         aria-expanded={open}
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
@@ -216,7 +216,7 @@ export function AgentAdapterPicker({
           opacity: locked ? 0.7 : undefined,
           cursor: locked ? "not-allowed" : undefined,
         }}
-        title={isEmpty ? "No external agent adapters are registered" : disabledReason || label}
+        title={isEmpty ? "No external agents are registered" : disabledReason || label}
         type="button"
       >
         <Icon d={Icons.terminal} size={13} />

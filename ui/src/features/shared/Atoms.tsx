@@ -147,6 +147,8 @@ export function InlineError({ message }: { message: string }) {
 
 export function CodeBlock({ code, lang = "bash" }: { code: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
+  const normalizedLang = lang.trim().toLowerCase();
+  const isDiff = normalizedLang === "diff" || normalizedLang === "patch";
   const copy = () => {
     navigator.clipboard?.writeText(code).catch(() => {});
     setCopied(true);
@@ -161,9 +163,37 @@ export function CodeBlock({ code, lang = "bash" }: { code: string; lang?: string
           {copied ? "copied" : "copy"}
         </button>
       </div>
-      <pre className="code-pre">
-        <code>{code}</code>
+      <pre className={`code-pre ${isDiff ? "code-pre-diff" : ""}`}>
+        {isDiff ? <DiffCode code={code} /> : <code>{code}</code>}
       </pre>
     </div>
   );
+}
+
+function DiffCode({ code }: { code: string }) {
+  const lines = code.split("\n");
+  return (
+    <code className="diff-code">
+      {lines.map((line, index) => (
+        <span key={index} className={`diff-line ${diffLineClass(line)}`}>
+          {line || " "}
+        </span>
+      ))}
+    </code>
+  );
+}
+
+function diffLineClass(line: string): string {
+  if (line.startsWith("+") && !line.startsWith("+++")) return "diff-line-add";
+  if (line.startsWith("-") && !line.startsWith("---")) return "diff-line-remove";
+  if (line.startsWith("@@")) return "diff-line-hunk";
+  if (
+    line.startsWith("diff --git") ||
+    line.startsWith("index ") ||
+    line.startsWith("+++ ") ||
+    line.startsWith("--- ")
+  ) {
+    return "diff-line-meta";
+  }
+  return "diff-line-context";
 }

@@ -31,7 +31,7 @@ describe("UsageView", () => {
     expect(screen.queryByText(/top up/i)).toBeNull();
     expect(screen.queryByText(/reset/i)).toBeNull();
     expect(screen.queryByText(/External agent context/i)).toBeNull();
-    expect(screen.queryByText(/No adapter-reported usage/i)).toBeNull();
+    expect(screen.queryByText(/No agent-reported usage/i)).toBeNull();
   });
 
   it("aggregates cloud-provider tokens and hides local-provider usage rows", () => {

@@ -88,7 +88,7 @@ describe("AgentApprovalModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("requires a confirm step when adapter_tool scope is picked — first click arms, second click submits", async () => {
+  it("requires a confirm step when the broad agent-tool scope is picked", async () => {
     const { fetchApproval, onResolve, onCancel, onClose } = setup();
     render(
       <AgentApprovalModal
@@ -106,6 +106,8 @@ describe("AgentApprovalModal", () => {
     // Pick the broad scope.
     await user.click(await screen.findByTestId("agent-approval-modal-scope-adapter_tool"));
     expect(screen.getByTestId("agent-approval-modal-broad-warning")).toBeTruthy();
+    expect(screen.getByText("agent tool")).toBeTruthy();
+    expect(screen.queryByText("adapter_tool")).toBeNull();
 
     // First submit click only arms — must not have called onResolve yet.
     await user.click(screen.getByTestId("agent-approval-modal-submit"));

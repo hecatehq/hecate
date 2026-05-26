@@ -236,6 +236,9 @@ export type RuntimeConsoleFixtureActions = {
   deleteProject: (id: string) => Promise<boolean>;
   getChatApproval: (sessionID: string, approvalID: string) => Promise<unknown>;
   listChatMessageFiles: (sessionID: string, messageID: string) => Promise<unknown[]>;
+  getChatWorkspaceDiff: (sessionID: string) => Promise<unknown>;
+  getChatWorkspaceFileDiff: (sessionID: string, path: string) => Promise<unknown>;
+  revertChatWorkspaceFiles: (sessionID: string, paths: string[]) => Promise<unknown>;
   getChatMessageFileDiff: (sessionID: string, messageID: string, path: string) => Promise<unknown>;
   revertChatMessageFiles: (
     sessionID: string,
@@ -306,6 +309,21 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     deleteProject: async () => true,
     getChatApproval: async () => null,
     listChatMessageFiles: async () => [],
+    getChatWorkspaceDiff: async () => ({
+      workspace: "",
+      diff_stat: "",
+      diff: "",
+      has_changes: false,
+      files: [],
+    }),
+    getChatWorkspaceFileDiff: async () => null,
+    revertChatWorkspaceFiles: async () => ({
+      workspace: "",
+      diff_stat: "",
+      diff: "",
+      has_changes: false,
+      files: [],
+    }),
     getChatMessageFileDiff: async () => null,
     revertChatMessageFiles: async () => true,
     resolveTaskApproval: async () => true,

@@ -184,6 +184,201 @@ fn open_path(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("failed to open {}: {e}", path.display()))
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorkspaceOpenTarget {
+    VSCode,
+    VSCodeInsiders,
+    Cursor,
+    Zed,
+    Finder,
+    Terminal,
+    ITerm2,
+    Xcode,
+}
+
+impl WorkspaceOpenTarget {
+    fn from_id(id: &str) -> Option<Self> {
+        match id.trim() {
+            "vscode" => Some(Self::VSCode),
+            "vscode_insiders" => Some(Self::VSCodeInsiders),
+            "cursor" => Some(Self::Cursor),
+            "zed" => Some(Self::Zed),
+            "finder" => Some(Self::Finder),
+            "terminal" => Some(Self::Terminal),
+            "iterm2" => Some(Self::ITerm2),
+            "xcode" => Some(Self::Xcode),
+            _ => None,
+        }
+    }
+}
+
+fn validate_workspace_open_request(
+    path: &str,
+    target: &str,
+) -> Result<(PathBuf, WorkspaceOpenTarget), String> {
+    let target = WorkspaceOpenTarget::from_id(target)
+        .ok_or_else(|| format!("unknown workspace open target {target:?}"))?;
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("workspace path is required".to_string());
+    }
+    let path = PathBuf::from(path);
+    if !path.is_absolute() {
+        return Err("workspace path must be absolute".to_string());
+    }
+    let metadata = std::fs::metadata(&path)
+        .map_err(|e| format!("workspace {} is not accessible: {e}", path.display()))?;
+    if !metadata.is_dir() {
+        return Err(format!("workspace {} is not a directory", path.display()));
+    }
+    let path = path
+        .canonicalize()
+        .map_err(|e| format!("resolve workspace {}: {e}", path.display()))?;
+    Ok((path, target))
+}
+
+fn spawn_workspace_command(mut command: std::process::Command, label: &str) -> Result<(), String> {
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("failed to open workspace in {label}: {e}"))
+}
+
+#[cfg(target_os = "macos")]
+fn open_workspace_with_app(path: &Path, app_name: &str) -> Result<(), String> {
+    let mut command = std::process::Command::new("open");
+    command.arg("-a").arg(app_name).arg(path);
+    spawn_workspace_command(command, app_name)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_workspace_with_cli(path: &Path, command_name: &str) -> Result<(), String> {
+    let mut command = std::process::Command::new(command_name);
+    command.arg(path);
+    spawn_workspace_command(command, command_name)
+}
+
+fn open_workspace_terminal(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return open_workspace_with_app(path, "Terminal");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = std::process::Command::new("cmd");
+        command
+            .arg("/C")
+            .arg("start")
+            .arg("")
+            .arg("wt")
+            .arg("-d")
+            .arg(path);
+        return spawn_workspace_command(command, "Terminal");
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let attempts: [(&str, &[&str]); 4] = [
+            ("x-terminal-emulator", &["--working-directory"]),
+            ("gnome-terminal", &["--working-directory"]),
+            ("konsole", &["--workdir"]),
+            ("xfce4-terminal", &["--working-directory"]),
+        ];
+        let mut last_err = None;
+        for (program, args) in attempts {
+            let mut command = std::process::Command::new(program);
+            command.args(args).arg(path);
+            match command.spawn() {
+                Ok(_) => return Ok(()),
+                Err(err) => last_err = Some(err),
+            }
+        }
+        return Err(format!(
+            "failed to open workspace in Terminal: {}",
+            last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "no terminal command configured".to_string())
+        ));
+    }
+}
+
+fn open_workspace_target_path(path: &Path, target: WorkspaceOpenTarget) -> Result<(), String> {
+    match target {
+        WorkspaceOpenTarget::Finder => open_path(path),
+        WorkspaceOpenTarget::Terminal => open_workspace_terminal(path),
+        WorkspaceOpenTarget::ITerm2 => {
+            #[cfg(target_os = "macos")]
+            {
+                open_workspace_with_app(path, "iTerm")
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err("iTerm2 is only available on macOS".to_string())
+            }
+        }
+        WorkspaceOpenTarget::Xcode => {
+            #[cfg(target_os = "macos")]
+            {
+                open_workspace_with_app(path, "Xcode")
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err("Xcode is only available on macOS".to_string())
+            }
+        }
+        WorkspaceOpenTarget::VSCode => {
+            #[cfg(target_os = "macos")]
+            {
+                open_workspace_with_app(path, "Visual Studio Code")
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                open_workspace_with_cli(path, "code")
+            }
+        }
+        WorkspaceOpenTarget::VSCodeInsiders => {
+            #[cfg(target_os = "macos")]
+            {
+                open_workspace_with_app(path, "Visual Studio Code - Insiders")
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                open_workspace_with_cli(path, "code-insiders")
+            }
+        }
+        WorkspaceOpenTarget::Cursor => {
+            #[cfg(target_os = "macos")]
+            {
+                open_workspace_with_app(path, "Cursor")
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                open_workspace_with_cli(path, "cursor")
+            }
+        }
+        WorkspaceOpenTarget::Zed => {
+            #[cfg(target_os = "macos")]
+            {
+                open_workspace_with_app(path, "Zed")
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                open_workspace_with_cli(path, "zed")
+            }
+        }
+    }
+}
+
+/// JS-invocable command: open the selected workspace in an editor,
+/// terminal, or file manager. Exposed only to the desktop UI through
+/// Tauri capabilities; browser UI uses the local gateway endpoint instead.
+#[tauri::command]
+fn open_workspace_target(path: String, target: String) -> Result<(), String> {
+    let (path, target) = validate_workspace_open_request(&path, &target)?;
+    open_workspace_target_path(&path, target)
+}
+
 fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     // Standard macOS application menu structure:
     //   App / Edit / View / Window
@@ -472,7 +667,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![set_update_badge])
+        .invoke_handler(tauri::generate_handler![
+            set_update_badge,
+            open_workspace_target
+        ])
         .on_menu_event(|app, event| match event.id().as_ref() {
             "check-for-updates" => {
                 // The actual check lives in the renderer (useDesktopUpdate
@@ -752,8 +950,10 @@ pub fn run() {
 mod tests {
     use super::{
         format_running_tasks_message, parse_running_runs, remaining_splash_delay,
-        startup_failure_hint, MIN_SPLASH_DURATION,
+        startup_failure_hint, validate_workspace_open_request, WorkspaceOpenTarget,
+        MIN_SPLASH_DURATION,
     };
+    use std::fs;
     use std::time::Duration;
 
     #[test]
@@ -836,5 +1036,43 @@ mod tests {
         let message = format_running_tasks_message(5);
         assert!(message.contains("5 tasks still running"), "got: {message}");
         assert!(message.contains("stop them"), "got: {message}");
+    }
+
+    #[test]
+    fn test_workspace_open_target_from_id() {
+        assert_eq!(
+            WorkspaceOpenTarget::from_id("vscode"),
+            Some(WorkspaceOpenTarget::VSCode)
+        );
+        assert_eq!(
+            WorkspaceOpenTarget::from_id("terminal"),
+            Some(WorkspaceOpenTarget::Terminal)
+        );
+        assert_eq!(WorkspaceOpenTarget::from_id("missing"), None);
+    }
+
+    #[test]
+    fn test_validate_workspace_open_request_accepts_directory() {
+        let dir =
+            std::env::temp_dir().join(format!("hecate-open-workspace-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp workspace");
+        let (path, target) =
+            validate_workspace_open_request(&dir.display().to_string(), "terminal")
+                .expect("valid workspace");
+        assert_eq!(target, WorkspaceOpenTarget::Terminal);
+        assert_eq!(path, dir.canonicalize().expect("canonical temp workspace"));
+        fs::remove_dir_all(&dir).expect("cleanup temp workspace");
+    }
+
+    #[test]
+    fn test_validate_workspace_open_request_rejects_files() {
+        let path =
+            std::env::temp_dir().join(format!("hecate-open-workspace-file-{}", std::process::id()));
+        fs::write(&path, "not a workspace").expect("write temp file");
+        let err = validate_workspace_open_request(&path.display().to_string(), "finder")
+            .expect_err("file should not be accepted as a workspace");
+        assert!(err.contains("not a directory"), "got: {err}");
+        fs::remove_file(&path).expect("cleanup temp file");
     }
 }

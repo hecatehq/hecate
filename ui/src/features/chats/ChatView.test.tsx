@@ -655,7 +655,7 @@ describe("ChatView input", () => {
     expect(screen.queryByText("External agents run as your OS user")).toBeNull();
   });
 
-  it("surfaces adapter-exposed instructions in external-agent chat settings", async () => {
+  it("surfaces agent-provided instructions in external-agent chat settings", async () => {
     const setChatConfigOption = vi.fn(async () => true);
     const { state, actions } = setup(
       {
@@ -672,10 +672,26 @@ describe("ChatView input", () => {
             {
               id: "system_prompt",
               name: "System prompt",
-              description: "Instructions applied by the adapter.",
+              description: "Instructions applied by the agent.",
               category: "instructions",
               type: "text",
               current_value: "Be concise.",
+            },
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              current_value: "fast",
+              options: [{ value: "fast", name: "Fast" }],
+            },
+            {
+              id: "reasoning_effort",
+              name: "Reasoning",
+              category: "reasoning",
+              type: "select",
+              current_value: "low",
+              options: [{ value: "low", name: "Low" }],
             },
           ],
           messages: [],
@@ -699,8 +715,11 @@ describe("ChatView input", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Chat settings" }));
 
-    expect(screen.getByText("Adapter controls")).toBeTruthy();
-    expect(screen.getByText("Instructions applied by the adapter.")).toBeTruthy();
+    expect(screen.getByText("Agent settings")).toBeTruthy();
+    expect(screen.getByText("Instructions applied by the agent.")).toBeTruthy();
+    const panel = screen.getByRole("complementary", { name: "Chat settings panel" });
+    expect(within(panel).queryByText("Model")).toBeNull();
+    expect(within(panel).queryByText("Reasoning")).toBeNull();
     const editor = screen.getByRole("textbox", { name: "System prompt / instructions" });
     expect(editor).toHaveValue("Be concise.");
 
@@ -3211,14 +3230,9 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Summarize result")).toBeTruthy();
     expect(screen.getByText("Ran command")).toBeTruthy();
     expect(screen.getByText("README.md:12")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
-    expect(screen.getByText("Workspace changes")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Workspace changes" })).toBeTruthy();
     expect(screen.getByText("2 files changed, 10 insertions(+), 4 deletions(-)")).toBeTruthy();
-    expect(screen.getByText("README.md")).toBeTruthy();
-    expect(screen.getByText("2 +-")).toBeTruthy();
-    expect(screen.getByText("ui/src/features/chats/ChatView.tsx")).toBeTruthy();
-    expect(screen.getByText("12 +++++++---")).toBeTruthy();
-    expect(screen.getByText("raw adapter output · 1 line")).toBeTruthy();
+    expect(screen.getByText("raw agent output · 1 line")).toBeTruthy();
     expect(screen.getAllByText("completed").length).toBeGreaterThan(0);
     const user = userEvent.setup();
     await user.click(traceButton);
@@ -3237,6 +3251,43 @@ describe("ChatView external-agent target", () => {
     await user.click(hecateOption);
     expect(setNewChatAgent).toHaveBeenCalledWith("hecate");
     expect(setChatTarget).not.toHaveBeenCalled();
+  });
+
+  it("does not open multiple workspace folder dialogs from repeated clicks", async () => {
+    let resolveDialog: (value: boolean) => void = () => {};
+    const chooseAgentWorkspace = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveDialog = resolve;
+        }),
+    );
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Codex work",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "idle",
+          messages: [],
+        } as any,
+      },
+      { chooseAgentWorkspace },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const workspaceButton = screen.getByRole("button", { name: "Workspace: /tmp/hecate" });
+    fireEvent.click(workspaceButton);
+    fireEvent.click(workspaceButton);
+
+    expect(chooseAgentWorkspace).toHaveBeenCalledTimes(1);
+    expect(workspaceButton).toBeDisabled();
+
+    resolveDialog(true);
+    await waitFor(() => expect(workspaceButton).not.toBeDisabled());
   });
 
   it("allows choosing an agent before an agent chat is created", async () => {
@@ -3279,7 +3330,7 @@ describe("ChatView external-agent target", () => {
     expect(setNewChatAgent).toHaveBeenCalledWith("claude_code");
   });
 
-  it("shows Claude Code local auth repair when the adapter reports auth required", async () => {
+  it("shows Claude Code local auth repair when the agent reports auth required", async () => {
     const onNavigate = vi.fn();
     const { state, actions } = setup({
       chatTarget: "external_agent",
@@ -3535,7 +3586,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.queryByText("Waiting for agent output...")).toBeNull();
   });
 
-  it("renders adapter-reported usage below completed agent messages and in chat settings", async () => {
+  it("renders agent-reported usage below completed agent messages and in chat settings", async () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
@@ -3582,7 +3633,7 @@ describe("ChatView external-agent target", () => {
 
     expect(screen.getByText("0.1234 USD")).toBeTruthy();
     expect(screen.getByText("42000/200000 context")).toBeTruthy();
-    expect(screen.getByText("reported by adapter · not enforced by Hecate")).toBeTruthy();
+    expect(screen.getByText("reported usage · not enforced by Hecate")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Chat settings" }));
     expect(screen.getByText("Reported usage")).toBeTruthy();
@@ -3635,19 +3686,41 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText(/Measured by Hecate/i)).toBeTruthy();
   });
 
-  it("loads changed files, inspects a file diff, and confirms per-file revert", async () => {
-    const listChatMessageFiles = vi.fn(async () => [
-      { path: "README.md", additions: 2, deletions: 1, status: "modified" },
-      { path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" },
-    ]);
-    const getChatMessageFileDiff = vi.fn(async () => ({
-      path: "README.md",
-      additions: 2,
-      deletions: 1,
-      status: "modified",
-      diff: "diff --git a/README.md b/README.md\n+new line",
+  it("shows the current workspace diff in the workspace changes panel", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      diff_stat: "README.md | 1 +\ndocs/guide.md | 1 +\n2 files changed, 2 insertions(+)",
+      diff: "diff --git a/README.md b/README.md\n+current workspace line\ndiff --git a/docs/guide.md b/docs/guide.md\n+guide line",
+      has_changes: true,
+      files: [
+        { path: "README.md", additions: 1, deletions: 0, status: "modified" },
+        { path: "docs/guide.md", additions: 1, deletions: 0, status: "modified" },
+      ],
     }));
-    const revertChatMessageFiles = vi.fn(async () => true);
+    const getChatWorkspaceFileDiff = vi.fn(async (_sessionID: string, path: string) =>
+      path === "docs/guide.md"
+        ? {
+            path: "docs/guide.md",
+            additions: 1,
+            deletions: 0,
+            status: "modified",
+            diff: "diff --git a/docs/guide.md b/docs/guide.md\n+current guide line",
+          }
+        : {
+            path: "README.md",
+            additions: 1,
+            deletions: 0,
+            status: "modified",
+            diff: "diff --git a/README.md b/README.md\n+current file line",
+          },
+    );
+    const revertChatWorkspaceFiles = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      diff_stat: "",
+      diff: "",
+      has_changes: false,
+      files: [],
+    }));
     const { state, actions } = setup(
       {
         chatTarget: "external_agent",
@@ -3668,45 +3741,58 @@ describe("ChatView external-agent target", () => {
               agent_id: "codex",
               agent_name: "Codex",
               status: "completed",
-              diff_stat:
-                "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
-              diff: "diff --git a/README.md b/README.md\n+new line",
+              diff_stat: "old.txt | 1 +\n1 file changed, 1 insertion(+)",
+              diff: "diff --git a/old.txt b/old.txt\n+captured line",
               created_at: "2026-05-03T10:00:01Z",
             },
           ],
         } as any,
       },
-      { listChatMessageFiles, getChatMessageFileDiff, revertChatMessageFiles },
+      { getChatWorkspaceDiff, getChatWorkspaceFileDiff, revertChatWorkspaceFiles },
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
+    expect(screen.getByText("files changed · 1 file changed, 1 insertion(+)")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
 
-    expect(await screen.findByText("2 changed files")).toBeTruthy();
-    expect(listChatMessageFiles).toHaveBeenCalledWith("a1", "m2");
+    expect(getChatWorkspaceDiff).toHaveBeenCalledWith("a1");
+    expect(await screen.findByText(/Live Git diff for/)).toBeTruthy();
+    expect((await screen.findAllByText("2 files changed, 2 insertions(+)")).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getByText("2 current changed files")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Show diff README.md" }));
+    expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
+    expect(await screen.findByText("current diff · README.md")).toBeTruthy();
+    expect(document.body.textContent).toContain("+current file line");
+    expect(screen.getByRole("button", { name: "Hide diff README.md" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Hide diff README.md" }));
+    expect(screen.queryByText("current diff · README.md")).toBeNull();
+    expect(document.body.textContent).not.toContain("+current file line");
+    await user.click(screen.getByRole("button", { name: "Show diff docs/guide.md" }));
+    expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "docs/guide.md");
+    expect(await screen.findByText("current diff · docs/guide.md")).toBeTruthy();
+    expect(document.body.textContent).toContain("+current guide line");
+    expect(screen.getByLabelText("Workspace changes panel").textContent).not.toContain(
+      "captured line",
+    );
 
-    await user.click(screen.getByRole("button", { name: "Inspect README.md" }));
-    expect(getChatMessageFileDiff).toHaveBeenCalledWith("a1", "m2", "README.md");
-    expect(await screen.findByText("diff · README.md")).toBeTruthy();
-    expect(document.body.textContent).toContain("+new line");
-
-    await user.click(screen.getByRole("button", { name: "Revert README.md" }));
-    expect(revertChatMessageFiles).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Confirm revert README.md" }));
-    expect(revertChatMessageFiles).toHaveBeenCalledWith("a1", "m2", ["README.md"]);
+    await user.click(screen.getByRole("button", { name: "Discard README.md" }));
+    expect(revertChatWorkspaceFiles).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Confirm discard README.md" }));
+    expect(revertChatWorkspaceFiles).toHaveBeenCalledWith("a1", ["README.md"]);
+    expect(await screen.findByText("The current workspace is clean.")).toBeTruthy();
   });
 
-  it("surfaces diff-review API failures and clears loading states", async () => {
-    const listChatMessageFiles = vi.fn(async () => [
-      { path: "README.md", additions: 2, deletions: 1, status: "modified" },
-    ]);
-    const getChatMessageFileDiff = vi.fn(async () => {
-      throw new Error("diff unavailable");
-    });
-    const revertChatMessageFiles = vi.fn(async () => {
-      throw new Error("git restore failed");
-    });
+  it("shows a clean current-diff state even when the transcript has no captured changes", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      diff_stat: "",
+      diff: "",
+      has_changes: false,
+      files: [],
+    }));
     const { state, actions } = setup(
       {
         chatTarget: "external_agent",
@@ -3718,48 +3804,30 @@ describe("ChatView external-agent target", () => {
           agent_id: "codex",
           workspace: "/tmp/hecate",
           status: "completed",
-          messages: [
-            { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
-            {
-              id: "m2",
-              role: "assistant",
-              content: "Updated the docs.",
-              agent_id: "codex",
-              agent_name: "Codex",
-              status: "completed",
-              diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
-              diff: "diff --git a/README.md b/README.md\n+new line",
-              created_at: "2026-05-03T10:00:01Z",
-            },
-          ],
+          messages: [],
         } as any,
       },
-      { listChatMessageFiles, getChatMessageFileDiff, revertChatMessageFiles },
+      { getChatWorkspaceDiff },
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
-    expect(await screen.findByText("1 changed file")).toBeTruthy();
+    const changes = screen.getByRole("button", { name: "Workspace changes" });
+    expect(changes).not.toBeDisabled();
+    expect(changes).toHaveAttribute("title", "Show current workspace diff");
+    await user.click(changes);
 
-    await user.click(screen.getByRole("button", { name: "Inspect README.md" }));
-    expect(await screen.findByText("Could not load that file diff.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Inspect README.md" })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Revert README.md" }));
-    await user.click(screen.getByRole("button", { name: "Confirm revert README.md" }));
-    expect(
-      await screen.findByText(
-        "Revert failed. The workspace may not be a Git repository, or the file changed since capture.",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Revert README.md" })).toBeTruthy();
+    expect(await screen.findByText("The current workspace is clean.")).toBeTruthy();
   });
 
-  it("surfaces changed-file list failures", async () => {
-    const listChatMessageFiles = vi.fn(async () => {
-      throw new Error("files unavailable");
-    });
+  it("keeps settings and workspace changes in the same resizable right panel", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      diff_stat: "",
+      diff: "",
+      has_changes: false,
+      files: [],
+    }));
     const { state, actions } = setup(
       {
         chatTarget: "external_agent",
@@ -3771,44 +3839,31 @@ describe("ChatView external-agent target", () => {
           agent_id: "codex",
           workspace: "/tmp/hecate",
           status: "completed",
-          messages: [
-            {
-              id: "m2",
-              role: "assistant",
-              content: "Updated the docs.",
-              agent_id: "codex",
-              agent_name: "Codex",
-              status: "completed",
-              diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
-              diff: "diff --git a/README.md b/README.md\n+new line",
-              created_at: "2026-05-03T10:00:01Z",
-            },
-          ],
+          messages: [],
         } as any,
       },
-      {
-        listChatMessageFiles,
-        getChatMessageFileDiff: vi.fn(async () => null),
-        revertChatMessageFiles: vi.fn(async () => false),
-      },
+      { getChatWorkspaceDiff },
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
-    expect(
-      await screen.findByText(
-        "Could not load changed files. The captured diff may no longer be available.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByText("Loading changed files...")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Chat settings" }));
+    const settingsPanel = screen.getByLabelText("Chat settings panel");
+    expect(settingsPanel).toHaveStyle({ width: "380px" });
+
+    const handle = screen.getByRole("separator", { name: "Resize right panel" });
+    fireEvent.pointerDown(handle, { clientX: 800, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 740, pointerId: 1 });
+    expect(settingsPanel).toHaveStyle({ width: "440px" });
+
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+    expect(await screen.findByLabelText("Workspace changes panel")).toHaveStyle({
+      width: "440px",
+    });
   });
 
-  it("requires confirmation before reverting the full captured diff", async () => {
-    const listChatMessageFiles = vi.fn(async () => [
-      { path: "README.md", additions: 2, deletions: 1, status: "modified" },
-    ]);
-    const revertChatMessageFiles = vi.fn(async () => true);
+  it("surfaces current workspace diff load failures", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => null);
     const { state, actions } = setup(
       {
         chatTarget: "external_agent",
@@ -3820,34 +3875,17 @@ describe("ChatView external-agent target", () => {
           agent_id: "codex",
           workspace: "/tmp/hecate",
           status: "completed",
-          messages: [
-            { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
-            {
-              id: "m2",
-              role: "assistant",
-              content: "Updated the docs.",
-              agent_id: "codex",
-              agent_name: "Codex",
-              status: "completed",
-              diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
-              diff: "diff --git a/README.md b/README.md",
-              created_at: "2026-05-03T10:00:01Z",
-            },
-          ],
+          messages: [],
         } as any,
       },
-      { listChatMessageFiles, revertChatMessageFiles },
+      { getChatWorkspaceDiff },
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Workspace changes: 1 change set" }));
-    expect(await screen.findByText("1 changed file")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
 
-    await user.click(screen.getByRole("button", { name: "Revert all" }));
-    expect(revertChatMessageFiles).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Confirm revert all" }));
-    expect(revertChatMessageFiles).toHaveBeenCalledWith("a1", "m2", []);
+    expect(await screen.findByText("Could not load the current workspace diff.")).toBeTruthy();
   });
 
   it("disables stop and shows cancelling feedback after stop is requested", () => {
@@ -3989,7 +4027,7 @@ describe("ChatView external-agent target", () => {
     expect(
       screen.getAllByText("Claude Code usage limit: credit balance is too low").length,
     ).toBeGreaterThan(0);
-    expect(screen.getByText("raw adapter output · 1 line")).toBeTruthy();
+    expect(screen.getByText("raw agent output · 1 line")).toBeTruthy();
     expect(screen.getAllByText("failed").length).toBeGreaterThan(0);
   });
 
@@ -4049,6 +4087,39 @@ describe("ChatView external-agent target", () => {
     await user.click(screen.getByRole("button", { name: "Use" }));
 
     expect(setAgentWorkspace).toHaveBeenCalledWith("/workspaces/hecate");
+  });
+
+  it("keeps the workspace changes button enabled for current git diff checks", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentWorkspace: "/tmp/hecate",
+      activeChatSession: {
+        id: "chat_1",
+        agent_id: "codex",
+        driver_kind: "acp",
+        execution_mode: "external_agent",
+        title: "Codex chat",
+        workspace: "/tmp/hecate",
+        status: "idle",
+        messages: [],
+      } as any,
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const changes = screen.getByRole("button", { name: "Workspace changes" });
+    expect(changes).not.toBeDisabled();
+    expect(changes).toHaveAttribute("title", "Show current workspace diff");
   });
 
   it("requires a workspace before sending to an external agent", () => {

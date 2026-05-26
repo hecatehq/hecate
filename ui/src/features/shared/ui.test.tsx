@@ -710,7 +710,7 @@ describe("AgentAdapterPicker", () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(<AgentAdapterPicker value="" onChange={onChange} adapters={adapters} />);
-    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    await user.click(screen.getByRole("button", { name: "External agent" }));
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const codex = within(menu).getByText("Codex").closest("button");
     const claude = within(menu).getByText("Claude Code").closest("button");
@@ -745,7 +745,7 @@ describe("AgentAdapterPicker", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    await user.click(screen.getByRole("button", { name: "External agent" }));
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const claude = within(menu).getByText("Claude Code").closest("button") as HTMLElement;
     expect(within(claude).getByText("check")).toBeTruthy();
@@ -792,7 +792,7 @@ describe("AgentAdapterPicker", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    await user.click(screen.getByRole("button", { name: "External agent" }));
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
     expect(within(cursor).getByText("setup")).toBeTruthy();
@@ -837,11 +837,11 @@ describe("AgentAdapterPicker", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    await user.click(screen.getByRole("button", { name: "External agent" }));
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
     expect(cursor.title).toContain("Cursor Agent is ready");
-    expect(cursor.title).toContain("verified adapter startup, auth, and ACP session creation");
+    expect(cursor.title).toContain("verified agent startup, auth, and ACP session creation");
     expect(cursor.title).toContain("/Users/test/.local/bin/cursor-agent");
   });
 });
@@ -968,6 +968,18 @@ describe("CodeBlock", () => {
     // text is the raw lowercase. Match either via case-insensitive text.
     expect(screen.getByText(/bash/i)).toBeTruthy();
     expect(screen.getByText(/hecate --help/)).toBeTruthy();
+  });
+
+  it("highlights diff lines by semantic type", () => {
+    render(
+      <CodeBlock lang="diff" code={"diff --git a/a b/a\n@@ -1 +1 @@\n-old\n+new\n context"} />,
+    );
+
+    expect(screen.getByText("diff --git a/a b/a")).toHaveClass("diff-line-meta");
+    expect(screen.getByText("@@ -1 +1 @@")).toHaveClass("diff-line-hunk");
+    expect(screen.getByText("-old")).toHaveClass("diff-line-remove");
+    expect(screen.getByText("+new")).toHaveClass("diff-line-add");
+    expect(document.querySelector(".diff-line-context")).toHaveTextContent("context");
   });
 
   it("Copy button copies the code to the clipboard", () => {

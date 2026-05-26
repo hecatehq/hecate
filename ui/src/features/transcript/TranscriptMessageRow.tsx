@@ -19,6 +19,8 @@ export function TranscriptMessageRow({
   model,
   brand,
   content,
+  diffStat,
+  diff,
   time,
   promptTokens,
   completionTokens,
@@ -44,6 +46,8 @@ export function TranscriptMessageRow({
   model?: string;
   brand?: string;
   content: string;
+  diffStat?: string;
+  diff?: string;
   time: string;
   promptTokens?: number;
   completionTokens?: number;
@@ -53,7 +57,7 @@ export function TranscriptMessageRow({
   runtimeMetaTitle?: string;
   taskLink?: { label: string; title?: string; onClick: () => void };
   traceLink?: { label: string; title?: string; onClick: () => void };
-  changedFilesLink?: { label: string; title?: string; onClick: () => void };
+  changedFilesLink?: { label: string; title?: string; onClick?: () => void };
   activities?: ChatActivityRecord[];
   rawOutput?: string;
   agentUsage?: ChatUsageRecord;
@@ -103,6 +107,10 @@ export function TranscriptMessageRow({
       ? (activity: ChatActivityRecord) =>
           renderAgentActivityAdvanced(activity, visibleActivities, taskLink)
       : undefined;
+  const showCapturedDiff =
+    isAssistant &&
+    Boolean(diffStat?.trim() || diff?.trim()) &&
+    !(visibleActivities ?? []).some(isFilesChangedActivity);
 
   return (
     <div
@@ -246,6 +254,7 @@ export function TranscriptMessageRow({
               renderAdvancedActivity={renderActivityAdvanced}
             />
           )}
+          {showCapturedDiff && <CapturedDiffDetails diffStat={diffStat} diff={diff} />}
           {isAssistant && agentTiming && !agentTimingEmpty(agentTiming) && (
             <AgentTiming timing={agentTiming} />
           )}
@@ -265,7 +274,7 @@ export function TranscriptMessageRow({
                   color: "var(--t3)",
                 }}
               >
-                raw adapter output{rawOutput ? ` · ${formatLineCount(rawOutput)}` : ""}
+                raw agent output{rawOutput ? ` · ${formatLineCount(rawOutput)}` : ""}
               </summary>
               <div style={{ marginTop: 6 }}>
                 <CodeBlock code={rawOutput} lang="text" />
@@ -341,6 +350,38 @@ function ActivityFilesPreview({ activity }: { activity: ChatActivityRecord }) {
   }
 
   return <DiffStatList diffStat={diffStat} />;
+}
+
+function CapturedDiffDetails({ diffStat, diff }: { diffStat?: string; diff?: string }) {
+  const stat = diffStat?.trim() ?? "";
+  const patch = diff?.trim() ?? "";
+  const summary = stat ? formatCapturedDiffSummary(stat) : "captured workspace diff";
+  return (
+    <details style={{ marginTop: 8 }}>
+      <summary
+        style={{
+          color: "var(--t3)",
+          cursor: "pointer",
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+        }}
+      >
+        files changed{summary ? ` · ${summary}` : ""}
+      </summary>
+      <div style={{ display: "grid", gap: 7, marginTop: 6 }}>
+        {stat && <DiffStatList diffStat={stat} />}
+        {patch && <CodeBlock code={patch} lang="diff" />}
+      </div>
+    </details>
+  );
+}
+
+function formatCapturedDiffSummary(diffStat: string): string {
+  const lines = diffStat
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines[lines.length - 1] ?? "";
 }
 
 function OutputArtifactPreview({ artifact }: { artifact: ChatActivityRecord }) {
@@ -437,8 +478,26 @@ function HeaderMetaButton({
 }: {
   label: string;
   title?: string;
-  onClick: () => void;
+  onClick?: () => void;
 }) {
+  if (!onClick) {
+    return (
+      <span
+        title={title}
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          color: "var(--t2)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          lineHeight: 1.5,
+          padding: "1px 6px",
+        }}
+      >
+        {label}
+      </span>
+    );
+  }
   return (
     <button
       type="button"
@@ -494,6 +553,10 @@ function isTerminalSessionMetadata(activity: ChatActivityRecord): boolean {
   return (
     activity.type === "resumed" || activity.type === "started" || activity.type === "recovered"
   );
+}
+
+function isFilesChangedActivity(activity: ChatActivityRecord): boolean {
+  return activity.type === "changed_files" || activity.type === "files_changed";
 }
 
 function isRoutineCancellationRawOutput(rawOutput: string): boolean {
@@ -620,7 +683,7 @@ function AgentUsage({ usage }: { usage: ChatUsageRecord }) {
     >
       {cost && <span>{cost}</span>}
       {context && <span>{context}</span>}
-      <span>reported by adapter · not enforced by Hecate</span>
+      <span>reported usage · not enforced by Hecate</span>
     </div>
   );
 }

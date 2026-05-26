@@ -9,6 +9,8 @@ import {
   discoverLocalProviders,
   dispatchChatStreamEvent,
   getChatMessageFileDiff,
+  getChatWorkspaceDiff,
+  getChatWorkspaceFileDiff,
   getChatApproval,
   getUsageEvents,
   getUsageSummary,
@@ -17,9 +19,11 @@ import {
   listChatApprovals,
   listChatGrants,
   listChatMessageFiles,
+  openWorkspaceTargetViaAPI,
   probeAgentAdapter,
   refreshAgentAdapterLauncher,
   revertChatMessageFiles,
+  revertChatWorkspaceFiles,
   resolveChatApproval,
   setChatSettings,
   setProviderAPIKey,
@@ -72,6 +76,38 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/hecate/v1/usage/events?limit=7",
       expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("opens a workspace target through the local gateway", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        object: "workspace_open",
+        data: { path: "/Users/alice/dev/hecate", target: "zed" },
+      }),
+    );
+
+    await openWorkspaceTargetViaAPI("/Users/alice/dev/hecate", "zed");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/workspace-open",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ path: "/Users/alice/dev/hecate", target: "zed" }),
+      }),
+    );
+  });
+
+  it("surfaces text error bodies when the local gateway lacks an endpoint", async () => {
+    fetchMock.mockResolvedValue(
+      new Response("404 page not found\n", {
+        status: 404,
+        headers: { "Content-Type": "text/plain" },
+      }),
+    );
+
+    await expect(openWorkspaceTargetViaAPI("/Users/alice/dev/hecate", "terminal")).rejects.toThrow(
+      "request failed (404): 404 page not found",
     );
   });
 
@@ -719,6 +755,78 @@ describe("api client", () => {
         expect.anything(),
       );
       expect(result.data.diff).toContain("src/app.go");
+    });
+
+    it("fetches the current workspace diff for a chat session", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "chat_workspace_diff",
+          data: {
+            workspace: "/tmp/hecate",
+            diff_stat: "README.md | 1 +",
+            diff: "diff --git a/README.md b/README.md",
+            has_changes: true,
+            files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+          },
+        }),
+      );
+
+      const result = await getChatWorkspaceDiff("s 1");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/chat/sessions/s%201/workspace-diff",
+        expect.anything(),
+      );
+      expect(result.data.files[0]?.path).toBe("README.md");
+    });
+
+    it("fetches a single current workspace file diff", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "chat_workspace_file_diff",
+          data: {
+            path: "src/app.go",
+            additions: 2,
+            deletions: 1,
+            status: "modified",
+            diff: "diff --git a/src/app.go b/src/app.go",
+          },
+        }),
+      );
+
+      const result = await getChatWorkspaceFileDiff("s1", "src/app.go");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/chat/sessions/s1/workspace-diff/files/src%2Fapp.go",
+        expect.anything(),
+      );
+      expect(result.data.diff).toContain("src/app.go");
+    });
+
+    it("reverts selected current workspace files", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "chat_workspace_diff",
+          data: {
+            workspace: "/tmp/hecate",
+            diff_stat: "",
+            diff: "",
+            has_changes: false,
+            files: [],
+          },
+        }),
+      );
+
+      const result = await revertChatWorkspaceFiles("s1", ["src/app.go"]);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/chat/sessions/s1/workspace-diff/revert",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ paths: ["src/app.go"] }),
+        }),
+      );
+      expect(result.data.has_changes).toBe(false);
     });
 
     it("reverts selected changed files", async () => {

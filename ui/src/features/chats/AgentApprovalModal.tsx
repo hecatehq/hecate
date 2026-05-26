@@ -12,7 +12,7 @@ import { Icon, Icons, Modal } from "../shared/ui";
 //   - Full row is fetched on open (not held in the pending map) so the
 //     banner stays cheap. While the fetch is in flight we show a
 //     spinner; on failure we close.
-//   - The "adapter_tool" scope is broad — we require an explicit
+//   - The broad agent-tool scope requires an explicit
 //     "Confirm" step before sending the resolve to avoid one-click
 //     blanket-allow mistakes.
 //   - There's no diff preview surface today — the `agentApprovalItem`
@@ -255,9 +255,9 @@ export function AgentApprovalModal({
             </div>
           </div>
 
-          {/* ACP options. The adapter offers one or more concrete options
+          {/* ACP options. The agent offers one or more concrete options
               the operator can pick from (e.g. "approve_for_session" /
-              "approve_once"). We send back option_id so the adapter
+              "approve_once"). We send back option_id so the agent
               receives the exact choice it surfaced. */}
           {row.acp_options.length > 0 && (
             <div>
@@ -271,7 +271,7 @@ export function AgentApprovalModal({
                   display: "block",
                 }}
               >
-                Adapter option
+                Agent option
               </label>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {row.acp_options.map((opt) => {
@@ -351,7 +351,7 @@ export function AgentApprovalModal({
                       cursor: "pointer",
                     }}
                   >
-                    {s}
+                    {approvalScopeLabel(s)}
                   </button>
                 ))}
               </div>
@@ -368,9 +368,9 @@ export function AgentApprovalModal({
                     fontSize: 11,
                   }}
                 >
-                  <Icon d={Icons.warning} size={12} /> <strong>Broad scope:</strong> the
-                  adapter_tool scope grants this decision to every future call to this tool from
-                  this adapter. Click {buttonLabel} once to arm, then again to confirm.
+                  <Icon d={Icons.warning} size={12} /> <strong>Broad scope:</strong> the agent-tool
+                  scope grants this decision to every future call to this tool from this agent.
+                  Click {buttonLabel} once to arm, then again to confirm.
                 </div>
               )}
             </div>
@@ -415,6 +415,17 @@ export function AgentApprovalModal({
       )}
     </Modal>
   );
+}
+
+function approvalScopeLabel(scope: string): string {
+  switch (scope) {
+    case "workspace_tool":
+      return "workspace tool";
+    case "adapter_tool":
+      return "agent tool";
+    default:
+      return scope.replaceAll("_", " ");
+  }
 }
 
 function defaultOptionForDecision(

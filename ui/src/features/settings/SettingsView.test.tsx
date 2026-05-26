@@ -402,10 +402,10 @@ describe("Connections external-agent panel", () => {
     expect(setProviderAPIKey).toHaveBeenNthCalledWith(2, "anthropic", "");
   });
 
-  // Adapter status panel — surfaces adapter readiness diagnostics.
+  // External agent status panel — surfaces readiness diagnostics.
   // Direct binaries can be checked quietly; managed package-launcher
-  // adapters require an explicit confirmation before a manual check.
-  // The section is hidden when no adapters are registered (no point
+  // agents require an explicit confirmation before a manual check.
+  // The section is hidden when no agents are registered (no point
   // showing an empty card); otherwise each row renders inline
   // diagnostic copy when a result exists.
   describe("adapter status panel", () => {
@@ -440,7 +440,7 @@ describe("Connections external-agent panel", () => {
       expect(screen.queryByTestId("external-agents-test-codex")).toBeNull();
     });
 
-    it("shows adapter and underlying agent versions separately", async () => {
+    it("shows bridge and underlying agent versions separately", async () => {
       const { state, actions } = setup(
         withAdapter({
           agentAdapters: [
@@ -461,7 +461,7 @@ describe("Connections external-agent panel", () => {
       render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       const row = await screen.findByTestId("external-agents-adapter-codex");
-      expect(row).toHaveTextContent("adapter 1.2.3");
+      expect(row).toHaveTextContent("bridge 1.2.3");
       expect(row).toHaveTextContent("agent 0.48.0");
     });
 
@@ -741,9 +741,7 @@ describe("Connections external-agent panel", () => {
 
       await user.click(await screen.findByRole("button", { name: "Test again" }));
       expect(probeAgentAdapter).not.toHaveBeenCalled();
-      expect(
-        await screen.findByRole("dialog", { name: "Run managed adapter check?" }),
-      ).toBeTruthy();
+      expect(await screen.findByRole("dialog", { name: "Run managed agent check?" })).toBeTruthy();
       expect(screen.getByText(/@agentclientprotocol\/claude-agent-acp/)).toBeTruthy();
       await user.click(screen.getByRole("button", { name: "Run check" }));
       expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");

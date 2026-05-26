@@ -25,6 +25,8 @@ import {
   createChatSession as createChatSessionRequest,
   deleteChatSession as deleteChatSessionRequest,
   getChatMessageFileDiff as getChatMessageFileDiffRequest,
+  getChatWorkspaceDiff as getChatWorkspaceDiffRequest,
+  getChatWorkspaceFileDiff as getChatWorkspaceFileDiffRequest,
   getChatSession,
   getUsageEvents,
   getUsageSummary,
@@ -33,6 +35,7 @@ import {
   type ResolveTaskApprovalPayload,
   resolveTaskApproval as resolveTaskApprovalRequest,
   revertChatMessageFiles as revertChatMessageFilesRequest,
+  revertChatWorkspaceFiles as revertChatWorkspaceFilesRequest,
   setChatConfigOption as setChatConfigOptionRequest,
   setChatSettings as setChatSettingsRequest,
   streamChatSession,
@@ -69,6 +72,7 @@ import type {
   ChatApprovalRecord,
   ChatChangedFileDiffRecord,
   ChatChangedFileRecord,
+  ChatWorkspaceDiffRecord,
   ChatResponse,
   ChatSessionRecord,
 } from "../../../types/chat";
@@ -217,6 +221,15 @@ type ChatActionsReturn = {
   ) => Promise<boolean>;
   deleteChatGrant: (grantID: string) => Promise<boolean>;
   listChatMessageFiles: (sessionID: string, messageID: string) => Promise<ChatChangedFileRecord[]>;
+  getChatWorkspaceDiff: (sessionID: string) => Promise<ChatWorkspaceDiffRecord | null>;
+  getChatWorkspaceFileDiff: (
+    sessionID: string,
+    path: string,
+  ) => Promise<ChatChangedFileDiffRecord | null>;
+  revertChatWorkspaceFiles: (
+    sessionID: string,
+    paths: string[],
+  ) => Promise<ChatWorkspaceDiffRecord | null>;
   getChatMessageFileDiff: (
     sessionID: string,
     messageID: string,
@@ -1078,6 +1091,55 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     }
   }
 
+  async function getChatWorkspaceDiff(sessionID: string): Promise<ChatWorkspaceDiffRecord | null> {
+    try {
+      const payload = await getChatWorkspaceDiffRequest(sessionID);
+      return payload.data;
+    } catch (error) {
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to load current workspace diff.",
+      );
+      return null;
+    }
+  }
+
+  async function getChatWorkspaceFileDiff(
+    sessionID: string,
+    path: string,
+  ): Promise<ChatChangedFileDiffRecord | null> {
+    try {
+      const payload = await getChatWorkspaceFileDiffRequest(sessionID, path);
+      return payload.data;
+    } catch (error) {
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to load current file diff.",
+      );
+      return null;
+    }
+  }
+
+  async function revertChatWorkspaceFiles(
+    sessionID: string,
+    paths: string[],
+  ): Promise<ChatWorkspaceDiffRecord | null> {
+    try {
+      const payload = await revertChatWorkspaceFilesRequest(sessionID, paths);
+      params.setNoticeMessage(
+        "success",
+        paths.length > 0 ? "Selected workspace files discarded." : "Workspace changes discarded.",
+      );
+      return payload.data;
+    } catch (error) {
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to discard workspace changes.",
+      );
+      return null;
+    }
+  }
+
   async function setChatConfigOption(
     sessionID: string,
     configID: string,
@@ -1237,6 +1299,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     resolveTaskApproval,
     deleteChatGrant,
     listChatMessageFiles,
+    getChatWorkspaceDiff,
+    getChatWorkspaceFileDiff,
+    revertChatWorkspaceFiles,
     getChatMessageFileDiff,
     revertChatMessageFiles,
     setChatConfigOption,

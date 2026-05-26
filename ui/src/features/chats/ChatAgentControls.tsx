@@ -304,7 +304,7 @@ export function chatAgentOption(
       return {
         id: value,
         label,
-        title: `External agent ${label} is selected. Hecate is still loading or refreshing its adapter catalog.`,
+        title: `External agent ${label} is selected. Hecate is still loading or refreshing its agent catalog.`,
       };
     }
     return {
@@ -397,7 +397,7 @@ export function chatAgentOptionStatus(
       label: "check",
       color: "var(--t3)",
       title:
-        adapter.auth_error || "Auth has not been verified yet. Test this adapter in Connections.",
+        adapter.auth_error || "Auth has not been verified yet. Test this agent in Connections.",
       ready: true,
     };
   }
@@ -517,14 +517,14 @@ function adapterReadyTitle(
 ): string {
   const name = adapterDisplayName(optionID, adapter);
   const suffix = path ? ` Path: ${path}` : "";
-  return `${name} is ready. Hecate verified adapter startup, auth, and ACP session creation.${suffix}`;
+  return `${name} is ready. Hecate verified agent startup, auth, and ACP session creation.${suffix}`;
 }
 
 function adapterAvailableTitle(optionID: ChatAgentOptionID, adapter: AgentAdapterRecord): string {
   const name = adapterDisplayName(optionID, adapter);
   const command = adapter.path || adapter.command;
   const suffix = command ? ` Command: ${command}` : "";
-  return `${name} is available. Hecate found the adapter and local auth looks configured; open Connections to run the full ACP readiness check.${suffix}`;
+  return `${name} is available. Hecate found the local agent command and auth looks configured; open Connections to run the full ACP readiness check.${suffix}`;
 }
 
 export function HecateToolsToggle({
@@ -659,7 +659,9 @@ export function ExternalAgentSettingsControls({
   ) {
     return null;
   }
-  const controls = prioritizeAgentConfigOptions(session.config_options);
+  const controls = prioritizeAgentConfigOptions(session.config_options).filter((option) =>
+    agentConfigOptionIsText(option),
+  );
   if (controls.length === 0) {
     return null;
   }
@@ -933,7 +935,7 @@ function ExternalAgentTextConfigControl({
         <div style={{ color: "var(--t0)", fontSize: 12, fontWeight: 650 }}>{label}</div>
         <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.45 }}>
           {option.description ||
-            "Adapter-provided text setting for future turns in this external-agent session."}
+            "Agent-provided text setting for future turns in this external-agent session."}
         </div>
       </div>
       <textarea
