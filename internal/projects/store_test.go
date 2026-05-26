@@ -110,6 +110,31 @@ func TestMemoryStore_ListFallsBackToUpdatedAtWhenLastOpenedAtEmpty(t *testing.T)
 	}
 }
 
+func TestMemoryStore_SortsContextSourcesLikeSQLite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	created, err := store.Create(ctx, Project{
+		ID:   "proj_alpha",
+		Name: "Alpha",
+		ContextSources: []ContextSource{
+			{ID: "ctx_enabled_z", Path: "zeta.md", Enabled: true},
+			{ID: "ctx_disabled_a", Path: "alpha.md", Enabled: false},
+			{ID: "ctx_enabled_a", Path: "alpha.md", Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	assertContextSourceIDs(t, created.ContextSources, []string{"ctx_enabled_a", "ctx_enabled_z", "ctx_disabled_a"})
+
+	got, ok, err := store.Get(ctx, "proj_alpha")
+	if err != nil || !ok {
+		t.Fatalf("Get ok=%v err=%v, want project", ok, err)
+	}
+	assertContextSourceIDs(t, got.ContextSources, []string{"ctx_enabled_a", "ctx_enabled_z", "ctx_disabled_a"})
+}
+
 func TestMemoryStore_UpdateMissingProject(t *testing.T) {
 	t.Parallel()
 	_, err := NewMemoryStore().Update(context.Background(), "missing", nil)
@@ -320,4 +345,24 @@ func TestMemoryStore_RejectsInvalidDefaultRootID(t *testing.T) {
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Create invalid default root error = %v, want ErrInvalid", err)
 	}
+}
+
+func assertContextSourceIDs(t *testing.T, sources []ContextSource, want []string) {
+	t.Helper()
+	if len(sources) != len(want) {
+		t.Fatalf("context sources = %+v, want ids %v", sources, want)
+	}
+	for idx, source := range sources {
+		if source.ID != want[idx] {
+			t.Fatalf("context source ids = %v, want %v", contextSourceIDs(sources), want)
+		}
+	}
+}
+
+func contextSourceIDs(sources []ContextSource) []string {
+	ids := make([]string, 0, len(sources))
+	for _, source := range sources {
+		ids = append(ids, source.ID)
+	}
+	return ids
 }

@@ -155,6 +155,31 @@ func TestSQLiteStore_ListFallsBackToUpdatedAtWhenLastOpenedAtEmpty(t *testing.T)
 	}
 }
 
+func TestSQLiteStore_SortsContextSourcesLikeMemory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	created, err := store.Create(ctx, Project{
+		ID:   "proj_alpha",
+		Name: "Alpha",
+		ContextSources: []ContextSource{
+			{ID: "ctx_enabled_z", Path: "zeta.md", Enabled: true},
+			{ID: "ctx_disabled_a", Path: "alpha.md", Enabled: false},
+			{ID: "ctx_enabled_a", Path: "alpha.md", Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	assertContextSourceIDs(t, created.ContextSources, []string{"ctx_enabled_a", "ctx_enabled_z", "ctx_disabled_a"})
+
+	got, ok, err := store.Get(ctx, "proj_alpha")
+	if err != nil || !ok {
+		t.Fatalf("Get ok=%v err=%v, want project", ok, err)
+	}
+	assertContextSourceIDs(t, got.ContextSources, []string{"ctx_enabled_a", "ctx_enabled_z", "ctx_disabled_a"})
+}
+
 func TestSQLiteStore_UpdateRejectsProjectIDChange(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
