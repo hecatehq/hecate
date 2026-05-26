@@ -170,8 +170,10 @@ export function ChatTranscript({
             ? m.model || activeChatSession?.model || "Hecate Chat"
             : m.agent_name || m.agent_id;
           const agentRuntime =
+            role === "assistant" ? formatAgentRuntimeMeta(m.run_id, m.duration_ms) : "";
+          const agentRuntimeTitle =
             role === "assistant"
-              ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.native_session_id)
+              ? formatAgentRuntimeMetaTitle(m.run_id, m.duration_ms, m.native_session_id)
               : "";
           const taskID = m.execution_mode === "hecate_task" ? m.task_id : "";
           const taskRunID = taskID ? m.run_id : "";
@@ -188,6 +190,7 @@ export function ChatTranscript({
               time={time}
               badge={role === "assistant" ? m.agent_status || m.cost_mode : undefined}
               runtimeMeta={agentRuntime}
+              runtimeMetaTitle={agentRuntimeTitle}
               taskLink={
                 isHecateAgentChat && role === "assistant" && taskID
                   ? {
@@ -594,20 +597,26 @@ function formatTraceLinkTitle(requestID: string, traceID?: string): string {
     .join(" · ");
 }
 
-function formatAgentRuntimeMeta(
-  runID?: string,
-  durationMS?: number,
-  nativeSessionID?: string,
-): string {
+function formatAgentRuntimeMeta(runID?: string, durationMS?: number): string {
   const parts: string[] = [];
-  if (nativeSessionID) {
-    parts.push(`ACP ${nativeSessionID.slice(0, 12)}`);
-  }
   if (runID) {
     parts.push(`Run ${compactID(runID, ["run_"], 12)}`);
   }
   if (durationMS && durationMS > 0) {
     parts.push(formatDurationMs(durationMS));
   }
+  return parts.join(" · ");
+}
+
+function formatAgentRuntimeMetaTitle(
+  runID?: string,
+  durationMS?: number,
+  nativeSessionID?: string,
+): string {
+  const parts = [
+    runID ? `Run ${runID}` : "",
+    nativeSessionID ? `Native session ${nativeSessionID}` : "",
+    durationMS && durationMS > 0 ? `Duration ${formatDurationMs(durationMS)}` : "",
+  ].filter(Boolean);
   return parts.join(" · ");
 }

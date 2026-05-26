@@ -143,6 +143,7 @@ describe("TranscriptMessageRow", () => {
       <TranscriptMessageRow
         {...baseProps}
         runtimeMeta="Run run_123 · 2.0s"
+        runtimeMetaTitle="Run run_123 · Native session native_123"
         taskLink={{ label: "Task task_123", onClick: onOpenTask }}
         traceLink={{ label: "Trace req_1234", onClick: onOpenTrace }}
       />,
@@ -153,7 +154,9 @@ describe("TranscriptMessageRow", () => {
 
     expect(onOpenTask).toHaveBeenCalledTimes(1);
     expect(onOpenTrace).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Run run_123 · 2.0s")).toBeInTheDocument();
+    const meta = screen.getByText("Run run_123 · 2.0s");
+    expect(meta).toBeInTheDocument();
+    expect(meta).toHaveAttribute("title", "Run run_123 · Native session native_123");
   });
 
   it("renders the agent usage line when adapter-reported usage is present", () => {
