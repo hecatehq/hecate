@@ -34,6 +34,7 @@ export function resolveChatSetupRepairState({
   modelRouteUnavailable,
   selectedModelIssue,
   workspace,
+  selectedAgentID,
   selectedAgentName,
   selectedAgentAvailable,
   anyAgentAvailable,
@@ -44,6 +45,7 @@ export function resolveChatSetupRepairState({
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
   workspace: string;
+  selectedAgentID?: string;
   selectedAgentName?: string;
   selectedAgentAvailable: boolean;
   anyAgentAvailable: boolean;
@@ -68,7 +70,7 @@ export function resolveChatSetupRepairState({
       return {
         kind: "external_agent_setup",
         title: `Set up ${agent}`,
-        message: `${agent} needs local CLI sign-in before Hecate can start a session.`,
+        message: externalAgentSetupMessage(selectedAgentID, agent),
         action: "open_agent_setup",
         actionLabel: "Open setup",
         tone: "amber",
@@ -116,6 +118,19 @@ export function resolveChatSetupRepairState({
   }
 
   return null;
+}
+
+function externalAgentSetupMessage(agentID: string | undefined, agent: string): string {
+  switch (agentID) {
+    case "cursor_agent":
+      return "Cursor Agent needs the local CLI installed, available on PATH, and signed in with cursor-agent login before Hecate can start a session.";
+    case "grok_build":
+      return "Grok Build needs the Grok CLI installed, signed in with grok login, and a model selected before Hecate can start a session.";
+    case "claude_code":
+      return "Claude Code needs local CLI sign-in before Hecate can start a session.";
+    default:
+      return `${agent} needs local CLI sign-in before Hecate can start a session.`;
+  }
 }
 
 function workspaceRepair(): ChatSetupRepairState {

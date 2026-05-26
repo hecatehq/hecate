@@ -141,6 +141,7 @@ describe("resolveChatSetupRepairState", () => {
     const repair = resolveChatSetupRepairState({
       ...base,
       target: "external_agent",
+      selectedAgentID: "cursor_agent",
       selectedAgentName: "Cursor Agent",
       externalAgentSetupRequired: true,
     });
@@ -151,6 +152,24 @@ describe("resolveChatSetupRepairState", () => {
       action: "open_agent_setup",
       actionLabel: "Open setup",
     });
+    expect(repair?.message).toContain("cursor-agent login");
+  });
+
+  it("uses Grok Build setup copy that mentions sign-in and model selection", () => {
+    const repair = resolveChatSetupRepairState({
+      ...base,
+      target: "external_agent",
+      selectedAgentID: "grok_build",
+      selectedAgentName: "Grok Build",
+      externalAgentSetupRequired: true,
+    });
+
+    expect(repair).toMatchObject({
+      kind: "external_agent_setup",
+      title: "Set up Grok Build",
+    });
+    expect(repair?.message).toContain("grok login");
+    expect(repair?.message).toContain("model selected");
   });
 });
 
