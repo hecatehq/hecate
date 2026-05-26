@@ -3201,7 +3201,8 @@ describe("ChatView external-agent target", () => {
     await userEvent.click(modeToggle);
     expect(actions.setChatConfigOption).toHaveBeenCalledWith("a1", "auto_approve", true);
     expect(screen.getByText("Looks good.")).toBeTruthy();
-    expect(screen.getAllByText(/ACP native_codex/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/ACP native_codex/)).toBeNull();
+    expect(screen.getByTitle(/Native session native_codex_1/)).toBeTruthy();
     const traceButton = screen.getByRole("button", { name: /Open Trace req_code/i });
     expect(traceButton).toBeTruthy();
     expect(screen.queryByText("Starting external agent")).toBeNull();

@@ -27,6 +27,7 @@ export function TranscriptMessageRow({
   costUsd,
   badge,
   runtimeMeta,
+  runtimeMetaTitle,
   taskLink,
   traceLink,
   activities,
@@ -55,6 +56,7 @@ export function TranscriptMessageRow({
   costUsd?: string;
   badge?: string;
   runtimeMeta?: string;
+  runtimeMetaTitle?: string;
   agentSessionID?: string;
   taskLink?: { label: string; title?: string; onClick: () => void };
   traceLink?: { label: string; title?: string; onClick: () => void };
@@ -163,7 +165,10 @@ export function TranscriptMessageRow({
               />
             )}
             {isAssistant && runtimeMeta && (
-              <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
+              <span
+                title={runtimeMetaTitle}
+                style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}
+              >
                 {runtimeMeta}
               </span>
             )}
