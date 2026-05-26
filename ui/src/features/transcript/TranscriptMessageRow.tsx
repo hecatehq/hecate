@@ -2,8 +2,6 @@ import { useState } from "react";
 
 import type {
   ChatActivityRecord,
-  ChatChangedFileDiffRecord,
-  ChatChangedFileRecord,
   ChatContextPacketRecord,
   ChatTimingRecord,
   ChatUsageRecord,
@@ -12,8 +10,7 @@ import { formatDurationMs } from "../../lib/format";
 import { CodeBlock } from "../shared/Atoms";
 import { BrandAvatar } from "../shared/BrandAvatar";
 import { Icon, Icons } from "../shared/Icons";
-import { TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
-import { TranscriptDiffReview } from "./TranscriptDiffReview";
+import { DiffStatList, TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 
 export function TranscriptMessageRow({
@@ -31,13 +28,8 @@ export function TranscriptMessageRow({
   runtimeMetaTitle,
   taskLink,
   traceLink,
+  changedFilesLink,
   activities,
-  diffStat,
-  diff,
-  agentSessionID,
-  onListAgentFiles,
-  onGetAgentFileDiff,
-  onRevertAgentFiles,
   rawOutput,
   agentUsage,
   agentTiming,
@@ -59,19 +51,10 @@ export function TranscriptMessageRow({
   badge?: string;
   runtimeMeta?: string;
   runtimeMetaTitle?: string;
-  agentSessionID?: string;
   taskLink?: { label: string; title?: string; onClick: () => void };
   traceLink?: { label: string; title?: string; onClick: () => void };
+  changedFilesLink?: { label: string; title?: string; onClick: () => void };
   activities?: ChatActivityRecord[];
-  diffStat?: string;
-  diff?: string;
-  onListAgentFiles?: (sessionID: string, messageID: string) => Promise<ChatChangedFileRecord[]>;
-  onGetAgentFileDiff?: (
-    sessionID: string,
-    messageID: string,
-    path: string,
-  ) => Promise<ChatChangedFileDiffRecord | null>;
-  onRevertAgentFiles?: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
   rawOutput?: string;
   agentUsage?: ChatUsageRecord;
   agentTiming?: ChatTimingRecord;
@@ -180,6 +163,13 @@ export function TranscriptMessageRow({
                 onClick={traceLink.onClick}
               />
             )}
+            {isAssistant && changedFilesLink && (
+              <HeaderMetaButton
+                label={changedFilesLink.label}
+                title={changedFilesLink.title}
+                onClick={changedFilesLink.onClick}
+              />
+            )}
             {isAssistant && runtimeMeta && (
               <span
                 title={runtimeMetaTitle}
@@ -253,7 +243,6 @@ export function TranscriptMessageRow({
           {isAssistant && visibleActivities && visibleActivities.length > 0 && (
             <TranscriptActivityTimeline
               activities={visibleActivities}
-              diffStat={diffStat}
               renderAdvancedActivity={renderActivityAdvanced}
             />
           )}
@@ -265,17 +254,6 @@ export function TranscriptMessageRow({
           )}
           {isAssistant && agentUsage && !agentUsageEmpty(agentUsage) && (
             <AgentUsage usage={agentUsage} />
-          )}
-          {isAssistant && (diff || diffStat) && (
-            <TranscriptDiffReview
-              sessionID={agentSessionID ?? ""}
-              messageID={id}
-              diffStat={diffStat}
-              diff={diff}
-              onListFiles={onListAgentFiles}
-              onGetFileDiff={onGetAgentFileDiff}
-              onRevertFiles={onRevertAgentFiles}
-            />
           )}
           {showRawOutput && (
             <details style={{ marginTop: 8 }}>
@@ -305,6 +283,10 @@ function renderAgentActivityAdvanced(
   activities: ChatActivityRecord[],
   taskLink?: { label: string; title?: string; onClick: () => void },
 ) {
+  if (activity.type === "changed_files" || activity.type === "files_changed") {
+    return <ActivityFilesPreview activity={activity} />;
+  }
+
   if (
     activity.type === "output" ||
     (activity.type === "artifact" && isOutputArtifactActivity(activity))
@@ -343,6 +325,22 @@ function renderAgentActivityAdvanced(
       )}
     </div>
   );
+}
+
+function ActivityFilesPreview({ activity }: { activity: ChatActivityRecord }) {
+  const diffStat = [activity.detail, activity.title]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join("\n");
+
+  if (!diffStat.trim()) {
+    return (
+      <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>
+        File changes were captured, but this snapshot does not include a diffstat preview.
+      </div>
+    );
+  }
+
+  return <DiffStatList diffStat={diffStat} />;
 }
 
 function OutputArtifactPreview({ artifact }: { artifact: ChatActivityRecord }) {
@@ -399,7 +397,7 @@ function OutputArtifactPreview({ artifact }: { artifact: ChatActivityRecord }) {
         </pre>
       ) : (
         <div style={{ color: "var(--t3)", fontSize: 11, padding: "7px" }}>
-          Preview unavailable in this snapshot.
+          No output preview was captured for this snapshot.
         </div>
       )}
     </div>

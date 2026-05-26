@@ -16,6 +16,10 @@ import { CodeBlock, Icon, Icons } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 
 import { compactID } from "./ChatComposer";
+import {
+  compactWorkspaceChangeLabel,
+  workspaceChangeSummaryLabel,
+} from "./ChatWorkspaceChangesPanel";
 
 export type VisibleChatMessage = {
   id: string;
@@ -71,6 +75,7 @@ type Props = {
   onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
+  onOpenWorkspaceChanges?: (messageID?: string) => void;
   openExternalAgentSetup: (adapterID?: string) => void;
 };
 
@@ -84,6 +89,7 @@ export function ChatTranscript({
   onNavigate,
   onOpenTask,
   onOpenTrace,
+  onOpenWorkspaceChanges,
   openExternalAgentSetup,
 }: Props) {
   const chat = useChat();
@@ -96,7 +102,6 @@ export function ChatTranscript({
   const streamingContent = chat.state.streamingContent;
   const activeChatSession = chat.state.activeChatSession;
   const pendingToolCalls = chat.state.pendingToolCalls;
-  const activeChatSessionID = chat.state.activeChatSessionID;
   const chatLoading = chat.state.chatLoading;
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -181,6 +186,16 @@ export function ChatTranscript({
           const taskRunID = taskID ? m.run_id : "";
           const traceRequestID = m.request_id;
           const traceID = m.trace_id;
+          const changedFilesSummary =
+            role === "assistant" && (m.diff_stat || m.diff)
+              ? workspaceChangeSummaryLabel({
+                  key: `workspace-files:${m.id}`,
+                  messageID: m.id,
+                  label: "",
+                  diffStat: m.diff_stat,
+                  diff: m.diff,
+                })
+              : "";
           return (
             <TranscriptMessageRow
               key={item.key}
@@ -218,13 +233,16 @@ export function ChatTranscript({
                     }
                   : undefined
               }
+              changedFilesLink={
+                changedFilesSummary
+                  ? {
+                      label: compactWorkspaceChangeLabel(m.diff_stat),
+                      title: changedFilesSummary,
+                      onClick: () => onOpenWorkspaceChanges?.(m.id),
+                    }
+                  : undefined
+              }
               activities={role === "assistant" ? m.activities : undefined}
-              diffStat={role === "assistant" ? m.diff_stat : undefined}
-              diff={role === "assistant" ? m.diff : undefined}
-              agentSessionID={activeChatSessionID}
-              onListAgentFiles={chatActions.listChatMessageFiles}
-              onGetAgentFileDiff={chatActions.getChatMessageFileDiff}
-              onRevertAgentFiles={chatActions.revertChatMessageFiles}
               rawOutput={role === "assistant" ? m.raw_output : undefined}
               agentUsage={role === "assistant" ? m.usage : undefined}
               agentTiming={role === "assistant" ? m.timing : undefined}

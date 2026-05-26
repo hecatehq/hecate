@@ -16,9 +16,9 @@ describe("formatDiffStatSummary", () => {
     expect(formatDiffStatSummary(stat)).toMatch(/2 files? changed/);
   });
 
-  it("falls back to the first line when no summary is present", () => {
+  it("falls back to a compact changed-file count when no summary is present", () => {
     const stat = "src/foo.ts | 3 +-";
-    expect(formatDiffStatSummary(stat)).toBe("src/foo.ts | 3 +-");
+    expect(formatDiffStatSummary(stat)).toBe("1 changed file");
   });
 
   it("returns an empty string for empty input", () => {

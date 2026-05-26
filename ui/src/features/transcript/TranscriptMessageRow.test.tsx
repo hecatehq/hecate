@@ -4,8 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import type {
   ChatActivityRecord,
-  ChatChangedFileDiffRecord,
-  ChatChangedFileRecord,
   ChatContextPacketRecord,
   ChatTimingRecord,
   ChatUsageRecord,
@@ -530,35 +528,9 @@ describe("TranscriptMessageRow", () => {
     render(<TranscriptMessageRow {...baseProps} activities={activities} />);
 
     await user.click(screen.getByText("Output · 1 item"));
-    await user.click(screen.getByText("Preview"));
+    await user.click(screen.getAllByText("Output")[1]);
 
     expect(screen.getByText("command output")).toBeInTheDocument();
-  });
-
-  it("renders the diff review section when diff metadata is present", () => {
-    const onListFiles: (sid: string, mid: string) => Promise<ChatChangedFileRecord[]> = vi.fn(
-      async () => [],
-    );
-    const onGetFileDiff: (
-      sid: string,
-      mid: string,
-      p: string,
-    ) => Promise<ChatChangedFileDiffRecord | null> = vi.fn(async () => null);
-    const onRevertFiles: (sid: string, mid: string, ps: string[]) => Promise<boolean> = vi.fn(
-      async () => true,
-    );
-
-    render(
-      <TranscriptMessageRow
-        {...baseProps}
-        agentSessionID="s1"
-        diffStat="src/foo.ts | 3 +-"
-        onListAgentFiles={onListFiles}
-        onGetAgentFileDiff={onGetFileDiff}
-        onRevertAgentFiles={onRevertFiles}
-      />,
-    );
-    expect(screen.getByTestId("agent-diff-review")).toBeInTheDocument();
   });
 
   it("renders the raw adapter output details when rawOutput differs from content", () => {

@@ -35,6 +35,10 @@ import { ChatHeader } from "./ChatHeader";
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
 import { ChatSidebar, sidebarSessionAgentLabel, sidebarSessionBrand } from "./ChatSidebar";
 import { ChatTranscript, buildTranscriptItems, type VisibleChatMessage } from "./ChatTranscript";
+import {
+  ChatWorkspaceChangesPanel,
+  collectChatWorkspaceChanges,
+} from "./ChatWorkspaceChangesPanel";
 import { externalAgentRequiresModelSelection, mergeAgentConfigOptions } from "./agentConfigOptions";
 import { chatAgentOption } from "./ChatAgentControls";
 import {
@@ -136,6 +140,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [approvalModalID, setApprovalModalID] = useState<string | null>(null);
   const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+  const [workspaceChangesOpen, setWorkspaceChangesOpen] = useState(false);
+  const [workspaceChangesFocusID, setWorkspaceChangesFocusID] = useState<string | null>(null);
   const [draftChatStarted, setDraftChatStarted] = useState(false);
   const [rtkOnboardingDismissed, setRTKOnboardingDismissed] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
@@ -215,6 +221,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     state.activeChatSession?.segments,
     isHecateChat,
   );
+  const workspaceChanges = collectChatWorkspaceChanges(visibleMessages);
   const streaming = state.chatLoading;
   const chatDiagnostic = describeGatewayError(
     state.chatErrorCode,
@@ -505,6 +512,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }, [selectedChatReady]);
 
   useEffect(() => {
+    if (!selectedChatReady || workspaceChanges.length === 0) {
+      setWorkspaceChangesOpen(false);
+      setWorkspaceChangesFocusID(null);
+    }
+  }, [selectedChatReady, workspaceChanges.length]);
+
+  useEffect(() => {
     if (!focusComposerAfterNewChatRef.current || !composerVisible) return;
     const frame = requestAnimationFrame(() => {
       if (!textareaRef.current) return;
@@ -544,6 +558,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     if (!next) return;
     actions.setAgentWorkspace(next);
     setWorkspaceEntryOpen(false);
+  }
+
+  function openWorkspaceChanges(messageID?: string) {
+    if (workspaceChanges.length === 0) return;
+    setWorkspaceChangesFocusID(messageID ?? null);
+    setChatSettingsOpen(false);
+    setWorkspaceChangesOpen(true);
   }
 
   async function refreshQuickLocalProviders() {
@@ -712,9 +733,19 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             isExternalAgentChat={isExternalAgentChat}
             showWorkspaceButton={showHeaderWorkspaceButton}
             workspacePath={state.agentWorkspace}
+            workspaceChangesCount={workspaceChanges.length}
+            workspaceChangesOpen={workspaceChangesOpen}
             chatSettingsOpen={chatSettingsOpen}
             onChooseWorkspace={() => void chooseWorkspace()}
-            onToggleChatSettings={() => setChatSettingsOpen((open) => !open)}
+            onToggleWorkspaceChanges={() => {
+              setWorkspaceChangesFocusID(null);
+              setChatSettingsOpen(false);
+              setWorkspaceChangesOpen((open) => !open);
+            }}
+            onToggleChatSettings={() => {
+              setWorkspaceChangesOpen(false);
+              setChatSettingsOpen((open) => !open);
+            }}
             activeChatSession={state.activeChatSession}
           />
         )}
@@ -813,6 +844,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               onNavigate={onNavigate}
               onOpenTask={onOpenTask}
               onOpenTrace={onOpenTrace}
+              onOpenWorkspaceChanges={openWorkspaceChanges}
               openExternalAgentSetup={openAgentSetup}
               emptyState={
                 <ChatEmptyState
@@ -925,6 +957,19 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               onCopyCommand={actions.copyCommand}
             />
           )}
+          {selectedChatReady &&
+            isAgentChat &&
+            workspaceChangesOpen &&
+            workspaceChanges.length > 0 && (
+              <ChatWorkspaceChangesPanel
+                changes={workspaceChanges}
+                sessionID={activeSessionID}
+                focusMessageID={workspaceChangesFocusID}
+                onListFiles={chatActions.listChatMessageFiles}
+                onGetFileDiff={chatActions.getChatMessageFileDiff}
+                onRevertFiles={chatActions.revertChatMessageFiles}
+              />
+            )}
         </div>
       </div>
 

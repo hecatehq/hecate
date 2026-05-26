@@ -10,6 +10,10 @@ type Props = {
   messageID: string;
   diffStat?: string;
   diff?: string;
+  defaultOpen?: boolean;
+  intro?: string;
+  summaryLabel?: string;
+  testID?: string;
   onListFiles?: (sessionID: string, messageID: string) => Promise<ChatChangedFileRecord[]>;
   onGetFileDiff?: (
     sessionID: string,
@@ -24,6 +28,10 @@ export function TranscriptDiffReview({
   messageID,
   diffStat,
   diff,
+  defaultOpen = false,
+  intro = "External-agent changes are already in your workspace. Inspect the captured Git diff, keep it, or revert selected paths.",
+  summaryLabel,
+  testID = "agent-diff-review",
   onListFiles,
   onGetFileDiff,
   onRevertFiles,
@@ -104,7 +112,8 @@ export function TranscriptDiffReview({
 
   return (
     <details
-      data-testid="agent-diff-review"
+      data-testid={testID}
+      open={defaultOpen}
       onToggle={(event: SyntheticEvent<HTMLDetailsElement>) => {
         if (event.currentTarget.open && files === null && !loadingFiles) {
           void loadFiles();
@@ -120,13 +129,10 @@ export function TranscriptDiffReview({
           color: "var(--t3)",
         }}
       >
-        files changed{summary ? ` · ${summary}` : ""}
+        {summaryLabel ?? `files changed${summary ? ` · ${summary}` : ""}`}
       </summary>
       <div style={{ display: "grid", gap: 8, marginTop: 6 }}>
-        <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>
-          External-agent changes are already in your workspace. Inspect the captured Git diff, keep
-          it, or revert selected paths.
-        </div>
+        {intro && <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>{intro}</div>}
         {!hasReviewAPI && (
           <>
             {diffStat && <DiffStatList diffStat={diffStat} />}

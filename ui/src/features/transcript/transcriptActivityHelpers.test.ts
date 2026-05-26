@@ -43,8 +43,8 @@ describe("formatDiffStatSummary", () => {
     );
   });
 
-  it("falls back to the first non-empty line when no summary is present", () => {
-    expect(formatDiffStatSummary("src/foo.ts | 3 +-")).toBe("src/foo.ts | 3 +-");
+  it("falls back to a compact file count when no summary is present", () => {
+    expect(formatDiffStatSummary("src/foo.ts | 3 +-")).toBe("1 changed file");
   });
 
   it("returns empty string for empty input", () => {
