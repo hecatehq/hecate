@@ -20,33 +20,43 @@ type projectRootRequest struct {
 	Active    *bool  `json:"active,omitempty"`
 }
 
+type projectContextSourceRequest struct {
+	ID      string `json:"id,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Path    string `json:"path"`
+	Enabled *bool  `json:"enabled,omitempty"`
+}
+
 type createProjectRequest struct {
-	Name                     string               `json:"name"`
-	Description              string               `json:"description,omitempty"`
-	Roots                    []projectRootRequest `json:"roots,omitempty"`
-	DefaultRootID            string               `json:"default_root_id,omitempty"`
-	DefaultProvider          string               `json:"default_provider,omitempty"`
-	DefaultModel             string               `json:"default_model,omitempty"`
-	DefaultAgentProfile      string               `json:"default_agent_profile,omitempty"`
-	DefaultToolsEnabled      *bool                `json:"default_tools_enabled,omitempty"`
-	DefaultWorkspaceMode     string               `json:"default_workspace_mode,omitempty"`
-	DefaultSystemPrompt      string               `json:"default_system_prompt,omitempty"`
-	DefaultCompactToolOutput *bool                `json:"default_compact_tool_output,omitempty"`
+	Name                     string                        `json:"name"`
+	Description              string                        `json:"description,omitempty"`
+	Roots                    []projectRootRequest          `json:"roots,omitempty"`
+	ContextSources           []projectContextSourceRequest `json:"context_sources,omitempty"`
+	DefaultRootID            string                        `json:"default_root_id,omitempty"`
+	DefaultProvider          string                        `json:"default_provider,omitempty"`
+	DefaultModel             string                        `json:"default_model,omitempty"`
+	DefaultAgentProfile      string                        `json:"default_agent_profile,omitempty"`
+	DefaultToolsEnabled      *bool                         `json:"default_tools_enabled,omitempty"`
+	DefaultWorkspaceMode     string                        `json:"default_workspace_mode,omitempty"`
+	DefaultSystemPrompt      string                        `json:"default_system_prompt,omitempty"`
+	DefaultCompactToolOutput *bool                         `json:"default_compact_tool_output,omitempty"`
 }
 
 type updateProjectRequest struct {
-	Name                     *string               `json:"name,omitempty"`
-	Description              *string               `json:"description,omitempty"`
-	Roots                    *[]projectRootRequest `json:"roots,omitempty"`
-	DefaultRootID            *string               `json:"default_root_id,omitempty"`
-	DefaultProvider          *string               `json:"default_provider,omitempty"`
-	DefaultModel             *string               `json:"default_model,omitempty"`
-	DefaultAgentProfile      *string               `json:"default_agent_profile,omitempty"`
-	DefaultToolsEnabled      *bool                 `json:"default_tools_enabled,omitempty"`
-	DefaultWorkspaceMode     *string               `json:"default_workspace_mode,omitempty"`
-	DefaultSystemPrompt      *string               `json:"default_system_prompt,omitempty"`
-	DefaultCompactToolOutput *bool                 `json:"default_compact_tool_output,omitempty"`
-	LastOpenedAt             *string               `json:"last_opened_at,omitempty"`
+	Name                     *string                        `json:"name,omitempty"`
+	Description              *string                        `json:"description,omitempty"`
+	Roots                    *[]projectRootRequest          `json:"roots,omitempty"`
+	ContextSources           *[]projectContextSourceRequest `json:"context_sources,omitempty"`
+	DefaultRootID            *string                        `json:"default_root_id,omitempty"`
+	DefaultProvider          *string                        `json:"default_provider,omitempty"`
+	DefaultModel             *string                        `json:"default_model,omitempty"`
+	DefaultAgentProfile      *string                        `json:"default_agent_profile,omitempty"`
+	DefaultToolsEnabled      *bool                          `json:"default_tools_enabled,omitempty"`
+	DefaultWorkspaceMode     *string                        `json:"default_workspace_mode,omitempty"`
+	DefaultSystemPrompt      *string                        `json:"default_system_prompt,omitempty"`
+	DefaultCompactToolOutput *bool                          `json:"default_compact_tool_output,omitempty"`
+	LastOpenedAt             *string                        `json:"last_opened_at,omitempty"`
 }
 
 func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +86,11 @@ func (h *Handler) HandleCreateProject(w http.ResponseWriter, r *http.Request) {
 	for idx := range project.Roots {
 		if project.Roots[idx].ID == "" {
 			project.Roots[idx].ID = newOpaqueTaskResourceID("root")
+		}
+	}
+	for idx := range project.ContextSources {
+		if project.ContextSources[idx].ID == "" {
+			project.ContextSources[idx].ID = newOpaqueTaskResourceID("ctxsrc")
 		}
 	}
 	if project.DefaultRootID == "" && len(project.Roots) > 0 {
@@ -134,6 +149,20 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		for idx := range roots {
 			if roots[idx].ID == "" {
 				roots[idx].ID = newOpaqueTaskResourceID("root")
+			}
+		}
+	}
+	var contextSources []projects.ContextSource
+	if req.ContextSources != nil {
+		var err error
+		contextSources, err = contextSourcesFromRequest(*req.ContextSources)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+		for idx := range contextSources {
+			if contextSources[idx].ID == "" {
+				contextSources[idx].ID = newOpaqueTaskResourceID("ctxsrc")
 			}
 		}
 	}
@@ -208,6 +237,9 @@ func (h *Handler) HandleUpdateProject(w http.ResponseWriter, r *http.Request) {
 			if item.DefaultRootID == "" && len(item.Roots) > 0 {
 				item.DefaultRootID = item.Roots[0].ID
 			}
+		}
+		if req.ContextSources != nil {
+			item.ContextSources = contextSources
 		}
 	})
 	if errors.Is(err, projects.ErrNotFound) {
@@ -286,10 +318,15 @@ func projectFromCreateRequest(req createProjectRequest) (projects.Project, error
 	if err != nil {
 		return projects.Project{}, err
 	}
+	contextSources, err := contextSourcesFromRequest(req.ContextSources)
+	if err != nil {
+		return projects.Project{}, err
+	}
 	return projects.Project{
 		Name:                     name,
 		Description:              strings.TrimSpace(req.Description),
 		Roots:                    roots,
+		ContextSources:           contextSources,
 		DefaultRootID:            strings.TrimSpace(req.DefaultRootID),
 		DefaultProvider:          strings.TrimSpace(req.DefaultProvider),
 		DefaultModel:             strings.TrimSpace(req.DefaultModel),
@@ -322,6 +359,28 @@ func rootsFromRequest(req []projectRootRequest) ([]projects.Root, error) {
 		})
 	}
 	return roots, nil
+}
+
+func contextSourcesFromRequest(req []projectContextSourceRequest) ([]projects.ContextSource, error) {
+	sources := make([]projects.ContextSource, 0, len(req))
+	for _, item := range req {
+		path := strings.TrimSpace(item.Path)
+		if path == "" {
+			return nil, errors.New("project context source path is required")
+		}
+		enabled := true
+		if item.Enabled != nil {
+			enabled = *item.Enabled
+		}
+		sources = append(sources, projects.ContextSource{
+			ID:      strings.TrimSpace(item.ID),
+			Kind:    strings.TrimSpace(item.Kind),
+			Title:   strings.TrimSpace(item.Title),
+			Path:    path,
+			Enabled: enabled,
+		})
+	}
+	return sources, nil
 }
 
 func validateProjectDefaultRoot(defaultRootID string, roots []projects.Root) error {
@@ -390,11 +449,24 @@ func renderProject(project projects.Project) ProjectResponseItem {
 			UpdatedAt: formatOptionalTime(root.UpdatedAt),
 		})
 	}
+	contextSources := make([]ProjectContextSourceResponseItem, 0, len(project.ContextSources))
+	for _, source := range project.ContextSources {
+		contextSources = append(contextSources, ProjectContextSourceResponseItem{
+			ID:        source.ID,
+			Kind:      source.Kind,
+			Title:     source.Title,
+			Path:      source.Path,
+			Enabled:   source.Enabled,
+			CreatedAt: formatOptionalTime(source.CreatedAt),
+			UpdatedAt: formatOptionalTime(source.UpdatedAt),
+		})
+	}
 	return ProjectResponseItem{
 		ID:                       project.ID,
 		Name:                     project.Name,
 		Description:              project.Description,
 		Roots:                    roots,
+		ContextSources:           contextSources,
 		DefaultRootID:            project.DefaultRootID,
 		DefaultProvider:          project.DefaultProvider,
 		DefaultModel:             project.DefaultModel,

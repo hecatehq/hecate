@@ -1019,13 +1019,16 @@ Status codes:
 Projects are the durable Hecate identity for a codebase or work area. A project
 can remember one or more concrete workspace roots and future defaults such as
 provider, model, agent profile, tools posture, workspace mode, system prompt,
-and compact command-output preference.
+compact command-output preference, and trusted context-source metadata.
 
 This first implementation is intentionally lightweight:
 `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects` work, and
 `HECATE_BACKEND=sqlite` persists them. Chat sessions can carry an optional
-`project_id` so the operator UI can group history by project. Tasks, memory,
-profiles, presets, and context packets are not linked to `project_id` yet.
+`project_id` so the operator UI can group history by project. Projects can
+also remember context-source metadata (`path`, `kind`, `title`, and whether the
+source is enabled), but Hecate does not inject those files into prompts yet.
+Tasks, memory, profiles, presets, and context packets are not linked to
+`project_id` yet.
 
 ### `GET /hecate/v1/projects`
 
@@ -1053,6 +1056,17 @@ GET /hecate/v1/projects
           "updated_at": "2026-05-20T12:00:00Z"
         }
       ],
+      "context_sources": [
+        {
+          "id": "ctxsrc_...",
+          "kind": "doc",
+          "title": "README",
+          "path": "README.md",
+          "enabled": true,
+          "created_at": "2026-05-20T12:00:00Z",
+          "updated_at": "2026-05-20T12:00:00Z"
+        }
+      ],
       "default_root_id": "root_...",
       "default_provider": "ollama",
       "default_model": "qwen2.5-coder",
@@ -1075,6 +1089,8 @@ Creates a project. `name` is required. Root `id` values are optional; Hecate
 generates `root_...` IDs for roots that omit them. If `default_root_id` is
 empty and at least one root is supplied, the first root becomes the default.
 When supplied, `default_root_id` must match one of the supplied roots.
+Context source `id` values are optional; Hecate generates `ctxsrc_...` IDs for
+sources that omit them. Context sources are metadata only in this release.
 
 ```json
 POST /hecate/v1/projects
@@ -1088,6 +1104,14 @@ POST /hecate/v1/projects
       "git_remote": "git@github.com:hecatehq/hecate.git",
       "git_branch": "master",
       "active": true
+    }
+  ],
+  "context_sources": [
+    {
+      "kind": "doc",
+      "title": "README",
+      "path": "README.md",
+      "enabled": true
     }
   ],
   "default_provider": "ollama",
@@ -1124,6 +1148,8 @@ Returns one project or `404 not_found`.
 Updates project metadata and defaults. Fields are optional. When `roots` is
 present, it replaces the full root list; use this for root add/remove/reorder
 until narrower root endpoints exist.
+When `context_sources` is present, it replaces the full source-metadata list;
+use this for add/remove/reorder until narrower context-source endpoints exist.
 When `default_root_id` is supplied, it must match the replacement root list or,
 if `roots` is omitted, one of the existing roots.
 

@@ -76,6 +76,7 @@ type Project struct {
     ID              string // proj_...
     Name            string
     Roots           []ProjectRoot
+    ContextSources  []ProjectContextSource
     DefaultRootID   string
     RepoURL         string
     DefaultBranch   string
@@ -102,6 +103,14 @@ type ProjectRoot struct {
     GitBranch string
     Active    bool
 }
+
+type ProjectContextSource struct {
+    ID      string // ctxsrc_...
+    Kind    string // doc, policy, memory, external
+    Title   string
+    Path    string
+    Enabled bool
+}
 ```
 
 Rules:
@@ -110,6 +119,8 @@ Rules:
 - Existing chats and tasks without a project remain valid.
 - First implementation lets the operator create projects explicitly and attach
   new chat sessions to the selected project.
+- First implementation stores context-source metadata only. It does not read
+  those files, inject them into prompts, or create memory entries.
 - Operators can rename projects later.
 - Multiple roots can map to one project, but one root should not silently attach to many projects without operator confirmation.
 
@@ -222,8 +233,9 @@ The first implementation adds `internal/projects/` with memory and SQLite
 stores, plus `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects`.
 
 This landed as a foundation plus chat grouping: project records and roots can be
-persisted, and chat sessions can carry `project_id`. Tasks, context packets,
-memory entries, profiles, and presets are not linked to `project_id` yet.
+persisted, trusted context-source metadata can be attached to a project, and
+chat sessions can carry `project_id`. Tasks, context packets, memory entries,
+profiles, and presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 
@@ -238,6 +250,7 @@ SQLite migration should be additive first:
 
 - New `projects` table.
 - New `project_roots` table.
+- New `project_context_sources` table for metadata-only source references.
 - Nullable `project_id` columns on existing tables.
 
 Because Hecate has no stable users yet, later cleanup can remove legacy path-derived compatibility once the new model settles.

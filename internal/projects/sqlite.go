@@ -17,6 +17,7 @@ type SQLiteStore struct {
 	db          *sql.DB
 	projectsTbl string
 	rootsTbl    string
+	sourcesTbl  string
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
@@ -27,6 +28,7 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 		db:          client.DB(),
 		projectsTbl: client.QualifiedTable("projects"),
 		rootsTbl:    client.QualifiedTable("project_roots"),
+		sourcesTbl:  client.QualifiedTable("project_context_sources"),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -74,9 +76,28 @@ CREATE TABLE IF NOT EXISTS %s (
 )`, s.rootsTbl, s.projectsTbl)); err != nil {
 		return fmt.Errorf("create project roots table: %w", err)
 	}
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s (
+	id TEXT NOT NULL,
+	project_id TEXT NOT NULL,
+	kind TEXT NOT NULL DEFAULT 'doc',
+	title TEXT NOT NULL DEFAULT '',
+	path TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY(project_id, id),
+	FOREIGN KEY(project_id) REFERENCES %s(id) ON DELETE CASCADE
+)`, s.sourcesTbl, s.projectsTbl)); err != nil {
+		return fmt.Errorf("create project context sources table: %w", err)
+	}
 	rootsProjectIndex := strings.Trim(s.rootsTbl, `"`) + "_project_idx"
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (project_id)`, rootsProjectIndex, s.rootsTbl)); err != nil {
 		return fmt.Errorf("create project roots project index: %w", err)
+	}
+	sourcesProjectIndex := strings.Trim(s.sourcesTbl, `"`) + "_project_idx"
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (project_id)`, sourcesProjectIndex, s.sourcesTbl)); err != nil {
+		return fmt.Errorf("create project context sources project index: %w", err)
 	}
 	return nil
 }
@@ -198,6 +219,7 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Projec
 	originalID := project.ID
 	originalCreatedAt := project.CreatedAt
 	originalRoots := projectRootsByID(project.Roots)
+	originalContextSources := contextSourcesByID(project.ContextSources)
 	if update != nil {
 		update(&project)
 	}
@@ -210,6 +232,7 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Projec
 	now := time.Now().UTC()
 	project.UpdatedAt = now
 	project.Roots = preserveExistingRootTimestamps(project.Roots, originalRoots, now)
+	project.ContextSources = preserveExistingContextSourceTimestamps(project.ContextSources, originalContextSources, now)
 	project = normalizeProject(project, now)
 	if err := validateProject(project); err != nil {
 		_ = tx.Rollback()
@@ -234,6 +257,10 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ?`, s.rootsTbl), strings.TrimSpace(id)); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ?`, s.sourcesTbl), strings.TrimSpace(id)); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -292,7 +319,10 @@ ON CONFLICT(id) DO UPDATE SET
 	); err != nil {
 		return err
 	}
-	return s.upsertProjectRoots(ctx, tx, project)
+	if err := s.upsertProjectRoots(ctx, tx, project); err != nil {
+		return err
+	}
+	return s.upsertProjectContextSources(ctx, tx, project)
 }
 
 func (s *SQLiteStore) upsertProjectRoots(ctx context.Context, tx *sql.Tx, project Project) error {
@@ -301,7 +331,7 @@ func (s *SQLiteStore) upsertProjectRoots(ctx context.Context, tx *sql.Tx, projec
 		return err
 	}
 
-	deleteArgs := make([]any, 0, len(project.Roots)+1)
+	deleteArgs := make([]any, 0, len(project.Roots))
 	deleteArgs = append(deleteArgs, project.ID)
 	placeholders := make([]string, 0, len(project.Roots))
 	for _, root := range project.Roots {
@@ -334,6 +364,48 @@ ON CONFLICT(project_id, id) DO UPDATE SET
 	_, err := tx.ExecContext(ctx, fmt.Sprintf(
 		`DELETE FROM %s WHERE project_id = ? AND id NOT IN (%s)`,
 		s.rootsTbl,
+		strings.Join(placeholders, ", "),
+	), deleteArgs...)
+	return err
+}
+
+func (s *SQLiteStore) upsertProjectContextSources(ctx context.Context, tx *sql.Tx, project Project) error {
+	if len(project.ContextSources) == 0 {
+		_, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ?`, s.sourcesTbl), project.ID)
+		return err
+	}
+
+	deleteArgs := make([]any, 0, len(project.ContextSources))
+	deleteArgs = append(deleteArgs, project.ID)
+	placeholders := make([]string, 0, len(project.ContextSources))
+	for _, source := range project.ContextSources {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+INSERT INTO %s (
+	id, project_id, kind, title, path, enabled, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(project_id, id) DO UPDATE SET
+	kind = excluded.kind,
+	title = excluded.title,
+	path = excluded.path,
+	enabled = excluded.enabled,
+	updated_at = excluded.updated_at`, s.sourcesTbl),
+			source.ID,
+			project.ID,
+			source.Kind,
+			source.Title,
+			source.Path,
+			boolToDB(source.Enabled),
+			formatTime(source.CreatedAt),
+			formatTime(source.UpdatedAt),
+		); err != nil {
+			return err
+		}
+		placeholders = append(placeholders, "?")
+		deleteArgs = append(deleteArgs, source.ID)
+	}
+	_, err := tx.ExecContext(ctx, fmt.Sprintf(
+		`DELETE FROM %s WHERE project_id = ? AND id NOT IN (%s)`,
+		s.sourcesTbl,
 		strings.Join(placeholders, ", "),
 	), deleteArgs...)
 	return err
@@ -397,6 +469,11 @@ WHERE id = ?`, s.projectsTbl), id)
 		return Project{}, err
 	}
 	project.Roots = roots
+	sources, err := s.loadContextSourcesWith(ctx, q, project.ID)
+	if err != nil {
+		return Project{}, err
+	}
+	project.ContextSources = sources
 	return project, nil
 }
 
@@ -440,11 +517,54 @@ ORDER BY active DESC, path ASC, id ASC`, s.rootsTbl), projectID)
 	return roots, rows.Err()
 }
 
+func (s *SQLiteStore) loadContextSourcesWith(ctx context.Context, q sqliteQuerier, projectID string) ([]ContextSource, error) {
+	rows, err := q.QueryContext(ctx, fmt.Sprintf(`
+SELECT id, kind, title, path, enabled, created_at, updated_at
+FROM %s
+WHERE project_id = ?
+ORDER BY enabled DESC, path ASC, id ASC`, s.sourcesTbl), projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sources []ContextSource
+	for rows.Next() {
+		var source ContextSource
+		var enabled int
+		var createdAt, updatedAt string
+		if err := rows.Scan(
+			&source.ID,
+			&source.Kind,
+			&source.Title,
+			&source.Path,
+			&enabled,
+			&createdAt,
+			&updatedAt,
+		); err != nil {
+			return nil, err
+		}
+		source.Enabled = enabled != 0
+		var err error
+		if source.CreatedAt, err = parseTime(createdAt); err != nil {
+			return nil, err
+		}
+		if source.UpdatedAt, err = parseTime(updatedAt); err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, rows.Err()
+}
+
 func boolPtrToDB(value *bool) any {
 	if value == nil {
 		return nil
 	}
-	if *value {
+	return boolToDB(*value)
+}
+
+func boolToDB(value bool) int {
+	if value {
 		return 1
 	}
 	return 0

@@ -53,6 +53,13 @@ func TestSQLiteStore_ProjectRoundTrip(t *testing.T) {
 			GitBranch: "main",
 			Active:    true,
 		}},
+		ContextSources: []ContextSource{{
+			ID:      "ctx_readme",
+			Kind:    "doc",
+			Title:   "README",
+			Path:    "README.md",
+			Enabled: true,
+		}},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -77,17 +84,24 @@ func TestSQLiteStore_ProjectRoundTrip(t *testing.T) {
 	if len(got.Roots) != 1 || got.Roots[0].GitRemote == "" {
 		t.Fatalf("roots = %+v, want persisted git metadata", got.Roots)
 	}
+	if len(got.ContextSources) != 1 || got.ContextSources[0].Path != "README.md" || got.ContextSources[0].Kind != "doc" {
+		t.Fatalf("context sources = %+v, want persisted README doc source", got.ContextSources)
+	}
 
 	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
 		item.Name = "Renamed"
 		item.Roots = []Root{{ID: "root_beta", Path: "/tmp/renamed", Active: true}}
 		item.DefaultRootID = "root_beta"
+		item.ContextSources = []ContextSource{{ID: "ctx_architecture", Path: "docs/architecture.md", Enabled: true}}
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if updated.Name != "Renamed" || len(updated.Roots) != 1 || updated.Roots[0].ID != "root_beta" {
 		t.Fatalf("updated = %+v, want renamed project with replaced root", updated)
+	}
+	if len(updated.ContextSources) != 1 || updated.ContextSources[0].ID != "ctx_architecture" {
+		t.Fatalf("updated context sources = %+v, want replaced source", updated.ContextSources)
 	}
 
 	items, err := store.List(ctx)
@@ -96,6 +110,9 @@ func TestSQLiteStore_ProjectRoundTrip(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].ID != "proj_alpha" {
 		t.Fatalf("items = %+v, want one project", items)
+	}
+	if len(items[0].ContextSources) != 1 || items[0].ContextSources[0].Path != "docs/architecture.md" {
+		t.Fatalf("listed context sources = %+v, want replaced source", items[0].ContextSources)
 	}
 
 	if err := store.Delete(ctx, "proj_alpha"); err != nil {
@@ -238,6 +255,58 @@ func TestSQLiteStore_UpdateUpsertsRootsWithoutResettingExistingRootCreatedAt(t *
 	}
 }
 
+func TestSQLiteStore_UpdateUpsertsContextSourcesWithoutResettingExistingCreatedAt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	sourceCreatedAt := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC)
+	if _, err := store.Create(ctx, Project{
+		ID:   "proj_alpha",
+		Name: "Alpha",
+		ContextSources: []ContextSource{{
+			ID:        "ctx_readme",
+			Kind:      "doc",
+			Title:     "README",
+			Path:      "README.md",
+			Enabled:   true,
+			CreatedAt: sourceCreatedAt,
+			UpdatedAt: sourceCreatedAt,
+		}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.ContextSources = []ContextSource{
+			{ID: "ctx_readme", Kind: "doc", Title: "README", Path: "docs/README.md", Enabled: true},
+			{ID: "ctx_notes", Kind: "doc", Title: "Notes", Path: "notes.md", Enabled: false},
+		}
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	readme := mustFindContextSource(t, updated.ContextSources, "ctx_readme")
+	if readme.Path != "docs/README.md" {
+		t.Fatalf("ctx_readme path = %q, want docs/README.md", readme.Path)
+	}
+	if !readme.CreatedAt.Equal(sourceCreatedAt) {
+		t.Fatalf("ctx_readme CreatedAt = %s, want %s", readme.CreatedAt, sourceCreatedAt)
+	}
+	if !readme.UpdatedAt.After(sourceCreatedAt) {
+		t.Fatalf("ctx_readme UpdatedAt = %s, want after %s", readme.UpdatedAt, sourceCreatedAt)
+	}
+
+	updated, err = store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.ContextSources = []ContextSource{{ID: "ctx_notes", Kind: "doc", Title: "Notes", Path: "notes.md", Enabled: false}}
+	})
+	if err != nil {
+		t.Fatalf("Update removing ctx_readme: %v", err)
+	}
+	if len(updated.ContextSources) != 1 || updated.ContextSources[0].ID != "ctx_notes" {
+		t.Fatalf("context sources after removal = %+v, want only ctx_notes", updated.ContextSources)
+	}
+}
+
 func TestSQLiteStore_RejectsInvalidProject(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -256,6 +325,40 @@ func TestSQLiteStore_RejectsInvalidProject(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_UpdatePreservesUnchangedContextSourceUpdatedAt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	sourceCreatedAt := time.Date(2026, 5, 20, 9, 0, 0, 0, time.UTC)
+	sourceUpdatedAt := sourceCreatedAt.Add(time.Hour)
+	if _, err := store.Create(ctx, Project{
+		ID:   "proj_alpha",
+		Name: "Alpha",
+		ContextSources: []ContextSource{{
+			ID:        "ctx_readme",
+			Kind:      "doc",
+			Title:     "README",
+			Path:      "README.md",
+			Enabled:   true,
+			CreatedAt: sourceCreatedAt,
+			UpdatedAt: sourceUpdatedAt,
+		}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := store.Update(ctx, "proj_alpha", func(item *Project) {
+		item.ContextSources = []ContextSource{{ID: "ctx_readme", Title: "README", Path: "README.md", Enabled: true}}
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	readme := mustFindContextSource(t, updated.ContextSources, "ctx_readme")
+	if !readme.UpdatedAt.Equal(sourceUpdatedAt) {
+		t.Fatalf("ctx_readme UpdatedAt = %s, want unchanged %s", readme.UpdatedAt, sourceUpdatedAt)
+	}
+}
+
 func mustFindRoot(t *testing.T, roots []Root, id string) Root {
 	t.Helper()
 	for _, root := range roots {
@@ -265,6 +368,17 @@ func mustFindRoot(t *testing.T, roots []Root, id string) Root {
 	}
 	t.Fatalf("root %q not found in %+v", id, roots)
 	return Root{}
+}
+
+func mustFindContextSource(t *testing.T, sources []ContextSource, id string) ContextSource {
+	t.Helper()
+	for _, source := range sources {
+		if source.ID == id {
+			return source
+		}
+	}
+	t.Fatalf("context source %q not found in %+v", id, sources)
+	return ContextSource{}
 }
 
 func TestSQLiteStore_AllowsSameRootIDAcrossProjects(t *testing.T) {

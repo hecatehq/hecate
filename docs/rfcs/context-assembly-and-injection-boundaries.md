@@ -101,6 +101,10 @@ Candidate sources are collected from the active runtime surface:
 | External imports          | Future imported Codex/Claude transcripts, PR comments, issue text, web content, raw adapter output. |
 
 Discovery is allowed to over-collect candidates. Later stages decide inclusion.
+The current project API stores only project context-source metadata (`path`,
+`kind`, `title`, `enabled`). Context assembly is the future layer that may
+resolve those sources through WorkspaceFS, label them, and decide whether they
+belong in a packet.
 
 ### 2. Trust Classification
 
