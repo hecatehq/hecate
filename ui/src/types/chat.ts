@@ -72,6 +72,26 @@ export type ChatMessageRecord = {
   activities?: ChatActivityRecord[];
   usage?: ChatUsageRecord;
   timing?: ChatTimingRecord;
+  context_packet?: ChatContextPacketRecord;
+};
+
+export type ChatContextPacketRecord = {
+  version?: string;
+  execution_mode?: string;
+  provider?: string;
+  model?: string;
+  workspace?: string;
+  system_prompt_included?: boolean;
+  message_count?: number;
+  sources?: ChatContextSourceRecord[];
+};
+
+export type ChatContextSourceRecord = {
+  kind: string;
+  label: string;
+  detail?: string;
+  trust?: string;
+  included?: boolean;
 };
 
 export type ChatSegmentRecord = {

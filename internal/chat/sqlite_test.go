@@ -65,6 +65,28 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AppendMessage: %v", err)
 	}
+	if _, err := store.AppendMessage(context.Background(), "chat_1", Message{
+		ID:            "msg_2",
+		ExecutionMode: ExecutionModeExternalAgent,
+		Role:          "assistant",
+		Content:       "hello from cursor",
+		Context: ContextPacket{
+			Version:       "chat.context.v1",
+			ExecutionMode: ExecutionModeExternalAgent,
+			Workspace:     "/tmp/hecate",
+			MessageCount:  2,
+			Sources: []ContextSource{
+				{
+					Kind:     "adapter_session",
+					Label:    "Cursor Agent ACP session",
+					Trust:    "adapter",
+					Included: true,
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("AppendMessage assistant: %v", err)
+	}
 	if err := client.Close(); err != nil {
 		t.Fatalf("Close first client: %v", err)
 	}
@@ -87,5 +109,8 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	}
 	if got.ProjectID != "proj_sqlite" || got.AgentID != "cursor_agent" || got.WorkspaceBranch != "feature/sqlite" || got.Messages[0].Content != "hello" {
 		t.Fatalf("reopened session mismatch: %+v", got)
+	}
+	if len(got.Messages) != 2 || got.Messages[1].Context.Version != "chat.context.v1" || got.Messages[1].Context.Sources[0].Label != "Cursor Agent ACP session" {
+		t.Fatalf("reopened context packet mismatch: %+v", got.Messages)
 	}
 }

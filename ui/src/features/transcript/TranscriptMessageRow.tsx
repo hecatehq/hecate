@@ -4,6 +4,7 @@ import type {
   ChatActivityRecord,
   ChatChangedFileDiffRecord,
   ChatChangedFileRecord,
+  ChatContextPacketRecord,
   ChatTimingRecord,
   ChatUsageRecord,
 } from "../../types/chat";
@@ -40,6 +41,7 @@ export function TranscriptMessageRow({
   rawOutput,
   agentUsage,
   agentTiming,
+  contextPacket,
   error,
   setupAction,
   onCopy,
@@ -73,6 +75,7 @@ export function TranscriptMessageRow({
   rawOutput?: string;
   agentUsage?: ChatUsageRecord;
   agentTiming?: ChatTimingRecord;
+  contextPacket?: ChatContextPacketRecord;
   error?: string;
   // setupAction is an inline button rendered inside the agent-run
   // failure notice. The chat passes it when the failure has a
@@ -237,6 +240,9 @@ export function TranscriptMessageRow({
           )}
           {isAssistant && agentTiming && !agentTimingEmpty(agentTiming) && (
             <AgentTiming timing={agentTiming} />
+          )}
+          {isAssistant && contextPacket && !contextPacketEmpty(contextPacket) && (
+            <ContextInspector packet={contextPacket} />
           )}
           {isAssistant && agentUsage && !agentUsageEmpty(agentUsage) && (
             <AgentUsage usage={agentUsage} />
@@ -567,6 +573,120 @@ function AgentUsage({ usage }: { usage: ChatUsageRecord }) {
   );
 }
 
+function ContextInspector({ packet }: { packet: ChatContextPacketRecord }) {
+  const modelLabel = [packet.provider, packet.model].filter(Boolean).join(" · ");
+  const includedSources = (packet.sources ?? []).filter((source) => source.included !== false);
+  const summaryParts = [
+    "context",
+    packet.message_count
+      ? `${packet.message_count} message${packet.message_count === 1 ? "" : "s"}`
+      : "",
+    modelLabel,
+  ].filter(Boolean);
+  return (
+    <details style={{ marginTop: 8 }}>
+      <summary
+        style={{
+          color: "var(--t3)",
+          cursor: "pointer",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          lineHeight: 1.6,
+        }}
+      >
+        {summaryParts.join(" · ")}
+      </summary>
+      <div
+        style={{
+          background: "var(--bg1)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          display: "grid",
+          gap: 6,
+          marginTop: 6,
+          padding: "8px 9px",
+        }}
+      >
+        {packet.execution_mode && (
+          <ContextRow label="mode" value={humanExecutionMode(packet.execution_mode)} />
+        )}
+        {packet.workspace && <ContextRow label="workspace" value={packet.workspace} />}
+        {includedSources.length > 0 && (
+          <div style={{ display: "grid", gap: 5 }}>
+            {includedSources.map((source, index) => (
+              <ContextSourceRow key={`${source.kind}-${source.label}-${index}`} source={source} />
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function ContextRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0, 1fr)", gap: 8 }}>
+      <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+        {label}
+      </span>
+      <span
+        style={{
+          color: "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ContextSourceRow({
+  source,
+}: {
+  source: NonNullable<ChatContextPacketRecord["sources"]>[number];
+}) {
+  const detail = source.detail?.trim();
+  const label = source.label || source.kind;
+  const trust = source.trust ? ` · ${source.trust}` : "";
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--border)",
+        display: "grid",
+        gap: 2,
+        paddingTop: 5,
+      }}
+    >
+      <div style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+        {label}
+        <span style={{ color: "var(--t3)" }}>{trust}</span>
+      </div>
+      {detail && (
+        <div
+          style={{
+            color: "var(--t3)",
+            fontSize: 10,
+            lineHeight: 1.5,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={detail}
+        >
+          {detail}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AgentTiming({ timing }: { timing: ChatTimingRecord }) {
   const bottleneck =
     timing.bottleneck && timing.bottleneck_ms
@@ -613,6 +733,32 @@ function AgentTiming({ timing }: { timing: ChatTimingRecord }) {
       {counts && <span>{counts}</span>}
     </div>
   );
+}
+
+function contextPacketEmpty(packet: ChatContextPacketRecord): boolean {
+  return (
+    !packet.version &&
+    !packet.execution_mode &&
+    !packet.provider &&
+    !packet.model &&
+    !packet.workspace &&
+    !packet.system_prompt_included &&
+    !packet.message_count &&
+    !(packet.sources ?? []).some((source) => source.included !== false)
+  );
+}
+
+function humanExecutionMode(mode: string): string {
+  switch (mode) {
+    case "direct_model":
+      return "Direct model chat";
+    case "external_agent":
+      return "External agent";
+    case "hecate_task":
+      return "Hecate task runtime";
+    default:
+      return mode;
+  }
 }
 
 function agentTimingEmpty(timing: ChatTimingRecord): boolean {

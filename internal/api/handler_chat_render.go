@@ -89,6 +89,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 			Activities:      renderAgentChatActivities(message.Activities),
 			Usage:           renderChatUsage(message.Usage),
 			Timing:          renderChatTiming(message.Timing),
+			ContextPacket:   renderChatContextPacket(message.Context),
 		})
 	}
 	return ChatSessionItem{
@@ -117,6 +118,32 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 		UpdatedAt:            formatOptionalTime(session.UpdatedAt),
 		Segments:             renderChatSegments(session),
 		Messages:             messages,
+	}
+}
+
+func renderChatContextPacket(packet chat.ContextPacket) *ChatContextPacketItem {
+	if packet.Empty() {
+		return nil
+	}
+	sources := make([]ChatContextSourceItem, 0, len(packet.Sources))
+	for _, source := range packet.Sources {
+		sources = append(sources, ChatContextSourceItem{
+			Kind:     source.Kind,
+			Label:    source.Label,
+			Detail:   source.Detail,
+			Trust:    source.Trust,
+			Included: source.Included,
+		})
+	}
+	return &ChatContextPacketItem{
+		Version:              packet.Version,
+		ExecutionMode:        packet.ExecutionMode,
+		Provider:             packet.Provider,
+		Model:                packet.Model,
+		Workspace:            packet.Workspace,
+		SystemPromptIncluded: packet.SystemPromptIncluded,
+		MessageCount:         packet.MessageCount,
+		Sources:              sources,
 	}
 }
 

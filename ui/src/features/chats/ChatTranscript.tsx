@@ -7,6 +7,7 @@ import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
 import { formatDurationMs } from "../../lib/format";
 import type {
   ChatActivityRecord,
+  ChatContextPacketRecord,
   ChatSegmentRecord,
   ChatTimingRecord,
   ChatUsageRecord,
@@ -41,6 +42,7 @@ export type VisibleChatMessage = {
   activities?: ChatActivityRecord[];
   usage?: ChatUsageRecord;
   timing?: ChatTimingRecord;
+  context_packet?: ChatContextPacketRecord;
   duration_ms?: number;
   error?: string;
 };
@@ -226,6 +228,7 @@ export function ChatTranscript({
               rawOutput={role === "assistant" ? m.raw_output : undefined}
               agentUsage={role === "assistant" ? m.usage : undefined}
               agentTiming={role === "assistant" ? m.timing : undefined}
+              contextPacket={role === "assistant" ? m.context_packet : undefined}
               error={role === "assistant" ? m.error : undefined}
               setupAction={externalAgentSetupAction(role, m, openExternalAgentSetup)}
               onCopy={copyMsg}

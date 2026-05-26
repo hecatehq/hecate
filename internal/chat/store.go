@@ -72,6 +72,7 @@ type Message struct {
 	Activities      []Activity
 	Usage           Usage
 	Timing          Timing
+	Context         ContextPacket
 }
 
 type Activity struct {
@@ -93,6 +94,36 @@ type Activity struct {
 	ArtifactPreview string `json:"artifact_preview,omitempty"`
 	ApprovalID      string `json:"approval_id,omitempty"`
 	NeedsAction     bool   `json:"needs_action,omitempty"`
+}
+
+type ContextPacket struct {
+	Version              string          `json:"version,omitempty"`
+	ExecutionMode        string          `json:"execution_mode,omitempty"`
+	Provider             string          `json:"provider,omitempty"`
+	Model                string          `json:"model,omitempty"`
+	Workspace            string          `json:"workspace,omitempty"`
+	SystemPromptIncluded bool            `json:"system_prompt_included,omitempty"`
+	MessageCount         int             `json:"message_count,omitempty"`
+	Sources              []ContextSource `json:"sources,omitempty"`
+}
+
+type ContextSource struct {
+	Kind     string `json:"kind"`
+	Label    string `json:"label"`
+	Detail   string `json:"detail,omitempty"`
+	Trust    string `json:"trust,omitempty"`
+	Included bool   `json:"included"`
+}
+
+func (packet ContextPacket) Empty() bool {
+	return packet.Version == "" &&
+		packet.ExecutionMode == "" &&
+		packet.Provider == "" &&
+		packet.Model == "" &&
+		packet.Workspace == "" &&
+		!packet.SystemPromptIncluded &&
+		packet.MessageCount == 0 &&
+		len(packet.Sources) == 0
 }
 
 type Usage struct {
@@ -352,6 +383,7 @@ func cloneSession(session Session) Session {
 	session.Messages = append([]Message(nil), session.Messages...)
 	for i := range session.Messages {
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
+		session.Messages[i].Context.Sources = append([]ContextSource(nil), session.Messages[i].Context.Sources...)
 	}
 	return session
 }
