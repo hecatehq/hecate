@@ -102,6 +102,59 @@ describe("TranscriptMessageRow", () => {
     expect(screen.queryByText("Failed")).toBeNull();
   });
 
+  it("hides stale running placeholders after a failed run", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="failed"
+        content=""
+        error="launch model required: select a model for Grok Build before starting the external agent"
+        activities={[
+          {
+            type: "running",
+            title: "Running",
+            status: "running",
+            detail: "Waiting for ACP output",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("agent run failed")).toBeInTheDocument();
+    expect(screen.queryByText(/working/)).toBeNull();
+    expect(screen.queryByText("Running")).toBeNull();
+    expect(screen.queryByText("Waiting for ACP output")).toBeNull();
+  });
+
+  it("keeps failed tool diagnostics while hiding stale running placeholders", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        badge="failed"
+        content=""
+        error="tool failed"
+        activities={[
+          {
+            type: "running",
+            title: "Running",
+            status: "running",
+            detail: "Waiting for ACP output",
+          },
+          {
+            type: "tool_call",
+            title: "git_exec",
+            status: "failed",
+            detail: "git status failed",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByText("Running")).toBeNull();
+    expect(screen.getByText(/1 failed tool/)).toBeInTheDocument();
+    expect(screen.getByText("Ran git")).toBeInTheDocument();
+  });
+
   it("keeps diagnostic failed activity rows with distinct details", () => {
     render(
       <TranscriptMessageRow

@@ -104,9 +104,11 @@ export function TranscriptMessageRow({
     !(activities ?? []).some((activity) => activity.type === "tool_call");
   const visibleActivities =
     isAssistant && activities?.length
-      ? activities.filter(
-          (activity) => !failed || !duplicatesFailureNotice(activity, error || content),
-        )
+      ? activities.filter((activity) => {
+          if ((failed || cancelled) && isStaleTerminalPlaceholder(activity)) return false;
+          if (failed && duplicatesFailureNotice(activity, error || content)) return false;
+          return true;
+        })
       : activities;
   const renderActivityAdvanced =
     isAssistant && visibleActivities?.length
@@ -477,6 +479,12 @@ function isLikelyTransientAgentNarration(text: string): boolean {
 
 function isActiveAgentActivity(activity: ChatActivityRecord): boolean {
   return activity.status === "running" || activity.status === "in_progress";
+}
+
+function isStaleTerminalPlaceholder(activity: ChatActivityRecord): boolean {
+  return (
+    isActiveAgentActivity(activity) && (activity.type === "running" || activity.type === "started")
+  );
 }
 
 function shouldRenderFailedContent(content: string, error?: string): boolean {
