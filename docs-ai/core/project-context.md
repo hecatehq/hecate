@@ -2,6 +2,12 @@
 
 Hecate is an open-source local AI runtime console. The main Go runtime runs the local HTTP service, embeds the React operator UI, routes OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Hecate is local-first, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did Hecate just decide, why, what did it cost, what happens on the next failure, and where is the trace.
 
+Hecate's own boundary is the runtime/control plane: projects, chats, tasks,
+providers, supervised external agents, approvals, tool policy, storage, and
+observability. Higher-level assistant behavior should be built from those
+primitives through agent profiles, presets, project memory, and context
+assembly rather than hidden prompt glue or provider-specific shortcuts.
+
 ## Repository layout
 
 ```

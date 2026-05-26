@@ -41,8 +41,8 @@ requirements after the baseline bridge are:
 - task approvals resolved directly from Chats _(implemented)_
 - streamed assistant text for task-backed Hecate Agent turns _(implemented)_
 - local composer queueing while a backing task is busy _(implemented)_
-- task workspace modes exposed in the Hecate Agent chat setup
-- named Hecate Agent profiles
+- task workspace modes exposed in Hecate Chat setup
+- named agent profiles
 - richer automatic capability detection with visible status
 
 ## Why
@@ -162,15 +162,16 @@ Each message carries its own runtime snapshot: `execution_mode`, `segment_id`,
 provider/model, capabilities, workspace, and optional task/run linkage. The
 session response also exposes derived segment metadata so the UI can render
 clear transcript boundaries when a chat moves from direct model turns to
-Hecate Agent tool-backed turns and back again.
+tools-on task-backed turns and back again.
 
 External Agent sessions store their adapter id in `agent_id`. Hecate Chat
 sessions use `agent_id="hecate"`.
 
 ### Agent profiles
 
-Hecate Agent profiles are named presets for Hecate-owned agent execution. They
-should not be confused with External Agent adapters.
+Agent profiles are saved runtime configurations for Hecate Chat or an external
+agent. They should not be confused with presets, which are authoring-time
+templates, or with External Agent adapters, which are supervised subprocesses.
 
 A profile defines:
 
@@ -183,7 +184,7 @@ A profile defines:
 - cost, turn, timeout, and network guardrails
 - optional model capability requirements
 
-The initial built-in profile is the current default Hecate Agent behavior:
+The initial built-in profile is the current default Hecate Chat tools-on behavior:
 selected provider/model, selected workspace, `agent_loop`, task approvals,
 artifacts, sandboxed tool calls, and OTel. Operators can later create named
 profiles such as "Reviewer", "Builder", or "SRE" without changing the chat
@@ -379,7 +380,7 @@ and exposes external-agent approvals.
 
 Memory and SQLite must persist:
 
-- Hecate Agent profiles
+- agent profiles
 - selected `agent_profile_id`
 - `agent_id`
 - task-backed Hecate Chat task/run linkage fields on chat sessions
@@ -451,10 +452,10 @@ Done in the core bridge:
 - each assistant turn exposes user-friendly task and trace links in the message
   header
 
-Still required for a complete Hecate Agent experience:
+Still required for a complete Hecate Chat tools-on experience:
 
 - workspace modes in the chat setup
-- named Hecate Agent profiles
+- named agent profiles
 - automatic capability probing
 - broader e2e/product hardening around workspace modes, profiles, automatic
   capability detection, and mixed long-running sessions
@@ -466,7 +467,7 @@ The missing stable-scope pieces should land in this order:
 1. **Workspace modes.** Expose the same workspace choices that Tasks supports,
    store the selected mode on the session/task, and fail early when a requested
    mode cannot be honored.
-2. **Agent profiles.** Add named Hecate Agent presets for model policy,
+2. **Agent profiles.** Add named profiles for model policy,
    workspace mode, system prompt, tools/MCP, approvals, and guardrails. Store a
    snapshot on each session so history remains explainable.
 3. **Automatic probing.** Add bounded, visible capability probes for configured

@@ -72,6 +72,11 @@ direction, implemented records, and experimental parking-lot ideas.
 | [LLM context window management](rfcs/llm-context-window-management.md)                         | Active proposal for token estimation, context warnings/caps, and optional fitting policies.                                                |
 | [Event protocol v1](rfcs/event-protocol-v1.md)                                                 | Candidate event envelope; implemented for task-run event streams, but payload stability is still in progress.                              |
 
+Projects, agent profiles, presets, memory, context assembly, and context
+window management are one architecture track. Start with the
+[RFC index](rfcs/README.md#projects-context-and-memory-track) before changing
+any one of them.
+
 ## External Entry Points
 
 - [`.env.example`](../.env.example) — minimal first-run environment knobs.

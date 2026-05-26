@@ -177,8 +177,10 @@ Projects, profiles, and presets have separate jobs:
 
 In other words: a project can choose a default agent profile, and a profile can
 be created from a preset. After application, Hecate should persist the resolved
-profile/settings. Context packets may record `source_preset_id` for audit, but
-the runtime should not depend on a mutable preset staying unchanged.
+profile/settings. Presets stay authoring-time templates; profiles are runtime
+configuration; projects are durable work scopes. Context packets may record
+`source_preset_id` for audit, but the runtime should not depend on a mutable
+preset staying unchanged.
 
 Local MCP exposure should use the same preset vocabulary rather than a separate
 taxonomy. The initial built-in MCP toolset presets are `readonly`, `operator`,
