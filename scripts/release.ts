@@ -108,6 +108,7 @@ if (branch !== "master" && branch !== "main") {
 }
 console.log(`  branch    : ${branch}`);
 console.log(`  commit    : ${run("git rev-parse --short HEAD", { silent: true })}`);
+const preStampHead = run("git rev-parse HEAD", { silent: true });
 
 // 3. Tag must not already exist.
 try {
@@ -201,6 +202,7 @@ if (!confirm("\nTag, stamp Tauri version, and push?")) abort("cancelled by user"
 
 sep("Tauri version stamp");
 const stampScript = resolve(root, "scripts/stamp-version.ts");
+let stampCommitCreated = false;
 if (existsSync(stampScript)) {
   // execFileSync (no shell) so that paths/args with spaces or special
   // characters can't be interpreted as shell metacharacters. CodeQL also
@@ -221,6 +223,7 @@ if (existsSync(stampScript)) {
       cwd: root,
       stdio: "inherit",
     });
+    stampCommitCreated = true;
     console.log("  committed Tauri version stamp");
   } else {
     console.log("  Tauri files already at correct version — no commit needed");
@@ -237,11 +240,24 @@ console.log(`Tagged ${version}`);
 
 execFileSync("git", ["push", "origin", version], { cwd: root, stdio: "inherit" });
 
+// Keep the local release branch on the pre-tag commit. The version stamp
+// commit is intentionally reachable through the annotated tag only; leaving the
+// branch there makes local master diverge as soon as CI publishes manifest/docs
+// commits back to origin/master.
+if (stampCommitCreated) {
+  sep("Restore release branch");
+  execFileSync("git", ["reset", "--hard", preStampHead], { cwd: root, stdio: "inherit" });
+  console.log(`  ${branch} restored to ${preStampHead.slice(0, 12)}`);
+  console.log(`  ${version} still points at the Tauri version stamp commit`);
+}
+
 // ── Done ──────────────────────────────────────────────────────────────────────
 
 sep("Done");
 console.log("CI is building the release. Track it at:");
 console.log("  https://github.com/hecatehq/hecate/actions");
+console.log("\nWhen CI finishes, sync the manifest/docs commits back locally:");
+console.log("  git pull --ff-only origin master");
 console.log(`\nWhen CI completes (~5-10 min), verify the published image:`);
 console.log(`  docker pull ghcr.io/hecatehq/hecate:${semver}`);
 console.log(`  docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:${semver}`);

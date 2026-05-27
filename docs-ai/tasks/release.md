@@ -60,7 +60,7 @@ End state of a successful tag: the GitHub Release page has goreleaser tarballs +
 
 `just release` / `bun scripts/release.ts` handles the stamp automatically: after confirmation it calls `scripts/stamp-version.ts` with `TAURI_VERSION=<semver>`, commits the changed files (`Cargo.toml`, `package.json`, `tauri.conf.json`), then creates the annotated tag on that commit. CI re-runs the stamp from the tag name as a belt-and-suspenders measure (`stamp-version.ts` is idempotent).
 
-**The stamp commit lives only on the tag, not on master.** The script pushes the tag, not the branch. Meanwhile the release CI's `publish updater manifest` + `docs: update release references` jobs push their own commits to `master` on top of the pre-tag commit. So local `master` is left ahead of `origin/master` (carrying the orphan stamp commit) and behind it (missing the CI's post-tag commits). Run `git pull --ff-only origin master` once CI completes — it'll fast-forward over the orphan onto `origin/master`. Otherwise any branch cut from local master will inherit the orphan stamp and show a phantom version bump in its diff.
+**The stamp commit lives only on the tag, not on master.** The script pushes the tag, not the branch, then resets the local release branch back to the pre-stamp commit. Meanwhile the release CI's `publish updater manifest` + `docs: update release references` jobs push their own commits to `master` on top of that same pre-tag commit. Once CI completes, run `git pull --ff-only origin master` to pick up those post-release commits. Branches cut after that should not inherit a phantom Tauri version bump.
 
 The Tauri matrix doesn't need any local action — pushing the tag fires the workflow.
 

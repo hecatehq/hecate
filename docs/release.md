@@ -153,7 +153,8 @@ It performs, in order: clean-worktree check, tag-uniqueness check,
 goreleaser-on-PATH check, Docker-daemon check when the snapshot is enabled,
 the full project verification gate, goreleaser snapshot dry-run, interactive
 confirmation prompt, Tauri version stamp commit (Cargo.toml, package.json,
-tauri.conf.json), annotated tag, push.
+tauri.conf.json), annotated tag, tag push, and local branch restore to the
+pre-stamp commit.
 
 Pass `--skip-snapshot` to skip the dry-run when you've already validated
 locally:
@@ -168,13 +169,14 @@ the canonical release notes (what `git show vX.Y.Z` and the GitHub
 Releases page surface):
 
 ```bash
-bun scripts/stamp-version.ts                   # stamps Tauri version files
+pre_stamp=$(git rev-parse HEAD)
+TAURI_VERSION=X.Y.Z bun scripts/stamp-version.ts
 git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock \
         tauri/src-tauri/tauri.conf.json tauri/package.json
 git commit -m "chore(tauri): stamp version X.Y.Z"
-git push origin master
 git tag -a vX.Y.Z -F /tmp/release-notes.txt    # message from a file
 git push origin vX.Y.Z
+git reset --hard "$pre_stamp"                  # keep the stamp on the tag only
 ```
 
 ## Snapshot dry-run
