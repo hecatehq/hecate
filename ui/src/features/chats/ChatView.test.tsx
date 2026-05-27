@@ -3797,11 +3797,13 @@ describe("ChatView external-agent target", () => {
     await user.click(screen.getByRole("button", { name: "Workspace changes" }));
 
     expect(getChatWorkspaceDiff).toHaveBeenCalledWith("a1");
-    expect(await screen.findByText(/Live Git diff for/)).toBeTruthy();
+    expect(await screen.findByText("LIVE WORKSPACE DIFF")).toBeTruthy();
+    expect(screen.getByTitle("/tmp/hecate")).toBeTruthy();
     expect((await screen.findAllByText("2 files changed, 2 insertions(+)")).length).toBeGreaterThan(
       0,
     );
-    expect(screen.getByText("2 current changed files")).toBeTruthy();
+    expect(screen.getByText("Changed files")).toBeTruthy();
+    expect(screen.getByText("2 files in the working tree")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Show diff README.md" }));
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
     const readmePreview = await screen.findByTestId("workspace-file-diff-preview");
