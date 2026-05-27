@@ -681,6 +681,45 @@ diffs-container.diff-viewer-file {
   --diffs-font-size: 10.5px;
   --diffs-line-height: 17px;
 }
+.diff-viewer-raw {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 18px;
+  max-height: 520px;
+  overflow: auto;
+}
+.diff-viewer-compact.diff-viewer-raw {
+  font-size: 10.5px;
+  line-height: 17px;
+}
+.diff-viewer-raw-line {
+  min-width: max-content;
+  padding: 0 10px;
+  white-space: pre;
+}
+.diff-viewer-raw-line-add {
+  background: color-mix(in oklch, var(--green-bg) 50%, transparent);
+  color: var(--green);
+}
+.diff-viewer-raw-line-remove {
+  background: color-mix(in oklch, var(--red-bg) 56%, transparent);
+  color: var(--red);
+}
+.diff-viewer-raw-line-hunk {
+  background: var(--diffs-separator-bg);
+  border-block: 1px solid var(--diffs-border);
+  color: var(--amber);
+}
+.diff-viewer-raw-line-meta {
+  background: var(--bg2);
+  color: var(--t2);
+}
+.diff-viewer-raw-line-context {
+  background: var(--bg0);
+  color: var(--t1);
+}
 
 /* ─── Dropdown ─── */
 .dropdown-wrap {
