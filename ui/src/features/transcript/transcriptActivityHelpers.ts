@@ -148,6 +148,12 @@ export function compactDetailActivities(
   return activities.filter((activity) => {
     if (!detailTypes.has(activity.type)) return false;
     if (hasDiffStat && activity.type === "changed_files") return false;
+    if (
+      activity.type === "artifact" &&
+      isOutputArtifactActivity(activity) &&
+      !hasOutputPreview(activity)
+    )
+      return false;
     if (activity.type === "output" && !hasOutputPreview(activity)) return false;
     return true;
   });
@@ -373,6 +379,13 @@ function toolActivityDetail(
   return compactToolOutputDetail(detail);
 }
 
+export function capturedToolOutput(activity: ChatActivityRecord): string | undefined {
+  if (activity.type !== "tool_call") return undefined;
+  const detail = activity.detail?.trim();
+  if (!detail) return undefined;
+  return parseToolOutputDetail(detail)?.output;
+}
+
 function modelTurnDetail(activity: ChatActivityRecord): string {
   const status = humanActivityStatus(activity.status);
   const turn = activity.title.match(/turn\s+(\d+)/i)?.[1];
@@ -412,14 +425,24 @@ function toolDetailHasOutput(activity: ChatActivityRecord): boolean {
 }
 
 function compactToolOutputDetail(detail: string): string {
-  const match = detail.match(/^(.+?)\s*·\s*output:\s*(.+)$/i);
-  if (!match) return detail;
+  const parsed = parseToolOutputDetail(detail);
+  if (!parsed) return detail;
 
-  const prefix = match[1].trim();
-  const output = match[2].trim();
-  if (/^failed to read file:/i.test(output)) return "output captured · read failed";
+  const { prefix, output } = parsed;
+  if (/^failed to read file:/i.test(output)) return `${prefix} · read failed`;
+  if (/^cannot read binary file:/i.test(output)) return `${prefix} · binary file skipped`;
   if (!output) return `${prefix} · output captured`;
+  if (/^read\b/i.test(prefix)) return `${prefix} · output captured`;
   return `${prefix} · output captured · ${compactInlineDetail(output, 48)}`;
+}
+
+function parseToolOutputDetail(detail: string): { prefix: string; output: string } | undefined {
+  const match = detail.match(/^(.+?)\s*·\s*output:\s*(.*)$/is);
+  if (!match) return undefined;
+  return {
+    prefix: match[1].trim(),
+    output: match[2].trim(),
+  };
 }
 
 function opaqueToolCallID(value: string): string | undefined {

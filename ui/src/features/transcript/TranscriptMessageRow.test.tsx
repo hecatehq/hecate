@@ -513,6 +513,69 @@ describe("TranscriptMessageRow", () => {
     expect(screen.queryByText("Preview unavailable in this snapshot.")).toBeNull();
   });
 
+  it("lets read-context activity reveal captured output without cluttering the row", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "completed",
+        kind: "read",
+        detail: "read · output: 1>import foo from 'foo' 2>const enabled = true",
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    expect(screen.getByText("read · output captured")).toBeInTheDocument();
+    expect(screen.queryByText(/import foo/)).toBeNull();
+
+    await user.click(screen.getByText("Output"));
+
+    expect(screen.getByText("Read output")).toBeInTheDocument();
+    expect(screen.getByText(/1 │ import foo/)).toBeInTheDocument();
+    expect(screen.getByText(/2 │ const enabled = true/)).toBeInTheDocument();
+  });
+
+  it("shows the rich diff viewer for file-change activity when a patch is captured", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "files_changed",
+        title: "Workspace changes",
+        status: "completed",
+        detail: "1 file changed, 1 insertion(+)",
+      },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+    const diff = [
+      "diff --git a/README.md b/README.md",
+      "index 1111111..2222222 100644",
+      "--- a/README.md",
+      "+++ b/README.md",
+      "@@ -1 +1,2 @@",
+      " # Hecate",
+      "+Local runtime console",
+    ].join("\n");
+
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        activities={activities}
+        diff={diff}
+        diffStat="README.md | 1 +\n1 file changed, 1 insertion(+)"
+      />,
+    );
+
+    const workspaceSummary = screen
+      .getAllByText("Workspace changes")
+      .find((node) => node.tagName === "SUMMARY");
+    expect(workspaceSummary).toBeTruthy();
+    await user.click(workspaceSummary!);
+
+    expect(screen.getByTestId("diff-viewer")).toBeInTheDocument();
+  });
+
   it("lets output detail rows reveal captured previews", async () => {
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [

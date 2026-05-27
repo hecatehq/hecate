@@ -13,6 +13,7 @@ import { DiffViewer } from "../shared/DiffViewer";
 import { Icon, Icons } from "../shared/Icons";
 import { DiffStatList, TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
+import { capturedToolOutput } from "./transcriptActivityHelpers";
 
 export function TranscriptMessageRow({
   id,
@@ -106,7 +107,11 @@ export function TranscriptMessageRow({
   const renderActivityAdvanced =
     isAssistant && visibleActivities?.length
       ? (activity: ChatActivityRecord) =>
-          renderAgentActivityAdvanced(activity, visibleActivities, taskLink)
+          renderAgentActivityAdvanced(activity, visibleActivities, {
+            taskLink,
+            diffStat,
+            diff,
+          })
       : undefined;
   const showCapturedDiff =
     isAssistant &&
@@ -291,10 +296,16 @@ export function TranscriptMessageRow({
 function renderAgentActivityAdvanced(
   activity: ChatActivityRecord,
   activities: ChatActivityRecord[],
-  taskLink?: { label: string; title?: string; onClick: () => void },
+  options: {
+    taskLink?: { label: string; title?: string; onClick: () => void };
+    diffStat?: string;
+    diff?: string;
+  },
 ) {
   if (activity.type === "changed_files" || activity.type === "files_changed") {
-    return <ActivityFilesPreview activity={activity} />;
+    return (
+      <ActivityFilesPreview activity={activity} diffStat={options.diffStat} diff={options.diff} />
+    );
   }
 
   if (
@@ -302,6 +313,16 @@ function renderAgentActivityAdvanced(
     (activity.type === "artifact" && isOutputArtifactActivity(activity))
   ) {
     return <OutputArtifactPreview artifact={activity} />;
+  }
+
+  const toolOutput = capturedToolOutput(activity);
+  if (toolOutput) {
+    return (
+      <ToolOutputPreview
+        title={activity.kind === "read" ? "Read output" : "Tool output"}
+        output={toolOutput}
+      />
+    );
   }
 
   if (activity.type !== "tool_call" || activity.status !== "failed") return null;
@@ -320,13 +341,13 @@ function renderAgentActivityAdvanced(
           <OutputArtifactPreview key={artifact.artifact_id || artifact.title} artifact={artifact} />
         ))}
       </div>
-      {taskLink && (
+      {options.taskLink && (
         <div>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={taskLink.onClick}
-            title={`Open ${taskLink.label} output`}
+            onClick={options.taskLink.onClick}
+            title={`Open ${options.taskLink.label} output`}
             style={{ fontSize: 10, padding: "2px 7px" }}
           >
             Open task output
@@ -337,12 +358,22 @@ function renderAgentActivityAdvanced(
   );
 }
 
-function ActivityFilesPreview({ activity }: { activity: ChatActivityRecord }) {
-  const diffStat = [activity.detail, activity.title]
+function ActivityFilesPreview({
+  activity,
+  diffStat,
+  diff,
+}: {
+  activity: ChatActivityRecord;
+  diffStat?: string;
+  diff?: string;
+}) {
+  const fallbackStat = [activity.detail, activity.title]
     .filter((value): value is string => Boolean(value?.trim()))
     .join("\n");
+  const stat = (diffStat?.trim() ? diffStat : fallbackStat).trim();
+  const patch = diff?.trim() ?? "";
 
-  if (!diffStat.trim()) {
+  if (!stat && !patch) {
     return (
       <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>
         Workspace changes were captured, but this snapshot does not include a diffstat preview.
@@ -350,7 +381,62 @@ function ActivityFilesPreview({ activity }: { activity: ChatActivityRecord }) {
     );
   }
 
-  return <DiffStatList diffStat={diffStat} />;
+  return (
+    <div style={{ display: "grid", gap: 7 }}>
+      {patch ? <DiffViewer diff={patch} compact embedded /> : <DiffStatList diffStat={stat} />}
+    </div>
+  );
+}
+
+function ToolOutputPreview({ title, output }: { title: string; output: string }) {
+  const preview = normalizeToolOutputPreview(output);
+  return (
+    <div
+      style={{
+        background: "var(--bg0)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          borderBottom: "1px solid var(--border)",
+          color: "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          padding: "4px 7px",
+        }}
+      >
+        {title}
+      </div>
+      <pre
+        style={{
+          color: "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          lineHeight: 1.55,
+          margin: 0,
+          maxHeight: 180,
+          overflow: "auto",
+          padding: "7px",
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {preview}
+      </pre>
+    </div>
+  );
+}
+
+function normalizeToolOutputPreview(output: string): string {
+  return output
+    .replace(
+      /\s*(\d+)>/g,
+      (_match, line: string, offset: number) =>
+        `${offset === 0 ? "" : "\n"}${line.padStart(4, " ")} │ `,
+    )
+    .trim();
 }
 
 function CapturedDiffDetails({ diffStat, diff }: { diffStat?: string; diff?: string }) {

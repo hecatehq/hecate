@@ -269,6 +269,7 @@ function advancedSummaryLabel(activity: ChatActivityRecord): string {
     return "Workspace changes";
   if (activity.type === "output") return "Output";
   if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Output";
+  if (activity.type === "tool_call" && /\boutput\s*:/i.test(activity.detail ?? "")) return "Output";
   return "Advanced";
 }
 
