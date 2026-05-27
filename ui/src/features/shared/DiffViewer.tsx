@@ -1,6 +1,6 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
@@ -9,7 +9,6 @@ const DIFF_VIEWER_OPTIONS = {
   diffIndicators: "bars",
   hunkSeparators: "line-info-basic",
   overflow: "wrap",
-  themeType: "system",
   unsafeCSS: `
     [data-diffs-header] {
       background: var(--diffs-header-bg);
@@ -31,6 +30,8 @@ const DIFF_VIEWER_OPTIONS = {
   `,
 } as const;
 
+type DiffThemeType = "light" | "dark";
+
 export function DiffViewer({
   diff,
   compact = false,
@@ -42,6 +43,7 @@ export function DiffViewer({
 }) {
   const patch = normalizePatch(diff);
   const parsedFiles = useMemo(() => parseDiffFiles(patch), [patch]);
+  const themeType = useDiffViewerThemeType();
 
   if (!patch) return null;
   if (parsedFiles.length === 0) return <RawDiffFallback diff={patch} compact={compact} />;
@@ -55,6 +57,7 @@ export function DiffViewer({
       ]
         .filter(Boolean)
         .join(" ")}
+      data-diff-theme={themeType}
       data-testid="diff-viewer"
     >
       {parsedFiles.map((file, index) => (
@@ -70,11 +73,33 @@ export function DiffViewer({
             disableLineNumbers: compact,
             hunkSeparators: embedded ? "simple" : DIFF_VIEWER_OPTIONS.hunkSeparators,
             stickyHeader: false,
+            themeType,
           }}
         />
       ))}
     </div>
   );
+}
+
+function useDiffViewerThemeType(): DiffThemeType {
+  const [themeType, setThemeType] = useState(readDiffViewerThemeType);
+
+  useEffect(() => {
+    if (typeof document === "undefined" || typeof MutationObserver === "undefined") return;
+    const root = document.documentElement;
+    const updateTheme = () => setThemeType(readDiffViewerThemeType());
+    const observer = new MutationObserver(updateTheme);
+    observer.observe(root, { attributeFilter: ["data-theme"], attributes: true });
+    updateTheme();
+    return () => observer.disconnect();
+  }, []);
+
+  return themeType;
+}
+
+function readDiffViewerThemeType(): DiffThemeType {
+  if (typeof document === "undefined") return "dark";
+  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
 }
 
 function parseDiffFiles(patch: string) {
