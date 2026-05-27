@@ -3804,14 +3804,16 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("2 current changed files")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Show diff README.md" }));
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
-    expect(await screen.findByText("current diff · README.md")).toBeTruthy();
+    const readmePreview = await screen.findByTestId("workspace-file-diff-preview");
+    expect(readmePreview).toHaveStyle({ overflow: "auto" });
+    expect(readmePreview.style.maxHeight).toBe("min(52vh, 560px)");
     expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Hide diff README.md" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Hide diff README.md" }));
-    expect(screen.queryByText("current diff · README.md")).toBeNull();
+    expect(screen.queryByTestId("workspace-file-diff-preview")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Show diff docs/guide.md" }));
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "docs/guide.md");
-    expect(await screen.findByText("current diff · docs/guide.md")).toBeTruthy();
+    expect(await screen.findByTestId("workspace-file-diff-preview")).toBeTruthy();
     expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Workspace changes panel").textContent).not.toContain(
       "captured line",
