@@ -46,13 +46,14 @@ func newChatActivity(kind, status, title, detail string) chat.Activity {
 
 func agentChatActivityFromAdapter(activity agentadapters.Activity) chat.Activity {
 	return chat.Activity{
-		ID:        strings.TrimSpace(activity.ID),
-		Type:      strings.TrimSpace(activity.Type),
-		Status:    strings.TrimSpace(activity.Status),
-		Kind:      strings.TrimSpace(activity.Kind),
-		Title:     strings.TrimSpace(activity.Title),
-		Detail:    strings.TrimSpace(activity.Detail),
-		CreatedAt: time.Now().UTC(),
+		ID:              strings.TrimSpace(activity.ID),
+		Type:            strings.TrimSpace(activity.Type),
+		Status:          strings.TrimSpace(activity.Status),
+		Kind:            strings.TrimSpace(activity.Kind),
+		Title:           strings.TrimSpace(activity.Title),
+		Detail:          strings.TrimSpace(activity.Detail),
+		CreatedAt:       time.Now().UTC(),
+		ArtifactPreview: strings.TrimRight(activity.ArtifactPreview, "\r\n"),
 	}
 }
 

@@ -856,6 +856,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               onNavigate={onNavigate}
               onOpenTask={onOpenTask}
               onOpenTrace={onOpenTrace}
+              onOpenWorkspaceChanges={() => {
+                setChatSettingsOpen(false);
+                setWorkspaceChangesOpen(true);
+              }}
               openExternalAgentSetup={openAgentSetup}
               emptyState={
                 <ChatEmptyState

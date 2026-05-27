@@ -202,12 +202,13 @@ type Usage struct {
 }
 
 type Activity struct {
-	ID     string
-	Type   string
-	Status string
-	Kind   string
-	Title  string
-	Detail string
+	ID              string
+	Type            string
+	Status          string
+	Kind            string
+	Title           string
+	Detail          string
+	ArtifactPreview string
 }
 
 func (u Usage) Empty() bool {

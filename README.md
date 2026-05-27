@@ -119,7 +119,7 @@ Hecate Chat keeps direct model turns and tools-on task-backed turns in one trans
 
 ![Chats workspace with the Workspace changes panel open and a rich per-file diff](docs/screenshots/chat-workspace-diff.png)
 
-Workspace changes live beside the chat as session context: review the current Git diff, copy the full patch or a single file patch, and discard selected files without digging through transcript noise.
+Workspace changes live beside the chat as session context: review the current Git diff with rich per-file diffs and line numbers, copy the full patch or a single file patch, and discard selected files without digging through transcript noise.
 
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 
@@ -159,7 +159,7 @@ The embedded UI is a runtime console for the operator.
 
 | Workspace         | Job                                                                                                                                         |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Chats**         | Hecate Chat with per-chat tools on/off, External Agent sessions, queued prompts, task/trace/run links, timing, usage, and captured diffs.   |
+| **Chats**         | Hecate Chat with per-chat tools on/off, External Agent sessions, queued prompts, task/trace/run links, timing, usage, and workspace changes with rich per-file diffs. |
 | **Connections**   | Model-provider credentials, local/cloud presets, model discovery, routing readiness, external-agent readiness, and durable approval grants. |
 | **Tasks**         | Native `agent_loop` runs, approvals, retries, resumes, streamed output, artifacts, and full run history.                                    |
 | **Observability** | Request history, route candidates, skip reasons, failover, usage, traces, metrics, logs, and local trace events.                            |
@@ -195,7 +195,7 @@ Hecate Chat keeps project-scoped direct model turns and tools-on task-backed tur
 
 ![Chats workspace with the Workspace changes panel open and a rich per-file diff](docs/screenshots/chat-workspace-diff.png)
 
-Workspace changes stay in the side panel instead of the transcript: inspect changed files, expand rich diffs, copy patches, or discard selected paths from the active workspace.
+Workspace changes stay in the side panel instead of the transcript: inspect changed files, expand rich per-file diffs with line numbers, copy patches, or discard selected paths from the active workspace.
 
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 
@@ -242,7 +242,7 @@ Stability stages:
 | ------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Model routing       | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints.                                                                                        |
 | Connections         | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics.                                                                                |
-| Hecate Chat         | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, and inline task approvals. Workspace modes and agent profiles are still future work.     |
+| Hecate Chat         | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, inline task approvals, and workspace changes with rich per-file diffs. Workspace modes and agent profiles are still future work. |
 | External Agent      | Alpha-ready | Codex, Claude Code, Cursor Agent, and Grok Build discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, adapter diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses.      |
 | Task runtime        | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing.                                                                         |
 | Observability       | Alpha-ready | OTLP traces/metrics/logs, response trace headers, local trace view, route reports, timing buckets, and runtime stats.                                                                                                                                |

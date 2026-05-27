@@ -246,6 +246,8 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 	defer s.turnMu.Unlock()
 
 	started := time.Now().UTC()
+	maxOutput := maxTurnOutputBytes(req)
+	initialDiffStat, initialDiff := captureGitDiff(ctx, req.Workspace, maxOutput)
 	turn := newACPTurn(req.MaxOutputBytes, req.OnOutput)
 	turn.setActivityCallback(req.OnActivity)
 	s.client.setTurn(turn)
@@ -286,7 +288,7 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 		}
 	}
 	output, raw, usage := turn.snapshot()
-	result, err := captureACPTurnResult(ctx, s.adapter, req, s.nativeID, output, raw, usage, exitCode, started, completed, runErr)
+	result, err := captureACPTurnResult(ctx, s.adapter, req, s.nativeID, output, raw, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
 	result.ConfigOptions = s.configOptionsSnapshot()
 	return result, err
 }
@@ -632,12 +634,13 @@ func (s *acpSession) cancelActiveTurn(ctx context.Context) error {
 	}
 }
 
-func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, nativeSessionID, output, rawOutput string, usage Usage, exitCode int, started, completed time.Time, runErr error) (RunResult, error) {
-	maxOutput := req.MaxOutputBytes
-	if maxOutput <= 0 {
-		maxOutput = 1024 * 1024
-	}
+func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, nativeSessionID, output, rawOutput string, usage Usage, exitCode int, started, completed time.Time, initialDiffStat, initialDiff string, runErr error) (RunResult, error) {
+	maxOutput := maxTurnOutputBytes(req)
 	diffStat, diff := captureGitDiff(ctx, req.Workspace, maxOutput)
+	if sameCapturedDiff(initialDiffStat, initialDiff, diffStat, diff) {
+		diffStat = ""
+		diff = ""
+	}
 	return RunResult{
 		Adapter:         adapter,
 		DriverKind:      DriverKindACP,
@@ -651,4 +654,16 @@ func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, 
 		Diff:            diff,
 		Usage:           usage,
 	}, runErr
+}
+
+func maxTurnOutputBytes(req RunRequest) int64 {
+	if req.MaxOutputBytes > 0 {
+		return req.MaxOutputBytes
+	}
+	return 1024 * 1024
+}
+
+func sameCapturedDiff(beforeStat, beforeDiff, afterStat, afterDiff string) bool {
+	return strings.TrimSpace(beforeStat) == strings.TrimSpace(afterStat) &&
+		strings.TrimSpace(beforeDiff) == strings.TrimSpace(afterDiff)
 }

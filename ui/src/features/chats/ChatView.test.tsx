@@ -3232,10 +3232,17 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Ran command")).toBeTruthy();
     expect(screen.getByText("README.md:12")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Workspace changes" })).toBeTruthy();
+    const changedFilesButton = screen.getByRole("button", { name: "Open 2 files" });
+    expect(changedFilesButton).toHaveAttribute(
+      "title",
+      "Workspace changes · 2 files changed, 10 insertions(+), 4 deletions(-)",
+    );
     expect(screen.getByText("2 files changed, 10 insertions(+), 4 deletions(-)")).toBeTruthy();
     expect(screen.getByText("raw agent output · 1 line")).toBeTruthy();
     expect(screen.getAllByText("completed").length).toBeGreaterThan(0);
     const user = userEvent.setup();
+    await user.click(changedFilesButton);
+    expect(await screen.findByLabelText("Workspace changes panel")).toBeTruthy();
     await user.click(traceButton);
     expect(onOpenTrace).toHaveBeenCalledWith("req_codex_123456");
     expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);

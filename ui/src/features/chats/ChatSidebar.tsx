@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
@@ -39,6 +39,18 @@ type Props = {
   onSelectSession: (sessionID: string) => void;
   // New-chat creation. Gated on agent readiness inside the sidebar.
   onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
+};
+
+const sidebarSectionActionStyle: CSSProperties = {
+  alignItems: "center",
+  display: "inline-flex",
+  height: 24,
+  justifyContent: "center",
+  lineHeight: 1,
+  minHeight: 24,
+  minWidth: 24,
+  padding: 0,
+  width: 24,
 };
 
 export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Props) {
@@ -583,16 +595,16 @@ function SidebarSectionHeader({
       >
         {label}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
         <button
           type="button"
           className="btn btn-ghost btn-sm"
           aria-label={actionLabel}
           title={actionLabel}
           onClick={onAction}
-          style={{ height: 20, width: 20, padding: 0, fontSize: 14, lineHeight: "18px" }}
+          style={sidebarSectionActionStyle}
         >
-          +
+          <Icon d={Icons.plus} size={14} />
         </button>
         <button
           type="button"
@@ -601,7 +613,7 @@ function SidebarSectionHeader({
           aria-label={expanded ? "Collapse projects" : "Expand projects"}
           title={expanded ? "Collapse projects" : "Expand projects"}
           onClick={onToggle}
-          style={{ height: 20, width: 20, padding: 0 }}
+          style={sidebarSectionActionStyle}
         >
           <Icon d={expanded ? Icons.chevD : Icons.chevR} size={12} />
         </button>

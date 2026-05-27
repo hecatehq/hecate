@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
@@ -673,6 +674,113 @@ func TestCaptureGitDiffWorksFromRepositorySubdirectory(t *testing.T) {
 	if !strings.Contains(diff, "+from subdir") {
 		t.Fatalf("diff = %q, want added line", diff)
 	}
+}
+
+func TestCaptureACPTurnResultOmitsUnchangedPreexistingDiff(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	root := initializedGitWorkspace(t)
+	file := filepath.Join(root, "README.md")
+	if err := os.WriteFile(file, []byte("hello\nalready dirty\n"), 0o644); err != nil {
+		t.Fatalf("modify file: %v", err)
+	}
+	initialStat, initialDiff := captureGitDiff(context.Background(), root, 64*1024)
+	if initialStat == "" || initialDiff == "" {
+		t.Fatal("initial dirty diff is empty")
+	}
+
+	result, err := captureACPTurnResult(
+		context.Background(),
+		Adapter{ID: "grok_build"},
+		RunRequest{Workspace: root, MaxOutputBytes: 64 * 1024},
+		"native_1",
+		"done",
+		"done",
+		Usage{},
+		0,
+		timeNowForTest(),
+		timeNowForTest(),
+		initialStat,
+		initialDiff,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("captureACPTurnResult: %v", err)
+	}
+	if result.DiffStat != "" || result.Diff != "" {
+		t.Fatalf("unchanged diff attached to turn: stat=%q diff=%q", result.DiffStat, result.Diff)
+	}
+}
+
+func TestCaptureACPTurnResultIncludesDiffChangedDuringTurn(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	root := initializedGitWorkspace(t)
+	initialStat, initialDiff := captureGitDiff(context.Background(), root, 64*1024)
+	file := filepath.Join(root, "README.md")
+	if err := os.WriteFile(file, []byte("hello\nchanged during turn\n"), 0o644); err != nil {
+		t.Fatalf("modify file: %v", err)
+	}
+
+	result, err := captureACPTurnResult(
+		context.Background(),
+		Adapter{ID: "grok_build"},
+		RunRequest{Workspace: root, MaxOutputBytes: 64 * 1024},
+		"native_1",
+		"done",
+		"done",
+		Usage{},
+		0,
+		timeNowForTest(),
+		timeNowForTest(),
+		initialStat,
+		initialDiff,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("captureACPTurnResult: %v", err)
+	}
+	if !strings.Contains(result.DiffStat, "README.md") {
+		t.Fatalf("diff stat = %q, want README.md", result.DiffStat)
+	}
+	if !strings.Contains(result.Diff, "+changed during turn") {
+		t.Fatalf("diff = %q, want turn change", result.Diff)
+	}
+}
+
+func initializedGitWorkspace(t *testing.T) string {
+	t.Helper()
+
+	root := t.TempDir()
+	if err := exec.Command("git", "-C", root, "init", "-b", "main").Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := exec.Command("git", "-C", root, "config", "user.email", "test@example.com").Run(); err != nil {
+		t.Fatalf("git config email: %v", err)
+	}
+	if err := exec.Command("git", "-C", root, "config", "user.name", "Test User").Run(); err != nil {
+		t.Fatalf("git config name: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := exec.Command("git", "-C", root, "add", ".").Run(); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := exec.Command("git", "-C", root, "commit", "-m", "init").Run(); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+	return root
+}
+
+func timeNowForTest() time.Time {
+	return time.Now().UTC()
 }
 
 func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
