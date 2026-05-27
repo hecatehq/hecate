@@ -30,6 +30,10 @@ if (typeof HTMLFormElement !== "undefined") {
 }
 
 if (typeof document !== "undefined") {
+  // jsdom does not perform the browser's native "click submit button
+  // submits enclosing form" behavior reliably. Keep this broad shim so
+  // tests exercise the same path as users; tests that need custom
+  // submit-button clicks should preventDefault explicitly.
   document.addEventListener("click", (event) => {
     if (event.defaultPrevented) return;
     const target = event.target;

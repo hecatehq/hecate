@@ -10,6 +10,11 @@ import {
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 
+const originalNavigatorClipboardDescriptor = Object.getOwnPropertyDescriptor(
+  navigator,
+  "clipboard",
+);
+
 vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
@@ -20,6 +25,11 @@ vi.mock("../../lib/api", async (importOriginal) => {
 
 afterEach(() => {
   localStorage.removeItem("hecate.chat.rightPanelWidth");
+  if (originalNavigatorClipboardDescriptor) {
+    Object.defineProperty(navigator, "clipboard", originalNavigatorClipboardDescriptor);
+  } else {
+    delete (navigator as unknown as Record<string, unknown>).clipboard;
+  }
   vi.mocked(discoverLocalProviders).mockReset();
   vi.mocked(discoverLocalProviders).mockResolvedValue({
     object: "local_provider_discovery",
