@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
   ChatChangedFileDiffRecord,
@@ -7,6 +7,7 @@ import type {
 } from "../../types/chat";
 import { InlineError } from "../shared/Atoms";
 import { DiffViewer } from "../shared/DiffViewer";
+import { Icon, Icons } from "../shared/Icons";
 import { DiffStatList } from "../transcript/TranscriptActivityTimeline";
 import { formatDiffStatSummary } from "../transcript/transcriptActivityHelpers";
 
@@ -71,13 +72,16 @@ export function ChatWorkspaceChangesPanel({
 }) {
   const [snapshot, setSnapshot] = useState<ChatWorkspaceDiffRecord | null>(null);
   const [fileDiffs, setFileDiffs] = useState<Record<string, ChatChangedFileDiffRecord>>({});
-  const [selectedDiffPath, setSelectedDiffPath] = useState("");
+  const [expandedDiffPaths, setExpandedDiffPaths] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingPath, setLoadingPath] = useState("");
+  const [copyingPath, setCopyingPath] = useState("");
+  const [copiedKey, setCopiedKey] = useState("");
   const [revertingPath, setRevertingPath] = useState("");
   const [confirmRevertPath, setConfirmRevertPath] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
   const [localError, setLocalError] = useState("");
+  const copiedTimerRef = useRef<number | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -86,30 +90,74 @@ export function ChatWorkspaceChangesPanel({
     const next = await onGetWorkspaceDiff(sessionID);
     setSnapshot(next);
     setFileDiffs({});
-    setSelectedDiffPath("");
+    setExpandedDiffPaths([]);
     setLoadFailed(next === null);
+    const firstFile = next?.has_changes ? next.files?.[0] : undefined;
+    if (firstFile) {
+      setExpandedDiffPaths([firstFile.path]);
+      setLoadingPath(firstFile.path);
+      const firstDiff = await onGetWorkspaceFileDiff(sessionID, firstFile.path);
+      if (firstDiff) setFileDiffs({ [firstFile.path]: firstDiff });
+      setLoadingPath("");
+    }
     setLoading(false);
   }
 
+  async function loadFileDiff(
+    file: ChatChangedFileRecord,
+  ): Promise<ChatChangedFileDiffRecord | null> {
+    const cached = fileDiffs[file.path];
+    if (cached) return cached;
+    const next = await onGetWorkspaceFileDiff(sessionID, file.path);
+    if (next) setFileDiffs((current) => ({ ...current, [file.path]: next }));
+    return next;
+  }
+
   async function toggleFileDiff(file: ChatChangedFileRecord) {
-    if (selectedDiffPath === file.path) {
-      setSelectedDiffPath("");
+    if (expandedDiffPaths.includes(file.path)) {
+      setExpandedDiffPaths((current) => current.filter((path) => path !== file.path));
       return;
     }
-    if (fileDiffs[file.path]) {
-      setSelectedDiffPath(file.path);
-      return;
-    }
+    setExpandedDiffPaths((current) => [...current, file.path]);
+    if (fileDiffs[file.path]) return;
     setLoadingPath(file.path);
     setLocalError("");
-    const next = await onGetWorkspaceFileDiff(sessionID, file.path);
-    if (next) {
-      setFileDiffs((current) => ({ ...current, [file.path]: next }));
-      setSelectedDiffPath(file.path);
-    } else {
+    const next = await loadFileDiff(file);
+    if (!next) {
+      setExpandedDiffPaths((current) => current.filter((path) => path !== file.path));
       setLocalError("Could not load that current file diff.");
     }
     setLoadingPath("");
+  }
+
+  async function copyText(text: string, key: string) {
+    if (!navigator.clipboard?.writeText) {
+      setLocalError("Clipboard access is not available in this environment.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = window.setTimeout(() => {
+        setCopiedKey("");
+        copiedTimerRef.current = null;
+      }, 1500);
+    } catch {
+      setLocalError("Could not copy that diff.");
+    }
+  }
+
+  async function copyFileDiff(file: ChatChangedFileRecord) {
+    setCopyingPath(file.path);
+    setLocalError("");
+    const next = await loadFileDiff(file);
+    if (next?.diff) {
+      await copyText(next.diff, `file:${file.path}`);
+    } else {
+      setLocalError("Could not load that current file diff.");
+    }
+    setCopyingPath("");
   }
 
   async function confirmRevert(paths: string[], label: string) {
@@ -120,14 +168,14 @@ export function ChatWorkspaceChangesPanel({
       setSnapshot(next);
       if (paths.length === 0) {
         setFileDiffs({});
-        setSelectedDiffPath("");
+        setExpandedDiffPaths([]);
       } else {
         setFileDiffs((current) => {
           const nextDiffs = { ...current };
           for (const path of paths) delete nextDiffs[path];
           return nextDiffs;
         });
-        if (paths.includes(selectedDiffPath)) setSelectedDiffPath("");
+        setExpandedDiffPaths((current) => current.filter((path) => !paths.includes(path)));
       }
     } else {
       setLocalError("Could not discard those workspace changes.");
@@ -140,6 +188,12 @@ export function ChatWorkspaceChangesPanel({
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionID, workspace]);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimerRef.current !== null) window.clearTimeout(copiedTimerRef.current);
+    };
+  }, []);
 
   const diffStat = snapshot?.diff_stat?.trim() ?? "";
   const diff = snapshot?.diff?.trim() ?? "";
@@ -200,7 +254,6 @@ export function ChatWorkspaceChangesPanel({
           minHeight: 0,
         }}
       >
-        <WorkspaceDiffSource workspace={workspace} />
         {loadFailed ? (
           <div style={{ color: "var(--red)", fontSize: 11, lineHeight: 1.5 }}>
             Could not load the current workspace diff.
@@ -208,13 +261,20 @@ export function ChatWorkspaceChangesPanel({
         ) : hasChanges ? (
           <>
             {files.length > 0 ? (
-              <WorkspaceFileList
+              <WorkspaceDiffPanel
+                copiedKey={copiedKey}
+                copyingPath={copyingPath}
+                diff={diff}
+                expandedDiffPaths={expandedDiffPaths}
                 files={files}
                 fileDiffs={fileDiffs}
-                selectedDiffPath={selectedDiffPath}
                 loadingPath={loadingPath}
+                summary={summary}
+                workspace={workspace}
                 revertingPath={revertingPath}
                 confirmRevertPath={confirmRevertPath}
+                onCopyFullDiff={() => void copyText(diff, "full")}
+                onCopyFileDiff={(file) => void copyFileDiff(file)}
                 onToggleDiff={(file) => void toggleFileDiff(file)}
                 onRequestRevert={setConfirmRevertPath}
                 onCancelRevert={() => setConfirmRevertPath("")}
@@ -224,38 +284,6 @@ export function ChatWorkspaceChangesPanel({
               diffStat && <DiffStatList diffStat={diffStat} />
             )}
             {localError && <InlineError message={localError} />}
-            {diff && (
-              <details
-                style={{
-                  alignSelf: "start",
-                  background: "var(--bg2)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  display: "grid",
-                  overflow: "hidden",
-                }}
-              >
-                <summary
-                  style={{
-                    alignItems: "center",
-                    color: "var(--t1)",
-                    cursor: "pointer",
-                    display: "flex",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 11,
-                    gap: 8,
-                    justifyContent: "space-between",
-                    padding: "7px 9px",
-                  }}
-                >
-                  <span>Complete patch</span>
-                  <span style={{ color: "var(--t3)", fontSize: 10 }}>
-                    {summary || "current Git diff"}
-                  </span>
-                </summary>
-                <WorkspaceDiffPreview diff={diff} height="min(58vh, 640px)" />
-              </details>
-            )}
           </>
         ) : (
           <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>
@@ -267,65 +295,43 @@ export function ChatWorkspaceChangesPanel({
   );
 }
 
-function WorkspaceDiffSource({ workspace }: { workspace: string }) {
-  return (
-    <div
-      style={{
-        alignSelf: "start",
-        background: "color-mix(in srgb, var(--bg2) 86%, var(--accent) 14%)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-sm)",
-        display: "grid",
-        gap: 4,
-        minWidth: 0,
-        padding: "8px 9px",
-      }}
-    >
-      <div style={{ color: "var(--t2)", fontSize: 10, letterSpacing: "0.06em" }}>
-        LIVE WORKSPACE DIFF
-      </div>
-      <div
-        title={workspace}
-        style={{
-          color: "var(--t1)",
-          fontFamily: "var(--font-mono)",
-          fontSize: 11,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {workspace}
-      </div>
-    </div>
-  );
-}
-
-function WorkspaceFileList({
+function WorkspaceDiffPanel({
+  copiedKey,
+  copyingPath,
+  diff,
+  expandedDiffPaths,
   files,
   fileDiffs,
-  selectedDiffPath,
   loadingPath,
+  summary,
+  workspace,
   revertingPath,
   confirmRevertPath,
+  onCopyFullDiff,
+  onCopyFileDiff,
   onToggleDiff,
   onRequestRevert,
   onCancelRevert,
   onConfirmRevert,
 }: {
+  copiedKey: string;
+  copyingPath: string;
+  diff: string;
+  expandedDiffPaths: string[];
   files: ChatChangedFileRecord[];
   fileDiffs: Record<string, ChatChangedFileDiffRecord>;
-  selectedDiffPath: string;
   loadingPath: string;
+  summary: string;
+  workspace: string;
   revertingPath: string;
   confirmRevertPath: string;
+  onCopyFullDiff: () => void;
+  onCopyFileDiff: (file: ChatChangedFileRecord) => void;
   onToggleDiff: (file: ChatChangedFileRecord) => void;
   onRequestRevert: (path: string) => void;
   onCancelRevert: () => void;
   onConfirmRevert: (paths: string[], label: string) => void;
 }) {
-  const selectedDiff = selectedDiffPath ? fileDiffs[selectedDiffPath] : undefined;
-
   return (
     <div
       style={{
@@ -339,16 +345,32 @@ function WorkspaceFileList({
     >
       <div
         style={{
-          alignItems: "center",
+          alignItems: "flex-start",
           borderBottom: "1px solid var(--border)",
           display: "flex",
           gap: 8,
           justifyContent: "space-between",
-          padding: "6px 8px",
+          padding: "8px 9px",
         }}
       >
         <div style={{ minWidth: 0 }}>
-          <div style={{ color: "var(--t1)", fontSize: 11, fontWeight: 650 }}>Changed files</div>
+          <div style={{ color: "var(--t1)", fontSize: 11, fontWeight: 650 }}>
+            Live workspace diff
+          </div>
+          <div
+            title={workspace}
+            style={{
+              color: "var(--t3)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              marginTop: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {workspace}
+          </div>
           <div
             style={{
               color: "var(--t3)",
@@ -357,7 +379,7 @@ function WorkspaceFileList({
               marginTop: 1,
             }}
           >
-            {files.length} file{files.length === 1 ? "" : "s"} in the working tree
+            {summary || `${files.length} current changed file${files.length === 1 ? "" : "s"}`}
           </div>
         </div>
         {confirmRevertPath === "__all__" ? (
@@ -375,19 +397,35 @@ function WorkspaceFileList({
             </button>
           </div>
         ) : (
-          <button
-            className="btn btn-ghost btn-sm"
-            disabled={Boolean(revertingPath)}
-            onClick={() => onRequestRevert("__all__")}
-            type="button"
-          >
-            Discard all
-          </button>
+          <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+            {diff && (
+              <button
+                aria-label="Copy complete workspace patch"
+                className="btn btn-ghost btn-sm"
+                disabled={Boolean(revertingPath)}
+                onClick={onCopyFullDiff}
+                title="Copy complete workspace patch"
+                type="button"
+              >
+                <Icon d={copiedKey === "full" ? Icons.check : Icons.copy} size={12} />
+                {copiedKey === "full" ? "Copied" : "Copy patch"}
+              </button>
+            )}
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={Boolean(revertingPath)}
+              onClick={() => onRequestRevert("__all__")}
+              type="button"
+            >
+              Discard all
+            </button>
+          </div>
         )}
       </div>
       <div style={{ display: "grid" }}>
         {files.map((file) => {
-          const diffSelected = selectedDiffPath === file.path;
+          const diffSelected = expandedDiffPaths.includes(file.path);
+          const selectedDiff = fileDiffs[file.path];
           const diffButtonLabel = diffSelected
             ? `Hide diff ${file.path}`
             : `Show diff ${file.path}`;
@@ -407,35 +445,58 @@ function WorkspaceFileList({
                   display: "grid",
                   gap: 6,
                   gridTemplateColumns: "minmax(0, 1fr) auto",
-                  padding: "5px 8px",
+                  padding: "6px 8px",
                 }}
               >
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{
-                      color: "var(--t1)",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10.5,
-                      lineHeight: 1.3,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {file.path}
-                  </div>
-                  <div
-                    style={{
-                      color: "var(--t3)",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 9.5,
-                      lineHeight: 1.25,
-                      marginTop: 1,
-                    }}
-                  >
-                    {formatChangedFileMeta(file)}
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  aria-label={diffButtonLabel}
+                  onClick={() => onToggleDiff(file)}
+                  title={diffButtonLabel}
+                  style={{
+                    alignItems: "center",
+                    background: "transparent",
+                    border: 0,
+                    color: "inherit",
+                    cursor: "pointer",
+                    display: "grid",
+                    gap: 7,
+                    gridTemplateColumns: "auto minmax(0, 1fr)",
+                    minWidth: 0,
+                    padding: 0,
+                    textAlign: "left",
+                  }}
+                >
+                  <Icon d={diffSelected ? Icons.chevD : Icons.chevR} size={11} />
+                  <span style={{ minWidth: 0 }}>
+                    <span
+                      style={{
+                        color: "var(--t1)",
+                        display: "block",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10.5,
+                        lineHeight: 1.3,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {file.path}
+                    </span>
+                    <span
+                      style={{
+                        color: "var(--t3)",
+                        display: "block",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 9.5,
+                        lineHeight: 1.25,
+                        marginTop: 1,
+                      }}
+                    >
+                      {formatChangedFileMeta(file)}
+                    </span>
+                  </span>
+                </button>
                 {confirmRevertPath === file.path ? (
                   <div style={{ display: "flex", gap: 4 }}>
                     <button
@@ -456,17 +517,16 @@ function WorkspaceFileList({
                   <div style={{ display: "flex", gap: 4 }}>
                     <button
                       className="btn btn-ghost btn-sm"
-                      disabled={loadingPath === file.path || Boolean(revertingPath)}
-                      aria-label={diffButtonLabel}
-                      onClick={() => onToggleDiff(file)}
-                      title={diffButtonLabel}
+                      disabled={copyingPath === file.path || Boolean(revertingPath)}
+                      aria-label={`Copy diff ${file.path}`}
+                      onClick={() => onCopyFileDiff(file)}
+                      title={`Copy diff ${file.path}`}
                       type="button"
                     >
-                      {loadingPath === file.path
-                        ? "Loading..."
-                        : diffSelected
-                          ? "Hide"
-                          : "View diff"}
+                      <Icon
+                        d={copiedKey === `file:${file.path}` ? Icons.check : Icons.copy}
+                        size={12}
+                      />
                     </button>
                     <button
                       className="btn btn-ghost btn-sm"
@@ -476,35 +536,35 @@ function WorkspaceFileList({
                       title={`Discard ${file.path}`}
                       type="button"
                     >
-                      Discard
+                      <Icon d={Icons.trash} size={12} />
                     </button>
                   </div>
                 )}
               </div>
+              {diffSelected && selectedDiff && (
+                <WorkspaceDiffPreview
+                  diff={selectedDiff.diff}
+                  height="min(42vh, 480px)"
+                  testID="workspace-file-diff-preview"
+                />
+              )}
+              {diffSelected && !selectedDiff && loadingPath === file.path && (
+                <div
+                  style={{
+                    borderTop: "1px solid var(--border)",
+                    color: "var(--t3)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    padding: "6px 8px 8px",
+                  }}
+                >
+                  Loading current diff...
+                </div>
+              )}
             </div>
           );
         })}
       </div>
-      {selectedDiff && (
-        <WorkspaceDiffPreview
-          diff={selectedDiff.diff}
-          height="min(48vh, 520px)"
-          testID="workspace-file-diff-preview"
-        />
-      )}
-      {selectedDiffPath && !selectedDiff && loadingPath === selectedDiffPath && (
-        <div
-          style={{
-            borderTop: "1px solid var(--border)",
-            color: "var(--t3)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            padding: "6px 8px 8px",
-          }}
-        >
-          Loading current diff...
-        </div>
-      )}
     </div>
   );
 }
