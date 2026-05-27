@@ -88,7 +88,7 @@ serve *args:
 	set -a; \
 	[ -f ./.env ] && . ./.env; \
 	set +a; \
-	./hecate
+	./hecate serve
 
 # Run the gateway from source. Sources .env when present. Optional arg: --reset.
 dev *args: _go-cache
