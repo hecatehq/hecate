@@ -3688,6 +3688,7 @@ describe("ChatView external-agent target", () => {
   });
 
   it("shows the current workspace diff in the workspace changes panel", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
       diff_stat: "README.md | 1 +\ndocs/guide.md | 1 +\n2 files changed, 2 insertions(+)",
@@ -3793,24 +3794,33 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
     expect(screen.getByText("1 file")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Workspace changes" }));
 
     expect(getChatWorkspaceDiff).toHaveBeenCalledWith("a1");
-    expect(await screen.findByText("LIVE WORKSPACE DIFF")).toBeTruthy();
+    expect(await screen.findByText("Live workspace diff")).toBeTruthy();
     expect(screen.getByTitle("/tmp/hecate")).toBeTruthy();
     expect((await screen.findAllByText("2 files changed, 2 insertions(+)")).length).toBeGreaterThan(
       0,
     );
-    expect(screen.getByText("Changed files")).toBeTruthy();
-    expect(screen.getByText("2 files in the working tree")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Show diff README.md" }));
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
     const readmePreview = await screen.findByTestId("workspace-file-diff-preview");
     expect(readmePreview).toHaveStyle({ overflow: "auto" });
-    expect(readmePreview).toHaveAttribute("data-preview-height", "min(48vh, 520px)");
+    expect(readmePreview).toHaveAttribute("data-preview-height", "min(42vh, 480px)");
     expect(readmePreview.style.contain).toBe("layout paint");
     expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "Copy complete workspace patch" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("diff --git a/README.md")),
+    );
+    await user.click(screen.getByRole("button", { name: "Copy diff README.md" }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("+current file line")),
+    );
     expect(screen.getByRole("button", { name: "Hide diff README.md" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Hide diff README.md" }));
     expect(screen.queryByTestId("workspace-file-diff-preview")).toBeNull();
