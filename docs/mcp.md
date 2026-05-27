@@ -105,7 +105,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
   "mcpServers": {
     "hecate": {
       "command": "hecate",
-      "args": ["mcp-server"],
+      "args": ["mcp", "serve"],
       "env": {
         "HECATE_BASE_URL": "http://127.0.0.1:8765"
       }
@@ -129,10 +129,10 @@ printf '%s\n%s\n%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"smoke","version":"0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  | hecate mcp-server
+  | hecate mcp serve
 ```
 
-Expected output: two JSON-RPC responses on stdout (initialize result + tools list). The startup line `hecate mcp-server: started on stdio, talking to ...` goes to stderr, which the protocol channel ignores.
+Expected output: two JSON-RPC responses on stdout (initialize result + tools list). The startup line `hecate mcp serve: started on stdio, talking to ...` goes to stderr, which the protocol channel ignores.
 
 ### Behavior notes
 

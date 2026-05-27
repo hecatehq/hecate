@@ -53,7 +53,7 @@ func TestSystemShutdownSmokeExitsCleanly(t *testing.T) {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	baseURL := "http://" + addr
 
-	cmd := exec.Command(bin)
+	cmd := exec.Command(bin, "serve")
 	cmd.Env = append(os.Environ(),
 		"HECATE_ADDRESS="+addr,
 		"HECATE_DATA_DIR="+t.TempDir(),

@@ -143,7 +143,7 @@ func gatewayServer(t *testing.T, extraEnv ...string) string {
 	env = append(env, extraEnv...)
 	env = append(env, autoPreconfiguredEnv(extraEnv)...)
 
-	cmd := exec.Command(bin)
+	cmd := exec.Command(bin, "serve")
 	cmd.Env = env
 	output := newTailBuffer(64 * 1024)
 	cmd.Stdout = output
@@ -1446,7 +1446,7 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	// First start: no token / no data dir env. Cwd-rooted defaults apply,
 	// so the bootstrap file should land at <workDir>/.data/...
 	addr1 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd1 := exec.Command(bin)
+	cmd1 := exec.Command(bin, "serve")
 	cmd1.Dir = workDir
 	cmd1.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
@@ -1509,7 +1509,7 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	// reused, not regenerated, so the persisted control-plane secret
 	// survives restart.
 	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd2 := exec.Command(bin)
+	cmd2 := exec.Command(bin, "serve")
 	cmd2.Dir = workDir
 	cmd2.Env = []string{
 		"PATH=" + os.Getenv("PATH"),

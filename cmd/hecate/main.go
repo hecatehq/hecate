@@ -38,23 +38,7 @@ import (
 	"github.com/hecatehq/hecate/internal/version"
 )
 
-func main() {
-	// Tiny manual flag parse: a single `--version` / `-v` short-circuit.
-	// We don't want to pull in the full flag package here because the rest
-	// of configuration is env-driven; mixing the two would muddle the
-	// surface. Anything other than `--version`/`-v` falls through to the
-	// regular env-driven startup.
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "--version", "-v", "version":
-			fmt.Println(version.Version)
-			return
-		case "mcp-server":
-			runMCPServer()
-			return
-		}
-	}
-
+func runServe() {
 	cfg := config.LoadFromEnv()
 	if err := cfg.Validate(); err != nil {
 		slog.Error("config validation failed", slog.Any("error", err))

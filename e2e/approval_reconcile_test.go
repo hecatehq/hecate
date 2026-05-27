@@ -58,7 +58,7 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 
 	// ── First start: bring the gateway up to materialize the schema.
 	addr1 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd1 := exec.Command(bin)
+	cmd1 := exec.Command(bin, "serve")
 	cmd1.Dir = workDir
 	cmd1.Env = append([]string{"HECATE_ADDRESS=" + addr1}, commonEnv...)
 	cmd1.Stdout = io.Discard
@@ -88,7 +88,7 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	// requests. By the time /healthz responds, the row is already
 	// flipped — we never observe it in pending state via the API.
 	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd2 := exec.Command(bin)
+	cmd2 := exec.Command(bin, "serve")
 	cmd2.Dir = workDir
 	cmd2.Env = append([]string{"HECATE_ADDRESS=" + addr2}, commonEnv...)
 	cmd2.Stdout = io.Discard
@@ -144,7 +144,7 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	}
 
 	addr1 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd1 := exec.Command(bin)
+	cmd1 := exec.Command(bin, "serve")
 	cmd1.Dir = workDir
 	cmd1.Env = append([]string{"HECATE_ADDRESS=" + addr1}, commonEnv...)
 	cmd1.Stdout = io.Discard
@@ -173,7 +173,7 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	_ = cmd1.Wait()
 
 	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd2 := exec.Command(bin)
+	cmd2 := exec.Command(bin, "serve")
 	cmd2.Dir = workDir
 	cmd2.Env = append([]string{"HECATE_ADDRESS=" + addr2}, commonEnv...)
 	cmd2.Stdout = io.Discard

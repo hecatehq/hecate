@@ -229,7 +229,7 @@ Recognized markers: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[act
 Top-level entry points:
 
 ```
-cmd/hecate/            # main runtime entry point (gateway service, embedded UI, `mcp-server` subcommand)
+cmd/hecate/            # main runtime entry point (gateway service, embedded UI, CLI commands)
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
 website/                # Astro homepage for hecate.sh
 tauri/                  # native desktop app (Tauri 2.x); wraps `hecate` as a sidecar
@@ -252,7 +252,7 @@ controlplane            # persisted providers, secrets, and policy settings
 eventprotocol           # typed agent-event envelope + emitter (see docs/event-protocol-v1.md)
 gateway                 # request lifecycle: policy, router, retry/fallback
 governor                # policy rules, route gates, and append-only usage events
-mcp                     # Hecate-as-MCP-server implementation (the `hecate mcp-server` subcommand)
+mcp                     # Hecate-as-MCP-server implementation (the `hecate mcp serve` command)
 models                  # model identity + canonical-name resolution
 orchestrator            # task runtime: queue, runner, executors, sandbox boundary
 policy                  # declarative deny / rewrite policy rules

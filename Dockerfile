@@ -106,3 +106,4 @@ VOLUME ["/data"]
 EXPOSE 8765
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/hecate"]
+CMD ["serve"]

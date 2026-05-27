@@ -329,7 +329,7 @@ func startGatewayProcess(extraEnv ...string) (string, error) {
 	env = append(env, extraEnv...)
 	env = append(env, autoPreconfiguredEnv(extraEnv)...)
 
-	cmd := exec.Command(bin)
+	cmd := exec.Command(bin, "serve")
 	cmd.Env = env
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard

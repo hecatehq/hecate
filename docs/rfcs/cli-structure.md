@@ -1,8 +1,22 @@
 # CLI structure for `hecate`
 
-> **Status:** proposed; not implemented.
-> **Current source of truth:** [`cmd/hecate/main.go`](../../cmd/hecate/main.go) (current manual flag parse) and [`docs/mcp.md`](../mcp.md) (operator-facing MCP documentation).
-> **Next action:** land a structured command package, move runtime startup to `hecate serve`, and make bare `hecate` the terminal operator UI.
+> **Status:** partially implemented.
+> **Current source of truth:** [`cmd/hecate/cli.go`](../../cmd/hecate/cli.go), [`cmd/hecate/main.go`](../../cmd/hecate/main.go), and [`docs/mcp.md`](../mcp.md).
+> **Next action:** make bare `hecate` the terminal operator UI, then add `hecate ui`, `status`, `about`, and `doctor` in focused follow-up PRs.
+
+## Implementation status
+
+The first command-tree slice is implemented with Cobra:
+
+- `hecate serve` starts the runtime / HTTP API / embedded UI server.
+- `hecate mcp serve` starts the stdio MCP server.
+- `hecate version`, `hecate --version`, and `hecate -v` print the version.
+- Bare `hecate` still starts the runtime as a temporary compatibility alias.
+- `hecate mcp-server` still works as a hidden compatibility alias.
+
+Not implemented yet: the terminal operator UI for bare `hecate`, `hecate ui`,
+`status`, `about`, `doctor`, auth commands, ACP server commands, and
+`migrate`.
 
 ## Problem
 
@@ -326,6 +340,10 @@ internal/browseropen/    # cross-platform local browser opener if worth splittin
 under `internal/` so tests can exercise it without shelling out to the binary.
 
 ## Breaking changes and migration
+
+The first Cobra slice is intentionally compatibility-preserving: bare `hecate`
+and `hecate mcp-server` still work while internal launch sites and docs move to
+the new names. The breaking changes below are the target state for the TUI PR.
 
 Breaking changes:
 

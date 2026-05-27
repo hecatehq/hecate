@@ -297,6 +297,7 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     // is synchronous and can be called from the window-close event handler
     // without an async runtime.
     let mut child = std::process::Command::new(&bin)
+        .arg("serve")
         .env("HECATE_ADDRESS", &addr)
         .env("HECATE_BACKEND", "sqlite")
         .env("HECATE_PUBLIC_URL", &base_url)
