@@ -168,18 +168,33 @@ export function ChatWorkspaceChangesPanel({
     >
       <div
         style={{
+          alignItems: "flex-start",
           borderBottom: "1px solid var(--border)",
+          display: "flex",
+          gap: 10,
+          justifyContent: "space-between",
           padding: "14px 14px 12px",
         }}
       >
-        <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Workspace changes</div>
-        <div style={{ marginTop: 4, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-          {loading
-            ? "Checking current git diff..."
-            : hasChanges
-              ? summary || "Current git diff has changes."
-              : "No current git diff."}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Workspace changes</div>
+          <div style={{ marginTop: 4, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+            {loading
+              ? "Checking current Git diff..."
+              : hasChanges
+                ? summary || "Current Git diff has changes."
+                : "No current Git diff."}
+          </div>
         </div>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          disabled={loading}
+          onClick={() => void refresh()}
+          style={{ flexShrink: 0, fontSize: 11 }}
+        >
+          {loading ? "Refreshing..." : "Refresh"}
+        </button>
       </div>
       <div
         style={{
@@ -189,32 +204,11 @@ export function ChatWorkspaceChangesPanel({
           padding: 14,
           display: "grid",
           gap: 10,
+          alignContent: "start",
           minHeight: 0,
         }}
       >
-        <div style={{ alignItems: "center", display: "flex", gap: 8 }}>
-          <div
-            style={{
-              color: "var(--t2)",
-              flex: 1,
-              fontSize: 11,
-              lineHeight: 1.5,
-              minWidth: 0,
-            }}
-          >
-            Live Git diff for{" "}
-            <span style={{ color: "var(--t1)", fontFamily: "var(--font-mono)" }}>{workspace}</span>.
-          </div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={loading}
-            onClick={() => void refresh()}
-            style={{ flexShrink: 0, fontSize: 11 }}
-          >
-            {loading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
+        <WorkspaceDiffSource workspace={workspace} />
         {loadFailed ? (
           <div style={{ color: "var(--red)", fontSize: 11, lineHeight: 1.5 }}>
             Could not load the current workspace diff.
@@ -239,16 +233,33 @@ export function ChatWorkspaceChangesPanel({
             )}
             {localError && <InlineError message={localError} />}
             {diff && (
-              <details style={{ display: "grid", gap: 6 }}>
+              <details
+                style={{
+                  alignSelf: "start",
+                  background: "var(--bg2)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm)",
+                  display: "grid",
+                  overflow: "hidden",
+                }}
+              >
                 <summary
                   style={{
-                    color: "var(--t2)",
+                    alignItems: "center",
+                    color: "var(--t1)",
                     cursor: "pointer",
+                    display: "flex",
                     fontFamily: "var(--font-mono)",
                     fontSize: 11,
+                    gap: 8,
+                    justifyContent: "space-between",
+                    padding: "7px 9px",
                   }}
                 >
-                  current git diff
+                  <span>Complete patch</span>
+                  <span style={{ color: "var(--t3)", fontSize: 10 }}>
+                    {summary || "current Git diff"}
+                  </span>
                 </summary>
                 <WorkspaceDiffPreview diff={diff} maxHeight="min(58vh, 640px)" />
               </details>
@@ -259,6 +270,40 @@ export function ChatWorkspaceChangesPanel({
             The current workspace is clean.
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceDiffSource({ workspace }: { workspace: string }) {
+  return (
+    <div
+      style={{
+        alignSelf: "start",
+        background: "color-mix(in srgb, var(--bg2) 86%, var(--accent) 14%)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        display: "grid",
+        gap: 4,
+        minWidth: 0,
+        padding: "8px 9px",
+      }}
+    >
+      <div style={{ color: "var(--t2)", fontSize: 10, letterSpacing: "0.06em" }}>
+        LIVE WORKSPACE DIFF
+      </div>
+      <div
+        title={workspace}
+        style={{
+          color: "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {workspace}
       </div>
     </div>
   );
@@ -290,6 +335,7 @@ function WorkspaceFileList({
   return (
     <div
       style={{
+        alignSelf: "start",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius-sm)",
         background: "var(--bg2)",
@@ -307,9 +353,19 @@ function WorkspaceFileList({
           padding: "6px 8px",
         }}
       >
-        <span style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-          {files.length} current changed file{files.length === 1 ? "" : "s"}
-        </span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: "var(--t1)", fontSize: 11, fontWeight: 650 }}>Changed files</div>
+          <div
+            style={{
+              color: "var(--t3)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              marginTop: 1,
+            }}
+          >
+            {files.length} file{files.length === 1 ? "" : "s"} in the working tree
+          </div>
+        </div>
         {confirmRevertPath === "__all__" ? (
           <div style={{ display: "flex", gap: 6 }}>
             <button
@@ -410,7 +466,7 @@ function WorkspaceFileList({
                       title={diffButtonLabel}
                       type="button"
                     >
-                      {loadingPath === file.path ? "Loading..." : diffOpen ? "Hide" : "Diff"}
+                      {loadingPath === file.path ? "Loading..." : diffOpen ? "Hide" : "View diff"}
                     </button>
                     <button
                       className="btn btn-ghost btn-sm"
@@ -467,11 +523,11 @@ function WorkspaceDiffPreview({
       data-testid={testID}
       style={{
         borderTop: "1px solid var(--border)",
-        marginTop: 6,
         maxHeight,
         minHeight: 0,
         minWidth: 0,
         overflow: "auto",
+        padding: 8,
       }}
     >
       <DiffViewer diff={diff} />
