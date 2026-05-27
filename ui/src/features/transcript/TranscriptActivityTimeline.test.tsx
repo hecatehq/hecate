@@ -261,6 +261,26 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText(/tool ERrtqCoy/)).toBeNull();
   });
 
+  it("keeps captured read output out of the inline activity row", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "completed",
+        kind: "read",
+        detail:
+          'read · output: 1><h1 align="center">Hecate</h1> 2><img src="docs/assets/logo.png">',
+      },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText("Read context")).toBeInTheDocument();
+    expect(screen.getByText("read · output captured")).toBeInTheDocument();
+    expect(screen.queryByText(/h1 align/)).toBeNull();
+    expect(screen.queryByText(/docs\/assets\/logo/)).toBeNull();
+  });
+
   it("summarizes noisy generic command activity while preserving the run summary count", () => {
     const activities: ChatActivityRecord[] = [
       {
@@ -396,8 +416,18 @@ describe("TranscriptActivityTimeline", () => {
   it("groups internal task artifacts under Details", () => {
     const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "completed", kind: "git" },
-      { type: "artifact", title: "git-stdout.txt", status: "ready" },
-      { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_size_bytes: 0 },
+      {
+        type: "artifact",
+        title: "git-stdout.txt",
+        status: "ready",
+        artifact_preview: "stdout",
+      },
+      {
+        type: "artifact",
+        title: "git-stderr.txt",
+        status: "ready",
+        artifact_preview: "stderr",
+      },
       { type: "changed_files", title: "git-changes.json", status: "ready" },
       { type: "final_answer", title: "agent-final-answer.txt", status: "ready" },
     ];
@@ -417,6 +447,15 @@ describe("TranscriptActivityTimeline", () => {
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.queryByText("stderr · 0b")).toBeNull();
     expect(screen.queryByText(/Output/)).toBeNull();
+  });
+
+  it("hides output artifacts without captured previews", () => {
+    const activities: ChatActivityRecord[] = [
+      { type: "artifact", title: "ACP output", status: "ready", detail: "stdout · 1 line" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.queryByText("Output and artifacts · 1 item")).toBeNull();
+    expect(screen.queryByText("ACP output")).toBeNull();
   });
 
   it("hides internal agent-loop approval markers from operator-facing rows", () => {
