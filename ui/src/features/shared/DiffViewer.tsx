@@ -31,7 +31,15 @@ const DIFF_VIEWER_OPTIONS = {
   `,
 } as const;
 
-export function DiffViewer({ diff, compact = false }: { diff: string; compact?: boolean }) {
+export function DiffViewer({
+  diff,
+  compact = false,
+  embedded = false,
+}: {
+  diff: string;
+  compact?: boolean;
+  embedded?: boolean;
+}) {
   const patch = normalizePatch(diff);
   const parsedFiles = useMemo(() => parseDiffFiles(patch), [patch]);
 
@@ -40,7 +48,13 @@ export function DiffViewer({ diff, compact = false }: { diff: string; compact?: 
 
   return (
     <div
-      className={`diff-viewer ${compact ? "diff-viewer-compact" : ""}`}
+      className={[
+        "diff-viewer",
+        compact ? "diff-viewer-compact" : "",
+        embedded ? "diff-viewer-embedded" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       data-testid="diff-viewer"
     >
       {parsedFiles.map((file, index) => (
@@ -51,7 +65,11 @@ export function DiffViewer({ diff, compact = false }: { diff: string; compact?: 
           className="diff-viewer-file"
           options={{
             ...DIFF_VIEWER_OPTIONS,
+            disableFileHeader: embedded,
+            disableVirtualizationBuffers: embedded,
             disableLineNumbers: compact,
+            hunkSeparators: embedded ? "simple" : DIFF_VIEWER_OPTIONS.hunkSeparators,
+            stickyHeader: false,
           }}
         />
       ))}

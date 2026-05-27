@@ -681,6 +681,17 @@ diffs-container.diff-viewer-file {
   --diffs-font-size: 10.5px;
   --diffs-line-height: 17px;
 }
+.diff-viewer-embedded {
+  gap: 0;
+  margin: 0;
+}
+.diff-viewer-embedded diffs-container.diff-viewer-file {
+  border: 0;
+  border-radius: 0;
+}
+.diff-viewer-embedded diffs-container.diff-viewer-file + diffs-container.diff-viewer-file {
+  border-top: 1px solid var(--border);
+}
 .diff-viewer-raw {
   border: 1px solid var(--border);
   border-radius: var(--radius);
