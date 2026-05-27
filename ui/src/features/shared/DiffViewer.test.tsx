@@ -54,6 +54,12 @@ describe("DiffViewer", () => {
     expect(container.querySelectorAll("diffs-container.diff-viewer-file")).toHaveLength(2);
   });
 
+  it("keeps line numbers visible in compact previews", () => {
+    render(<DiffViewer compact embedded diff={MULTI_FILE_DIFF} />);
+
+    expect(screen.getByTestId("diff-viewer")).toHaveAttribute("data-line-numbers", "visible");
+  });
+
   it("falls back to a lightweight diff view when the text is not parseable as a patch", () => {
     render(<DiffViewer diff="not a patch, just diagnostic output" />);
 

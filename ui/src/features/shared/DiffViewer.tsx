@@ -58,6 +58,7 @@ export function DiffViewer({
         .filter(Boolean)
         .join(" ")}
       data-diff-theme={themeType}
+      data-line-numbers="visible"
       data-testid="diff-viewer"
     >
       {parsedFiles.map((file, index) => (
@@ -70,7 +71,7 @@ export function DiffViewer({
             ...DIFF_VIEWER_OPTIONS,
             disableFileHeader: embedded,
             disableVirtualizationBuffers: embedded,
-            disableLineNumbers: compact,
+            disableLineNumbers: false,
             hunkSeparators: embedded ? "simple" : DIFF_VIEWER_OPTIONS.hunkSeparators,
             stickyHeader: false,
             themeType,
