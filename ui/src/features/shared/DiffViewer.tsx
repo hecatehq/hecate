@@ -9,6 +9,8 @@ const DIFF_VIEWER_OPTIONS = {
   diffIndicators: "bars",
   hunkSeparators: "line-info-basic",
   overflow: "wrap",
+  // Build-time-constant CSS only. Never interpolate workspace paths,
+  // diff content, or other operator input into this trusted CSS hook.
   unsafeCSS: `
     [data-diffs-header] {
       background: var(--diffs-header-bg);
@@ -105,8 +107,13 @@ function readDiffViewerThemeType(): DiffThemeType {
 
 function parseDiffFiles(patch: string) {
   try {
+    // Load-bearing @pierre/diffs API surface: parsePatchFiles(),
+    // FileDiff, disableWorkerPool, and the option keys above.
     return parsePatchFiles(patch, "hecate-diff", true).flatMap((parsedPatch) => parsedPatch.files);
-  } catch {
+  } catch (err) {
+    if (import.meta.env.DEV) {
+      console.warn("[hecate] rich diff parse failed; rendering raw diff fallback", err);
+    }
     return [];
   }
 }
