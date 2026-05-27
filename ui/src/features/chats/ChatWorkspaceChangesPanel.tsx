@@ -536,7 +536,7 @@ function WorkspaceDiffPreview({
         position: "relative",
       }}
     >
-      <DiffViewer compact diff={diff} />
+      <DiffViewer compact embedded diff={diff} />
     </div>
   );
 }

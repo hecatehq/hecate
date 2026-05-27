@@ -27,6 +27,13 @@ describe("DiffViewer", () => {
     expect(container.querySelectorAll("diffs-container.diff-viewer-file")).toHaveLength(2);
   });
 
+  it("can render as an embedded preview without nested file chrome", () => {
+    const { container } = render(<DiffViewer compact embedded diff={MULTI_FILE_DIFF} />);
+
+    expect(screen.getByTestId("diff-viewer")).toHaveClass("diff-viewer-embedded");
+    expect(container.querySelectorAll("diffs-container.diff-viewer-file")).toHaveLength(2);
+  });
+
   it("falls back to a lightweight diff view when the text is not parseable as a patch", () => {
     render(<DiffViewer diff="not a patch, just diagnostic output" />);
 
