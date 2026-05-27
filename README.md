@@ -117,6 +117,10 @@ Chats is the primary day-to-day surface. It explains missing setup before you se
 
 Hecate Chat keeps direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
 
+![Chats workspace with the Workspace changes panel open and a rich per-file diff](docs/screenshots/chat-workspace-diff.png)
+
+Workspace changes live beside the chat as session context: review the current Git diff, copy the full patch or a single file patch, and discard selected files without digging through transcript noise.
+
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 
 If the selected model is known not to support tool-calling, Hecate keeps the chat usable as direct model chat and shows the tools-unavailable state in the header instead of failing the prompt.
@@ -188,6 +192,10 @@ Chats starts from a project-aware shell with setup-aware onboarding: local runti
 ![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)
 
 Hecate Chat keeps project-scoped direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
+
+![Chats workspace with the Workspace changes panel open and a rich per-file diff](docs/screenshots/chat-workspace-diff.png)
+
+Workspace changes stay in the side panel instead of the transcript: inspect changed files, expand rich diffs, copy patches, or discard selected paths from the active workspace.
 
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 
