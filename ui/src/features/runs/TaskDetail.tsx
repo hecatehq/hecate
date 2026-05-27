@@ -15,7 +15,8 @@ import {
   formatMicrosUSD,
 } from "../../lib/format";
 import { providerDisplayName } from "../../lib/provider-utils";
-import { Badge, BrandAvatar, CodeBlock, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
+import { Badge, BrandAvatar, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
+import { DiffViewer } from "../shared/DiffViewer";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
 
 import { AgentConversationView } from "./TaskAgentConversation";
@@ -1253,7 +1254,7 @@ export function TaskDetail({
 function PatchDiffPreview({ diff }: { diff: string }) {
   return (
     <div data-testid="patch-diff-preview">
-      <CodeBlock code={diff} lang="diff" />
+      <DiffViewer diff={diff} />
     </div>
   );
 }

@@ -5,6 +5,16 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = function () {};
 }
 
+// jsdom does not provide ResizeObserver; rich diff custom elements observe
+// themselves after render, so tests only need a no-op implementation.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 // jsdom exposes requestSubmit but routes it through an unimplemented path.
 if (typeof HTMLFormElement !== "undefined") {
   Object.defineProperty(HTMLFormElement.prototype, "requestSubmit", {

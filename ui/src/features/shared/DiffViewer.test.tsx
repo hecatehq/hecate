@@ -27,11 +27,37 @@ describe("DiffViewer", () => {
     expect(container.querySelectorAll("diffs-container.diff-viewer-file")).toHaveLength(2);
   });
 
-  it("falls back to the plain diff code block when the text is not parseable as a patch", () => {
+  it("falls back to a lightweight diff view when the text is not parseable as a patch", () => {
     render(<DiffViewer diff="not a patch, just diagnostic output" />);
 
     expect(screen.queryByTestId("diff-viewer")).toBeNull();
-    expect(screen.getByText("diff")).toBeInTheDocument();
+    expect(screen.getByTestId("diff-viewer-raw")).toBeInTheDocument();
     expect(screen.getByText("not a patch, just diagnostic output")).toBeInTheDocument();
+  });
+
+  it("parses git patches even when diagnostics precede the diff header", () => {
+    const { container } = render(
+      <DiffViewer
+        diff={`current diff · AGENTS.md
+diff --git a/AGENTS.md b/AGENTS.md
+index be6d4e94..256cc3b9 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -27,6 +27,14 @@ guidance live in [\`docs-ai/\`](docs-ai/README.md).
+ 
+ When in doubt: read [\`docs-ai/core/project-context.md\`](docs-ai/core/project-context.md).
+ 
++## Local shell command policy
++
++- RTK may be used as a token-saving shell prefix.
++
+ ## Codebase map
+`}
+      />,
+    );
+
+    expect(screen.getByTestId("diff-viewer")).toBeInTheDocument();
+    expect(screen.queryByTestId("diff-viewer-raw")).toBeNull();
+    expect(container.querySelectorAll("diffs-container.diff-viewer-file")).toHaveLength(1);
   });
 });

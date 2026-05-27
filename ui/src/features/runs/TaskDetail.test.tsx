@@ -648,8 +648,8 @@ describe("TaskDetail runtime activity and patches", () => {
     render();
     await user.click(screen.getByRole("button", { name: /preview/i }));
     expect(screen.getByText("Patch preview")).toBeTruthy();
-    expect(screen.getByText("-old")).toBeTruthy();
-    expect(screen.getByText("+new")).toBeTruthy();
+    expect(screen.getByTestId("diff-viewer")).toBeTruthy();
+    expect(document.querySelectorAll("diffs-container.diff-viewer-file")).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /apply patch/i }));
     expect(onApplyPatch).toHaveBeenCalledWith("art-patch-1");
   });

@@ -2,7 +2,7 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
 import { useMemo } from "react";
 
-import { CodeBlock } from "./Atoms";
+const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 const DIFF_VIEWER_OPTIONS = {
   diffStyle: "unified",
@@ -32,11 +32,11 @@ const DIFF_VIEWER_OPTIONS = {
 } as const;
 
 export function DiffViewer({ diff, compact = false }: { diff: string; compact?: boolean }) {
-  const patch = diff.trim();
+  const patch = normalizePatch(diff);
   const parsedFiles = useMemo(() => parseDiffFiles(patch), [patch]);
 
   if (!patch) return null;
-  if (parsedFiles.length === 0) return <CodeBlock code={diff} lang="diff" />;
+  if (parsedFiles.length === 0) return <RawDiffFallback diff={patch} compact={compact} />;
 
   return (
     <div
@@ -65,4 +65,42 @@ function parseDiffFiles(patch: string) {
   } catch {
     return [];
   }
+}
+
+function normalizePatch(diff: string): string {
+  const withoutAnsi = diff.replace(ANSI_ESCAPE_PATTERN, "");
+  const normalizedNewlines = withoutAnsi.replace(/\r\n?/g, "\n").trim();
+  const firstPatchHeader = normalizedNewlines.search(/^diff --git /m);
+  if (firstPatchHeader > 0) return normalizedNewlines.slice(firstPatchHeader).trim();
+  return normalizedNewlines;
+}
+
+function RawDiffFallback({ diff, compact }: { diff: string; compact: boolean }) {
+  return (
+    <div
+      className={`diff-viewer diff-viewer-raw ${compact ? "diff-viewer-compact" : ""}`}
+      data-testid="diff-viewer-raw"
+    >
+      {diff.split("\n").map((line, index) => (
+        <div key={index} className={`diff-viewer-raw-line ${rawDiffLineClass(line)}`}>
+          {line || " "}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function rawDiffLineClass(line: string): string {
+  if (line.startsWith("+") && !line.startsWith("+++")) return "diff-viewer-raw-line-add";
+  if (line.startsWith("-") && !line.startsWith("---")) return "diff-viewer-raw-line-remove";
+  if (line.startsWith("@@")) return "diff-viewer-raw-line-hunk";
+  if (
+    line.startsWith("diff --git") ||
+    line.startsWith("index ") ||
+    line.startsWith("---") ||
+    line.startsWith("+++")
+  ) {
+    return "diff-viewer-raw-line-meta";
+  }
+  return "diff-viewer-raw-line-context";
 }
