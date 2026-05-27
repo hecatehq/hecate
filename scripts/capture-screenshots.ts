@@ -183,6 +183,72 @@ const docsHecateToolsFallbackSessionID = "chat-docs-hecate-tools-fallback";
 const docsTaskID = "task_docs_git_status";
 const docsRunID = "run_docs_git_status";
 
+const docsWorkspaceDiffFiles = [
+  {
+    path: "docs/runtime-api.md",
+    status: "modified",
+    additions: 5,
+    deletions: 1,
+  },
+  {
+    path: "ui/src/features/chats/ChatWorkspaceChangesPanel.tsx",
+    status: "modified",
+    additions: 18,
+    deletions: 4,
+  },
+];
+
+const docsWorkspaceDiffByPath: Record<string, string> = {
+  "docs/runtime-api.md":
+    "diff --git a/docs/runtime-api.md b/docs/runtime-api.md\n" +
+    "index 1a2b3c4..5d6e7f8 100644\n" +
+    "--- a/docs/runtime-api.md\n" +
+    "+++ b/docs/runtime-api.md\n" +
+    "@@ -42,7 +42,11 @@ Chat sessions keep operator-visible state.\n" +
+    " The transcript stores user and assistant turns.\n" +
+    "-Changed files are shown inside the assistant message.\n" +
+    "+Workspace changes are session context, not just transcript text.\n" +
+    "+The right panel can show the current Git diff for the selected workspace.\n" +
+    "+Each file can be copied or discarded independently.\n" +
+    "+The full patch remains copyable for review outside Hecate.\n" +
+    "+Message-level artifacts still stay attached to the turn that produced them.\n" +
+    " Approvals remain blocking until the operator decides.\n",
+  "ui/src/features/chats/ChatWorkspaceChangesPanel.tsx":
+    "diff --git a/ui/src/features/chats/ChatWorkspaceChangesPanel.tsx b/ui/src/features/chats/ChatWorkspaceChangesPanel.tsx\n" +
+    "index 7b4d8fe..91bc4aa 100644\n" +
+    "--- a/ui/src/features/chats/ChatWorkspaceChangesPanel.tsx\n" +
+    "+++ b/ui/src/features/chats/ChatWorkspaceChangesPanel.tsx\n" +
+    "@@ -118,10 +118,24 @@ function WorkspaceDiffPanel() {\n" +
+    "-  return <RawDiffBlock diff={diff} />;\n" +
+    "+  return (\n" +
+    "+    <DiffViewer\n" +
+    "+      compact\n" +
+    "+      embedded\n" +
+    "+      diff={diff}\n" +
+    "+      showLineNumbers\n" +
+    "+    />\n" +
+    "+  );\n" +
+    " }\n" +
+    " \n" +
+    " function FileActions() {\n" +
+    "-  return <button>Discard</button>;\n" +
+    "+  return (\n" +
+    "+    <div className=\"workspace-file-actions\">\n" +
+    "+      <button aria-label=\"Copy file patch\">Copy</button>\n" +
+    "+      <button aria-label=\"Discard file changes\">Revert</button>\n" +
+    "+    </div>\n" +
+    "+  );\n" +
+    " }\n",
+};
+
+const docsWorkspaceDiff = docsWorkspaceDiffFiles
+  .map((file) => docsWorkspaceDiffByPath[file.path])
+  .join("\n");
+const docsWorkspaceDiffStat =
+  "docs/runtime-api.md | 6 +++++-\n" +
+  "ui/src/features/chats/ChatWorkspaceChangesPanel.tsx | 22 ++++++++++++++++++----\n" +
+  "2 files changed, 23 insertions(+), 5 deletions(-)";
+
 function docsTimestamp(offsetMinutes = 0): string {
   return new Date(Date.now() + offsetMinutes * 60_000).toISOString();
 }
@@ -820,6 +886,63 @@ async function unrouteHecateChatDocsFixture(page: Page) {
   await page.unroute(
     `${HECATE_API}/chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`,
   );
+}
+
+async function routeWorkspaceDiffDocsFixture(page: Page, sessionID: string) {
+  await page.route(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff`, (route) => {
+    fulfillJSON(route, {
+      object: "chat_workspace_diff",
+      data: {
+        workspace: "/Users/alice/dev/hecate",
+        diff_stat: docsWorkspaceDiffStat,
+        diff: docsWorkspaceDiff,
+        has_changes: true,
+        files: docsWorkspaceDiffFiles,
+      },
+    });
+  });
+  await page.route(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff/files/**`, (route) => {
+    const url = new URL(route.request().url());
+    const encodedPath = url.pathname.split("/workspace-diff/files/")[1] ?? "";
+    const filePath = decodeURIComponent(encodedPath);
+    const file = docsWorkspaceDiffFiles.find((candidate) => candidate.path === filePath);
+    const diff = docsWorkspaceDiffByPath[filePath];
+    if (!file || !diff) {
+      route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: { message: "File diff not found" },
+        }),
+      });
+      return;
+    }
+    fulfillJSON(route, {
+      object: "chat_workspace_file_diff",
+      data: {
+        ...file,
+        diff,
+      },
+    });
+  });
+  await page.route(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff/revert`, (route) => {
+    fulfillJSON(route, {
+      object: "chat_workspace_diff",
+      data: {
+        workspace: "/Users/alice/dev/hecate",
+        diff_stat: "",
+        diff: "",
+        has_changes: false,
+        files: [],
+      },
+    });
+  });
+}
+
+async function unrouteWorkspaceDiffDocsFixture(page: Page, sessionID: string) {
+  await page.unroute(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff`);
+  await page.unroute(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff/files/**`);
+  await page.unroute(`${HECATE_API}/chat/sessions/${sessionID}/workspace-diff/revert`);
 }
 
 async function routeHecateToolsFallbackDocsFixture(page: Page) {
@@ -1702,9 +1825,20 @@ async function main() {
   await page.waitForSelector("text=Tools on", { timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "chat");
+
+  // ── 7. Workspace changes panel with rich diff ──────────────────────────────
+  console.log("→ chat-workspace-diff (workspace changes panel)");
+  await routeWorkspaceDiffDocsFixture(page, docsHecateChatSessionID);
+  await page.getByRole("button", { name: "Workspace changes" }).click();
+  await page.waitForSelector("text=Live workspace diff", { timeout: 5_000 });
+  await page.waitForSelector("text=docs/runtime-api.md", { timeout: 5_000 });
+  await page.waitForSelector("text=Copy patch", { timeout: 5_000 });
+  await page.waitForTimeout(700);
+  await snap(page, "chat-workspace-diff");
+  await unrouteWorkspaceDiffDocsFixture(page, docsHecateChatSessionID);
   await unrouteHecateChatDocsFixture(page);
 
-  // ── 7. Hecate Chat with a non-tool model ────────────────────────────────────
+  // ── 8. Hecate Chat with a non-tool model ────────────────────────────────────
   // This captures the fallback path where the chat remains usable, but the
   // header tells the operator the selected model cannot drive task tools.
   console.log("→ chat-tools-fallback (non-tool model, direct chat fallback)");
@@ -1732,7 +1866,7 @@ async function main() {
   await snap(page, "chat-tools-fallback");
   await unrouteHecateToolsFallbackDocsFixture(page);
 
-  // ── 8. Tasks ────────────────────────────────────────────────────────────────
+  // ── 9. Tasks ────────────────────────────────────────────────────────────────
   console.log("→ tasks (failed tool diagnostics fixture)");
   await routeTaskDiagnosticsDocsFixture(page);
   await page.reload();
@@ -1753,7 +1887,7 @@ async function main() {
   await snap(page, "tasks");
   await unrouteTaskDiagnosticsDocsFixture(page);
 
-  // ── 9. Observability — pick a trace first ───────────────────────────────────
+  // ── 10. Observability — pick a trace first ──────────────────────────────────
   console.log("→ observe (trace selected)");
   await routeObservabilityDocsFixture(page);
   await openWorkspace(page, "overview");
@@ -1773,7 +1907,7 @@ async function main() {
   await snap(page, "observe");
   await unrouteObservabilityDocsFixture(page);
 
-  // ── 10. Usage workspace ────────────────────────────────────────────
+  // ── 11. Usage workspace ────────────────────────────────────────────
   console.log("→ usage");
   await page.route(`${HECATE_API}/usage/summary`, (route) =>
     fulfillJSON(route, {
@@ -1825,14 +1959,14 @@ async function main() {
   await page.waitForTimeout(500);
   await snap(page, "usage");
 
-  // ── 11. Settings — Retention ───────────────────────────────────────
+  // ── 12. Settings — Retention ───────────────────────────────────────
   console.log("→ settings / retention");
   await openWorkspace(page, "settings");
   await page.waitForTimeout(500);
   await page.waitForTimeout(500);
   await snap(page, "settings");
 
-  // ── 12. New external-agent surfaces ────────────────────────────────────────
+  // ── 13. New external-agent surfaces ────────────────────────────────────────
   // Mock these endpoints so the documentation shots stay deterministic:
   // screenshots should show the intended UI shape, not whatever agent CLIs
   // and auth state happen to exist on the capture machine.

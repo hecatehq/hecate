@@ -3809,9 +3809,10 @@ describe("ChatView external-agent target", () => {
     );
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
     const readmePreview = await screen.findByTestId("workspace-file-diff-preview");
-    expect(readmePreview).toHaveStyle({ overflow: "auto" });
-    expect(readmePreview).toHaveAttribute("data-preview-height", "min(42vh, 480px)");
-    expect(readmePreview.style.contain).toBe("layout paint");
+    expect(readmePreview).toHaveStyle({ overflow: "visible" });
+    expect(readmePreview).not.toHaveStyle({ height: "min(42vh, 480px)" });
+    expect(readmePreview).not.toHaveAttribute("data-preview-height");
+    expect(readmePreview.style.contain).toBe("");
     expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Copy complete workspace patch" }));
     await waitFor(() =>

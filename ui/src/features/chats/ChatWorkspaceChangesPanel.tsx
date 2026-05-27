@@ -536,7 +536,7 @@ function WorkspaceDiffPanel({
                       title={`Discard ${file.path}`}
                       type="button"
                     >
-                      <Icon d={Icons.trash} size={12} />
+                      <Icon d={Icons.revert} size={12} />
                     </button>
                   </div>
                 )}
@@ -544,7 +544,6 @@ function WorkspaceDiffPanel({
               {diffSelected && selectedDiff && (
                 <WorkspaceDiffPreview
                   diff={selectedDiff.diff}
-                  height="min(42vh, 480px)"
                   testID="workspace-file-diff-preview"
                 />
               )}
@@ -571,27 +570,21 @@ function WorkspaceDiffPanel({
 
 function WorkspaceDiffPreview({
   diff,
-  height,
   testID = "workspace-diff-preview",
 }: {
   diff: string;
-  height: string;
   testID?: string;
 }) {
   return (
     <div
-      data-preview-height={height}
       data-testid={testID}
       style={{
         background: "var(--bg0)",
         borderTop: "1px solid var(--border)",
-        contain: "layout paint",
-        height,
         isolation: "isolate",
-        minHeight: 0,
         minWidth: 0,
         overscrollBehavior: "contain",
-        overflow: "auto",
+        overflow: "visible",
         padding: 8,
         position: "relative",
       }}
