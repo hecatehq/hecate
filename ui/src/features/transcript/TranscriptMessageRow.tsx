@@ -9,6 +9,7 @@ import type {
 import { formatDurationMs } from "../../lib/format";
 import { CodeBlock } from "../shared/Atoms";
 import { BrandAvatar } from "../shared/BrandAvatar";
+import { DiffViewer } from "../shared/DiffViewer";
 import { Icon, Icons } from "../shared/Icons";
 import { DiffStatList, TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
@@ -344,7 +345,7 @@ function ActivityFilesPreview({ activity }: { activity: ChatActivityRecord }) {
   if (!diffStat.trim()) {
     return (
       <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>
-        File changes were captured, but this snapshot does not include a diffstat preview.
+        Workspace changes were captured, but this snapshot does not include a diffstat preview.
       </div>
     );
   }
@@ -366,11 +367,11 @@ function CapturedDiffDetails({ diffStat, diff }: { diffStat?: string; diff?: str
           fontSize: 11,
         }}
       >
-        files changed{summary ? ` · ${summary}` : ""}
+        workspace changes{summary ? ` · ${summary}` : ""}
       </summary>
       <div style={{ display: "grid", gap: 7, marginTop: 6 }}>
         {stat && <DiffStatList diffStat={stat} />}
-        {patch && <CodeBlock code={patch} lang="diff" />}
+        {patch && <DiffViewer diff={patch} />}
       </div>
     </details>
   );

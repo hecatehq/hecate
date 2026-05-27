@@ -19,7 +19,7 @@ export function fileChangesActivity(diffStat: string): ChatActivityRecord {
     id: "hecate-agent:files-changed",
     type: "files_changed",
     status: "completed",
-    title: "Files changed",
+    title: "Workspace changes",
     detail: formatDiffStatSummary(diffStat),
   };
 }
@@ -73,6 +73,34 @@ export function compactAgentActivities(
   return collapseModelTurnActivities(out);
 }
 
+export function summarizeTimelineActivities(
+  activities: ChatActivityRecord[],
+): ChatActivityRecord[] {
+  const commandActivities = activities.filter(isGenericCommandToolActivity);
+  if (commandActivities.length < 4) return activities;
+
+  const firstCommandIndex = activities.findIndex(isGenericCommandToolActivity);
+  const status = aggregateActivityStatus(commandActivities);
+  const failed = commandActivities.filter((activity) => activity.status === "failed").length;
+  const detail = [
+    failed > 0 ? `${failed} failed` : "",
+    commandActivities.some(toolDetailHasOutput) ? "output captured" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const summary: ChatActivityRecord = {
+    id: "hecate-agent:commands-summary",
+    type: "tool_group",
+    status,
+    title: `Ran ${commandActivities.length} commands`,
+    detail: detail || undefined,
+  };
+
+  const out = activities.filter((activity) => !isGenericCommandToolActivity(activity));
+  out.splice(Math.max(firstCommandIndex, 0), 0, summary);
+  return out;
+}
+
 // isTerminalActivity is the canonical predicate for "this activity
 // represents a terminal status." Used both by the dedupe filter and
 // by pickTerminalActivityIndex so the two cannot disagree on what
@@ -120,6 +148,7 @@ export function compactDetailActivities(
   return activities.filter((activity) => {
     if (!detailTypes.has(activity.type)) return false;
     if (hasDiffStat && activity.type === "changed_files") return false;
+    if (activity.type === "output" && !hasOutputPreview(activity)) return false;
     return true;
   });
 }
@@ -215,7 +244,10 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
   }
   if (activity.type === "tool_call") {
     const title = toolActivityTitle(activity);
-    return { title, detail: cleanActivityDetail(activity) || fallbackToolDetail(activity, title) };
+    return { title, detail: toolActivityDetail(activity, title) };
+  }
+  if (activity.type === "tool_group") {
+    return { title: activity.title, detail: cleanActivityDetail(activity) };
   }
   if (activity.type === "thinking" && isModelTurnActivity(activity)) {
     return { title: "Thinking", detail: modelTurnDetail(activity) };
@@ -227,7 +259,7 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
     return { title: "Thinking", detail: activity.detail };
   }
   if (activity.type === "files_changed") {
-    return { title: "Files changed", detail: activity.detail };
+    return { title: "Workspace changes", detail: activity.detail };
   }
   if (activity.type === "artifact") {
     return { title: "Artifact", detail: cleanActivityDetail(activity) || activity.title };
@@ -237,7 +269,7 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
   }
   if (activity.type === "changed_files") {
     return {
-      title: "Files changed",
+      title: "Workspace changes",
       detail: formatDiffStatSummary(cleanActivityDetail(activity) || activity.title),
     };
   }
@@ -281,6 +313,8 @@ export function activityLinePrefix(activity: ChatActivityRecord): string | undef
 }
 
 function toolActivityTitle(activity: ChatActivityRecord): string {
+  if (isAdapterContextReadFailure(activity)) return "Could not read context";
+
   const raw = stripStatusSuffix(activity.title || activity.kind || "tool").trim();
   const normalized = raw.toLowerCase();
   const kind = (activity.kind || activity.detail || "").trim().toLowerCase();
@@ -327,6 +361,18 @@ function toolActivityTitle(activity: ChatActivityRecord): string {
   return raw;
 }
 
+function toolActivityDetail(
+  activity: ChatActivityRecord,
+  displayTitle: string,
+): string | undefined {
+  if (isAdapterContextReadFailure(activity)) {
+    return "adapter session file was unavailable";
+  }
+  const detail = cleanActivityDetail(activity) || fallbackToolDetail(activity, displayTitle);
+  if (!detail) return undefined;
+  return compactToolOutputDetail(detail);
+}
+
 function modelTurnDetail(activity: ChatActivityRecord): string {
   const status = humanActivityStatus(activity.status);
   const turn = activity.title.match(/turn\s+(\d+)/i)?.[1];
@@ -348,6 +394,32 @@ function fallbackToolDetail(
   if (!raw) return undefined;
   if (raw === displayTitle) return undefined;
   return raw;
+}
+
+function isGenericCommandToolActivity(activity: ChatActivityRecord): boolean {
+  if (activity.type !== "tool_call") return false;
+  return toolActivityTitle(activity) === "Ran command";
+}
+
+function isAdapterContextReadFailure(activity: ChatActivityRecord): boolean {
+  if (activity.type !== "tool_call" || activity.status !== "failed") return false;
+  const label = `${activity.title} ${activity.kind ?? ""} ${activity.detail ?? ""}`.toLowerCase();
+  return label.includes("failed to read file:") && label.includes("/.grok/sessions/");
+}
+
+function toolDetailHasOutput(activity: ChatActivityRecord): boolean {
+  return /\boutput\s*:/i.test(activity.detail ?? "");
+}
+
+function compactToolOutputDetail(detail: string): string {
+  const match = detail.match(/^(.+?)\s*·\s*output:\s*(.+)$/i);
+  if (!match) return detail;
+
+  const prefix = match[1].trim();
+  const output = match[2].trim();
+  if (/^failed to read file:/i.test(output)) return "output captured · read failed";
+  if (!output) return `${prefix} · output captured`;
+  return `${prefix} · output captured · ${compactInlineDetail(output, 48)}`;
 }
 
 function opaqueToolCallID(value: string): string | undefined {
@@ -379,11 +451,15 @@ function toolKindLabel(kind?: string): string | undefined {
 }
 
 function outputActivityDetail(activity: ChatActivityRecord): string | undefined {
-  const preview = activity.artifact_preview?.trim() || cleanActivityDetail(activity);
+  const preview = activity.artifact_preview?.trim();
   const lineCount = preview ? formatTextLineCount(preview) : undefined;
   const stream = outputActivityLabel(activity);
   const size = formatBytes(activity.artifact_size_bytes);
   return [stream, lineCount, size].filter(Boolean).join(" · ") || undefined;
+}
+
+function hasOutputPreview(activity: ChatActivityRecord): boolean {
+  return Boolean(activity.artifact_preview?.trim());
 }
 
 function outputActivityLabel(activity: ChatActivityRecord): string | undefined {

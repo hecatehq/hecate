@@ -533,6 +533,22 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText("command output")).toBeInTheDocument();
   });
 
+  it("hides output detail rows without captured previews", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "output",
+        title: "ACP output",
+        status: "ready",
+        detail: "ACP output",
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    expect(screen.queryByText("Output · 1 item")).toBeNull();
+    expect(screen.queryByText("No output preview was captured for this snapshot.")).toBeNull();
+  });
+
   it("renders the raw agent output details when rawOutput differs from content", () => {
     render(
       <TranscriptMessageRow

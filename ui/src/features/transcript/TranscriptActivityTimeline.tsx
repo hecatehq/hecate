@@ -15,6 +15,7 @@ import {
   isOutputArtifactActivity,
   orderVisibleActivities,
   parseDiffStatRows,
+  summarizeTimelineActivities,
   terminalAgentActivity,
   terminalStatusLabel,
 } from "./transcriptActivityHelpers";
@@ -109,7 +110,8 @@ export function TranscriptActivityTimeline({
 }) {
   const visible = orderVisibleActivities(compactAgentActivities(activities, Boolean(diffStat)));
   const details = orderVisibleActivities(compactDetailActivities(activities, Boolean(diffStat)));
-  const primary = diffStat ? [...visible, fileChangesActivity(diffStat)] : visible;
+  const primaryRaw = diffStat ? [...visible, fileChangesActivity(diffStat)] : visible;
+  const primary = summarizeTimelineActivities(primaryRaw);
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(isActiveAgentActivity);
   const [open, setOpen] = useState(hasRunning || defaultOpen);
@@ -122,8 +124,8 @@ export function TranscriptActivityTimeline({
 
   if (primary.length === 0 && details.length === 0) return null;
 
-  const plan = primary.filter((activity) => activity.type === "plan");
-  const tools = primary.filter((activity) => activity.type === "tool_call");
+  const plan = primaryRaw.filter((activity) => activity.type === "plan");
+  const tools = primaryRaw.filter((activity) => activity.type === "tool_call");
   const failedTools = tools.filter((activity) => activity.status === "failed").length;
   const summary = [
     terminal ? terminalStatusLabel(terminal.status) : hasRunning ? "working" : "details",
@@ -137,7 +139,7 @@ export function TranscriptActivityTimeline({
           ? `${failedTools} failed tool${failedTools === 1 ? "" : "s"}`
           : `${tools.length} tool${tools.length === 1 ? "" : "s"}`
       : "",
-    diffStat ? "files changed" : "",
+    diffStat ? "workspace changes" : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -263,7 +265,8 @@ function TimelineActivityLine({
 }
 
 function advancedSummaryLabel(activity: ChatActivityRecord): string {
-  if (activity.type === "changed_files" || activity.type === "files_changed") return "Files";
+  if (activity.type === "changed_files" || activity.type === "files_changed")
+    return "Workspace changes";
   if (activity.type === "output") return "Output";
   if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Output";
   return "Advanced";

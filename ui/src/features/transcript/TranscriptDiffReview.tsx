@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 
 import type { ChatChangedFileDiffRecord, ChatChangedFileRecord } from "../../types/chat";
-import { CodeBlock, InlineError } from "../shared/Atoms";
+import { InlineError } from "../shared/Atoms";
+import { DiffViewer } from "../shared/DiffViewer";
 import { DiffStatList, formatDiffStatSummary } from "./TranscriptActivityTimeline";
 
 type Props = {
@@ -136,7 +137,7 @@ export function TranscriptDiffReview({
         {!hasReviewAPI && (
           <>
             {diffStat && <DiffStatList diffStat={diffStat} />}
-            {diff && <CodeBlock code={diff} lang="diff" />}
+            {diff && <DiffViewer diff={diff} />}
           </>
         )}
         {hasReviewAPI && (
@@ -296,7 +297,7 @@ export function TranscriptDiffReview({
                 <div style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
                   diff · {selectedDiff.path}
                 </div>
-                <CodeBlock code={selectedDiff.diff} lang="diff" />
+                <DiffViewer compact diff={selectedDiff.diff} />
               </div>
             )}
           </>

@@ -5,7 +5,8 @@ import type {
   ChatChangedFileRecord,
   ChatWorkspaceDiffRecord,
 } from "../../types/chat";
-import { CodeBlock, InlineError } from "../shared/Atoms";
+import { InlineError } from "../shared/Atoms";
+import { DiffViewer } from "../shared/DiffViewer";
 import { DiffStatList } from "../transcript/TranscriptActivityTimeline";
 import { formatDiffStatSummary } from "../transcript/transcriptActivityHelpers";
 
@@ -248,7 +249,7 @@ export function ChatWorkspaceChangesPanel({
                   current git diff
                 </summary>
                 <div style={{ marginTop: 6 }}>
-                  <CodeBlock code={diff} lang="diff" />
+                  <DiffViewer diff={diff} />
                 </div>
               </details>
             )}
@@ -443,7 +444,7 @@ function WorkspaceFileList({
                   >
                     current diff · {fileDiff.path}
                   </div>
-                  <CodeBlock code={fileDiff.diff} lang="diff" />
+                  <DiffViewer compact diff={fileDiff.diff} />
                 </div>
               )}
               {diffOpen && !fileDiff && loadingPath === file.path && (

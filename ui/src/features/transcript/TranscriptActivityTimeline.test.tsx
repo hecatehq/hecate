@@ -261,6 +261,68 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText(/tool ERrtqCoy/)).toBeNull();
   });
 
+  it("summarizes noisy generic command activity while preserving the run summary count", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_1",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: commit abc123 Author: Someone",
+      },
+      {
+        type: "tool_call",
+        title: "call_2",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: 1871",
+      },
+      {
+        type: "tool_call",
+        title: "call_3",
+        status: "completed",
+        kind: "execute",
+        detail: "execute",
+      },
+      {
+        type: "tool_call",
+        title: "call_4",
+        status: "failed",
+        kind: "execute",
+        detail: "execute · output: command failed",
+      },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText(/completed · 1 failed tool/)).toBeInTheDocument();
+    expect(screen.getByText("Ran 4 commands")).toBeInTheDocument();
+    expect(screen.getByText("1 failed · output captured")).toBeInTheDocument();
+    expect(screen.queryByText("Ran command")).toBeNull();
+    expect(screen.queryByText(/commit abc123/)).toBeNull();
+  });
+
+  it("renders Grok session read failures as adapter context warnings", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "failed",
+        kind: "read",
+        detail:
+          "read · output: Failed to read file: /Users/operator/.grok/sessions/%2FUsers%2Foperator%2Fdev%2Fhecate/session.json",
+      },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText("Could not read context")).toBeInTheDocument();
+    expect(screen.getByText("adapter session file was unavailable")).toBeInTheDocument();
+    expect(screen.queryByText(/\.grok\/sessions/)).toBeNull();
+  });
+
   it("describes failed tools as interrupted when the run is cancelled", () => {
     const activities: ChatActivityRecord[] = [
       {
@@ -283,7 +345,7 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText(/cancelled · 2 interrupted tools/)).toBeInTheDocument();
   });
 
-  it("includes changed files in the summary and expanded activity list when diffStat is supplied", () => {
+  it("includes workspace changes in the summary and expanded activity list when diffStat is supplied", () => {
     const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
     ];
@@ -293,8 +355,8 @@ describe("TranscriptActivityTimeline", () => {
         diffStat="src/foo.ts | 3 +-\n1 file changed, 2 insertions(+), 1 deletion(-)"
       />,
     );
-    expect(screen.getByText(/files changed/)).toBeInTheDocument();
-    expect(screen.getByText("Files changed")).toBeInTheDocument();
+    expect(screen.getByText(/workspace changes/)).toBeInTheDocument();
+    expect(screen.getByText("Workspace changes")).toBeInTheDocument();
     expect(screen.getByText("1 file changed, 2 insertions(+), 1 deletion(-)")).toBeInTheDocument();
   });
 
@@ -315,7 +377,7 @@ describe("TranscriptActivityTimeline", () => {
       />,
     );
 
-    expect(screen.getAllByText("Files changed")).toHaveLength(1);
+    expect(screen.getAllByText("Workspace changes")).toHaveLength(1);
     expect(screen.getAllByText("2 files changed, 72 insertions(+), 3 deletions(-)")).toHaveLength(
       1,
     );
@@ -348,12 +410,13 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("agent-final-answer.txt")).toBeInTheDocument();
   });
 
-  it("renders zero-byte output sizes instead of hiding them", () => {
+  it("hides output-only rows without a captured preview", () => {
     const activities: ChatActivityRecord[] = [
       { type: "output", title: "stderr", status: "ready", artifact_size_bytes: 0 },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
-    expect(screen.getByText("stderr · 0b")).toBeInTheDocument();
+    expect(screen.queryByText("stderr · 0b")).toBeNull();
+    expect(screen.queryByText(/Output/)).toBeNull();
   });
 
   it("hides internal agent-loop approval markers from operator-facing rows", () => {

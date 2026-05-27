@@ -3691,7 +3691,22 @@ describe("ChatView external-agent target", () => {
     const getChatWorkspaceDiff = vi.fn(async () => ({
       workspace: "/tmp/hecate",
       diff_stat: "README.md | 1 +\ndocs/guide.md | 1 +\n2 files changed, 2 insertions(+)",
-      diff: "diff --git a/README.md b/README.md\n+current workspace line\ndiff --git a/docs/guide.md b/docs/guide.md\n+guide line",
+      diff: [
+        "diff --git a/README.md b/README.md",
+        "index 1111111..2222222 100644",
+        "--- a/README.md",
+        "+++ b/README.md",
+        "@@ -1 +1 @@",
+        "-old readme",
+        "+current workspace line",
+        "diff --git a/docs/guide.md b/docs/guide.md",
+        "index 3333333..4444444 100644",
+        "--- a/docs/guide.md",
+        "+++ b/docs/guide.md",
+        "@@ -1 +1 @@",
+        "-old guide",
+        "+guide line",
+      ].join("\n"),
       has_changes: true,
       files: [
         { path: "README.md", additions: 1, deletions: 0, status: "modified" },
@@ -3705,14 +3720,30 @@ describe("ChatView external-agent target", () => {
             additions: 1,
             deletions: 0,
             status: "modified",
-            diff: "diff --git a/docs/guide.md b/docs/guide.md\n+current guide line",
+            diff: [
+              "diff --git a/docs/guide.md b/docs/guide.md",
+              "index 3333333..4444444 100644",
+              "--- a/docs/guide.md",
+              "+++ b/docs/guide.md",
+              "@@ -1 +1 @@",
+              "-old guide",
+              "+current guide line",
+            ].join("\n"),
           }
         : {
             path: "README.md",
             additions: 1,
             deletions: 0,
             status: "modified",
-            diff: "diff --git a/README.md b/README.md\n+current file line",
+            diff: [
+              "diff --git a/README.md b/README.md",
+              "index 1111111..2222222 100644",
+              "--- a/README.md",
+              "+++ b/README.md",
+              "@@ -1 +1 @@",
+              "-old readme",
+              "+current file line",
+            ].join("\n"),
           },
     );
     const revertChatWorkspaceFiles = vi.fn(async () => ({
@@ -3743,7 +3774,15 @@ describe("ChatView external-agent target", () => {
               agent_name: "Codex",
               status: "completed",
               diff_stat: "old.txt | 1 +\n1 file changed, 1 insertion(+)",
-              diff: "diff --git a/old.txt b/old.txt\n+captured line",
+              diff: [
+                "diff --git a/old.txt b/old.txt",
+                "index 5555555..6666666 100644",
+                "--- a/old.txt",
+                "+++ b/old.txt",
+                "@@ -1 +1 @@",
+                "-old line",
+                "+captured line",
+              ].join("\n"),
               created_at: "2026-05-03T10:00:01Z",
             },
           ],
@@ -3754,7 +3793,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
-    expect(screen.getByText("files changed · 1 file changed, 1 insertion(+)")).toBeTruthy();
+    expect(screen.getByText("1 file")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Workspace changes" }));
 
     expect(getChatWorkspaceDiff).toHaveBeenCalledWith("a1");
@@ -3766,15 +3805,14 @@ describe("ChatView external-agent target", () => {
     await user.click(screen.getByRole("button", { name: "Show diff README.md" }));
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
     expect(await screen.findByText("current diff · README.md")).toBeTruthy();
-    expect(document.body.textContent).toContain("+current file line");
+    expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Hide diff README.md" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Hide diff README.md" }));
     expect(screen.queryByText("current diff · README.md")).toBeNull();
-    expect(document.body.textContent).not.toContain("+current file line");
     await user.click(screen.getByRole("button", { name: "Show diff docs/guide.md" }));
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "docs/guide.md");
     expect(await screen.findByText("current diff · docs/guide.md")).toBeTruthy();
-    expect(document.body.textContent).toContain("+current guide line");
+    expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Workspace changes panel").textContent).not.toContain(
       "captured line",
     );
