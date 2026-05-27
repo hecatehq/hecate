@@ -183,11 +183,13 @@ export function ChatWorkspaceChangesPanel({
       </div>
       <div
         style={{
+          flex: 1,
           overflowX: "hidden",
           overflowY: "auto",
           padding: 14,
           display: "grid",
           gap: 10,
+          minHeight: 0,
         }}
       >
         <div style={{ alignItems: "center", display: "flex", gap: 8 }}>
@@ -248,9 +250,7 @@ export function ChatWorkspaceChangesPanel({
                 >
                   current git diff
                 </summary>
-                <div style={{ marginTop: 6 }}>
-                  <DiffViewer diff={diff} />
-                </div>
+                <WorkspaceDiffPreview diff={diff} maxHeight="min(58vh, 640px)" />
               </details>
             )}
           </>
@@ -426,26 +426,11 @@ function WorkspaceFileList({
                 )}
               </div>
               {diffOpen && fileDiff && (
-                <div
-                  style={{
-                    borderTop: "1px solid var(--border)",
-                    minWidth: 0,
-                    overflow: "hidden",
-                    padding: "6px 8px 8px",
-                  }}
-                >
-                  <div
-                    style={{
-                      color: "var(--t2)",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10,
-                      marginBottom: 5,
-                    }}
-                  >
-                    current diff · {fileDiff.path}
-                  </div>
-                  <DiffViewer compact diff={fileDiff.diff} />
-                </div>
+                <WorkspaceDiffPreview
+                  diff={fileDiff.diff}
+                  maxHeight="min(52vh, 560px)"
+                  testID="workspace-file-diff-preview"
+                />
               )}
               {diffOpen && !fileDiff && loadingPath === file.path && (
                 <div
@@ -464,6 +449,32 @@ function WorkspaceFileList({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function WorkspaceDiffPreview({
+  diff,
+  maxHeight,
+  testID = "workspace-diff-preview",
+}: {
+  diff: string;
+  maxHeight: string;
+  testID?: string;
+}) {
+  return (
+    <div
+      data-testid={testID}
+      style={{
+        borderTop: "1px solid var(--border)",
+        marginTop: 6,
+        maxHeight,
+        minHeight: 0,
+        minWidth: 0,
+        overflow: "auto",
+      }}
+    >
+      <DiffViewer diff={diff} />
     </div>
   );
 }
