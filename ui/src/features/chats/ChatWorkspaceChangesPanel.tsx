@@ -71,7 +71,7 @@ export function ChatWorkspaceChangesPanel({
 }) {
   const [snapshot, setSnapshot] = useState<ChatWorkspaceDiffRecord | null>(null);
   const [fileDiffs, setFileDiffs] = useState<Record<string, ChatChangedFileDiffRecord>>({});
-  const [openDiffPaths, setOpenDiffPaths] = useState<Set<string>>(() => new Set());
+  const [selectedDiffPath, setSelectedDiffPath] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingPath, setLoadingPath] = useState("");
   const [revertingPath, setRevertingPath] = useState("");
@@ -86,22 +86,18 @@ export function ChatWorkspaceChangesPanel({
     const next = await onGetWorkspaceDiff(sessionID);
     setSnapshot(next);
     setFileDiffs({});
-    setOpenDiffPaths(new Set());
+    setSelectedDiffPath("");
     setLoadFailed(next === null);
     setLoading(false);
   }
 
   async function toggleFileDiff(file: ChatChangedFileRecord) {
-    if (openDiffPaths.has(file.path)) {
-      setOpenDiffPaths((current) => {
-        const next = new Set(current);
-        next.delete(file.path);
-        return next;
-      });
+    if (selectedDiffPath === file.path) {
+      setSelectedDiffPath("");
       return;
     }
     if (fileDiffs[file.path]) {
-      setOpenDiffPaths((current) => new Set(current).add(file.path));
+      setSelectedDiffPath(file.path);
       return;
     }
     setLoadingPath(file.path);
@@ -109,7 +105,7 @@ export function ChatWorkspaceChangesPanel({
     const next = await onGetWorkspaceFileDiff(sessionID, file.path);
     if (next) {
       setFileDiffs((current) => ({ ...current, [file.path]: next }));
-      setOpenDiffPaths((current) => new Set(current).add(file.path));
+      setSelectedDiffPath(file.path);
     } else {
       setLocalError("Could not load that current file diff.");
     }
@@ -124,18 +120,14 @@ export function ChatWorkspaceChangesPanel({
       setSnapshot(next);
       if (paths.length === 0) {
         setFileDiffs({});
-        setOpenDiffPaths(new Set());
+        setSelectedDiffPath("");
       } else {
         setFileDiffs((current) => {
           const nextDiffs = { ...current };
           for (const path of paths) delete nextDiffs[path];
           return nextDiffs;
         });
-        setOpenDiffPaths((current) => {
-          const nextOpen = new Set(current);
-          for (const path of paths) nextOpen.delete(path);
-          return nextOpen;
-        });
+        if (paths.includes(selectedDiffPath)) setSelectedDiffPath("");
       }
     } else {
       setLocalError("Could not discard those workspace changes.");
@@ -219,7 +211,7 @@ export function ChatWorkspaceChangesPanel({
               <WorkspaceFileList
                 files={files}
                 fileDiffs={fileDiffs}
-                openDiffPaths={openDiffPaths}
+                selectedDiffPath={selectedDiffPath}
                 loadingPath={loadingPath}
                 revertingPath={revertingPath}
                 confirmRevertPath={confirmRevertPath}
@@ -261,7 +253,7 @@ export function ChatWorkspaceChangesPanel({
                     {summary || "current Git diff"}
                   </span>
                 </summary>
-                <WorkspaceDiffPreview diff={diff} maxHeight="min(58vh, 640px)" />
+                <WorkspaceDiffPreview diff={diff} height="min(58vh, 640px)" />
               </details>
             )}
           </>
@@ -312,7 +304,7 @@ function WorkspaceDiffSource({ workspace }: { workspace: string }) {
 function WorkspaceFileList({
   files,
   fileDiffs,
-  openDiffPaths,
+  selectedDiffPath,
   loadingPath,
   revertingPath,
   confirmRevertPath,
@@ -323,7 +315,7 @@ function WorkspaceFileList({
 }: {
   files: ChatChangedFileRecord[];
   fileDiffs: Record<string, ChatChangedFileDiffRecord>;
-  openDiffPaths: Set<string>;
+  selectedDiffPath: string;
   loadingPath: string;
   revertingPath: string;
   confirmRevertPath: string;
@@ -332,6 +324,8 @@ function WorkspaceFileList({
   onCancelRevert: () => void;
   onConfirmRevert: (paths: string[], label: string) => void;
 }) {
+  const selectedDiff = selectedDiffPath ? fileDiffs[selectedDiffPath] : undefined;
+
   return (
     <div
       style={{
@@ -393,9 +387,10 @@ function WorkspaceFileList({
       </div>
       <div style={{ display: "grid" }}>
         {files.map((file) => {
-          const fileDiff = fileDiffs[file.path];
-          const diffOpen = openDiffPaths.has(file.path);
-          const diffButtonLabel = diffOpen ? `Hide diff ${file.path}` : `Show diff ${file.path}`;
+          const diffSelected = selectedDiffPath === file.path;
+          const diffButtonLabel = diffSelected
+            ? `Hide diff ${file.path}`
+            : `Show diff ${file.path}`;
           return (
             <div
               key={file.path}
@@ -408,6 +403,7 @@ function WorkspaceFileList({
               <div
                 style={{
                   alignItems: "center",
+                  background: diffSelected ? "var(--teal-bg)" : "transparent",
                   display: "grid",
                   gap: 6,
                   gridTemplateColumns: "minmax(0, 1fr) auto",
@@ -466,7 +462,11 @@ function WorkspaceFileList({
                       title={diffButtonLabel}
                       type="button"
                     >
-                      {loadingPath === file.path ? "Loading..." : diffOpen ? "Hide" : "View diff"}
+                      {loadingPath === file.path
+                        ? "Loading..."
+                        : diffSelected
+                          ? "Hide"
+                          : "View diff"}
                     </button>
                     <button
                       className="btn btn-ghost btn-sm"
@@ -481,56 +481,62 @@ function WorkspaceFileList({
                   </div>
                 )}
               </div>
-              {diffOpen && fileDiff && (
-                <WorkspaceDiffPreview
-                  diff={fileDiff.diff}
-                  maxHeight="min(52vh, 560px)"
-                  testID="workspace-file-diff-preview"
-                />
-              )}
-              {diffOpen && !fileDiff && loadingPath === file.path && (
-                <div
-                  style={{
-                    borderTop: "1px solid var(--border)",
-                    color: "var(--t3)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    padding: "6px 8px 8px",
-                  }}
-                >
-                  Loading current diff...
-                </div>
-              )}
             </div>
           );
         })}
       </div>
+      {selectedDiff && (
+        <WorkspaceDiffPreview
+          diff={selectedDiff.diff}
+          height="min(48vh, 520px)"
+          testID="workspace-file-diff-preview"
+        />
+      )}
+      {selectedDiffPath && !selectedDiff && loadingPath === selectedDiffPath && (
+        <div
+          style={{
+            borderTop: "1px solid var(--border)",
+            color: "var(--t3)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            padding: "6px 8px 8px",
+          }}
+        >
+          Loading current diff...
+        </div>
+      )}
     </div>
   );
 }
 
 function WorkspaceDiffPreview({
   diff,
-  maxHeight,
+  height,
   testID = "workspace-diff-preview",
 }: {
   diff: string;
-  maxHeight: string;
+  height: string;
   testID?: string;
 }) {
   return (
     <div
+      data-preview-height={height}
       data-testid={testID}
       style={{
+        background: "var(--bg0)",
         borderTop: "1px solid var(--border)",
-        maxHeight,
+        contain: "layout paint",
+        height,
+        isolation: "isolate",
         minHeight: 0,
         minWidth: 0,
+        overscrollBehavior: "contain",
         overflow: "auto",
         padding: 8,
+        position: "relative",
       }}
     >
-      <DiffViewer diff={diff} />
+      <DiffViewer compact diff={diff} />
     </div>
   );
 }

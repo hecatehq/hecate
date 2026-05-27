@@ -3808,7 +3808,8 @@ describe("ChatView external-agent target", () => {
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
     const readmePreview = await screen.findByTestId("workspace-file-diff-preview");
     expect(readmePreview).toHaveStyle({ overflow: "auto" });
-    expect(readmePreview.style.maxHeight).toBe("min(52vh, 560px)");
+    expect(readmePreview).toHaveAttribute("data-preview-height", "min(48vh, 520px)");
+    expect(readmePreview.style.contain).toBe("layout paint");
     expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Hide diff README.md" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Hide diff README.md" }));
