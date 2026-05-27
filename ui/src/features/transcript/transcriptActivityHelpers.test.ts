@@ -88,7 +88,7 @@ describe("fileChangesActivity", () => {
     expect(built.id).toBe("hecate-agent:files-changed");
     expect(built.type).toBe("files_changed");
     expect(built.status).toBe("completed");
-    expect(built.title).toBe("Files changed");
+    expect(built.title).toBe("Workspace changes");
     expect(built.detail).toMatch(/^1 file changed/);
   });
 });
@@ -206,11 +206,11 @@ describe("compactAgentActivities", () => {
 });
 
 describe("compactDetailActivities", () => {
-  it("keeps only the detail-bucket types (artifact / changed_files / final_answer / output)", () => {
+  it("keeps only the detail-bucket types with useful previews", () => {
     const items = [
       activity({ type: "tool_call", title: "Ran tool" }),
       activity({ type: "artifact", title: "Snapshot" }),
-      activity({ type: "output", title: "stdout" }),
+      activity({ type: "output", title: "stdout", artifact_preview: "hello\n" }),
       activity({ type: "changed_files", title: "Files" }),
     ];
     expect(compactDetailActivities(items, false).map((r) => r.type)).toEqual([
@@ -226,6 +226,14 @@ describe("compactDetailActivities", () => {
       activity({ type: "changed_files", title: "Files" }),
     ];
     expect(compactDetailActivities(items, true).map((r) => r.type)).toEqual(["artifact"]);
+  });
+
+  it("drops output rows that do not include a captured preview", () => {
+    const items = [
+      activity({ type: "output", title: "ACP output", detail: "ACP output" }),
+      activity({ type: "output", title: "stdout", artifact_preview: "command output\n" }),
+    ];
+    expect(compactDetailActivities(items, false).map((r) => r.title)).toEqual(["stdout"]);
   });
 });
 
@@ -317,7 +325,7 @@ describe("activityDisplay", () => {
         activity({ type: "files_changed", title: "Files changed", detail: "2 files changed" }),
       ),
     ).toEqual({
-      title: "Files changed",
+      title: "Workspace changes",
       detail: "2 files changed",
     });
   });

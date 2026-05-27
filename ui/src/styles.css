@@ -642,6 +642,46 @@ textarea {
   color: var(--t1);
 }
 
+/* ─── Rich diff viewer ─── */
+.diff-viewer {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0;
+  max-width: 100%;
+  min-width: 0;
+}
+diffs-container.diff-viewer-file {
+  --diffs-addition-color: var(--green);
+  --diffs-bg-addition-override: color-mix(in oklch, var(--green-bg) 50%, transparent);
+  --diffs-bg-context-override: var(--bg0);
+  --diffs-bg-context-gutter-override: color-mix(in oklch, var(--bg1) 72%, transparent);
+  --diffs-bg-deletion-override: color-mix(in oklch, var(--red-bg) 56%, transparent);
+  --diffs-bg-separator-override: var(--bg2);
+  --diffs-border: var(--border);
+  --diffs-dark: var(--t0);
+  --diffs-dark-bg: var(--bg0);
+  --diffs-deletion-color: var(--red);
+  --diffs-fg-number-override: var(--t4);
+  --diffs-font-family: var(--font-mono);
+  --diffs-font-size: 11px;
+  --diffs-header-bg: var(--bg3);
+  --diffs-header-font-family: var(--font-mono);
+  --diffs-light: var(--t0);
+  --diffs-light-bg: var(--bg0);
+  --diffs-line-height: 18px;
+  --diffs-muted: var(--t3);
+  --diffs-separator-bg: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+.diff-viewer-compact diffs-container.diff-viewer-file {
+  --diffs-font-size: 10.5px;
+  --diffs-line-height: 17px;
+}
+
 /* ─── Dropdown ─── */
 .dropdown-wrap {
   position: relative;
