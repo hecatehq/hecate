@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { DiffViewer } from "./DiffViewer";
 
@@ -20,6 +20,26 @@ index 3333333..4444444 100644
 `;
 
 describe("DiffViewer", () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute("data-theme");
+  });
+
+  it("uses the app light theme for rich diffs when the app is in light mode", () => {
+    document.documentElement.setAttribute("data-theme", "light");
+
+    render(<DiffViewer diff={MULTI_FILE_DIFF} />);
+
+    expect(screen.getByTestId("diff-viewer")).toHaveAttribute("data-diff-theme", "light");
+  });
+
+  it("uses the app dark theme for rich diffs when the app is in dark mode", () => {
+    document.documentElement.setAttribute("data-theme", "dark");
+
+    render(<DiffViewer diff={MULTI_FILE_DIFF} />);
+
+    expect(screen.getByTestId("diff-viewer")).toHaveAttribute("data-diff-theme", "dark");
+  });
+
   it("renders one rich diff host per file in a multi-file git patch", () => {
     const { container } = render(<DiffViewer diff={MULTI_FILE_DIFF} />);
 
