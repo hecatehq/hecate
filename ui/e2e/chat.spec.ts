@@ -2794,6 +2794,25 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
 });
 
 test("workspace changes review inspects and discards a current file", async ({ page }) => {
+  const readmeDiff = [
+    "diff --git a/README.md b/README.md",
+    "index 1111111..2222222 100644",
+    "--- a/README.md",
+    "+++ b/README.md",
+    "@@ -1,1 +1,2 @@",
+    " old line",
+    "+current line",
+  ].join("\n");
+  const runtimeAPIDiff = [
+    "diff --git a/docs/runtime-api.md b/docs/runtime-api.md",
+    "index 3333333..4444444 100644",
+    "--- a/docs/runtime-api.md",
+    "+++ b/docs/runtime-api.md",
+    "@@ -1,1 +1,2 @@",
+    " existing line",
+    "+kept line",
+  ].join("\n");
+
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatSessionID", "a-diff-1");
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
@@ -2841,7 +2860,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
           status: "completed",
           diff_stat:
             "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
-          diff: "diff --git a/README.md b/README.md\n+new line",
+          diff: readmeDiff,
           created_at: "2026-04-21T10:00:01Z",
         },
       ],
@@ -2874,7 +2893,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
           data: {
             workspace: "/tmp/e2e",
             diff_stat: "docs/runtime-api.md | 4 ++++\n1 file changed, 4 insertions(+)",
-            diff: "diff --git a/docs/runtime-api.md b/docs/runtime-api.md\n+kept line",
+            diff: runtimeAPIDiff,
             has_changes: true,
             files: [{ path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" }],
           },
@@ -2891,7 +2910,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
           workspace: "/tmp/e2e",
           diff_stat:
             "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
-          diff: "diff --git a/README.md b/README.md\n+current line",
+          diff: `${readmeDiff}\n${runtimeAPIDiff}`,
           has_changes: true,
           files: [
             { path: "README.md", additions: 2, deletions: 1, status: "modified" },
@@ -2913,7 +2932,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
           additions: 2,
           deletions: 1,
           status: "modified",
-          diff: "diff --git a/README.md b/README.md\n+current line",
+          diff: readmeDiff,
         },
       }),
     });
@@ -2930,7 +2949,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
         data: {
           workspace: "/tmp/e2e",
           diff_stat: "docs/runtime-api.md | 4 ++++\n1 file changed, 4 insertions(+)",
-          diff: "diff --git a/docs/runtime-api.md b/docs/runtime-api.md\n+kept line",
+          diff: runtimeAPIDiff,
           has_changes: true,
           files: [{ path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" }],
         },
@@ -2942,21 +2961,23 @@ test("workspace changes review inspects and discards a current file", async ({ p
   await page.waitForSelector(".hecate-activitybar");
 
   await expect(page.getByText("Updated the docs.")).toBeVisible();
-  await expect(
-    page.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)"),
-  ).toBeVisible();
+  await expect(page.getByText("Workspace changes")).toBeVisible();
   await page.getByRole("button", { name: "Workspace changes" }).click();
-  await expect(page.getByText("2 current changed files")).toBeVisible();
+  const workspaceChangesPanel = page.getByLabel("Workspace changes panel");
+  await expect(
+    workspaceChangesPanel.getByText("2 files changed, 6 insertions(+), 1 deletion(-)").first(),
+  ).toBeVisible();
 
-  await page.getByRole("button", { name: "Show diff README.md" }).click();
-  await expect(page.getByText("current diff · README.md")).toBeVisible();
-  await expect(page.locator("body")).toContainText("+current line");
+  await expect(page.getByRole("button", { name: "Hide diff README.md" })).toBeVisible();
+  await expect(workspaceChangesPanel).toContainText("current line");
 
   await page.getByRole("button", { name: "Discard README.md" }).click();
   await expect(page.getByRole("button", { name: "Confirm discard README.md" })).toBeVisible();
   await page.getByRole("button", { name: "Confirm discard README.md" }).click();
   await expect.poll(() => discardedPaths).toEqual(["README.md"]);
-  await expect(page.getByText("1 current changed file")).toBeVisible();
+  await expect(
+    workspaceChangesPanel.getByText("1 file changed, 4 insertions(+)").first(),
+  ).toBeVisible();
 });
 
 type ClaudeAdapterFixture = {
