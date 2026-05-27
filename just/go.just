@@ -8,6 +8,10 @@
 build: ui-build _go-cache
 	{{go_env}} go build -o hecate ./cmd/hecate
 
+# Build the runtime binary without rebuilding ui/dist.
+build-go: _go-cache
+	{{go_env}} go build -o hecate ./cmd/hecate
+
 # Run all Go unit tests.
 test: _go-cache
 	{{go_env}} go test ./...
