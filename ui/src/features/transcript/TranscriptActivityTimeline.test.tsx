@@ -281,7 +281,8 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText(/docs\/assets\/logo/)).toBeNull();
   });
 
-  it("summarizes noisy generic command activity while preserving the run summary count", () => {
+  it("summarizes noisy generic command activity while showing child output inline", async () => {
+    const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [
       {
         type: "tool_call",
@@ -314,13 +315,68 @@ describe("TranscriptActivityTimeline", () => {
       { type: "completed", title: "Run completed", status: "completed" },
     ];
 
-    render(<TranscriptActivityTimeline activities={activities} />);
+    render(
+      <TranscriptActivityTimeline
+        activities={activities}
+        renderAdvancedActivity={(activity) =>
+          activity.type === "tool_call" ? <div>Tool output for {activity.title}</div> : undefined
+        }
+      />,
+    );
 
     expect(screen.getByText(/completed · 1 failed tool/)).toBeInTheDocument();
     expect(screen.getByText("Ran 4 commands")).toBeInTheDocument();
     expect(screen.getByText("1 failed · output captured")).toBeInTheDocument();
     expect(screen.queryByText("Ran command")).toBeNull();
     expect(screen.queryByText(/commit abc123/)).toBeNull();
+    expect(screen.queryByText(/Tool output for call_1/)).toBeNull();
+
+    await user.click(screen.getByText("Commands"));
+
+    expect(screen.getAllByText("Ran command")).toHaveLength(4);
+    expect(screen.queryByText(/output captured · commit abc123/)).toBeNull();
+    expect(screen.getByText("Tool output for call_1")).toBeInTheDocument();
+    expect(screen.getByText("Tool output for call_4")).toBeInTheDocument();
+    expect(screen.queryByText(/^Output$/)).toBeNull();
+  });
+
+  it("treats completed commands with fatal output as failed for transcript tone", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_1",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: commit abc123",
+      },
+      {
+        type: "tool_call",
+        title: "call_2",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: fatal: ambiguous argument 'main..HEAD'",
+      },
+      {
+        type: "tool_call",
+        title: "call_3",
+        status: "completed",
+        kind: "execute",
+        detail: "execute",
+      },
+      {
+        type: "tool_call",
+        title: "call_4",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: ok",
+      },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText(/completed · 1 failed tool/)).toBeInTheDocument();
+    expect(screen.getByText("1 failed · output captured")).toBeInTheDocument();
   });
 
   it("renders Grok session read failures as adapter context warnings", () => {

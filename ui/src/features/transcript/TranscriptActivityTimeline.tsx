@@ -4,6 +4,7 @@ import type { ChatActivityRecord } from "../../types/chat";
 
 import {
   activityDisplay,
+  activityEffectiveStatus,
   activityLinePrefix,
   activityStatusColor,
   compactAgentActivities,
@@ -126,7 +127,9 @@ export function TranscriptActivityTimeline({
 
   const plan = primaryRaw.filter((activity) => activity.type === "plan");
   const tools = primaryRaw.filter((activity) => activity.type === "tool_call");
-  const failedTools = tools.filter((activity) => activity.status === "failed").length;
+  const failedTools = tools.filter(
+    (activity) => activityEffectiveStatus(activity) === "failed",
+  ).length;
   const summary = [
     terminal ? terminalStatusLabel(terminal.status) : hasRunning ? "working" : "details",
     plan.length > 0
@@ -215,19 +218,48 @@ export function TranscriptActivityTimeline({
 function TimelineActivityLine({
   activity,
   renderAdvancedActivity,
+  inlineAdvanced = false,
 }: {
   activity: ChatActivityRecord;
   renderAdvancedActivity?: (activity: ChatActivityRecord) => ReactNode;
+  inlineAdvanced?: boolean;
 }) {
+  const children = activity.children ?? [];
+  const advancedContent = renderAdvancedActivity?.(activity);
   const line =
     activity.type === "plan" ? (
       <PlanActivityLine activity={activity} />
     ) : (
-      <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />
+      <ActivityLine
+        activity={activity}
+        prefix={activityLinePrefix(activity)}
+        hideDetail={inlineAdvanced && Boolean(advancedContent)}
+      />
     );
-  const hasAdvanced = Boolean(renderAdvancedActivity?.(activity));
+  const hasAdvanced = children.length > 0 || Boolean(advancedContent);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   if (!hasAdvanced) return line;
+
+  if (inlineAdvanced) {
+    return (
+      <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
+        {line}
+        {children.length > 0 && (
+          <div style={{ display: "grid", gap: 5, marginLeft: 15 }}>
+            {children.map((child, index) => (
+              <TimelineActivityLine
+                key={child.id || `child-${child.type}-${child.created_at ?? index}`}
+                activity={child}
+                renderAdvancedActivity={renderAdvancedActivity}
+                inlineAdvanced
+              />
+            ))}
+          </div>
+        )}
+        {advancedContent && <div style={{ marginLeft: 15 }}>{advancedContent}</div>}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
@@ -249,6 +281,8 @@ function TimelineActivityLine({
         {advancedOpen && (
           <div
             style={{
+              display: "grid",
+              gap: 6,
               marginTop: 6,
               padding: "7px 9px",
               border: "1px solid var(--border)",
@@ -256,7 +290,19 @@ function TimelineActivityLine({
               background: "var(--bg1)",
             }}
           >
-            {renderAdvancedActivity?.(activity)}
+            {children.length > 0 && (
+              <div style={{ display: "grid", gap: 5 }}>
+                {children.map((child, index) => (
+                  <TimelineActivityLine
+                    key={child.id || `child-${child.type}-${child.created_at ?? index}`}
+                    activity={child}
+                    renderAdvancedActivity={renderAdvancedActivity}
+                    inlineAdvanced={activity.type === "tool_group"}
+                  />
+                ))}
+              </div>
+            )}
+            {advancedContent}
           </div>
         )}
       </details>
@@ -265,8 +311,8 @@ function TimelineActivityLine({
 }
 
 function advancedSummaryLabel(activity: ChatActivityRecord): string {
-  if (activity.type === "changed_files" || activity.type === "files_changed")
-    return "Workspace changes";
+  if (activity.type === "tool_group" && (activity.children?.length ?? 0) > 0) return "Commands";
+  if (activity.type === "changed_files" || activity.type === "files_changed") return "Files";
   if (activity.type === "output") return "Output";
   if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Output";
   if (activity.type === "tool_call" && /\boutput\s*:/i.test(activity.detail ?? "")) return "Output";
@@ -318,8 +364,17 @@ function PlanActivityLine({ activity }: { activity: ChatActivityRecord }) {
   );
 }
 
-function ActivityLine({ activity, prefix }: { activity: ChatActivityRecord; prefix?: string }) {
+function ActivityLine({
+  activity,
+  prefix,
+  hideDetail = false,
+}: {
+  activity: ChatActivityRecord;
+  prefix?: string;
+  hideDetail?: boolean;
+}) {
   const display = activityDisplay(activity);
+  const status = activityEffectiveStatus(activity);
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
       <span
@@ -327,7 +382,7 @@ function ActivityLine({ activity, prefix }: { activity: ChatActivityRecord; pref
           width: 7,
           height: 7,
           borderRadius: 999,
-          background: activityStatusColor(activity.status),
+          background: activityStatusColor(status),
           flexShrink: 0,
         }}
       />
@@ -353,7 +408,7 @@ function ActivityLine({ activity, prefix }: { activity: ChatActivityRecord; pref
       >
         {display.title}
       </span>
-      {display.detail && (
+      {display.detail && !hideDetail && (
         <span
           style={{
             fontSize: 11,

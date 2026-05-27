@@ -81,7 +81,9 @@ export function summarizeTimelineActivities(
 
   const firstCommandIndex = activities.findIndex(isGenericCommandToolActivity);
   const status = aggregateActivityStatus(commandActivities);
-  const failed = commandActivities.filter((activity) => activity.status === "failed").length;
+  const failed = commandActivities.filter(
+    (activity) => activityEffectiveStatus(activity) === "failed",
+  ).length;
   const detail = [
     failed > 0 ? `${failed} failed` : "",
     commandActivities.some(toolDetailHasOutput) ? "output captured" : "",
@@ -94,6 +96,7 @@ export function summarizeTimelineActivities(
     status,
     title: `Ran ${commandActivities.length} commands`,
     detail: detail || undefined,
+    children: commandActivities,
   };
 
   const out = activities.filter((activity) => !isGenericCommandToolActivity(activity));
@@ -235,11 +238,20 @@ function isModelTurnActivity(activity: ChatActivityRecord): boolean {
 }
 
 function aggregateActivityStatus(activities: ChatActivityRecord[]): string {
-  if (activities.some((activity) => activity.status === "failed")) return "failed";
-  if (activities.some((activity) => activity.status === "cancelled")) return "cancelled";
+  if (activities.some((activity) => activityEffectiveStatus(activity) === "failed"))
+    return "failed";
+  if (activities.some((activity) => activityEffectiveStatus(activity) === "cancelled"))
+    return "cancelled";
   if (activities.some(isActiveAgentActivity)) return "running";
-  if (activities.every((activity) => activity.status === "completed")) return "completed";
-  return activities[activities.length - 1]?.status || "completed";
+  if (activities.every((activity) => activityEffectiveStatus(activity) === "completed"))
+    return "completed";
+  return activityEffectiveStatus(activities[activities.length - 1]) || "completed";
+}
+
+export function activityEffectiveStatus(activity?: ChatActivityRecord): string {
+  if (!activity) return "completed";
+  if (activity.status === "completed" && hasFailureLikeToolOutput(activity)) return "failed";
+  return activity.status || "completed";
 }
 
 export function activityDisplay(activity: ChatActivityRecord): { title: string; detail?: string } {
@@ -307,6 +319,7 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
 export function activityLinePrefix(activity: ChatActivityRecord): string | undefined {
   switch (activity.type) {
     case "tool_call":
+      if (isThinkingToolActivity(activity)) return "model";
       return "tool";
     case "thinking":
     case "model_turns":
@@ -320,12 +333,13 @@ export function activityLinePrefix(activity: ChatActivityRecord): string | undef
 
 function toolActivityTitle(activity: ChatActivityRecord): string {
   if (isAdapterContextReadFailure(activity)) return "Could not read context";
+  if (isThinkingToolActivity(activity)) return "Thinking";
 
   const raw = stripStatusSuffix(activity.title || activity.kind || "tool").trim();
   const normalized = raw.toLowerCase();
   const kind = (activity.kind || activity.detail || "").trim().toLowerCase();
 
-  if (/^call_[a-z0-9_-]+$/i.test(raw)) {
+  if (opaqueToolCallID(raw)) {
     if (kind.includes("execute") || kind.includes("command") || kind.includes("shell"))
       return "Ran command";
     if (kind.includes("read")) return "Read context";
@@ -374,6 +388,7 @@ function toolActivityDetail(
   if (isAdapterContextReadFailure(activity)) {
     return "adapter session file was unavailable";
   }
+  if (isThinkingToolActivity(activity)) return undefined;
   const detail = cleanActivityDetail(activity) || fallbackToolDetail(activity, displayTitle);
   if (!detail) return undefined;
   return compactToolOutputDetail(detail);
@@ -381,9 +396,20 @@ function toolActivityDetail(
 
 export function capturedToolOutput(activity: ChatActivityRecord): string | undefined {
   if (activity.type !== "tool_call") return undefined;
+  const preview = activity.artifact_preview?.trimEnd();
+  if (preview) return preview;
   const detail = activity.detail?.trim();
   if (!detail) return undefined;
   return parseToolOutputDetail(detail)?.output;
+}
+
+function isThinkingToolActivity(activity: ChatActivityRecord): boolean {
+  if (activity.type !== "tool_call") return false;
+  const kind = (activity.kind || "").trim().toLowerCase();
+  const title = stripStatusSuffix(activity.title || "")
+    .trim()
+    .toLowerCase();
+  return kind === "think" || title === "think";
 }
 
 function modelTurnDetail(activity: ChatActivityRecord): string {
@@ -424,6 +450,15 @@ function toolDetailHasOutput(activity: ChatActivityRecord): boolean {
   return /\boutput\s*:/i.test(activity.detail ?? "");
 }
 
+function hasFailureLikeToolOutput(activity: ChatActivityRecord): boolean {
+  if (activity.type !== "tool_call") return false;
+  const output = capturedToolOutput(activity) ?? "";
+  // Some ACP adapters report the tool call as completed even when the
+  // command itself printed a fatal error. Keep this inference narrow:
+  // it is a UI tone, not a persisted status rewrite.
+  return /(^|\s)(fatal|panic):/i.test(output) || /\bexit(?:ed)?\s+code\s+[1-9]\d*/i.test(output);
+}
+
 function compactToolOutputDetail(detail: string): string {
   const parsed = parseToolOutputDetail(detail);
   if (!parsed) return detail;
@@ -431,9 +466,7 @@ function compactToolOutputDetail(detail: string): string {
   const { prefix, output } = parsed;
   if (/^failed to read file:/i.test(output)) return `${prefix} · read failed`;
   if (/^cannot read binary file:/i.test(output)) return `${prefix} · binary file skipped`;
-  if (!output) return `${prefix} · output captured`;
-  if (/^read\b/i.test(prefix)) return `${prefix} · output captured`;
-  return `${prefix} · output captured · ${compactInlineDetail(output, 48)}`;
+  return `${prefix} · output captured`;
 }
 
 function parseToolOutputDetail(detail: string): { prefix: string; output: string } | undefined {
@@ -446,7 +479,7 @@ function parseToolOutputDetail(detail: string): { prefix: string; output: string
 }
 
 function opaqueToolCallID(value: string): string | undefined {
-  const match = value.match(/^call_([a-z0-9_-]+)$/i);
+  const match = value.match(/^(?:call|toolu)_([a-z0-9_-]+)$/i);
   return match?.[1];
 }
 

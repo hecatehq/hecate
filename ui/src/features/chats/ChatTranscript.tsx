@@ -75,6 +75,7 @@ type Props = {
   onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
+  onOpenWorkspaceChanges?: () => void;
   openExternalAgentSetup: (adapterID?: string) => void;
 };
 
@@ -88,6 +89,7 @@ export function ChatTranscript({
   onNavigate,
   onOpenTask,
   onOpenTrace,
+  onOpenWorkspaceChanges,
   openExternalAgentSetup,
 }: Props) {
   const chat = useChat();
@@ -238,6 +240,7 @@ export function ChatTranscript({
                   ? {
                       label: compactWorkspaceChangeLabel(m.diff_stat),
                       title: changedFilesSummary,
+                      onClick: onOpenWorkspaceChanges,
                     }
                   : undefined
               }

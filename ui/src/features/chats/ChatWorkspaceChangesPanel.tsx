@@ -575,9 +575,24 @@ function WorkspaceDiffPreview({
   diff: string;
   testID?: string;
 }) {
+  const [layoutReady, setLayoutReady] = useState(false);
+
+  useEffect(() => {
+    setLayoutReady(false);
+    let firstFrame = 0;
+    let secondFrame = 0;
+    firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => setLayoutReady(true));
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+    };
+  }, [diff]);
+
   return (
     <div
-      data-testid={testID}
+      data-testid={layoutReady ? testID : undefined}
       style={{
         background: "var(--bg0)",
         borderTop: "1px solid var(--border)",
@@ -589,7 +604,20 @@ function WorkspaceDiffPreview({
         position: "relative",
       }}
     >
-      <DiffViewer compact embedded diff={diff} />
+      {layoutReady ? (
+        <DiffViewer key={`${testID}:${diff.length}`} compact embedded diff={diff} />
+      ) : (
+        <div
+          style={{
+            color: "var(--t3)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            padding: "6px 0",
+          }}
+        >
+          Preparing diff...
+        </div>
+      )}
     </div>
   );
 }

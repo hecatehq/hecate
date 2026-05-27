@@ -141,6 +141,7 @@ export type ChatActivityRecord = {
   approval_id?: string;
   needs_action?: boolean;
   terminal?: boolean;
+  children?: ChatActivityRecord[];
 };
 
 export type ChatConfigSelectOptionRecord = {

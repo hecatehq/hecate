@@ -1548,6 +1548,42 @@ func TestACPTurnSurfacesToolContentPreview(t *testing.T) {
 	if got := activities[0].Detail; got != "execute · output: ok PASS ./internal/agentadapters" {
 		t.Fatalf("activity detail = %q", got)
 	}
+	if got := activities[0].ArtifactPreview; got != "ok\nPASS ./internal/agentadapters" {
+		t.Fatalf("artifact preview = %q", got)
+	}
+}
+
+func TestACPTurnKeepsFullToolOutputPreview(t *testing.T) {
+	var activities []Activity
+	turn := newACPTurn(64*1024, nil)
+	turn.setActivityCallback(func(activity Activity) {
+		activities = append(activities, activity)
+	})
+	status := acp.ToolCallStatusCompleted
+	longOutput := "line one\n" + strings.Repeat("x", 180) + "\nline three"
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			ToolCallUpdate: &acp.SessionToolCallUpdate{
+				ToolCallId: acp.ToolCallId("call_shell"),
+				Status:     &status,
+				Kind:       acp.Ptr(acp.ToolKindExecute),
+				Content: []acp.ToolCallContent{
+					acp.ToolContent(acp.TextBlock(longOutput)),
+				},
+			},
+		},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("activities = %#v, want 1", activities)
+	}
+	if strings.Contains(activities[0].Detail, "line three") {
+		t.Fatalf("activity detail should stay summarized, got %q", activities[0].Detail)
+	}
+	if got := activities[0].ArtifactPreview; got != longOutput {
+		t.Fatalf("artifact preview = %q, want full output", got)
+	}
 }
 
 func installFakeACPExecutable(t *testing.T, name string) {

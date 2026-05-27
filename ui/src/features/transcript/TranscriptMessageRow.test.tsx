@@ -346,6 +346,27 @@ describe("TranscriptMessageRow", () => {
     expect(meta).toHaveAttribute("title", "Run run_123 · Native session native_123");
   });
 
+  it("renders the changed-files chip as a compact action when it is wired", async () => {
+    const onOpenWorkspaceChanges = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        changedFilesLink={{
+          label: "1 file",
+          title: "Workspace changes · 1 file changed",
+          onClick: onOpenWorkspaceChanges,
+        }}
+      />,
+    );
+
+    const chip = screen.getByRole("button", { name: "Open 1 file" });
+    expect(chip).toHaveAttribute("title", "Workspace changes · 1 file changed");
+    await user.click(chip);
+
+    expect(onOpenWorkspaceChanges).toHaveBeenCalledTimes(1);
+  });
+
   it("renders the agent usage line when reported usage is present", () => {
     const usage: ChatUsageRecord = {
       reported_cost_amount: "0.42",
@@ -533,8 +554,59 @@ describe("TranscriptMessageRow", () => {
     await user.click(screen.getByText("Output"));
 
     expect(screen.getByText("Read output")).toBeInTheDocument();
-    expect(screen.getByText(/1 │ import foo/)).toBeInTheDocument();
-    expect(screen.getByText(/2 │ const enabled = true/)).toBeInTheDocument();
+    expect(screen.getByText(/import foo/)).toBeInTheDocument();
+    expect(screen.getByText(/const enabled = true/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 │/)).toBeNull();
+  });
+
+  it("shows full captured command output from artifact preview only in the output card", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_shell",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: total 88064 drwxr-xr-x@ 45 chicoxyzzy staff 144...",
+        artifact_preview:
+          "total 88064\n" +
+          "drwxr-xr-x@ 45 chicoxyzzy staff 1440 May 27 17:43 .\n" +
+          "drwxr-xr-x@ 20 chicoxyzzy staff 640 May 27 17:40 ..",
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    expect(screen.getByText("execute · output captured")).toBeInTheDocument();
+    expect(screen.queryByText(/total 88064/)).toBeNull();
+
+    await user.click(screen.getByText("Output"));
+
+    expect(screen.getByText("Tool output")).toBeInTheDocument();
+    expect(screen.getByText(/drwxr-xr-x@ 45 chicoxyzzy staff 1440/)).toBeInTheDocument();
+    expect(screen.getByText(/drwxr-xr-x@ 20 chicoxyzzy staff 640/)).toBeInTheDocument();
+  });
+
+  it("renders arrow-separated read-context output with real line breaks", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "completed",
+        kind: "read",
+        detail:
+          'read · output: 1→import { parsePatchFiles } from "@pierre/diffs"; 2→import { FileDiff } from "@pierre/diffs/react";',
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    await user.click(screen.getByText("Output"));
+
+    expect(screen.getByText(/import \{ parsePatchFiles \}/)).toBeInTheDocument();
+    expect(screen.getByText(/import \{ FileDiff \}/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 │/)).toBeNull();
   });
 
   it("shows the rich diff viewer for file-change activity when a patch is captured", async () => {
@@ -567,11 +639,9 @@ describe("TranscriptMessageRow", () => {
       />,
     );
 
-    const workspaceSummary = screen
-      .getAllByText("Workspace changes")
-      .find((node) => node.tagName === "SUMMARY");
-    expect(workspaceSummary).toBeTruthy();
-    await user.click(workspaceSummary!);
+    const filesSummary = screen.getByText("Files");
+    expect(filesSummary.tagName).toBe("SUMMARY");
+    await user.click(filesSummary);
 
     expect(screen.getByTestId("diff-viewer")).toBeInTheDocument();
   });

@@ -57,6 +57,12 @@ const thoughtMaxBytesPerBlock = 32 * 1024
 // Detail when its accumulator hits thoughtMaxBytesPerBlock.
 const thoughtTruncationSuffix = "\n… (thought truncated)"
 
+// toolOutputPreviewMaxBytes keeps persisted ACP tool-output cards
+// useful without letting a noisy command balloon chat activity JSON.
+const toolOutputPreviewMaxBytes = 64 * 1024
+
+const toolOutputPreviewTruncatedSuffix = "\n… (tool output truncated)"
+
 type acpTurn struct {
 	output         limitedBuffer
 	raw            limitedBuffer
@@ -309,12 +315,13 @@ func (t *acpTurn) recordToolCall(update *acp.SessionUpdateToolCall) {
 	status := acpToolStatus(string(update.Status))
 	t.rememberToolKind(string(update.ToolCallId), update.Kind)
 	t.emitActivity(Activity{
-		ID:     "tool:" + string(update.ToolCallId),
-		Type:   "tool_call",
-		Status: status,
-		Kind:   string(update.Kind),
-		Title:  firstNonEmpty(update.Title, string(update.ToolCallId)),
-		Detail: toolCallDetail(update.Kind, update.Locations, update.Content, update.RawInput),
+		ID:              "tool:" + string(update.ToolCallId),
+		Type:            "tool_call",
+		Status:          status,
+		Kind:            string(update.Kind),
+		Title:           firstNonEmpty(update.Title, string(update.ToolCallId)),
+		Detail:          toolCallDetail(update.Kind, update.Locations, update.Content, update.RawInput),
+		ArtifactPreview: toolOutputPreview(update.Content, update.RawOutput),
 	})
 	t.emitFileChangeActivities(string(update.ToolCallId), update.Kind, status, update.Locations)
 }
@@ -362,12 +369,13 @@ func (t *acpTurn) recordToolCallUpdate(update *acp.SessionToolCallUpdate) {
 	}
 	normalizedStatus := acpToolStatus(status)
 	t.emitActivity(Activity{
-		ID:     "tool:" + string(update.ToolCallId),
-		Type:   "tool_call",
-		Status: normalizedStatus,
-		Kind:   string(kind),
-		Title:  title,
-		Detail: toolCallDetail(kind, update.Locations, update.Content, update.RawInput),
+		ID:              "tool:" + string(update.ToolCallId),
+		Type:            "tool_call",
+		Status:          normalizedStatus,
+		Kind:            string(kind),
+		Title:           title,
+		Detail:          toolCallDetail(kind, update.Locations, update.Content, update.RawInput),
+		ArtifactPreview: toolOutputPreview(update.Content, update.RawOutput),
 	})
 	t.emitFileChangeActivities(string(update.ToolCallId), kind, normalizedStatus, update.Locations)
 }
@@ -743,6 +751,59 @@ func trimToolSummary(value string) string {
 	}
 	runes := []rune(value)
 	return string(runes[:117]) + "..."
+}
+
+func toolOutputPreview(content []acp.ToolCallContent, rawOutput any) string {
+	parts := make([]string, 0, len(content)+1)
+	for _, item := range content {
+		if item.Content == nil {
+			continue
+		}
+		if text := contentBlockText(item.Content.Content); strings.TrimSpace(text) != "" {
+			parts = append(parts, text)
+		}
+	}
+	if len(parts) == 0 {
+		if raw := stringifyToolRawOutput(rawOutput); strings.TrimSpace(raw) != "" {
+			parts = append(parts, raw)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return capToolOutputPreview(strings.TrimRight(strings.Join(parts, "\n\n"), "\r\n"))
+}
+
+func stringifyToolRawOutput(rawOutput any) string {
+	if rawOutput == nil {
+		return ""
+	}
+	switch value := rawOutput.(type) {
+	case string:
+		return value
+	case fmt.Stringer:
+		return value.String()
+	default:
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Sprint(value)
+		}
+		return string(raw)
+	}
+}
+
+func capToolOutputPreview(value string) string {
+	if len(value) <= toolOutputPreviewMaxBytes {
+		return value
+	}
+	cut := toolOutputPreviewMaxBytes - len(toolOutputPreviewTruncatedSuffix)
+	if cut < 0 {
+		cut = 0
+	}
+	for cut > 0 && (value[cut]&0xC0) == 0x80 {
+		cut--
+	}
+	return value[:cut] + toolOutputPreviewTruncatedSuffix
 }
 
 func pluralize(count int, singular string) string {

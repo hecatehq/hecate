@@ -4,10 +4,12 @@ import type { ChatActivityRecord } from "../../types/chat";
 
 import {
   activityDisplay,
+  activityEffectiveStatus,
   activityLinePrefix,
   activityStatusColor,
   compactAgentActivities,
   compactDetailActivities,
+  capturedToolOutput,
   detailSummaryLabel,
   fileChangesActivity,
   formatDiffStatSummary,
@@ -296,6 +298,38 @@ describe("activityDisplay", () => {
     );
   });
 
+  it("humanizes opaque external-agent tool ids using the reported kind", () => {
+    expect(
+      activityDisplay(
+        activity({
+          type: "tool_call",
+          title: "toolu_01X4Kr7tteNtaP6emRf7ULtM",
+          kind: "edit",
+        }),
+      ),
+    ).toEqual({
+      title: "Edited file",
+      detail: "edit · tool 01X4Kr7t",
+    });
+  });
+
+  it("keeps command output out of the compact activity row", () => {
+    expect(
+      activityDisplay(
+        activity({
+          type: "tool_call",
+          title: "call_shell",
+          status: "completed",
+          kind: "execute",
+          detail: "execute · output: total 88064 drwxr-xr-x@ 45 chicoxyzzy staff",
+        }),
+      ),
+    ).toEqual({
+      title: "Ran command",
+      detail: "execute · output captured",
+    });
+  });
+
   it("renders the model-turn summary for collapsed model_turns rows", () => {
     expect(
       activityDisplay(
@@ -317,6 +351,18 @@ describe("activityDisplay", () => {
         }),
       ),
     ).toEqual({ title: "Thinking" });
+  });
+
+  it("renders external-agent think tool calls as model thinking without raw details", () => {
+    const thinkTool = activity({
+      type: "tool_call",
+      title: "toolu_01BZs1wuiXD65ZLAfKxhCebd",
+      kind: "think",
+      detail: "think · output: I should inspect the repository first.",
+    });
+
+    expect(activityDisplay(thinkTool)).toEqual({ title: "Thinking" });
+    expect(activityLinePrefix(thinkTool)).toBe("model");
   });
 
   it("renders the files_changed summary directly", () => {
@@ -479,6 +525,53 @@ describe("activityStatusColor", () => {
     expect(activityStatusColor("completed")).toBe("var(--green)");
     expect(activityStatusColor("something_new")).toBe("var(--green)");
     expect(activityStatusColor()).toBe("var(--green)");
+  });
+});
+
+describe("activityEffectiveStatus", () => {
+  it("treats completed command output with fatal errors as failed for display", () => {
+    expect(
+      activityEffectiveStatus(
+        activity({
+          type: "tool_call",
+          title: "call_shell",
+          status: "completed",
+          kind: "execute",
+          detail: "execute · output: fatal: ambiguous argument 'main..HEAD'",
+        }),
+      ),
+    ).toBe("failed");
+  });
+
+  it("does not mark ordinary completed output as failed", () => {
+    expect(
+      activityEffectiveStatus(
+        activity({
+          type: "tool_call",
+          title: "call_shell",
+          status: "completed",
+          kind: "execute",
+          detail: "execute · output: wrote error handling docs",
+        }),
+      ),
+    ).toBe("completed");
+  });
+});
+
+describe("capturedToolOutput", () => {
+  it("prefers the full artifact preview over the compact detail summary", () => {
+    expect(
+      capturedToolOutput(
+        activity({
+          type: "tool_call",
+          title: "call_shell",
+          status: "completed",
+          kind: "execute",
+          detail: "execute · output: short summary",
+          artifact_preview: "first line\nfull tail line",
+        }),
+      ),
+    ).toBe("first line\nfull tail line");
   });
 });
 
