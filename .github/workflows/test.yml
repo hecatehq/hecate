@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Cancel in-progress runs for the same branch / PR when a new commit is pushed.
 concurrency:
