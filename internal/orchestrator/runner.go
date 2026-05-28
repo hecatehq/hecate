@@ -770,7 +770,6 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 		return types.TaskRun{}, err
 	}
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.cancelled", requestID, traceID, map[string]any{"reason": message})
-	r.cancelPendingApprovalsForRun(ctx, trace, task, run, message, requestID, traceID, now)
 
 	steps, _ := r.store.ListSteps(ctx, run.ID)
 	for _, step := range steps {
@@ -810,6 +809,7 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 		return types.TaskRun{}, err
 	}
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "task.updated", requestID, traceID, nil)
+	r.cancelPendingApprovalsForRun(ctx, trace, task, run, message, requestID, traceID, now)
 	return run, nil
 }
 

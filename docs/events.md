@@ -210,7 +210,8 @@ Both shapes share these fields.
 ### `approval.resolved`
 
 The gate reached a terminal decision. After approve, the run re-queues; after
-reject, the run terminates `failed`; after cancellation, the run terminates
+reject, the run and task terminate `cancelled` with
+`last_error="approval rejected"`; after cancellation, the run terminates
 `cancelled` and the approval record is no longer actionable.
 
 | Extra key     | Type     | Notes                                                             |
