@@ -38,15 +38,15 @@ The server runs as a subcommand of the `gateway` binary on stdio, talking back t
 
 Seven tools — four reads and three writes:
 
-| Tool                       | Kind                            | Description                                                                                                                 |
-| -------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `list_tasks`               | read                            | Recent agent tasks: id, title, status, execution kind, step count                                                           |
-| `get_task_status`          | read                            | Detailed status of one task by id, including its latest run                                                                 |
-| `summarize_recent_traffic` | read                            | Aggregated request stats: by-provider breakdown, error rate, avg latency                                                    |
-| `search_traces`            | read                            | Search recent trace summaries by text, or fetch one exact trace by `request_id` with span/event details                     |
-| `create_task`              | write                           | Queue a new `agent_loop` task with optional title / working_directory / model / provider / budget. Returns the new task id  |
-| `resolve_approval`         | write (destructive)             | Approve or reject a pending approval gate (pre-execution or mid-loop). Approve resumes; reject terminates the run as failed |
-| `cancel_run`               | write (destructive, idempotent) | Cancel an in-flight task run. Cooperative — the worker stops at the next safe checkpoint                                    |
+| Tool                       | Kind                            | Description                                                                                                                             |
+| -------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_tasks`               | read                            | Recent agent tasks: id, title, status, execution kind, step count                                                                       |
+| `get_task_status`          | read                            | Detailed status of one task by id, including its latest run                                                                             |
+| `summarize_recent_traffic` | read                            | Aggregated request stats: by-provider breakdown, error rate, avg latency                                                                |
+| `search_traces`            | read                            | Search recent trace summaries by text, or fetch one exact trace by `request_id` with span/event details                                 |
+| `create_task`              | write                           | Queue a new `agent_loop` task with optional title / working_directory / model / provider / budget. Returns the new task id              |
+| `resolve_approval`         | write (destructive)             | Approve or reject a pending approval gate (pre-execution or mid-loop). Approve resumes; reject cancels the run with `approval rejected` |
+| `cancel_run`               | write (destructive, idempotent) | Cancel an in-flight task run. Cooperative — the worker stops at the next safe checkpoint                                                |
 
 Together the write tools turn the MCP surface into an operator-grade control plane: list tasks → see approvals → approve/reject → create new tasks → cancel runaway runs without leaving the editor.
 

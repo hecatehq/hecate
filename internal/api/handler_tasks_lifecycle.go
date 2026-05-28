@@ -2,12 +2,12 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
+	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -99,118 +99,55 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	approval, found, err := h.taskStore.GetApproval(ctx, task.ID, approvalID)
+	var req ResolveTaskApprovalRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+
+	result, err := h.taskRunner.ResolveTaskApproval(ctx, orchestrator.ResolveApprovalRequest{
+		Task:        task,
+		ApprovalID:  approvalID,
+		Decision:    req.Decision,
+		Note:        req.Note,
+		ResolvedBy:  "operator",
+		RequestID:   RequestIDFromContext(ctx),
+		IDGenerator: newOpaqueTaskResourceID,
+	})
 	if err != nil {
+		h.writeResolveTaskApprovalError(w, r, err)
+		return
+	}
+	if result.TraceID != "" {
+		w.Header().Set("X-Trace-Id", result.TraceID)
+	}
+	if result.SpanID != "" {
+		w.Header().Set("X-Span-Id", result.SpanID)
+	}
+
+	WriteJSON(w, http.StatusOK, TaskApprovalResponse{
+		Object: "task_approval",
+		Data:   renderTaskApproval(result.Approval),
+	})
+}
+
+func (h *Handler) writeResolveTaskApprovalError(w http.ResponseWriter, r *http.Request, err error) {
+	ctx := r.Context()
+	switch {
+	case errors.Is(err, orchestrator.ErrInvalidApprovalDecision):
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "decision must be approve or reject")
+	case errors.Is(err, orchestrator.ErrApprovalNotFound):
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "task approval not found")
+	case errors.Is(err, orchestrator.ErrApprovalRunNotFound):
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "task run not found")
+	case errors.Is(err, orchestrator.ErrApprovalConflict):
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
+	default:
 		telemetry.Error(h.logger, ctx, "gateway.tasks.approvals.resolve.failed",
 			slog.String("event.name", "gateway.tasks.approvals.resolve.failed"),
 			slog.Any("error", err),
 		)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
 	}
-	if !found {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "task approval not found")
-		return
-	}
-	if approval.Status != "pending" {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task approval is not pending")
-		return
-	}
-	run, found, err := h.taskStore.GetRun(ctx, task.ID, approval.RunID)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !found {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "task run not found")
-		return
-	}
-	if run.Status != "awaiting_approval" {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, fmt.Sprintf("task approval is no longer actionable because run is %s", run.Status))
-		return
-	}
-
-	var req ResolveTaskApprovalRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	decision, ok := normalizeApprovalDecision(req.Decision)
-	if !ok {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "decision must be approve or reject")
-		return
-	}
-
-	now := time.Now().UTC()
-	approval.Status = decision
-	approval.ResolutionNote = strings.TrimSpace(req.Note)
-	approval.ResolvedBy = "operator"
-	approval.ResolvedAt = now
-	approval, updated, err := h.taskStore.UpdatePendingApprovalForAwaitingRun(ctx, approval)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !updated {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task approval is not pending or run is no longer awaiting approval")
-		return
-	}
-	_, _ = h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
-		TaskID:    task.ID,
-		RunID:     approval.RunID,
-		EventType: "approval.resolved",
-		Data: map[string]any{
-			"approval_id": approval.ID,
-			"decision":    approval.Status,
-			"by":          approval.ResolvedBy,
-			"comment":     approval.ResolutionNote,
-			"scope":       "once",
-			"kind":        approval.Kind,
-			"status":      approval.Status,
-		},
-		RequestID: RequestIDFromContext(ctx),
-		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,
-		CreatedAt: time.Now().UTC(),
-	})
-
-	switch decision {
-	case "approved":
-		result, err := h.taskRunner.ResumeTaskAfterApproval(ctx, task, approval, newOpaqueTaskResourceID)
-		if err != nil {
-			telemetry.Error(h.logger, ctx, "gateway.tasks.approvals.resume.failed",
-				slog.String("event.name", "gateway.tasks.approvals.resume.failed"),
-				slog.Any("error", err),
-			)
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-		if result.TraceID != "" {
-			w.Header().Set("X-Trace-Id", result.TraceID)
-		}
-		if result.SpanID != "" {
-			w.Header().Set("X-Span-Id", result.SpanID)
-		}
-	case "rejected":
-		result, err := h.taskRunner.RejectTaskAfterApproval(ctx, task, approval, newOpaqueTaskResourceID)
-		if err != nil {
-			telemetry.Error(h.logger, ctx, "gateway.tasks.approvals.reject.failed",
-				slog.String("event.name", "gateway.tasks.approvals.reject.failed"),
-				slog.Any("error", err),
-			)
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-		if result.TraceID != "" {
-			w.Header().Set("X-Trace-Id", result.TraceID)
-		}
-		if result.SpanID != "" {
-			w.Header().Set("X-Span-Id", result.SpanID)
-		}
-	}
-
-	WriteJSON(w, http.StatusOK, TaskApprovalResponse{
-		Object: "task_approval",
-		Data:   renderTaskApproval(approval),
-	})
 }
 
 func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {

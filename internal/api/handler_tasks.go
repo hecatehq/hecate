@@ -1129,17 +1129,6 @@ func newTaskID() string {
 	return newOpaqueTaskResourceID("task")
 }
 
-func normalizeApprovalDecision(value string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "approve", "approved":
-		return "approved", true
-	case "reject", "rejected", "deny", "denied":
-		return "rejected", true
-	default:
-		return "", false
-	}
-}
-
 func newOpaqueTaskResourceID(prefix string) string {
 	buf := make([]byte, 12)
 	if _, err := rand.Read(buf); err != nil {

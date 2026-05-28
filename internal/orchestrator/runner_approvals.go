@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,43 @@ import (
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
+
+var (
+	ErrApprovalNotFound        = errors.New("task approval not found")
+	ErrApprovalRunNotFound     = errors.New("task run not found")
+	ErrApprovalConflict        = errors.New("task approval is not actionable")
+	ErrInvalidApprovalDecision = errors.New("approval decision must be approve or reject")
+)
+
+type approvalConflictError struct {
+	message string
+}
+
+func (e approvalConflictError) Error() string {
+	return e.message
+}
+
+func (e approvalConflictError) Is(target error) bool {
+	return target == ErrApprovalConflict
+}
+
+type ResolveApprovalRequest struct {
+	Task        types.Task
+	ApprovalID  string
+	Decision    string
+	Note        string
+	ResolvedBy  string
+	RequestID   string
+	IDGenerator func(prefix string) string
+}
+
+type ResolveApprovalResult struct {
+	Approval types.TaskApproval
+	Task     types.Task
+	Run      types.TaskRun
+	TraceID  string
+	SpanID   string
+}
 
 func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, approval types.TaskApproval, idgen func(prefix string) string) (*StartTaskResult, error) {
 	if r.store == nil {
@@ -58,7 +96,6 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 	if _, err := r.store.UpdateRun(ctx, run); err != nil {
 		return nil, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.queued", requestID, trace.TraceID, map[string]any{"resume": true})
 
 	task.Status = "queued"
 	task.LatestRunID = run.ID
@@ -71,6 +108,9 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 		return nil, err
 	}
 
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, approvalResolvedEventData(approval))
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.queued", requestID, trace.TraceID, map[string]any{"resume": true})
+
 	if err := r.enqueueRun(task.ID, run.ID); err != nil {
 		return nil, err
 	}
@@ -81,6 +121,117 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 		TraceID: trace.TraceID,
 		SpanID:  trace.RootSpanID(),
 	}, nil
+}
+
+func (r *Runner) ResolveTaskApproval(ctx context.Context, req ResolveApprovalRequest) (*ResolveApprovalResult, error) {
+	if r == nil || r.store == nil {
+		return nil, fmt.Errorf("task store is not configured")
+	}
+	if req.Task.ID == "" {
+		return nil, fmt.Errorf("task id is required")
+	}
+	approvalID := strings.TrimSpace(req.ApprovalID)
+	if approvalID == "" {
+		return nil, fmt.Errorf("approval id is required")
+	}
+	decision, err := normalizeApprovalDecision(req.Decision)
+	if err != nil {
+		return nil, err
+	}
+	if req.IDGenerator == nil {
+		return nil, fmt.Errorf("resource id generator is required")
+	}
+
+	approval, found, err := r.store.GetApproval(ctx, req.Task.ID, approvalID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, ErrApprovalNotFound
+	}
+	if approval.Status != "pending" {
+		return nil, approvalConflictError{message: fmt.Sprintf("task approval is not pending (status %s)", approval.Status)}
+	}
+
+	run, found, err := r.store.GetRun(ctx, req.Task.ID, approval.RunID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, ErrApprovalRunNotFound
+	}
+	if run.Status != "awaiting_approval" {
+		return nil, approvalConflictError{message: fmt.Sprintf("task approval is no longer actionable because run is %s", run.Status)}
+	}
+
+	now := time.Now().UTC()
+	approval.Status = decision
+	approval.ResolutionNote = strings.TrimSpace(req.Note)
+	approval.ResolvedBy = strings.TrimSpace(req.ResolvedBy)
+	if approval.ResolvedBy == "" {
+		approval.ResolvedBy = "operator"
+	}
+	approval.ResolvedAt = now
+
+	updatedApproval, updated, err := r.store.UpdatePendingApprovalForAwaitingRun(ctx, approval)
+	if err != nil {
+		return nil, err
+	}
+	if !updated {
+		return nil, approvalConflictError{message: "task approval is not pending or run is no longer awaiting approval"}
+	}
+
+	requestID := firstNonEmpty(strings.TrimSpace(req.RequestID), telemetry.RequestIDFromContext(ctx), updatedApproval.RequestID, run.RequestID)
+	if requestID == "" && req.IDGenerator != nil {
+		requestID = req.IDGenerator("request")
+	}
+	ctx = telemetry.WithRequestID(ctx, requestID)
+
+	var started *StartTaskResult
+	switch decision {
+	case "approved":
+		started, err = r.ResumeTaskAfterApproval(ctx, req.Task, updatedApproval, req.IDGenerator)
+	case "rejected":
+		started, err = r.RejectTaskAfterApproval(ctx, req.Task, updatedApproval, req.IDGenerator)
+	default:
+		err = ErrInvalidApprovalDecision
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &ResolveApprovalResult{
+		Approval: updatedApproval,
+		Task:     started.Task,
+		Run:      started.Run,
+		TraceID:  started.TraceID,
+		SpanID:   started.SpanID,
+	}, nil
+}
+
+func normalizeApprovalDecision(decision string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(decision)) {
+	case "approve", "approved":
+		return "approved", nil
+	case "reject", "rejected":
+		return "rejected", nil
+	case "deny", "denied":
+		return "rejected", nil
+	default:
+		return "", ErrInvalidApprovalDecision
+	}
+}
+
+func approvalResolvedEventData(approval types.TaskApproval) map[string]any {
+	return map[string]any{
+		"approval_id": approval.ID,
+		"decision":    approval.Status,
+		"by":          approval.ResolvedBy,
+		"comment":     approval.ResolutionNote,
+		"scope":       "once",
+		"kind":        approval.Kind,
+		"status":      approval.Status,
+	}
 }
 
 func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, approval types.TaskApproval, idgen func(prefix string) string) (*StartTaskResult, error) {
@@ -131,6 +282,7 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 	if err != nil {
 		return nil, err
 	}
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, approvalResolvedEventData(approval))
 	return &StartTaskResult{
 		Task:    task,
 		Run:     run,
@@ -164,15 +316,7 @@ func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, trace *profil
 			waitMS = updated.ResolvedAt.Sub(updated.CreatedAt).Milliseconds()
 		}
 		r.recordApprovalResolved(ctx, trace, task.ID, run.ID, updated, "cancelled", waitMS)
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, traceID, map[string]any{
-			"approval_id": updated.ID,
-			"decision":    updated.Status,
-			"by":          updated.ResolvedBy,
-			"comment":     updated.ResolutionNote,
-			"scope":       "once",
-			"kind":        updated.Kind,
-			"status":      updated.Status,
-		})
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, traceID, approvalResolvedEventData(updated))
 	}
 }
 
@@ -192,13 +336,15 @@ func (r *Runner) recordApprovalResolved(ctx context.Context, trace *profiler.Tra
 	if trace != nil {
 		trace.Record(telemetry.EventOrchestratorApprovalResolved, attrs)
 	}
-	r.metrics.RecordApproval(ctx, telemetry.ApprovalMetricsRecord{
-		TaskID:       taskID,
-		RunID:        runID,
-		ApprovalKind: approval.Kind,
-		Decision:     decision,
-		WaitMS:       waitMS,
-	})
+	if r.metrics != nil {
+		r.metrics.RecordApproval(ctx, telemetry.ApprovalMetricsRecord{
+			TaskID:       taskID,
+			RunID:        runID,
+			ApprovalKind: approval.Kind,
+			Decision:     decision,
+			WaitMS:       waitMS,
+		})
+	}
 }
 
 func (r *Runner) approvalRequiredForTask(task types.Task) bool {

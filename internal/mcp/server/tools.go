@@ -124,14 +124,14 @@ func RegisterDefaultTools(s *Server, client *GatewayClient) {
 		Name:  "resolve_approval",
 		Title: "Resolve a pending approval",
 		Description: "Approve or reject a pending approval gate (pre-execution or mid-loop tool call). " +
-			"On approve, the run continues from where it paused; on reject, the run terminates failed. " +
+			"On approve, the run continues from where it paused; on reject, the run is cancelled with approval rejected. " +
 			"This is irreversible — the run can't undo a rejection.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"task_id": {"type": "string", "minLength": 1, "description": "The task id."},
 				"approval_id": {"type": "string", "minLength": 1, "description": "The pending approval id."},
-				"decision": {"type": "string", "enum": ["approve", "reject"], "description": "approve resumes the run; reject terminates it."},
+				"decision": {"type": "string", "enum": ["approve", "reject"], "description": "approve resumes the run; reject cancels it with approval rejected."},
 				"note": {"type": "string", "description": "Optional operator note attached to the resolution (audit trail)."}
 			},
 			"required": ["task_id", "approval_id", "decision"]
