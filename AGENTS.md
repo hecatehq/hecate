@@ -27,14 +27,6 @@ guidance live in [`docs-ai/`](docs-ai/README.md).
 
 When in doubt: read [`docs-ai/core/project-context.md`](docs-ai/core/project-context.md) and [`docs-ai/core/workflow.md`](docs-ai/core/workflow.md).
 
-## Local shell command policy
-
-- RTK may be used as a token-saving shell proxy for commands that produce large or noisy output.
-- RTK is optional, not mandatory.
-- Prefer raw shell commands when exact output, long-running processes, dev servers, interactive behavior, unsupported command forms, or unfiltered diagnostics matter.
-- If RTK limits, changes, blocks, or hides useful command output, rerun the command without RTK or use `rtk proxy <command>`.
-- Do not add hooks that force shell commands through RTK.
-
 ## Codebase map
 
 ```

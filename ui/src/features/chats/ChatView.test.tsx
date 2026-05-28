@@ -3824,8 +3824,15 @@ describe("ChatView external-agent target", () => {
     expect((await screen.findAllByText("2 files changed, 2 insertions(+)")).length).toBeGreaterThan(
       0,
     );
+    const workspacePanel = screen.getByLabelText("Workspace changes panel");
     expect(screen.getByRole("button", { name: "Collapse folder docs" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Collapse folder docs" }));
+    expect(screen.queryByRole("button", { name: "Show diff docs/guide.md" })).toBeNull();
+    const diffCallsBeforeRefresh = getChatWorkspaceDiff.mock.calls.length;
+    await user.click(within(workspacePanel).getByRole("button", { name: "Refresh" }));
+    await waitFor(() =>
+      expect(getChatWorkspaceDiff.mock.calls.length).toBeGreaterThan(diffCallsBeforeRefresh),
+    );
     expect(screen.queryByRole("button", { name: "Show diff docs/guide.md" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Expand folder docs" }));
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
@@ -3835,7 +3842,6 @@ describe("ChatView external-agent target", () => {
     expect(readmePreview).not.toHaveAttribute("data-preview-height");
     expect(readmePreview.style.contain).toBe("");
     expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
-    const workspacePanel = screen.getByLabelText("Workspace changes panel");
     await user.type(screen.getByLabelText("Search changed files"), "guide");
     expect(within(workspacePanel).queryByText("README.md")).toBeNull();
     expect(within(workspacePanel).getByText("guide.md")).toBeTruthy();

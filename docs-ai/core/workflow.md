@@ -20,17 +20,6 @@ The default operating loop, when to stop and plan, and how to propose commits.
 6. **Verify.** Run the relevant ladder from [`verification.md`](verification.md). Before filing a PR, this is mandatory by touched surface: TypeScript/UI changes require the UI checks and Go changes require the Go checks. If a PR touches both, run both. State exactly what was run.
 7. **Summarize.** What changed, what risks remain, what the operator should know — including manual smoke steps if any.
 
-## Shell command policy
-
-RTK is available as an optional token-saving shell proxy for commands that
-produce large or noisy output, but it is never mandatory. Prefer raw shell
-commands when exact output, long-running processes, dev servers, interactive
-behavior, unsupported command forms, or unfiltered diagnostics matter.
-
-If RTK limits, changes, blocks, or hides useful output, rerun the command
-without RTK or use `rtk proxy <command>`. Do not add hooks, aliases, wrappers,
-or repo automation that force every shell command through RTK.
-
 ## When to ask clarifying questions
 
 - Scope is ambiguous.

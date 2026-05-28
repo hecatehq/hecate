@@ -38,12 +38,7 @@ Required only for the native desktop app:
 Optional:
 
 - **Docker** — only required for the docker-smoke test job and container workflows; not needed for the local runtime itself.
-- **RTK** — optional local helper used by Hecate Chat's per-chat
-  “compact command output” setting and by developers who want to compress
-  noisy shell output while working. It is off by default; when the `rtk`
-  command is present in the Hecate process `PATH`, the UI offers an opt-in
-  hint. Hecate still applies policy validation, env sanitisation, output caps,
-  timeouts, and the OS sandbox wrapper.
+- **RTK** — optional local helper used by Hecate Chat's per-chat “compact command output” setting. It is off by default; when the `rtk` command is present in the gateway `PATH`, the UI offers an opt-in hint. Hecate still applies policy validation, env sanitisation, output caps, timeouts, and the OS sandbox wrapper.
 
 Install examples:
 
@@ -73,12 +68,6 @@ Do not use npm, pnpm, yarn, Corepack, Volta, or Node-specific workflow setup
 for the UI or website. The committed lockfiles are `ui/bun.lock` and
 `website/bun.lock`, the install command is `bun install`, and all scripts run
 through `bun run ...`.
-
-RTK is opt-in. Do not configure global shell hooks or aliases that force all
-commands through RTK: exact output, dev servers, long-running processes,
-interactive commands, and unsupported command forms should run as normal shell
-commands. If RTK hides useful diagnostics, rerun without it or use
-`rtk proxy <command>`.
 
 The `hecate` runtime embeds the React UI via `//go:embed ui/dist`. There's no separate UI deployment.
 

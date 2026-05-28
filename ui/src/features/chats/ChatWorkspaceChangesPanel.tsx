@@ -88,6 +88,8 @@ export function ChatWorkspaceChangesPanel({
   const [loadFailed, setLoadFailed] = useState(false);
   const [localError, setLocalError] = useState("");
   const copiedTimerRef = useRef<number | null>(null);
+  const previousFolderPathsRef = useRef<string[]>([]);
+  const preSearchExpandedDirPathsRef = useRef<string[] | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -244,17 +246,46 @@ export function ChatWorkspaceChangesPanel({
   const tree = useMemo(() => buildWorkspaceFileTree(files, query), [files, query]);
 
   useEffect(() => {
-    setExpandedDirPaths(collectWorkspaceTreeFolderPaths(tree));
-  }, [tree]);
+    const folderPaths = collectWorkspaceTreeFolderPaths(tree);
+    if (query.trim()) {
+      setExpandedDirPaths((current) => {
+        preSearchExpandedDirPathsRef.current ??= current;
+        return folderPaths;
+      });
+      return;
+    }
+
+    setExpandedDirPaths((current) => {
+      const restored = preSearchExpandedDirPathsRef.current ?? current;
+      preSearchExpandedDirPathsRef.current = null;
+      const previous = previousFolderPathsRef.current;
+      previousFolderPathsRef.current = folderPaths;
+      if (previous.length === 0) return folderPaths;
+
+      const previousSet = new Set(previous);
+      const folderSet = new Set(folderPaths);
+      const next = new Set(restored.filter((path) => folderSet.has(path)));
+      // Preserve the operator's manual collapse state on refresh, while still
+      // auto-opening folders that appeared since the previous tree.
+      for (const path of folderPaths) {
+        if (!previousSet.has(path)) next.add(path);
+      }
+      return folderPaths.filter((path) => next.has(path));
+    });
+  }, [query, tree]);
 
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
     window.addEventListener("click", close);
     window.addEventListener("keydown", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
     return () => {
       window.removeEventListener("click", close);
       window.removeEventListener("keydown", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
     };
   }, [contextMenu]);
 
@@ -1072,9 +1103,9 @@ function fileStatusColor(status: string): string {
     case "removed":
       return "var(--red)";
     case "renamed":
-      return "var(--yellow)";
+      return "var(--amber)";
     default:
-      return "var(--cyan)";
+      return "var(--teal)";
   }
 }
 
