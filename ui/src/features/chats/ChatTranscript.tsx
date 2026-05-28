@@ -108,6 +108,15 @@ export function ChatTranscript({
   const userScrolledRef = useRef(false);
   const [atBottom, setAtBottom] = useState(true);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const copiedMsgTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedMsgTimerRef.current !== null) {
+        window.clearTimeout(copiedMsgTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!userScrolledRef.current) {
@@ -144,8 +153,14 @@ export function ChatTranscript({
 
   function copyMsg(id: string, text: string) {
     navigator.clipboard?.writeText(text).catch(() => {});
+    if (copiedMsgTimerRef.current !== null) {
+      window.clearTimeout(copiedMsgTimerRef.current);
+    }
     setCopiedMsgId(id);
-    setTimeout(() => setCopiedMsgId(null), 2000);
+    copiedMsgTimerRef.current = window.setTimeout(() => {
+      setCopiedMsgId(null);
+      copiedMsgTimerRef.current = null;
+    }, 2000);
   }
 
   return (
