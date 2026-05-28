@@ -64,7 +64,7 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 		return nil, fmt.Errorf("task run %q not found", approval.RunID)
 	}
 	if run.Status != "awaiting_approval" {
-		return nil, fmt.Errorf("task run %q is not awaiting approval", run.ID)
+		return nil, approvalConflictError{message: fmt.Sprintf("task approval is no longer actionable because run is %s", run.Status)}
 	}
 
 	requestID := strings.TrimSpace(telemetry.RequestIDFromContext(ctx))
@@ -199,6 +199,9 @@ func (r *Runner) ResolveTaskApproval(ctx context.Context, req ResolveApprovalReq
 	if err != nil {
 		return nil, err
 	}
+	if started == nil {
+		return nil, approvalConflictError{message: "task approval resolution did not produce a runnable state"}
+	}
 
 	return &ResolveApprovalResult{
 		Approval: updatedApproval,
@@ -249,7 +252,7 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 		return nil, fmt.Errorf("task run %q not found", approval.RunID)
 	}
 	if run.Status != "awaiting_approval" {
-		return nil, fmt.Errorf("task run %q is not awaiting approval", run.ID)
+		return nil, approvalConflictError{message: fmt.Sprintf("task approval is no longer actionable because run is %s", run.Status)}
 	}
 
 	requestID := strings.TrimSpace(telemetry.RequestIDFromContext(ctx))

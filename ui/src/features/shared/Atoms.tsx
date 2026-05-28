@@ -36,7 +36,7 @@ export function Badge({ status, label }: { status: BadgeStatus | string; label?:
     done: { text: label || "done", cls: "badge-green" },
     completed: { text: label || "done", cls: "badge-green" },
     failed: { text: label || "failed", cls: "badge-red" },
-    cancelled: { text: label || "failed", cls: "badge-red" },
+    cancelled: { text: label || "cancelled", cls: "badge-red" },
     enabled: { text: label || "enabled", cls: "badge-green" },
     disabled: { text: label || "disabled", cls: "badge-muted" },
     healthy: { text: label || "healthy", cls: "badge-green" },

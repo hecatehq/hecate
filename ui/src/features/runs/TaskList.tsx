@@ -3,6 +3,8 @@ import { useState } from "react";
 import type { TaskRecord } from "../../types/task";
 import { Badge, Icon, Icons } from "../shared/ui";
 
+import { taskBadgeProps } from "./taskDetailHelpers";
+
 type Props = {
   tasks: TaskRecord[];
   selectedTaskID: string;
@@ -13,12 +15,6 @@ type Props = {
   onNewTask: () => void;
   onRefresh: () => void;
 };
-
-function taskBadgeStatus(status: string): string {
-  if (status === "completed") return "done";
-  if (status === "awaiting_approval") return "awaiting";
-  return status;
-}
 
 function taskKindLabel(task: TaskRecord): string {
   const kind = task.execution_kind;
@@ -149,7 +145,7 @@ export function TaskList({
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                <Badge status={taskBadgeStatus(t.status)} />
+                <Badge {...taskBadgeProps(t.status, t.last_error)} />
                 {t.execution_kind && (
                   <span
                     style={{

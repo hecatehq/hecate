@@ -339,6 +339,34 @@ func TestRunnerResolveTaskApproval_ConflictsAfterRunCancellation(t *testing.T) {
 	}
 }
 
+func TestRunnerApprovalHelpers_ConflictWhenRunNoLongerAwaiting(t *testing.T) {
+	for _, tc := range approvalLifecycleStores(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			task, run, _, approval := seedAwaitingApprovalRun(t, ctx, tc.store, tc.name+"_helper_conflict")
+			runner, _ := newApprovalLifecycleRunner(tc.store)
+
+			run.Status = "cancelled"
+			run.LastError = "operator cancelled"
+			if _, err := tc.store.UpdateRun(ctx, run); err != nil {
+				t.Fatalf("UpdateRun() error = %v", err)
+			}
+
+			approval.Status = "approved"
+			_, err := runner.ResumeTaskAfterApproval(ctx, task, approval, deterministicApprovalID)
+			if !errors.Is(err, ErrApprovalConflict) {
+				t.Fatalf("ResumeTaskAfterApproval() error = %v, want ErrApprovalConflict", err)
+			}
+
+			approval.Status = "rejected"
+			_, err = runner.RejectTaskAfterApproval(ctx, task, approval, deterministicApprovalID)
+			if !errors.Is(err, ErrApprovalConflict) {
+				t.Fatalf("RejectTaskAfterApproval() error = %v, want ErrApprovalConflict", err)
+			}
+		})
+	}
+}
+
 func listApprovalLifecycleEvents(t *testing.T, ctx context.Context, store taskstate.Store, taskID, runID string) []types.TaskRunEvent {
 	t.Helper()
 	events, err := store.ListRunEvents(ctx, taskID, runID, 0, 100)
