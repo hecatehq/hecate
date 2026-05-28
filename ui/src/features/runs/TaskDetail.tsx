@@ -790,7 +790,7 @@ export function TaskDetail({
                             ? "var(--red)"
                             : tone === "warning"
                               ? "var(--amber)"
-                            : "var(--t1)",
+                              : "var(--t1)",
                       fontFamily: "var(--font-mono)",
                       wordBreak: "break-word",
                     }}
