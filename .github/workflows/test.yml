@@ -242,6 +242,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up just
+        uses: extractions/setup-just@v4
+
       - name: Download hecate binary
         uses: actions/download-artifact@v8
         with:
@@ -251,7 +254,7 @@ jobs:
       - name: Run e2e tests
         run: |
           chmod +x /tmp/hecate
-          go test -tags e2e -count=1 -timeout 3m ./e2e/...
+          just test-e2e
         env:
           E2E_HECATE_BIN: /tmp/hecate
 
@@ -267,6 +270,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Set up just
+        uses: extractions/setup-just@v4
 
       - name: Download hecate binary
         uses: actions/download-artifact@v8
@@ -317,7 +323,7 @@ jobs:
         # by the e2e job running in parallel.
         run: |
           chmod +x /tmp/hecate
-          go test -tags 'e2e ollama' -count=1 -run TestOllama -timeout 10m ./e2e/...
+          just test-e2e-ollama
         env:
           E2E_HECATE_BIN: /tmp/hecate
           OLLAMA_HOST: http://127.0.0.1:11434
@@ -343,13 +349,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up just
+        uses: extractions/setup-just@v4
+
       # Buildx + GHA cache means cold image builds (~30-60s) drop to a
       # few seconds when the source layers haven't changed. Without it
       # the smoke job would rebuild the full UI + Go binary every run.
       - uses: docker/setup-buildx-action@v4
 
       - name: Run docker smoke test
-        run: go test -tags 'e2e docker' -count=1 -timeout 5m ./e2e/...
+        run: just test-docker-smoke
 
   typescript:
     name: TypeScript tests

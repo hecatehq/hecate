@@ -1,5 +1,4 @@
 set shell := ["sh", "-cu"]
-set working-directory := "."
 
 # ─── Project-wide variables ─────────────────────────────────────────────────
 gocache := ".gocache"

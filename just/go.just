@@ -20,6 +20,14 @@ test: _go-cache
 test-race: _go-cache
 	{{go_env}} go test -race ./...
 
+# Run Go end-to-end tests that do not require optional services.
+test-e2e: _go-cache
+	{{go_env}} go test -tags e2e -count=1 -timeout 3m ./e2e/...
+
+# Run Go end-to-end tests that require a local Ollama runtime.
+test-e2e-ollama: _go-cache
+	{{go_env}} go test -tags 'e2e ollama' -count=1 -run TestOllama -timeout 10m ./e2e/...
+
 # Run Go vet across all packages.
 vet: _go-cache
 	{{go_env}} go vet ./...
