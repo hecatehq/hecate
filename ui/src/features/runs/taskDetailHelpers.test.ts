@@ -26,6 +26,7 @@ import {
   taskActivitySubtitle,
   taskActivityTitle,
   taskActivityToTranscriptActivity,
+  taskBadgeProps,
   taskBadgeStatus,
 } from "./taskDetailHelpers";
 
@@ -110,6 +111,16 @@ describe("taskBadgeStatus", () => {
   it("passes through other statuses unchanged", () => {
     expect(taskBadgeStatus("running")).toBe("running");
     expect(taskBadgeStatus("failed")).toBe("failed");
+  });
+});
+
+describe("taskBadgeProps", () => {
+  it("labels approval rejection separately from generic cancellation", () => {
+    expect(taskBadgeProps("cancelled", "approval rejected")).toEqual({
+      status: "cancelled",
+      label: "rejected",
+    });
+    expect(taskBadgeProps("cancelled", "operator cancelled")).toEqual({ status: "cancelled" });
   });
 });
 

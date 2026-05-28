@@ -41,7 +41,7 @@ import {
   taskActivityArtifactPreview,
   taskActivityArtifactSize,
   taskActivityToTranscriptActivity,
-  taskBadgeStatus,
+  taskBadgeProps,
 } from "./taskDetailHelpers";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
@@ -465,7 +465,7 @@ export function TaskDetail({
           background: "var(--bg1)",
         }}
       >
-        <Badge status={taskBadgeStatus(task.status)} />
+        <Badge {...taskBadgeProps(task.status, task.last_error)} />
         <span
           style={{
             fontWeight: 500,
@@ -548,7 +548,7 @@ export function TaskDetail({
                         borderBottom: "1px solid var(--border)",
                       }}
                     >
-                      <Badge status={taskBadgeStatus(r.status)} />
+                      <Badge {...taskBadgeProps(r.status, r.last_error)} />
                       <span
                         style={{
                           fontFamily: "var(--font-mono)",
@@ -690,7 +690,7 @@ export function TaskDetail({
               <div
                 style={{ display: "inline-flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
               >
-                <Badge status={taskBadgeStatus(run.status)} />
+                <Badge {...taskBadgeProps(run.status, run.last_error)} />
                 {run.provider_kind && (
                   <Badge
                     status={run.provider_kind === "local" ? "healthy" : "disabled"}

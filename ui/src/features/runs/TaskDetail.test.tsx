@@ -685,6 +685,22 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.getByText("context deadline exceeded")).toBeTruthy();
   });
 
+  it("labels approval rejection separately from generic cancellation", () => {
+    const run = makeRun({
+      status: "cancelled",
+      last_error: "approval rejected",
+    });
+    const task = makeTask({
+      status: "cancelled",
+      last_error: "approval rejected",
+      latest_run_id: run.id,
+    });
+    const { render } = setup({ task, run, runs: [run] });
+    render();
+
+    expect(screen.getAllByText("rejected").length).toBeGreaterThan(0);
+  });
+
   it("renders the run timeline from persisted events", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({

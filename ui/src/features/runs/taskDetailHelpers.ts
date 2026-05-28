@@ -57,6 +57,18 @@ export function taskBadgeStatus(status: string): string {
   return status;
 }
 
+export function isApprovalRejected(status: string, lastError?: string): boolean {
+  return status === "cancelled" && (lastError || "").trim().toLowerCase() === "approval rejected";
+}
+
+export function taskBadgeProps(
+  status: string,
+  lastError?: string,
+): { status: string; label?: string } {
+  if (isApprovalRejected(status, lastError)) return { status: "cancelled", label: "rejected" };
+  return { status: taskBadgeStatus(status) };
+}
+
 export function approvalCommandPreview(task: TaskRecord): string {
   if (task.execution_kind === "git" && task.git_command) return `git ${task.git_command}`;
   if (task.shell_command) return task.shell_command;
