@@ -634,17 +634,24 @@ func runStoreApplyRunTerminalTransition(t *testing.T, store Store) {
 		if events[i].Sequence <= 0 {
 			t.Fatalf("event[%d] sequence = %d, want positive", i, events[i].Sequence)
 		}
-		rawRun, ok := events[i].Data["run"].(map[string]any)
-		if ok {
-			if rawRun["Status"] != "cancelled" {
-				t.Fatalf("event[%d] run status = %v, want cancelled", i, rawRun["Status"])
-			}
-		} else if typedRun, ok := events[i].Data["run"].(types.TaskRun); ok {
-			if typedRun.Status != "cancelled" {
-				t.Fatalf("event[%d] run status = %q, want cancelled", i, typedRun.Status)
-			}
-		} else {
-			t.Fatalf("event[%d] missing run snapshot: %+v", i, events[i].Data)
+		assertNoTerminalEventSnapshot(t, events[i])
+	}
+	if got := events[0].Data; got["approval_id"] != approval.ID || got["decision"] != "cancelled" || got["status"] != "cancelled" || got["by"] != "system" {
+		t.Fatalf("approval.resolved data = %+v, want compact cancelled approval data", got)
+	}
+	if got := events[1].Data; got["reason"] != run.LastError {
+		t.Fatalf("run.cancelled data = %+v, want reason %q", got, run.LastError)
+	}
+	if events[2].Data != nil && len(events[2].Data) != 0 {
+		t.Fatalf("task.updated data = %+v, want no extra keys", events[2].Data)
+	}
+}
+
+func assertNoTerminalEventSnapshot(t *testing.T, event types.TaskRunEvent) {
+	t.Helper()
+	for _, key := range []string{"run", "steps", "artifacts", "snapshot"} {
+		if _, ok := event.Data[key]; ok {
+			t.Fatalf("%s event carried %q snapshot data: %+v", event.EventType, key, event.Data)
 		}
 	}
 }

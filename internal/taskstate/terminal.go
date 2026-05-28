@@ -49,18 +49,6 @@ func terminalEventFromSpec(spec RunEventSpec, taskID, runID string, createdAt ti
 	}
 }
 
-func terminalSnapshotData(run types.TaskRun, steps []types.TaskStep, artifacts []types.TaskArtifact, extra map[string]any) map[string]any {
-	data := map[string]any{
-		"run":       run,
-		"steps":     steps,
-		"artifacts": artifacts,
-	}
-	for key, value := range extra {
-		data[key] = value
-	}
-	return data
-}
-
 func copyEventData(data map[string]any) map[string]any {
 	if data == nil {
 		return nil
@@ -70,18 +58,6 @@ func copyEventData(data map[string]any) map[string]any {
 		copied[key] = value
 	}
 	return copied
-}
-
-func approvalResolvedEventData(approval types.TaskApproval) map[string]any {
-	return map[string]any{
-		"approval_id": approval.ID,
-		"decision":    approval.Status,
-		"by":          approval.ResolvedBy,
-		"comment":     approval.ResolutionNote,
-		"scope":       "once",
-		"kind":        approval.Kind,
-		"status":      approval.Status,
-	}
 }
 
 func firstNonEmptyString(values ...string) string {

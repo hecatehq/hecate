@@ -82,7 +82,7 @@ Per-run state SSE (`/hecate/v1/tasks/{id}/runs/{run_id}/stream`) emits
 
 ## Runtime snapshot payloads
 
-Every event written by the orchestrator (`emitRunEvent`) automatically merges three keys into its `data` map:
+Most events written through the runner event helper (`emitRunEvent`) automatically merge three keys into the persisted `data` map:
 
 | Key         | Type             | Notes                                                               |
 | ----------- | ---------------- | ------------------------------------------------------------------- |
@@ -90,10 +90,16 @@ Every event written by the orchestrator (`emitRunEvent`) automatically merges th
 | `steps`     | `[]TaskStep`     | Every step recorded for this run so far                             |
 | `artifacts` | `[]TaskArtifact` | Every artifact recorded for this run so far                         |
 
-The per-run state SSE decoder uses those keys to reconstruct complete operator
-snapshots without a separate fetch. Public event-list and cross-run-feed
+The per-run state SSE decoder can use those keys to reconstruct complete
+operator snapshots without a separate fetch. Public event-list and cross-run-feed
 responses intentionally strip these runtime snapshot keys and return compact,
 protocol-shaped `data` payloads instead.
+
+Store-level terminal transitions (`run.finished`, `run.failed`,
+`run.cancelled`, `approval.resolved`, and `task.updated` events emitted while
+atomically terminalizing a run) persist only their event-specific keys. The
+per-run state SSE handler rebuilds the final run/step/artifact/approval snapshot
+from storage after reading those terminal events.
 
 Caller-driven events (`POST /hecate/v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The decoder in the per-run SSE handler honors both shapes; public event envelopes strip `snapshot` for the same reason they strip `run` / `steps` / `artifacts`.
 
@@ -153,8 +159,9 @@ A worker claimed the run and started executing. For resumed runs the payload car
 ### `run.finished` / `run.failed`
 
 Terminal status emit. Successful runs emit `run.finished`; failed runs emit
-`run.failed`. Read `data.run.status` or the `status` extra for the persisted
-run status.
+`run.failed`. Public event envelopes expose `data.final_status="completed"` for
+`run.finished`; raw persisted terminal payloads carry the `status` / `error`
+extras below.
 
 | Extra key | Type     | Notes                                                     |
 | --------- | -------- | --------------------------------------------------------- |
