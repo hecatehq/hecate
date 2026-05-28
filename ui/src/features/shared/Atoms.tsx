@@ -6,7 +6,7 @@
 // together because they share the "single low-level building block"
 // shape.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import { Icon, Icons } from "./Icons";
@@ -104,10 +104,22 @@ export function Toggle({
 
 export function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+    };
+  }, []);
+
   const copy = () => {
     navigator.clipboard?.writeText(text).catch(() => {});
+    if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1800);
+    resetTimerRef.current = window.setTimeout(() => {
+      setCopied(false);
+      resetTimerRef.current = null;
+    }, 1800);
   };
   return (
     <button className="btn btn-ghost btn-sm" onClick={copy} style={{ gap: 4, padding: "3px 6px" }}>
@@ -147,12 +159,24 @@ export function InlineError({ message }: { message: string }) {
 
 export function CodeBlock({ code, lang = "bash" }: { code: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
   const normalizedLang = lang.trim().toLowerCase();
   const isDiff = normalizedLang === "diff" || normalizedLang === "patch";
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
+    };
+  }, []);
+
   const copy = () => {
     navigator.clipboard?.writeText(code).catch(() => {});
+    if (resetTimerRef.current !== null) window.clearTimeout(resetTimerRef.current);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    resetTimerRef.current = window.setTimeout(() => {
+      setCopied(false);
+      resetTimerRef.current = null;
+    }, 2000);
   };
   return (
     <div className="code-block">

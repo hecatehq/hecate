@@ -44,6 +44,11 @@ E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and 
 
 ## UI verification ladder
 
+Run the relevant ladder before pushing a commit, not only after CI complains.
+For UI/TypeScript changes that means typecheck, lint, format check, and tests;
+for Go changes that means the touched-package `go test` / `go vet` pass or the
+broader backend ladder when the change crosses runtime seams.
+
 | Step              | Command                         | When                                                                  |
 | ----------------- | ------------------------------- | --------------------------------------------------------------------- |
 | Type check        | `cd ui && bun run typecheck`    | First sanity check after any `.ts`/`.tsx` edit (`tsgo -b`, fast)      |
