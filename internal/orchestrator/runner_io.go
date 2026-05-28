@@ -67,28 +67,27 @@ func (r *Runner) gitSummaryArtifact(ctx context.Context, task types.Task, run ty
 }
 
 func (r *Runner) finalizeFailedRun(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, requestID, status, message string) error {
-	if currentRun, found, err := r.store.GetRun(ctx, task.ID, run.ID); err == nil && found {
-		// Cancellation can arrive through the HTTP API while the worker is
-		// still unwinding a cancelled executor. In that case CancelRun has
-		// already persisted the terminal run/task state and emitted the
-		// authoritative run.cancelled event; re-emitting it here creates
-		// duplicate terminal events under racey shutdown/cancel timing.
-		if types.IsTerminalTaskRunStatus(currentRun.Status) && currentRun.Status == status {
-			return nil
-		}
-	}
 	now := time.Now().UTC()
 	var failedRunDurationMS int64
 	if !run.StartedAt.IsZero() {
 		failedRunDurationMS = now.Sub(run.StartedAt).Milliseconds()
 	}
-	run.Status = status
-	run.LastError = message
-	run.FinishedAt = now
-	run.OtelStatusCode = "error"
-	run.OtelStatusMessage = message
-	if _, err := r.store.UpdateRun(ctx, run); err != nil {
+	result, err := r.applyTerminalRunTransition(ctx, terminalRunTransition{
+		Task:                       task,
+		Run:                        run,
+		Status:                     status,
+		Message:                    message,
+		RequestID:                  requestID,
+		TraceID:                    trace.TraceID,
+		Trace:                      trace,
+		Now:                        now,
+		SkipIfStoredTerminalStatus: true,
+	})
+	if err != nil {
 		return err
+	}
+	if result.Skipped {
+		return nil
 	}
 	r.metrics.RecordRun(ctx, telemetry.RunMetricsRecord{
 		TaskID:        task.ID,
@@ -98,16 +97,7 @@ func (r *Runner) finalizeFailedRun(ctx context.Context, trace *profiler.Trace, t
 		Model:         run.Model,
 		DurationMS:    failedRunDurationMS,
 	})
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, terminalRunEventType(status), requestID, trace.TraceID, map[string]any{"error": message, "status": status})
-	task.Status = status
-	task.LatestRunID = run.ID
-	task.LastError = message
-	task.FinishedAt = now
-	task.UpdatedAt = now
-	task.LatestTraceID = trace.TraceID
-	task.LatestRequestID = requestID
-	_, err := r.store.UpdateTask(ctx, task)
-	return err
+	return nil
 }
 
 func (r *Runner) upsertStep(ctx context.Context, step types.TaskStep) error {

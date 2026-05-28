@@ -49,6 +49,10 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreListEventsCrossRunFilters(t, factory(t))
 	})
+	t.Run(name+"/ApplyRunTerminalTransition", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunTerminalTransition(t, factory(t))
+	})
 	t.Run(name+"/ListRunsByFilterStatusSet", func(t *testing.T) {
 		t.Parallel()
 		runStoreListRunsByFilterStatusSet(t, factory(t))
@@ -436,6 +440,213 @@ func runStoreListEventsCrossRunFilters(t *testing.T, store Store) {
 			t.Fatalf("len = %d, want 2 (limit honored)", len(events))
 		}
 	})
+}
+
+func runStoreApplyRunTerminalTransition(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC().Add(-time.Minute)
+	finishedAt := now.Add(time.Minute)
+	task := types.Task{
+		ID:        "task-terminal",
+		Status:    "awaiting_approval",
+		CreatedAt: now,
+		UpdatedAt: now,
+		StartedAt: now,
+	}
+	run := types.TaskRun{
+		ID:        "run-terminal",
+		TaskID:    task.ID,
+		Number:    1,
+		Status:    "awaiting_approval",
+		StartedAt: now,
+		RequestID: "req-terminal",
+		TraceID:   "trace-terminal",
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	awaitingStep := types.TaskStep{
+		ID:        "step-awaiting",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		Index:     1,
+		Status:    "awaiting_approval",
+		StartedAt: now,
+	}
+	doneStep := types.TaskStep{
+		ID:        "step-done",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		Index:     2,
+		Status:    "completed",
+		StartedAt: now,
+	}
+	if _, err := store.AppendStep(ctx, awaitingStep); err != nil {
+		t.Fatalf("AppendStep(awaiting): %v", err)
+	}
+	if _, err := store.AppendStep(ctx, doneStep); err != nil {
+		t.Fatalf("AppendStep(done): %v", err)
+	}
+	approval := types.TaskApproval{
+		ID:          "approval-terminal",
+		TaskID:      task.ID,
+		RunID:       run.ID,
+		StepID:      awaitingStep.ID,
+		Kind:        "tool_call",
+		Status:      "pending",
+		RequestedBy: "agent",
+		CreatedAt:   now,
+	}
+	if _, err := store.CreateApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateApproval: %v", err)
+	}
+	streamingArtifact := types.TaskArtifact{
+		ID:        "artifact-streaming",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		Status:    "streaming",
+		CreatedAt: now,
+	}
+	readyArtifact := types.TaskArtifact{
+		ID:        "artifact-ready",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		Status:    "ready",
+		CreatedAt: now,
+	}
+	if _, err := store.CreateArtifact(ctx, streamingArtifact); err != nil {
+		t.Fatalf("CreateArtifact(streaming): %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, readyArtifact); err != nil {
+		t.Fatalf("CreateArtifact(ready): %v", err)
+	}
+
+	run.Status = "cancelled"
+	run.LastError = "run cancelled: operator stop"
+	run.FinishedAt = finishedAt
+	run.OtelStatusCode = "error"
+	run.OtelStatusMessage = run.LastError
+	task.Status = "cancelled"
+	task.LatestRunID = run.ID
+	task.LastError = run.LastError
+	task.FinishedAt = finishedAt
+	task.UpdatedAt = finishedAt
+	result, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task:                          task,
+		Run:                           run,
+		FinishedAt:                    finishedAt,
+		CancelActiveSteps:             true,
+		ActiveStepResult:              "error",
+		ActiveStepError:               run.LastError,
+		ActiveStepErrorKind:           "run_cancelled",
+		CancelStreamingArtifacts:      true,
+		CancelPendingApprovals:        true,
+		PendingApprovalStatus:         "cancelled",
+		PendingApprovalResolvedBy:     "system",
+		PendingApprovalResolutionNote: run.LastError,
+		ApprovalResolvedEventType:     "approval.resolved",
+		TerminalEvent: &RunEventSpec{
+			EventType: "run.cancelled",
+			Data:      map[string]any{"reason": run.LastError},
+			RequestID: run.RequestID,
+			TraceID:   run.TraceID,
+			CreatedAt: finishedAt,
+		},
+		TaskUpdatedEvent: &RunEventSpec{
+			EventType: "task.updated",
+			RequestID: run.RequestID,
+			TraceID:   run.TraceID,
+			CreatedAt: finishedAt,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRunTerminalTransition: %v", err)
+	}
+	if result.Run.Status != "cancelled" || result.Task.Status != "cancelled" {
+		t.Fatalf("result statuses task=%q run=%q, want cancelled/cancelled", result.Task.Status, result.Run.Status)
+	}
+	if len(result.CancelledApprovals) != 1 || result.CancelledApprovals[0].Status != "cancelled" {
+		t.Fatalf("cancelled approvals = %+v, want one cancelled", result.CancelledApprovals)
+	}
+	if result.CancelledApprovals[0].ResolvedBy != "system" || result.CancelledApprovals[0].ResolutionNote != run.LastError {
+		t.Fatalf("cancelled approval resolution = %+v", result.CancelledApprovals[0])
+	}
+
+	storedRun, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun: found=%v err=%v", found, err)
+	}
+	if storedRun.Status != "cancelled" || storedRun.LastError != run.LastError {
+		t.Fatalf("stored run = %+v, want cancelled with last_error", storedRun)
+	}
+	storedTask, found, err := store.GetTask(ctx, task.ID)
+	if err != nil || !found {
+		t.Fatalf("GetTask: found=%v err=%v", found, err)
+	}
+	if storedTask.Status != "cancelled" || storedTask.LastError != run.LastError {
+		t.Fatalf("stored task = %+v, want cancelled with last_error", storedTask)
+	}
+	storedAwaitingStep, found, err := store.GetStep(ctx, run.ID, awaitingStep.ID)
+	if err != nil || !found {
+		t.Fatalf("GetStep(awaiting): found=%v err=%v", found, err)
+	}
+	if storedAwaitingStep.Status != "cancelled" || storedAwaitingStep.ErrorKind != "run_cancelled" {
+		t.Fatalf("awaiting step = %+v, want cancelled run_cancelled", storedAwaitingStep)
+	}
+	storedDoneStep, found, err := store.GetStep(ctx, run.ID, doneStep.ID)
+	if err != nil || !found {
+		t.Fatalf("GetStep(done): found=%v err=%v", found, err)
+	}
+	if storedDoneStep.Status != "completed" {
+		t.Fatalf("done step status = %q, want completed", storedDoneStep.Status)
+	}
+	storedStreamingArtifact, found, err := store.GetArtifact(ctx, task.ID, streamingArtifact.ID)
+	if err != nil || !found {
+		t.Fatalf("GetArtifact(streaming): found=%v err=%v", found, err)
+	}
+	if storedStreamingArtifact.Status != "cancelled" {
+		t.Fatalf("streaming artifact status = %q, want cancelled", storedStreamingArtifact.Status)
+	}
+	storedReadyArtifact, found, err := store.GetArtifact(ctx, task.ID, readyArtifact.ID)
+	if err != nil || !found {
+		t.Fatalf("GetArtifact(ready): found=%v err=%v", found, err)
+	}
+	if storedReadyArtifact.Status != "ready" {
+		t.Fatalf("ready artifact status = %q, want ready", storedReadyArtifact.Status)
+	}
+
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 10)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	wantTypes := []string{"approval.resolved", "run.cancelled", "task.updated"}
+	if len(events) != len(wantTypes) {
+		t.Fatalf("events len = %d, want %d: %+v", len(events), len(wantTypes), events)
+	}
+	for i, want := range wantTypes {
+		if events[i].EventType != want {
+			t.Fatalf("event[%d] type = %q, want %q", i, events[i].EventType, want)
+		}
+		if events[i].Sequence <= 0 {
+			t.Fatalf("event[%d] sequence = %d, want positive", i, events[i].Sequence)
+		}
+		rawRun, ok := events[i].Data["run"].(map[string]any)
+		if ok {
+			if rawRun["Status"] != "cancelled" {
+				t.Fatalf("event[%d] run status = %v, want cancelled", i, rawRun["Status"])
+			}
+		} else if typedRun, ok := events[i].Data["run"].(types.TaskRun); ok {
+			if typedRun.Status != "cancelled" {
+				t.Fatalf("event[%d] run status = %q, want cancelled", i, typedRun.Status)
+			}
+		} else {
+			t.Fatalf("event[%d] missing run snapshot: %+v", i, events[i].Data)
+		}
+	}
 }
 
 func runStoreListRunsByFilterStatusSet(t *testing.T, store Store) {
