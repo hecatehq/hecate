@@ -431,8 +431,12 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 	if _, ok := s.tasks[tr.Task.ID]; !ok {
 		return TerminalRunTransitionResult{}, fmt.Errorf("task %q not found", tr.Task.ID)
 	}
-	if _, ok := s.runs[tr.Run.ID]; !ok {
+	storedRun, ok := s.runs[tr.Run.ID]
+	if !ok {
 		return TerminalRunTransitionResult{}, fmt.Errorf("run %q not found", tr.Run.ID)
+	}
+	if storedRun.TaskID != tr.Task.ID {
+		return TerminalRunTransitionResult{}, fmt.Errorf("run %q does not belong to task %q", tr.Run.ID, tr.Task.ID)
 	}
 
 	finishedAt := terminalTransitionFinishedAt(tr)

@@ -53,6 +53,14 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreApplyRunTerminalTransition(t, factory(t))
 	})
+	t.Run(name+"/ApplyRunTerminalTransitionPreservesChildrenWithoutCancelFlags", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunTerminalTransitionPreservesChildrenWithoutCancelFlags(t, factory(t))
+	})
+	t.Run(name+"/ApplyRunTerminalTransitionRequiresStoredRunTaskMatch", func(t *testing.T) {
+		t.Parallel()
+		runStoreApplyRunTerminalTransitionRequiresStoredRunTaskMatch(t, factory(t))
+	})
 	t.Run(name+"/ListRunsByFilterStatusSet", func(t *testing.T) {
 		t.Parallel()
 		runStoreListRunsByFilterStatusSet(t, factory(t))
@@ -653,6 +661,222 @@ func assertNoTerminalEventSnapshot(t *testing.T, event types.TaskRunEvent) {
 		if _, ok := event.Data[key]; ok {
 			t.Fatalf("%s event carried %q snapshot data: %+v", event.EventType, key, event.Data)
 		}
+	}
+}
+
+func runStoreApplyRunTerminalTransitionPreservesChildrenWithoutCancelFlags(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC().Add(-time.Minute)
+	finishedAt := now.Add(time.Minute)
+	task := types.Task{
+		ID:        "task-terminal-preserve",
+		Status:    "running",
+		CreatedAt: now,
+		UpdatedAt: now,
+		StartedAt: now,
+	}
+	run := types.TaskRun{
+		ID:        "run-terminal-preserve",
+		TaskID:    task.ID,
+		Number:    1,
+		Status:    "running",
+		StartedAt: now,
+		RequestID: "req-terminal-preserve",
+		TraceID:   "trace-terminal-preserve",
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	runningStep := types.TaskStep{
+		ID:        "step-running",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		Index:     1,
+		Status:    "running",
+		StartedAt: now,
+	}
+	awaitingStep := types.TaskStep{
+		ID:        "step-awaiting",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		Index:     2,
+		Status:    "awaiting_approval",
+		StartedAt: now,
+	}
+	if _, err := store.AppendStep(ctx, runningStep); err != nil {
+		t.Fatalf("AppendStep(running): %v", err)
+	}
+	if _, err := store.AppendStep(ctx, awaitingStep); err != nil {
+		t.Fatalf("AppendStep(awaiting): %v", err)
+	}
+	approval := types.TaskApproval{
+		ID:          "approval-preserved",
+		TaskID:      task.ID,
+		RunID:       run.ID,
+		StepID:      awaitingStep.ID,
+		Kind:        "tool_call",
+		Status:      "pending",
+		RequestedBy: "agent",
+		CreatedAt:   now,
+	}
+	if _, err := store.CreateApproval(ctx, approval); err != nil {
+		t.Fatalf("CreateApproval: %v", err)
+	}
+	artifact := types.TaskArtifact{
+		ID:        "artifact-preserved",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		Status:    "streaming",
+		CreatedAt: now,
+	}
+	if _, err := store.CreateArtifact(ctx, artifact); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+
+	run.Status = "completed"
+	run.FinishedAt = finishedAt
+	run.OtelStatusCode = "ok"
+	task.Status = "completed"
+	task.LatestRunID = run.ID
+	task.FinishedAt = finishedAt
+	task.UpdatedAt = finishedAt
+	result, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task:       task,
+		Run:        run,
+		FinishedAt: finishedAt,
+		TerminalEvent: &RunEventSpec{
+			EventType: "run.finished",
+			Data:      map[string]any{"status": "completed"},
+			RequestID: run.RequestID,
+			TraceID:   run.TraceID,
+			CreatedAt: finishedAt,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRunTerminalTransition: %v", err)
+	}
+	if result.Run.Status != "completed" || result.Task.Status != "completed" {
+		t.Fatalf("result statuses task=%q run=%q, want completed/completed", result.Task.Status, result.Run.Status)
+	}
+	if len(result.CancelledApprovals) != 0 {
+		t.Fatalf("cancelled approvals = %+v, want none without cancel flag", result.CancelledApprovals)
+	}
+
+	storedApproval, found, err := store.GetApproval(ctx, task.ID, approval.ID)
+	if err != nil || !found {
+		t.Fatalf("GetApproval: found=%v err=%v", found, err)
+	}
+	if storedApproval.Status != "pending" || !storedApproval.ResolvedAt.IsZero() {
+		t.Fatalf("stored approval = %+v, want pending/unresolved", storedApproval)
+	}
+	storedRunningStep, found, err := store.GetStep(ctx, run.ID, runningStep.ID)
+	if err != nil || !found {
+		t.Fatalf("GetStep(running): found=%v err=%v", found, err)
+	}
+	if storedRunningStep.Status != "running" {
+		t.Fatalf("running step status = %q, want running", storedRunningStep.Status)
+	}
+	storedAwaitingStep, found, err := store.GetStep(ctx, run.ID, awaitingStep.ID)
+	if err != nil || !found {
+		t.Fatalf("GetStep(awaiting): found=%v err=%v", found, err)
+	}
+	if storedAwaitingStep.Status != "awaiting_approval" {
+		t.Fatalf("awaiting step status = %q, want awaiting_approval", storedAwaitingStep.Status)
+	}
+	storedArtifact, found, err := store.GetArtifact(ctx, task.ID, artifact.ID)
+	if err != nil || !found {
+		t.Fatalf("GetArtifact: found=%v err=%v", found, err)
+	}
+	if storedArtifact.Status != "streaming" {
+		t.Fatalf("artifact status = %q, want streaming", storedArtifact.Status)
+	}
+
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 10)
+	if err != nil {
+		t.Fatalf("ListRunEvents: %v", err)
+	}
+	if len(events) != 1 || events[0].EventType != "run.finished" {
+		t.Fatalf("events = %+v, want only run.finished", events)
+	}
+	assertNoTerminalEventSnapshot(t, events[0])
+	if events[0].Data["status"] != "completed" {
+		t.Fatalf("run.finished data = %+v, want compact status", events[0].Data)
+	}
+}
+
+func runStoreApplyRunTerminalTransitionRequiresStoredRunTaskMatch(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:        "task-terminal-mismatch",
+		Status:    "running",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	otherTask := types.Task{
+		ID:        "task-terminal-owner",
+		Status:    "running",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	run := types.TaskRun{
+		ID:        "run-terminal-mismatch",
+		TaskID:    otherTask.ID,
+		Number:    1,
+		Status:    "running",
+		StartedAt: now,
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask(task): %v", err)
+	}
+	if _, err := store.CreateTask(ctx, otherTask); err != nil {
+		t.Fatalf("CreateTask(other): %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	mismatchedRun := run
+	mismatchedRun.TaskID = task.ID
+	mismatchedRun.Status = "cancelled"
+	mismatchedRun.LastError = "wrong owner"
+	_, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+		Task: task,
+		Run:  mismatchedRun,
+		TerminalEvent: &RunEventSpec{
+			EventType: "run.cancelled",
+			Data:      map[string]any{"reason": mismatchedRun.LastError},
+		},
+	})
+	if err == nil {
+		t.Fatal("ApplyRunTerminalTransition succeeded for a run owned by another task")
+	}
+
+	storedTask, found, err := store.GetTask(ctx, task.ID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(task): found=%v err=%v", found, err)
+	}
+	if storedTask.Status != "running" || storedTask.LastError != "" {
+		t.Fatalf("task after failed transition = %+v, want unchanged running task", storedTask)
+	}
+	storedRun, found, err := store.GetRun(ctx, otherTask.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun(owner): found=%v err=%v", found, err)
+	}
+	if storedRun.TaskID != otherTask.ID || storedRun.Status != "running" || storedRun.LastError != "" {
+		t.Fatalf("run after failed transition = %+v, want unchanged owner/running run", storedRun)
+	}
+	events, err := store.ListRunEvents(ctx, task.ID, run.ID, 0, 10)
+	if err != nil {
+		t.Fatalf("ListRunEvents(wrong task): %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events for failed transition = %+v, want none", events)
 	}
 }
 
