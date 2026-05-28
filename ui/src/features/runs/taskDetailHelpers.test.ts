@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { TaskActivityRecord, TaskArtifactRecord, TaskRecord } from "../../types/task";
+import type {
+  TaskActivityRecord,
+  TaskArtifactRecord,
+  TaskRecord,
+  TaskRunEventRecord,
+} from "../../types/task";
 
 import {
   approvalCommandPreview,
@@ -8,6 +13,7 @@ import {
   buildOutputActivityIndex,
   describeApprovalKind,
   describeRunEvent,
+  describeRunEventRecord,
   describeRunEventNote,
   failedToolOutputArtifacts,
   isOutputArtifactActivity,
@@ -28,6 +34,7 @@ import {
   taskActivityToTranscriptActivity,
   taskBadgeProps,
   taskBadgeStatus,
+  taskRunOutcome,
 } from "./taskDetailHelpers";
 
 function activity(
@@ -58,6 +65,20 @@ function artifact(
     run_id: "r_1",
     ...overrides,
   } as TaskArtifactRecord;
+}
+
+function runEvent(overrides: Partial<TaskRunEventRecord> = {}): TaskRunEventRecord {
+  return {
+    schema_version: "1",
+    event_id: "evt_1",
+    task_id: "task_1",
+    run_id: "run_1",
+    sequence: 1,
+    occurred_at: "2026-05-28T00:00:00Z",
+    type: "run.started",
+    data: {},
+    ...overrides,
+  };
 }
 
 describe("stepColor", () => {
@@ -121,6 +142,33 @@ describe("taskBadgeProps", () => {
       label: "rejected",
     });
     expect(taskBadgeProps("cancelled", "operator cancelled")).toEqual({ status: "cancelled" });
+  });
+});
+
+describe("taskRunOutcome", () => {
+  it("describes approval rejection as an intentional stopped outcome", () => {
+    expect(taskRunOutcome("cancelled", "approval rejected")).toEqual({
+      label: "Outcome",
+      value: "Approval rejected",
+      tone: "warning",
+      detail: "The run was stopped because the pending approval was rejected.",
+    });
+  });
+
+  it("keeps failed runs on the last-error path", () => {
+    expect(taskRunOutcome("failed", "provider unavailable")).toEqual({
+      label: "Last error",
+      value: "provider unavailable",
+      tone: "error",
+    });
+  });
+
+  it("describes generic cancellation separately from approval rejection", () => {
+    expect(taskRunOutcome("cancelled", "operator stopped run")).toEqual({
+      label: "Reason",
+      value: "operator stopped run",
+      tone: "warning",
+    });
   });
 });
 
@@ -188,6 +236,36 @@ describe("describeRunEvent", () => {
     expect(describeRunEvent("custom.my_event_type")).toEqual({
       label: "custom.my event type",
       tone: "queued",
+    });
+  });
+});
+
+describe("describeRunEventRecord", () => {
+  it("labels approval resolution by the actual decision", () => {
+    const event = runEvent({
+      type: "approval.resolved",
+      data: { decision: "rejected" },
+    });
+
+    expect(describeRunEventRecord(event)).toEqual({
+      label: "Approval rejected",
+      tone: "awaiting",
+    });
+  });
+
+  it("labels approval-rejected cancellation separately from generic cancellation", () => {
+    const event = runEvent({
+      type: "run.cancelled",
+      data: { reason: "approval rejected" },
+    });
+
+    expect(describeRunEventRecord(event)).toEqual({
+      label: "Approval rejected",
+      tone: "awaiting",
+    });
+    expect(describeRunEventRecord(runEvent({ type: "run.cancelled", data: {} }))).toEqual({
+      label: "Cancelled",
+      tone: "failed",
     });
   });
 });
