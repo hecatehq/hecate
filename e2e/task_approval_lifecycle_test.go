@@ -84,6 +84,73 @@ func TestTaskApprovalCancelTerminalStateE2E(t *testing.T) {
 	}
 }
 
+func TestTaskApprovalRejectTerminalStateE2E(t *testing.T) {
+	workDir := t.TempDir()
+	baseURL := gatewayServer(t,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_TASK_APPROVAL_POLICIES=shell_exec",
+	)
+
+	taskID := e2eCreateApprovalShellTask(t, baseURL, workDir)
+	started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/start", `{}`)
+	if started.Data.Status != "awaiting_approval" {
+		t.Fatalf("started run status = %q, want awaiting_approval", started.Data.Status)
+	}
+
+	approvals := getJSON[e2eTaskApprovalsResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/approvals")
+	if len(approvals.Data) != 1 {
+		t.Fatalf("approvals = %d, want 1", len(approvals.Data))
+	}
+	if approvals.Data[0].Status != "pending" {
+		t.Fatalf("approval status = %q, want pending", approvals.Data[0].Status)
+	}
+
+	resolved := postJSONDecode[e2eTaskApprovalResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/approvals/"+approvals.Data[0].ID+"/resolve", `{"decision":"reject","note":"not safe"}`)
+	if resolved.Data.Status != "rejected" {
+		t.Fatalf("resolved approval status = %q, want rejected", resolved.Data.Status)
+	}
+	if resolved.Data.ResolvedBy != "operator" || resolved.Data.ResolutionNote != "not safe" {
+		t.Fatalf("resolved approval = %+v, want operator rejection note", resolved.Data)
+	}
+
+	repeated := postJSON(t, baseURL+"/hecate/v1/tasks/"+taskID+"/approvals/"+approvals.Data[0].ID+"/resolve", `{"decision":"approve"}`, nil)
+	if repeated.StatusCode != http.StatusConflict {
+		t.Fatalf("repeat resolve status = %d, want 409; body=%s", repeated.StatusCode, readBody(t, repeated))
+	}
+	repeated.Body.Close()
+
+	run := getJSON[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/runs/"+started.Data.ID)
+	if run.Data.Status != "cancelled" || run.Data.LastError != "approval rejected" {
+		t.Fatalf("run after reject = %+v, want cancelled approval rejected", run.Data)
+	}
+	task := getJSON[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks/"+taskID)
+	if task.Data.Status != "cancelled" || task.Data.LastError != "approval rejected" {
+		t.Fatalf("task after reject = %+v, want cancelled approval rejected", task.Data)
+	}
+
+	steps := getJSON[e2eTaskStepsResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/runs/"+started.Data.ID+"/steps")
+	for _, step := range steps.Data {
+		if step.Status == "awaiting_approval" || step.Status == "running" {
+			t.Fatalf("active step after reject = %+v, want terminal/non-active step state", step)
+		}
+	}
+
+	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/runs/"+started.Data.ID+"/events")
+	assertE2EEventTypes(t, events.Data, "approval.resolved", "run.cancelled", "task.updated")
+	assertE2EApprovalResolved(t, events.Data, approvals.Data[0].ID, "rejected", "operator")
+
+	finalSnapshot := e2eReadTerminalTaskRunSnapshot(t, baseURL, taskID, started.Data.ID)
+	if finalSnapshot.Data.Run.Status != "cancelled" || finalSnapshot.Data.Run.LastError != "approval rejected" {
+		t.Fatalf("terminal stream run = %+v, want cancelled approval rejected", finalSnapshot.Data.Run)
+	}
+	if !finalSnapshot.Data.Terminal {
+		t.Fatalf("terminal stream flag = false, want true")
+	}
+	if len(finalSnapshot.Data.Approvals) != 1 || finalSnapshot.Data.Approvals[0].Status != "rejected" {
+		t.Fatalf("terminal stream approvals = %+v, want one rejected approval", finalSnapshot.Data.Approvals)
+	}
+}
+
 func e2eCreateApprovalShellTask(t *testing.T, baseURL, workDir string) string {
 	t.Helper()
 	body := fmt.Sprintf(`{
@@ -170,9 +237,28 @@ func assertE2EApprovalResolved(t *testing.T, events []e2eEventEnvelope, approval
 	t.Fatalf("approval.resolved approval=%q status=%q by=%q not found in %+v", approvalID, status, by, events)
 }
 
+func assertE2EEventTypes(t *testing.T, events []e2eEventEnvelope, want ...string) {
+	t.Helper()
+	seen := make(map[string]bool, len(events))
+	for _, event := range events {
+		seen[event.Type] = true
+	}
+	for _, eventType := range want {
+		if !seen[eventType] {
+			got := make([]string, 0, len(events))
+			for _, event := range events {
+				got = append(got, event.Type)
+			}
+			t.Fatalf("missing event %q; got %v", eventType, got)
+		}
+	}
+}
+
 type e2eTaskResponse struct {
 	Data struct {
-		ID string `json:"id"`
+		ID        string `json:"id"`
+		Status    string `json:"status,omitempty"`
+		LastError string `json:"last_error,omitempty"`
 	} `json:"data"`
 }
 
@@ -190,10 +276,15 @@ type e2eTaskApprovalsResponse struct {
 	Data []e2eTaskApproval `json:"data"`
 }
 
+type e2eTaskApprovalResponse struct {
+	Data e2eTaskApproval `json:"data"`
+}
+
 type e2eTaskApproval struct {
-	ID         string `json:"id"`
-	Status     string `json:"status"`
-	ResolvedBy string `json:"resolved_by,omitempty"`
+	ID             string `json:"id"`
+	Status         string `json:"status"`
+	ResolvedBy     string `json:"resolved_by,omitempty"`
+	ResolutionNote string `json:"resolution_note,omitempty"`
 }
 
 type e2eTaskStepsResponse struct {
