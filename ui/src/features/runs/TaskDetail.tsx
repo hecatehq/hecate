@@ -26,7 +26,7 @@ import {
   artifactHasBytes,
   buildOutputActivityIndex,
   describeApprovalKind,
-  describeRunEvent,
+  describeRunEventRecord,
   describeRunEventNote,
   failedToolOutputArtifacts,
   isOutputArtifactActivity,
@@ -42,6 +42,7 @@ import {
   taskActivityArtifactSize,
   taskActivityToTranscriptActivity,
   taskBadgeProps,
+  taskRunOutcome,
 } from "./taskDetailHelpers";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
@@ -264,7 +265,7 @@ function TaskApprovalCallout({
               marginTop: 2,
             }}
           >
-            This run is paused until you approve or deny the pending action.
+            This run is paused until you approve or reject the pending action.
           </div>
         </div>
       </div>
@@ -325,15 +326,16 @@ function TaskApprovalCallout({
               onClick={() => onResolveApproval(approval, "approve")}
               style={{ gap: 5 }}
             >
-              <Icon d={Icons.approve} size={13} /> Approve
+              <Icon d={Icons.approve} size={13} /> Approve and resume
             </button>
             <button
               className="btn btn-danger btn-sm"
               disabled={busyAction !== ""}
               onClick={() => onResolveApproval(approval, "reject")}
+              title="Rejecting cancels this run with reason: approval rejected."
               style={{ gap: 5 }}
             >
-              <Icon d={Icons.deny} size={13} /> Deny
+              <Icon d={Icons.deny} size={13} /> Reject and stop
             </button>
           </div>
         </div>
@@ -440,6 +442,7 @@ export function TaskDetail({
     pendingApprovals.length === 0,
   );
   const visibleEvents = events.filter(isVisibleRunEvent);
+  const runOutcome = run ? taskRunOutcome(run.status, run.last_error) : null;
 
   useEffect(() => {
     if (termRef.current) termRef.current.scrollTop = termRef.current.scrollHeight;
@@ -748,9 +751,31 @@ export function TaskDetail({
                     ),
                   ],
                   ["Trace ID", run.trace_id || "—"],
-                  ["Last error", run.last_error || "—"],
-                ] as Array<[string, ReactNode]>
-              ).map(([label, value]) => (
+                  runOutcome
+                    ? [
+                        runOutcome.label,
+                        <>
+                          <span>{runOutcome.value}</span>
+                          {runOutcome.detail && (
+                            <span
+                              style={{
+                                display: "block",
+                                marginTop: 4,
+                                color: "var(--t2)",
+                                fontFamily: "var(--font-ui)",
+                                fontSize: 11,
+                                lineHeight: 1.45,
+                              }}
+                            >
+                              {runOutcome.detail}
+                            </span>
+                          )}
+                        </>,
+                        runOutcome.tone,
+                      ]
+                    : ["Last error", "—", "muted"],
+                ] as Array<[string, ReactNode, "muted" | "error" | "warning" | undefined]>
+              ).map(([label, value, tone]) => (
                 <div key={label}>
                   <div className="kicker" style={{ marginBottom: 3 }}>
                     {label}
@@ -759,10 +784,12 @@ export function TaskDetail({
                     style={{
                       fontSize: 12,
                       color:
-                        value === "—"
+                        tone === "muted"
                           ? "var(--t3)"
-                          : label === "Last error" && value !== "—"
+                          : tone === "error"
                             ? "var(--red)"
+                            : tone === "warning"
+                              ? "var(--amber)"
                             : "var(--t1)",
                       fontFamily: "var(--font-mono)",
                       wordBreak: "break-word",
@@ -786,7 +813,7 @@ export function TaskDetail({
                 .slice()
                 .sort((left, right) => left.sequence - right.sequence)
                 .map((event) => {
-                  const meta = describeRunEvent(event.type);
+                  const meta = describeRunEventRecord(event);
                   return (
                     <div
                       key={event.event_id || `${event.sequence}-${event.type}`}

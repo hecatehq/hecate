@@ -69,6 +69,36 @@ export function taskBadgeProps(
   return { status: taskBadgeStatus(status) };
 }
 
+export type TaskRunOutcome = {
+  label: "Last error" | "Outcome" | "Reason";
+  value: string;
+  tone: "muted" | "error" | "warning";
+  detail?: string;
+};
+
+export function taskRunOutcome(status: string, lastError?: string): TaskRunOutcome {
+  const error = (lastError || "").trim();
+  if (isApprovalRejected(status, error)) {
+    return {
+      label: "Outcome",
+      value: "Approval rejected",
+      tone: "warning",
+      detail: "The run was stopped because the pending approval was rejected.",
+    };
+  }
+  if (status === "failed" && error) {
+    return { label: "Last error", value: error, tone: "error" };
+  }
+  if (status === "cancelled") {
+    return {
+      label: "Reason",
+      value: error || "Run cancelled",
+      tone: error ? "warning" : "muted",
+    };
+  }
+  return { label: "Last error", value: "—", tone: "muted" };
+}
+
 export function approvalCommandPreview(task: TaskRecord): string {
   if (task.execution_kind === "git" && task.git_command) return `git ${task.git_command}`;
   if (task.shell_command) return task.shell_command;
@@ -105,6 +135,28 @@ export function describeRunEvent(eventType: string): {
     "approval.resolved": { label: "Approval done", tone: "done" },
   };
   return labels[eventType] ?? { label: eventType.replaceAll("_", " "), tone: "queued" };
+}
+
+export function describeRunEventRecord(event: TaskRunEventRecord): {
+  label: string;
+  tone: "queued" | "running" | "awaiting" | "done" | "failed";
+} {
+  const decision = runEventString(event, "decision").toLowerCase();
+  if (event.type === "approval.resolved") {
+    if (decision === "approved") return { label: "Approval granted", tone: "done" };
+    if (decision === "rejected") return { label: "Approval rejected", tone: "awaiting" };
+    if (decision === "cancelled") return { label: "Approval cancelled", tone: "failed" };
+  }
+  const reason = runEventString(event, "reason").toLowerCase();
+  if (event.type === "run.cancelled" && reason === "approval rejected") {
+    return { label: "Approval rejected", tone: "awaiting" };
+  }
+  return describeRunEvent(event.type);
+}
+
+function runEventString(event: TaskRunEventRecord, key: string): string {
+  const value = event.data?.[key];
+  return typeof value === "string" ? value.trim() : "";
 }
 
 export function isVisibleRunEvent(event: TaskRunEventRecord): boolean {

@@ -699,6 +699,11 @@ describe("TaskDetail runtime debugging", () => {
     render();
 
     expect(screen.getAllByText("rejected").length).toBeGreaterThan(0);
+    expect(screen.getByText("Outcome")).toBeTruthy();
+    expect(screen.getByText("Approval rejected")).toBeTruthy();
+    expect(
+      screen.getByText("The run was stopped because the pending approval was rejected."),
+    ).toBeTruthy();
   });
 
   it("renders the run timeline from persisted events", () => {
@@ -847,7 +852,7 @@ describe("TaskDetail runtime debugging", () => {
     render();
 
     expect(screen.queryByRole("button", { name: /stop run/i })).toBeNull();
-    expect(screen.getByRole("button", { name: /deny/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /reject and stop/i })).toBeTruthy();
   });
 
   it("renders approval metadata and actions in the top-level callout", async () => {
@@ -870,9 +875,10 @@ describe("TaskDetail runtime debugging", () => {
     render();
     expect(screen.getByTestId("task-approval-callout")).toBeTruthy();
     expect(screen.getByText(/Approval required/i)).toBeTruthy();
+    expect(screen.getByText(/approve or reject/i)).toBeTruthy();
     expect(screen.getByText(/Shell execution/i)).toBeTruthy();
     expect(screen.getByText(/requested by/i)).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: /approve/i }));
+    await user.click(screen.getByRole("button", { name: /approve and resume/i }));
     expect(onResolveApproval).toHaveBeenCalledWith(approval, "approve");
   });
 
@@ -902,7 +908,8 @@ describe("TaskDetail runtime debugging", () => {
     });
     render();
     expect(screen.getByText(/2 approvals required/i)).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /approve/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /approve and resume/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /reject and stop/i })).toHaveLength(2);
   });
 });
 
