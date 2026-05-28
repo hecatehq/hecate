@@ -291,11 +291,12 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 	}, nil
 }
 
-func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, message, requestID, traceID string, now time.Time) {
+func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, task types.Task, run types.TaskRun, message string, now time.Time) []types.TaskApproval {
 	approvals, err := r.store.ListApprovals(ctx, task.ID)
 	if err != nil {
-		return
+		return nil
 	}
+	cancelled := make([]types.TaskApproval, 0, len(approvals))
 	for _, approval := range approvals {
 		if approval.RunID != run.ID || approval.Status != "pending" {
 			continue
@@ -311,6 +312,13 @@ func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, trace *profil
 		if !ok {
 			continue
 		}
+		cancelled = append(cancelled, updated)
+	}
+	return cancelled
+}
+
+func (r *Runner) emitApprovalResolvedEventsForRun(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, approvals []types.TaskApproval, requestID, traceID string) {
+	for _, updated := range approvals {
 		waitMS := int64(0)
 		if !updated.CreatedAt.IsZero() {
 			waitMS = updated.ResolvedAt.Sub(updated.CreatedAt).Milliseconds()
