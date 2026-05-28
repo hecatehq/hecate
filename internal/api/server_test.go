@@ -4938,6 +4938,98 @@ func TestTaskRunStream_PendingApprovalRidesAlongInSnapshot(t *testing.T) {
 	}
 }
 
+func TestTaskRunStream_CancelledSnapshotClearsPendingApproval(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	created := requestJSONToURL[TaskResponse](t, http.MethodPost, server.URL+"/hecate/v1/tasks", `{"title":"Cancel approval stream","prompt":"Stream cancelled approval state.","execution_kind":"shell","shell_command":"echo should-not-run","working_directory":".","timeout_ms":3000}`)
+	started := requestJSONToURL[TaskRunResponse](t, http.MethodPost, server.URL+"/hecate/v1/tasks/"+created.Data.ID+"/start", "")
+	if started.Data.Status != "awaiting_approval" {
+		t.Fatalf("started status = %q, want awaiting_approval", started.Data.Status)
+	}
+
+	streamReq, err := http.NewRequest(http.MethodGet, server.URL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/stream", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	streamCtx, cancelStream := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelStream()
+	streamReq = streamReq.WithContext(streamCtx)
+	streamResp, err := http.DefaultClient.Do(streamReq)
+	if err != nil {
+		t.Fatalf("stream request: %v", err)
+	}
+	defer streamResp.Body.Close()
+	if got := streamResp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("content-type = %q, want text/event-stream", got)
+	}
+
+	cancelErrCh := make(chan error, 1)
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		cancelResp, err := http.Post(server.URL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/cancel", "application/json", strings.NewReader(`{"reason":"operator stop"}`))
+		if err != nil {
+			cancelErrCh <- err
+			return
+		}
+		defer cancelResp.Body.Close()
+		io.Copy(io.Discard, cancelResp.Body)
+		if cancelResp.StatusCode != http.StatusOK {
+			cancelErrCh <- fmt.Errorf("cancel status = %d", cancelResp.StatusCode)
+			return
+		}
+		cancelErrCh <- nil
+	}()
+
+	var sawTerminal bool
+	for event := range readSSEEvents(t, streamResp.Body) {
+		if event.Event != "snapshot" && event.Event != "done" {
+			continue
+		}
+		var payload TaskRunStreamEventResponse
+		if err := json.Unmarshal([]byte(event.Data), &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if !payload.Data.Terminal && !types.IsTerminalTaskRunStatus(payload.Data.Run.Status) {
+			continue
+		}
+		sawTerminal = true
+		if payload.Data.Run.Status != "cancelled" {
+			t.Fatalf("terminal run status = %q, want cancelled", payload.Data.Run.Status)
+		}
+		var sawRunApproval bool
+		for _, approval := range payload.Data.Approvals {
+			if approval.RunID != started.Data.ID {
+				continue
+			}
+			sawRunApproval = true
+			if approval.Status == "pending" {
+				t.Fatalf("terminal snapshot carried pending approval %#v", approval)
+			}
+			if approval.Status != "cancelled" {
+				t.Fatalf("approval status in terminal snapshot = %q, want cancelled", approval.Status)
+			}
+		}
+		if !sawRunApproval {
+			t.Fatal("terminal snapshot did not carry the cancelled approval")
+		}
+		break
+	}
+	cancelStream()
+
+	if !sawTerminal {
+		t.Fatal("did not observe terminal stream snapshot")
+	}
+	if err := <-cancelErrCh; err != nil {
+		t.Fatalf("cancel request error = %v", err)
+	}
+}
+
 func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing.T) {
 	// End-to-end check on the Turn overlay path:
 	//
