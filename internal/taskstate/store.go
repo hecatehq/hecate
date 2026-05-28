@@ -46,6 +46,43 @@ type EventFilter struct {
 	Limit         int
 }
 
+type RunEventSpec struct {
+	EventType string
+	Data      map[string]any
+	RequestID string
+	TraceID   string
+	CreatedAt time.Time
+}
+
+type TerminalRunTransition struct {
+	Task       types.Task
+	Run        types.TaskRun
+	FinishedAt time.Time
+
+	CancelActiveSteps             bool
+	ActiveStepError               string
+	ActiveStepErrorKind           string
+	ActiveStepResult              string
+	CancelStreamingArtifacts      bool
+	CancelPendingApprovals        bool
+	PendingApprovalStatus         string
+	PendingApprovalResolvedBy     string
+	PendingApprovalResolutionNote string
+
+	ApprovalResolvedEventType string
+	TerminalEvent             *RunEventSpec
+	TaskUpdatedEvent          *RunEventSpec
+}
+
+type TerminalRunTransitionResult struct {
+	Task               types.Task
+	Run                types.TaskRun
+	Steps              []types.TaskStep
+	Artifacts          []types.TaskArtifact
+	CancelledApprovals []types.TaskApproval
+	Events             []types.TaskRunEvent
+}
+
 type Store interface {
 	Backend() string
 	CreateTask(ctx context.Context, task types.Task) (types.Task, error)
@@ -78,6 +115,7 @@ type Store interface {
 	UpdateArtifact(ctx context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error)
 
 	AppendRunEvent(ctx context.Context, event types.TaskRunEvent) (types.TaskRunEvent, error)
+	ApplyRunTerminalTransition(ctx context.Context, transition TerminalRunTransition) (TerminalRunTransitionResult, error)
 	ListRunEvents(ctx context.Context, taskID, runID string, afterSequence int64, limit int) ([]types.TaskRunEvent, error)
 	// ListEvents returns events across runs/tasks ordered by ascending
 	// global sequence. Used by the public events stream so external

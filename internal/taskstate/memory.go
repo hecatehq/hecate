@@ -421,6 +421,176 @@ func (s *MemoryStore) AppendRunEvent(_ context.Context, event types.TaskRunEvent
 	return event, nil
 }
 
+func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalRunTransition) (TerminalRunTransitionResult, error) {
+	if err := validateTerminalTransition(tr); err != nil {
+		return TerminalRunTransitionResult{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.tasks[tr.Task.ID]; !ok {
+		return TerminalRunTransitionResult{}, fmt.Errorf("task %q not found", tr.Task.ID)
+	}
+	if _, ok := s.runs[tr.Run.ID]; !ok {
+		return TerminalRunTransitionResult{}, fmt.Errorf("run %q not found", tr.Run.ID)
+	}
+
+	finishedAt := terminalTransitionFinishedAt(tr)
+	task := tr.Task
+	run := tr.Run
+	if task.UpdatedAt.IsZero() {
+		task.UpdatedAt = finishedAt
+	}
+	if task.FinishedAt.IsZero() {
+		task.FinishedAt = finishedAt
+	}
+	if run.FinishedAt.IsZero() {
+		run.FinishedAt = finishedAt
+	}
+	s.tasks[task.ID] = task
+	s.runs[run.ID] = run
+
+	cancelledApprovals := make([]types.TaskApproval, 0)
+	if tr.CancelPendingApprovals {
+		status := firstNonEmptyString(tr.PendingApprovalStatus, "cancelled")
+		resolvedBy := firstNonEmptyString(tr.PendingApprovalResolvedBy, "system")
+		note := firstNonEmptyString(tr.PendingApprovalResolutionNote, run.LastError)
+		for id, approval := range s.approvals {
+			if approval.TaskID != task.ID || approval.RunID != run.ID || approval.Status != "pending" {
+				continue
+			}
+			approval.Status = status
+			approval.ResolvedBy = resolvedBy
+			approval.ResolutionNote = note
+			approval.ResolvedAt = finishedAt
+			s.approvals[id] = approval
+			cancelledApprovals = append(cancelledApprovals, approval)
+		}
+		sort.Slice(cancelledApprovals, func(i, j int) bool {
+			return cancelledApprovals[i].CreatedAt.Before(cancelledApprovals[j].CreatedAt)
+		})
+	}
+
+	if tr.CancelActiveSteps {
+		result := firstNonEmptyString(tr.ActiveStepResult, "error")
+		errorKind := firstNonEmptyString(tr.ActiveStepErrorKind, "run_cancelled")
+		stepError := firstNonEmptyString(tr.ActiveStepError, run.LastError)
+		for id, step := range s.steps {
+			if step.RunID != run.ID || (step.Status != "running" && step.Status != "awaiting_approval") {
+				continue
+			}
+			step.Status = "cancelled"
+			step.Result = result
+			step.Error = stepError
+			step.ErrorKind = errorKind
+			step.FinishedAt = finishedAt
+			s.steps[id] = step
+		}
+	}
+
+	if tr.CancelStreamingArtifacts {
+		for id, artifact := range s.artifacts {
+			if artifact.TaskID != task.ID || artifact.RunID != run.ID || artifact.Status != "streaming" {
+				continue
+			}
+			artifact.Status = "cancelled"
+			s.artifacts[id] = artifact
+		}
+	}
+
+	steps := s.listStepsLocked(run.ID)
+	artifacts := s.listArtifactsLocked(ArtifactFilter{TaskID: task.ID, RunID: run.ID})
+	events := make([]types.TaskRunEvent, 0, len(cancelledApprovals)+2)
+	approvalEventType := firstNonEmptyString(tr.ApprovalResolvedEventType, "approval.resolved")
+	for _, approval := range cancelledApprovals {
+		event := types.TaskRunEvent{
+			TaskID:    task.ID,
+			RunID:     run.ID,
+			EventType: approvalEventType,
+			Data:      terminalSnapshotData(run, steps, artifacts, approvalResolvedEventData(approval)),
+			RequestID: tr.Run.RequestID,
+			TraceID:   tr.Run.TraceID,
+			CreatedAt: finishedAt,
+		}
+		events = append(events, s.appendRunEventLocked(event))
+	}
+	if tr.TerminalEvent != nil {
+		event := terminalEventFromSpec(*tr.TerminalEvent, task.ID, run.ID, finishedAt)
+		event.Data = terminalSnapshotData(run, steps, artifacts, event.Data)
+		events = append(events, s.appendRunEventLocked(event))
+	}
+	if tr.TaskUpdatedEvent != nil {
+		event := terminalEventFromSpec(*tr.TaskUpdatedEvent, task.ID, run.ID, finishedAt)
+		event.Data = terminalSnapshotData(run, steps, artifacts, event.Data)
+		events = append(events, s.appendRunEventLocked(event))
+	}
+
+	return TerminalRunTransitionResult{
+		Task:               task,
+		Run:                run,
+		Steps:              steps,
+		Artifacts:          artifacts,
+		CancelledApprovals: cancelledApprovals,
+		Events:             events,
+	}, nil
+}
+
+func (s *MemoryStore) appendRunEventLocked(event types.TaskRunEvent) types.TaskRunEvent {
+	if event.Sequence <= 0 {
+		event.Sequence = s.nextSeq
+		s.nextSeq++
+	}
+	if event.CreatedAt.IsZero() {
+		event.CreatedAt = time.Now().UTC()
+	}
+	event.ID = fmt.Sprintf("%d", event.Sequence)
+	s.events[event.RunID] = append(s.events[event.RunID], event)
+	return event
+}
+
+func (s *MemoryStore) listStepsLocked(runID string) []types.TaskStep {
+	items := make([]types.TaskStep, 0)
+	for _, step := range s.steps {
+		if runID != "" && step.RunID != runID {
+			continue
+		}
+		items = append(items, step)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Index == items[j].Index {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].Index < items[j].Index
+	})
+	return items
+}
+
+func (s *MemoryStore) listArtifactsLocked(filter ArtifactFilter) []types.TaskArtifact {
+	items := make([]types.TaskArtifact, 0)
+	for _, artifact := range s.artifacts {
+		if filter.TaskID != "" && artifact.TaskID != filter.TaskID {
+			continue
+		}
+		if filter.RunID != "" && artifact.RunID != filter.RunID {
+			continue
+		}
+		if filter.StepID != "" && artifact.StepID != filter.StepID {
+			continue
+		}
+		if filter.Kind != "" && artifact.Kind != filter.Kind {
+			continue
+		}
+		items = append(items, artifact)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+	if filter.Limit > 0 && len(items) > filter.Limit {
+		items = items[:filter.Limit]
+	}
+	return items
+}
+
 func (s *MemoryStore) ListRunEvents(_ context.Context, taskID, runID string, afterSequence int64, limit int) ([]types.TaskRunEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -753,66 +753,25 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 	}
 
 	now := time.Now().UTC()
-	cancelledApprovals := r.cancelPendingApprovalsForRun(ctx, task, run, message, now)
-
-	run.Status = "cancelled"
-	run.LastError = message
-	run.FinishedAt = now
-	run.OtelStatusCode = "error"
-	run.OtelStatusMessage = message
-	if requestID != "" {
-		run.RequestID = requestID
-	}
-	if traceID != "" {
-		run.TraceID = traceID
-	}
-	var err error
-	run, err = r.store.UpdateRun(ctx, run)
+	result, err := r.applyTerminalRunTransition(ctx, terminalRunTransition{
+		Task:                     task,
+		Run:                      run,
+		Status:                   "cancelled",
+		Message:                  message,
+		RequestID:                requestID,
+		TraceID:                  traceID,
+		Trace:                    trace,
+		Now:                      now,
+		CancelActiveSteps:        true,
+		CancelStreamingArtifacts: true,
+		CancelPendingApprovals:   true,
+		EmitTaskUpdated:          true,
+		EventData:                map[string]any{"reason": message},
+	})
 	if err != nil {
 		return types.TaskRun{}, err
 	}
-
-	steps, _ := r.store.ListSteps(ctx, run.ID)
-	for _, step := range steps {
-		if step.Status == "running" || step.Status == "awaiting_approval" {
-			step.Status = "cancelled"
-			step.Result = telemetry.ResultError
-			step.Error = message
-			step.ErrorKind = "run_cancelled"
-			step.FinishedAt = now
-			_, _ = r.store.UpdateStep(ctx, step)
-		}
-	}
-
-	artifacts, _ := r.store.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: task.ID, RunID: run.ID})
-	for _, artifact := range artifacts {
-		if artifact.Status == "streaming" {
-			artifact.Status = "cancelled"
-			_, _ = r.store.UpdateArtifact(ctx, artifact)
-		}
-	}
-
-	task.Status = "cancelled"
-	task.LatestRunID = run.ID
-	task.LastError = message
-	if task.StartedAt.IsZero() {
-		task.StartedAt = run.StartedAt
-	}
-	task.FinishedAt = now
-	task.UpdatedAt = now
-	if requestID != "" {
-		task.LatestRequestID = requestID
-	}
-	if traceID != "" {
-		task.LatestTraceID = traceID
-	}
-	if _, err := r.store.UpdateTask(ctx, task); err != nil {
-		return types.TaskRun{}, err
-	}
-	r.emitApprovalResolvedEventsForRun(ctx, trace, task, run, cancelledApprovals, requestID, traceID)
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.cancelled", requestID, traceID, map[string]any{"reason": message})
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "task.updated", requestID, traceID, nil)
-	return run, nil
+	return result.Run, nil
 }
 
 // Shutdown stops the runner's queue workers, cancels every in-flight
@@ -1027,41 +986,35 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		// than overwriting it with zero.
 		run.TotalCostMicrosUSD = execution.CostMicrosUSD
 	}
-	emitTerminalEvent := true
-	if currentRun, found, err := r.store.GetRun(ctx, task.ID, run.ID); err == nil && found {
-		// CancelRun persists the terminal cancelled state and emits the
-		// authoritative run.cancelled event while the worker may still be
-		// unwinding. Keep persisting the latest run/task snapshots here, but
-		// don't emit a duplicate terminal event if the same status is already
-		// stored.
-		if types.IsTerminalTaskRunStatus(currentRun.Status) && currentRun.Status == run.Status {
-			emitTerminalEvent = false
-		}
-	}
-	if _, err := r.store.UpdateRun(ctx, run); err != nil {
+	transition, err := r.applyTerminalRunTransition(ctx, terminalRunTransition{
+		Task:                   task,
+		Run:                    run,
+		Status:                 run.Status,
+		Message:                execution.LastError,
+		RequestID:              requestID,
+		TraceID:                trace.TraceID,
+		Trace:                  trace,
+		Now:                    finishedAt,
+		SuppressDuplicateEvent: true,
+		UpdateRun: func(target *types.TaskRun) {
+			target.Provider = run.Provider
+			target.ProviderKind = run.ProviderKind
+			target.Model = run.Model
+			target.StepCount = len(persistedSteps)
+			target.ArtifactCount = len(persistedArtifacts)
+			target.TotalCostMicrosUSD = run.TotalCostMicrosUSD
+			target.OtelStatusCode = run.OtelStatusCode
+			target.OtelStatusMessage = run.OtelStatusMessage
+		},
+		UpdateTask: func(target *types.Task) {
+			target.RootTraceID = trace.TraceID
+		},
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	task.LatestRunID = run.ID
-	task.Status = run.Status
-	if task.StartedAt.IsZero() {
-		task.StartedAt = run.StartedAt
-	}
-	task.FinishedAt = finishedAt
-	task.UpdatedAt = finishedAt
-	task.RootTraceID = trace.TraceID
-	task.LatestTraceID = trace.TraceID
-	task.LatestRequestID = requestID
-	task.LastError = execution.LastError
-	if _, err := r.store.UpdateTask(ctx, task); err != nil {
-		return nil, err
-	}
-	if emitTerminalEvent {
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, terminalRunEventType(run.Status), requestID, trace.TraceID, map[string]any{
-			"error":  run.LastError,
-			"status": run.Status,
-		})
-	}
+	task = transition.Task
+	run = transition.Run
 
 	return &StartTaskResult{
 		Task:      task,

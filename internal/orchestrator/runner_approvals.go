@@ -294,43 +294,6 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 	}, nil
 }
 
-func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, task types.Task, run types.TaskRun, message string, now time.Time) []types.TaskApproval {
-	approvals, err := r.store.ListApprovals(ctx, task.ID)
-	if err != nil {
-		return nil
-	}
-	cancelled := make([]types.TaskApproval, 0, len(approvals))
-	for _, approval := range approvals {
-		if approval.RunID != run.ID || approval.Status != "pending" {
-			continue
-		}
-		approval.Status = "cancelled"
-		approval.ResolutionNote = message
-		approval.ResolvedBy = "system"
-		approval.ResolvedAt = now
-		updated, ok, err := r.store.UpdatePendingApproval(ctx, approval)
-		if err != nil {
-			continue
-		}
-		if !ok {
-			continue
-		}
-		cancelled = append(cancelled, updated)
-	}
-	return cancelled
-}
-
-func (r *Runner) emitApprovalResolvedEventsForRun(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, approvals []types.TaskApproval, requestID, traceID string) {
-	for _, updated := range approvals {
-		waitMS := int64(0)
-		if !updated.CreatedAt.IsZero() {
-			waitMS = updated.ResolvedAt.Sub(updated.CreatedAt).Milliseconds()
-		}
-		r.recordApprovalResolved(ctx, trace, task.ID, run.ID, updated, "cancelled", waitMS)
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, traceID, approvalResolvedEventData(updated))
-	}
-}
-
 func (r *Runner) recordApprovalResolved(ctx context.Context, trace *profiler.Trace, taskID, runID string, approval types.TaskApproval, decision string, waitMS int64) {
 	attrs := map[string]any{
 		telemetry.AttrHecatePhase:          "approval",
