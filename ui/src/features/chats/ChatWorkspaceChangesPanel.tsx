@@ -87,20 +87,39 @@ export function ChatWorkspaceChangesPanel({
     setLoading(true);
     setLoadFailed(false);
     setLocalError("");
-    const next = await onGetWorkspaceDiff(sessionID);
-    setSnapshot(next);
-    setFileDiffs({});
-    setExpandedDiffPaths([]);
-    setLoadFailed(next === null);
-    const firstFile = next?.has_changes ? next.files?.[0] : undefined;
-    if (firstFile) {
-      setExpandedDiffPaths([firstFile.path]);
-      setLoadingPath(firstFile.path);
-      const firstDiff = await onGetWorkspaceFileDiff(sessionID, firstFile.path);
-      if (firstDiff) setFileDiffs({ [firstFile.path]: firstDiff });
-      setLoadingPath("");
+    try {
+      const next = await onGetWorkspaceDiff(sessionID);
+      setSnapshot(next);
+      setFileDiffs({});
+      setExpandedDiffPaths([]);
+      setLoadFailed(next === null);
+      const firstFile = next?.has_changes ? next.files?.[0] : undefined;
+      if (firstFile) {
+        setExpandedDiffPaths([firstFile.path]);
+        setLoadingPath(firstFile.path);
+        try {
+          const firstDiff = await onGetWorkspaceFileDiff(sessionID, firstFile.path);
+          if (firstDiff) {
+            setFileDiffs({ [firstFile.path]: firstDiff });
+          } else {
+            setExpandedDiffPaths([]);
+            setLocalError("Could not load that current file diff.");
+          }
+        } catch {
+          setExpandedDiffPaths([]);
+          setLocalError("Could not load that current file diff.");
+        } finally {
+          setLoadingPath("");
+        }
+      }
+    } catch {
+      setSnapshot(null);
+      setFileDiffs({});
+      setExpandedDiffPaths([]);
+      setLoadFailed(true);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   async function loadFileDiff(
@@ -122,12 +141,18 @@ export function ChatWorkspaceChangesPanel({
     if (fileDiffs[file.path]) return;
     setLoadingPath(file.path);
     setLocalError("");
-    const next = await loadFileDiff(file);
-    if (!next) {
+    try {
+      const next = await loadFileDiff(file);
+      if (!next) {
+        setExpandedDiffPaths((current) => current.filter((path) => path !== file.path));
+        setLocalError("Could not load that current file diff.");
+      }
+    } catch {
       setExpandedDiffPaths((current) => current.filter((path) => path !== file.path));
       setLocalError("Could not load that current file diff.");
+    } finally {
+      setLoadingPath("");
     }
-    setLoadingPath("");
   }
 
   async function copyText(text: string, key: string) {
@@ -151,37 +176,47 @@ export function ChatWorkspaceChangesPanel({
   async function copyFileDiff(file: ChatChangedFileRecord) {
     setCopyingPath(file.path);
     setLocalError("");
-    const next = await loadFileDiff(file);
-    if (next?.diff) {
-      await copyText(next.diff, `file:${file.path}`);
-    } else {
+    try {
+      const next = await loadFileDiff(file);
+      if (next?.diff) {
+        await copyText(next.diff, `file:${file.path}`);
+      } else {
+        setLocalError("Could not load that current file diff.");
+      }
+    } catch {
       setLocalError("Could not load that current file diff.");
+    } finally {
+      setCopyingPath("");
     }
-    setCopyingPath("");
   }
 
   async function confirmRevert(paths: string[], label: string) {
     setRevertingPath(label);
     setLocalError("");
-    const next = await onRevertWorkspaceFiles(sessionID, paths);
-    if (next) {
-      setSnapshot(next);
-      if (paths.length === 0) {
-        setFileDiffs({});
-        setExpandedDiffPaths([]);
+    try {
+      const next = await onRevertWorkspaceFiles(sessionID, paths);
+      if (next) {
+        setSnapshot(next);
+        if (paths.length === 0) {
+          setFileDiffs({});
+          setExpandedDiffPaths([]);
+        } else {
+          setFileDiffs((current) => {
+            const nextDiffs = { ...current };
+            for (const path of paths) delete nextDiffs[path];
+            return nextDiffs;
+          });
+          setExpandedDiffPaths((current) => current.filter((path) => !paths.includes(path)));
+        }
       } else {
-        setFileDiffs((current) => {
-          const nextDiffs = { ...current };
-          for (const path of paths) delete nextDiffs[path];
-          return nextDiffs;
-        });
-        setExpandedDiffPaths((current) => current.filter((path) => !paths.includes(path)));
+        setLocalError("Could not discard those workspace changes.");
       }
-    } else {
+    } catch {
       setLocalError("Could not discard those workspace changes.");
+    } finally {
+      setConfirmRevertPath("");
+      setRevertingPath("");
     }
-    setConfirmRevertPath("");
-    setRevertingPath("");
   }
 
   useEffect(() => {
