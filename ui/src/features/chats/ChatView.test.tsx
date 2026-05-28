@@ -3983,6 +3983,136 @@ describe("ChatView external-agent target", () => {
     expect(await screen.findByText("Could not load the current workspace diff.")).toBeTruthy();
   });
 
+  it("clears workspace diff loading state when the diff request rejects", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => {
+      throw new Error("diff failed");
+    });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review all",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+
+    expect(await screen.findByText("Could not load the current workspace diff.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Refresh" })).not.toBeDisabled();
+    expect(screen.queryByText("Refreshing...")).toBeNull();
+  });
+
+  it("clears workspace file diff loading state when a file diff request rejects", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      diff_stat: "README.md | 1 +\n1 file changed, 1 insertion(+)",
+      diff: "",
+      has_changes: true,
+      files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+    }));
+    const getChatWorkspaceFileDiff = vi.fn(async () => {
+      throw new Error("file diff failed");
+    });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review files",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff, getChatWorkspaceFileDiff },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+
+    expect(await screen.findByText("Could not load that current file diff.")).toBeTruthy();
+    expect(screen.queryByText("Loading current diff...")).toBeNull();
+    expect(screen.getByRole("button", { name: "Show diff README.md" })).toBeTruthy();
+  });
+
+  it("clears workspace discard state when revert rejects", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      diff_stat: "README.md | 1 +\n1 file changed, 1 insertion(+)",
+      diff: [
+        "diff --git a/README.md b/README.md",
+        "index 1111111..2222222 100644",
+        "--- a/README.md",
+        "+++ b/README.md",
+        "@@ -1 +1 @@",
+        "-old readme",
+        "+current file line",
+      ].join("\n"),
+      has_changes: true,
+      files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+    }));
+    const getChatWorkspaceFileDiff = vi.fn(async () => ({
+      path: "README.md",
+      additions: 1,
+      deletions: 0,
+      status: "modified",
+      diff: [
+        "diff --git a/README.md b/README.md",
+        "index 1111111..2222222 100644",
+        "--- a/README.md",
+        "+++ b/README.md",
+        "@@ -1 +1 @@",
+        "-old readme",
+        "+current file line",
+      ].join("\n"),
+    }));
+    const revertChatWorkspaceFiles = vi.fn(async () => {
+      throw new Error("revert failed");
+    });
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review files",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff, getChatWorkspaceFileDiff, revertChatWorkspaceFiles },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+    await screen.findByRole("button", { name: "Discard README.md" });
+    await user.click(screen.getByRole("button", { name: "Discard README.md" }));
+    await user.click(screen.getByRole("button", { name: "Confirm discard README.md" }));
+
+    expect(await screen.findByText("Could not discard those workspace changes.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Discard README.md" })).not.toBeDisabled();
+    expect(screen.queryByText("Discarding...")).toBeNull();
+  });
+
   it("disables stop and shows cancelling feedback after stop is requested", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
