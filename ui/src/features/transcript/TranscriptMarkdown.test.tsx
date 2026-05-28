@@ -36,6 +36,26 @@ describe("TranscriptMarkdown", () => {
     expect(screen.getByText(/const x = 1/)).toBeInTheDocument();
   });
 
+  it("renders diff fences with the rich diff viewer", () => {
+    const patch = [
+      "```diff",
+      "diff --git a/README.md b/README.md",
+      "index 1111111..2222222 100644",
+      "--- a/README.md",
+      "+++ b/README.md",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "```",
+    ].join("\n");
+
+    const { container } = render(<TranscriptMarkdown content={patch} />);
+
+    expect(screen.getByTestId("diff-viewer")).toBeInTheDocument();
+    expect(container.querySelector("pre")).toBeNull();
+    expect(container.querySelectorAll("diffs-container.diff-viewer-file")).toHaveLength(1);
+  });
+
   it("renders indented fenced code blocks as code blocks", () => {
     const { container } = render(
       <TranscriptMarkdown content={"- Review changes:\n  ```sh\ngit diff\n  ```"} />,
