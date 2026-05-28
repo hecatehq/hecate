@@ -431,9 +431,8 @@ function ToolOutputPreview({ title, output }: { title: string; output: string })
 
 function normalizeToolOutputPreview(output: string): string {
   return output
-    .replace(
-      /\s*(\d+)\s*(?:>|→)/g,
-      (_match, _line: string, offset: number) => (offset === 0 ? "" : "\n"),
+    .replace(/\s*(\d+)\s*(?:>|→)/g, (_match, _line: string, offset: number) =>
+      offset === 0 ? "" : "\n",
     )
     .trim();
 }

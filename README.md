@@ -157,14 +157,14 @@ For deeper internals, read [docs/architecture.md](docs/architecture.md), [docs/r
 
 The embedded UI is a runtime console for the operator.
 
-| Workspace         | Job                                                                                                                                         |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace         | Job                                                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Chats**         | Hecate Chat with per-chat tools on/off, External Agent sessions, queued prompts, task/trace/run links, timing, usage, and workspace changes with rich per-file diffs. |
-| **Connections**   | Model-provider credentials, local/cloud presets, model discovery, routing readiness, external-agent readiness, and durable approval grants. |
-| **Tasks**         | Native `agent_loop` runs, approvals, retries, resumes, streamed output, artifacts, and full run history.                                    |
-| **Observability** | Request history, route candidates, skip reasons, failover, usage, traces, metrics, logs, and local trace events.                            |
-| **Usage**         | Cloud-provider tokens, known provider-reported cost, and adapter-reported external-agent usage.                                             |
-| **Settings**      | Local data cleanup. Provider credentials, model capabilities, and external-agent setup live in Connections.                                 |
+| **Connections**   | Model-provider credentials, local/cloud presets, model discovery, routing readiness, external-agent readiness, and durable approval grants.                           |
+| **Tasks**         | Native `agent_loop` runs, approvals, retries, resumes, streamed output, artifacts, and full run history.                                                              |
+| **Observability** | Request history, route candidates, skip reasons, failover, usage, traces, metrics, logs, and local trace events.                                                      |
+| **Usage**         | Cloud-provider tokens, known provider-reported cost, and adapter-reported external-agent usage.                                                                       |
+| **Settings**      | Local data cleanup. Provider credentials, model capabilities, and external-agent setup live in Connections.                                                           |
 
 <details>
 <summary>Various UI screenshots</summary>
@@ -238,17 +238,17 @@ Stability stages:
 - **Early**: works in some paths, but still rough or incomplete.
 - **Not shipped**: planned, not available.
 
-| Area                | State       | Notes                                                                                                                                                                                                                                                |
-| ------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Model routing       | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints.                                                                                        |
-| Connections         | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics.                                                                                |
+| Area                | State       | Notes                                                                                                                                                                                                                                                                                        |
+| ------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Model routing       | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints.                                                                                                                                |
+| Connections         | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics.                                                                                                                        |
 | Hecate Chat         | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, inline task approvals, and workspace changes with rich per-file diffs. Workspace modes and agent profiles are still future work. |
-| External Agent      | Alpha-ready | Codex, Claude Code, Cursor Agent, and Grok Build discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, adapter diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses.      |
-| Task runtime        | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing.                                                                         |
-| Observability       | Alpha-ready | OTLP traces/metrics/logs, response trace headers, local trace view, route reports, timing buckets, and runtime stats.                                                                                                                                |
-| Storage             | Alpha-ready | Memory or SQLite per subsystem; SQLite persists chat/task/provider state. Pending approval reconciliation runs on startup.                                                                                                                           |
-| Desktop app         | Early       | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. macOS Apple Silicon is the only launch-tested desktop path; Linux and Windows artifacts are CI-built but untested, so expect bugs. Windows signing is still pending. |
-| Execution isolation | Early       | Per-call subprocess + env sanitisation + output cap + timeout, with `bwrap` / `sandbox-exec` where available. Not container-level isolation.                                                                                                         |
+| External Agent      | Alpha-ready | Codex, Claude Code, Cursor Agent, and Grok Build discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, adapter diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses.                                              |
+| Task runtime        | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing.                                                                                                                 |
+| Observability       | Alpha-ready | OTLP traces/metrics/logs, response trace headers, local trace view, route reports, timing buckets, and runtime stats.                                                                                                                                                                        |
+| Storage             | Alpha-ready | Memory or SQLite per subsystem; SQLite persists chat/task/provider state. Pending approval reconciliation runs on startup.                                                                                                                                                                   |
+| Desktop app         | Early       | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. macOS Apple Silicon is the only launch-tested desktop path; Linux and Windows artifacts are CI-built but untested, so expect bugs. Windows signing is still pending.                                         |
+| Execution isolation | Early       | Per-call subprocess + env sanitisation + output cap + timeout, with `bwrap` / `sandbox-exec` where available. Not container-level isolation.                                                                                                                                                 |
 
 Read [docs/known-limitations.md](docs/known-limitations.md) before treating Hecate as production-stable.
 
