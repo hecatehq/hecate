@@ -507,7 +507,7 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 			TaskID:    task.ID,
 			RunID:     run.ID,
 			EventType: approvalEventType,
-			Data:      terminalSnapshotData(run, steps, artifacts, approvalResolvedEventData(approval)),
+			Data:      types.ApprovalResolvedEventData(approval),
 			RequestID: tr.Run.RequestID,
 			TraceID:   tr.Run.TraceID,
 			CreatedAt: finishedAt,
@@ -516,12 +516,10 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 	}
 	if tr.TerminalEvent != nil {
 		event := terminalEventFromSpec(*tr.TerminalEvent, task.ID, run.ID, finishedAt)
-		event.Data = terminalSnapshotData(run, steps, artifacts, event.Data)
 		events = append(events, s.appendRunEventLocked(event))
 	}
 	if tr.TaskUpdatedEvent != nil {
 		event := terminalEventFromSpec(*tr.TaskUpdatedEvent, task.ID, run.ID, finishedAt)
-		event.Data = terminalSnapshotData(run, steps, artifacts, event.Data)
 		events = append(events, s.appendRunEventLocked(event))
 	}
 

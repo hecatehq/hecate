@@ -704,7 +704,7 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 			TaskID:    task.ID,
 			RunID:     run.ID,
 			EventType: approvalEventType,
-			Data:      terminalSnapshotData(run, steps, artifacts, approvalResolvedEventData(approval)),
+			Data:      types.ApprovalResolvedEventData(approval),
 			RequestID: tr.Run.RequestID,
 			TraceID:   tr.Run.TraceID,
 			CreatedAt: finishedAt,
@@ -717,7 +717,6 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 	}
 	if tr.TerminalEvent != nil {
 		event := terminalEventFromSpec(*tr.TerminalEvent, task.ID, run.ID, finishedAt)
-		event.Data = terminalSnapshotData(run, steps, artifacts, event.Data)
 		inserted, err := s.sqliteInsertRunEventTx(ctx, tx, event)
 		if err != nil {
 			return TerminalRunTransitionResult{}, err
@@ -726,7 +725,6 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 	}
 	if tr.TaskUpdatedEvent != nil {
 		event := terminalEventFromSpec(*tr.TaskUpdatedEvent, task.ID, run.ID, finishedAt)
-		event.Data = terminalSnapshotData(run, steps, artifacts, event.Data)
 		inserted, err := s.sqliteInsertRunEventTx(ctx, tx, event)
 		if err != nil {
 			return TerminalRunTransitionResult{}, err

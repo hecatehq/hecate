@@ -248,6 +248,18 @@ type TaskRunEvent struct {
 	TraceID   string
 }
 
+func ApprovalResolvedEventData(approval TaskApproval) map[string]any {
+	return map[string]any{
+		"approval_id": approval.ID,
+		"decision":    approval.Status,
+		"by":          approval.ResolvedBy,
+		"comment":     approval.ResolutionNote,
+		"scope":       "once",
+		"kind":        approval.Kind,
+		"status":      approval.Status,
+	}
+}
+
 func IsTerminalTaskRunStatus(status string) bool {
 	switch status {
 	case "completed", "failed", "cancelled":

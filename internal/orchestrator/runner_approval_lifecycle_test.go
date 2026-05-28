@@ -283,8 +283,7 @@ func TestRunnerCancelRun_CancelsPendingApprovalAndAwaitingStep(t *testing.T) {
 			events := listApprovalLifecycleEvents(t, ctx, tc.store, task.ID, run.ID)
 			assertEventType(t, events, "run.cancelled")
 			assertApprovalEvent(t, events, "cancelled")
-			assertApprovalEventRunStatus(t, events, "cancelled", "cancelled")
-			assertApprovalEventStepStatus(t, events, "cancelled", step.ID, "cancelled")
+			assertApprovalEventNoSnapshot(t, events, "cancelled")
 			assertEventType(t, events, "task.updated")
 		})
 	}
@@ -424,6 +423,19 @@ func assertApprovalEventStepStatus(t *testing.T, events []types.TaskRunEvent, de
 		}
 	}
 	t.Fatalf("approval.resolved %q missing step %q in %+v", decision, stepID, steps)
+}
+
+func assertApprovalEventNoSnapshot(t *testing.T, events []types.TaskRunEvent, decision string) {
+	t.Helper()
+	event := approvalEvent(t, events, decision)
+	if event == nil {
+		t.Fatalf("missing approval.resolved decision %q in events %+v", decision, events)
+	}
+	for _, key := range []string{"run", "steps", "artifacts", "snapshot"} {
+		if _, ok := event.Data[key]; ok {
+			t.Fatalf("approval.resolved %q carried %q snapshot data: %+v", decision, key, event.Data)
+		}
+	}
 }
 
 func approvalEvent(t *testing.T, events []types.TaskRunEvent, decision string) *types.TaskRunEvent {

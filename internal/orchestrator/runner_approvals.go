@@ -108,7 +108,7 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 		return nil, err
 	}
 
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, approvalResolvedEventData(approval))
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, types.ApprovalResolvedEventData(approval))
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.queued", requestID, trace.TraceID, map[string]any{"resume": true})
 
 	if err := r.enqueueRun(task.ID, run.ID); err != nil {
@@ -225,18 +225,6 @@ func normalizeApprovalDecision(decision string) (string, error) {
 	}
 }
 
-func approvalResolvedEventData(approval types.TaskApproval) map[string]any {
-	return map[string]any{
-		"approval_id": approval.ID,
-		"decision":    approval.Status,
-		"by":          approval.ResolvedBy,
-		"comment":     approval.ResolutionNote,
-		"scope":       "once",
-		"kind":        approval.Kind,
-		"status":      approval.Status,
-	}
-}
-
 func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, approval types.TaskApproval, idgen func(prefix string) string) (*StartTaskResult, error) {
 	if r.store == nil {
 		return nil, fmt.Errorf("task store is not configured")
@@ -285,7 +273,7 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 	if err != nil {
 		return nil, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, approvalResolvedEventData(approval))
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, types.ApprovalResolvedEventData(approval))
 	return &StartTaskResult{
 		Task:    task,
 		Run:     run,
