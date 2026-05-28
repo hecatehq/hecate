@@ -2,6 +2,7 @@ import type React from "react";
 
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
 import { CodeBlock } from "../shared/Atoms";
+import { DiffViewer } from "../shared/DiffViewer";
 
 export function TranscriptMarkdown({ content }: { content: string }) {
   const blocks = parseMarkdownBlocks(content);
@@ -9,6 +10,9 @@ export function TranscriptMarkdown({ content }: { content: string }) {
     <div style={{ fontSize: 13, color: "var(--t0)", lineHeight: 1.7 }}>
       {blocks.map((block, i) => {
         if (block.type === "code") {
+          if (isDiffFence(block.lang)) {
+            return <DiffViewer key={i} compact embedded diff={block.text} />;
+          }
           return <CodeBlock key={i} code={block.text} lang={block.lang ?? ""} />;
         }
         if (block.type === "heading") {
@@ -154,6 +158,11 @@ export function TranscriptMarkdown({ content }: { content: string }) {
       })}
     </div>
   );
+}
+
+function isDiffFence(lang: string | undefined): boolean {
+  const normalized = (lang ?? "").trim().toLowerCase();
+  return normalized === "diff" || normalized === "patch";
 }
 
 function renderInline(text: string): React.ReactNode {

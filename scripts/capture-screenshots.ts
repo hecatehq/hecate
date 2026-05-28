@@ -1831,7 +1831,7 @@ async function main() {
   await routeWorkspaceDiffDocsFixture(page, docsHecateChatSessionID);
   await page.getByRole("button", { name: "Workspace changes" }).click();
   await page.waitForSelector("text=Live workspace diff", { timeout: 5_000 });
-  await page.waitForSelector("text=docs/runtime-api.md", { timeout: 5_000 });
+  await page.waitForSelector("text=runtime-api.md", { timeout: 5_000 });
   await page.waitForSelector("text=Copy patch", { timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "chat-workspace-diff");
