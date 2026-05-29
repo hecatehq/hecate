@@ -352,6 +352,7 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
 - **`render1()` + `render2()` in the same `it` block** — don't. React Testing Library cleanup runs between tests, not within. Split into two `it`s if you need fresh mounts.
 - **Cost-ceiling banner** — gates on `run.otel_status_message === "cost_ceiling_exceeded"` (the specific string). A regression that drops or rewords that string silently breaks the "Raise ceiling & resume" affordance.
 - **Every gateway response is `{object, data}`** — `lib/api.ts` clients must read `payload.data.<field>`, not `payload.<field>`. When mocking, copy the real wire shape, not the fields you happen to need; fixtures that skip the envelope hide production bugs.
+- **Chat snapshots must preserve per-message reference identity.** Transcript rows are memoized, so a snapshot that rebuilds every message object re-renders the whole transcript. `reconcileChatSession` (in `app/state`) reuses unchanged message objects across snapshots, and `projectVisibleMessage` (in `features/chats/ChatTranscript.tsx`) caches its projection in a `WeakMap` keyed by message identity — keep both in the path. Replacing the messages array wholesale, or remapping it through a fresh `.map` each render, silently defeats the memoization and the transcript goes back to re-rendering on every token.
 - **No auth surfaces in alpha** — do not reintroduce token gates, tenant tabs,
   or key-management tabs unless the product model changes again.
 
