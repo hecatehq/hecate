@@ -429,6 +429,9 @@ type e2eTaskRun struct {
 	Provider     string `json:"provider,omitempty"`
 	ProviderKind string `json:"provider_kind,omitempty"`
 	Model        string `json:"model,omitempty"`
+	RequestID    string `json:"request_id,omitempty"`
+	TraceID      string `json:"trace_id,omitempty"`
+	RootSpanID   string `json:"root_span_id,omitempty"`
 }
 
 type e2eTaskApprovalsResponse struct {

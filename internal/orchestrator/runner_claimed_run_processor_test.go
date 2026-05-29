@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -11,6 +12,14 @@ import (
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
+
+type failUpdateTaskStore struct {
+	taskstate.Store
+}
+
+func (s failUpdateTaskStore) UpdateTask(context.Context, types.Task) (types.Task, error) {
+	return types.Task{}, errors.New("update task failed")
+}
 
 func newClaimedRunProcessorTestRunner(store taskstate.Store, queue RunQueue) *Runner {
 	runner := &Runner{
@@ -128,6 +137,60 @@ func TestClaimedRunProcessor_AcksNonQueuedRunWithoutStarting(t *testing.T) {
 	for _, event := range events {
 		if event.EventType == "run.started" {
 			t.Fatalf("unexpected run.started event for non-queued run: %+v", event)
+		}
+	}
+}
+
+func TestClaimedRunProcessor_DoesNotAckWhenStartTransitionPersistFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseStore := taskstate.NewMemoryStore()
+	queue := &recordingQueue{}
+	runner := newClaimedRunProcessorTestRunner(failUpdateTaskStore{Store: baseStore}, queue)
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:            "task-start-fail",
+		Title:         "Start fail",
+		Prompt:        "complete",
+		Status:        "queued",
+		ExecutionKind: "stub",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	run := types.TaskRun{
+		ID:        "run-start-fail",
+		TaskID:    task.ID,
+		Number:    1,
+		Status:    "queued",
+		StartedAt: now,
+		RequestID: "request-start-fail",
+	}
+	if _, err := baseStore.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	if _, err := baseStore.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+
+	runner.queueCoordinator.processQueuedRun(QueueClaim{
+		ClaimID: "claim-start-fail",
+		Job:     QueueJob{TaskID: task.ID, RunID: run.ID},
+	})
+
+	if len(queue.acked) != 0 {
+		t.Fatalf("acked claims = %+v, want none", queue.acked)
+	}
+	if got := runner.inFlightJobCount(); got != 0 {
+		t.Fatalf("in-flight jobs = %d, want 0", got)
+	}
+	events, err := baseStore.ListRunEvents(ctx, task.ID, run.ID, 0, 20)
+	if err != nil {
+		t.Fatalf("ListRunEvents() error = %v", err)
+	}
+	for _, event := range events {
+		if event.EventType == "run.started" {
+			t.Fatalf("unexpected run.started event after failed start transition: %+v", event)
 		}
 	}
 }
