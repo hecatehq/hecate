@@ -23,7 +23,6 @@ func TestCancelRunWithMessageAlignsStartedTraceID(t *testing.T) {
 		store:    store,
 		tracer:   tracer,
 		policies: make(map[string]struct{}),
-		jobs:     make(map[string]context.CancelFunc),
 	}
 
 	now := time.Now().UTC()
@@ -94,7 +93,6 @@ func TestCancelRunWithMessageAlignsExistingTraceID(t *testing.T) {
 		store:    store,
 		tracer:   tracer,
 		policies: make(map[string]struct{}),
-		jobs:     make(map[string]context.CancelFunc),
 	}
 
 	now := time.Now().UTC()

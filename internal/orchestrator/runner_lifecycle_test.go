@@ -169,9 +169,9 @@ func TestStartReconcileLoop_SkipsFreshRunningRun(t *testing.T) {
 // TestStartReconcileLoop_SkipsLocalInflightRun verifies that periodic
 // stale-run reconciliation does not duplicate work the current runner still
 // owns. A long-running task can legitimately outlive the conservative
-// StartedAt-based stale threshold; if it is registered in r.jobs, Shutdown and
-// explicit CancelRun can still reach it, so requeueing would create a second
-// worker for the same run.
+// StartedAt-based stale threshold; if it is registered in the queue
+// coordinator, Shutdown and explicit CancelRun can still reach it, so
+// requeueing would create a second worker for the same run.
 func TestStartReconcileLoop_SkipsLocalInflightRun(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -253,8 +253,8 @@ func TestStartReconcileLoop_StopsOnShutdown(t *testing.T) {
 	)
 	runner.StartReconcileLoop()
 
-	// Shutdown must complete well within 1s; if the loop goroutine leaks
-	// it would hold workerWg open until the context deadline.
+	// Shutdown must complete well within 1s; if the loop goroutine leaks it
+	// would hold the coordinator wait group open until the context deadline.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := runner.Shutdown(ctx); err != nil {

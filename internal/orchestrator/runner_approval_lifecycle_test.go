@@ -47,14 +47,14 @@ func approvalLifecycleStores(t *testing.T) []approvalLifecycleStoreCase {
 
 func newApprovalLifecycleRunner(store taskstate.Store) (*Runner, *recordingQueue) {
 	queue := &recordingQueue{}
-	return &Runner{
+	runner := &Runner{
 		logger:   slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		store:    store,
 		tracer:   profiler.NewInMemoryTracer(nil),
-		queue:    queue,
 		policies: make(map[string]struct{}),
-		jobs:     make(map[string]context.CancelFunc),
-	}, queue
+	}
+	attachTestQueueCoordinator(runner, queue)
+	return runner, queue
 }
 
 func seedAwaitingApprovalRun(t *testing.T, ctx context.Context, store taskstate.Store, suffix string) (types.Task, types.TaskRun, types.TaskStep, types.TaskApproval) {

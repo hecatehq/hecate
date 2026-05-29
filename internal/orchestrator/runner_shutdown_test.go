@@ -15,8 +15,9 @@ import (
 // keeps the per-test boilerplate (logger / store / workers count) out
 // of every shutdown test below. We use NewRunner rather than the
 // minimal helpers in runner_race_test.go because shutdown is what
-// NewRunner uniquely sets up — workerCtx, workerCancel, workerWg —
-// and we want to pin those wirings, not bypass them.
+// NewRunner uniquely sets up the queue coordinator's worker context,
+// cancel func, and wait group, and we want to pin those wirings, not
+// bypass them.
 func newRunnerForShutdownTest(t *testing.T, workers int) *Runner {
 	t.Helper()
 	return NewRunner(
@@ -58,26 +59,27 @@ func TestRunner_Shutdown_NoInflight_ReturnsQuickly(t *testing.T) {
 }
 
 // TestRunner_Shutdown_CancelsInflightJobs pins the core invariant:
-// Shutdown propagates cancellation through workerCtx into every
-// in-flight job's context so the agent loop's deferred cleanup
+// Shutdown propagates cancellation through the coordinator's workerCtx into
+// every in-flight job's context so the agent loop's deferred cleanup
 // (Pool.Close → MCP subprocess teardown) actually runs.
 //
 // The test goroutine mimics processQueuedRun's wiring: parent its
-// context off runner.workerCtx, register the cancel func in r.jobs,
-// and count itself via workerWg. That way the test exercises the same
-// cancellation cascade the real worker uses, not a hand-rolled
-// approximation.
+// context off the coordinator workerCtx, register the cancel func in the
+// coordinator jobs map, and count itself via workerWg. That way the test
+// exercises the same cancellation cascade the real worker uses, not a
+// hand-rolled approximation.
 func TestRunner_Shutdown_CancelsInflightJobs(t *testing.T) {
 	t.Parallel()
 	runner := newRunnerForShutdownTest(t, 1)
+	coordinator := runner.queueCoordinator
 
 	jobStarted := make(chan struct{})
 	jobErr := make(chan error, 1)
 
-	runner.workerWg.Add(1)
+	coordinator.workerWg.Add(1)
 	go func() {
-		defer runner.workerWg.Done()
-		jobCtx, jobCancel := context.WithCancel(runner.workerCtx)
+		defer coordinator.workerWg.Done()
+		jobCtx, jobCancel := context.WithCancel(coordinator.workerCtx)
 		defer jobCancel()
 		runner.registerJob("run-shutdown-test", jobCancel)
 		defer runner.unregisterJob("run-shutdown-test")
@@ -119,14 +121,15 @@ func TestRunner_Shutdown_CancelsInflightJobs(t *testing.T) {
 func TestRunner_Shutdown_DeadlineExceeded(t *testing.T) {
 	t.Parallel()
 	runner := newRunnerForShutdownTest(t, 1)
+	coordinator := runner.queueCoordinator
 
 	// Spawn a goroutine that ignores cancellation. We hold it open via
 	// a release channel so the test can clean up at the end without
 	// leaking the goroutine into the rest of the package's tests.
 	release := make(chan struct{})
-	runner.workerWg.Add(1)
+	coordinator.workerWg.Add(1)
 	go func() {
-		defer runner.workerWg.Done()
+		defer coordinator.workerWg.Done()
 		<-release
 	}()
 	t.Cleanup(func() { close(release) })
@@ -151,8 +154,8 @@ func TestRunner_Shutdown_DeadlineExceeded(t *testing.T) {
 }
 
 // TestRunner_Shutdown_StopsClaimingNewWork: even with no in-flight
-// jobs, the queue workers themselves are goroutines that count
-// against workerWg. Shutdown's drain wait must include them, otherwise
+// jobs, the queue workers themselves are goroutines that count against the
+// coordinator wait group. Shutdown's drain wait must include them, otherwise
 // a worker mid-Claim could keep running past Shutdown's return and
 // pick up one final job after main() thinks the runner is done. We
 // test by enqueueing a job AFTER Shutdown has fired and verifying it

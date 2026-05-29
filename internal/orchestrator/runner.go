@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -123,36 +122,17 @@ type ShellNetworkPolicy struct {
 type SystemPromptResolver func(ctx context.Context, tenantID, perTaskPrompt, workspacePath string) string
 
 type Runner struct {
-	logger            *slog.Logger
-	store             taskstate.Store
-	tracer            profiler.Tracer
-	exec              Executor
-	shell             Executor
-	file              Executor
-	git               Executor
-	agent             Executor
-	workspaces        *WorkspaceManager
-	config            Config
-	queue             RunQueue
-	queueLease        time.Duration
-	reconcileInterval time.Duration
-	workerID          string
-	jobMu             sync.Mutex
-	queueMu           sync.RWMutex
-	jobs              map[string]context.CancelFunc
-	// workerCtx is the lifetime context for queue-worker goroutines and
-	// every in-flight job they process. Shutdown cancels this; processQueue
-	// observes the cancel and stops claiming new work, and every job's
-	// context is parented from it so cancellation cascades into running
-	// agent loops (which in turn close their MCP hosts via the existing
-	// defer chain).
-	workerCtx    context.Context
-	workerCancel context.CancelFunc
-	// workerWg tracks both the worker goroutines and in-flight jobs.
-	// Shutdown waits on it so the gateway doesn't return from main()
-	// while a run's still finalizing into the store.
-	workerWg         sync.WaitGroup
-	shutdownOnce     sync.Once
+	logger           *slog.Logger
+	store            taskstate.Store
+	tracer           profiler.Tracer
+	exec             Executor
+	shell            Executor
+	file             Executor
+	git              Executor
+	agent            Executor
+	workspaces       *WorkspaceManager
+	config           Config
+	queueCoordinator *runQueueCoordinator
 	policies         map[string]struct{}
 	metrics          *telemetry.OrchestratorMetrics
 	resolveSysPrompt SystemPromptResolver
@@ -218,26 +198,24 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 		reconcileInterval = 30 * time.Second
 	}
 	queue := NewMemoryRunQueue(queueBuffer, queueLease)
-	workerCtx, workerCancel := context.WithCancel(context.Background())
 	runner := &Runner{
-		logger:            logger,
-		store:             store,
-		tracer:            tracer,
-		exec:              NewStubExecutor(),
-		shell:             NewShellExecutor(worker),
-		file:              NewFileExecutor(worker),
-		git:               NewGitExecutor(worker),
-		workspaces:        NewWorkspaceManager(""),
-		config:            cfg,
-		queue:             queue,
-		queueLease:        queueLease,
-		reconcileInterval: reconcileInterval,
-		workerID:          defaultWorkerID(),
-		jobs:              make(map[string]context.CancelFunc),
-		policies:          make(map[string]struct{}),
-		workerCtx:         workerCtx,
-		workerCancel:      workerCancel,
+		logger:     logger,
+		store:      store,
+		tracer:     tracer,
+		exec:       NewStubExecutor(),
+		shell:      NewShellExecutor(worker),
+		file:       NewFileExecutor(worker),
+		git:        NewGitExecutor(worker),
+		workspaces: NewWorkspaceManager(""),
+		config:     cfg,
+		policies:   make(map[string]struct{}),
 	}
+	runner.queueCoordinator = newRunQueueCoordinator(runner, runQueueCoordinatorConfig{
+		Queue:             queue,
+		Lease:             queueLease,
+		ReconcileInterval: reconcileInterval,
+		WorkerID:          defaultWorkerID(),
+	})
 	// LLM client + max-turns are wired post-construction via
 	// SetAgentLLMClient — main.go injects the gateway.Service after
 	// it's built. nil here means the loop falls back to a pass-through
@@ -263,10 +241,7 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 	if workers <= 0 {
 		workers = 1
 	}
-	for worker := 0; worker < workers; worker++ {
-		runner.workerWg.Add(1)
-		go runner.processQueue()
-	}
+	runner.queueCoordinator.StartWorkers(workers)
 	return runner
 }
 
@@ -414,9 +389,7 @@ func (r *Runner) RuntimeStats(ctx context.Context) (RuntimeStats, error) {
 	if q != nil {
 		stats.QueueBackend = q.Backend()
 	}
-	r.jobMu.Lock()
-	stats.InFlightJobs = len(r.jobs)
-	r.jobMu.Unlock()
+	stats.InFlightJobs = r.inFlightJobCount()
 	if r.store == nil {
 		return stats, nil
 	}
@@ -742,12 +715,7 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 		}
 	}
 
-	r.jobMu.Lock()
-	cancel, ok := r.jobs[run.ID]
-	r.jobMu.Unlock()
-	if ok {
-		cancel()
-	}
+	r.cancelInFlightJob(run.ID)
 
 	now := time.Now().UTC()
 	result, err := r.applyTerminalRunTransition(ctx, terminalRunTransition{
