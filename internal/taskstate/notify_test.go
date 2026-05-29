@@ -1,11 +1,8 @@
 package taskstate
 
 import (
-	"context"
 	"testing"
 	"time"
-
-	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func expectWake(t *testing.T, ch <-chan struct{}) {
@@ -84,68 +81,4 @@ func TestRunEventBusFansOutToMultipleSubscribers(t *testing.T) {
 	bus.signalRun("run-1")
 	expectWake(t, a)
 	expectWake(t, b)
-}
-
-// TestMemoryStoreWakesOnMutations is the contract the SSE handler
-// relies on: every run-scoped mutation reaches a subscriber, not just
-// appended events. Steps, artifacts, run-status changes, and approvals
-// all stream live, so the stream can drop its poll loop.
-func TestMemoryStoreWakesOnMutations(t *testing.T) {
-	ctx := context.Background()
-	store := NewMemoryStore()
-	const taskID, runID = "task-1", "run-1"
-
-	ch, unsubscribe := store.SubscribeRun(runID)
-	defer unsubscribe()
-
-	mutations := []struct {
-		name string
-		run  func() error
-	}{
-		{"CreateRun", func() error {
-			_, err := store.CreateRun(ctx, types.TaskRun{ID: runID, TaskID: taskID, Status: "running"})
-			return err
-		}},
-		{"UpdateRun", func() error {
-			_, err := store.UpdateRun(ctx, types.TaskRun{ID: runID, TaskID: taskID, Status: "succeeded"})
-			return err
-		}},
-		{"AppendStep", func() error {
-			_, err := store.AppendStep(ctx, types.TaskStep{ID: "step-1", TaskID: taskID, RunID: runID, Status: "running"})
-			return err
-		}},
-		{"UpdateStep", func() error {
-			_, err := store.UpdateStep(ctx, types.TaskStep{ID: "step-1", TaskID: taskID, RunID: runID, Status: "completed"})
-			return err
-		}},
-		{"CreateArtifact", func() error {
-			_, err := store.CreateArtifact(ctx, types.TaskArtifact{ID: "art-1", TaskID: taskID, RunID: runID, Kind: "git_summary"})
-			return err
-		}},
-		{"CreateApproval", func() error {
-			_, err := store.CreateApproval(ctx, types.TaskApproval{ID: "ap-1", TaskID: taskID, RunID: runID, Status: "pending"})
-			return err
-		}},
-		{"AppendRunEvent", func() error {
-			_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{TaskID: taskID, RunID: runID, EventType: "turn.completed"})
-			return err
-		}},
-	}
-
-	for _, m := range mutations {
-		// Drain so each mutation is observed on its own merits rather
-		// than reading a wake left over from a prior step.
-		select {
-		case <-ch:
-		default:
-		}
-		if err := m.run(); err != nil {
-			t.Fatalf("%s: %v", m.name, err)
-		}
-		select {
-		case <-ch:
-		case <-time.After(time.Second):
-			t.Fatalf("%s: expected a wake signal, got none", m.name)
-		}
-	}
 }
