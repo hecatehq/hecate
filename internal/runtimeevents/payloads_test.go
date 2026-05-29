@@ -102,7 +102,7 @@ func TestPayloads_TurnCompleted(t *testing.T) {
 	}
 }
 
-func TestPayloads_PatchAppliedAndReverted(t *testing.T) {
+func TestPayloads_PatchApplied(t *testing.T) {
 	t.Parallel()
 
 	artifact := types.TaskArtifact{
@@ -120,8 +120,17 @@ func TestPayloads_PatchAppliedAndReverted(t *testing.T) {
 	if !reflect.DeepEqual(applied, wantApplied) {
 		t.Fatalf("PatchApplied() = %+v, want %+v", applied, wantApplied)
 	}
+}
 
-	artifact.Status = "reverted"
+func TestPayloads_PatchReverted(t *testing.T) {
+	t.Parallel()
+
+	artifact := types.TaskArtifact{
+		ID:     "artifact-1",
+		Path:   "src/app.go",
+		Status: "reverted",
+	}
+
 	reverted := runtimeevents.PatchReverted(artifact, true)
 	wantReverted := map[string]any{
 		"artifact_id":     "artifact-1",
