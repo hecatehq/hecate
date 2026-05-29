@@ -44,29 +44,9 @@ func (r *Runner) ReconcilePendingRuns(ctx context.Context) error {
 		if err != nil || !found {
 			continue
 		}
-		priorStatus := run.Status
-		now := time.Now().UTC()
-		run.Status = "queued"
-		run.LastError = ""
-		run.FinishedAt = time.Time{}
-		run.OtelStatusCode = ""
-		run.OtelStatusMessage = ""
-		if _, updateErr := r.store.UpdateRun(ctx, run); updateErr != nil {
-			continue
-		}
-		task.Status = "queued"
-		task.LatestRunID = run.ID
-		task.LastError = ""
-		task.UpdatedAt = now
-		task.FinishedAt = time.Time{}
-		_, _ = r.store.UpdateTask(ctx, task)
-		_ = r.enqueueRun(task.ID, run.ID)
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "gap.run_disconnected", "", "", map[string]any{
-			"reason":            "boot_reconcile",
-			"action":            "requeued",
-			"prior_status":      priorStatus,
-			"recovered_status":  "queued",
-			"recovery_strategy": "requeue",
+		r.requeueDisconnectedRun(ctx, task, run, disconnectedRunRequeueOptions{
+			Reason:           "boot_reconcile",
+			RecoveryStrategy: "requeue",
 		})
 	}
 	return nil
@@ -134,30 +114,12 @@ func (r *Runner) reconcileStaleRuns(ctx context.Context, staleThreshold time.Dur
 		if err != nil || !found {
 			continue
 		}
-		priorStatus := run.Status
-		now := time.Now().UTC()
-		run.Status = "queued"
-		run.LastError = ""
-		run.FinishedAt = time.Time{}
-		run.OtelStatusCode = ""
-		run.OtelStatusMessage = ""
-		if _, updateErr := r.store.UpdateRun(ctx, run); updateErr != nil {
-			continue
-		}
-		task.Status = "queued"
-		task.LatestRunID = run.ID
-		task.LastError = ""
-		task.UpdatedAt = now
-		task.FinishedAt = time.Time{}
-		_, _ = r.store.UpdateTask(ctx, task)
-		_ = r.enqueueRun(task.ID, run.ID)
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "gap.run_disconnected", "", "", map[string]any{
-			"reason":             "worker_lease_expired",
-			"action":             "requeued",
-			"prior_status":       priorStatus,
-			"recovered_status":   "queued",
-			"recovery_strategy":  "periodic_requeue",
-			"stale_threshold_ms": staleThreshold.Milliseconds(),
+		r.requeueDisconnectedRun(ctx, task, run, disconnectedRunRequeueOptions{
+			Reason:           "worker_lease_expired",
+			RecoveryStrategy: "periodic_requeue",
+			Extra: map[string]any{
+				"stale_threshold_ms": staleThreshold.Milliseconds(),
+			},
 		})
 	}
 	return nil
