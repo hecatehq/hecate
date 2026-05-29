@@ -444,10 +444,7 @@ export async function streamChatSession(
   signal?: AbortSignal,
 ): Promise<void> {
   const url = `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/stream`;
-  const response = await fetchWithNetworkError(
-    url,
-    { ...buildRequestOptions({}, url), signal },
-  );
+  const response = await fetchWithNetworkError(url, { ...buildRequestOptions({}, url), signal });
   if (!response.ok) {
     throw await apiError(response, "request failed");
   }
@@ -894,10 +891,7 @@ export async function streamTaskRun(
   signal?: AbortSignal,
 ): Promise<void> {
   const url = `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/stream?after_sequence=${encodeURIComponent(String(afterSequence))}`;
-  const response = await fetchWithNetworkError(
-    url,
-    { ...buildRequestOptions({}, url), signal },
-  );
+  const response = await fetchWithNetworkError(url, { ...buildRequestOptions({}, url), signal });
   if (!response.ok) {
     throw await apiError(response, "request failed");
   }
