@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
+
+type RunEventAppender interface {
+	AppendRunEvent(ctx context.Context, event types.TaskRunEvent) (types.TaskRunEvent, error)
+}
 
 type SnapshotFunc func(ctx context.Context, taskID, runID string) (map[string]any, error)
 
@@ -33,7 +36,7 @@ const (
 )
 
 type Recorder struct {
-	store    taskstate.Store
+	store    RunEventAppender
 	snapshot SnapshotFunc
 	now      func() time.Time
 }
@@ -50,7 +53,7 @@ type Event struct {
 	SnapshotPlacement SnapshotPlacement
 }
 
-func NewRecorder(store taskstate.Store, opts ...Option) Recorder {
+func NewRecorder(store RunEventAppender, opts ...Option) Recorder {
 	recorder := Recorder{
 		store: store,
 		now:   time.Now,

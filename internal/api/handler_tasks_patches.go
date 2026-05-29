@@ -205,12 +205,7 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 		TaskID:    updated.TaskID,
 		RunID:     updated.RunID,
 		EventType: "tool.file.reverted",
-		Data: map[string]any{
-			"artifact_id":     updated.ID,
-			"path":            updated.Path,
-			"artifact_status": updated.Status,
-			"before_existed":  beforeExisted,
-		},
+		Data:      runtimeevents.PatchReverted(updated, beforeExisted),
 		RequestID: RequestIDFromContext(ctx),
 		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,
 	})
@@ -268,11 +263,7 @@ func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request
 		TaskID:    updated.TaskID,
 		RunID:     updated.RunID,
 		EventType: "tool.file.applied",
-		Data: map[string]any{
-			"artifact_id":     updated.ID,
-			"path":            updated.Path,
-			"artifact_status": updated.Status,
-		},
+		Data:      runtimeevents.PatchApplied(updated),
 		RequestID: RequestIDFromContext(ctx),
 		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,
 	})
