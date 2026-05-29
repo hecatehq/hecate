@@ -60,6 +60,7 @@ import {
 } from "../_shared";
 import { useApprovals } from "../approvals";
 import { useChat } from "../chat";
+import { reconcileChatSession } from "../reconcileChatSession";
 import { useProjects } from "../projects";
 import { useProvidersAndModels } from "../providersAndModels";
 import { useRuntime } from "../runtime";
@@ -431,7 +432,12 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   }
 
   function applyChatSession(session: ChatSessionRecord) {
-    setActiveChatSession(session);
+    // Fold the incoming snapshot onto the previous one so unchanged
+    // message/segment objects keep their identity. The live stream
+    // republishes a full session snapshot per coalesced flush; without
+    // this, every transcript row would get a fresh object identity and
+    // re-render (and re-parse its markdown) on every streamed batch.
+    setActiveChatSession((prev) => reconcileChatSession(prev, session));
     syncHecateSelectionFromSession(session);
     setAgentWorkspaceBranch(session.workspace_branch ?? "");
     setChatSessions((current) => [
