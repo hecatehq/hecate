@@ -111,6 +111,8 @@ dev *args: _go-cache
 	set -a; \
 	[ -f ./.env ] && . ./.env; \
 	set +a; \
+	HECATE_ALLOWED_ORIGINS="${HECATE_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}"; \
+	export HECATE_ALLOWED_ORIGINS; \
 	{{go_env}} go run ./cmd/hecate
 
 # Run the gateway from source with external-agent adapter visuals forced to a
@@ -133,6 +135,8 @@ dev-agent-adapters overrides *args: _go-cache
 	set -a; \
 	[ -f ./.env ] && . ./.env; \
 	set +a; \
+	HECATE_ALLOWED_ORIGINS="${HECATE_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}"; \
+	export HECATE_ALLOWED_ORIGINS; \
 	HECATE_AGENT_ADAPTER_DEV_OVERRIDES="{{overrides}}" {{go_env}} go run ./cmd/hecate
 
 # Run the gateway with all external-agent adapters shown as not installed.

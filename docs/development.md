@@ -108,6 +108,7 @@ Default addresses:
 - Vite dev server (UI hot reload): `http://127.0.0.1:5173`
 
 The Vite dev server proxies every `/hecate/*`, `/v1/*`, and `/healthz` request to `:8765`, so the UI runs hot while the gateway runs as-is.
+`just dev` allows the two default Vite origins (`http://127.0.0.1:5173` and `http://localhost:5173`) through the same-origin guard. If you use a different dev server or port, set `HECATE_ALLOWED_ORIGINS` to that exact origin before starting the gateway.
 
 ## Website
 

@@ -5,10 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -136,20 +136,27 @@ func LoggingMiddleware(logger *slog.Logger) middleware {
 // Accepts when:
 //   - The Origin host matches the request Host exactly (production: the
 //     embedded UI is served by the gateway, so same-origin trivially).
-//   - The Origin's hostname resolves to a loopback address (dev: a Vite
-//     dev server on http://localhost:5173 proxies to http://127.0.0.1:8765,
-//     so Host and Origin disagree but both ends sit on loopback).
+//   - The full Origin is explicitly configured via HECATE_ALLOWED_ORIGINS
+//     (dev: Vite on http://127.0.0.1:5173 proxies to the gateway, so Host and
+//     Origin disagree even though both are local).
 func SameOriginMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !sameOriginAllowed(r) {
-			WriteError(w, http.StatusForbidden, errCodeForbidden, "cross-origin browser request rejected")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return SameOriginMiddlewareWithAllowedOrigins(nil)(next)
 }
 
-func sameOriginAllowed(r *http.Request) bool {
+func SameOriginMiddlewareWithAllowedOrigins(allowedOrigins []string) middleware {
+	allowed := normalizeAllowedOrigins(allowedOrigins)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !sameOriginAllowed(r, allowed) {
+				WriteError(w, http.StatusForbidden, errCodeForbidden, "cross-origin browser request rejected")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func sameOriginAllowed(r *http.Request, allowedOrigins map[string]struct{}) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
@@ -161,17 +168,41 @@ func sameOriginAllowed(r *http.Request) bool {
 	if u.Host == r.Host {
 		return true
 	}
-	hostname := u.Hostname()
-	if hostname == "" {
+	key, ok := originKey(origin)
+	if !ok {
 		return false
 	}
-	if hostname == "localhost" {
-		return true
+	_, ok = allowedOrigins[key]
+	return ok
+}
+
+func normalizeAllowedOrigins(origins []string) map[string]struct{} {
+	allowed := make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		key, ok := originKey(origin)
+		if ok {
+			allowed[key] = struct{}{}
+		}
 	}
-	if ip := net.ParseIP(hostname); ip != nil && ip.IsLoopback() {
-		return true
+	return allowed
+}
+
+func originKey(raw string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", false
 	}
-	return false
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", false
+	}
+	if u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", false
+	}
+	if u.Path != "" && u.Path != "/" {
+		return "", false
+	}
+	return scheme + "://" + strings.ToLower(u.Host), true
 }
 
 func RecoveryMiddleware(logger *slog.Logger) middleware {

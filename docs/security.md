@@ -7,7 +7,7 @@ Hecate is local-first, single-operator software. This page documents the securit
 Hecate assumes the operator trusts their own machine, local user account, and selected workspaces.
 
 - The gateway binds to `127.0.0.1:8765` by default.
-- Browser requests are same-origin checked, but same-origin is not a network security boundary.
+- Browser requests are same-origin checked: by default, an `Origin` header must match the gateway host. Custom browser frontends must be listed in `HECATE_ALLOWED_ORIGINS`.
 - Hecate is not designed to be exposed directly on a network.
 - If you bind Hecate to anything other than loopback, startup requires `HECATE_ALLOW_NON_LOOPBACK_BIND=1`. Set it only when you have your own firewall, reverse proxy, or access-control layer in front.
 - Do not put local-only endpoints such as workspace folder selection, "open in editor", MCP probe, reset-data, or shutdown behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can open local OS UI, spawn diagnostic subprocesses, or mutate local operator state.

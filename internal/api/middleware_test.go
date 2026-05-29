@@ -167,3 +167,103 @@ func TestOTelHTTPSpanMiddlewareEmitsRequestSpan(t *testing.T) {
 		t.Error("hecate.request_id attribute missing")
 	}
 }
+
+func TestSameOriginAllowed(t *testing.T) {
+	tests := []struct {
+		name    string
+		host    string
+		origin  string
+		allowed []string
+		want    bool
+	}{
+		{
+			name: "no origin header",
+			host: "127.0.0.1:8765",
+			want: true,
+		},
+		{
+			name:   "same host",
+			host:   "127.0.0.1:8765",
+			origin: "http://127.0.0.1:8765",
+			want:   true,
+		},
+		{
+			name:   "localhost dev origin rejected by default",
+			host:   "127.0.0.1:8765",
+			origin: "http://localhost:5173",
+			want:   false,
+		},
+		{
+			name:   "loopback ip dev origin rejected by default",
+			host:   "127.0.0.1:8765",
+			origin: "http://127.0.0.1:5173",
+			want:   false,
+		},
+		{
+			name:    "configured dev origin allowed",
+			host:    "127.0.0.1:8765",
+			origin:  "http://127.0.0.1:5173",
+			allowed: []string{"http://127.0.0.1:5173"},
+			want:    true,
+		},
+		{
+			name:    "configured origin matches scheme",
+			host:    "127.0.0.1:8765",
+			origin:  "https://127.0.0.1:5173",
+			allowed: []string{"http://127.0.0.1:5173"},
+			want:    false,
+		},
+		{
+			name:    "allowed origin accepts trailing slash",
+			host:    "127.0.0.1:8765",
+			origin:  "http://localhost:5173",
+			allowed: []string{"http://localhost:5173/"},
+			want:    true,
+		},
+		{
+			name:    "allowed origin with path ignored",
+			host:    "127.0.0.1:8765",
+			origin:  "http://localhost:5173",
+			allowed: []string{"http://localhost:5173/app"},
+			want:    false,
+		},
+		{
+			name:   "malformed origin rejected",
+			host:   "127.0.0.1:8765",
+			origin: "://localhost:5173",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "http://"+tt.host+"/v1/chat/completions", nil)
+			req.Host = tt.host
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+
+			got := sameOriginAllowed(req, normalizeAllowedOrigins(tt.allowed))
+			if got != tt.want {
+				t.Fatalf("sameOriginAllowed() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSameOriginMiddlewareWithAllowedOriginsRejectsCrossOriginBrowserRequest(t *testing.T) {
+	handler := SameOriginMiddlewareWithAllowedOrigins(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8765/v1/chat/completions", nil)
+	req.Host = "127.0.0.1:8765"
+	req.Header.Set("Origin", "http://localhost:5173")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
