@@ -3836,7 +3836,8 @@ func TestTasksCreateListAndGet(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	handler := NewServer(logger, apiHandler)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Upgrade TypeScript","prompt":"Upgrade the UI workspace to TypeScript 7 beta.","repo":"hecate","base_branch":"main","workspace_mode":"ephemeral","requested_model":"gpt-5.4-mini","requested_provider":"openai","budget_micros_usd":500000}`)
@@ -5299,7 +5300,8 @@ func TestTaskRunEventsAppendAndList(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	handler := NewServer(logger, apiHandler)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Event run","prompt":"Run with events."}`)
@@ -5334,6 +5336,22 @@ func TestTaskRunEventsAppendAndList(t *testing.T) {
 	}
 	if !foundExternal {
 		t.Fatal("missing appended external.tool_result event")
+	}
+
+	rawEvents, err := apiHandler.taskStore.ListRunEvents(context.Background(), created.Data.ID, started.Data.ID, baseSequence, 10)
+	if err != nil {
+		t.Fatalf("ListRunEvents() error = %v", err)
+	}
+	if len(rawEvents) != 1 {
+		t.Fatalf("raw events after append = %d, want 1", len(rawEvents))
+	}
+	snapshot, ok := rawEvents[0].Data["snapshot"].(map[string]any)
+	if !ok {
+		t.Fatalf("raw appended event snapshot = %#v, want persisted stream snapshot", rawEvents[0].Data["snapshot"])
+	}
+	run, ok := snapshot["run"].(map[string]any)
+	if !ok || run["id"] != started.Data.ID {
+		t.Fatalf("raw appended event snapshot run = %#v, want id %q", snapshot["run"], started.Data.ID)
 	}
 }
 

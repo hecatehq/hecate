@@ -9,6 +9,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -299,27 +300,28 @@ func (r *Runner) emitRunEvent(ctx context.Context, taskID, runID, eventType, req
 	if r.store == nil || runID == "" {
 		return types.TaskRunEvent{}, nil
 	}
+	return runtimeevents.NewRecorder(r.store, runtimeevents.WithSnapshot(r.runEventSnapshot)).Append(ctx, runtimeevents.Event{
+		TaskID:            taskID,
+		RunID:             runID,
+		EventType:         eventType,
+		Data:              extra,
+		RequestID:         requestID,
+		TraceID:           traceID,
+		SnapshotMode:      runtimeevents.SnapshotRequired,
+		SnapshotPlacement: runtimeevents.SnapshotProvidesBase,
+	})
+}
+
+func (r *Runner) runEventSnapshot(ctx context.Context, taskID, runID string) (map[string]any, error) {
 	run, _, err := r.store.GetRun(ctx, taskID, runID)
 	if err != nil {
-		return types.TaskRunEvent{}, err
+		return nil, err
 	}
 	steps, _ := r.store.ListSteps(ctx, runID)
 	artifacts, _ := r.store.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: taskID, RunID: runID})
-	data := map[string]any{
+	return map[string]any{
 		"run":       run,
 		"steps":     steps,
 		"artifacts": artifacts,
-	}
-	for key, value := range extra {
-		data[key] = value
-	}
-	return r.store.AppendRunEvent(ctx, types.TaskRunEvent{
-		TaskID:    taskID,
-		RunID:     runID,
-		EventType: eventType,
-		Data:      data,
-		RequestID: requestID,
-		TraceID:   traceID,
-		CreatedAt: time.Now().UTC(),
-	})
+	}, nil
 }

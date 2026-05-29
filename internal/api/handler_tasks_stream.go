@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/eventprotocol"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -205,21 +206,14 @@ func (h *Handler) HandleAppendTaskRunEvent(w http.ResponseWriter, r *http.Reques
 	if req.Note != "" {
 		extra["note"] = req.Note
 	}
-	projector := newTaskRunStreamProjector(h.taskStore)
-	state, err := projector.liveState(ctx, task.ID, run.ID)
-	if err == nil {
-		if snapshot, snapshotErr := projector.snapshotEventData(state); snapshotErr == nil {
-			extra["snapshot"] = snapshot
-		}
-	}
-	event, err := h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
-		TaskID:    task.ID,
-		RunID:     run.ID,
-		EventType: eventType,
-		Data:      extra,
-		RequestID: RequestIDFromContext(ctx),
-		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,
-		CreatedAt: time.Now().UTC(),
+	event, err := h.taskRunEventRecorder().Append(ctx, runtimeevents.Event{
+		TaskID:       task.ID,
+		RunID:        run.ID,
+		EventType:    eventType,
+		Data:         extra,
+		RequestID:    RequestIDFromContext(ctx),
+		TraceID:      telemetry.TraceIDsFromContext(ctx).TraceID,
+		SnapshotMode: runtimeevents.SnapshotBestEffort,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
