@@ -185,17 +185,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 	allSteps := make([]types.TaskStep, 0, e.maxTurns*2)
 	allArtifacts := make([]types.TaskArtifact, 0, e.maxTurns)
 
-	// Build the initial conversation. On resume, we hydrate from the
-	// previous run's persisted conversation artifact so the agent
-	// continues the exact dialogue rather than restarting from scratch
-	// — preserves prior tool results, partial reasoning, and avoids
-	// re-paying for tokens already spent. Fresh runs start with just
-	// the user prompt.
-	//
-	// We don't currently inject a system prompt — the task's own
-	// Prompt carries enough intent. Per-tenant system prompts are a
-	// later add.
-	messages := hydrateConversation(spec)
+	conversation := newAgentLoopConversation(spec)
 	tools := agentToolDefinitions()
 
 	// Bring up external MCP servers if the task configured any. Their
@@ -222,12 +212,6 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			tools = append(tools, host.Tools()...)
 		}
 	}
-
-	// Stable artifact ID for this run's conversation snapshot. Same
-	// ID across turns means UpsertArtifact replaces the contents in
-	// place rather than creating a new artifact each time, so the
-	// run's artifact list stays clean.
-	conversationArtifactID := "convo-" + spec.Run.ID
 
 	finalResult := &ExecutionResult{
 		Status:    "completed",
@@ -285,7 +269,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 	// message with tool_calls and no following tool messages, we're
 	// resuming after operator approval. Dispatch the pending tool
 	// calls before doing the next LLM turn — they were just approved.
-	pendingToolCalls := pendingToolCallsForResume(messages)
+	pendingToolCalls := conversation.PendingToolCallsForResume()
 
 	for turn := 1; turn <= e.maxTurns; turn++ {
 		if err := ctx.Err(); err != nil {
@@ -309,7 +293,12 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			// already at the tail of `messages` (saved by the previous
 			// run). Dispatch the approved tool calls and let the next
 			// turn's LLM call reason over the results.
-			assistantMsg = messages[len(messages)-1]
+			var ok bool
+			assistantMsg, ok = conversation.TailAssistantForResume()
+			if !ok {
+				return e.failedFromError(spec, allSteps, allArtifacts, nextIndex, turnStartedAt,
+					"resume checkpoint had pending tool calls but no assistant tail")
+			}
 			thinkingStep := buildResumeThinkingStep(spec, nextIndex, turn, turnStartedAt, assistantMsg)
 			nextIndex++
 			if err := upsertTaskStep(spec, thinkingStep); err != nil {
@@ -331,14 +320,14 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			req := types.ChatRequest{
 				RequestID: spec.RequestID,
 				Model:     spec.Run.Model,
-				Messages:  messages,
+				Messages:  conversation.Messages(),
 				Tools:     tools,
 				Scope: types.RequestScope{
 					ProviderHint: spec.Run.Provider,
 				},
 			}
 			emitAgentTurnStarted(spec, turn, req)
-			r, err := e.chatTurn(ctx, spec, conversationArtifactID, messages, turn, req)
+			r, err := e.chatTurn(ctx, spec, conversation.ArtifactID(), conversation.Messages(), turn, req)
 			if err != nil {
 				// Annotate the common "model doesn't support tools"
 				// failure with a concrete remedy. agent_loop relies
@@ -405,10 +394,10 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			})
 
 			// 3. Append the assistant message to the running conversation.
-			messages = append(messages, assistantMsg)
+			conversation.AppendAssistant(assistantMsg)
 			// Persist snapshot — crash between LLM response and tool
 			// dispatch still leaves a recoverable state.
-			if art, err := upsertConversationArtifact(spec, conversationArtifactID, messages, turn, turnStartedAt); err != nil {
+			if art, err := conversation.UpsertArtifact(spec, turn, turnStartedAt); err != nil {
 				return nil, err
 			} else if art != nil && len(allArtifacts) == 0 {
 				allArtifacts = append(allArtifacts, *art)
@@ -492,16 +481,11 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			isToolError := dispatchErr != nil ||
 				dispatch.Step == nil ||
 				(dispatch.Step != nil && dispatch.Step.Status == "failed")
-			messages = append(messages, types.Message{
-				Role:       "tool",
-				Content:    dispatch.Text,
-				ToolCallID: toolCall.ID,
-				ToolError:  isToolError,
-			})
+			conversation.AppendToolResult(toolCall.ID, dispatch.Text, isToolError)
 			_ = dispatchErr
 		}
 		// Snapshot after tool results.
-		if _, err := upsertConversationArtifact(spec, conversationArtifactID, messages, turn, turnStartedAt); err != nil {
+		if _, err := conversation.UpsertArtifact(spec, turn, turnStartedAt); err != nil {
 			return nil, err
 		}
 		// Resume mode is a one-shot — clear so subsequent turns hit
@@ -2210,77 +2194,6 @@ func buildHTTPRequestStep(spec ExecutionSpec, index int, startedAt time.Time, to
 	}
 }
 
-// pendingToolCallsForResume detects the resume-after-approval state:
-// the conversation tail is an assistant message with tool_calls and
-// no subsequent tool-role results. Returns the list of tool calls
-// that need dispatching. Empty slice = fresh turn (LLM call needed).
-func pendingToolCallsForResume(messages []types.Message) []types.ToolCall {
-	if len(messages) == 0 {
-		return nil
-	}
-	last := messages[len(messages)-1]
-	if last.Role != "assistant" || len(last.ToolCalls) == 0 {
-		return nil
-	}
-	// Tool calls in the trailing assistant message exist; check that
-	// none of them have already been resolved by a later tool message.
-	// Since we just confirmed `last` is the tail, if tool messages
-	// for these calls existed they'd be after `last` — they don't,
-	// so all calls are pending.
-	return last.ToolCalls
-}
-
-// countAssistantTurns returns the number of assistant messages in the
-// saved conversation. Each agent_loop turn produces exactly one
-// assistant message (with tool_calls or a final answer), so the count
-// equals the number of completed turns. Used by the retry-from-turn-N
-// codepath to validate the requested turn lies within range.
-func countAssistantTurns(messages []types.Message) int {
-	n := 0
-	for _, m := range messages {
-		if m.Role == "assistant" {
-			n++
-		}
-	}
-	return n
-}
-
-// truncateConversationToTurn drops the Nth assistant message and
-// everything that follows it, so the next LLM call re-issues turn N
-// against the same prior context. The system message (if present) and
-// the user prompt are preserved, as are any prior assistant turns and
-// their tool results — the operator gets to explore an alternative
-// path from turn N forward.
-//
-// turn must be >= 1 and <= countAssistantTurns(messages). turn=1
-// truncates back to just the prelude (system + user); turn=N for the
-// final turn drops only that turn's assistant message.
-//
-// Returns a fresh slice; the input is not modified.
-func truncateConversationToTurn(messages []types.Message, turn int) ([]types.Message, error) {
-	if turn < 1 {
-		return nil, fmt.Errorf("turn must be >= 1, got %d", turn)
-	}
-	assistantSeen := 0
-	cutIndex := -1
-	for i, m := range messages {
-		if m.Role != "assistant" {
-			continue
-		}
-		assistantSeen++
-		if assistantSeen == turn {
-			cutIndex = i
-			break
-		}
-	}
-	if cutIndex == -1 {
-		return nil, fmt.Errorf("turn %d not found: conversation has %d assistant turn(s)", turn, assistantSeen)
-	}
-	out := make([]types.Message, cutIndex)
-	copy(out, messages[:cutIndex])
-	return out, nil
-}
-
 // buildApprovalForTurn constructs the approval record covering one
 // or more gated tool calls in a turn. The reason text lists the tool
 // names so the operator UI can render a clear "approve agent's use of
@@ -2358,118 +2271,6 @@ func buildResumeThinkingStep(spec ExecutionSpec, index, turn int, when time.Time
 		RequestID:  spec.RequestID,
 		TraceID:    spec.TraceID,
 	}
-}
-
-// hydrateConversation returns the conversation history for this run.
-// On a fresh run, it prepends the composed system prompt (from the
-// runner's four-layer resolver) before the user prompt. On a resume,
-// it returns the JSON-decoded prior conversation from the source
-// run's persisted agent_conversation artifact — the loop continues
-// exactly where it left off, preserving tool results, prior reasoning,
-// AND the original system prompt (it's already in the saved message
-// array; we don't re-compose).
-//
-// If the resume artifact is missing or malformed (corrupt JSON, edited
-// out of band) we fall back to the fresh-start state. That degrades
-// gracefully: the agent re-plans rather than crashing.
-func hydrateConversation(spec ExecutionSpec) []types.Message {
-	if spec.ResumeCheckpoint != nil && len(spec.ResumeCheckpoint.AgentConversation) > 0 {
-		var saved []types.Message
-		if err := json.Unmarshal(spec.ResumeCheckpoint.AgentConversation, &saved); err == nil && len(saved) > 0 {
-			if prompt := strings.TrimSpace(spec.ResumeCheckpoint.AppendUserPrompt); prompt != "" {
-				saved = append(saved, types.Message{Role: "user", Content: prompt})
-			}
-			return saved
-		}
-	}
-	// Fresh run: build the prelude as
-	//   1. environment system message (workspace path) — always present
-	//      when there's a workspace, so the LLM uses the right cwd
-	//      and absolute paths in tool calls. Without this the model
-	//      reads the user prompt's mention of "/Users/foo/myrepo"
-	//      and uses that path verbatim — which lands outside the
-	//      sandbox (an isolated clone) and the run fails with
-	//      "escapes allowed root".
-	//   2. composed operator system prompt (four layers) — global /
-	//      tenant / workspace CLAUDE.md|AGENTS.md / per-task. Empty
-	//      when none of those layers contributed.
-	//   3. user prompt.
-	messages := make([]types.Message, 0, 3)
-	if env := environmentSystemMessage(spec); env != "" {
-		messages = append(messages, types.Message{Role: "system", Content: env})
-	}
-	if strings.TrimSpace(spec.SystemPrompt) != "" {
-		messages = append(messages, types.Message{Role: "system", Content: spec.SystemPrompt})
-	}
-	messages = append(messages, types.Message{Role: "user", Content: spec.Task.Prompt})
-	return messages
-}
-
-// environmentSystemMessage produces the machine-generated system
-// message that grounds the LLM in its actual sandbox: where the
-// workspace lives and what's enforced. This is environmental fact,
-// not operator-tunable directive — kept separate from
-// spec.SystemPrompt so the operator can't accidentally elide it.
-//
-// Returns "" when there's no workspace path (shouldn't happen in
-// practice, but the runner can still drive the executor with an
-// empty path in tests).
-func environmentSystemMessage(spec ExecutionSpec) string {
-	workspace := strings.TrimSpace(spec.Task.WorkingDirectory)
-	if workspace == "" {
-		workspace = strings.TrimSpace(spec.Task.SandboxAllowedRoot)
-	}
-	if workspace == "" {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("Your workspace is at: ")
-	b.WriteString(workspace)
-	b.WriteString("\n\n")
-	b.WriteString("Use this path (or paths under it) when calling tools. ")
-	b.WriteString("`shell_exec` / `git_exec` default their working_directory to the workspace when omitted; ")
-	b.WriteString("`read_file` / `list_dir` / `grep` / `glob` / `git_diff` resolve relative paths from the workspace. ")
-	b.WriteString("Tool calls that target paths outside this directory are rejected by the sandbox — ")
-	b.WriteString("don't reuse paths from the user prompt verbatim if they fall outside the workspace.")
-	return b.String()
-}
-
-// upsertConversationArtifact writes the current conversation snapshot
-// to a stable artifact ID. Returns the artifact when it's newly
-// created (or on the first call) so the caller can include it in the
-// run's artifact list. Idempotent across turns: the same ID means the
-// artifact's content is replaced in place rather than appended.
-func upsertConversationArtifact(spec ExecutionSpec, id string, messages []types.Message, turn int, when time.Time) (*types.TaskArtifact, error) {
-	if spec.UpsertArtifact == nil {
-		return nil, nil
-	}
-	payload, err := json.Marshal(messages)
-	if err != nil {
-		// Marshal failures here are fatal — every Message field is
-		// JSON-marshalable by construction; a failure would be a
-		// runtime corruption we shouldn't paper over.
-		return nil, fmt.Errorf("marshal agent conversation: %w", err)
-	}
-	art := types.TaskArtifact{
-		ID:          id,
-		TaskID:      spec.Task.ID,
-		RunID:       spec.Run.ID,
-		Kind:        "agent_conversation",
-		Name:        "agent-conversation.json",
-		Description: fmt.Sprintf("Agent loop conversation snapshot after turn %d", turn),
-		MimeType:    "application/json",
-		StorageKind: "inline",
-		ContentText: string(payload),
-		SizeBytes:   int64(len(payload)),
-		Status:      "ready",
-		CreatedAt:   when,
-		RequestID:   spec.RequestID,
-		TraceID:     spec.TraceID,
-	}
-	if err := spec.UpsertArtifact(art); err != nil {
-		return nil, err
-	}
-	return &art, nil
 }
 
 // resultFromStatus maps an executor's status string ("completed",
