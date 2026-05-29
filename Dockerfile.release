@@ -24,18 +24,12 @@ ARG TARGETPLATFORM
 COPY ${TARGETPLATFORM}/hecate /usr/local/bin/hecate
 COPY --from=prep --chown=65532:65532 /data /data
 
-ENV GATEWAY_ADDRESS=0.0.0.0:8765 \
-    GATEWAY_PUBLIC_URL=http://127.0.0.1:8765 \
-    GATEWAY_DATA_DIR=/data \
-    GATEWAY_SQLITE_PATH=/data/hecate.db \
-    GATEWAY_MULTI_TENANT=false \
-    GATEWAY_CONTROL_PLANE_BACKEND=sqlite \
-    GATEWAY_RETENTION_HISTORY_BACKEND=sqlite \
-    GATEWAY_CHAT_SESSIONS_BACKEND=sqlite \
-    GATEWAY_TASKS_BACKEND=sqlite \
-    GATEWAY_TASK_QUEUE_BACKEND=sqlite \
-    GATEWAY_CACHE_BACKEND=sqlite \
-    GATEWAY_BUDGET_BACKEND=sqlite \
+ENV HECATE_ADDRESS=0.0.0.0:8765 \
+    HECATE_ALLOW_NON_LOOPBACK_BIND=1 \
+    HECATE_PUBLIC_URL=http://127.0.0.1:8765 \
+    HECATE_DATA_DIR=/data \
+    HECATE_SQLITE_PATH=/data/hecate.db \
+    HECATE_BACKEND=sqlite \
     PROVIDER_OLLAMA_BASE_URL=http://host.docker.internal:11434/v1 \
     PROVIDER_LMSTUDIO_BASE_URL=http://host.docker.internal:1234/v1 \
     PROVIDER_LLAMACPP_BASE_URL=http://host.docker.internal:8080/v1 \

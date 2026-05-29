@@ -61,6 +61,78 @@ func TestLoadFromEnvTraceBodyModeDefaultsToMetadata(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvNonLoopbackBindAcknowledgement(t *testing.T) {
+	t.Setenv("HECATE_ALLOW_NON_LOOPBACK_BIND", "true")
+
+	cfg := LoadFromEnv()
+	if !cfg.Server.AllowNonLoopbackBind {
+		t.Fatal("AllowNonLoopbackBind = false, want true")
+	}
+}
+
+func TestLoadFromEnvNonLoopbackBindAcknowledgementZeroStaysFalse(t *testing.T) {
+	t.Setenv("HECATE_ALLOW_NON_LOOPBACK_BIND", "0")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.AllowNonLoopbackBind {
+		t.Fatal("AllowNonLoopbackBind = true for HECATE_ALLOW_NON_LOOPBACK_BIND=0, want false")
+	}
+}
+
+func TestListenAddressIsLoopback(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		address string
+		want    bool
+	}{
+		{name: "ipv4 loopback", address: "127.0.0.1:8765", want: true},
+		{name: "ipv6 loopback", address: "[::1]:8765", want: true},
+		{name: "localhost", address: "localhost:8765", want: true},
+		{name: "wildcard ipv4", address: "0.0.0.0:8765", want: false},
+		{name: "wildcard ipv6", address: "[::]:8765", want: false},
+		{name: "empty host", address: ":8765", want: false},
+		{name: "public ip", address: "203.0.113.10:8765", want: false},
+		{name: "host name", address: "hecate.example.com:8765", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ListenAddressIsLoopback(tc.address); got != tc.want {
+				t.Fatalf("ListenAddressIsLoopback(%q) = %v, want %v", tc.address, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestServerConfigValidateNetworkExposure(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		cfg     ServerConfig
+		wantErr bool
+	}{
+		{name: "loopback default", cfg: ServerConfig{Address: "127.0.0.1:8765"}},
+		{name: "empty host without acknowledgement", cfg: ServerConfig{Address: ":8765"}, wantErr: true},
+		{name: "wildcard without acknowledgement", cfg: ServerConfig{Address: "0.0.0.0:8765"}, wantErr: true},
+		{name: "wildcard with acknowledgement", cfg: ServerConfig{Address: "0.0.0.0:8765", AllowNonLoopbackBind: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.cfg.ValidateNetworkExposure()
+			if tc.wantErr && err == nil {
+				t.Fatal("ValidateNetworkExposure() error = nil, want error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("ValidateNetworkExposure() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestLoadFromEnvTraceBodyModeOverride(t *testing.T) {
 	t.Setenv("HECATE_TRACE_BODY_MODE", "redacted_text")
 

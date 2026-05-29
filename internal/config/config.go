@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -32,6 +33,7 @@ type Config struct {
 
 type ServerConfig struct {
 	Address                    string
+	AllowNonLoopbackBind       bool
 	PublicURL                  string
 	DataDir                    string
 	BootstrapFile              string
@@ -345,7 +347,8 @@ func LoadFromEnv() Config {
 	providersCfg := loadProvidersFromEnv()
 	return Config{
 		Server: ServerConfig{
-			Address: getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
+			Address:              getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
+			AllowNonLoopbackBind: getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
 			// PublicURL is written to hecate.runtime.json for local
 			// diagnostics. Empty means derive from Address.
 			PublicURL: getEnv("HECATE_PUBLIC_URL", ""),
@@ -708,6 +711,32 @@ func deriveOTelSignalEndpoint(endpoint, transport, httpPath string) string {
 
 func normalizeOTelTransport(value string) string {
 	return telemetry.NormalizeOTLPTransport(value)
+}
+
+func (cfg ServerConfig) ValidateNetworkExposure() error {
+	if ListenAddressIsLoopback(cfg.Address) || cfg.AllowNonLoopbackBind {
+		return nil
+	}
+	return fmt.Errorf("HECATE_ADDRESS %q binds beyond loopback; set HECATE_ALLOW_NON_LOOPBACK_BIND=1 only when a firewall, reverse proxy, or equivalent access-control layer protects the gateway", cfg.Address)
+}
+
+func ListenAddressIsLoopback(address string) bool {
+	host := strings.TrimSpace(address)
+	if host == "" {
+		return false
+	}
+	if splitHost, _, err := net.SplitHostPort(host); err == nil {
+		host = splitHost
+	}
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func cloneStringMap(in map[string]string) map[string]string {
