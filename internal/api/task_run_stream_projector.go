@@ -97,16 +97,16 @@ func (p taskRunStreamProjector) liveState(ctx context.Context, taskID, runID str
 	}, nil
 }
 
-func (p taskRunStreamProjector) snapshotEventData(state TaskRunStreamEventData) (map[string]any, string, error) {
+func (p taskRunStreamProjector) snapshotEventData(state TaskRunStreamEventData) (map[string]any, error) {
 	stateJSON, err := taskRunStreamStateJSON(state)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	var snapshot map[string]any
 	if err := json.Unmarshal(stateJSON, &snapshot); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return snapshot, string(stateJSON), nil
+	return snapshot, nil
 }
 
 func (p taskRunStreamProjector) decodeEventData(event types.TaskRunEvent) (TaskRunStreamEventData, bool, error) {

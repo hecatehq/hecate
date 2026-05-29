@@ -85,11 +85,13 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
    live task storage into `TaskRunStreamEventData`.
 2. `internal/api/task_run_stream_writer.go` writes the SSE frames.
 
-Keep the stream contract forward-moving: new `snapshot` rows should carry the
-current `TaskRunStreamEventData` shape, and older alpha rows can replay as they
-were stored. Do not mutate historical `run_event` rows; the event log is
-append-only. Handler changes should stay focused on request setup, polling, and
-cancellation.
+Keep the stream contract forward-moving: persisted snapshot payloads should
+carry the current `TaskRunStreamEventData` shape when they are written, and
+older alpha rows can replay as they were stored. Do not mutate historical
+`run_event` rows; the event log is append-only. The stream endpoint is
+read-only; it may emit projected live frames with the latest persisted sequence,
+but must not append synthetic `snapshot` events. Handler changes should stay
+focused on request setup, polling, and cancellation.
 
 ### Change chat-session / ACP adapter behavior
 

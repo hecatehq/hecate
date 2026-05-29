@@ -111,12 +111,9 @@ func TestTaskRunStreamProjector_SnapshotEventDataUsesCurrentStreamShape(t *testi
 			Status: "pending",
 		}},
 	}
-	snapshot, stateJSON, err := projector.snapshotEventData(state)
+	snapshot, err := projector.snapshotEventData(state)
 	if err != nil {
 		t.Fatalf("snapshotEventData() error = %v", err)
-	}
-	if stateJSON == "" {
-		t.Fatal("stateJSON is empty")
 	}
 	approvals, ok := snapshot["approvals"].([]any)
 	if !ok {
