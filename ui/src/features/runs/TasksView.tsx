@@ -26,6 +26,8 @@ import {
   useEnsureProviderPresetsLoaded,
   useProvidersAndModels,
 } from "../../app/state/providersAndModels";
+import { useProjects } from "../../app/state/projects";
+import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderRecord } from "../../types/provider";
 import type {
@@ -43,15 +45,6 @@ import { NewTaskSlideOver, type CreateTaskPayload } from "./NewTaskSlideOver";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
-
-function readStoredAgentWorkspace(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return window.localStorage.getItem("hecate.agentWorkspace")?.trim() ?? "";
-  } catch {
-    return "";
-  }
-}
 
 export function streamTurnCostKey(turnIndex: number | undefined): number | null {
   if (typeof turnIndex !== "number" || !Number.isFinite(turnIndex) || turnIndex < 0) {
@@ -124,7 +117,6 @@ export function TasksView({
   const [busyAction, setBusyAction] = useState("");
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
-  const [defaultTaskWorkspace, setDefaultTaskWorkspace] = useState(readStoredAgentWorkspace);
   const [availableModels, setAvailableModels] = useState<ModelRecord[]>([]);
   // Provider catalog feeds the new-task slideover's provider picker
   // and the model picker's per-row "(provider name)" suffix. Loaded
@@ -135,6 +127,8 @@ export function TasksView({
   const [availableProviders, setAvailableProviders] = useState<ProviderRecord[]>([]);
   useEnsureProviderPresetsLoaded();
   const providerPresets = useProvidersAndModels().state.providerPresets;
+  const projects = useProjects();
+  const defaultTaskWorkspace = projectDefaultWorkspace(projects.activeProject);
 
   const streamCursorRef = useRef(0);
 
@@ -575,7 +569,6 @@ export function TasksView({
         onSelect={(id) => void handleSelectTask(id)}
         onDelete={(id) => void handleDeleteTask(id)}
         onNewTask={() => {
-          setDefaultTaskWorkspace(readStoredAgentWorkspace());
           setNewTaskOpen(true);
         }}
         onRefresh={() => void loadTasks(selectedTaskID, selectedRunID)}
@@ -614,7 +607,6 @@ export function TasksView({
         <TaskStartState
           loading={loading}
           onNewTask={() => {
-            setDefaultTaskWorkspace(readStoredAgentWorkspace());
             setNewTaskOpen(true);
           }}
         />

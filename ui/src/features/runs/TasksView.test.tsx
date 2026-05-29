@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getModels, getProviders, getTasks } from "../../lib/api";
@@ -7,6 +7,7 @@ import {
   createRuntimeConsoleFixture,
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
+import type { ProjectRecord } from "../../types/project";
 import { streamTurnCostKey, TasksView } from "./TasksView";
 
 vi.mock("../../lib/api", async (importOriginal) => {
@@ -22,6 +23,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
 const localSession = { label: "Local" };
 
 afterEach(() => {
+  window.localStorage.clear();
   vi.mocked(getTasks).mockReset();
   vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(getModels).mockReset();
@@ -56,5 +58,52 @@ describe("TasksView empty state", () => {
     // One button lives in the task sidebar; the second is the
     // main-pane start affordance for an empty task workspace.
     expect(screen.getAllByRole("button", { name: "New task" }).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("seeds new tasks from the selected project's default workspace", async () => {
+    window.localStorage.setItem("hecate.agentWorkspace", "/stale/chat/workspace");
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      default_root_id: "root_default",
+      roots: [
+        {
+          id: "root_active",
+          path: "/workspace/active",
+          kind: "workspace",
+          active: true,
+          created_at: "2026-05-29T00:00:00Z",
+          updated_at: "2026-05-29T00:00:00Z",
+        },
+        {
+          id: "root_default",
+          path: "/workspace/default",
+          kind: "workspace",
+          active: false,
+          created_at: "2026-05-29T00:00:00Z",
+          updated_at: "2026-05-29T00:00:00Z",
+        },
+      ],
+      created_at: "2026-05-29T00:00:00Z",
+      updated_at: "2026-05-29T00:00:00Z",
+    };
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      projects: [project],
+      activeProjectID: project.id,
+    });
+
+    render(withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Start a task")).toBeTruthy();
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "New task" })[0]);
+
+    await waitFor(() => {
+      expect((screen.getByLabelText("Workspace path") as HTMLInputElement).value).toBe(
+        "/workspace/default",
+      );
+    });
   });
 });
