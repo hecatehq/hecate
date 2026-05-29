@@ -783,7 +783,7 @@ func timeNowForTest() time.Time {
 	return time.Now().UTC()
 }
 
-func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
+func TestSanitizedEnvPreservesRuntimeEssentialsOnlyWithoutAdapter(t *testing.T) {
 	t.Parallel()
 
 	env := sanitizedEnv([]string{
@@ -797,6 +797,11 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 		"PROVIDER_XAI_API_KEY=provider-xai-test",
 		"XAI_API_KEY=xai-test",
 		"VOLTA_HOME=/Users/alice/.volta",
+		"APPDATA=C:\\Users\\alice\\AppData\\Roaming",
+		"LOCALAPPDATA=C:\\Users\\alice\\AppData\\Local",
+		"SSL_CERT_FILE=/etc/ssl/corp.pem",
+		"NODE_EXTRA_CA_CERTS=/etc/ssl/node-corp.pem",
+		"HTTPS_PROXY=http://proxy.local:8080",
 		"HECATE_AUTH_TOKEN=secret",
 	})
 
@@ -807,22 +812,88 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 	for _, want := range []string{
 		"PATH=/bin",
 		"HOME=/Users/alice",
-		"OPENAI_API_KEY=sk-test",
-		"ANTHROPIC_API_KEY=sk-ant-test",
-		"CLAUDE_CONFIG_DIR=/tmp/claude",
-		"CODEX_HOME=/tmp/codex",
-		"CURSOR_API_KEY=cursor-test",
 		"VOLTA_HOME=/Users/alice/.volta",
+		"APPDATA=C:\\Users\\alice\\AppData\\Roaming",
+		"LOCALAPPDATA=C:\\Users\\alice\\AppData\\Local",
+		"SSL_CERT_FILE=/etc/ssl/corp.pem",
+		"NODE_EXTRA_CA_CERTS=/etc/ssl/node-corp.pem",
 	} {
 		if !got[want] {
 			t.Fatalf("missing allowed env %q in %#v", want, env)
 		}
 	}
-	if got["HECATE_AUTH_TOKEN=secret"] {
-		t.Fatalf("gateway secret leaked into adapter env: %#v", env)
+	for _, leaked := range []string{
+		"OPENAI_API_KEY=sk-test",
+		"ANTHROPIC_API_KEY=sk-ant-test",
+		"CLAUDE_CONFIG_DIR=/tmp/claude",
+		"CODEX_HOME=/tmp/codex",
+		"CURSOR_API_KEY=cursor-test",
+		"HECATE_AUTH_TOKEN=secret",
+		"XAI_API_KEY=xai-test",
+		"HTTPS_PROXY=http://proxy.local:8080",
+	} {
+		if got[leaked] {
+			t.Fatalf("credential env %q leaked into generic adapter env: %#v", leaked, env)
+		}
 	}
-	if got["XAI_API_KEY=xai-test"] {
-		t.Fatalf("xAI secret leaked into generic adapter env: %#v", env)
+}
+
+func TestSanitizedEnvUsesPerAdapterCredentialPrefixes(t *testing.T) {
+	t.Parallel()
+
+	input := []string{
+		"PATH=/bin",
+		"OPENAI_API_KEY=sk-test",
+		"ANTHROPIC_API_KEY=sk-ant-test",
+		"CLAUDE_CONFIG_DIR=/tmp/claude",
+		"CODEX_HOME=/tmp/codex",
+		"CURSOR_API_KEY=cursor-test",
+		"HECATE_AUTH_TOKEN=secret",
+	}
+	cases := []struct {
+		name    string
+		adapter string
+		want    []string
+		block   []string
+	}{
+		{
+			name:    "codex",
+			adapter: "codex",
+			want:    []string{"PATH=/bin", "OPENAI_API_KEY=sk-test", "CODEX_HOME=/tmp/codex"},
+			block:   []string{"ANTHROPIC_API_KEY=sk-ant-test", "CLAUDE_CONFIG_DIR=/tmp/claude", "CURSOR_API_KEY=cursor-test", "HECATE_AUTH_TOKEN=secret"},
+		},
+		{
+			name:    "claude",
+			adapter: "claude_code",
+			want:    []string{"PATH=/bin", "ANTHROPIC_API_KEY=sk-ant-test", "CLAUDE_CONFIG_DIR=/tmp/claude"},
+			block:   []string{"OPENAI_API_KEY=sk-test", "CODEX_HOME=/tmp/codex", "CURSOR_API_KEY=cursor-test", "HECATE_AUTH_TOKEN=secret"},
+		},
+		{
+			name:    "cursor",
+			adapter: "cursor_agent",
+			want:    []string{"PATH=/bin", "CURSOR_API_KEY=cursor-test"},
+			block:   []string{"OPENAI_API_KEY=sk-test", "CODEX_HOME=/tmp/codex", "ANTHROPIC_API_KEY=sk-ant-test", "CLAUDE_CONFIG_DIR=/tmp/claude", "HECATE_AUTH_TOKEN=secret"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			env := sanitizedEnvForAdapter(tc.adapter, input)
+			got := map[string]bool{}
+			for _, item := range env {
+				got[item] = true
+			}
+			for _, want := range tc.want {
+				if !got[want] {
+					t.Fatalf("missing adapter env %q in %#v", want, env)
+				}
+			}
+			for _, blocked := range tc.block {
+				if got[blocked] {
+					t.Fatalf("blocked env %q leaked into %s env: %#v", blocked, tc.adapter, env)
+				}
+			}
+		})
 	}
 }
 

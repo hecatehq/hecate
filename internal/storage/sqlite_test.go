@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -63,6 +65,70 @@ func TestSQLiteClient_RejectsEmptyPath(t *testing.T) {
 	_, err := NewSQLiteClient(context.Background(), SQLiteConfig{Path: ""})
 	if err == nil {
 		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestSQLiteClient_HardensFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file mode checks do not map cleanly to Windows ACLs")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "hecate.db")
+
+	client, err := NewSQLiteClient(context.Background(), SQLiteConfig{Path: path})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	dirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat sqlite dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("sqlite dir mode = %#o, want 0700", got)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat sqlite file: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("sqlite file mode = %#o, want 0600", got)
+	}
+}
+
+func TestSQLiteClient_DoesNotChmodExistingParentDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file mode checks do not map cleanly to Windows ACLs")
+	}
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir shared dir: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod shared dir: %v", err)
+	}
+	path := filepath.Join(dir, "hecate.db")
+
+	client, err := NewSQLiteClient(context.Background(), SQLiteConfig{Path: path})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat shared dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o755 {
+		t.Fatalf("existing sqlite parent mode = %#o, want unchanged 0755", got)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat sqlite file: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("sqlite file mode = %#o, want 0600", got)
 	}
 }
 

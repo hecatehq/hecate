@@ -3636,6 +3636,40 @@ func TestSystemShutdownReturns503WhenNotWired(t *testing.T) {
 	}
 }
 
+func TestSystemShutdownRejectsNonLoopbackClients(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	h.SetQuitFunc(func() {})
+	server := NewServer(logger, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/shutdown", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestMCPProbeRejectsNonLoopbackClientsBeforeCommandHandling(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	h := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	server := NewServer(logger, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/mcp/probe", strings.NewReader(`{"name":"x","command":"sh","args":["-c","echo hi"]}`))
+	req.RemoteAddr = "203.0.113.10:1234"
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 // TestSystemShutdownTriggersQuitFunc asserts the wired path: the
 // endpoint responds 202 and then invokes quitFunc asynchronously. Both
 // are important — the 202 lets the desktop app know the request was
@@ -6552,6 +6586,7 @@ func performRequestWithHeaders(t *testing.T, handler http.Handler, method, path,
 		requestBody = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, path, requestBody)
+	req.RemoteAddr = "127.0.0.1:1234"
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}

@@ -229,6 +229,14 @@ or from the bootstrap key file otherwise. See
 
 If a value arrives as `enc:...` and no settings encryption key is configured, the run fails fast at spawn time with a clear error rather than forwarding ciphertext to the subprocess.
 
+Stdio MCP subprocesses inherit only runtime essentials from the Hecate process
+environment (`PATH`, home/temp/locale/user variables, Windows app-data paths,
+custom CA bundle paths, and common toolchain shims). Provider keys, Hecate
+bootstrap/control-plane secrets, telemetry headers, proxy variables, and other
+gateway-scoped secrets are not inherited implicitly. Put any server-specific
+credential or proxy setting in that server's `env` map as a `$VAR_NAME`
+reference or encrypted literal so the boundary is explicit.
+
 ### Approval policy
 
 `approval_policy` gates how tool calls dispatch. Per-server, not per-tool.

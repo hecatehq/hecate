@@ -904,13 +904,12 @@ func sanitizedEnv(env []string) []string {
 
 func sanitizedEnvForAdapter(adapterID string, env []string) []string {
 	allowedPrefixes := []string{
-		"ANTHROPIC_",
-		"CODEX_",
-		"CLAUDE_",
-		"CURSOR_",
-		"OPENAI_",
 		"PATH=",
+		"Path=",
 		"HOME=",
+		"USERPROFILE=",
+		"HOMEDRIVE=",
+		"HOMEPATH=",
 		"TMPDIR=",
 		"TEMP=",
 		"TMP=",
@@ -918,9 +917,26 @@ func sanitizedEnvForAdapter(adapterID string, env []string) []string {
 		"LC_",
 		"TERM=",
 		"USER=",
+		"USERNAME=",
 		"LOGNAME=",
+		"APPDATA=",
+		"LOCALAPPDATA=",
 		"XDG_",
 		"VOLTA_",
+		"SSL_CERT_FILE=",
+		"SSL_CERT_DIR=",
+		"NODE_EXTRA_CA_CERTS=",
+		"SystemRoot=",
+		"WINDIR=",
+		"ComSpec=",
+	}
+	switch strings.ToLower(strings.TrimSpace(adapterID)) {
+	case "codex":
+		allowedPrefixes = append(allowedPrefixes, "CODEX_", "OPENAI_")
+	case "claude_code":
+		allowedPrefixes = append(allowedPrefixes, "ANTHROPIC_", "CLAUDE_")
+	case "cursor_agent":
+		allowedPrefixes = append(allowedPrefixes, "CURSOR_")
 	}
 	includeXAI := strings.EqualFold(strings.TrimSpace(adapterID), "grok_build")
 	if includeXAI {

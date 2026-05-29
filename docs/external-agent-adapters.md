@@ -218,6 +218,11 @@ export CURSOR_API_KEY=...
 export XAI_API_KEY=...
 ```
 
+Hecate passes only the matching credential family to each adapter process:
+Codex receives `CODEX_` / `OPENAI_`, Claude Code receives `CLAUDE_` /
+`ANTHROPIC_`, Cursor Agent receives `CURSOR_`, and Grok Build receives `XAI_`.
+Provider or gateway-scoped secrets are not shared across adapters.
+
 If discovery cannot find a direct CLI adapter, install the vendor CLI and
 restart Hecate from an environment where the command is on `PATH`. If a run
 fails with an authentication-required message, authenticate the CLI in the same

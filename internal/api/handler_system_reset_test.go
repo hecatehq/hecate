@@ -83,7 +83,9 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil))
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reset status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
@@ -128,6 +130,22 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}
 	if reset.Data.DatabaseRowsDeleted != 0 {
 		t.Fatalf("database rows deleted = %d, want 0 for memory backend", reset.Data.DatabaseRowsDeleted)
+	}
+}
+
+func TestSystemResetDataRejectsNonLoopbackClients(t *testing.T) {
+	t.Parallel()
+
+	logger := quietLogger()
+	handler := NewHandler(config.Config{}, logger, nil, controlplane.NewMemoryStore(), taskstate.NewMemoryStore(), nil)
+	server := NewServer(logger, handler)
+
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
+	req.RemoteAddr = "203.0.113.10:1234"
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -205,7 +223,9 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil))
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/system/reset-data", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("reset status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}

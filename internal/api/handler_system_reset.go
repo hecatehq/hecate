@@ -15,6 +15,9 @@ import (
 // gateway. Chat sessions are deleted through the normal chat path so live
 // external-agent sessions are closed before their rows disappear.
 func (h *Handler) HandleSystemResetData(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "system reset") {
+		return
+	}
 	stats, err := h.resetSystemData(r.Context())
 	if errors.Is(err, errChatSessionDeleteConflict) || errors.Is(err, errSystemResetConflict) {
 		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())

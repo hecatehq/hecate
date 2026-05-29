@@ -10,7 +10,7 @@ Hecate assumes the operator trusts their own machine, local user account, and se
 - Browser requests are same-origin checked, but same-origin is not a network security boundary.
 - Hecate is not designed to be exposed directly on a network.
 - If you bind Hecate to anything other than loopback, put your own firewall, reverse proxy, or access-control layer in front.
-- Do not put local-only endpoints such as workspace folder selection or "open in editor" behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can open local OS UI on the operator's machine.
+- Do not put local-only endpoints such as workspace folder selection, "open in editor", MCP probe, reset-data, or shutdown behind a forwarding proxy. Those endpoints reject non-loopback sockets and `X-Forwarded-For` / `X-Real-IP` headers because they can open local OS UI, spawn diagnostic subprocesses, or mutate local operator state.
 - Do not run Hecate on a shared host where untrusted local users can access the gateway port or data directory.
 
 ## Runtime boundaries
@@ -55,8 +55,10 @@ Review broad grants carefully, especially workspace-wide or adapter-wide grants 
 Hecate stores local configuration and operational state on disk.
 
 - Provider credentials and settings are local to the gateway data directory / desktop app data directory.
+- Missing SQLite data directories are created as owner-only on POSIX (`0700`), and database files are created or repaired as `0600`. Hecate does not chmod existing parent directories supplied by the operator.
 - Do not commit `.env`, SQLite databases, release keys, update signing keys, or platform credential files.
 - External agent credentials belong to the underlying CLI account. Hecate can probe and surface auth failures, but it does not own, proxy, or pool those accounts. See [External agent adapters](external-agent-adapters.md#credential-and-account-boundaries) for credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok Build.
+- Stdio MCP servers inherit only runtime-essential environment variables from the gateway. Server credentials must be configured explicitly on that MCP server entry.
 - If you expose Hecate beyond loopback while provider credentials are configured, anyone who can reach the gateway may be able to spend those credentials.
 
 ### Bootstrap key today
