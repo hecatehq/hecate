@@ -16,6 +16,15 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
+// runStreamSubscriber is the optional store capability that lets the
+// run stream wake on mutations instead of polling. Both production
+// stores (memory, sqlite) implement it; type-asserting here keeps the
+// taskstate.Store interface free of this streaming concern and lets a
+// bare test fake fall back to the short poll below.
+type runStreamSubscriber interface {
+	SubscribeRun(runID string) (<-chan struct{}, func())
+}
+
 func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if h.taskStore == nil {
@@ -39,10 +48,29 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 
 	writeSSEHeaders(w)
 
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
+
+	// Wake on store mutations rather than busy-polling. Subscribing
+	// before the first read closes the lost-wakeup gap: any change
+	// between a read and the select below leaves a pending signal on
+	// the buffered channel, so the next select returns immediately. The
+	// store stays the source of truth — every wake triggers a full
+	// re-read, so a coalesced or duplicate signal is harmless. The 15s
+	// heartbeat doubles as a safety re-poll. A store without the
+	// capability (a bare test fake) falls back to the original 50ms
+	// poll so its behavior is unchanged.
+	var wake <-chan struct{}
+	var pollC <-chan time.Time
+	if sub, ok := h.taskStore.(runStreamSubscriber); ok {
+		ch, unsubscribe := sub.SubscribeRun(runID)
+		defer unsubscribe()
+		wake = ch
+	} else {
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		pollC = ticker.C
+	}
 
 	afterSequence := parseAfterSequence(r)
 	lastStateJSON := ""
@@ -171,7 +199,8 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-wake:
+		case <-pollC:
 		case <-heartbeat.C:
 			fmt.Fprint(w, ": keep-alive\n\n")
 			flusher.Flush()

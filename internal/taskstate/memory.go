@@ -12,6 +12,7 @@ import (
 )
 
 type MemoryStore struct {
+	runEventBus
 	mu        sync.Mutex
 	tasks     map[string]types.Task
 	runs      map[string]types.TaskRun
@@ -140,6 +141,7 @@ func (s *MemoryStore) CreateRun(_ context.Context, run types.TaskRun) (types.Tas
 		return types.TaskRun{}, fmt.Errorf("run id is required")
 	}
 	s.runs[run.ID] = run
+	s.signalRun(run.ID)
 	return run, nil
 }
 
@@ -207,6 +209,7 @@ func (s *MemoryStore) UpdateRun(_ context.Context, run types.TaskRun) (types.Tas
 		return types.TaskRun{}, fmt.Errorf("run %q not found", run.ID)
 	}
 	s.runs[run.ID] = run
+	s.signalRun(run.ID)
 	return run, nil
 }
 
@@ -217,6 +220,7 @@ func (s *MemoryStore) AppendStep(_ context.Context, step types.TaskStep) (types.
 		return types.TaskStep{}, fmt.Errorf("step id is required")
 	}
 	s.steps[step.ID] = step
+	s.signalRun(step.RunID)
 	return step, nil
 }
 
@@ -256,6 +260,7 @@ func (s *MemoryStore) UpdateStep(_ context.Context, step types.TaskStep) (types.
 		return types.TaskStep{}, fmt.Errorf("step %q not found", step.ID)
 	}
 	s.steps[step.ID] = step
+	s.signalRun(step.RunID)
 	return step, nil
 }
 
@@ -266,6 +271,7 @@ func (s *MemoryStore) CreateApproval(_ context.Context, approval types.TaskAppro
 		return types.TaskApproval{}, fmt.Errorf("approval id is required")
 	}
 	s.approvals[approval.ID] = approval
+	s.signalRun(approval.RunID)
 	return approval, nil
 }
 
@@ -302,6 +308,7 @@ func (s *MemoryStore) UpdateApproval(_ context.Context, approval types.TaskAppro
 		return types.TaskApproval{}, fmt.Errorf("approval %q not found", approval.ID)
 	}
 	s.approvals[approval.ID] = approval
+	s.signalRun(approval.RunID)
 	return approval, nil
 }
 
@@ -319,6 +326,7 @@ func (s *MemoryStore) UpdatePendingApproval(_ context.Context, approval types.Ta
 		return types.TaskApproval{}, false, nil
 	}
 	s.approvals[approval.ID] = approval
+	s.signalRun(approval.RunID)
 	return approval, true, nil
 }
 
@@ -343,6 +351,7 @@ func (s *MemoryStore) UpdatePendingApprovalForAwaitingRun(_ context.Context, app
 		return types.TaskApproval{}, false, nil
 	}
 	s.approvals[approval.ID] = approval
+	s.signalRun(approval.RunID)
 	return approval, true, nil
 }
 
@@ -353,6 +362,7 @@ func (s *MemoryStore) CreateArtifact(_ context.Context, artifact types.TaskArtif
 		return types.TaskArtifact{}, fmt.Errorf("artifact id is required")
 	}
 	s.artifacts[artifact.ID] = artifact
+	s.signalRun(artifact.RunID)
 	return artifact, nil
 }
 
@@ -401,6 +411,7 @@ func (s *MemoryStore) UpdateArtifact(_ context.Context, artifact types.TaskArtif
 		return types.TaskArtifact{}, fmt.Errorf("artifact %q not found", artifact.ID)
 	}
 	s.artifacts[artifact.ID] = artifact
+	s.signalRun(artifact.RunID)
 	return artifact, nil
 }
 
@@ -418,6 +429,7 @@ func (s *MemoryStore) AppendRunEvent(_ context.Context, event types.TaskRunEvent
 		event.CreatedAt = time.Now().UTC()
 	}
 	s.events[event.RunID] = append(s.events[event.RunID], event)
+	s.signalRun(event.RunID)
 	return event, nil
 }
 
