@@ -79,6 +79,9 @@ envelope:
 Per-run state SSE (`/hecate/v1/tasks/{id}/runs/{run_id}/stream`) emits
 `TaskRunStreamEventData` snapshots optimized for the operator UI. Its
 `event_type` field mirrors the persisted event that produced the snapshot.
+The stream is a projection over the append-only event log plus current run
+storage. New `snapshot` rows carry the current stream shape; older alpha rows
+replay as they were stored rather than being normalized or migrated.
 
 ## Runtime snapshot payloads
 
@@ -98,10 +101,10 @@ protocol-shaped `data` payloads instead.
 Store-level terminal transitions (`run.finished`, `run.failed`,
 `run.cancelled`, `approval.resolved`, and `task.updated` events emitted while
 atomically terminalizing a run) persist only their event-specific keys. The
-per-run state SSE handler rebuilds the final run/step/artifact/approval snapshot
+per-run stream projector rebuilds the final run/step/artifact/approval snapshot
 from storage after reading those terminal events.
 
-Caller-driven events (`POST /hecate/v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The decoder in the per-run SSE handler honors both shapes; public event envelopes strip `snapshot` for the same reason they strip `run` / `steps` / `artifacts`.
+Caller-driven events (`POST /hecate/v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The per-run stream projector honors both shapes; public event envelopes strip `snapshot` for the same reason they strip `run` / `steps` / `artifacts`.
 
 The internal persisted row is compact and is mapped to the public envelope on
 read:
@@ -482,7 +485,7 @@ Emitted when task-scoped metadata changed in a way that affects the run's view (
 
 ### `snapshot`
 
-The per-run SSE handler writes one of these every time it detects a state change between heartbeats. Subscribers reconnecting via `Last-Event-ID` rely on these to backfill state. Distinguishable from real lifecycle events by `type=snapshot` in JSON event lists and `event_type=snapshot` in per-run state SSE; the `data.snapshot` key holds the rebuilt `TaskRunStreamEventData` JSON.
+The per-run stream writes one of these every time it detects a state change between heartbeats. Subscribers reconnecting via `Last-Event-ID` rely on these to backfill state. Distinguishable from real lifecycle events by `type=snapshot` in JSON event lists and `event_type=snapshot` in per-run state SSE; the `data.snapshot` key holds the rebuilt `TaskRunStreamEventData` JSON.
 
 | Extra key  | Type     | Notes                                                            |
 | ---------- | -------- | ---------------------------------------------------------------- |

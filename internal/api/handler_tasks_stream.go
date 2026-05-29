@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -11,7 +9,6 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/eventprotocol"
-	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -47,6 +44,8 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 	runID := run.ID
 
 	writeSSEHeaders(w)
+	projector := newTaskRunStreamProjector(h.taskStore)
+	stream := newTaskRunStreamWriter(w, flusher)
 
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
@@ -77,71 +76,34 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 	for {
 		events, err := h.taskStore.ListRunEvents(ctx, task.ID, runID, afterSequence, 200)
 		if err != nil {
-			fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", err.Error())
-			flusher.Flush()
+			stream.writeError(err)
 			return
 		}
 		for _, event := range events {
-			state, ok, err := h.decodeTaskRunEventData(event)
+			state, err := projector.projectEvent(ctx, task.ID, runID, event)
 			if err != nil {
-				fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", err.Error())
-				flusher.Flush()
-				return
-			}
-			if !ok {
-				// Some events carry an overlay (e.g. turn.completed
-				// passes a Turn cost block) but no full snapshot. Save
-				// the overlay across the rebuild so it survives.
-				overlayTurn := state.Turn
-				state, err = h.buildTaskRunStreamState(ctx, task.ID, runID)
-				if err != nil {
-					fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", err.Error())
-					flusher.Flush()
-					return
-				}
-				state.Turn = overlayTurn
-			} else if state.Approvals == nil {
-				// Historical snapshots saved before approvals were
-				// included in the SSE payload have a nil Approvals
-				// slice. Top up from the live store so the UI doesn't
-				// see "no approvals" and clear its banner. Without
-				// this, replaying an old run would briefly show then
-				// hide the approval card on every reconnect.
-				if live, liveErr := h.buildTaskRunStreamState(ctx, task.ID, runID); liveErr == nil {
-					state.Approvals = live.Approvals
-				}
-			}
-			state.Sequence = int(event.Sequence)
-			state.EventType = event.EventType
-			state.Terminal = types.IsTerminalTaskRunStatus(state.Run.Status)
-
-			payload, err := json.Marshal(TaskRunStreamEventResponse{
-				Object: "task_run_stream_event",
-				Data:   state,
-			})
-			if err != nil {
-				fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", err.Error())
-				flusher.Flush()
+				stream.writeError(err)
 				return
 			}
 
-			fmt.Fprintf(w, "id: %d\nevent: snapshot\ndata: %s\n\n", event.Sequence, payload)
+			payload, err := taskRunStreamSnapshotPayload(state)
+			if err != nil {
+				stream.writeError(err)
+				return
+			}
+			stream.writeSnapshotPayload(event.Sequence, payload)
 			if state.Terminal {
-				finalState, err := h.buildTaskRunStreamState(ctx, task.ID, runID)
-				if err == nil {
-					finalState.Sequence = int(event.Sequence)
-					finalState.EventType = state.EventType
-					finalState.Terminal = true
-					if finalPayload, marshalErr := json.Marshal(TaskRunStreamEventResponse{Object: "task_run_stream_event", Data: finalState}); marshalErr == nil {
+				if finalState, ok := projector.terminalLiveState(ctx, task.ID, runID, event.Sequence, state.EventType); ok {
+					if finalPayload, marshalErr := taskRunStreamSnapshotPayload(finalState); marshalErr == nil {
 						payload = finalPayload
-						fmt.Fprintf(w, "id: %d\nevent: snapshot\ndata: %s\n\n", event.Sequence, payload)
+						stream.writeSnapshotPayload(event.Sequence, payload)
 					}
 				}
-				fmt.Fprintf(w, "id: %d\nevent: done\ndata: %s\n\n", event.Sequence, payload)
+				stream.writeDonePayload(event.Sequence, payload)
 			}
-			flusher.Flush()
+			stream.flush()
 			afterSequence = event.Sequence
-			if stateJSON, marshalErr := json.Marshal(state); marshalErr == nil {
+			if stateJSON, marshalErr := taskRunStreamStateJSON(state); marshalErr == nil {
 				lastStateJSON = string(stateJSON)
 			}
 			if state.Terminal {
@@ -149,21 +111,17 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		state, err := h.buildTaskRunStreamState(ctx, task.ID, runID)
+		state, err := projector.liveState(ctx, task.ID, runID)
 		if err != nil {
-			fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", err.Error())
-			flusher.Flush()
+			stream.writeError(err)
 			return
 		}
-		stateJSON, err := json.Marshal(state)
+		snapshot, stateJSON, err := projector.snapshotEventData(state)
 		if err != nil {
-			fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", err.Error())
-			flusher.Flush()
+			stream.writeError(err)
 			return
 		}
-		if string(stateJSON) != lastStateJSON {
-			var snapshot map[string]any
-			_ = json.Unmarshal(stateJSON, &snapshot)
+		if stateJSON != lastStateJSON {
 			event, appendErr := h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
 				TaskID:    task.ID,
 				RunID:     runID,
@@ -179,18 +137,17 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 			}
 			state.EventType = "snapshot"
 			state.Terminal = types.IsTerminalTaskRunStatus(state.Run.Status)
-			payload, marshalErr := json.Marshal(TaskRunStreamEventResponse{Object: "task_run_stream_event", Data: state})
+			payload, marshalErr := taskRunStreamSnapshotPayload(state)
 			if marshalErr != nil {
-				fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", marshalErr.Error())
-				flusher.Flush()
+				stream.writeError(marshalErr)
 				return
 			}
-			fmt.Fprintf(w, "id: %d\nevent: snapshot\ndata: %s\n\n", state.Sequence, payload)
+			stream.writeSnapshotPayload(int64(state.Sequence), payload)
 			if state.Terminal {
-				fmt.Fprintf(w, "id: %d\nevent: done\ndata: %s\n\n", state.Sequence, payload)
+				stream.writeDonePayload(int64(state.Sequence), payload)
 			}
-			flusher.Flush()
-			lastStateJSON = string(stateJSON)
+			stream.flush()
+			lastStateJSON = stateJSON
 			if state.Terminal {
 				return
 			}
@@ -202,8 +159,7 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 		case <-wake:
 		case <-pollC:
 		case <-heartbeat.C:
-			fmt.Fprint(w, ": keep-alive\n\n")
-			flusher.Flush()
+			stream.writeKeepAlive()
 		}
 	}
 }
@@ -261,12 +217,12 @@ func (h *Handler) HandleAppendTaskRunEvent(w http.ResponseWriter, r *http.Reques
 	if req.Note != "" {
 		extra["note"] = req.Note
 	}
-	state, err := h.buildTaskRunStreamState(ctx, task.ID, run.ID)
+	projector := newTaskRunStreamProjector(h.taskStore)
+	state, err := projector.liveState(ctx, task.ID, run.ID)
 	if err == nil {
-		stateJSON, _ := json.Marshal(state)
-		var snapshot map[string]any
-		_ = json.Unmarshal(stateJSON, &snapshot)
-		extra["snapshot"] = snapshot
+		if snapshot, _, snapshotErr := projector.snapshotEventData(state); snapshotErr == nil {
+			extra["snapshot"] = snapshot
+		}
 	}
 	event, err := h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
 		TaskID:    task.ID,
@@ -300,164 +256,6 @@ func parseAfterSequence(r *http.Request) int64 {
 		return 0
 	}
 	return value
-}
-
-func (h *Handler) buildTaskRunStreamState(ctx context.Context, taskID, runID string) (TaskRunStreamEventData, error) {
-	run, found, err := h.taskStore.GetRun(ctx, taskID, runID)
-	if err != nil {
-		return TaskRunStreamEventData{}, err
-	}
-	if !found {
-		return TaskRunStreamEventData{}, fmt.Errorf("task run not found")
-	}
-	steps, err := h.taskStore.ListSteps(ctx, runID)
-	if err != nil {
-		return TaskRunStreamEventData{}, err
-	}
-	artifacts, err := h.taskStore.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: taskID, RunID: runID})
-	if err != nil {
-		return TaskRunStreamEventData{}, err
-	}
-	// Approvals are listed per-task by the store; we filter to the
-	// current run because the streamed state is run-scoped. A failure
-	// here is non-fatal — emit the snapshot without approvals rather
-	// than dropping the whole stream, so the run/steps view still
-	// updates. The UI's separate /hecate/v1/tasks/{id}/approvals fetch acts
-	// as a fallback for that edge case.
-	taskApprovals, err := h.taskStore.ListApprovals(ctx, taskID)
-	if err != nil {
-		taskApprovals = nil
-	}
-
-	stepItems := make([]TaskStepItem, 0, len(steps))
-	for _, step := range steps {
-		stepItems = append(stepItems, renderTaskStep(step))
-	}
-	artifactItems := make([]TaskArtifactItem, 0, len(artifacts))
-	for _, artifact := range artifacts {
-		artifactItems = append(artifactItems, renderTaskArtifact(artifact))
-	}
-	approvalItems := make([]TaskApprovalItem, 0, len(taskApprovals))
-	for _, approval := range taskApprovals {
-		if approval.RunID != runID {
-			continue
-		}
-		approvalItems = append(approvalItems, renderTaskApproval(approval))
-	}
-	activityItems := buildTaskActivityItems(stepItems, artifactItems, approvalItems, run)
-	return TaskRunStreamEventData{
-		Run:       renderTaskRun(run),
-		Steps:     stepItems,
-		Artifacts: artifactItems,
-		Activity:  activityItems,
-		Approvals: approvalItems,
-	}, nil
-}
-
-func (h *Handler) decodeTaskRunEventData(event types.TaskRunEvent) (TaskRunStreamEventData, bool, error) {
-	if event.Data == nil {
-		return TaskRunStreamEventData{}, false, nil
-	}
-	// `turn.completed` is the per-turn cost telemetry the runner
-	// emits; its payload is a flat map (no `snapshot` envelope). We
-	// don't have enough state to fabricate a full snapshot here — the
-	// caller falls through to buildTaskRunStreamState — but we DO want
-	// to attach the per-turn breakdown so the UI can render a live
-	// cost-per-turn summary without subscribing to /hecate/v1/events.
-	if event.EventType == "turn.completed" {
-		turn := decodeTurnCostFromEventData(event.Data)
-		return TaskRunStreamEventData{Turn: turn}, false, nil
-	}
-	snapshot, ok := event.Data["snapshot"]
-	if ok {
-		raw, err := json.Marshal(snapshot)
-		if err != nil {
-			return TaskRunStreamEventData{}, false, err
-		}
-		var decoded TaskRunStreamEventData
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			return TaskRunStreamEventData{}, false, err
-		}
-		return decoded, true, nil
-	}
-	raw, err := json.Marshal(event.Data)
-	if err != nil {
-		return TaskRunStreamEventData{}, false, err
-	}
-	var typed struct {
-		Run       types.TaskRun        `json:"run"`
-		Steps     []types.TaskStep     `json:"steps"`
-		Artifacts []types.TaskArtifact `json:"artifacts"`
-	}
-	if err := json.Unmarshal(raw, &typed); err == nil && typed.Run.ID != "" {
-		stepItems := make([]TaskStepItem, 0, len(typed.Steps))
-		for _, step := range typed.Steps {
-			stepItems = append(stepItems, renderTaskStep(step))
-		}
-		artifactItems := make([]TaskArtifactItem, 0, len(typed.Artifacts))
-		for _, artifact := range typed.Artifacts {
-			artifactItems = append(artifactItems, renderTaskArtifact(artifact))
-		}
-		return TaskRunStreamEventData{
-			Run:       renderTaskRun(typed.Run),
-			Steps:     stepItems,
-			Artifacts: artifactItems,
-		}, true, nil
-	}
-	var decoded TaskRunStreamEventData
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return TaskRunStreamEventData{}, false, nil
-	}
-	if decoded.Run.ID == "" {
-		return TaskRunStreamEventData{}, false, nil
-	}
-	return decoded, true, nil
-}
-
-// decodeTurnCostFromEventData lifts the per-turn cost figures out of
-// the turn.completed event payload. The runner writes them as
-// a flat map; we pull the keys defensively (event.Data is map[string]any
-// after a JSON round-trip, so numerics arrive as float64).
-func decodeTurnCostFromEventData(data map[string]any) *TaskRunStreamTurnCost {
-	if data == nil {
-		return nil
-	}
-	asInt := func(v any) int {
-		switch n := v.(type) {
-		case float64:
-			return int(n)
-		case int:
-			return n
-		case int64:
-			return int(n)
-		}
-		return 0
-	}
-	asInt64 := func(v any) int64 {
-		switch n := v.(type) {
-		case float64:
-			return int64(n)
-		case int:
-			return int64(n)
-		case int64:
-			return n
-		}
-		return 0
-	}
-	asString := func(v any) string {
-		if s, ok := v.(string); ok {
-			return s
-		}
-		return ""
-	}
-	return &TaskRunStreamTurnCost{
-		Turn:                    asInt(data["turn_index"]),
-		StepID:                  asString(data["step_id"]),
-		CostMicrosUSD:           asInt64(data["cost_micros_usd"]),
-		RunCumulativeMicrosUSD:  asInt64(data["run_cumulative_cost_micros_usd"]),
-		TaskCumulativeMicrosUSD: asInt64(data["task_cumulative_cost_micros_usd"]),
-		ToolCallCount:           asInt(data["tool_calls"]),
-	}
 }
 
 func (h *Handler) loadAuthorizedTask(ctx context.Context, w http.ResponseWriter, r *http.Request) (types.Task, bool) {

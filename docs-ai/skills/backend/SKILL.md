@@ -77,6 +77,20 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 3. Update the `docs/mcp.md` tool table.
 4. Tests in `internal/mcp/server/tools_test.go` using the `fakeGateway` helper.
 
+### Change task-run streaming
+
+`GET /hecate/v1/tasks/{id}/runs/{run_id}/stream` has two seams:
+
+1. `internal/api/task_run_stream_projector.go` maps persisted run events plus
+   live task storage into `TaskRunStreamEventData`.
+2. `internal/api/task_run_stream_writer.go` writes the SSE frames.
+
+Keep the stream contract forward-moving: new `snapshot` rows should carry the
+current `TaskRunStreamEventData` shape, and older alpha rows can replay as they
+were stored. Do not mutate historical `run_event` rows; the event log is
+append-only. Handler changes should stay focused on request setup, polling, and
+cancellation.
+
 ### Change chat-session / ACP adapter behavior
 
 Chat sessions separate ownership from turn execution:

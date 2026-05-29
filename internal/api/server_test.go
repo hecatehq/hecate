@@ -5034,15 +5034,15 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 	// End-to-end check on the Turn overlay path:
 	//
 	//   1. Runner emits `turn.completed` to the run-event log
-	//   2. SSE handler reads the event, decodeTaskRunEventData treats
-	//      it as Turn-only (ok=false)
-	//   3. Handler preserves the overlay across buildTaskRunStreamState
+	//   2. SSE projector reads the event, treats it as Turn-only
+	//      (ok=false)
+	//   3. Projector preserves the overlay across live-state rebuild
 	//   4. Final snapshot carries BOTH the rebuilt Run/Steps/Artifacts
 	//      AND the Turn block
 	//
 	// The unit tests in turn_cost_stream_test.go pin steps 2-3 in
 	// isolation. This test pins the wire-up: a regression that, say,
-	// ran buildTaskRunStreamState without preserving overlayTurn
+	// rebuilt live state without preserving overlayTurn
 	// would silently swallow per-turn cost on the SSE feed without
 	// any unit test failing. We POST the event via the public
 	// /events endpoint so we don't need a real LLM.
@@ -5134,7 +5134,7 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 		//   b) Turn fields match what we POSTed (no key rename
 		//      regression in decodeTurnCostFromEventData)
 		//   c) Run.ID is also set (proves the overlay was merged
-		//      AFTER buildTaskRunStreamState rebuilt full state —
+		//      AFTER the projector rebuilt full state —
 		//      not a Turn-only payload that lost the rest of the
 		//      run context)
 		if payload.Data.Turn == nil {
