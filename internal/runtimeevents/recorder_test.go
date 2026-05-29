@@ -91,6 +91,39 @@ func TestRecorder_AppendSnapshotProvidesBaseLetsEventDataOverrideSnapshot(t *tes
 	}
 }
 
+func TestRecorder_AppendSnapshotOverridesDataLetsSnapshotOverrideEventData(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	recorder := runtimeevents.NewRecorder(store,
+		runtimeevents.WithSnapshot(func(context.Context, string, string) (map[string]any, error) {
+			return map[string]any{
+				"snapshot": "snapshot-value",
+				"reason":   "snapshot-reason",
+			}, nil
+		}),
+	)
+
+	event, err := recorder.Append(ctx, runtimeevents.Event{
+		TaskID:            "task-1",
+		RunID:             "run-1",
+		EventType:         "external.event",
+		Data:              map[string]any{"reason": "caller-reason"},
+		SnapshotMode:      runtimeevents.SnapshotRequired,
+		SnapshotPlacement: runtimeevents.SnapshotOverridesData,
+	})
+	if err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	if event.Data["snapshot"] != "snapshot-value" {
+		t.Fatalf("snapshot = %v, want snapshot-value", event.Data["snapshot"])
+	}
+	if event.Data["reason"] != "snapshot-reason" {
+		t.Fatalf("reason = %v, want snapshot override", event.Data["reason"])
+	}
+}
+
 func TestRecorder_AppendOptionalSnapshotFailureStillWrites(t *testing.T) {
 	t.Parallel()
 
@@ -150,5 +183,29 @@ func TestRecorder_AppendRequiredSnapshotFailureReturnsError(t *testing.T) {
 	}
 	if len(events) != 0 {
 		t.Fatalf("events = %d, want no write after required snapshot failure", len(events))
+	}
+}
+
+func TestRecorder_AppendRequiredSnapshotWithoutFunctionReturnsError(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	recorder := runtimeevents.NewRecorder(store)
+
+	if _, err := recorder.Append(ctx, runtimeevents.Event{
+		TaskID:       "task-1",
+		RunID:        "run-1",
+		EventType:    "run.note",
+		SnapshotMode: runtimeevents.SnapshotRequired,
+	}); err == nil {
+		t.Fatal("Append() error = nil, want missing snapshot function error")
+	}
+	events, err := store.ListRunEvents(ctx, "task-1", "run-1", 0, 10)
+	if err != nil {
+		t.Fatalf("ListRunEvents() error = %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events = %d, want no write after missing snapshot function", len(events))
 	}
 }
