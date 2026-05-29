@@ -136,3 +136,59 @@ func TestTaskRunClaimedProcessorFinalizesFailureE2E(t *testing.T) {
 	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
 	assertE2EEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.started", "run.failed"})
 }
+
+func TestTaskRunClaimedExecutionFinalizesOperatorCancelE2E(t *testing.T) {
+	workDir := t.TempDir()
+	baseURL := gatewayServer(t,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_TASK_APPROVAL_POLICIES=",
+	)
+
+	body := fmt.Sprintf(`{
+		"title": "claimed execution cancel e2e",
+		"prompt": "cancel while running",
+		"execution_kind": "shell",
+		"shell_command": "while true; do sleep 1; done",
+		"working_directory": %q,
+		"sandbox_allowed_root": %q,
+		"workspace_mode": "in_place",
+		"timeout_ms": 30000
+	}`, workDir, workDir)
+	created := postJSONDecode[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks", body)
+	started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/start", `{}`)
+
+	waitForE2ETaskRunStatus(t, baseURL, created.Data.ID, started.Data.ID, "running", 10*time.Second)
+	cancelled := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/cancel", `{"reason":"operator stop"}`)
+	if cancelled.Data.Status != "cancelled" {
+		t.Fatalf("cancel response status = %q last_error=%q, want cancelled", cancelled.Data.Status, cancelled.Data.LastError)
+	}
+
+	run := waitForE2ETaskRunTerminal(t, baseURL, created.Data.ID, started.Data.ID, 10*time.Second)
+	if run.Status != "cancelled" || run.LastError != "run cancelled: operator stop" {
+		t.Fatalf("run status=%q last_error=%q, want cancelled with operator stop", run.Status, run.LastError)
+	}
+
+	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
+	assertE2EEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.started", "run.cancelled"})
+	for _, event := range events.Data {
+		if event.Type == "run.failed" {
+			t.Fatalf("unexpected run.failed after operator cancellation: %+v", event)
+		}
+	}
+}
+
+func waitForE2ETaskRunStatus(t *testing.T, baseURL, taskID, runID, status string, timeout time.Duration) e2eTaskRun {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var last e2eTaskRun
+	for time.Now().Before(deadline) {
+		resp := getJSON[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/runs/"+runID)
+		last = resp.Data
+		if resp.Data.Status == status {
+			return resp.Data
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("run %s did not reach status %q within %s; last=%+v", runID, status, timeout, last)
+	return e2eTaskRun{}
+}

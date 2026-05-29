@@ -51,7 +51,7 @@ func (p *claimedRunProcessor) process() {
 		return
 	}
 	resumeCheckpoint := p.emitRunStarted(ctx)
-	p.executeClaimedRun(ctx, jobCtx, resumeCheckpoint)
+	newClaimedRunExecution(p, jobCtx, resumeCheckpoint).execute(ctx)
 	p.recordQueueAcked()
 	p.ackClaim()
 }
@@ -155,18 +155,6 @@ func (p *claimedRunProcessor) emitRunStarted(ctx context.Context) *ResumeCheckpo
 	}
 	_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, "run.started", p.requestID, p.trace.TraceID, runEvent)
 	return resumeCheckpoint
-}
-
-func (p *claimedRunProcessor) executeClaimedRun(ctx context.Context, jobCtx context.Context, resumeCheckpoint *ResumeCheckpoint) {
-	if _, err := p.runner.executeRun(ctx, p.trace, p.task, p.run, p.requestID, resumeCheckpoint); err != nil {
-		finalStatus := "failed"
-		lastError := err.Error()
-		if jobCtx.Err() != nil {
-			finalStatus = "cancelled"
-			lastError = "run cancelled"
-		}
-		_ = p.runner.finalizeFailedRun(ctx, p.trace, p.task, p.run, p.requestID, finalStatus, lastError)
-	}
 }
 
 func (p *claimedRunProcessor) recordQueueAcked() {
