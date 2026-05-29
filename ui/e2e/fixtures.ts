@@ -1,4 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
+import type { ProjectRecord } from "../src/types/project";
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,43 @@ export const MOCK_PRESETS = [
     protocol: "openai",
     base_url: "http://127.0.0.1:8080/v1",
     description: "Local inference via llama.cpp.",
+  },
+];
+
+export const MOCK_PROJECTS: ProjectRecord[] = [
+  {
+    id: "proj_e2e",
+    name: "E2E workspace",
+    roots: [
+      {
+        id: "root_e2e",
+        path: "/tmp/hecate-e2e",
+        kind: "workspace",
+        active: true,
+        created_at: "2026-05-14T12:00:00Z",
+        updated_at: "2026-05-14T12:00:00Z",
+      },
+    ],
+    default_root_id: "root_e2e",
+    created_at: "2026-05-14T12:00:00Z",
+    updated_at: "2026-05-14T12:00:00Z",
+  },
+  {
+    id: "proj_e2e_workspace",
+    name: "E2E workspace alternate",
+    roots: [
+      {
+        id: "root_e2e_workspace",
+        path: "/tmp/hecate-e2e-workspace",
+        kind: "workspace",
+        active: true,
+        created_at: "2026-05-14T12:00:00Z",
+        updated_at: "2026-05-14T12:00:00Z",
+      },
+    ],
+    default_root_id: "root_e2e_workspace",
+    created_at: "2026-05-14T12:00:00Z",
+    updated_at: "2026-05-14T12:00:00Z",
   },
 ];
 
@@ -311,6 +349,7 @@ export type GatewayMockOptions = {
   // empty list — tests that need a populated table pass
   // MOCK_SETTINGS_CONFIG_WITH_PROVIDERS (or any custom shape).
   settingsConfig?: SettingsConfig;
+  projects?: ProjectRecord[];
 };
 
 export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {}) {
@@ -325,6 +364,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   const state: SettingsConfig = JSON.parse(
     JSON.stringify(opts.settingsConfig ?? MOCK_SETTINGS_CONFIG),
   );
+  const projects: ProjectRecord[] = JSON.parse(JSON.stringify(opts.projects ?? MOCK_PROJECTS));
   const chatSessions: any[] = [];
   let chatSequence = 1;
 
@@ -352,6 +392,10 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
 
   await page.route("/hecate/v1/providers/presets*", (r) =>
     r.fulfill(ok({ object: "list", data: MOCK_FULL_PRESETS })),
+  );
+
+  await page.route("/hecate/v1/projects*", (r) =>
+    r.fulfill(ok({ object: "projects", data: projects })),
   );
 
   await page.route("/hecate/v1/agent-adapters*", (r) =>
@@ -400,6 +444,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           native_session_id: isExternal ? `native-${chatSequence}` : "",
           provider: body.provider || "auto",
           model: body.model || "",
+          project_id: body.project_id || "",
           capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
           rtk_enabled: Boolean(body.rtk_enabled),
           workspace: body.workspace || "/tmp/hecate-e2e",

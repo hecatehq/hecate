@@ -21,7 +21,7 @@ const test = baseTest.extend<{ page: Page }>({
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
   });
   await page.goto("/");
   // Chat is the default workspace
@@ -295,6 +295,7 @@ test("New chat creates an external-agent session with controls before the first 
           agent_name: "Codex",
           driver_kind: "acp",
           native_session_id: "native-codex-e2e",
+          project_id: "proj_e2e",
           workspace: "/tmp/hecate-e2e",
           status: "idle",
           config_options: [
@@ -318,7 +319,7 @@ test("New chat creates an external-agent session with controls before the first 
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "codex");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
@@ -332,7 +333,7 @@ test("New chat creates an external-agent session with controls before the first 
       agent_id: "codex",
       workspace: "/tmp/hecate-e2e",
     });
-  await expect(page.getByRole("button", { name: "Model" })).toContainText("Fast");
+  await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText("Fast");
   await page.getByRole("button", { name: "Choose agent for new chat" }).click();
   await expect(page.getByRole("option", { name: /Codex/ })).toHaveAttribute(
     "aria-selected",
@@ -360,7 +361,7 @@ test("New Hecate chat asks for workspace before creating a tools-on session", as
   });
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
-    window.localStorage.removeItem("hecate.agentWorkspace");
+    window.localStorage.removeItem("hecate.project");
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
@@ -413,7 +414,7 @@ test("New external-agent chat asks for workspace without flashing an inline erro
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "codex");
-    window.localStorage.removeItem("hecate.agentWorkspace");
+    window.localStorage.removeItem("hecate.project");
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
@@ -476,6 +477,7 @@ test("New external-agent chat with model setup shows controls and composer toget
         agent_name: "Grok Build",
         driver_kind: "acp",
         native_session_id: "native-grok-build-e2e",
+        project_id: "proj_e2e",
         workspace: "/tmp/hecate-e2e",
         status: "idle",
         config_options: createBody.config_options ?? [],
@@ -514,7 +516,7 @@ test("New external-agent chat with model setup shows controls and composer toget
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "grok_build");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
@@ -525,15 +527,19 @@ test("New external-agent chat with model setup shows controls and composer toget
   await expect(
     page.getByRole("button", { name: /Chat Grok Build chat, Grok Build/i }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Model" })).toContainText("Pick a model");
+  await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText(
+    "Pick a model",
+  );
   await expect(page.locator("textarea")).toBeVisible();
   await page.locator("textarea").fill("Build a tiny app");
   await expect(page.locator("button[type='submit']")).toBeDisabled();
 
-  await page.getByRole("button", { name: "Model" }).click();
+  await page.getByRole("button", { name: "Model", exact: true }).click();
   await page.getByRole("option", { name: "Grok Build 0429" }).click();
 
-  await expect(page.getByRole("button", { name: "Model" })).toContainText("Grok Build 0429");
+  await expect(page.getByRole("button", { name: "Model", exact: true })).toContainText(
+    "Grok Build 0429",
+  );
   await expect(page.locator("button[type='submit']")).toBeEnabled();
 });
 
@@ -544,7 +550,7 @@ test("external-agent chat uses the shared fake lifecycle for transcript and dele
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
@@ -580,7 +586,7 @@ test("external-agent running turns keep controls stable and request cancel throu
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "grok_build");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
@@ -684,7 +690,7 @@ test("New chat falls back to Hecate when the remembered external agent needs set
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "cursor_agent");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
@@ -723,6 +729,7 @@ test("sidebar rename works for agent-chat sessions", async ({ page }) => {
             id: "rename-chat-e2e",
             title,
             agent_id: "codex",
+            project_id: "proj_e2e",
             workspace: "/tmp/hecate-e2e",
             status: "idle",
             message_count: 0,
@@ -747,6 +754,7 @@ test("sidebar rename works for agent-chat sessions", async ({ page }) => {
           id: "rename-chat-e2e",
           title,
           agent_id: "codex",
+          project_id: "proj_e2e",
           workspace: "/tmp/hecate-e2e",
           status: "idle",
           messages: [],
@@ -1388,7 +1396,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
+    window.localStorage.setItem("hecate.project", "proj_e2e_workspace");
   });
   await mockGatewayAPIs(page);
 
@@ -1429,6 +1437,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
         id: "chat-hecate-e2e",
         title: body.title || "show diff",
         agent_id: "hecate",
+        project_id: "proj_e2e_workspace",
         provider: body.provider || "",
         model: body.model || "qwen2.5",
         capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
@@ -1560,7 +1569,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
+    window.localStorage.setItem("hecate.project", "proj_e2e_workspace");
   });
   await mockGatewayAPIs(page, {
     settingsConfig: {
@@ -2067,7 +2076,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
       "hecate.chatTargetBySessionID",
       JSON.stringify({ "chat-busy-e2e": "model" }),
     );
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
+    window.localStorage.setItem("hecate.project", "proj_e2e_workspace");
   });
   await mockGatewayAPIs(page, {
     settingsConfig: {
@@ -2235,7 +2244,7 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.chatSessionID", "chat-approval-refresh-e2e");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
+    window.localStorage.setItem("hecate.project", "proj_e2e_workspace");
   });
   await mockGatewayAPIs(page, {
     settingsConfig: {
@@ -2611,7 +2620,7 @@ test("selected-model readiness can switch to the backend-suggested fallback mode
     window.localStorage.setItem("hecate.chatTarget", "model");
     window.localStorage.setItem("hecate.providerFilter", "auto");
     window.localStorage.setItem("hecate.model", "claude-sonnet-4-6");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
   });
 
   await page.goto("/");
@@ -3069,6 +3078,7 @@ async function openExternalAgentReadinessFixture(page: Page, fixture: ExternalAd
     agent_name: fixture.name,
     driver_kind: "acp",
     native_session_id: `native-${fixture.id}-e2e`,
+    project_id: "proj_e2e",
     workspace: "/tmp/hecate-e2e",
     status: "idle",
     message_count: 0,
@@ -3115,7 +3125,7 @@ async function openExternalAgentReadinessFixture(page: Page, fixture: ExternalAd
     ({ adapterID, chatSessionID }) => {
       window.localStorage.setItem("hecate.chatTarget", "external_agent");
       window.localStorage.setItem("hecate.agentAdapterID", adapterID);
-      window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+      window.localStorage.setItem("hecate.project", "proj_e2e");
       window.localStorage.setItem("hecate.chatSessionID", chatSessionID);
     },
     { adapterID: fixture.id, chatSessionID: sessionID },
@@ -3202,6 +3212,7 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
     agent_name: "Claude Code",
     driver_kind: "acp",
     native_session_id: "native-claude-code-e2e",
+    project_id: "proj_e2e",
     workspace: "/tmp/hecate-e2e",
     status: "idle",
     message_count: 0,
@@ -3277,7 +3288,7 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.project", "proj_e2e");
     window.localStorage.setItem("hecate.chatSessionID", "claude-code-onboarding-e2e");
   });
   await page.goto("/");

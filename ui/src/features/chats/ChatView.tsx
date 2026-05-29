@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useApprovals } from "../../app/state/approvals";
 import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useProjects } from "../../app/state/projects";
 import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
 import { useChatActions } from "../../app/state/coordinators/chat";
@@ -23,6 +24,7 @@ import { describeGatewayError } from "../../lib/error-diagnostics";
 import { resolveExternalAgentReadiness } from "../../lib/external-agent-readiness";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
+import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatConfigOptionRecord, ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
 import type { LocalProviderDiscoveryRecord, ProviderFilter } from "../../types/provider";
@@ -63,6 +65,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const runtime = useRuntime();
   const chat = useChat();
   const providersAndModels = useProvidersAndModels();
+  const projects = useProjects();
   const approvals = useApprovals();
   const settings = useSettings();
   const chatTarget = useChatTarget();
@@ -78,6 +81,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   });
   const providerActions = useWiredProviderActions();
   const dashboardActions = useWiredDashboardActions();
+  const activeProjectWorkspace = projectDefaultWorkspace(projects.activeProject);
+  const agentWorkspace = chat.state.agentWorkspace || activeProjectWorkspace;
   // Compose the legacy `state` and `actions` lookalikes so the JSX
   // below stays close to the pre-migration shape. Each field is read
   // off the slice (or computed via a derived hook) the field used to
@@ -92,7 +97,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     agentAdapterApprovalMode: providersAndModels.state.agentAdapterApprovalMode,
     agentAdapterHealthByID: providersAndModels.state.agentAdapterHealthByID,
     agentAdapterHealthLoadingByID: providersAndModels.state.agentAdapterHealthLoadingByID,
-    agentWorkspace: chat.state.agentWorkspace,
+    agentWorkspace,
     chatCancelling: chat.state.chatCancelling,
     chatError: chat.state.chatError,
     chatErrorCode: chat.state.chatErrorCode,
