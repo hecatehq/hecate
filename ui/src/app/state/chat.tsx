@@ -7,7 +7,7 @@
 // override map), workspace + external-agent selection, and the
 // pagination state for agent chat sessions.
 //
-// Eight fields are persisted via `usePersistedState`; the rest
+// Seven fields are persisted via `usePersistedState`; the rest
 // are `useState` since they're in-flight or session-bound. One
 // field (providerFilter) keeps a legacy useState + mount-read
 // effect pattern — see the inline comment for the e2e timing
@@ -169,11 +169,7 @@ export function ChatProvider({
   const [agentConfigOptions, setAgentConfigOptions] = useState<ChatConfigOptionRecord[]>(
     initialState?.agentConfigOptions ?? [],
   );
-  const [agentWorkspace, setAgentWorkspace] = usePersistedState(
-    "hecate.agentWorkspace",
-    parseStoredString,
-    initialState?.agentWorkspace ?? "",
-  );
+  const [agentWorkspace, setAgentWorkspace] = useState(initialState?.agentWorkspace ?? "");
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState(
     initialState?.agentWorkspaceBranch ?? "",
   );

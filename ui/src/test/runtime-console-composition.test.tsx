@@ -11,6 +11,7 @@ import { RuntimeProvider } from "../app/state/runtime";
 import { SettingsProvider } from "../app/state/settings";
 import { UsageProvider } from "../app/state/usage";
 import { useRuntimeConsole } from "./runtime-console-test-composer";
+import type { ProjectRecord } from "../types/project";
 
 // This suite is the canonical regression net for the composed
 // slice + coordinator viewmodel — historically owned by
@@ -18,12 +19,18 @@ import { useRuntimeConsole } from "./runtime-console-test-composer";
 // after the production facade was retired. Each renderHook call
 // needs the full provider chain; the wrapper composes them so the
 // test bodies don't have to thread it through every call.
-function SliceProviders({ children }: { children: ReactNode }) {
+function SliceProviders({
+  children,
+  projects,
+}: {
+  children: ReactNode;
+  projects?: ProjectRecord[];
+}) {
   return (
     <RuntimeProvider>
       <UsageProvider>
         <ProvidersAndModelsProvider>
-          <ProjectsProvider>
+          <ProjectsProvider initialState={projects ? { projects } : undefined}>
             <ChatProvider>
               <RetentionProvider>
                 <ApprovalsProvider>
@@ -38,8 +45,16 @@ function SliceProviders({ children }: { children: ReactNode }) {
   );
 }
 
-function renderRuntimeConsoleHook(options?: Omit<RenderHookOptions<unknown>, "wrapper">) {
-  return renderHook(() => useRuntimeConsole(), { ...options, wrapper: SliceProviders });
+type RuntimeConsoleHookOptions = Omit<RenderHookOptions<unknown>, "wrapper"> & {
+  projects?: ProjectRecord[];
+};
+
+function renderRuntimeConsoleHook(options?: RuntimeConsoleHookOptions) {
+  const { projects, ...renderOptions } = options ?? {};
+  function Wrapper({ children }: { children: ReactNode }) {
+    return <SliceProviders projects={projects}>{children}</SliceProviders>;
+  }
+  return renderHook(() => useRuntimeConsole(), { ...renderOptions, wrapper: Wrapper });
 }
 
 // Single-user mode: every endpoint is unauthenticated and the gateway
@@ -138,7 +153,6 @@ describe("useRuntimeConsole", () => {
   });
 
   it("treats a cancelled workspace picker as a quiet no-op", async () => {
-    window.localStorage.setItem("hecate.agentWorkspace", "/workspace/current");
     fetchMock.mockImplementation(
       defaultBackendMock({
         "/hecate/v1/workspace-dialog": () =>
@@ -151,6 +165,9 @@ describe("useRuntimeConsole", () => {
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(async () => {
+      result.current.actions.setAgentWorkspace("/workspace/current");
+    });
 
     let selected = false;
     await act(async () => {
@@ -358,7 +375,6 @@ describe("useRuntimeConsole", () => {
   it("creates an external-agent session from the selected agent and workspace", async () => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-project");
     let createBody: any = null;
     fetchMock.mockImplementation(
       defaultBackendMock({
@@ -394,6 +410,9 @@ describe("useRuntimeConsole", () => {
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(async () => {
+      result.current.actions.setAgentWorkspace("/tmp/hecate-project");
+    });
 
     await act(async () => {
       await result.current.actions.createChatSession();
@@ -411,7 +430,6 @@ describe("useRuntimeConsole", () => {
 
   it("uses the new-chat agent selection instead of the active external session", async () => {
     window.localStorage.setItem("hecate.chatSessionID", "a1");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");
     let createBody: any = null;
     fetchMock.mockImplementation(
@@ -465,6 +483,9 @@ describe("useRuntimeConsole", () => {
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("a1"));
+    await act(async () => {
+      result.current.actions.setAgentWorkspace("/tmp/hecate");
+    });
     expect(result.current.state.newChatAgentID).toBe("hecate");
 
     await act(async () => {
@@ -604,21 +625,30 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.chatTarget", "model");
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");
     window.localStorage.setItem("hecate.project", "proj_1");
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [
+        {
+          id: "root_1",
+          path: "/tmp/hecate-project",
+          kind: "workspace",
+          active: true,
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      default_root_id: "root_1",
+      created_at: "2026-05-21T10:00:00Z",
+      updated_at: "2026-05-21T10:00:00Z",
+    };
     let createBody: any = null;
     fetchMock.mockImplementation(
       defaultBackendMock({
         "/hecate/v1/projects": () =>
           jsonResponse({
             object: "projects",
-            data: [
-              {
-                id: "proj_1",
-                name: "Hecate",
-                roots: [],
-                created_at: "2026-05-21T10:00:00Z",
-                updated_at: "2026-05-21T10:00:00Z",
-              },
-            ],
+            data: [project],
           }),
         "/hecate/v1/chat/sessions": (init) => {
           if (init?.method === "POST") {
@@ -642,7 +672,7 @@ describe("useRuntimeConsole", () => {
       }),
     );
 
-    const { result } = renderRuntimeConsoleHook();
+    const { result } = renderRuntimeConsoleHook({ projects: [project] });
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     await act(async () => {
@@ -653,6 +683,7 @@ describe("useRuntimeConsole", () => {
       agent_id: "hecate",
       model: "gpt-4o-mini",
       project_id: "proj_1",
+      workspace: "/tmp/hecate-project",
     });
     expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
   });
@@ -660,10 +691,31 @@ describe("useRuntimeConsole", () => {
   it("honors an explicit project scope when creating a Hecate chat", async () => {
     window.localStorage.setItem("hecate.chatTarget", "model");
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [
+        {
+          id: "root_1",
+          path: "/tmp/hecate",
+          kind: "workspace",
+          active: true,
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      default_root_id: "root_1",
+      created_at: "2026-05-21T10:00:00Z",
+      updated_at: "2026-05-21T10:00:00Z",
+    };
     let createBody: any = null;
     fetchMock.mockImplementation(
       defaultBackendMock({
+        "/hecate/v1/projects": () =>
+          jsonResponse({
+            object: "projects",
+            data: [project],
+          }),
         "/hecate/v1/chat/sessions": (init) => {
           if (init?.method === "POST") {
             createBody = JSON.parse(String(init.body ?? "{}"));
@@ -686,7 +738,7 @@ describe("useRuntimeConsole", () => {
       }),
     );
 
-    const { result } = renderRuntimeConsoleHook();
+    const { result } = renderRuntimeConsoleHook({ projects: [project] });
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     await act(async () => {
@@ -705,10 +757,31 @@ describe("useRuntimeConsole", () => {
   it("honors an explicit project scope when creating an external-agent chat", async () => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-project");
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [
+        {
+          id: "root_1",
+          path: "/tmp/hecate-project",
+          kind: "workspace",
+          active: true,
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      default_root_id: "root_1",
+      created_at: "2026-05-21T10:00:00Z",
+      updated_at: "2026-05-21T10:00:00Z",
+    };
     let createBody: any = null;
     fetchMock.mockImplementation(
       defaultBackendMock({
+        "/hecate/v1/projects": () =>
+          jsonResponse({
+            object: "projects",
+            data: [project],
+          }),
         "/hecate/v1/agent-adapters": () =>
           jsonResponse({
             object: "agent_adapters",
@@ -736,7 +809,7 @@ describe("useRuntimeConsole", () => {
       }),
     );
 
-    const { result } = renderRuntimeConsoleHook();
+    const { result } = renderRuntimeConsoleHook({ projects: [project] });
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     await act(async () => {
@@ -791,7 +864,6 @@ describe("useRuntimeConsole", () => {
 
   it("creates a Hecate chat shell when no model is selected", async () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     window.localStorage.removeItem("hecate.model");
     let createBody: any = null;
     fetchMock.mockImplementation(
@@ -820,6 +892,9 @@ describe("useRuntimeConsole", () => {
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(async () => {
+      result.current.actions.setAgentWorkspace("/tmp/hecate");
+    });
 
     await act(async () => {
       await result.current.actions.createChatSession();
@@ -839,7 +914,6 @@ describe("useRuntimeConsole", () => {
 
   it("drops a stale selected model when creating a new Hecate chat shell", async () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     window.localStorage.setItem("hecate.model", "missing-model");
     let createBody: any = null;
     fetchMock.mockImplementation(
@@ -869,6 +943,9 @@ describe("useRuntimeConsole", () => {
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(async () => {
+      result.current.actions.setAgentWorkspace("/tmp/hecate");
+    });
 
     await act(async () => {
       await result.current.actions.createChatSession();
@@ -1086,7 +1163,6 @@ describe("useRuntimeConsole", () => {
   it("does not create or select a chat when eager external-agent prepare fails", async () => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
-    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-project");
     fetchMock.mockImplementation(
       defaultBackendMock({
         "/hecate/v1/agent-adapters": () =>
@@ -1113,6 +1189,9 @@ describe("useRuntimeConsole", () => {
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(async () => {
+      result.current.actions.setAgentWorkspace("/tmp/hecate-project");
+    });
 
     await act(async () => {
       await result.current.actions.createChatSession();
