@@ -856,6 +856,36 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		// in use.
 		runner = agentadapters.NewSessionManager()
 	}
+	// streamFlush persists a coalesced batch of streamed updates in a
+	// single chat.UpdateMessage and publishes once. Content is
+	// last-write-wins (the full accumulated transcript); activities are
+	// applied in arrival order via the same per-record merge the
+	// adapter callbacks used to do inline.
+	streamFlush := func(display string, haveContent bool, activities []agentadapters.Activity) {
+		updated, updateErr := h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *chat.Message) {
+			if haveContent {
+				message.Content = display
+				if strings.TrimSpace(display) != "" && !outputSeen {
+					message.Activities = append(message.Activities, newChatActivity("output", "running", "ACP output", "Streaming normalized transcript"))
+					trace.Record(telemetry.EventAgentChatOutputStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+						telemetry.AttrHecateRunStatus:        "running",
+						telemetry.AttrHecateAgentOutputBytes: int64(len(display)),
+					}))
+					outputSeen = true
+				}
+			}
+			for _, activity := range activities {
+				message.Activities = mergeChatActivity(message.Activities, agentChatActivityFromAdapter(activity))
+			}
+		})
+		if updateErr == nil {
+			h.agentChatLive.publishSession(updated)
+		}
+	}
+	// Coalesce the per-token OnOutput/OnActivity callbacks into at most
+	// one persist+publish per window. close() after Run flushes the
+	// trailing batch so buffered activities land before the finalize.
+	streamCoalescer := newChatStreamCoalescer(agentChatStreamCoalesceInterval, streamFlush)
 	result, runErr := runner.Run(runCtx, agentadapters.RunRequest{
 		SessionID:               session.ID,
 		AdapterID:               adapter.ID,
@@ -866,30 +896,13 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		Timeout:                 agentChatTimeout,
 		MaxOutputBytes:          agentChatMaxOutputBytes,
 		OnOutput: func(display string) {
-			updated, updateErr := h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *chat.Message) {
-				message.Content = display
-				if strings.TrimSpace(display) != "" && !outputSeen {
-					message.Activities = append(message.Activities, newChatActivity("output", "running", "ACP output", "Streaming normalized transcript"))
-					trace.Record(telemetry.EventAgentChatOutputStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
-						telemetry.AttrHecateRunStatus:        "running",
-						telemetry.AttrHecateAgentOutputBytes: int64(len(display)),
-					}))
-					outputSeen = true
-				}
-			})
-			if updateErr == nil {
-				h.agentChatLive.publishSession(updated)
-			}
+			streamCoalescer.output(display)
 		},
 		OnActivity: func(activity agentadapters.Activity) {
-			updated, updateErr := h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *chat.Message) {
-				message.Activities = mergeChatActivity(message.Activities, agentChatActivityFromAdapter(activity))
-			})
-			if updateErr == nil {
-				h.agentChatLive.publishSession(updated)
-			}
+			streamCoalescer.activity(activity)
 		},
 	})
+	streamCoalescer.close()
 	status := "completed"
 	if runErr != nil {
 		status = "failed"
