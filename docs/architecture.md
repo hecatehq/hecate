@@ -153,8 +153,8 @@ sequenceDiagram
     loop turn cycle
         Agent->>LLM: Chat with messages, tools, and ProviderHint
         LLM-->>Agent: assistant message
-        Agent->>Store: emit turn.completed event
-        Agent->>Store: persist conversation snapshot
+        Agent->>Store: record thinking step, route metadata, and conversation snapshot
+        Note over Agent,Store: runner later emits turn.completed from the turn-cost record
         alt assistant emitted tool_calls
             opt any tool gated by policy (built-in or per-MCP-server)
                 Agent->>Store: persist agent_loop_tool_call approval
@@ -182,6 +182,7 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](a
 
 - **Workspace environment system message.** The loop prepends a machine-generated system message naming the workspace path so the model uses the cloned cwd. See [`agent-runtime.md#workspace-environment-system-message`](agent-runtime.md#workspace-environment-system-message) for the wire shape and rationale.
 - **Provider hint.** `ChatRequest.Scope.ProviderHint` is set from `run.Provider` (mirrored from `task.RequestedProvider`), so the operator's pinned provider actually routes — no fallback to the default for generic model ids.
+- **Resolved route survives streaming.** Streaming and non-streaming agent turns both copy the resolved provider, provider kind, and model back onto the run result, so task detail and resumes see what actually served the turn.
 - **Cost ceiling is task-cumulative.** The per-task `BudgetMicrosUSD` is checked against `priorCost + costSpent` after each turn, where `priorCost` includes every prior run in the resume chain. A chain of resumes can't escape the ceiling.
 
 ## Storage tiers

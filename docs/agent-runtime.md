@@ -75,6 +75,22 @@ A run with `execution_kind=agent_loop` walks turns:
 
 The conversation is persisted as an artifact (`agent_conversation`, JSON-encoded `[]Message`) on every turn. During a streaming model turn, Hecate also refreshes that artifact with the partial assistant answer at a throttled cadence; after the provider finishes, the usual full turn snapshot replaces it. A crash mid-loop, an approval pause, or a deliberate retry-from-turn therefore all start from a known state.
 
+Each fresh LLM turn records the same runtime accounting regardless of whether
+the provider streamed or returned one response body: resolved route metadata
+(`provider`, `provider_kind`, `model`), the assistant thinking step,
+`assistant.*` run events, per-turn cost records, and the updated conversation
+snapshot. Resume-after-approval turns are different: the model has already
+produced the tool calls, so the runtime dispatches those approved calls without
+emitting a new `turn.started` or `turn.completed`.
+
+The implementation keeps those responsibilities split so the loop stays
+auditable:
+
+- `executor_agent_loop.go` owns the high-level loop: resume detection, final answer, approval gate, tool dispatch, cost-ceiling check.
+- `executor_agent_loop_chat.go` owns one fresh LLM turn: request construction, streaming capture, route capture, assistant events, thinking step, turn cost, conversation snapshot.
+- `executor_agent_loop_run_state.go` owns in-memory run assembly: next step index, steps/artifacts, resolved route, cost totals, `ExecutionResult`.
+- `executor_agent_loop_conversation.go`, `executor_agent_loop_approval_gate.go`, and `executor_agent_loop_tools.go` own conversation hydration, approval-gate decisions, and tool dispatch respectively.
+
 ```mermaid
 sequenceDiagram
     autonumber

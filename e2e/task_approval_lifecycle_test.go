@@ -267,9 +267,12 @@ type e2eTaskRunResponse struct {
 }
 
 type e2eTaskRun struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	LastError string `json:"last_error,omitempty"`
+	ID           string `json:"id"`
+	Status       string `json:"status"`
+	LastError    string `json:"last_error,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	ProviderKind string `json:"provider_kind,omitempty"`
+	Model        string `json:"model,omitempty"`
 }
 
 type e2eTaskApprovalsResponse struct {

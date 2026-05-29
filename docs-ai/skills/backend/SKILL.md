@@ -112,6 +112,22 @@ gateway/provider path where possible and publish snapshots through the chat
 live stream; do not fork a second chat-only event stream for Hecate-owned
 tools.
 
+Native `agent_loop` code is intentionally split by responsibility:
+
+- `executor_agent_loop.go` is the control-flow spine. Keep it focused on turn
+  progression, resume detection, final answer, approval gate, tool dispatch,
+  and ceiling checks.
+- `executor_agent_loop_chat.go` owns a fresh LLM turn: request construction,
+  streaming capture, route capture, assistant events, thinking step, turn cost,
+  and conversation snapshot.
+- `executor_agent_loop_run_state.go` owns run assembly: next step index,
+  steps/artifacts, resolved route, per-turn cost records, and final
+  `ExecutionResult` accounting.
+- `executor_agent_loop_conversation.go`, `executor_agent_loop_approval_gate.go`,
+  and `executor_agent_loop_tools.go` own conversation persistence, approval
+  decisions, and tool dispatch. Prefer extending those seams over re-growing
+  the main `Execute` loop.
+
 When changing this path:
 
 1. Keep `docs/rfcs/hecate-chat-model-capabilities.md` and

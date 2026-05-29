@@ -595,6 +595,12 @@ func (s *Service) HandleChatStreamCapture(ctx context.Context, req types.ChatReq
 		ID:        id,
 		Model:     model,
 		CreatedAt: time.Now().UTC(),
+		Route: types.RouteDecision{
+			Provider:     handle.Metadata.Provider,
+			ProviderKind: handle.Metadata.ProviderKind,
+			Model:        handle.Metadata.Model,
+			Reason:       handle.Metadata.RouteReason,
+		},
 		Choices: []types.ChatChoice{{
 			Index: 0,
 			Message: types.Message{
