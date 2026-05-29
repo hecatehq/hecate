@@ -2,7 +2,7 @@
 
 The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This page is the reference for everything past the first run: pinning images, the compose profile, the binary install, storage tiers, and rate limits.
 
-Hecate defaults to `127.0.0.1:8765` and enforces same-origin for browser requests, but same-origin is not a network security boundary. If you change `HECATE_ADDRESS` to expose Hecate beyond the local machine, put your own access controls, firewall, or reverse proxy in front. The current security model is documented in [Security](security.md).
+Hecate defaults to `127.0.0.1:8765` and enforces same-origin for browser requests, but same-origin is not a network security boundary. If you change `HECATE_ADDRESS` to expose Hecate beyond the local machine, startup now requires `HECATE_ALLOW_NON_LOOPBACK_BIND=1`; set it only with your own access controls, firewall, or reverse proxy in front. The current security model is documented in [Security](security.md).
 
 ## Contents
 
@@ -32,7 +32,11 @@ When the working tree is a checkout of the source, `docker compose up` rebuilds 
 
 The Docker image starts `hecate` by default. The container sets
 `HECATE_PUBLIC_URL=http://127.0.0.1:8765`, which is the host URL users normally
-reach through `-p 8765:8765` or `docker compose`.
+reach through `-p 8765:8765` or `docker compose`. The image also sets
+`HECATE_ALLOW_NON_LOOPBACK_BIND=1` because container processes must listen on
+`0.0.0.0` for the published port to work. Treat the host-side published port as
+the exposed surface and protect it with host firewall rules or a reverse proxy
+when it is reachable beyond your own machine.
 
 If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `just dev` / `just run` / `./hecate` is still listening from another shell. Free the port with `just stop` and retry; `just dev`, `just run`, and `just serve` also auto-run `stop` before starting so successive launches don't pile up.
 
@@ -48,6 +52,12 @@ tar -xzf hecate_0.1.0-alpha.42_linux_amd64.tar.gz
 ```
 
 The `hecate` binary starts the gateway service, embeds the React operator UI, listens on `127.0.0.1:8765` by default, and stores state under `HECATE_DATA_DIR` (default `.data/`). No additional runtime dependencies — the binaries are statically linked and CGO-free.
+
+To bind the bare binary beyond loopback, set both variables and provide your own network protection:
+
+```bash
+HECATE_ADDRESS=0.0.0.0:8765 HECATE_ALLOW_NON_LOOPBACK_BIND=1 ./hecate
+```
 
 To pin the data directory to a known location:
 

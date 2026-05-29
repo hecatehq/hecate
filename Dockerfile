@@ -78,6 +78,7 @@ COPY --from=go-builder /out/hecate /usr/local/bin/hecate
 COPY --from=go-builder --chown=65532:65532 /out/data /data
 
 ENV HECATE_ADDRESS=0.0.0.0:8765 \
+    HECATE_ALLOW_NON_LOOPBACK_BIND=1 \
     HECATE_PUBLIC_URL=http://127.0.0.1:8765 \
     HECATE_DATA_DIR=/data \
     HECATE_SQLITE_PATH=/data/hecate.db \

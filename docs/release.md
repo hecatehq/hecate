@@ -108,7 +108,7 @@ Acceptance after the run:
 - `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix —
   goreleaser uses bare semver as the docker tag). The image contains
   `/usr/local/bin/hecate`; the entrypoint is `/usr/local/bin/hecate`.
-- `docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:X.Y.Z` then
+- `docker run --rm -p 127.0.0.1:8765:8765 ghcr.io/hecatehq/hecate:X.Y.Z` then
   `curl :8765/healthz` returns `version: "X.Y.Z"`.
 
 ## Alpha gate

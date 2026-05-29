@@ -260,6 +260,6 @@ console.log("\nWhen CI finishes, sync the manifest/docs commits back locally:");
 console.log("  git pull --ff-only origin master");
 console.log(`\nWhen CI completes (~5-10 min), verify the published image:`);
 console.log(`  docker pull ghcr.io/hecatehq/hecate:${semver}`);
-console.log(`  docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:${semver}`);
+console.log(`  docker run --rm -p 127.0.0.1:8765:8765 ghcr.io/hecatehq/hecate:${semver}`);
 console.log(`\nTo recover if CI fails:`);
 console.log(`  git push --delete origin ${version} && git tag -d ${version}`);

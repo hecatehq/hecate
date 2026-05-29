@@ -44,6 +44,16 @@ func runServe() {
 		slog.Error("config validation failed", slog.Any("error", err))
 		os.Exit(1)
 	}
+	if err := cfg.Server.ValidateNetworkExposure(); err != nil {
+		slog.Error("network exposure guard failed", slog.Any("error", err))
+		os.Exit(1)
+	}
+	if !config.ListenAddressIsLoopback(cfg.Server.Address) {
+		slog.Warn("gateway binding beyond loopback; ensure an access-control layer protects Hecate",
+			slog.String("listen_addr", cfg.Server.Address),
+			slog.String("ack_env", "HECATE_ALLOW_NON_LOOPBACK_BIND"),
+		)
+	}
 
 	// Resolve the auto-generated control-plane encryption key. Env values
 	// win when set; otherwise the value is loaded from the bootstrap file
