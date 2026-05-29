@@ -29,7 +29,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 		TraceContextMiddleware,
 		RequestIDMiddleware,
 		OTelHTTPSpanMiddleware,
-		SameOriginMiddleware,
+		SameOriginMiddlewareWithAllowedOrigins(handler.config.Server.AllowedOrigins),
 		LoggingMiddleware(logger),
 		RecoveryMiddleware(logger),
 	)

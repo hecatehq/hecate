@@ -34,6 +34,7 @@ type Config struct {
 type ServerConfig struct {
 	Address                    string
 	AllowNonLoopbackBind       bool
+	AllowedOrigins             []string
 	PublicURL                  string
 	DataDir                    string
 	BootstrapFile              string
@@ -349,6 +350,7 @@ func LoadFromEnv() Config {
 		Server: ServerConfig{
 			Address:              getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
 			AllowNonLoopbackBind: getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
+			AllowedOrigins:       splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
 			// PublicURL is written to hecate.runtime.json for local
 			// diagnostics. Empty means derive from Address.
 			PublicURL: getEnv("HECATE_PUBLIC_URL", ""),
@@ -492,6 +494,11 @@ func (c Config) Validate() error {
 			errs = append(errs, fmt.Errorf("HECATE_PUBLIC_URL must be an absolute http(s) URL (got %q)", publicURL))
 		}
 	}
+	for _, origin := range c.Server.AllowedOrigins {
+		if !validAllowedOrigin(origin) {
+			errs = append(errs, fmt.Errorf("HECATE_ALLOWED_ORIGINS entries must be exact http(s) origins without path/query/fragment (got %q)", origin))
+		}
+	}
 
 	validPolicies := map[string]struct{}{
 		"shell_exec": {}, "git_exec": {}, "file_write": {},
@@ -616,6 +623,21 @@ func durationEnvKeys() []string {
 		"HECATE_CHAT_IDLE_TIMEOUT",
 		"HECATE_SQLITE_BUSY_TIMEOUT",
 	}
+}
+
+func validAllowedOrigin(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+	if u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	return u.Path == "" || u.Path == "/"
 }
 
 func loadOTelFromEnv() OTelConfig {

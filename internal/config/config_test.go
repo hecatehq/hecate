@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +77,16 @@ func TestLoadFromEnvNonLoopbackBindAcknowledgementZeroStaysFalse(t *testing.T) {
 	cfg := LoadFromEnv()
 	if cfg.Server.AllowNonLoopbackBind {
 		t.Fatal("AllowNonLoopbackBind = true for HECATE_ALLOW_NON_LOOPBACK_BIND=0, want false")
+	}
+}
+
+func TestLoadFromEnvAllowedOrigins(t *testing.T) {
+	t.Setenv("HECATE_ALLOWED_ORIGINS", "http://127.0.0.1:5173, http://localhost:5173")
+
+	cfg := LoadFromEnv()
+	want := []string{"http://127.0.0.1:5173", "http://localhost:5173"}
+	if !reflect.DeepEqual(cfg.Server.AllowedOrigins, want) {
+		t.Fatalf("AllowedOrigins = %#v, want %#v", cfg.Server.AllowedOrigins, want)
 	}
 }
 
@@ -279,6 +290,19 @@ func TestValidateRejectsInvalidPublicURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_PUBLIC_URL") {
 		t.Fatalf("Validate() error = %q, want HECATE_PUBLIC_URL", err)
+	}
+}
+
+func TestValidateRejectsInvalidAllowedOrigin(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.AllowedOrigins = []string{"http://localhost:5173/app"}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid allowed origin error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_ALLOWED_ORIGINS") {
+		t.Fatalf("Validate() error = %q, want HECATE_ALLOWED_ORIGINS", err)
 	}
 }
 
