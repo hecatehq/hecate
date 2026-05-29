@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspacefs"
@@ -201,7 +201,7 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	_, _ = h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
+	_, _ = h.taskRunEventRecorder().Append(ctx, runtimeevents.Event{
 		TaskID:    updated.TaskID,
 		RunID:     updated.RunID,
 		EventType: "tool.file.reverted",
@@ -213,7 +213,6 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 		},
 		RequestID: RequestIDFromContext(ctx),
 		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,
-		CreatedAt: time.Now().UTC(),
 	})
 	WriteJSON(w, http.StatusOK, TaskPatchResponse{
 		Object: "task_patch",
@@ -265,7 +264,7 @@ func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	_, _ = h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
+	_, _ = h.taskRunEventRecorder().Append(ctx, runtimeevents.Event{
 		TaskID:    updated.TaskID,
 		RunID:     updated.RunID,
 		EventType: "tool.file.applied",
@@ -276,7 +275,6 @@ func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request
 		},
 		RequestID: RequestIDFromContext(ctx),
 		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,
-		CreatedAt: time.Now().UTC(),
 	})
 	WriteJSON(w, http.StatusOK, TaskPatchResponse{
 		Object: "task_patch",

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTaskApprovalCancelTerminalStateE2E(t *testing.T) {
@@ -191,6 +192,63 @@ func TestTaskRunStreamResumeDoesNotAppendEventsE2E(t *testing.T) {
 	}
 }
 
+func TestTaskRunExternalEventAppendStreamsE2E(t *testing.T) {
+	workDir := t.TempDir()
+	baseURL := gatewayServer(t,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_TASK_APPROVAL_POLICIES=",
+	)
+
+	body := fmt.Sprintf(`{
+		"title": "external event e2e",
+		"prompt": "append external event",
+		"execution_kind": "shell",
+		"shell_command": "printf 'ok\n'",
+		"working_directory": %q,
+		"sandbox_allowed_root": %q,
+		"workspace_mode": "in_place",
+		"timeout_ms": 10000
+	}`, workDir, workDir)
+	created := postJSONDecode[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks", body)
+	started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/start", `{}`)
+	run := waitForE2ETaskRunTerminal(t, baseURL, created.Data.ID, started.Data.ID, 10*time.Second)
+	if run.Status != "completed" {
+		t.Fatalf("run status = %q last_error=%q, want completed", run.Status, run.LastError)
+	}
+
+	before := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
+	if len(before.Data) == 0 {
+		t.Fatal("events before append = 0, want completed run events")
+	}
+	lastSequence := before.Data[len(before.Data)-1].Sequence
+	appended := postJSONDecode[e2eTaskEventResponse](
+		t,
+		baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events",
+		`{"type":"external.tool_result","status":"ok","note":"operator attached result","data":{"tool":"lint","result":"ok"}}`,
+	)
+	if appended.Data.Type != "external.tool_result" || appended.Data.Sequence <= lastSequence {
+		t.Fatalf("appended event = %+v, want external.tool_result after %d", appended.Data, lastSequence)
+	}
+	if appended.Data.Data["note"] != "operator attached result" || appended.Data.Data["status"] != "ok" {
+		t.Fatalf("appended event data = %+v, want operator note/status", appended.Data.Data)
+	}
+
+	frames := e2eReadTaskRunStreamPayloadsAfter(t, baseURL, created.Data.ID, started.Data.ID, lastSequence)
+	for _, frame := range frames {
+		if frame.Data.EventType != "external.tool_result" {
+			continue
+		}
+		if frame.Data.Sequence != int(appended.Data.Sequence) {
+			t.Fatalf("external stream sequence = %d, want appended sequence %d", frame.Data.Sequence, appended.Data.Sequence)
+		}
+		if frame.Data.Run.ID != started.Data.ID || frame.Data.Run.Status != "completed" || !frame.Data.Terminal {
+			t.Fatalf("external stream frame = %+v, want completed terminal run snapshot", frame.Data)
+		}
+		return
+	}
+	t.Fatalf("external.tool_result stream frame not found in %+v", frames)
+}
+
 func e2eCreateApprovalShellTask(t *testing.T, baseURL, workDir string) string {
 	t.Helper()
 	body := fmt.Sprintf(`{
@@ -271,6 +329,34 @@ func e2eReadTerminalTaskRunSnapshotAfter(t *testing.T, baseURL, taskID, runID st
 		t.Fatalf("terminal stream done event not found in %d SSE payloads", len(events))
 	}
 	return terminal
+}
+
+func e2eReadTaskRunStreamPayloadsAfter(t *testing.T, baseURL, taskID, runID string, afterSequence int64) []e2eTaskRunStreamResponse {
+	t.Helper()
+	streamURL := baseURL + "/hecate/v1/tasks/" + taskID + "/runs/" + runID + "/stream"
+	if afterSequence > 0 {
+		streamURL += "?after_sequence=" + strconv.FormatInt(afterSequence, 10)
+	}
+	resp, err := http.Get(streamURL) //nolint:noctx
+	if err != nil {
+		t.Fatalf("GET run stream: %v", err)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		resp.Body.Close()
+		t.Fatalf("stream content-type = %q, want text/event-stream", ct)
+	}
+	events := readSSE(t, resp)
+	payloads := make([]e2eTaskRunStreamResponse, 0, len(events))
+	for _, event := range events {
+		var payload e2eTaskRunStreamResponse
+		if err := json.Unmarshal([]byte(event.Data), &payload); err != nil {
+			continue
+		}
+		if payload.Data.Run.ID != "" {
+			payloads = append(payloads, payload)
+		}
+	}
+	return payloads
 }
 
 func assertE2EEventOrder(t *testing.T, events []e2eEventEnvelope, want []string) {
@@ -378,6 +464,10 @@ type e2eTaskStep struct {
 
 type e2eTaskEventsResponse struct {
 	Data []e2eEventEnvelope `json:"data"`
+}
+
+type e2eTaskEventResponse struct {
+	Data e2eEventEnvelope `json:"data"`
 }
 
 type e2eEventEnvelope struct {
