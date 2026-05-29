@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"log/slog"
 	"net/http"
@@ -21,6 +22,8 @@ import (
 )
 
 var httpServerTracer = otel.Tracer("github.com/hecatehq/hecate/internal/api")
+
+const runtimeTokenHeader = "X-Hecate-Runtime-Token"
 
 type middleware func(http.Handler) http.Handler
 
@@ -154,6 +157,34 @@ func SameOriginMiddlewareWithAllowedOrigins(allowedOrigins []string) middleware 
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func RuntimeTokenMiddleware(token string) middleware {
+	token = strings.TrimSpace(token)
+	return func(next http.Handler) http.Handler {
+		if token == "" {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !isHecateAPIPath(r.URL.Path) || runtimeTokenMatches(r.Header.Get(runtimeTokenHeader), token) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "runtime token is required")
+		})
+	}
+}
+
+func isHecateAPIPath(path string) bool {
+	return path == "/hecate/v1" || strings.HasPrefix(path, "/hecate/v1/")
+}
+
+func runtimeTokenMatches(got, want string) bool {
+	got = strings.TrimSpace(got)
+	if got == "" || len(got) != len(want) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 func sameOriginAllowed(r *http.Request, allowedOrigins map[string]struct{}) bool {

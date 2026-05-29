@@ -42,6 +42,8 @@ describe("api client", () => {
   });
 
   afterEach(() => {
+    window.sessionStorage.clear();
+    window.localStorage.clear();
     vi.unstubAllGlobals();
   });
 
@@ -375,6 +377,36 @@ describe("api client", () => {
       const options = buildRequestOptions({ method: "POST", body: { x: 1 } });
       const headers = new Headers(options.headers);
       expect(headers.get("Authorization")).toBeNull();
+    });
+
+    it("sends the optional runtime token from session storage", () => {
+      window.sessionStorage.setItem("hecate.runtimeToken", "local-runtime-token-123456");
+
+      const options = buildRequestOptions({ method: "POST", body: { x: 1 } }, "/hecate/v1/tasks");
+      const headers = new Headers(options.headers);
+
+      expect(headers.get("X-Hecate-Runtime-Token")).toBe("local-runtime-token-123456");
+    });
+
+    it("falls back to the optional runtime token from local storage", () => {
+      window.localStorage.setItem("hecate.runtimeToken", "local-runtime-token-abcdef");
+
+      const options = buildRequestOptions({ method: "GET" }, "/hecate/v1/whoami");
+      const headers = new Headers(options.headers);
+
+      expect(headers.get("X-Hecate-Runtime-Token")).toBe("local-runtime-token-abcdef");
+    });
+
+    it("does not send the optional runtime token to provider-compatible paths", () => {
+      window.sessionStorage.setItem("hecate.runtimeToken", "local-runtime-token-123456");
+
+      const options = buildRequestOptions(
+        { method: "POST", body: { messages: [] } },
+        "/v1/chat/completions",
+      );
+      const headers = new Headers(options.headers);
+
+      expect(headers.get("X-Hecate-Runtime-Token")).toBeNull();
     });
   });
 

@@ -73,6 +73,8 @@ type ErrorPayload = {
 };
 
 const HECATE_API = "/hecate/v1";
+const HECATE_RUNTIME_TOKEN_HEADER = "X-Hecate-Runtime-Token";
+const HECATE_RUNTIME_TOKEN_STORAGE_KEY = "hecate.runtimeToken";
 
 // PersistedContentBlock mirrors internal/api.OpenAIPersistedContentBlock.
 // Used on history-replay paths so Anthropic thinking / redacted_thinking /
@@ -441,9 +443,10 @@ export async function streamChatSession(
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  const url = `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/stream`;
   const response = await fetchWithNetworkError(
-    `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/stream`,
-    { ...buildRequestOptions({}), signal },
+    url,
+    { ...buildRequestOptions({}, url), signal },
   );
   if (!response.ok) {
     throw await apiError(response, "request failed");
@@ -890,9 +893,10 @@ export async function streamTaskRun(
   afterSequence = 0,
   signal?: AbortSignal,
 ): Promise<void> {
+  const url = `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/stream?after_sequence=${encodeURIComponent(String(afterSequence))}`;
   const response = await fetchWithNetworkError(
-    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/stream?after_sequence=${encodeURIComponent(String(afterSequence))}`,
-    { ...buildRequestOptions({}), signal },
+    url,
+    { ...buildRequestOptions({}, url), signal },
   );
   if (!response.ok) {
     throw await apiError(response, "request failed");
@@ -955,9 +959,10 @@ export async function chatCompletionsStream(
   payload: ChatCompletionPayload,
   onChunk: (delta: string) => void,
 ): Promise<{ headers: RuntimeHeaders; finishReason: string; toolCalls: StreamedToolCall[] }> {
+  const url = "/v1/chat/completions";
   const response = await fetchWithNetworkError(
-    "/v1/chat/completions",
-    buildRequestOptions({ method: "POST", body: { ...payload, stream: true } }),
+    url,
+    buildRequestOptions({ method: "POST", body: { ...payload, stream: true } }, url),
   );
   if (!response.ok) {
     throw await apiError(response, "request failed");
@@ -1035,9 +1040,10 @@ export async function chatCompletionsStream(
 export async function chatCompletions(
   payload: ChatCompletionPayload,
 ): Promise<{ data: ChatResponse; headers: RuntimeHeaders }> {
+  const url = "/v1/chat/completions";
   const response = await fetchWithNetworkError(
-    "/v1/chat/completions",
-    buildRequestOptions({ method: "POST", body: payload }),
+    url,
+    buildRequestOptions({ method: "POST", body: payload }, url),
   );
   if (!response.ok) {
     throw await apiError(response, "request failed");
@@ -1067,10 +1073,14 @@ function readRuntimeHeaders(response: Response): RuntimeHeaders {
   };
 }
 
-export function buildRequestOptions(options: RequestOptions): RequestInit {
+export function buildRequestOptions(options: RequestOptions, url = ""): RequestInit {
   const headers = new Headers();
   if (options.body !== undefined) {
     headers.set("Content-Type", "application/json");
+  }
+  const runtimeToken = readRuntimeToken();
+  if (runtimeToken && isHecateNativeURL(url)) {
+    headers.set(HECATE_RUNTIME_TOKEN_HEADER, runtimeToken);
   }
 
   return {
@@ -1078,6 +1088,23 @@ export function buildRequestOptions(options: RequestOptions): RequestInit {
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   };
+}
+
+function isHecateNativeURL(url: string): boolean {
+  return url === HECATE_API || url.startsWith(`${HECATE_API}/`);
+}
+
+function readRuntimeToken(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return (
+      window.sessionStorage.getItem(HECATE_RUNTIME_TOKEN_STORAGE_KEY)?.trim() ||
+      window.localStorage.getItem(HECATE_RUNTIME_TOKEN_STORAGE_KEY)?.trim() ||
+      ""
+    );
+  } catch {
+    return "";
+  }
 }
 
 // ApiError preserves the HTTP status alongside the error message so
@@ -1113,7 +1140,7 @@ export class ApiError extends Error {
 }
 
 export async function fetchJSON<T>(url: string, options: RequestOptions = {}): Promise<T> {
-  const response = await fetchWithNetworkError(url, buildRequestOptions(options));
+  const response = await fetchWithNetworkError(url, buildRequestOptions(options, url));
   if (!response.ok) {
     throw await apiError(response, "request failed");
   }

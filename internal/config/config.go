@@ -35,6 +35,7 @@ type ServerConfig struct {
 	Address                    string
 	AllowNonLoopbackBind       bool
 	AllowedOrigins             []string
+	RuntimeToken               string
 	PublicURL                  string
 	DataDir                    string
 	BootstrapFile              string
@@ -351,6 +352,7 @@ func LoadFromEnv() Config {
 			Address:              getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
 			AllowNonLoopbackBind: getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
 			AllowedOrigins:       splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
+			RuntimeToken:         getEnv("HECATE_RUNTIME_TOKEN", ""),
 			// PublicURL is written to hecate.runtime.json for local
 			// diagnostics. Empty means derive from Address.
 			PublicURL: getEnv("HECATE_PUBLIC_URL", ""),
@@ -498,6 +500,9 @@ func (c Config) Validate() error {
 		if !validAllowedOrigin(origin) {
 			errs = append(errs, fmt.Errorf("HECATE_ALLOWED_ORIGINS entries must be exact http(s) origins without path/query/fragment (got %q)", origin))
 		}
+	}
+	if token := strings.TrimSpace(c.Server.RuntimeToken); token != "" && len(token) < 24 {
+		errs = append(errs, errors.New("HECATE_RUNTIME_TOKEN must be at least 24 characters when set"))
 	}
 
 	validPolicies := map[string]struct{}{

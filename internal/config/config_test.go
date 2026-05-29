@@ -90,6 +90,15 @@ func TestLoadFromEnvAllowedOrigins(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvRuntimeToken(t *testing.T) {
+	t.Setenv("HECATE_RUNTIME_TOKEN", "local-runtime-token-123456")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.RuntimeToken != "local-runtime-token-123456" {
+		t.Fatalf("RuntimeToken = %q, want configured token", cfg.Server.RuntimeToken)
+	}
+}
+
 func TestListenAddressIsLoopback(t *testing.T) {
 	t.Parallel()
 
@@ -303,6 +312,19 @@ func TestValidateRejectsInvalidAllowedOrigin(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_ALLOWED_ORIGINS") {
 		t.Fatalf("Validate() error = %q, want HECATE_ALLOWED_ORIGINS", err)
+	}
+}
+
+func TestValidateRejectsShortRuntimeToken(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.RuntimeToken = "short"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid runtime token error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_RUNTIME_TOKEN") {
+		t.Fatalf("Validate() error = %q, want HECATE_RUNTIME_TOKEN", err)
 	}
 }
 

@@ -33,6 +33,7 @@ Both sides speak [MCP spec](https://modelcontextprotocol.io/) `2025-11-25`.
 ## Hecate as MCP server
 
 The server runs as a subcommand of the `gateway` binary on stdio, talking back to a running gateway over its public REST API. Operators add it to their MCP client's config, and the agent runtime surfaces become callable from inside the editor.
+When the gateway is started with `HECATE_RUNTIME_TOKEN`, set the same environment variable on the MCP server entry so it can send `X-Hecate-Runtime-Token` to `/hecate/v1/*`.
 
 ### What's available
 

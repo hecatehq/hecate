@@ -19,6 +19,8 @@ import (
 // Configuration is environment-only:
 //   - HECATE_BASE_URL   — gateway URL, e.g. http://127.0.0.1:8765
 //     (default: http://127.0.0.1:8765)
+//   - HECATE_RUNTIME_TOKEN — optional token for Hecate-native APIs when
+//     the gateway was started with the same value.
 //
 // We deliberately don't read config.LoadFromEnv() — the MCP subprocess
 // runs out-of-process from the gateway and shouldn't share its config
@@ -32,6 +34,7 @@ func runMCPServer(commandName string) {
 	srv := server.NewServer("hecate", version.Version)
 	srv.SetDescription("Hecate gateway: read-only inspection of tasks, chat sessions, and recent traffic.")
 	client := server.NewGatewayClient(baseURL)
+	client.SetRuntimeToken(os.Getenv("HECATE_RUNTIME_TOKEN"))
 	server.RegisterDefaultTools(srv, client)
 
 	ctx, cancel := context.WithCancel(context.Background())

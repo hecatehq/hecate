@@ -85,6 +85,27 @@ func TestTool_ListTasks_EmptyState(t *testing.T) {
 	}
 }
 
+func TestGatewayClient_SendsRuntimeToken(t *testing.T) {
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
+		"/hecate/v1/tasks": func(w http.ResponseWriter, r *http.Request) {
+			if got := r.Header.Get("X-Hecate-Runtime-Token"); got != "local-runtime-token-123456" {
+				t.Fatalf("X-Hecate-Runtime-Token = %q, want configured token", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		},
+	})
+	client := NewGatewayClient(srv.URL)
+	client.SetRuntimeToken("local-runtime-token-123456")
+
+	server := NewServer("t", "0")
+	RegisterDefaultTools(server, client)
+	_, err := registeredToolFor(t, server, "list_tasks")(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("list_tasks: %v", err)
+	}
+}
+
 func TestTool_GetTaskStatus_RequiresID(t *testing.T) {
 	server := NewServer("t", "0")
 	RegisterDefaultTools(server, NewGatewayClient("http://unused"))

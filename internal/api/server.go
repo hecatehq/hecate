@@ -30,6 +30,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 		RequestIDMiddleware,
 		OTelHTTPSpanMiddleware,
 		SameOriginMiddlewareWithAllowedOrigins(handler.config.Server.AllowedOrigins),
+		RuntimeTokenMiddleware(handler.config.Server.RuntimeToken),
 		LoggingMiddleware(logger),
 		RecoveryMiddleware(logger),
 	)
