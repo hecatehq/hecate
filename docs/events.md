@@ -233,6 +233,14 @@ reject, the run and task terminate `cancelled` with
 
 ## Agent loop
 
+Fresh LLM turns follow this persisted-event shape: `turn.started`, zero or more
+`assistant.text_complete` / `assistant.tool_call_proposed` events,
+optionally `assistant.final_answer`, then one `turn.completed` emitted from the
+turn-cost record. Resume-after-approval dispatches do not call the model again,
+so they do not emit a new `turn.started` or `turn.completed`; the approved tool
+calls continue from the assistant message already saved in the conversation
+artifact.
+
 ### `turn.started`
 
 Emitted immediately before an `agent_loop` LLM request. Resume-after-approval

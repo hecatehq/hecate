@@ -55,9 +55,27 @@ func TestAgentLoopToolDispatchE2E(t *testing.T) {
 	if run.Status != "completed" {
 		t.Fatalf("run status = %q last_error=%q, want completed", run.Status, run.LastError)
 	}
+	if run.Provider != "fake" || run.ProviderKind != "local" || run.Model != agentLoopE2EModel {
+		t.Fatalf("run route = provider %q kind %q model %q, want fake/local/%s", run.Provider, run.ProviderKind, run.Model, agentLoopE2EModel)
+	}
 
 	steps := getJSON[e2eTaskStepsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/steps")
 	foundToolStep := false
+	var modelSteps []e2eTaskStep
+	if len(steps.Data) != 3 {
+		t.Fatalf("steps = %d, want 3 (model, tool, model): %+v", len(steps.Data), steps.Data)
+	}
+	for i, step := range steps.Data {
+		if step.Index != i+1 {
+			t.Fatalf("step[%d] index = %d, want %d; steps=%+v", i, step.Index, i+1, steps.Data)
+		}
+		if step.Kind == "model" {
+			modelSteps = append(modelSteps, step)
+		}
+	}
+	if len(modelSteps) != 2 {
+		t.Fatalf("model steps = %d, want 2: %+v", len(modelSteps), steps.Data)
+	}
 	for _, step := range steps.Data {
 		if step.Kind == "tool" && step.ToolName == "shell_exec" {
 			foundToolStep = true
@@ -68,6 +86,55 @@ func TestAgentLoopToolDispatchE2E(t *testing.T) {
 	}
 	if !foundToolStep {
 		t.Fatalf("shell_exec tool step not found in %+v", steps.Data)
+	}
+
+	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
+	assertE2EEventTypes(t, events.Data, "turn.started", "assistant.tool_call_proposed", "assistant.final_answer")
+	var turnStarted []e2eEventEnvelope
+	var turnEvents []e2eEventEnvelope
+	foundToolProposal := false
+	foundFinalAnswer := false
+	for _, event := range events.Data {
+		if event.Type == "turn.started" {
+			turnStarted = append(turnStarted, event)
+		}
+		if event.Type == "turn.completed" {
+			turnEvents = append(turnEvents, event)
+		}
+		if event.Type == "assistant.tool_call_proposed" &&
+			event.Data["tool_call_id"] == "call-shell-e2e" &&
+			event.Data["tool_name"] == "shell_exec" {
+			foundToolProposal = true
+		}
+		if event.Type == "assistant.final_answer" && strings.Contains(fmt.Sprint(event.Data["summary"]), "Tool dispatch completed.") {
+			foundFinalAnswer = true
+		}
+	}
+	if len(turnStarted) != 2 {
+		t.Fatalf("turn.started events = %d, want 2: %+v", len(turnStarted), events.Data)
+	}
+	assertE2ENumber(t, turnStarted[0].Data, "turn_index", 1)
+	assertE2ENumber(t, turnStarted[1].Data, "turn_index", 2)
+	if !foundToolProposal {
+		t.Fatalf("assistant.tool_call_proposed for call-shell-e2e not found in %+v", events.Data)
+	}
+	if !foundFinalAnswer {
+		t.Fatalf("assistant.final_answer not found in %+v", events.Data)
+	}
+	if len(turnEvents) != 2 {
+		t.Fatalf("turn.completed events = %d, want 2: %+v", len(turnEvents), events.Data)
+	}
+	assertE2ENumber(t, turnEvents[0].Data, "turn_index", 1)
+	assertE2ENumber(t, turnEvents[0].Data, "tool_calls", 1)
+	assertE2ENumber(t, turnEvents[0].Data, "run_cumulative_cost_micros_usd", 0)
+	if turnEvents[0].Data["step_id"] != modelSteps[0].ID {
+		t.Fatalf("turn 1 step_id = %v, want %s", turnEvents[0].Data["step_id"], modelSteps[0].ID)
+	}
+	assertE2ENumber(t, turnEvents[1].Data, "turn_index", 2)
+	assertE2ENumber(t, turnEvents[1].Data, "tool_calls", 0)
+	assertE2ENumber(t, turnEvents[1].Data, "run_cumulative_cost_micros_usd", 0)
+	if turnEvents[1].Data["step_id"] != modelSteps[1].ID {
+		t.Fatalf("turn 2 step_id = %v, want %s", turnEvents[1].Data["step_id"], modelSteps[1].ID)
 	}
 
 	bodies := capturedBodies(captured)
@@ -265,6 +332,17 @@ func requestAdvertisedTool(body map[string]any, toolName string) bool {
 		}
 	}
 	return false
+}
+
+func assertE2ENumber(t *testing.T, data map[string]any, key string, want float64) {
+	t.Helper()
+	got, ok := data[key].(float64)
+	if !ok {
+		t.Fatalf("%s = %T(%v), want number %v", key, data[key], data[key], want)
+	}
+	if got != want {
+		t.Fatalf("%s = %v, want %v", key, got, want)
+	}
 }
 
 func requestHasToolResult(body map[string]any, toolCallID, contentSubstring string) bool {

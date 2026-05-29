@@ -140,7 +140,7 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 
 - `total_cost_micros_usd` — this run's LLM spend (after routing).
 - `prior_cost_micros_usd` — cumulative spend of every prior run in this run's resume chain. Cumulative-across-task = `prior + total`.
-- `model` / `provider` — what was actually used (after routing). May differ from the task's `requested_*` when the operator picked auto.
+- `model` / `provider` / `provider_kind` — what was actually used (after routing). May differ from the task's `requested_*` when the operator picked auto. Agent-loop runs preserve these fields for both streaming and non-streaming model turns.
 
 ## Lifecycle endpoints
 

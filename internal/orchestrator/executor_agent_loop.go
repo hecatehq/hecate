@@ -172,19 +172,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 		return e.runWithoutLLM(ctx, spec)
 	}
 
-	startedAt := spec.StartedAt
-	if startedAt.IsZero() {
-		startedAt = time.Now().UTC()
-	}
-	baseIndex := 0
-	if spec.ResumeCheckpoint != nil && spec.ResumeCheckpoint.LastStepIndex > 0 {
-		baseIndex = spec.ResumeCheckpoint.LastStepIndex
-	}
-	nextIndex := baseIndex + 1
-
-	allSteps := make([]types.TaskStep, 0, e.maxTurns*2)
-	allArtifacts := make([]types.TaskArtifact, 0, e.maxTurns)
-
+	runState := newAgentLoopRunState(spec, e.maxTurns)
 	conversation := newAgentLoopConversation(spec)
 	tools := agentToolDefinitions()
 
@@ -198,12 +186,12 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 	var mcpHost AgentMCPHost
 	if len(spec.Task.MCPServers) > 0 {
 		if e.mcpFactory == nil {
-			return e.failedFromError(spec, nil, nil, baseIndex+1, time.Now().UTC(),
+			return e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), time.Now().UTC(),
 				"task configured mcp_servers but no MCP host factory is wired; this gateway build does not support external MCP servers")
 		}
 		host, err := e.mcpFactory(ctx, spec.Task.MCPServers)
 		if err != nil {
-			return e.failedFromError(spec, nil, nil, baseIndex+1, time.Now().UTC(),
+			return e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), time.Now().UTC(),
 				fmt.Sprintf("start mcp servers: %v", err))
 		}
 		if host != nil {
@@ -211,58 +199,6 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			defer func() { _ = host.Close() }()
 			tools = append(tools, host.Tools()...)
 		}
-	}
-
-	finalResult := &ExecutionResult{
-		Status:    "completed",
-		Steps:     allSteps,
-		Artifacts: allArtifacts,
-	}
-
-	// Per-task cost ceiling. spec.Task.BudgetMicrosUSD acts as a hard
-	// cap on the cumulative LLM spend for this *task* (across the
-	// entire resume chain), not just this run. Zero/negative disables
-	// the cap. We accumulate ChatResponse.Cost.TotalMicrosUSD after
-	// each turn and bail when (priorCost + costSpent) crosses the
-	// ceiling. Without priorCost the operator could escape the
-	// ceiling by repeatedly resuming a maxed-out run; including it
-	// here keeps the ceiling meaningful across the chain.
-	costCeiling := spec.Task.BudgetMicrosUSD
-	costSpent := int64(0)
-	priorCost := int64(0)
-	if spec.ResumeCheckpoint != nil {
-		priorCost = spec.ResumeCheckpoint.PriorCostMicrosUSD
-		// Same-run mid-approval resume: seed costSpent with the
-		// pre-pause spend so ceiling checks and the persisted Total
-		// account for it. Cross-run resumes see zero here (new run
-		// hasn't spent anything yet).
-		costSpent = spec.ResumeCheckpoint.ThisRunCostMicrosUSD
-	}
-	turnCosts := make([]TurnCostRecord, 0, e.maxTurns)
-	recordRoute := func(resp *types.ChatResponse) {
-		if resp == nil {
-			return
-		}
-		if resp.Route.Provider != "" {
-			finalResult.Provider = resp.Route.Provider
-		}
-		if resp.Route.ProviderKind != "" {
-			finalResult.ProviderKind = resp.Route.ProviderKind
-		}
-		if resp.Route.Model != "" {
-			finalResult.Model = resp.Route.Model
-		} else if resp.Model != "" {
-			finalResult.Model = resp.Model
-		}
-	}
-	withRoute := func(res *ExecutionResult) *ExecutionResult {
-		if res == nil {
-			return nil
-		}
-		res.Provider = firstNonEmpty(res.Provider, finalResult.Provider)
-		res.ProviderKind = firstNonEmpty(res.ProviderKind, finalResult.ProviderKind)
-		res.Model = firstNonEmpty(res.Model, finalResult.Model)
-		return res
 	}
 
 	// Resume detection: if the conversation tail is an assistant
@@ -273,19 +209,14 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 
 	for turn := 1; turn <= e.maxTurns; turn++ {
 		if err := ctx.Err(); err != nil {
-			finalResult.Status = "cancelled"
-			finalResult.LastError = err.Error()
-			finalResult.OtelStatusCode = "error"
-			finalResult.OtelStatusMessage = "context cancelled mid-loop"
-			finalResult.Steps = allSteps
-			finalResult.Artifacts = allArtifacts
-			finalResult.CostMicrosUSD = costSpent
-			finalResult.TurnCosts = turnCosts
-			return withRoute(finalResult), nil
+			res := runState.Result("cancelled")
+			res.LastError = err.Error()
+			res.OtelStatusCode = "error"
+			res.OtelStatusMessage = "context cancelled mid-loop"
+			return res, nil
 		}
 
 		var assistantMsg types.Message
-		var resp *types.ChatResponse
 		turnStartedAt := time.Now().UTC()
 
 		if len(pendingToolCalls) > 0 {
@@ -296,127 +227,31 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			var ok bool
 			assistantMsg, ok = conversation.TailAssistantForResume()
 			if !ok {
-				return e.failedFromError(spec, allSteps, allArtifacts, nextIndex, turnStartedAt,
+				failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), turnStartedAt,
 					"resume checkpoint had pending tool calls but no assistant tail")
+				return runState.attachAccounting(failed), ferr
 			}
-			thinkingStep := buildResumeThinkingStep(spec, nextIndex, turn, turnStartedAt, assistantMsg)
-			nextIndex++
-			if err := upsertTaskStep(spec, thinkingStep); err != nil {
+			thinkingStep := buildResumeThinkingStep(spec, runState.NextStepIndex(), turn, turnStartedAt, assistantMsg)
+			if err := runState.AddStep(spec, thinkingStep); err != nil {
 				return nil, err
 			}
-			allSteps = append(allSteps, thinkingStep)
 		} else {
-			// 1. LLM round-trip.
-			//
-			// ProviderHint carries the operator's pinned provider
-			// from task.RequestedProvider (mirrored to run.Provider
-			// at run-create time). Without it the router falls back
-			// to its default — which historically picked OpenAI for
-			// generic model ids and surfaced as "api key is required
-			// for cloud provider openai" when the operator had only
-			// configured a local provider like Ollama. Empty hint
-			// preserves the existing auto-route behavior for tasks
-			// that didn't specify a provider.
-			req := types.ChatRequest{
-				RequestID: spec.RequestID,
-				Model:     spec.Run.Model,
-				Messages:  conversation.Messages(),
-				Tools:     tools,
-				Scope: types.RequestScope{
-					ProviderHint: spec.Run.Provider,
-				},
+			turnResult, failed, err := e.runLLMTurn(ctx, spec, &conversation, runState, tools, turn, turnStartedAt)
+			if failed != nil || err != nil {
+				return failed, err
 			}
-			emitAgentTurnStarted(spec, turn, req)
-			r, err := e.chatTurn(ctx, spec, conversation.ArtifactID(), conversation.Messages(), turn, req)
-			if err != nil {
-				// Annotate the common "model doesn't support tools"
-				// failure with a concrete remedy. agent_loop relies
-				// on tool calls; tiny models like smollm2:135m or
-				// embeddings-only endpoints reject the `tools` field
-				// outright. Surfacing the model name + a "pick a
-				// tool-capable model" hint saves the operator a
-				// trip to the provider's docs.
-				message := fmt.Sprintf("LLM call failed on turn %d: %v", turn, err)
-				if isModelLacksToolsError(err) {
-					message = fmt.Sprintf("LLM call failed on turn %d: model %q does not support tool-calling, which agent_loop requires. Pick a tool-capable model (e.g. gpt-4o-mini, claude-sonnet-4-6, qwen2.5-coder for Ollama). Underlying error: %v", turn, spec.Run.Model, err)
-				}
-				failed, ferr := e.failedFromError(spec, allSteps, allArtifacts, nextIndex, turnStartedAt, message)
-				if failed != nil {
-					failed.CostMicrosUSD = costSpent
-					failed.TurnCosts = turnCosts
-				}
-				return withRoute(failed), ferr
-			}
-			recordRoute(r)
-			if r == nil || len(r.Choices) == 0 {
-				failed, ferr := e.failedFromError(spec, allSteps, allArtifacts, nextIndex, turnStartedAt,
-					fmt.Sprintf("LLM returned empty response on turn %d", turn))
-				if failed != nil {
-					failed.CostMicrosUSD = costSpent
-					failed.TurnCosts = turnCosts
-				}
-				return withRoute(failed), ferr
-			}
-			resp = r
-			// Accumulate the LLM cost for this turn. Even when the
-			// per-task ceiling is disabled we surface the running
-			// total via ExecutionResult so the runner can persist
-			// per-run cost telemetry. CachedInputMicrosUSD is folded
-			// into TotalMicrosUSD upstream (see CostBreakdown), so
-			// using Total directly accounts correctly for cache hits.
-			turnCost := resp.Cost.TotalMicrosUSD
-			costSpent += turnCost
-			assistantMsg = resp.Choices[0].Message
-			emitAssistantMessageEvents(spec, turn, assistantMsg)
+			assistantMsg = turnResult.Assistant
 
-			// 2. Record this turn's "thinking" step — captures the
-			// assistant message content + which tools it asked for,
-			// plus the per-turn LLM cost in OutputSummary so the run
-			// replay UI can render cost next to the turn label
-			// without joining against the events feed.
-			thinkingStep := buildThinkingStep(spec, nextIndex, turn, turnStartedAt, assistantMsg, resp, costSpent)
-			nextIndex++
-			if err := upsertTaskStep(spec, thinkingStep); err != nil {
-				return nil, err
-			}
-			allSteps = append(allSteps, thinkingStep)
-
-			// Per-turn cost record. We surface this on ExecutionResult
-			// so the runner can emit one `turn.completed` event
-			// per turn for replay/operator UIs. CumulativeMicrosUSD is
-			// this-run-only; the runner adds priorCost when emitting.
-			turnCosts = append(turnCosts, TurnCostRecord{
-				Turn:                turn,
-				StepID:              thinkingStep.ID,
-				CostMicrosUSD:       turnCost,
-				CumulativeMicrosUSD: costSpent,
-				ToolCallCount:       len(assistantMsg.ToolCalls),
-			})
-
-			// 3. Append the assistant message to the running conversation.
-			conversation.AppendAssistant(assistantMsg)
-			// Persist snapshot — crash between LLM response and tool
-			// dispatch still leaves a recoverable state.
-			if art, err := conversation.UpsertArtifact(spec, turn, turnStartedAt); err != nil {
-				return nil, err
-			} else if art != nil && len(allArtifacts) == 0 {
-				allArtifacts = append(allArtifacts, *art)
-			}
-
-			// 4. If no tool calls, assistant gave a final answer.
+			// If no tool calls, assistant gave a final answer.
 			if len(assistantMsg.ToolCalls) == 0 {
 				emitAssistantFinalAnswer(spec, turn, assistantMsg)
-				finalArtifact := buildFinalAnswerArtifact(spec, thinkingStep.ID, turnStartedAt, assistantMsg.Content)
-				if err := upsertTaskArtifact(spec, finalArtifact); err != nil {
+				finalArtifact := buildFinalAnswerArtifact(spec, turnResult.ThinkingStep.ID, turnStartedAt, assistantMsg.Content)
+				if err := runState.AddArtifact(spec, finalArtifact); err != nil {
 					return nil, err
 				}
-				allArtifacts = append(allArtifacts, finalArtifact)
-				finalResult.Steps = allSteps
-				finalResult.Artifacts = allArtifacts
-				finalResult.OtelStatusCode = "ok"
-				finalResult.CostMicrosUSD = costSpent
-				finalResult.TurnCosts = turnCosts
-				return withRoute(finalResult), nil
+				res := runState.Result("completed")
+				res.OtelStatusCode = "ok"
+				return res, nil
 			}
 
 			// 4b. Approval gate. If any tool in this turn is gated,
@@ -427,41 +262,29 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			// the same run is re-queued and we re-enter the loop
 			// with the same conversation tail — this branch is
 			// short-circuited by the resume-detection above.
-			pause, ok := e.approvalGate.Evaluate(spec, turn, nextIndex, turnStartedAt, assistantMsg.ToolCalls)
+			pause, ok := e.approvalGate.Evaluate(spec, turn, runState.NextStepIndex(), turnStartedAt, assistantMsg.ToolCalls)
 			if ok {
-				nextIndex++
-				if err := upsertTaskStep(spec, pause.Step); err != nil {
+				if err := runState.AddStep(spec, pause.Step); err != nil {
 					return nil, err
 				}
-				allSteps = append(allSteps, pause.Step)
-				return withRoute(&ExecutionResult{
-					Status:           "awaiting_approval",
-					Steps:            allSteps,
-					Artifacts:        allArtifacts,
-					PendingApprovals: []types.TaskApproval{pause.Approval},
-					OtelStatusCode:   "ok",
-					CostMicrosUSD:    costSpent,
-					TurnCosts:        turnCosts,
-				}), nil
+				res := runState.Result("awaiting_approval")
+				res.PendingApprovals = []types.TaskApproval{pause.Approval}
+				res.OtelStatusCode = "ok"
+				return res, nil
 			}
 		}
 
 		// 5. Dispatch each tool call in order.
 		callsToRun := assistantMsg.ToolCalls
 		for _, toolCall := range callsToRun {
-			dispatch, dispatchErr := e.toolDispatcher.Dispatch(ctx, spec, toolCall, nextIndex, mcpHost)
+			dispatch, dispatchErr := e.toolDispatcher.Dispatch(ctx, spec, toolCall, runState.NextStepIndex(), mcpHost)
 			if dispatch.Step != nil {
-				if err := upsertTaskStep(spec, *dispatch.Step); err != nil {
+				if err := runState.AddStep(spec, *dispatch.Step); err != nil {
 					return nil, err
 				}
-				allSteps = append(allSteps, *dispatch.Step)
-				nextIndex++
 			}
-			for _, art := range dispatch.Artifacts {
-				if err := upsertTaskArtifact(spec, art); err != nil {
-					return nil, err
-				}
-				allArtifacts = append(allArtifacts, art)
+			if err := runState.AddArtifacts(spec, dispatch.Artifacts); err != nil {
+				return nil, err
 			}
 			// Mark the tool message as errored on any failure
 			// path so Anthropic providers can emit is_error=true
@@ -495,36 +318,26 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 		// Per-task cost ceiling check. We do this AFTER the turn is
 		// fully recorded (assistant message + tool results in the
 		// conversation snapshot) so the operator sees what was paid
-		// for. The ceiling is task-cumulative — priorCost (spend in
-		// earlier runs of the resume chain) plus costSpent (this
-		// run). Crossing the ceiling marks the run failed with an
-		// actionable error; future turns don't fire. Operators can
-		// raise the ceiling and resume to continue.
-		if costCeiling > 0 && (priorCost+costSpent) >= costCeiling {
-			msg := fmt.Sprintf("agent loop hit per-task cost ceiling: spent %d µUSD this run + %d µUSD prior = %d µUSD, ceiling %d µUSD", costSpent, priorCost, priorCost+costSpent, costCeiling)
-			finalResult.Status = "failed"
-			finalResult.LastError = msg
-			finalResult.OtelStatusCode = "error"
-			finalResult.OtelStatusMessage = "cost_ceiling_exceeded"
-			finalResult.Steps = allSteps
-			finalResult.Artifacts = allArtifacts
-			finalResult.CostMicrosUSD = costSpent
-			finalResult.TurnCosts = turnCosts
-			return withRoute(finalResult), nil
+		// for. The ceiling is task-cumulative — prior resume-chain
+		// spend plus this run's spend. Crossing the ceiling marks
+		// the run failed with an actionable error; future turns don't
+		// fire. Operators can raise the ceiling and resume to continue.
+		if msg, exceeded := runState.CostCeilingExceededMessage(); exceeded {
+			res := runState.Result("failed")
+			res.LastError = msg
+			res.OtelStatusCode = "error"
+			res.OtelStatusMessage = "cost_ceiling_exceeded"
+			return res, nil
 		}
 	}
 
 	// Hit max turns without a final answer. Mark incomplete; the user
 	// can resume the run if they want more turns.
-	finalResult.Status = "failed"
-	finalResult.LastError = fmt.Sprintf("agent loop hit maxTurns=%d without producing a final answer", e.maxTurns)
-	finalResult.OtelStatusCode = "error"
-	finalResult.OtelStatusMessage = "max_turns_exceeded"
-	finalResult.Steps = allSteps
-	finalResult.Artifacts = allArtifacts
-	finalResult.CostMicrosUSD = costSpent
-	finalResult.TurnCosts = turnCosts
-	return withRoute(finalResult), nil
+	res := runState.Result("failed")
+	res.LastError = fmt.Sprintf("agent loop hit maxTurns=%d without producing a final answer", e.maxTurns)
+	res.OtelStatusCode = "error"
+	res.OtelStatusMessage = "max_turns_exceeded"
+	return res, nil
 }
 
 func emitAgentTurnStarted(spec ExecutionSpec, turn int, req types.ChatRequest) {

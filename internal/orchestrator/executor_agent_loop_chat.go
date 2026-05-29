@@ -2,12 +2,86 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
+
+type agentLoopLLMTurn struct {
+	Assistant    types.Message
+	ThinkingStep types.TaskStep
+}
+
+func (e *AgentLoopExecutor) runLLMTurn(ctx context.Context, spec ExecutionSpec, conversation *agentLoopConversation, runState *agentLoopRunState, tools []types.Tool, turn int, startedAt time.Time) (agentLoopLLMTurn, *ExecutionResult, error) {
+	messages := conversation.Messages()
+	req := agentLoopChatRequest(spec, messages, tools)
+	emitAgentTurnStarted(spec, turn, req)
+
+	resp, err := e.chatTurn(ctx, spec, conversation.ArtifactID(), messages, turn, req)
+	if err != nil {
+		failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt, llmTurnErrorMessage(spec, turn, err))
+		return agentLoopLLMTurn{}, runState.attachAccounting(failed), ferr
+	}
+	runState.RecordRoute(resp)
+	if resp == nil || len(resp.Choices) == 0 {
+		failed, ferr := e.failedFromError(spec, runState.Steps(), runState.Artifacts(), runState.NextStepIndex(), startedAt,
+			fmt.Sprintf("LLM returned empty response on turn %d", turn))
+		return agentLoopLLMTurn{}, runState.attachAccounting(failed), ferr
+	}
+
+	assistantMsg := resp.Choices[0].Message
+	emitAssistantMessageEvents(spec, turn, assistantMsg)
+
+	turnCost := runState.AccumulateCost(resp)
+	thinkingStep := buildThinkingStep(spec, runState.NextStepIndex(), turn, startedAt, assistantMsg, resp, runState.CostSpent())
+	if err := runState.AddStep(spec, thinkingStep); err != nil {
+		return agentLoopLLMTurn{}, nil, err
+	}
+	runState.AddTurnCost(turn, thinkingStep.ID, turnCost, len(assistantMsg.ToolCalls))
+
+	conversation.AppendAssistant(assistantMsg)
+	if art, err := conversation.UpsertArtifact(spec, turn, startedAt); err != nil {
+		return agentLoopLLMTurn{}, nil, err
+	} else {
+		runState.TrackInitialConversationArtifact(art)
+	}
+
+	return agentLoopLLMTurn{
+		Assistant:    assistantMsg,
+		ThinkingStep: thinkingStep,
+	}, nil, nil
+}
+
+func agentLoopChatRequest(spec ExecutionSpec, messages []types.Message, tools []types.Tool) types.ChatRequest {
+	// ProviderHint carries the operator's pinned provider from
+	// task.RequestedProvider (mirrored to run.Provider at run-create
+	// time). Without it the router falls back to its default — which
+	// historically picked OpenAI for generic model ids and surfaced
+	// as "api key is required for cloud provider openai" when the
+	// operator had only configured a local provider like Ollama.
+	// Empty hint preserves the existing auto-route behavior for
+	// tasks that didn't specify a provider.
+	return types.ChatRequest{
+		RequestID: spec.RequestID,
+		Model:     spec.Run.Model,
+		Messages:  messages,
+		Tools:     tools,
+		Scope: types.RequestScope{
+			ProviderHint: spec.Run.Provider,
+		},
+	}
+}
+
+func llmTurnErrorMessage(spec ExecutionSpec, turn int, err error) string {
+	message := fmt.Sprintf("LLM call failed on turn %d: %v", turn, err)
+	if !isModelLacksToolsError(err) {
+		return message
+	}
+	return fmt.Sprintf("LLM call failed on turn %d: model %q does not support tool-calling, which agent_loop requires. Pick a tool-capable model (e.g. gpt-4o-mini, claude-sonnet-4-6, qwen2.5-coder for Ollama). Underlying error: %v", turn, spec.Run.Model, err)
+}
 
 func (e *AgentLoopExecutor) chatTurn(ctx context.Context, spec ExecutionSpec, conversationArtifactID string, messages []types.Message, turn int, req types.ChatRequest) (*types.ChatResponse, error) {
 	streamer, ok := e.llm.(AgentLLMStreamingClient)
