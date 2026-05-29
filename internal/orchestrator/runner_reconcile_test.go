@@ -15,6 +15,7 @@ import (
 
 type recordingQueue struct {
 	enqueued []QueueJob
+	acked    []string
 }
 
 func (q *recordingQueue) Backend() string { return "recording" }
@@ -25,7 +26,10 @@ func (q *recordingQueue) Enqueue(_ context.Context, job QueueJob) error {
 func (q *recordingQueue) Claim(context.Context, string, time.Duration) (QueueClaim, bool, error) {
 	return QueueClaim{}, false, nil
 }
-func (q *recordingQueue) Ack(context.Context, string) error                        { return nil }
+func (q *recordingQueue) Ack(_ context.Context, claimID string) error {
+	q.acked = append(q.acked, claimID)
+	return nil
+}
 func (q *recordingQueue) Nack(context.Context, string, string) error               { return nil }
 func (q *recordingQueue) ExtendLease(context.Context, string, time.Duration) error { return nil }
 func (q *recordingQueue) Depth(context.Context) (int, error)                       { return len(q.enqueued), nil }
