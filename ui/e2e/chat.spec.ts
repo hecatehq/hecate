@@ -1542,7 +1542,6 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
   await page.getByRole("button", { name: "Add selected" }).click();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
   await expect(page.getByText("2 configured")).toBeVisible();
-  await page.getByRole("button", { name: /Chat show diff/ }).click();
 
   await page.getByRole("button", { name: /model picker/i }).click();
   await page.locator(".dropdown-menu").locator("text=qwen2.5").first().click();
@@ -3132,9 +3131,7 @@ async function openExternalAgentReadinessFixture(page: Page, fixture: ExternalAd
   );
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
-  await page
-    .getByRole("button", { name: new RegExp(`Chat ${fixture.name} chat, ${fixture.name}`) })
-    .click();
+  await expect(page.getByText(fixture.name).first()).toBeVisible();
 }
 
 async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture = {}) {
@@ -3293,7 +3290,7 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
-  await page.getByRole("button", { name: /Chat Claude Code chat, Claude Code/ }).click();
+  await expect(page.getByText("Claude Code").first()).toBeVisible();
 }
 
 test("Claude Code setup appears when the adapter is not installed", async ({ page }) => {
