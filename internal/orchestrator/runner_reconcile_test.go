@@ -4,9 +4,11 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -29,11 +31,33 @@ func (q *recordingQueue) ExtendLease(context.Context, string, time.Duration) err
 func (q *recordingQueue) Depth(context.Context) (int, error)                       { return len(q.enqueued), nil }
 func (q *recordingQueue) Capacity() int                                            { return 0 }
 
+type eventBeforeEnqueueQueue struct {
+	recordingQueue
+	store     taskstate.Store
+	wantEvent string
+	missing   []QueueJob
+}
+
+func (q *eventBeforeEnqueueQueue) Enqueue(ctx context.Context, job QueueJob) error {
+	events, err := q.store.ListRunEvents(ctx, job.TaskID, job.RunID, 0, 50)
+	if err != nil {
+		q.missing = append(q.missing, job)
+		return q.recordingQueue.Enqueue(ctx, job)
+	}
+	for _, event := range events {
+		if event.EventType == q.wantEvent {
+			return q.recordingQueue.Enqueue(ctx, job)
+		}
+	}
+	q.missing = append(q.missing, job)
+	return q.recordingQueue.Enqueue(ctx, job)
+}
+
 func TestReconcilePendingRunsRequeuesRecoverableRuns(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	store := taskstate.NewMemoryStore()
-	queue := &recordingQueue{}
+	queue := &eventBeforeEnqueueQueue{store: store, wantEvent: "gap.run_disconnected"}
 	runner := &Runner{
 		logger:   slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		store:    store,
@@ -83,6 +107,9 @@ func TestReconcilePendingRunsRequeuesRecoverableRuns(t *testing.T) {
 	if len(queue.enqueued) != 2 {
 		t.Fatalf("enqueued jobs = %d, want 2", len(queue.enqueued))
 	}
+	if len(queue.missing) != 0 {
+		t.Fatalf("reconcile enqueued before gap.run_disconnected for jobs %+v", queue.missing)
+	}
 
 	events, err := store.ListRunEvents(ctx, task.ID, runningRun.ID, 0, 50)
 	if err != nil {
@@ -103,5 +130,52 @@ func TestReconcilePendingRunsRequeuesRecoverableRuns(t *testing.T) {
 	}
 	if !foundEvent {
 		t.Fatal("missing gap.run_disconnected event")
+	}
+}
+
+func TestStartTaskEmitsRunQueuedBeforeEnqueue(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	queue := &eventBeforeEnqueueQueue{store: store, wantEvent: "run.queued"}
+	runner := &Runner{
+		logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store:      store,
+		tracer:     profiler.NewInMemoryTracer(nil),
+		exec:       NewStubExecutor(),
+		workspaces: NewWorkspaceManager(t.TempDir()),
+		queue:      queue,
+		policies:   make(map[string]struct{}),
+		jobs:       make(map[string]context.CancelFunc),
+	}
+	task := types.Task{
+		ID:            "task-start-queue-order",
+		Status:        "pending",
+		ExecutionKind: "shell",
+		ShellCommand:  "printf ok",
+		CreatedAt:     time.Now().UTC(),
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+
+	if _, err := runner.StartTask(ctx, task, deterministicRunLifecycleIDGenerator()); err != nil {
+		t.Fatalf("StartTask() error = %v", err)
+	}
+	if len(queue.enqueued) != 1 {
+		t.Fatalf("enqueued jobs = %d, want 1", len(queue.enqueued))
+	}
+	if len(queue.missing) != 0 {
+		t.Fatalf("StartTask enqueued before run.queued for jobs %+v", queue.missing)
+	}
+}
+
+func deterministicRunLifecycleIDGenerator() func(string) string {
+	var next int
+	return func(prefix string) string {
+		next++
+		return prefix + "_det_" + strconv.Itoa(next)
 	}
 }

@@ -110,9 +110,7 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 	}
 
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, runtimeevents.ApprovalResolved(approval))
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.queued", requestID, trace.TraceID, map[string]any{"resume": true})
-
-	if err := r.enqueueRun(task.ID, run.ID); err != nil {
+	if err := r.emitRunQueuedAndEnqueue(ctx, task.ID, run.ID, requestID, trace.TraceID, map[string]any{"resume": true}); err != nil {
 		return nil, err
 	}
 
