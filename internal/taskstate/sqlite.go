@@ -24,6 +24,7 @@ import (
 //   - status-set filtering uses `status IN (?, ?, ...)` because SQLite
 //     lacks array params.
 type SQLiteStore struct {
+	runEventBus
 	db             *sql.DB
 	tasksTable     string
 	runsTable      string
@@ -171,6 +172,7 @@ func (s *SQLiteStore) CreateRun(ctx context.Context, run types.TaskRun) (types.T
 	if err != nil {
 		return types.TaskRun{}, err
 	}
+	s.signalRun(run.ID)
 	return run, nil
 }
 
@@ -269,6 +271,7 @@ func (s *SQLiteStore) AppendStep(ctx context.Context, step types.TaskStep) (type
 	if err != nil {
 		return types.TaskStep{}, err
 	}
+	s.signalRun(step.RunID)
 	return step, nil
 }
 
@@ -341,6 +344,7 @@ func (s *SQLiteStore) CreateApproval(ctx context.Context, approval types.TaskApp
 	if err != nil {
 		return types.TaskApproval{}, err
 	}
+	s.signalRun(approval.RunID)
 	return approval, nil
 }
 
@@ -422,6 +426,7 @@ func (s *SQLiteStore) UpdatePendingApproval(ctx context.Context, approval types.
 	if n == 0 {
 		return types.TaskApproval{}, false, nil
 	}
+	s.signalRun(approval.RunID)
 	return approval, true, nil
 }
 
@@ -464,6 +469,7 @@ func (s *SQLiteStore) UpdatePendingApprovalForAwaitingRun(ctx context.Context, a
 	if n == 0 {
 		return types.TaskApproval{}, false, nil
 	}
+	s.signalRun(approval.RunID)
 	return approval, true, nil
 }
 
@@ -484,6 +490,7 @@ func (s *SQLiteStore) CreateArtifact(ctx context.Context, artifact types.TaskArt
 	if err != nil {
 		return types.TaskArtifact{}, err
 	}
+	s.signalRun(artifact.RunID)
 	return artifact, nil
 }
 
@@ -595,6 +602,7 @@ func (s *SQLiteStore) AppendRunEvent(ctx context.Context, event types.TaskRunEve
 	}
 	event.Sequence = id
 	event.ID = fmt.Sprintf("%d", id)
+	s.signalRun(event.RunID)
 	return event, nil
 }
 
