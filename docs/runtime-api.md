@@ -23,10 +23,11 @@ local trace lookup for the operator UI is `GET /hecate/v1/traces`.
 
 Set `HECATE_RUNTIME_TOKEN` to require Hecate-aware clients to send
 `X-Hecate-Runtime-Token` on `/hecate/v1/*`. This protects the Hecate-native
-control plane only. It does not apply to provider-compatible `/v1/*` paths or
-`/healthz`. The operator UI sends the header when `hecate.runtimeToken` is
-present in `sessionStorage` or `localStorage`; the MCP server reads the same
-value from its `HECATE_RUNTIME_TOKEN` environment.
+control plane, including Hecate-native chat and task routes that can spend
+configured provider credentials. It does not apply to provider-compatible
+`/v1/*` paths or `/healthz`. The operator UI sends the header when
+`hecate.runtimeToken` is present in `sessionStorage` or `localStorage`; the MCP
+server reads the same value from its `HECATE_RUNTIME_TOKEN` environment.
 
 Set `HECATE_INFERENCE_TOKEN` to require a shared token on the
 provider-compatible inference routes: `GET /v1/models`,
