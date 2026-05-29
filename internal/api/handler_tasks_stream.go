@@ -116,25 +116,13 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 			stream.writeError(err)
 			return
 		}
-		snapshot, stateJSON, err := projector.snapshotEventData(state)
+		stateJSON, err := taskRunStreamStateJSON(state)
 		if err != nil {
 			stream.writeError(err)
 			return
 		}
-		if stateJSON != lastStateJSON {
-			event, appendErr := h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
-				TaskID:    task.ID,
-				RunID:     runID,
-				EventType: "snapshot",
-				Data:      map[string]any{"snapshot": snapshot},
-				RequestID: state.Run.RequestID,
-				TraceID:   state.Run.TraceID,
-				CreatedAt: time.Now().UTC(),
-			})
-			if appendErr == nil {
-				afterSequence = event.Sequence
-				state.Sequence = int(event.Sequence)
-			}
+		if string(stateJSON) != lastStateJSON {
+			state.Sequence = int(afterSequence)
 			state.EventType = "snapshot"
 			state.Terminal = types.IsTerminalTaskRunStatus(state.Run.Status)
 			payload, marshalErr := taskRunStreamSnapshotPayload(state)
@@ -142,12 +130,12 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 				stream.writeError(marshalErr)
 				return
 			}
-			stream.writeSnapshotPayload(int64(state.Sequence), payload)
+			stream.writeSnapshotPayload(afterSequence, payload)
 			if state.Terminal {
-				stream.writeDonePayload(int64(state.Sequence), payload)
+				stream.writeDonePayload(afterSequence, payload)
 			}
 			stream.flush()
-			lastStateJSON = stateJSON
+			lastStateJSON = string(stateJSON)
 			if state.Terminal {
 				return
 			}
@@ -220,7 +208,7 @@ func (h *Handler) HandleAppendTaskRunEvent(w http.ResponseWriter, r *http.Reques
 	projector := newTaskRunStreamProjector(h.taskStore)
 	state, err := projector.liveState(ctx, task.ID, run.ID)
 	if err == nil {
-		if snapshot, _, snapshotErr := projector.snapshotEventData(state); snapshotErr == nil {
+		if snapshot, snapshotErr := projector.snapshotEventData(state); snapshotErr == nil {
 			extra["snapshot"] = snapshot
 		}
 	}

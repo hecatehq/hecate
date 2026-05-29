@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -150,6 +151,46 @@ func TestTaskApprovalRejectTerminalStateE2E(t *testing.T) {
 	}
 }
 
+func TestTaskRunStreamResumeDoesNotAppendEventsE2E(t *testing.T) {
+	workDir := t.TempDir()
+	baseURL := gatewayServer(t,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_TASK_APPROVAL_POLICIES=shell_exec",
+	)
+
+	taskID := e2eCreateApprovalShellTask(t, baseURL, workDir)
+	started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/start", `{}`)
+	if started.Data.Status != "awaiting_approval" {
+		t.Fatalf("started run status = %q, want awaiting_approval", started.Data.Status)
+	}
+	cancelled := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/runs/"+started.Data.ID+"/cancel", `{"reason":"operator stop"}`)
+	if cancelled.Data.Status != "cancelled" {
+		t.Fatalf("cancelled run status = %q, want cancelled", cancelled.Data.Status)
+	}
+
+	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+taskID+"/runs/"+started.Data.ID+"/events")
+	if len(events.Data) == 0 {
+		t.Fatal("events = 0, want terminal run events")
+	}
+	lastSequence := events.Data[len(events.Data)-1].Sequence
+	if lastSequence == 0 {
+		t.Fatalf("last event sequence = 0; events=%+v", events.Data)
+	}
+
+	finalSnapshot := e2eReadTerminalTaskRunSnapshotAfter(t, baseURL, taskID, started.Data.ID, lastSequence)
+	if finalSnapshot.Data.Sequence != int(lastSequence) {
+		t.Fatalf("resumed stream sequence = %d, want cursor %d", finalSnapshot.Data.Sequence, lastSequence)
+	}
+	if finalSnapshot.Data.Run.Status != "cancelled" || !finalSnapshot.Data.Terminal {
+		t.Fatalf("resumed stream final snapshot = %+v, want terminal cancelled", finalSnapshot.Data)
+	}
+
+	afterStream := getJSON[e2eTaskEventsResponse](t, fmt.Sprintf("%s/hecate/v1/tasks/%s/runs/%s/events?after_sequence=%d", baseURL, taskID, started.Data.ID, lastSequence))
+	if len(afterStream.Data) != 0 {
+		t.Fatalf("stream appended %d run events after cursor %d, want read-only stream", len(afterStream.Data), lastSequence)
+	}
+}
+
 func e2eCreateApprovalShellTask(t *testing.T, baseURL, workDir string) string {
 	t.Helper()
 	body := fmt.Sprintf(`{
@@ -171,7 +212,16 @@ func e2eCreateApprovalShellTask(t *testing.T, baseURL, workDir string) string {
 
 func e2eReadTerminalTaskRunSnapshot(t *testing.T, baseURL, taskID, runID string) e2eTaskRunStreamResponse {
 	t.Helper()
-	resp, err := http.Get(baseURL + "/hecate/v1/tasks/" + taskID + "/runs/" + runID + "/stream") //nolint:noctx
+	return e2eReadTerminalTaskRunSnapshotAfter(t, baseURL, taskID, runID, 0)
+}
+
+func e2eReadTerminalTaskRunSnapshotAfter(t *testing.T, baseURL, taskID, runID string, afterSequence int64) e2eTaskRunStreamResponse {
+	t.Helper()
+	streamURL := baseURL + "/hecate/v1/tasks/" + taskID + "/runs/" + runID + "/stream"
+	if afterSequence > 0 {
+		streamURL += "?after_sequence=" + strconv.FormatInt(afterSequence, 10)
+	}
+	resp, err := http.Get(streamURL) //nolint:noctx
 	if err != nil {
 		t.Fatalf("GET run stream: %v", err)
 	}
@@ -190,6 +240,14 @@ func e2eReadTerminalTaskRunSnapshot(t *testing.T, baseURL, taskID, runID string)
 		}
 		if payload.Data.Run.ID == "" {
 			continue
+		}
+		if afterSequence > 0 {
+			if payload.Data.Sequence != int(afterSequence) {
+				t.Fatalf("stream sequence = %d, want cursor %d", payload.Data.Sequence, afterSequence)
+			}
+			if event.ID != strconv.FormatInt(afterSequence, 10) {
+				t.Fatalf("stream id = %q, want %d", event.ID, afterSequence)
+			}
 		}
 		if event.Event == "done" {
 			sawDone = true
@@ -323,8 +381,9 @@ type e2eTaskEventsResponse struct {
 }
 
 type e2eEventEnvelope struct {
-	Type string         `json:"type"`
-	Data map[string]any `json:"data"`
+	Sequence int64          `json:"sequence,omitempty"`
+	Type     string         `json:"type"`
+	Data     map[string]any `json:"data"`
 }
 
 type e2eTaskRunStreamResponse struct {

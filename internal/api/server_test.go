@@ -5212,8 +5212,11 @@ func TestTaskRunStreamResumeWithAfterSequence(t *testing.T) {
 		if err := json.Unmarshal([]byte(event.Data), &payload); err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
-		if payload.Data.Sequence <= int(afterSequence) {
-			t.Fatalf("sequence = %d, want > %d", payload.Data.Sequence, afterSequence)
+		if payload.Data.Sequence != int(afterSequence) {
+			t.Fatalf("sequence = %d, want projected cursor %d", payload.Data.Sequence, afterSequence)
+		}
+		if event.ID != strconv.FormatInt(afterSequence, 10) {
+			t.Fatalf("SSE id = %q, want %d", event.ID, afterSequence)
 		}
 		if event.Event == "done" {
 			sawDone = true
@@ -5225,6 +5228,10 @@ func TestTaskRunStreamResumeWithAfterSequence(t *testing.T) {
 	}
 	if !sawDone {
 		t.Fatal("did not observe done event after stream resume")
+	}
+	afterStream := mustRequestJSON[TaskRunEventsResponse](newAPITestClient(t, handler), http.MethodGet, fmt.Sprintf("/hecate/v1/tasks/%s/runs/%s/events?after_sequence=%d", created.Data.ID, started.Data.ID, afterSequence), "")
+	if len(afterStream.Data) != 0 {
+		t.Fatalf("stream appended %d run events after resume cursor, want read-only stream", len(afterStream.Data))
 	}
 }
 
@@ -5275,8 +5282,11 @@ func TestTaskRunStreamResumeWithLastEventID(t *testing.T) {
 		if err := json.Unmarshal([]byte(event.Data), &payload); err != nil {
 			t.Fatalf("Unmarshal() error = %v", err)
 		}
-		if payload.Data.Sequence <= int(last) {
-			t.Fatalf("sequence = %d, want > %d", payload.Data.Sequence, last)
+		if payload.Data.Sequence != int(last) {
+			t.Fatalf("sequence = %d, want projected cursor %d", payload.Data.Sequence, last)
+		}
+		if event.ID != strconv.FormatInt(last, 10) {
+			t.Fatalf("SSE id = %q, want %d", event.ID, last)
 		}
 		if event.Event == "done" {
 			return

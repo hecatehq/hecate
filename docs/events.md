@@ -80,8 +80,11 @@ Per-run state SSE (`/hecate/v1/tasks/{id}/runs/{run_id}/stream`) emits
 `TaskRunStreamEventData` snapshots optimized for the operator UI. Its
 `event_type` field mirrors the persisted event that produced the snapshot.
 The stream is a projection over the append-only event log plus current run
-storage. New `snapshot` rows carry the current stream shape; older alpha rows
-replay as they were stored rather than being normalized or migrated.
+storage. Persisted snapshot payloads carry the current stream shape when they
+are written; older alpha rows replay as they were stored rather than being
+normalized or migrated.
+The stream endpoint itself is read-only: live projection frames are not appended
+to `run_events`.
 
 ## Runtime snapshot payloads
 
@@ -485,7 +488,7 @@ Emitted when task-scoped metadata changed in a way that affects the run's view (
 
 ### `snapshot`
 
-The per-run stream writes one of these every time it detects a state change between heartbeats. Subscribers reconnecting via `Last-Event-ID` rely on these to backfill state. Distinguishable from real lifecycle events by `type=snapshot` in JSON event lists and `event_type=snapshot` in per-run state SSE; the `data.snapshot` key holds the rebuilt `TaskRunStreamEventData` JSON.
+Legacy alpha builds wrote one of these when the per-run stream detected a state change between heartbeats. Current builds keep the stream endpoint read-only, so new live projection frames are not persisted as `snapshot` events. Existing rows remain distinguishable from real lifecycle events by `type=snapshot` in JSON event lists and `event_type=snapshot` in per-run state SSE; the `data.snapshot` key holds the rebuilt `TaskRunStreamEventData` JSON.
 
 | Extra key  | Type     | Notes                                                            |
 | ---------- | -------- | ---------------------------------------------------------------- |

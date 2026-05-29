@@ -272,8 +272,9 @@ so the operator UI can drive approval banners and progress surfaces without a
 separate refetch (`TaskRunStreamEventData.Approvals`). The frame's `event_type`
 mirrors the persisted event that produced the state refresh.
 The frame is a read-time projection over the append-only run-event log and live
-run storage. Hecate writes the current stream payload shape for new snapshots
-and does not rewrite older alpha event rows when the shape grows.
+run storage. When the stream emits a projected live snapshot without a newer
+persisted event, the SSE `id` and `data.sequence` stay on the latest persisted
+cursor instead of creating a new `run_event` row.
 
 The frame also includes a normalized `activity` array for clients that want a
 coding-agent-style timeline without reconstructing it from raw steps and
