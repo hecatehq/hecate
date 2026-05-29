@@ -6,7 +6,12 @@ provider credentials. Contributions land easier when they read like that.
 
 ## Where to start
 
-- **Working with an AI assistant** (Claude Code, Codex, Cursor, etc.): the orientation entry is [`AGENTS.md`](AGENTS.md). The canonical, vendor-neutral instruction layer is [`docs-ai/`](docs-ai/README.md). Tool-specific files ([`CLAUDE.md`](CLAUDE.md), [`.cursor/rules/`](.cursor/rules/)) are thin adapters that point there.
+- **Working with an AI assistant** (Claude Code, Codex, Cursor, etc.):
+  the orientation entry is [`AGENTS.md`](AGENTS.md). The canonical,
+  provider-neutral instruction layer is [`docs-ai/`](docs-ai/README.md).
+  [`CLAUDE.md`](CLAUDE.md) only imports `AGENTS.md` for compatibility; tracked
+  provider-specific directories such as `.claude/` and `.cursor/` are not used
+  for repo guidance.
 - **Working without an AI assistant**: read [`AGENTS.md`](AGENTS.md) for the codebase map and runtime invariants, then [`docs/development.md`](docs/development.md) for local build / hot-reload / just recipes.
 
 The `docs-ai/` tree mirrors the operating loop:
@@ -34,8 +39,8 @@ The race suite is the floor for runtime/backend changes — not a
 nice-to-have. UI tests use `bun run test` (never `bun test`, which skips
 the testing-library DOM setup).
 
-Slash-command shortcuts available in Claude Code: `/race` and
-`/test-affected`. See [`.claude/commands/`](.claude/commands/).
+Use `just test-race` for the full runtime/backend race check and targeted
+`go test` / `bun run test` commands while iterating.
 
 ## Commits
 
@@ -49,7 +54,7 @@ Slash-command shortcuts available in Claude Code: `/race` and
   `paths-ignore` already catches `**/*.md`; the marker is
   belt-and-suspenders).
 - Agent-doc-only updates (anything under `docs-ai/`, `AGENTS.md`,
-  `CLAUDE.md`, `.cursor/rules/`, `.claude/commands/`) use
+  `CLAUDE.md`, `ui/AGENTS.md`, or `internal/providers/AGENTS.md`) use
   `chore(agent):`.
 - **No plan, phase, or release labels** in commit messages or code
   comments. No `P0`, `Phase 2`, `#15`, `Milestone N`. The plan lives
@@ -72,10 +77,10 @@ in [`docs/beta-roadmap.md`](docs/beta-roadmap.md).
 
 ## Repo policy
 
-Shared agent guidance is repository-owned and committed. There is no
-`.local` override layer and no personal customization tier. If a rule
-belongs in agent context, it lives under [`docs-ai/`](docs-ai/README.md), in the
-open, under version control.
+Shared agent guidance is repository-owned and committed. Local tool/editor
+state may exist, but it is not a repository guidance layer. If a rule belongs
+in agent context, it lives under [`docs-ai/`](docs-ai/README.md), in the open,
+under version control.
 
 ## License
 

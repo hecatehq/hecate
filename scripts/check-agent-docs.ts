@@ -1,5 +1,6 @@
-import { lstatSync, readFileSync, readdirSync, readlinkSync } from "node:fs";
-import { join, relative } from "node:path";
+import { execFileSync } from "node:child_process";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 const root = join(import.meta.dirname, "..");
 
@@ -8,73 +9,61 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-function rel(path: string): string {
-  return relative(root, path) || ".";
-}
-
 function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
-const skillDir = join(root, "docs-ai", "skills");
-const claudeSkillDir = join(root, ".claude", "skills");
-const canonicalSkills = readdirSync(skillDir, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => entry.name)
-  .sort();
-
-const claudeSkills = readdirSync(claudeSkillDir).sort();
-const expectedTarget = (name: string) => `../../docs-ai/skills/${name}`;
-
-for (const name of canonicalSkills) {
-  const path = join(claudeSkillDir, name);
-  let stat;
-  try {
-    stat = lstatSync(path);
-  } catch {
-    fail(`missing Claude skill adapter ${rel(path)}`);
-  }
-  if (!stat.isSymbolicLink()) {
-    fail(`${rel(path)} must be a symlink to ${expectedTarget(name)}`);
-  }
-  const target = readlinkSync(path);
-  if (target !== expectedTarget(name)) {
-    fail(`${rel(path)} points to ${target}, want ${expectedTarget(name)}`);
-  }
+function gitLsFiles(): string[] {
+  return execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean)
+    .sort();
 }
 
-for (const name of claudeSkills) {
-  if (!canonicalSkills.includes(name)) {
-    fail(`Claude skill adapter .claude/skills/${name} has no docs-ai/skills/${name}`);
-  }
+const tracked = gitLsFiles();
+const forbidden = tracked.filter((path) => path.startsWith(".claude/") || path.startsWith(".cursor/"));
+if (forbidden.length > 0) {
+  fail(`tracked provider-specific adapter files are not allowed:\n${forbidden.join("\n")}`);
 }
 
-const adapterFiles = [
-  "CLAUDE.md",
-  ".cursor/rules/00-core.mdc",
-  ".cursor/rules/10-planning.mdc",
-  ".cursor/rules/20-testing.mdc",
-  ".cursor/rules/30-review.mdc",
-  ".claude/commands/race.md",
-  ".claude/commands/test-affected.md",
+const entrypoints = [
+  "AGENTS.md",
+  "ui/AGENTS.md",
+  "internal/providers/AGENTS.md",
+  "docs-ai/README.md",
+  "docs-ai/skills/README.md",
+  "docs-ai/core/agent-guidance.md",
+  "docs-ai/core/verification.md",
 ];
 
-for (const file of adapterFiles) {
-  if (!read(file).includes("docs-ai/")) {
+for (const file of entrypoints) {
+  const content = read(file);
+  if (!content.includes("docs-ai/")) {
     fail(`${file} must point to canonical docs-ai guidance`);
   }
 }
 
-const claude = read("CLAUDE.md");
-if (/\*\*Rule \d/.test(claude)) {
-  fail("CLAUDE.md must not define standalone numbered project rules");
+const claude = read("CLAUDE.md").trim();
+if (claude !== "@AGENTS.md") {
+  fail("CLAUDE.md must be exactly @AGENTS.md");
 }
 
-for (const file of adapterFiles.filter((file) => file.startsWith(".cursor/"))) {
-  const content = read(file);
-  if (content.includes("| Step |") || content.includes("## Seven-axis rubric")) {
-    fail(`${file} appears to duplicate canonical checklists instead of linking to docs-ai`);
+const agentGuidance = read("docs-ai/core/agent-guidance.md");
+if (!agentGuidance.includes(".claude/") || !agentGuidance.includes(".cursor/") || !agentGuidance.includes("ignored local state")) {
+  fail("docs-ai/core/agent-guidance.md must document that provider-specific directories are local-only");
+}
+
+const skillsDir = join(root, "docs-ai", "skills");
+const skillDirs = readdirSync(skillsDir)
+  .filter((name) => statSync(join(skillsDir, name)).isDirectory())
+  .sort();
+const skillRegistry = read("docs-ai/skills/README.md");
+for (const name of skillDirs) {
+  if (!skillRegistry.includes(`(${name}/SKILL.md)`)) {
+    fail(`docs-ai/skills/README.md must include docs-ai/skills/${name}/SKILL.md`);
   }
 }
 
-console.log(`agent-docs-check: ${canonicalSkills.length} skills and ${adapterFiles.length} adapters OK`);
+console.log(
+  `agent-docs-check: ${entrypoints.length} entrypoints and ${skillDirs.length} skills OK; no tracked .claude/.cursor adapters`,
+);

@@ -20,11 +20,9 @@ guidance live in [`docs-ai/`](docs-ai/README.md).
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | [`docs-ai/`](docs-ai/README.md)                                       | Canonical provider-neutral agent guidance — project context, conventions, workflow, verification, task shapes, area + posture skills |
 | `AGENTS.md` (this) and `ui/AGENTS.md`, `internal/providers/AGENTS.md` | Codebase map per area                                                                                                                |
-| [`CLAUDE.md`](CLAUDE.md)                                              | Thin Claude Code adapter pointing to `docs-ai/`                                                                                      |
-| [`.claude/skills/`](.claude/skills/)                                  | Claude Code skill-discovery symlinks to `docs-ai/skills/`; not a second source of skill content                                      |
-| [`.claude/commands/`](.claude/commands/)                              | Claude Code slash-command wrappers: `/race`, `/test-affected`                                                                        |
-| [`.cursor/rules/`](.cursor/rules/)                                    | Thin Cursor adapter pointing to `docs-ai/`                                                                                           |
-| [`docs-ai/core/agent-guidance.md`](docs-ai/core/agent-guidance.md)    | Source-of-truth policy for keeping AGENTS, Claude, Cursor, and future adapters consistent                                            |
+| [`CLAUDE.md`](CLAUDE.md)                                              | Claude Code compatibility shim importing `AGENTS.md`; no standalone rules                                                            |
+| [`docs-ai/skills/README.md`](docs-ai/skills/README.md)                | Canonical skill set used by every agent                                                                                              |
+| [`docs-ai/core/agent-guidance.md`](docs-ai/core/agent-guidance.md)    | Source-of-truth policy for keeping agent guidance provider-neutral                                                                   |
 | [`docs/`](docs/)                                                      | Long-form references (architecture, runtime API, events, telemetry)                                                                  |
 
 When in doubt: read [`docs-ai/core/project-context.md`](docs-ai/core/project-context.md) and [`docs-ai/core/workflow.md`](docs-ai/core/workflow.md).
@@ -128,9 +126,9 @@ Full standards: [`docs-ai/core/engineering-standards.md`](docs-ai/core/engineeri
 
 Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
-- **Race suite is the floor for runtime/backend changes**: `go test -race -timeout 10m ./...` (or `/race`). Race builds are large; if your default `$GOCACHE` is on a small volume, point it at the repo: `GOCACHE="$(pwd)/.gocache" go test -race ...`.
+- **Race suite is the floor for runtime/backend changes**: `go test -race -timeout 10m ./...` or `just test-race`. Race builds are large; if your default `$GOCACHE` is on a small volume, point it at the repo: `GOCACHE="$(pwd)/.gocache" go test -race ...`.
 - **Vet Go changes**: run `go vet` on touched packages during iteration; use `go vet ./...` for broad backend changes or release prep.
-- **Iteration**: `/test-affected` for narrow runs.
+- **Iteration**: run focused `go test` / `bun run test` commands for touched areas.
 - **E2E**: `go test -tags e2e ./e2e/...`. Build tag `e2e` always required; sub-tags `ollama`, `docker` opt in. `PROVIDER_FAKE_KIND=local` is useful for synthetic local-model scenarios.
 - **UI**: `cd ui && bun run typecheck` then `bun run test`. Never `bun test` (skips testing-library DOM setup).
 

@@ -1,9 +1,8 @@
 # Hecate agent instructions
 
 Canonical, provider-neutral agent instruction layer for the Hecate repo.
-Tool-specific entry points (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/`,
-`.claude/skills`) are thin adapters that point here — the substance lives in
-this directory.
+Agent entry points (`AGENTS.md` and the `CLAUDE.md` compatibility import) point
+here — the substance lives in this directory.
 
 ## Layout
 
@@ -25,6 +24,7 @@ docs-ai/
     code-review.md                review rubric and output format
     release.md                    cut a release tag (pre-flight, snapshot, gate, recovery)
   skills/
+    README.md                     canonical skill registry; same list for every agent
     backend/SKILL.md              Go backend skill (anything outside ui/ and tauri/)
     ui/SKILL.md                   React UI skill (ui/)
     tauri/SKILL.md                native desktop app skill (tauri/): Rust layer, sidecar
@@ -38,7 +38,8 @@ docs-ai/
 
 ## What to load
 
-Load the skill for your area first, then `core/project-context.md` if you
+Load the skill for your area first from the canonical registry,
+[`skills/README.md`](skills/README.md), then `core/project-context.md` if you
 need repo layout, ring rules, or risky-area guidance. `core/engineering-standards.md`
 and `core/workflow.md` are reference — reach for them when you hit a style or
 commit question.
@@ -59,10 +60,11 @@ commit question.
 
 ## Adapter Policy
 
-`docs-ai/` is the source of truth. Adapter files are only discovery shims for a
-specific agent product. They may point here, expose product-specific command
-wrappers, or provide permission/config baselines, but they must not duplicate
-rules, checklists, or skill content.
+`docs-ai/` is the source of truth. Tracked adapter files are only discovery
+shims. `CLAUDE.md` imports `AGENTS.md` and must not duplicate rules,
+checklists, or skill content. The canonical skill set is
+[`skills/README.md`](skills/README.md). Provider-specific directories such as
+`.claude/` and `.cursor/` are intentionally not tracked.
 
 Details and update rules: [`core/agent-guidance.md`](core/agent-guidance.md).
 
@@ -70,7 +72,7 @@ Details and update rules: [`core/agent-guidance.md`](core/agent-guidance.md).
 
 - **Don't auto-commit.** Propose a Conventional Commits message; operator merges.
 - **Docs in the same change.** New env var → `.env.example` + `docs/<feature>.md`. New event type → event-protocol taxonomy check + `docs/events.md`. Not as a follow-up.
-- **Race suite is the floor** for backend/runtime changes — not a nice-to-have. Use `/race` or `go test -race -timeout 10m ./...`.
+- **Race suite is the floor** for backend/runtime changes — not a nice-to-have. Use `just test-race` or `go test -race -timeout 10m ./...`.
 - **No plan labels** (`Phase 1`, `P0`, `#15`, `Milestone N`) in commit messages or code comments.
 - **Probe before assuming paths.** `grep`, `ls`, `go build` before writing file paths from memory. Wrong paths compound.
 - **Build early, build often.** `go build ./...` before the first edit (confirm the tree is clean) and after each logical step.

@@ -37,8 +37,7 @@ ui/src/
 | `bun run dev`        | Vite dev server on `:5173` proxying API to `:8765`                                |
 | `bun run test:e2e`   | Playwright with Vite's API proxy disabled; mock each API route explicitly         |
 
-Some tool adapters expose convenience commands such as `/test-affected`; the
-canonical verification rules live in
+Canonical verification rules live in
 [`../docs-ai/core/verification.md`](../docs-ai/core/verification.md). For UI
 work, run `bun run typecheck` and `bun run test`.
 

@@ -42,8 +42,7 @@ check-links:
 	  --exclude-path .gomodcache \
 	  --exclude-path ui/node_modules \
 	  --exclude-path website/node_modules \
-	  --exclude-path tauri/node_modules \
-	  --exclude-path .claude/skills
+	  --exclude-path tauri/node_modules
 
 # Check external URLs. Informational locally; CI also runs this as a
 # continue-on-error job so transient host failures do not block PRs.
@@ -60,8 +59,7 @@ check-links-external:
 	  --exclude-path .gomodcache \
 	  --exclude-path ui/node_modules \
 	  --exclude-path website/node_modules \
-	  --exclude-path tauri/node_modules \
-	  --exclude-path .claude/skills
+	  --exclude-path tauri/node_modules
 
 # Run all docs-specific verification.
 docs-check: agent-docs-check docs-env-check docs-format-check check-mermaid check-links

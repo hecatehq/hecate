@@ -49,9 +49,8 @@ ui/                        React/Vite operator UI (embedded via //go:embed ui/di
 e2e/                       binary-startup tests, build tag e2e (sub-tags: ollama, docker)
 docs/                      long-form references (canonical product/runtime docs)
 
-.claude/                   Claude Code adapter (slash commands, settings)
-.cursor/                   Cursor adapter (.mdc rule files)
-docs-ai/                        canonical, vendor-neutral agent instruction layer (this directory)
+CLAUDE.md                  Claude Code compatibility shim importing AGENTS.md
+docs-ai/                   canonical, provider-neutral agent instruction layer (this directory)
 ```
 
 ## Architecture rings

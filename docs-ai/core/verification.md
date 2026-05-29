@@ -18,20 +18,20 @@ tests, but still need the relevant docs checks when formatting, links, or
 screenshots are affected. If a required check cannot run, say why before
 filing the PR and call out the residual risk.
 
-Agent-guidance changes (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`,
-`.claude/commands/`, `.claude/skills/`, or `docs-ai/**`) should also run
-`just agent-docs-check`. `just docs-check` includes it.
+Agent-guidance changes (`AGENTS.md`, `CLAUDE.md`, `docs-ai/**`, or scoped
+`AGENTS.md` files) should also run `just agent-docs-check`. `just docs-check`
+includes it.
 
 ## Backend verification ladder
 
-| Step          | Command                                                        | When                                                                         |
-| ------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Format check  | `just go-format-check`                                         | Before claiming done for Go edits; also covered by `just format-check` / CI  |
-| Build         | `go build ./...`                                               | Always, before claiming done                                                 |
-| Vet           | `go vet ./...` or targeted packages                            | Go backend/runtime changes; use targeted vet during iteration                |
-| Focused tests | `/test-affected` (or `go test -race -count=1 ./<package>/...`) | During iteration                                                             |
-| Race suite    | `go test -race -timeout 10m ./...` (or `/race`)                | **Floor** for runtime/backend changes                                        |
-| E2E           | `go test -tags e2e ./e2e/...`                                  | When the change crosses the api → orchestrator → providers/sandbox/mcp chain |
+| Step          | Command                                                | When                                                                         |
+| ------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Format check  | `just go-format-check`                                 | Before claiming done for Go edits; also covered by `just format-check` / CI  |
+| Build         | `go build ./...`                                       | Always, before claiming done                                                 |
+| Vet           | `go vet ./...` or targeted packages                    | Go backend/runtime changes; use targeted vet during iteration                |
+| Focused tests | `go test -race -count=1 ./<package>/...`               | During iteration                                                             |
+| Race suite    | `go test -race -timeout 10m ./...` or `just test-race` | **Floor** for runtime/backend changes                                        |
+| E2E           | `go test -tags e2e ./e2e/...`                          | When the change crosses the api → orchestrator → providers/sandbox/mcp chain |
 
 Use `just format` when you want the repo-managed local auto-format pass: Go
 source via `gofmt -s`, UI and website via Oxfmt, and Markdown / `.mdc` docs via

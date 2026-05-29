@@ -18,7 +18,7 @@ test: _go-cache
 
 # Run all Go tests with the race detector.
 test-race: _go-cache
-	{{go_env}} go test -race ./...
+	{{go_env}} go test -race -timeout 10m ./...
 
 # Run Go end-to-end tests that do not require optional services.
 test-e2e: _go-cache
