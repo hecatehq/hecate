@@ -1120,11 +1120,6 @@ func patchContent(diff, prefix string) (string, bool, error) {
 	return strings.Join(contentLines, "\n") + "\n", existed, nil
 }
 
-// decodeTurnCostFromEventData lifts the per-turn cost figures out of
-// the turn.completed event payload. The runner writes them as
-// a flat map; we pull the keys defensively (event.Data is map[string]any
-// after a JSON round-trip, so numerics arrive as float64).
-
 func newTaskID() string {
 	return newOpaqueTaskResourceID("task")
 }

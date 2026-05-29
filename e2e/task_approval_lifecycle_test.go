@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestTaskApprovalCancelTerminalStateE2E(t *testing.T) {
@@ -181,8 +180,9 @@ func e2eReadTerminalTaskRunSnapshot(t *testing.T, baseURL, taskID, runID string)
 		t.Fatalf("stream content-type = %q, want text/event-stream", ct)
 	}
 	events := readSSE(t, resp)
-	deadline := time.Now().Add(1 * time.Second)
-	var last e2eTaskRunStreamResponse
+	var terminal e2eTaskRunStreamResponse
+	var sawTerminal bool
+	var sawDone bool
 	for _, event := range events {
 		var payload e2eTaskRunStreamResponse
 		if err := json.Unmarshal([]byte(event.Data), &payload); err != nil {
@@ -191,16 +191,28 @@ func e2eReadTerminalTaskRunSnapshot(t *testing.T, baseURL, taskID, runID string)
 		if payload.Data.Run.ID == "" {
 			continue
 		}
-		last = payload
+		if event.Event == "done" {
+			sawDone = true
+			if !payload.Data.Terminal {
+				t.Fatalf("done stream terminal = false, want true")
+			}
+			if payload.Data.Sequence == 0 {
+				t.Fatalf("done stream sequence = 0, want persisted sequence")
+			}
+			continue
+		}
 		if payload.Data.Terminal || payload.Data.Run.Status == "cancelled" || payload.Data.Run.Status == "failed" || payload.Data.Run.Status == "completed" {
-			return payload
+			terminal = payload
+			sawTerminal = true
 		}
 	}
-	if time.Now().Before(deadline) && last.Data.Run.ID != "" {
-		return last
+	if !sawTerminal {
+		t.Fatalf("terminal stream snapshot not found in %d SSE payloads", len(events))
 	}
-	t.Fatalf("terminal stream snapshot not found in %d SSE payloads", len(events))
-	return e2eTaskRunStreamResponse{}
+	if !sawDone {
+		t.Fatalf("terminal stream done event not found in %d SSE payloads", len(events))
+	}
+	return terminal
 }
 
 func assertE2EEventOrder(t *testing.T, events []e2eEventEnvelope, want []string) {
@@ -317,6 +329,7 @@ type e2eEventEnvelope struct {
 
 type e2eTaskRunStreamResponse struct {
 	Data struct {
+		Sequence  int               `json:"sequence,omitempty"`
 		Terminal  bool              `json:"terminal,omitempty"`
 		EventType string            `json:"event_type,omitempty"`
 		Run       e2eTaskRun        `json:"run"`

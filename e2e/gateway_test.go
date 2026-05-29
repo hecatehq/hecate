@@ -351,19 +351,43 @@ func readBody(t *testing.T, resp *http.Response) string {
 }
 
 type sseEvent struct {
-	Data string
+	ID    string
+	Event string
+	Data  string
 }
 
 func readSSE(t *testing.T, resp *http.Response) []sseEvent {
 	t.Helper()
 	defer resp.Body.Close()
 	var events []sseEvent
+	var current sseEvent
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "data: ") {
-			events = append(events, sseEvent{Data: strings.TrimPrefix(line, "data: ")})
+		if line == "" {
+			if current.ID != "" || current.Event != "" || current.Data != "" {
+				events = append(events, current)
+				current = sseEvent{}
+			}
+			continue
 		}
+		if strings.HasPrefix(line, "id: ") {
+			current.ID = strings.TrimPrefix(line, "id: ")
+			continue
+		}
+		if strings.HasPrefix(line, "event: ") {
+			current.Event = strings.TrimPrefix(line, "event: ")
+			continue
+		}
+		if strings.HasPrefix(line, "data: ") {
+			if current.Data != "" {
+				current.Data += "\n"
+			}
+			current.Data += strings.TrimPrefix(line, "data: ")
+		}
+	}
+	if current.ID != "" || current.Event != "" || current.Data != "" {
+		events = append(events, current)
 	}
 	return events
 }

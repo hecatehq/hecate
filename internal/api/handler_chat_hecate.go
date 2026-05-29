@@ -433,6 +433,7 @@ func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session cha
 func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sessionID, messageID string) (types.TaskRun, error) {
 	ticker := time.NewTicker(hecateAgentPollInterval)
 	defer ticker.Stop()
+	projector := newTaskRunStreamProjector(h.taskStore)
 	var lastStatus string
 	var lastActivitySignature string
 	var lastContent string
@@ -446,7 +447,7 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 		}
 		taskActivities := []chat.Activity(nil)
 		activitySignature := ""
-		if state, stateErr := h.buildTaskRunStreamState(ctx, taskID, runID); stateErr == nil {
+		if state, stateErr := projector.liveState(ctx, taskID, runID); stateErr == nil {
 			taskActivities = agentChatActivitiesFromTaskActivity(state.Activity)
 			activitySignature = agentChatActivitySignature(taskActivities)
 		}
