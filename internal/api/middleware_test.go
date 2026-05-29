@@ -1,9 +1,13 @@
 package api
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/hecatehq/hecate/internal/config"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -265,5 +269,95 @@ func TestSameOriginMiddlewareWithAllowedOriginsRejectsCrossOriginBrowserRequest(
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestRuntimeTokenMiddleware(t *testing.T) {
+	tests := []struct {
+		name   string
+		path   string
+		token  string
+		header string
+		want   int
+	}{
+		{
+			name: "disabled allows hecate api",
+			path: "/hecate/v1/whoami",
+			want: http.StatusNoContent,
+		},
+		{
+			name:  "requires token for hecate api",
+			path:  "/hecate/v1/whoami",
+			token: "local-runtime-token-123456",
+			want:  http.StatusUnauthorized,
+		},
+		{
+			name:   "allows matching token",
+			path:   "/hecate/v1/whoami",
+			token:  "local-runtime-token-123456",
+			header: "local-runtime-token-123456",
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "rejects wrong token",
+			path:   "/hecate/v1/whoami",
+			token:  "local-runtime-token-123456",
+			header: "local-runtime-token-abcdef",
+			want:   http.StatusUnauthorized,
+		},
+		{
+			name:  "leaves provider compatible api alone",
+			path:  "/v1/models",
+			token: "local-runtime-token-123456",
+			want:  http.StatusNoContent,
+		},
+		{
+			name:  "leaves healthz alone",
+			path:  "/healthz",
+			token: "local-runtime-token-123456",
+			want:  http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := RuntimeTokenMiddleware(tt.token)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.header != "" {
+				req.Header.Set(runtimeTokenHeader, tt.header)
+			}
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewServerWiresRuntimeTokenMiddleware(t *testing.T) {
+	token := "local-runtime-token-123456"
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{
+		Server: config.ServerConfig{RuntimeToken: token},
+	}, logger, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status without token = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/hecate/v1/whoami", nil)
+	req.Header.Set(runtimeTokenHeader, token)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status with token = %d, want %d", rec.Code, http.StatusOK)
 	}
 }

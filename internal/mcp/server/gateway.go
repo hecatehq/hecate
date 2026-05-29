@@ -18,8 +18,9 @@ import (
 // services because the MCP server is meant to run as a separate
 // subprocess of the operator's MCP-aware editor.
 type GatewayClient struct {
-	BaseURL    string
-	HTTPClient *http.Client
+	BaseURL      string
+	RuntimeToken string
+	HTTPClient   *http.Client
 }
 
 // NewGatewayClient constructs a GatewayClient with a default 30-second
@@ -31,6 +32,10 @@ func NewGatewayClient(baseURL string) *GatewayClient {
 		BaseURL:    strings.TrimRight(baseURL, "/"),
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+func (c *GatewayClient) SetRuntimeToken(token string) {
+	c.RuntimeToken = strings.TrimSpace(token)
 }
 
 // Get issues a GET against `path` (joined onto BaseURL) and decodes
@@ -68,6 +73,9 @@ func (c *GatewayClient) do(ctx context.Context, method, path string, query url.V
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json")
+	if c.RuntimeToken != "" {
+		req.Header.Set("X-Hecate-Runtime-Token", c.RuntimeToken)
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {

@@ -21,6 +21,13 @@ OTLP collector/export endpoints keep their standard protocol paths
 an OpenTelemetry collector. Those are not Hecate product resources. Hecate's
 local trace lookup for the operator UI is `GET /hecate/v1/traces`.
 
+Set `HECATE_RUNTIME_TOKEN` to require Hecate-aware clients to send
+`X-Hecate-Runtime-Token` on `/hecate/v1/*`. This guard does not apply to
+provider-compatible `/v1/*` paths or `/healthz`, so OpenAI/Anthropic-shaped
+clients keep their existing auth shape. The operator UI sends the header when
+`hecate.runtimeToken` is present in `sessionStorage` or `localStorage`; the MCP
+server reads the same value from its `HECATE_RUNTIME_TOKEN` environment.
+
 Legacy Hecate-native `/v1/*` and `/admin/*` paths are intentionally not kept as
 compatibility shims in this alpha branch. Unknown API-shaped paths return 404
 rather than falling through to the embedded UI shell.
