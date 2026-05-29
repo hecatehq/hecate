@@ -245,6 +245,9 @@ func (h *Handler) writeRuntimeStats(w http.ResponseWriter, ctx context.Context) 
 // caller. Callers can pass a shorter deadline by setting their own
 // timeout on the HTTP client; we don't extend.
 func (h *Handler) HandleMCPProbe(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "MCP probe") {
+		return
+	}
 	ctx := r.Context()
 
 	var req MCPProbeRequest
@@ -382,6 +385,9 @@ func (h *Handler) HandleMCPCacheStats(w http.ResponseWriter, r *http.Request) {
 // stops accepting writes. Clients that need to observe the gateway
 // actually exiting should poll /healthz until it stops responding.
 func (h *Handler) HandleSystemShutdown(w http.ResponseWriter, r *http.Request) {
+	if !requireLoopbackClient(w, r, "system shutdown") {
+		return
+	}
 	if h.quitFunc == nil {
 		WriteError(w, http.StatusServiceUnavailable, errCodeGatewayError,
 			"shutdown endpoint not wired; quit via signal (SIGINT/SIGTERM) instead")

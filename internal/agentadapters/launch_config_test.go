@@ -143,7 +143,7 @@ Tip: use --model <id>
 
 func TestLaunchConfig_SelectsDiscoveredDefaultModel(t *testing.T) {
 	resetLaunchDiscoveryCacheForTest(t)
-	t.Setenv("CODEX_LAUNCH_CONFIG_HELPER", "1")
+	t.Setenv("XAI_LAUNCH_CONFIG_HELPER", "1")
 	countFile := filepath.Join(t.TempDir(), "count")
 	adapter := Adapter{
 		ID:   "grok_build",
@@ -172,7 +172,7 @@ func TestLaunchConfig_SelectsDiscoveredDefaultModel(t *testing.T) {
 
 func TestLaunchConfig_PreservesExplicitUnsetSelection(t *testing.T) {
 	resetLaunchDiscoveryCacheForTest(t)
-	t.Setenv("CODEX_LAUNCH_CONFIG_HELPER", "1")
+	t.Setenv("XAI_LAUNCH_CONFIG_HELPER", "1")
 	countFile := filepath.Join(t.TempDir(), "count")
 	adapter := Adapter{
 		ID:   "grok_build",
@@ -198,7 +198,7 @@ func TestLaunchConfig_PreservesExplicitUnsetSelection(t *testing.T) {
 
 func TestLaunchConfig_CachesLaunchDiscovery(t *testing.T) {
 	resetLaunchDiscoveryCacheForTest(t)
-	t.Setenv("CODEX_LAUNCH_CONFIG_HELPER", "1")
+	t.Setenv("XAI_LAUNCH_CONFIG_HELPER", "1")
 	countFile := filepath.Join(t.TempDir(), "count")
 	adapter := Adapter{
 		ID:   "grok_build",
@@ -233,7 +233,7 @@ func TestLaunchConfig_CachesLaunchDiscovery(t *testing.T) {
 }
 
 func TestLaunchConfigHelperProcess(t *testing.T) {
-	if os.Getenv("CODEX_LAUNCH_CONFIG_HELPER") != "1" {
+	if os.Getenv("XAI_LAUNCH_CONFIG_HELPER") != "1" {
 		return
 	}
 	separator := -1

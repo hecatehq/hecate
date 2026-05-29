@@ -84,6 +84,11 @@ func mcpFixtureMain() {
 					InputSchema: json.RawMessage(`{"type":"object","properties":{"msg":{"type":"string"}},"required":["msg"]}`),
 				},
 				{
+					Name:        "env",
+					Description: "Returns selected environment variables. Used by env-boundary tests.",
+					InputSchema: json.RawMessage(`{"type":"object","properties":{"keys":{"type":"array","items":{"type":"string"}}},"required":["keys"]}`),
+				},
+				{
 					Name:        "fail",
 					Description: "Always returns is_error=true. Pins the IsError surface.",
 					InputSchema: json.RawMessage(`{"type":"object"}`),
@@ -100,6 +105,24 @@ func mcpFixtureMain() {
 				result = mcp.CallToolResult{
 					Content: mcp.TextContent("echo: " + string(p.Arguments)),
 				}
+			case "env":
+				var args struct {
+					Keys []string `json:"keys"`
+				}
+				if err := json.Unmarshal(p.Arguments, &args); err != nil {
+					rpcErr = mcp.NewError(mcp.ErrCodeInvalidParams, err.Error())
+					break
+				}
+				values := make(map[string]string, len(args.Keys))
+				for _, key := range args.Keys {
+					values[key] = os.Getenv(key)
+				}
+				raw, err := json.Marshal(values)
+				if err != nil {
+					rpcErr = mcp.NewError(mcp.ErrCodeInternalError, err.Error())
+					break
+				}
+				result = mcp.CallToolResult{Content: mcp.TextContent(string(raw))}
 			case "fail":
 				result = mcp.CallToolResult{
 					Content: mcp.TextContent("fixture-induced failure"),
@@ -160,11 +183,12 @@ func TestPool_RealSubprocess_StdioRoundTrip(t *testing.T) {
 	t.Cleanup(func() { _ = pool.Close() })
 
 	tools := pool.Tools()
-	if len(tools) != 2 {
-		t.Fatalf("Tools() len = %d, want 2; got %+v", len(tools), tools)
+	if len(tools) != 3 {
+		t.Fatalf("Tools() len = %d, want 3; got %+v", len(tools), tools)
 	}
 	wantNames := map[string]bool{
 		"mcp__fixture__echo": false,
+		"mcp__fixture__env":  false,
 		"mcp__fixture__fail": false,
 	}
 	for _, tool := range tools {
@@ -219,5 +243,58 @@ func TestPool_RealSubprocess_StdioRoundTrip(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Close blocked > 5s — subprocess didn't exit on stdin close")
+	}
+}
+
+func TestPool_RealSubprocess_StdioEnvIsSanitized(t *testing.T) {
+	if testing.Short() {
+		t.Skip("spawns a real subprocess; skipped under -short")
+	}
+	t.Setenv("HECATE_CONTROL_PLANE_SECRET_KEY", "gateway-secret")
+	t.Setenv("PROVIDER_OPENAI_API_KEY", "provider-secret")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "authorization=Bearer secret")
+
+	cfg := ServerConfig{
+		Name:    "fixture",
+		Command: os.Args[0],
+		Args:    []string{"-test.run=^$"},
+		Env: map[string]string{
+			fixtureEnvKey:    "1",
+			"OPENAI_API_KEY": "explicit-mcp-secret",
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pool, err := NewPool(ctx, mcp.ClientInfo{Name: "hecate-subprocess-test", Version: "0.0.0"}, []ServerConfig{cfg})
+	if err != nil {
+		t.Fatalf("NewPool: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+
+	text, isErr, err := pool.Call(ctx, "mcp__fixture__env", json.RawMessage(`{"keys":["OPENAI_API_KEY","HECATE_CONTROL_PLANE_SECRET_KEY","PROVIDER_OPENAI_API_KEY","ANTHROPIC_API_KEY","OTEL_EXPORTER_OTLP_HEADERS"]}`))
+	if err != nil {
+		t.Fatalf("Call env: %v", err)
+	}
+	if isErr {
+		t.Fatalf("env tool returned isError=true; text=%q", text)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(text), &got); err != nil {
+		t.Fatalf("decode env tool output %q: %v", text, err)
+	}
+	if got["OPENAI_API_KEY"] != "explicit-mcp-secret" {
+		t.Fatalf("OPENAI_API_KEY = %q, want explicit MCP env", got["OPENAI_API_KEY"])
+	}
+	for _, key := range []string{
+		"HECATE_CONTROL_PLANE_SECRET_KEY",
+		"PROVIDER_OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+		"OTEL_EXPORTER_OTLP_HEADERS",
+	} {
+		if got[key] != "" {
+			t.Fatalf("%s leaked into MCP subprocess env: %#v", key, got)
+		}
 	}
 }

@@ -81,9 +81,12 @@ func NewSQLiteClient(ctx context.Context, cfg SQLiteConfig) (*SQLiteClient, erro
 		return nil, fmt.Errorf("sqlite path is required")
 	}
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("create sqlite directory %q: %w", dir, err)
+		if err := ensureSQLiteDirectory(dir); err != nil {
+			return nil, err
 		}
+	}
+	if err := ensurePrivateSQLiteFile(path); err != nil {
+		return nil, err
 	}
 
 	busyMs := int64(5000)
@@ -115,11 +118,44 @@ func NewSQLiteClient(ctx context.Context, cfg SQLiteConfig) (*SQLiteClient, erro
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("secure sqlite file %q: %w", path, err)
+	}
 
 	return &SQLiteClient{
 		db:          db,
 		tablePrefix: sanitizeIdentifier(cfg.TablePrefix, "hecate"),
 	}, nil
+}
+
+func ensureSQLiteDirectory(dir string) error {
+	if _, err := os.Stat(dir); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat sqlite directory %q: %w", dir, err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create sqlite directory %q: %w", dir, err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("secure sqlite directory %q: %w", dir, err)
+	}
+	return nil
+}
+
+func ensurePrivateSQLiteFile(path string) error {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("create sqlite file %q: %w", path, err)
+	}
+	if closeErr := file.Close(); closeErr != nil {
+		return fmt.Errorf("close sqlite file %q: %w", path, closeErr)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("secure sqlite file %q: %w", path, err)
+	}
+	return nil
 }
 
 func (c *SQLiteClient) Close() error {
