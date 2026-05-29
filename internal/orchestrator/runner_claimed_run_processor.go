@@ -99,11 +99,14 @@ func (p *claimedRunProcessor) beginJob() (context.Context, func()) {
 
 func (p *claimedRunProcessor) startClaimedRun(ctx context.Context) bool {
 	now := time.Now().UTC()
-
-	var queueWaitMS int64
-	if !p.run.StartedAt.IsZero() {
-		queueWaitMS = now.Sub(p.run.StartedAt).Milliseconds()
-	}
+	transition := prepareClaimedRunStartTransition(claimedRunStartTransitionInput{
+		Task:       p.task,
+		Run:        p.run,
+		RequestID:  p.requestID,
+		TraceID:    p.trace.TraceID,
+		RootSpanID: p.trace.RootSpanID(),
+		Now:        now,
+	})
 	p.queueBackend = ""
 	if p.queue != nil {
 		p.queueBackend = p.queue.Backend()
@@ -112,43 +115,24 @@ func (p *claimedRunProcessor) startClaimedRun(ctx context.Context) bool {
 		telemetry.AttrHecateTaskID:       p.task.ID,
 		telemetry.AttrHecateRunID:        p.run.ID,
 		telemetry.AttrHecateQueueBackend: p.queueBackend,
-		telemetry.AttrHecateQueueWaitMS:  queueWaitMS,
+		telemetry.AttrHecateQueueWaitMS:  transition.QueueWaitMS,
 		telemetry.AttrHecateWorkerID:     p.coordinator.workerID,
 	})
 	p.runner.metrics.RecordQueueWait(ctx, telemetry.QueueWaitRecord{
 		TaskID:       p.task.ID,
 		RunID:        p.run.ID,
 		QueueBackend: p.queueBackend,
-		WaitMS:       queueWaitMS,
+		WaitMS:       transition.QueueWaitMS,
 	})
 
-	p.run.Status = "running"
-	p.run.RequestID = p.requestID
-	p.run.TraceID = p.trace.TraceID
-	p.run.RootSpanID = p.trace.RootSpanID()
-	if p.run.StartedAt.IsZero() {
-		p.run.StartedAt = now
-	}
-	p.run.LastError = ""
-	p.run.FinishedAt = time.Time{}
-	if _, err := p.runner.store.UpdateRun(ctx, p.run); err != nil {
+	if err := persistClaimedRunStartTransition(ctx, p.runner.store, transition); err != nil {
 		return false
 	}
 
-	p.task.Status = "running"
-	p.task.LatestRunID = p.run.ID
-	if p.task.StartedAt.IsZero() {
-		p.task.StartedAt = now
-	}
-	p.task.UpdatedAt = now
-	p.task.FinishedAt = time.Time{}
-	p.task.LastError = ""
-	p.task.RootTraceID = p.trace.TraceID
-	p.task.LatestTraceID = p.trace.TraceID
-	p.task.LatestRequestID = p.requestID
-	if _, err := p.runner.store.UpdateTask(ctx, p.task); err != nil {
-		return false
-	}
+	// Downstream run.started emission, execution, and queue-ack telemetry
+	// all read the processor's current run/task snapshots.
+	p.run = transition.Run
+	p.task = transition.Task
 
 	recordOrchestratorRunStarted(p.trace, p.task.ID, p.run)
 	return true
