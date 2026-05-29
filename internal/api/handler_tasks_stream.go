@@ -207,13 +207,14 @@ func (h *Handler) HandleAppendTaskRunEvent(w http.ResponseWriter, r *http.Reques
 		extra["note"] = req.Note
 	}
 	event, err := h.taskRunEventRecorder().Append(ctx, runtimeevents.Event{
-		TaskID:       task.ID,
-		RunID:        run.ID,
-		EventType:    eventType,
-		Data:         extra,
-		RequestID:    RequestIDFromContext(ctx),
-		TraceID:      telemetry.TraceIDsFromContext(ctx).TraceID,
-		SnapshotMode: runtimeevents.SnapshotBestEffort,
+		TaskID:            task.ID,
+		RunID:             run.ID,
+		EventType:         eventType,
+		Data:              extra,
+		RequestID:         RequestIDFromContext(ctx),
+		TraceID:           telemetry.TraceIDsFromContext(ctx).TraceID,
+		SnapshotMode:      runtimeevents.SnapshotBestEffort,
+		SnapshotPlacement: runtimeevents.SnapshotOverridesData,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
