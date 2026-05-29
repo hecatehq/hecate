@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useChat } from "../../app/state/chat";
 import { useChatActions } from "../../app/state/coordinators/chat";
@@ -8,6 +8,7 @@ import { formatDurationMs } from "../../lib/format";
 import type {
   ChatActivityRecord,
   ChatContextPacketRecord,
+  ChatMessageRecord,
   ChatSegmentRecord,
   ChatTimingRecord,
   ChatUsageRecord,
@@ -78,6 +79,20 @@ type Props = {
   onOpenWorkspaceChanges?: () => void;
   openExternalAgentSetup: (adapterID?: string) => void;
 };
+
+const noop = () => {};
+
+// useStableCallback returns a callback whose identity is constant for the
+// component's lifetime but that always invokes the most recent function
+// passed in. This lets the memoized transcript rows treat handlers as
+// stable props even though ChatView recreates some of them every render.
+function useStableCallback<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  const ref = useRef(fn);
+  useEffect(() => {
+    ref.current = fn;
+  });
+  return useRef((...args: A) => ref.current(...args)).current;
+}
 
 export function ChatTranscript({
   isHecateAgentChat,
@@ -163,6 +178,27 @@ export function ChatTranscript({
     }, 2000);
   }
 
+  // Stable handler identities so the memoized rows below can bail out of
+  // re-rendering. onOpenTask/onOpenTrace fold in the onNavigate fallback so
+  // the row never needs onNavigate directly.
+  const handleCopy = useStableCallback(copyMsg);
+  const handleOpenTask = useStableCallback((taskID: string, runID?: string) => {
+    if (onOpenTask) onOpenTask(taskID, runID);
+    else onNavigate?.("runs");
+  });
+  const handleOpenTrace = useStableCallback((requestID: string) => {
+    if (onOpenTrace) onOpenTrace(requestID);
+    else onNavigate?.("overview");
+  });
+  const handleOpenSetup = useStableCallback((adapterID?: string) => {
+    openExternalAgentSetup(adapterID);
+  });
+  const stableWorkspaceChanges = useStableCallback(onOpenWorkspaceChanges ?? noop);
+  // Preserve the undefined case: TranscriptMessageRow renders a plain,
+  // non-clickable label when changedFilesLink.onClick is undefined, so a
+  // missing handler must stay undefined rather than become a no-op button.
+  const workspaceChangesHandler = onOpenWorkspaceChanges ? stableWorkspaceChanges : undefined;
+
   return (
     <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
       <div
@@ -175,99 +211,18 @@ export function ChatTranscript({
             return <ChatSegmentDivider key={item.key} segment={item.segment} />;
           }
           const m = item.message;
-          const role = m.role === "assistant" ? "assistant" : "user";
-          const content =
-            typeof m.content === "string"
-              ? m.content
-              : m.content === null
-                ? ""
-                : JSON.stringify(m.content);
-          const time = m.created_at
-            ? new Date(m.created_at).toLocaleTimeString("en-US", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : "";
-          const agentModel = isHecateAgentChat
-            ? m.model || activeChatSession?.model || "Hecate Chat"
-            : m.agent_name || m.agent_id;
-          const agentRuntime =
-            role === "assistant" ? formatAgentRuntimeMeta(m.run_id, m.duration_ms) : "";
-          const agentRuntimeTitle =
-            role === "assistant"
-              ? formatAgentRuntimeMetaTitle(m.run_id, m.duration_ms, m.native_session_id)
-              : "";
-          const taskID = m.execution_mode === "hecate_task" ? m.task_id : "";
-          const taskRunID = taskID ? m.run_id : "";
-          const traceRequestID = m.request_id;
-          const traceID = m.trace_id;
-          const changedFilesSummary =
-            role === "assistant" && (m.diff_stat || m.diff)
-              ? workspaceChangeSummaryLabel({
-                  key: `workspace-files:${m.id}`,
-                  messageID: m.id,
-                  label: "",
-                  diffStat: m.diff_stat,
-                  diff: m.diff,
-                })
-              : "";
           return (
-            <TranscriptMessageRow
+            <ChatTranscriptRow
               key={item.key}
-              id={m.id}
-              role={role}
-              model={agentModel}
-              brand={messageBrand(m, isHecateAgentChat)}
-              content={content}
-              diffStat={role === "assistant" ? m.diff_stat : undefined}
-              diff={role === "assistant" ? m.diff : undefined}
-              time={time}
-              badge={role === "assistant" ? m.agent_status || m.cost_mode : undefined}
-              runtimeMeta={agentRuntime}
-              runtimeMetaTitle={agentRuntimeTitle}
-              taskLink={
-                isHecateAgentChat && role === "assistant" && taskID
-                  ? {
-                      label: formatTaskLinkLabel(taskID),
-                      title: formatTaskLinkTitle(taskID, taskRunID),
-                      onClick: () => {
-                        if (!taskID) return;
-                        if (onOpenTask) onOpenTask(taskID, taskRunID);
-                        else onNavigate?.("runs");
-                      },
-                    }
-                  : undefined
-              }
-              traceLink={
-                role === "assistant" && traceRequestID
-                  ? {
-                      label: formatTraceLinkLabel(traceRequestID),
-                      title: formatTraceLinkTitle(traceRequestID, traceID),
-                      onClick: () => {
-                        if (onOpenTrace) onOpenTrace(traceRequestID);
-                        else onNavigate?.("overview");
-                      },
-                    }
-                  : undefined
-              }
-              changedFilesLink={
-                changedFilesSummary
-                  ? {
-                      label: compactWorkspaceChangeLabel(m.diff_stat),
-                      title: changedFilesSummary,
-                      onClick: onOpenWorkspaceChanges,
-                    }
-                  : undefined
-              }
-              activities={role === "assistant" ? m.activities : undefined}
-              rawOutput={role === "assistant" ? m.raw_output : undefined}
-              agentUsage={role === "assistant" ? m.usage : undefined}
-              agentTiming={role === "assistant" ? m.timing : undefined}
-              contextPacket={role === "assistant" ? m.context_packet : undefined}
-              error={role === "assistant" ? m.error : undefined}
-              setupAction={externalAgentSetupAction(role, m, openExternalAgentSetup)}
-              onCopy={copyMsg}
+              message={m}
+              isHecateAgentChat={isHecateAgentChat}
+              activeModel={activeChatSession?.model}
               copied={copiedMsgId === m.id}
+              onCopy={handleCopy}
+              onOpenTask={handleOpenTask}
+              onOpenTrace={handleOpenTrace}
+              onOpenWorkspaceChanges={workspaceChangesHandler}
+              openExternalAgentSetup={handleOpenSetup}
             />
           );
         })}
@@ -381,6 +336,118 @@ export function ChatTranscript({
   );
 }
 
+type ChatTranscriptRowProps = {
+  message: VisibleChatMessage;
+  isHecateAgentChat: boolean;
+  activeModel?: string;
+  copied: boolean;
+  onCopy: (id: string, text: string) => void;
+  onOpenTask: (taskID: string, runID?: string) => void;
+  onOpenTrace: (requestID: string) => void;
+  onOpenWorkspaceChanges?: () => void;
+  openExternalAgentSetup: (adapterID?: string) => void;
+};
+
+// ChatTranscriptRow is memoized so a streamed snapshot only re-renders the
+// one message whose projected record changed identity (see
+// projectVisibleMessage + reconcileChatSession). Every callback prop is
+// stabilized by the parent, so the shallow prop compare bails for each
+// unchanged row — skipping its markdown re-parse and subtree render.
+const ChatTranscriptRow = memo(function ChatTranscriptRow({
+  message: m,
+  isHecateAgentChat,
+  activeModel,
+  copied,
+  onCopy,
+  onOpenTask,
+  onOpenTrace,
+  onOpenWorkspaceChanges,
+  openExternalAgentSetup,
+}: ChatTranscriptRowProps) {
+  const role = m.role === "assistant" ? "assistant" : "user";
+  const content =
+    typeof m.content === "string" ? m.content : m.content === null ? "" : JSON.stringify(m.content);
+  const time = m.created_at
+    ? new Date(m.created_at).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+  const agentModel = isHecateAgentChat
+    ? m.model || activeModel || "Hecate Chat"
+    : m.agent_name || m.agent_id;
+  const agentRuntime = role === "assistant" ? formatAgentRuntimeMeta(m.run_id, m.duration_ms) : "";
+  const agentRuntimeTitle =
+    role === "assistant"
+      ? formatAgentRuntimeMetaTitle(m.run_id, m.duration_ms, m.native_session_id)
+      : "";
+  const taskID = m.execution_mode === "hecate_task" ? m.task_id : "";
+  const taskRunID = taskID ? m.run_id : "";
+  const traceRequestID = m.request_id;
+  const traceID = m.trace_id;
+  const changedFilesSummary =
+    role === "assistant" && (m.diff_stat || m.diff)
+      ? workspaceChangeSummaryLabel({
+          key: `workspace-files:${m.id}`,
+          messageID: m.id,
+          label: "",
+          diffStat: m.diff_stat,
+          diff: m.diff,
+        })
+      : "";
+  return (
+    <TranscriptMessageRow
+      id={m.id}
+      role={role}
+      model={agentModel}
+      brand={messageBrand(m, isHecateAgentChat)}
+      content={content}
+      diffStat={role === "assistant" ? m.diff_stat : undefined}
+      diff={role === "assistant" ? m.diff : undefined}
+      time={time}
+      badge={role === "assistant" ? m.agent_status || m.cost_mode : undefined}
+      runtimeMeta={agentRuntime}
+      runtimeMetaTitle={agentRuntimeTitle}
+      taskLink={
+        isHecateAgentChat && role === "assistant" && taskID
+          ? {
+              label: formatTaskLinkLabel(taskID),
+              title: formatTaskLinkTitle(taskID, taskRunID),
+              onClick: () => onOpenTask(taskID, taskRunID),
+            }
+          : undefined
+      }
+      traceLink={
+        role === "assistant" && traceRequestID
+          ? {
+              label: formatTraceLinkLabel(traceRequestID),
+              title: formatTraceLinkTitle(traceRequestID, traceID),
+              onClick: () => onOpenTrace(traceRequestID),
+            }
+          : undefined
+      }
+      changedFilesLink={
+        changedFilesSummary
+          ? {
+              label: compactWorkspaceChangeLabel(m.diff_stat),
+              title: changedFilesSummary,
+              onClick: onOpenWorkspaceChanges,
+            }
+          : undefined
+      }
+      activities={role === "assistant" ? m.activities : undefined}
+      rawOutput={role === "assistant" ? m.raw_output : undefined}
+      agentUsage={role === "assistant" ? m.usage : undefined}
+      agentTiming={role === "assistant" ? m.timing : undefined}
+      contextPacket={role === "assistant" ? m.context_packet : undefined}
+      error={role === "assistant" ? m.error : undefined}
+      setupAction={externalAgentSetupAction(role, m, openExternalAgentSetup)}
+      onCopy={onCopy}
+      copied={copied}
+    />
+  );
+});
+
 export function buildTranscriptItems(
   messages: VisibleChatMessage[],
   segments: ChatSegmentRecord[] | undefined,
@@ -405,6 +472,58 @@ export function buildTranscriptItems(
     items.push({ type: "message", key: `message:${message.id}`, message });
   });
   return items;
+}
+
+const visibleMessageCache = new WeakMap<ChatMessageRecord, VisibleChatMessage>();
+
+// projectVisibleMessage maps a persisted chat message onto the lean shape
+// the transcript renders. It is cached by message-object identity so that,
+// combined with reconcileChatSession preserving identity across snapshots,
+// an unchanged message yields the *same* VisibleChatMessage reference on
+// every render — which is what lets ChatTranscriptRow's memo bail out.
+// Id-less rows (optimistic/synthetic) fall back to an index-derived id and
+// also get a fresh object every snapshot, so they are never cached.
+export function projectVisibleMessage(
+  message: ChatMessageRecord,
+  index: number,
+): VisibleChatMessage {
+  if (!message.id) {
+    return buildVisibleMessage(message, `agent-message-${index}`);
+  }
+  const cached = visibleMessageCache.get(message);
+  if (cached) return cached;
+  const projected = buildVisibleMessage(message, message.id);
+  visibleMessageCache.set(message, projected);
+  return projected;
+}
+
+function buildVisibleMessage(m: ChatMessageRecord, id: string): VisibleChatMessage {
+  return {
+    id,
+    execution_mode: m.execution_mode,
+    segment_id: m.segment_id,
+    task_id: m.task_id,
+    run_id: m.run_id,
+    request_id: m.request_id,
+    trace_id: m.trace_id,
+    native_session_id: m.native_session_id,
+    role: m.role,
+    content: m.content,
+    created_at: m.created_at,
+    agent_id: m.agent_id,
+    agent_name: m.agent_name,
+    agent_status: m.status,
+    cost_mode: m.cost_mode,
+    provider: m.provider,
+    model: m.model,
+    diff_stat: m.diff_stat,
+    diff: m.diff,
+    raw_output: m.raw_output,
+    activities: m.activities,
+    usage: m.usage,
+    duration_ms: m.duration_ms,
+    error: m.error,
+  };
 }
 
 function fallbackSegmentID(message: VisibleChatMessage): string {

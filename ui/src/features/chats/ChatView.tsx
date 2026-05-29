@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useApprovals } from "../../app/state/approvals";
 import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
@@ -35,7 +35,12 @@ import { ChatHeader } from "./ChatHeader";
 import { ChatRightPanel } from "./ChatRightPanel";
 import { ChatSettingsPanel } from "./ChatSettingsPanel";
 import { ChatSidebar, sidebarSessionAgentLabel, sidebarSessionBrand } from "./ChatSidebar";
-import { ChatTranscript, buildTranscriptItems, type VisibleChatMessage } from "./ChatTranscript";
+import {
+  ChatTranscript,
+  buildTranscriptItems,
+  projectVisibleMessage,
+  type VisibleChatMessage,
+} from "./ChatTranscript";
 import { ChatWorkspaceChangesPanel } from "./ChatWorkspaceChangesPanel";
 import { externalAgentRequiresModelSelection, mergeAgentConfigOptions } from "./agentConfigOptions";
 import { chatAgentOption } from "./ChatAgentControls";
@@ -182,33 +187,15 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
     : [];
   const activeTitle = state.activeChatSession?.title;
-  const messages: VisibleChatMessage[] = (state.activeChatSession?.messages ?? []).map(
-    (m, index) => ({
-      id: m.id || `agent-message-${index}`,
-      execution_mode: m.execution_mode,
-      segment_id: m.segment_id,
-      task_id: m.task_id,
-      run_id: m.run_id,
-      request_id: m.request_id,
-      trace_id: m.trace_id,
-      native_session_id: m.native_session_id,
-      role: m.role,
-      content: m.content,
-      created_at: m.created_at,
-      agent_id: m.agent_id,
-      agent_name: m.agent_name,
-      agent_status: m.status,
-      cost_mode: m.cost_mode,
-      provider: m.provider,
-      model: m.model,
-      diff_stat: m.diff_stat,
-      diff: m.diff,
-      raw_output: m.raw_output,
-      activities: m.activities,
-      usage: m.usage,
-      duration_ms: m.duration_ms,
-      error: m.error,
-    }),
+  // Project + derive through useMemo so a streamed snapshot only rebuilds
+  // these lists when the underlying messages/segments actually change.
+  // projectVisibleMessage preserves per-message reference identity (keyed
+  // on the reconciled record), so the memoized transcript rows downstream
+  // skip re-rendering every row that did not change.
+  const messages: VisibleChatMessage[] = useMemo(
+    () =>
+      (state.activeChatSession?.messages ?? []).map((m, index) => projectVisibleMessage(m, index)),
+    [state.activeChatSession?.messages],
   );
   const pendingTaskApprovals = isHecateChat
     ? pendingHecateTaskApprovals(state.activeChatSession)
@@ -216,18 +203,25 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   // Hide system messages and any assistant placeholder that is still
   // waiting for content — the streaming-content block below renders
   // the live text instead.
-  const visibleMessages = messages.filter((m) => {
-    if (m.role === "system") return false;
-    if (m.role === "assistant" && m.content === null) return false;
-    return true;
-  });
-  const messageHistory = visibleMessages
-    .filter((m) => m.role === "user" && typeof m.content === "string" && m.content.trim())
-    .map((m) => (m.content ?? "").trimEnd());
-  const transcriptItems = buildTranscriptItems(
-    visibleMessages,
-    state.activeChatSession?.segments,
-    isHecateChat,
+  const visibleMessages = useMemo(
+    () =>
+      messages.filter((m) => {
+        if (m.role === "system") return false;
+        if (m.role === "assistant" && m.content === null) return false;
+        return true;
+      }),
+    [messages],
+  );
+  const messageHistory = useMemo(
+    () =>
+      visibleMessages
+        .filter((m) => m.role === "user" && typeof m.content === "string" && m.content.trim())
+        .map((m) => (m.content ?? "").trimEnd()),
+    [visibleMessages],
+  );
+  const transcriptItems = useMemo(
+    () => buildTranscriptItems(visibleMessages, state.activeChatSession?.segments, isHecateChat),
+    [visibleMessages, state.activeChatSession?.segments, isHecateChat],
   );
   const streaming = state.chatLoading;
   const chatDiagnostic = describeGatewayError(

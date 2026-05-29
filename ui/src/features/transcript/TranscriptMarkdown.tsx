@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type React from "react";
 
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
@@ -5,7 +6,11 @@ import { CodeBlock } from "../shared/Atoms";
 import { DiffViewer } from "../shared/DiffViewer";
 
 export function TranscriptMarkdown({ content }: { content: string }) {
-  const blocks = parseMarkdownBlocks(content);
+  // Re-parsing markdown is the per-row hot cost on a streamed transcript.
+  // Memoizing on `content` means a row only re-parses when its text
+  // actually changes — not on hover, copy, or parent re-renders that
+  // leave the content identical.
+  const blocks = useMemo(() => parseMarkdownBlocks(content), [content]);
   return (
     <div style={{ fontSize: 13, color: "var(--t0)", lineHeight: 1.7 }}>
       {blocks.map((block, i) => {
