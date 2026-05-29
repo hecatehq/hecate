@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -523,7 +524,7 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 			TaskID:    task.ID,
 			RunID:     run.ID,
 			EventType: approvalEventType,
-			Data:      types.ApprovalResolvedEventData(approval),
+			Data:      runtimeevents.ApprovalResolved(approval),
 			RequestID: tr.Run.RequestID,
 			TraceID:   tr.Run.TraceID,
 			CreatedAt: finishedAt,

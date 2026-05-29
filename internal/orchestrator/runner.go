@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspace"
@@ -910,14 +911,14 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 	// includes prior runs in the resume chain so a long chain shows
 	// total task spend, not just per-run.
 	for _, tc := range execution.TurnCosts {
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "turn.completed", requestID, trace.TraceID, map[string]any{
-			"turn_index":                      tc.Turn,
-			"step_id":                         tc.StepID,
-			"cost_micros_usd":                 tc.CostMicrosUSD,
-			"run_cumulative_cost_micros_usd":  tc.CumulativeMicrosUSD,
-			"task_cumulative_cost_micros_usd": run.PriorCostMicrosUSD + tc.CumulativeMicrosUSD,
-			"tool_calls":                      tc.ToolCallCount,
-		})
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "turn.completed", requestID, trace.TraceID, runtimeevents.TurnCompleted(runtimeevents.TurnCompletedFields{
+			TurnIndex:                   tc.Turn,
+			StepID:                      tc.StepID,
+			CostMicrosUSD:               tc.CostMicrosUSD,
+			RunCumulativeCostMicrosUSD:  tc.CumulativeMicrosUSD,
+			TaskCumulativeCostMicrosUSD: run.PriorCostMicrosUSD + tc.CumulativeMicrosUSD,
+			ToolCalls:                   tc.ToolCallCount,
+		}))
 	}
 
 	// Persist mid-loop approvals the executor emitted (agent_loop
@@ -932,7 +933,7 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		if _, err := r.store.CreateApproval(ctx, approval); err != nil {
 			return nil, err
 		}
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.requested", requestID, trace.TraceID, approvalRequestedEventData(approval))
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.requested", requestID, trace.TraceID, runtimeevents.ApprovalRequested(approval))
 	}
 
 	resultKind := telemetry.ResultSuccess
@@ -1080,22 +1081,6 @@ func taskForRun(task types.Task, run types.TaskRun) types.Task {
 		executionTask.SandboxAllowedRoot = run.WorkspacePath
 	}
 	return executionTask
-}
-
-func approvalRequestedEventData(approval types.TaskApproval) map[string]any {
-	data := map[string]any{
-		"approval_id":   approval.ID,
-		"kind":          approval.Kind,
-		"status":        approval.Status,
-		"policy_reason": approval.Reason,
-	}
-	if approval.StepID != "" {
-		data["step_id"] = approval.StepID
-	}
-	if approval.RequestedBy != "" {
-		data["requested_by"] = approval.RequestedBy
-	}
-	return data
 }
 
 func defaultWorkerID() string {

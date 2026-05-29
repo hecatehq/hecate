@@ -115,28 +115,3 @@ func TestTaskJSONRoundTrip_NoMCPServers_OmitsField(t *testing.T) {
 		t.Errorf("got.MCPServers = %+v, want empty (no MCPServers configured)", got.MCPServers)
 	}
 }
-
-func TestApprovalResolvedEventData(t *testing.T) {
-	t.Parallel()
-	approval := TaskApproval{
-		ID:             "approval-1",
-		Kind:           "agent_loop_tool_call",
-		Status:         "rejected",
-		ResolvedBy:     "operator",
-		ResolutionNote: "not safe",
-	}
-
-	got := ApprovalResolvedEventData(approval)
-	want := map[string]any{
-		"approval_id": "approval-1",
-		"decision":    "rejected",
-		"by":          "operator",
-		"comment":     "not safe",
-		"scope":       "once",
-		"kind":        "agent_loop_tool_call",
-		"status":      "rejected",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("ApprovalResolvedEventData() = %+v, want %+v", got, want)
-	}
-}

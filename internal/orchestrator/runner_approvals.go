@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -108,7 +109,7 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 		return nil, err
 	}
 
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, types.ApprovalResolvedEventData(approval))
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, runtimeevents.ApprovalResolved(approval))
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.queued", requestID, trace.TraceID, map[string]any{"resume": true})
 
 	if err := r.enqueueRun(task.ID, run.ID); err != nil {
@@ -273,7 +274,7 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 	if err != nil {
 		return nil, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, types.ApprovalResolvedEventData(approval))
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, runtimeevents.ApprovalResolved(approval))
 	return &StartTaskResult{
 		Task:    task,
 		Run:     run,
@@ -376,6 +377,6 @@ func (r *Runner) createApprovalForTask(ctx context.Context, trace *profiler.Trac
 		})
 		return types.TaskApproval{}, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.requested", requestID, trace.TraceID, approvalRequestedEventData(approval))
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.requested", requestID, trace.TraceID, runtimeevents.ApprovalRequested(approval))
 	return approval, nil
 }

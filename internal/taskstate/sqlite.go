@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -712,7 +713,7 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 			TaskID:    task.ID,
 			RunID:     run.ID,
 			EventType: approvalEventType,
-			Data:      types.ApprovalResolvedEventData(approval),
+			Data:      runtimeevents.ApprovalResolved(approval),
 			RequestID: tr.Run.RequestID,
 			TraceID:   tr.Run.TraceID,
 			CreatedAt: finishedAt,
