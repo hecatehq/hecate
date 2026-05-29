@@ -72,24 +72,14 @@ func (f AgentLLMClientFunc) Chat(ctx context.Context, req types.ChatRequest) (*t
 // assistant tool_calls without resolved results and dispatches them
 // without a second LLM call.
 type AgentLoopExecutor struct {
-	llm        AgentLLMClient
-	shell      Executor
-	file       Executor
-	git        Executor
-	maxTurns   int
-	gatedTools map[string]struct{}
-	httpPolicy HTTPRequestPolicy
-	httpClient *http.Client
+	llm            AgentLLMClient
+	maxTurns       int
+	approvalGate   agentLoopApprovalGate
+	toolDispatcher *agentLoopToolDispatcher
 	// mcpFactory builds a per-run MCP host from the task's
 	// MCPServers config. nil = no MCP support; tasks that configure
 	// MCPServers will fail with a clear error.
 	mcpFactory AgentMCPHostFactory
-	// metrics is the optional metrics seam for MCP tool calls. When
-	// set, dispatchMCPToolCall records every dispatch outcome on the
-	// hecate.orchestrator.mcp.tool_calls counter / duration
-	// histogram. nil = no metrics (the loop still runs; just no
-	// numbers).
-	metrics *telemetry.OrchestratorMetrics
 }
 
 // NewAgentLoopExecutor constructs the loop. A nil LLM client is
@@ -116,14 +106,6 @@ func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git
 	if maxTurns <= 0 {
 		maxTurns = 8
 	}
-	gated := make(map[string]struct{}, len(gatedTools))
-	for _, name := range gatedTools {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		gated[name] = struct{}{}
-	}
 	// Apply safe defaults to the HTTP policy. Operators who don't
 	// configure HECATE_TASK_HTTP_* still get sensible bounds.
 	if httpPolicy.Timeout <= 0 {
@@ -139,14 +121,16 @@ func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git
 	httpClient := &http.Client{Timeout: httpPolicy.Timeout}
 
 	return &AgentLoopExecutor{
-		llm:        llm,
-		shell:      shell,
-		file:       file,
-		git:        git,
-		maxTurns:   maxTurns,
-		gatedTools: gated,
-		httpPolicy: httpPolicy,
-		httpClient: httpClient,
+		llm:          llm,
+		maxTurns:     maxTurns,
+		approvalGate: newAgentLoopApprovalGate(gatedTools),
+		toolDispatcher: &agentLoopToolDispatcher{
+			shell:      shell,
+			file:       file,
+			git:        git,
+			httpPolicy: httpPolicy,
+			httpClient: httpClient,
+		},
 	}
 }
 
@@ -157,7 +141,9 @@ func NewAgentLoopExecutor(llm AgentLLMClient, shell Executor, file Executor, git
 // the same instance here so the agent loop and the runner share
 // instruments).
 func (e *AgentLoopExecutor) SetMetrics(m *telemetry.OrchestratorMetrics) {
-	e.metrics = m
+	if e.toolDispatcher != nil {
+		e.toolDispatcher.SetMetrics(m)
+	}
 }
 
 // SetMCPHostFactory wires the factory used to bring up per-task MCP
@@ -452,20 +438,18 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			// the same run is re-queued and we re-enter the loop
 			// with the same conversation tail — this branch is
 			// short-circuited by the resume-detection above.
-			gatedNames := e.gatedToolsInTurn(assistantMsg.ToolCalls, spec.Task)
-			if len(gatedNames) > 0 {
-				approval := buildApprovalForTurn(spec, turn, gatedNames, turnStartedAt)
-				awaitingStep := buildAwaitingApprovalStep(spec, nextIndex, turn, turnStartedAt, approval)
+			pause, ok := e.approvalGate.Evaluate(spec, turn, nextIndex, turnStartedAt, assistantMsg.ToolCalls)
+			if ok {
 				nextIndex++
-				if err := upsertTaskStep(spec, awaitingStep); err != nil {
+				if err := upsertTaskStep(spec, pause.Step); err != nil {
 					return nil, err
 				}
-				allSteps = append(allSteps, awaitingStep)
+				allSteps = append(allSteps, pause.Step)
 				return withRoute(&ExecutionResult{
 					Status:           "awaiting_approval",
 					Steps:            allSteps,
 					Artifacts:        allArtifacts,
-					PendingApprovals: []types.TaskApproval{approval},
+					PendingApprovals: []types.TaskApproval{pause.Approval},
 					OtelStatusCode:   "ok",
 					CostMicrosUSD:    costSpent,
 					TurnCosts:        turnCosts,
@@ -476,15 +460,15 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 		// 5. Dispatch each tool call in order.
 		callsToRun := assistantMsg.ToolCalls
 		for _, toolCall := range callsToRun {
-			toolResultText, toolStep, toolArtifacts, dispatchErr := e.dispatchToolCall(ctx, spec, toolCall, nextIndex, mcpHost)
-			if toolStep != nil {
-				if err := upsertTaskStep(spec, *toolStep); err != nil {
+			dispatch, dispatchErr := e.toolDispatcher.Dispatch(ctx, spec, toolCall, nextIndex, mcpHost)
+			if dispatch.Step != nil {
+				if err := upsertTaskStep(spec, *dispatch.Step); err != nil {
 					return nil, err
 				}
-				allSteps = append(allSteps, *toolStep)
+				allSteps = append(allSteps, *dispatch.Step)
 				nextIndex++
 			}
-			for _, art := range toolArtifacts {
+			for _, art := range dispatch.Artifacts {
 				if err := upsertTaskArtifact(spec, art); err != nil {
 					return nil, err
 				}
@@ -506,11 +490,11 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			//     non-zero / errored at runtime (sandbox rejected,
 			//     non-zero exit, file system error, HTTP non-2xx).
 			isToolError := dispatchErr != nil ||
-				toolStep == nil ||
-				(toolStep != nil && toolStep.Status == "failed")
+				dispatch.Step == nil ||
+				(dispatch.Step != nil && dispatch.Step.Status == "failed")
 			messages = append(messages, types.Message{
 				Role:       "tool",
-				Content:    toolResultText,
+				Content:    dispatch.Text,
 				ToolCallID: toolCall.ID,
 				ToolError:  isToolError,
 			})

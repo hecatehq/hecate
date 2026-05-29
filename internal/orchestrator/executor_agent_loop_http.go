@@ -8,12 +8,10 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // The HTTP tool is the agent's only outbound-network surface. It runs
-// through e.httpClient (constructed once at executor init with the
+// through d.httpClient (constructed once at executor init with the
 // configured timeout) and applies three layers of safety:
 //
 //   1. Scheme allowlist — only http/https. file://, ftp://, gopher://
@@ -39,7 +37,7 @@ type httpRequestArgs struct {
 	Body    string            `json:"body,omitempty"`
 }
 
-func (e *AgentLoopExecutor) httpRequestTool(ctx context.Context, spec ExecutionSpec, args httpRequestArgs, stepIndex int, startedAt time.Time, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+func (d *agentLoopToolDispatcher) httpRequestTool(ctx context.Context, spec ExecutionSpec, args httpRequestArgs, stepIndex int, startedAt time.Time, toolName string) (agentLoopToolDispatchResult, error) {
 	method := strings.ToUpper(strings.TrimSpace(args.Method))
 	if method == "" {
 		method = "GET"
@@ -47,32 +45,32 @@ func (e *AgentLoopExecutor) httpRequestTool(ctx context.Context, spec ExecutionS
 	switch method {
 	case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD":
 	default:
-		return fmt.Sprintf("http_request: unsupported method %q", method), nil, nil, nil
+		return agentLoopToolDispatchResult{Text: fmt.Sprintf("http_request: unsupported method %q", method)}, nil
 	}
 
 	parsed, err := url.Parse(strings.TrimSpace(args.URL))
 	if err != nil {
-		return fmt.Sprintf("http_request: invalid URL: %v", err), nil, nil, nil
+		return agentLoopToolDispatchResult{Text: fmt.Sprintf("http_request: invalid URL: %v", err)}, nil
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Sprintf("http_request: scheme %q is not allowed; use http or https", parsed.Scheme), nil, nil, nil
+		return agentLoopToolDispatchResult{Text: fmt.Sprintf("http_request: scheme %q is not allowed; use http or https", parsed.Scheme)}, nil
 	}
 	host := parsed.Hostname()
 	if host == "" {
-		return "http_request: URL has no host", nil, nil, nil
+		return agentLoopToolDispatchResult{Text: "http_request: URL has no host"}, nil
 	}
 
 	// Hostname allowlist — exact match only.
-	if len(e.httpPolicy.AllowedHosts) > 0 {
+	if len(d.httpPolicy.AllowedHosts) > 0 {
 		ok := false
-		for _, h := range e.httpPolicy.AllowedHosts {
+		for _, h := range d.httpPolicy.AllowedHosts {
 			if strings.EqualFold(strings.TrimSpace(h), host) {
 				ok = true
 				break
 			}
 		}
 		if !ok {
-			return fmt.Sprintf("http_request: host %q is not in the configured allowlist", host), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("http_request: host %q is not in the configured allowlist", host)}, nil
 		}
 	}
 
@@ -81,9 +79,9 @@ func (e *AgentLoopExecutor) httpRequestTool(ctx context.Context, spec ExecutionS
 	// — a hostname like `internal.example.com` could legitimately
 	// resolve to 10.0.0.5, and we want to catch that, not just
 	// literal IPs in the URL.
-	if !e.httpPolicy.AllowPrivateIPs {
+	if !d.httpPolicy.AllowPrivateIPs {
 		if msg := checkPublicHost(ctx, host); msg != "" {
-			return msg, nil, nil, nil
+			return agentLoopToolDispatchResult{Text: msg}, nil
 		}
 	}
 
@@ -93,19 +91,19 @@ func (e *AgentLoopExecutor) httpRequestTool(ctx context.Context, spec ExecutionS
 	}
 	req, err := http.NewRequestWithContext(ctx, method, parsed.String(), body)
 	if err != nil {
-		return fmt.Sprintf("http_request: build request: %v", err), nil, nil, nil
+		return agentLoopToolDispatchResult{Text: fmt.Sprintf("http_request: build request: %v", err)}, nil
 	}
 	for k, v := range args.Headers {
 		req.Header.Set(k, v)
 	}
 
-	resp, err := e.httpClient.Do(req)
+	resp, err := d.httpClient.Do(req)
 	if err != nil {
-		return fmt.Sprintf("http_request: %v", err), nil, nil, nil
+		return agentLoopToolDispatchResult{Text: fmt.Sprintf("http_request: %v", err)}, nil
 	}
 	defer resp.Body.Close()
 
-	max := e.httpPolicy.MaxResponseBytes
+	max := d.httpPolicy.MaxResponseBytes
 	limited := io.LimitReader(resp.Body, int64(max)+1) // +1 to detect overflow
 	raw, _ := io.ReadAll(limited)
 	truncated := false
@@ -129,5 +127,5 @@ func (e *AgentLoopExecutor) httpRequestTool(ctx context.Context, spec ExecutionS
 	if truncated {
 		fmt.Fprintf(&b, "\n…(truncated at %d bytes; configure HECATE_TASK_HTTP_MAX_RESPONSE_BYTES to widen)", max)
 	}
-	return b.String(), &step, nil, nil
+	return agentLoopToolDispatchResult{Text: b.String(), Step: &step}, nil
 }

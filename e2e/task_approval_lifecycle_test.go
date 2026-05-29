@@ -292,9 +292,15 @@ type e2eTaskStepsResponse struct {
 }
 
 type e2eTaskStep struct {
-	ID        string `json:"id"`
-	Status    string `json:"status"`
-	ErrorKind string `json:"error_kind,omitempty"`
+	ID            string         `json:"id"`
+	Index         int            `json:"index,omitempty"`
+	Kind          string         `json:"kind,omitempty"`
+	Status        string         `json:"status"`
+	ToolName      string         `json:"tool_name,omitempty"`
+	Input         map[string]any `json:"input,omitempty"`
+	OutputSummary map[string]any `json:"output_summary,omitempty"`
+	Error         string         `json:"error,omitempty"`
+	ErrorKind     string         `json:"error_kind,omitempty"`
 }
 
 type e2eTaskEventsResponse struct {

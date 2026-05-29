@@ -7,15 +7,15 @@ import (
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
-func (e *AgentLoopExecutor) recordMCPCallTelemetry(
+func (d *agentLoopToolDispatcher) recordMCPCallTelemetry(
 	ctx context.Context,
 	spec ExecutionSpec,
 	toolCallID, toolName, server, tool, result string,
 	durationMS int64,
 	errMsg string,
 ) {
-	if e.metrics != nil {
-		e.metrics.RecordMCPToolCall(ctx, telemetry.MCPToolCallRecord{
+	if d.metrics != nil {
+		d.metrics.RecordMCPToolCall(ctx, telemetry.MCPToolCallRecord{
 			Server:     server,
 			Tool:       tool,
 			Result:     result,
