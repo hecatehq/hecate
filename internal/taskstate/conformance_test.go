@@ -142,6 +142,13 @@ func runStoreWakesOnRunScopedMutations(t *testing.T, store Store) {
 			_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{TaskID: taskID, RunID: runID, EventType: "turn.completed", RequestID: "req-wake"})
 			return err
 		}},
+		{"ApplyRunTerminalTransition", func() error {
+			_, err := store.ApplyRunTerminalTransition(ctx, TerminalRunTransition{
+				Task: types.Task{ID: taskID, Status: "succeeded"},
+				Run:  types.TaskRun{ID: runID, TaskID: taskID, Status: "succeeded"},
+			})
+			return err
+		}},
 	}
 
 	for _, m := range mutations {

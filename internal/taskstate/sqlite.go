@@ -743,6 +743,9 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 	if err := tx.Commit(); err != nil {
 		return TerminalRunTransitionResult{}, err
 	}
+	// The transition writes through tx helpers that don't signal; wake
+	// stream subscribers now that the commit succeeded.
+	s.signalRun(run.ID)
 	return TerminalRunTransitionResult{
 		Task:               task,
 		Run:                run,

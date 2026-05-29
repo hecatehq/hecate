@@ -539,6 +539,10 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 		events = append(events, s.appendRunEventLocked(event))
 	}
 
+	// The transition mutates the run, its children, and approvals through
+	// locked helpers that bypass the per-write signal, so wake stream
+	// subscribers explicitly.
+	s.signalRun(run.ID)
 	return TerminalRunTransitionResult{
 		Task:               task,
 		Run:                run,
