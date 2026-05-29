@@ -61,10 +61,9 @@ func TestReconcilePendingRunsRequeuesRecoverableRuns(t *testing.T) {
 	runner := &Runner{
 		logger:   slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		store:    store,
-		queue:    queue,
 		policies: make(map[string]struct{}),
-		jobs:     make(map[string]context.CancelFunc),
 	}
+	attachTestQueueCoordinator(runner, queue)
 
 	task := types.Task{
 		ID:        "task_1",
@@ -145,10 +144,9 @@ func TestStartTaskEmitsRunQueuedBeforeEnqueue(t *testing.T) {
 		tracer:     profiler.NewInMemoryTracer(nil),
 		exec:       NewStubExecutor(),
 		workspaces: NewWorkspaceManager(t.TempDir()),
-		queue:      queue,
 		policies:   make(map[string]struct{}),
-		jobs:       make(map[string]context.CancelFunc),
 	}
+	attachTestQueueCoordinator(runner, queue)
 	task := types.Task{
 		ID:            "task-start-queue-order",
 		Status:        "pending",
