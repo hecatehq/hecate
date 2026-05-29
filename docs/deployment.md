@@ -4,6 +4,13 @@ The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This
 
 Hecate defaults to `127.0.0.1:8765` and enforces same-origin for browser requests, but same-origin is not a network security boundary. If you change `HECATE_ADDRESS` to expose Hecate beyond the local machine, startup now requires `HECATE_ALLOW_NON_LOOPBACK_BIND=1`; set it only with your own access controls, firewall, or reverse proxy in front. The current security model is documented in [Security](security.md).
 
+For exposed provider-compatible inference (`/v1/models`, `/v1/chat/completions`,
+and `/v1/messages`), `HECATE_INFERENCE_TOKEN` adds an optional shared-token
+gate. Clients can send the token with the `Authorization: Bearer ...` header or
+the `x-api-key` header. It is a local deployment guard, not user management;
+keep using a reverse proxy, firewall, VPN, or equivalent control for anything
+reachable beyond your own machine.
+
 ## Contents
 
 - [Image pinning](#image-pinning)

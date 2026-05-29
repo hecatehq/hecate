@@ -373,7 +373,7 @@ describe("api client", () => {
       expect(options.method).toBe("GET");
     });
 
-    it("never sends an Authorization header (single-user mode is unauthenticated)", () => {
+    it("does not send Authorization by default", () => {
       const options = buildRequestOptions({ method: "POST", body: { x: 1 } });
       const headers = new Headers(options.headers);
       expect(headers.get("Authorization")).toBeNull();
@@ -407,6 +407,48 @@ describe("api client", () => {
       const headers = new Headers(options.headers);
 
       expect(headers.get("X-Hecate-Runtime-Token")).toBeNull();
+    });
+
+    it("sends the optional inference token to local provider-compatible paths", () => {
+      window.sessionStorage.setItem("hecate.inferenceToken", "local-inference-token-123456");
+
+      const options = buildRequestOptions(
+        { method: "POST", body: { messages: [] } },
+        "/v1/chat/completions",
+      );
+      const headers = new Headers(options.headers);
+
+      expect(headers.get("Authorization")).toBe("Bearer local-inference-token-123456");
+    });
+
+    it("sends the optional inference token to local models lookup", () => {
+      window.localStorage.setItem("hecate.inferenceToken", "local-inference-token-abcdef");
+
+      const options = buildRequestOptions({ method: "GET" }, "/v1/models?refresh=1");
+      const headers = new Headers(options.headers);
+
+      expect(headers.get("Authorization")).toBe("Bearer local-inference-token-abcdef");
+    });
+
+    it("does not send the optional inference token to hecate native paths", () => {
+      window.sessionStorage.setItem("hecate.inferenceToken", "local-inference-token-123456");
+
+      const options = buildRequestOptions({ method: "GET" }, "/hecate/v1/whoami");
+      const headers = new Headers(options.headers);
+
+      expect(headers.get("Authorization")).toBeNull();
+    });
+
+    it("does not send the optional inference token to external origins", () => {
+      window.sessionStorage.setItem("hecate.inferenceToken", "local-inference-token-123456");
+
+      const options = buildRequestOptions(
+        { method: "POST", body: { messages: [] } },
+        "https://api.openai.com/v1/chat/completions",
+      );
+      const headers = new Headers(options.headers);
+
+      expect(headers.get("Authorization")).toBeNull();
     });
   });
 
