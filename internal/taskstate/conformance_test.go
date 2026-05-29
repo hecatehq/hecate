@@ -73,6 +73,93 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreTaskMCPServersRoundTrip(t, factory(t))
 	})
+	t.Run(name+"/WakesOnRunScopedMutations", func(t *testing.T) {
+		t.Parallel()
+		runStoreWakesOnRunScopedMutations(t, factory(t))
+	})
+}
+
+// runStoreWakesOnRunScopedMutations is the contract the task-run SSE
+// stream relies on: every run-scoped write reaches a subscriber so the
+// stream can wake and re-read instead of polling. Steps, artifacts, and
+// run-status changes persist without emitting a run_event, so a
+// wake-on-AppendRunEvent-only design would miss live updates — hence the
+// store must signal on all of them. Backends that don't implement the
+// optional SubscribeRun capability fall back to polling, so the case
+// skips them rather than failing.
+func runStoreWakesOnRunScopedMutations(t *testing.T, store Store) {
+	t.Helper()
+	sub, ok := store.(interface {
+		SubscribeRun(string) (<-chan struct{}, func())
+	})
+	if !ok {
+		t.Skip("store does not implement SubscribeRun; stream falls back to polling")
+	}
+
+	ctx := context.Background()
+	const taskID, runID = "task-wake", "run-wake"
+
+	// The run/approval round-trips create the parent task first, so the
+	// sqlite backend's foreign keys are satisfied. Do it before
+	// subscribing — CreateTask is not run-scoped and must not wake.
+	if _, err := store.CreateTask(ctx, types.Task{ID: taskID, Status: "running"}); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	ch, unsubscribe := sub.SubscribeRun(runID)
+	defer unsubscribe()
+
+	now := time.Now().UTC()
+	mutations := []struct {
+		name string
+		run  func() error
+	}{
+		{"CreateRun", func() error {
+			_, err := store.CreateRun(ctx, types.TaskRun{ID: runID, TaskID: taskID, Number: 1, Status: "running", StartedAt: now})
+			return err
+		}},
+		{"UpdateRun", func() error {
+			_, err := store.UpdateRun(ctx, types.TaskRun{ID: runID, TaskID: taskID, Number: 1, Status: "succeeded", StartedAt: now})
+			return err
+		}},
+		{"AppendStep", func() error {
+			_, err := store.AppendStep(ctx, types.TaskStep{ID: "step-wake", TaskID: taskID, RunID: runID, Index: 0, Status: "running", StartedAt: now})
+			return err
+		}},
+		{"UpdateStep", func() error {
+			_, err := store.UpdateStep(ctx, types.TaskStep{ID: "step-wake", TaskID: taskID, RunID: runID, Index: 0, Status: "completed", StartedAt: now})
+			return err
+		}},
+		{"CreateArtifact", func() error {
+			_, err := store.CreateArtifact(ctx, types.TaskArtifact{ID: "art-wake", TaskID: taskID, RunID: runID, Kind: "git_summary", Name: "summary", MimeType: "text/plain", StorageKind: "inline", ContentText: "ok", SizeBytes: 2, Status: "ready", CreatedAt: now})
+			return err
+		}},
+		{"CreateApproval", func() error {
+			_, err := store.CreateApproval(ctx, types.TaskApproval{ID: "ap-wake", TaskID: taskID, RunID: runID, Kind: "shell", Status: "pending", RequestedBy: "agent", CreatedAt: now})
+			return err
+		}},
+		{"AppendRunEvent", func() error {
+			_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{TaskID: taskID, RunID: runID, EventType: "turn.completed", RequestID: "req-wake"})
+			return err
+		}},
+	}
+
+	for _, m := range mutations {
+		// Drain any buffered wake so each mutation is judged on its own
+		// merits rather than on a signal left over from a prior step.
+		select {
+		case <-ch:
+		default:
+		}
+		if err := m.run(); err != nil {
+			t.Fatalf("%s: %v", m.name, err)
+		}
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatalf("%s: expected a wake signal, got none", m.name)
+		}
+	}
 }
 
 func runStoreTaskRunStepRoundTrip(t *testing.T, store Store) {
