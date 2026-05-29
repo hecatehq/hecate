@@ -1,13 +1,13 @@
 ---
-description: Run the full Go race suite — the canonical "ready to commit" check
+description: Run the full Go race suite from the canonical verification ladder
 ---
 
-Run the full race-detector test suite for this repo:
+Run the runtime/backend race-suite floor from
+[`docs-ai/core/verification.md`](../../docs-ai/core/verification.md):
 
+```sh
+go test -race -timeout 10m ./...
 ```
-go test ./... -race -count=1
-```
 
-Report whether it passed cleanly. If anything fails, surface the package + test name and the first error line; don't dump the full trace unless asked.
-
-Run from the repo root. This usually takes ~60-90s on a warm machine.
+Report whether it passed cleanly. If anything fails, surface the package and
+test name plus the first error line; don't dump the full trace unless asked.

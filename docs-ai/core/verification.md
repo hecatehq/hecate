@@ -18,6 +18,10 @@ tests, but still need the relevant docs checks when formatting, links, or
 screenshots are affected. If a required check cannot run, say why before
 filing the PR and call out the residual risk.
 
+Agent-guidance changes (`AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`,
+`.claude/commands/`, `.claude/skills/`, or `docs-ai/**`) should also run
+`just agent-docs-check`. `just docs-check` includes it.
+
 ## Backend verification ladder
 
 | Step          | Command                                                        | When                                                                         |

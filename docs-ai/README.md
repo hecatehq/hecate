@@ -1,8 +1,9 @@
 # Hecate agent instructions
 
-Canonical agent instruction layer for the Hecate repo. Tool-specific entry
-points (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/`) are thin adapters that
-point here — the substance lives in this directory.
+Canonical, provider-neutral agent instruction layer for the Hecate repo.
+Tool-specific entry points (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/`,
+`.claude/skills`) are thin adapters that point here — the substance lives in
+this directory.
 
 ## Layout
 
@@ -14,6 +15,7 @@ docs-ai/
     engineering-standards.md      project-wide coding/style standards (backend + UI)
     workflow.md                   default operating loop, planning triggers, commit etiquette
     verification.md               build/test ladders, done criteria, manual smoke expectations
+    agent-guidance.md             source-of-truth policy for AGENTS, Claude, Cursor, and other adapters
   tasks/
     planning.md                   how to write a plan when "stop and plan first" fires
     implementation.md             how to implement once a plan exists
@@ -54,6 +56,15 @@ commit question.
 | Test strategy / coverage                    | `skills/tester/SKILL.md`                          | `core/verification.md`                            |
 | Delivery / CI / env vars / schema           | `skills/devops/SKILL.md`                          | `core/verification.md`                            |
 | Release / tag                               | `tasks/release.md`                                | `core/verification.md`                            |
+
+## Adapter Policy
+
+`docs-ai/` is the source of truth. Adapter files are only discovery shims for a
+specific agent product. They may point here, expose product-specific command
+wrappers, or provide permission/config baselines, but they must not duplicate
+rules, checklists, or skill content.
+
+Details and update rules: [`core/agent-guidance.md`](core/agent-guidance.md).
 
 ## Core rules (always in force)
 

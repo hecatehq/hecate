@@ -1,5 +1,9 @@
-# Docs recipes: oxfmt for Markdown/MDC, env-drift check, lychee link check,
-# end-to-end screenshot capture.
+# Docs recipes: agent-guidance consistency, oxfmt for Markdown/MDC,
+# env-drift check, lychee link check, end-to-end screenshot capture.
+
+# Check provider-neutral agent guidance adapters for drift.
+agent-docs-check:
+	bun scripts/check-agent-docs.ts
 
 # Format tracked Markdown and MDC docs with Oxfmt.
 docs-format: _ui-deps
@@ -60,7 +64,7 @@ check-links-external:
 	  --exclude-path .claude/skills
 
 # Run all docs-specific verification.
-docs-check: docs-env-check docs-format-check check-mermaid check-links
+docs-check: agent-docs-check docs-env-check docs-format-check check-mermaid check-links
 
 # One-shot end-to-end screenshot workflow:
 # reset -> build -> start hecate in the background -> wait for /healthz ->

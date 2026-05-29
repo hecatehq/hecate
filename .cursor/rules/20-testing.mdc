@@ -4,35 +4,14 @@ globs: **/*.go, **/*.ts, **/*.tsx, **/*_test.go
 alwaysApply: false
 ---
 
-# Testing and verification
+# Testing And Verification
 
-## Backend ladder
+This is the Cursor adapter for Hecate verification guidance.
 
-| Step | Command | When |
-|---|---|---|
-| Build | `go build ./...` | Always |
-| Focused | `go test -race -count=1 ./<package>/...` (or `/test-affected`) | During iteration |
-| Race suite (**floor**) | `go test -race -timeout 10m ./...` (or `/race`) | Runtime/backend changes |
-| E2E | `go test -tags e2e ./e2e/...` | api → orchestrator → providers/sandbox/mcp chain |
+The canonical verification ladders live in
+[`docs-ai/core/verification.md`](../../docs-ai/core/verification.md). Test-layer
+choice and reporting guidance live in
+[`docs-ai/skills/tester/SKILL.md`](../../docs-ai/skills/tester/SKILL.md).
 
-Race suite is the floor for any change touching `internal/gateway`, `internal/router`, `internal/providers`, `internal/orchestrator`, `internal/sandbox`, or retention/state wiring. Not a nice-to-have.
-
-## UI ladder
-
-| Step | Command | When |
-|---|---|---|
-| Type check | `cd ui && bun run typecheck` | First sanity check after edits |
-| Tests | `cd ui && bun run test` | Before committing |
-
-**Never `bun test`** — it skips testing-library DOM setup and panics with `document[isPrepared]`. Always `bun run test`.
-
-## Test layer choice (quick guide)
-
-- **Unit** — data transformation, wire-shape passthrough, error classification, retry/failover decisions, streaming wire shape, usage accumulation, agent_loop tool dispatch, MCP tool registration, UI data-to-prop transformation, conditional rendering of critical states.
-- **Integration** — multi-package wiring within the runtime, such as governor + usage store, router + retention, or orchestrator + taskstate.
-- **E2E** — api → orchestrator → providers/sandbox/mcp chain end-to-end; subprocess lifecycle; startup/config semantics; new SSE event sequences operators rely on; public HTTP contract changes.
-
-## Pointers
-
-- Full ladder and done criteria: [`docs-ai/core/verification.md`](../../docs-ai/core/verification.md).
-- Layer-choice matrix and edge cases: [`docs-ai/skills/tester/SKILL.md`](../../docs-ai/skills/tester/SKILL.md).
+Do not copy command tables into Cursor rules. If the verification floor changes,
+update `docs-ai/core/verification.md` once.

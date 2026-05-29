@@ -16,14 +16,16 @@ guidance live in [`docs-ai/`](docs-ai/README.md).
 
 ## Where guidance lives
 
-| Surface                                                               | What it carries                                                                                                     |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| [`docs-ai/`](docs-ai/README.md)                                       | Canonical agent guidance — project context, conventions, workflow, verification, task shapes, area + posture skills |
-| `AGENTS.md` (this) and `ui/AGENTS.md`, `internal/providers/AGENTS.md` | Codebase map per area                                                                                               |
-| [`CLAUDE.md`](CLAUDE.md)                                              | Thin Claude Code adapter pointing to `docs-ai/`                                                                     |
-| [`.cursor/rules/`](.cursor/rules/)                                    | Thin Cursor adapter pointing to `docs-ai/`                                                                          |
-| [`.claude/commands/`](.claude/commands/)                              | Claude Code slash commands: `/race`, `/test-affected`                                                               |
-| [`docs/`](docs/)                                                      | Long-form references (architecture, runtime API, events, telemetry)                                                 |
+| Surface                                                               | What it carries                                                                                                                      |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [`docs-ai/`](docs-ai/README.md)                                       | Canonical provider-neutral agent guidance — project context, conventions, workflow, verification, task shapes, area + posture skills |
+| `AGENTS.md` (this) and `ui/AGENTS.md`, `internal/providers/AGENTS.md` | Codebase map per area                                                                                                                |
+| [`CLAUDE.md`](CLAUDE.md)                                              | Thin Claude Code adapter pointing to `docs-ai/`                                                                                      |
+| [`.claude/skills/`](.claude/skills/)                                  | Claude Code skill-discovery symlinks to `docs-ai/skills/`; not a second source of skill content                                      |
+| [`.claude/commands/`](.claude/commands/)                              | Claude Code slash-command wrappers: `/race`, `/test-affected`                                                                        |
+| [`.cursor/rules/`](.cursor/rules/)                                    | Thin Cursor adapter pointing to `docs-ai/`                                                                                           |
+| [`docs-ai/core/agent-guidance.md`](docs-ai/core/agent-guidance.md)    | Source-of-truth policy for keeping AGENTS, Claude, Cursor, and future adapters consistent                                            |
+| [`docs/`](docs/)                                                      | Long-form references (architecture, runtime API, events, telemetry)                                                                  |
 
 When in doubt: read [`docs-ai/core/project-context.md`](docs-ai/core/project-context.md) and [`docs-ai/core/workflow.md`](docs-ai/core/workflow.md).
 
