@@ -99,6 +99,15 @@ func TestLoadFromEnvRuntimeToken(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvInferenceToken(t *testing.T) {
+	t.Setenv("HECATE_INFERENCE_TOKEN", "local-inference-token-123456")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.InferenceToken != "local-inference-token-123456" {
+		t.Fatalf("InferenceToken = %q, want configured token", cfg.Server.InferenceToken)
+	}
+}
+
 func TestListenAddressIsLoopback(t *testing.T) {
 	t.Parallel()
 
@@ -325,6 +334,19 @@ func TestValidateRejectsShortRuntimeToken(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HECATE_RUNTIME_TOKEN") {
 		t.Fatalf("Validate() error = %q, want HECATE_RUNTIME_TOKEN", err)
+	}
+}
+
+func TestValidateRejectsShortInferenceToken(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.InferenceToken = "short"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid inference token error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_INFERENCE_TOKEN") {
+		t.Fatalf("Validate() error = %q, want HECATE_INFERENCE_TOKEN", err)
 	}
 }
 

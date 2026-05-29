@@ -24,11 +24,19 @@ local trace lookup for the operator UI is `GET /hecate/v1/traces`.
 Set `HECATE_RUNTIME_TOKEN` to require Hecate-aware clients to send
 `X-Hecate-Runtime-Token` on `/hecate/v1/*`. This protects the Hecate-native
 control plane only. It does not apply to provider-compatible `/v1/*` paths or
-`/healthz`, so OpenAI/Anthropic-shaped inference clients keep their existing
-auth shape and are not authenticated by this token. The operator UI sends the
-header when `hecate.runtimeToken` is present in `sessionStorage` or
-`localStorage`; the MCP server reads the same value from its
-`HECATE_RUNTIME_TOKEN` environment.
+`/healthz`. The operator UI sends the header when `hecate.runtimeToken` is
+present in `sessionStorage` or `localStorage`; the MCP server reads the same
+value from its `HECATE_RUNTIME_TOKEN` environment.
+
+Set `HECATE_INFERENCE_TOKEN` to require a shared token on the
+provider-compatible inference routes: `GET /v1/models`,
+`POST /v1/chat/completions`, and `POST /v1/messages`. Clients may send it as
+either `Authorization: Bearer <token>` or `x-api-key: <token>`, so standard
+OpenAI- and Anthropic-shaped SDK configuration continues to work. This token
+does not wrap `/hecate/v1/*`, `/healthz`, static UI assets, or OTLP collector
+paths such as `/v1/traces`, `/v1/metrics`, and `/v1/logs`. The operator UI
+sends it to local provider-compatible paths when `hecate.inferenceToken` is
+present in `sessionStorage` or `localStorage`.
 
 Legacy Hecate-native `/v1/*` and `/admin/*` paths are intentionally not kept as
 compatibility shims in this alpha branch. Unknown API-shaped paths return 404

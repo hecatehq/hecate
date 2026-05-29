@@ -31,6 +31,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 		OTelHTTPSpanMiddleware,
 		SameOriginMiddlewareWithAllowedOrigins(handler.config.Server.AllowedOrigins),
 		RuntimeTokenMiddleware(handler.config.Server.RuntimeToken),
+		InferenceTokenMiddleware(handler.config.Server.InferenceToken),
 		LoggingMiddleware(logger),
 		RecoveryMiddleware(logger),
 	)

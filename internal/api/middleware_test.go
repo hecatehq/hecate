@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/config"
@@ -339,6 +340,120 @@ func TestRuntimeTokenMiddleware(t *testing.T) {
 	}
 }
 
+func TestInferenceTokenMiddleware(t *testing.T) {
+	tests := []struct {
+		name          string
+		method        string
+		path          string
+		token         string
+		authorization string
+		apiKey        string
+		want          int
+		wantBody      string
+	}{
+		{
+			name:   "disabled allows provider compatible route",
+			method: http.MethodPost,
+			path:   "/v1/chat/completions",
+			want:   http.StatusNoContent,
+		},
+		{
+			name:     "requires token for chat completions",
+			method:   http.MethodPost,
+			path:     "/v1/chat/completions",
+			token:    "local-inference-token-123456",
+			want:     http.StatusUnauthorized,
+			wantBody: `"type":"unauthorized"`,
+		},
+		{
+			name:          "allows bearer token",
+			method:        http.MethodPost,
+			path:          "/v1/chat/completions",
+			token:         "local-inference-token-123456",
+			authorization: "Bearer local-inference-token-123456",
+			want:          http.StatusNoContent,
+		},
+		{
+			name:   "allows x api key token",
+			method: http.MethodPost,
+			path:   "/v1/messages",
+			token:  "local-inference-token-123456",
+			apiKey: "local-inference-token-123456",
+			want:   http.StatusNoContent,
+		},
+		{
+			name:          "allows one matching header when both are present",
+			method:        http.MethodPost,
+			path:          "/v1/messages",
+			token:         "local-inference-token-123456",
+			authorization: "Bearer wrong-token",
+			apiKey:        "local-inference-token-123456",
+			want:          http.StatusNoContent,
+		},
+		{
+			name:     "messages use anthropic error envelope",
+			method:   http.MethodPost,
+			path:     "/v1/messages",
+			token:    "local-inference-token-123456",
+			want:     http.StatusUnauthorized,
+			wantBody: `"type":"error"`,
+		},
+		{
+			name:   "leaves healthz alone",
+			method: http.MethodGet,
+			path:   "/healthz",
+			token:  "local-inference-token-123456",
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "leaves hecate native api alone",
+			method: http.MethodGet,
+			path:   "/hecate/v1/whoami",
+			token:  "local-inference-token-123456",
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "leaves otlp traces alone",
+			method: http.MethodPost,
+			path:   "/v1/traces",
+			token:  "local-inference-token-123456",
+			want:   http.StatusNoContent,
+		},
+		{
+			name:   "does not gate wrong method on models",
+			method: http.MethodPost,
+			path:   "/v1/models",
+			token:  "local-inference-token-123456",
+			want:   http.StatusNoContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := InferenceTokenMiddleware(tt.token)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
+			}
+			if tt.apiKey != "" {
+				req.Header.Set("x-api-key", tt.apiKey)
+			}
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d, body=%s", rec.Code, tt.want, rec.Body.String())
+			}
+			if tt.wantBody != "" && !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Fatalf("body = %s, want substring %s", rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
 func TestNewServerWiresRuntimeTokenMiddleware(t *testing.T) {
 	token := "local-runtime-token-123456"
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -359,5 +474,20 @@ func TestNewServerWiresRuntimeTokenMiddleware(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status with token = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestNewServerWiresInferenceTokenMiddleware(t *testing.T) {
+	token := "local-inference-token-123456"
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{
+		Server: config.ServerConfig{InferenceToken: token},
+	}, logger, nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status without token = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }

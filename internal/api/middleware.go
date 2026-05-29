@@ -175,16 +175,79 @@ func RuntimeTokenMiddleware(token string) middleware {
 	}
 }
 
+func InferenceTokenMiddleware(token string) middleware {
+	token = strings.TrimSpace(token)
+	return func(next http.Handler) http.Handler {
+		if token == "" {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !isProviderInferenceRoute(r.Method, r.URL.Path) || inferenceTokenMatches(r, token) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeInferenceTokenError(w, r)
+		})
+	}
+}
+
 func isHecateAPIPath(path string) bool {
 	return path == "/hecate/v1" || strings.HasPrefix(path, "/hecate/v1/")
 }
 
 func runtimeTokenMatches(got, want string) bool {
+	return tokenMatches(got, want)
+}
+
+func tokenMatches(got, want string) bool {
 	got = strings.TrimSpace(got)
 	if got == "" || len(got) != len(want) {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+func inferenceTokenMatches(r *http.Request, want string) bool {
+	if tokenMatches(bearerToken(r.Header.Get("Authorization")), want) {
+		return true
+	}
+	return tokenMatches(r.Header.Get("x-api-key"), want)
+}
+
+func bearerToken(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) < len("Bearer ") || !strings.EqualFold(value[:len("Bearer")], "Bearer") {
+		return ""
+	}
+	if value[len("Bearer")] != ' ' && value[len("Bearer")] != '\t' {
+		return ""
+	}
+	return strings.TrimSpace(value[len("Bearer"):])
+}
+
+func isProviderInferenceRoute(method, path string) bool {
+	switch method + " " + path {
+	case http.MethodGet + " /v1/models",
+		http.MethodPost + " /v1/chat/completions",
+		http.MethodPost + " /v1/messages":
+		return true
+	default:
+		return false
+	}
+}
+
+func writeInferenceTokenError(w http.ResponseWriter, r *http.Request) {
+	classified := gatewayHTTPError{
+		Status:        http.StatusUnauthorized,
+		OpenAIType:    errCodeUnauthorized,
+		AnthropicType: "authentication_error",
+		Message:       "inference token is required",
+	}
+	if r.URL.Path == "/v1/messages" {
+		writeAnthropicGatewayError(w, classified, ErrorDetails{})
+		return
+	}
+	writeOpenAIGatewayError(w, classified, ErrorDetails{})
 }
 
 func sameOriginAllowed(r *http.Request, allowedOrigins map[string]struct{}) bool {

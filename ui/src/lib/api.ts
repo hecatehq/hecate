@@ -75,6 +75,7 @@ type ErrorPayload = {
 const HECATE_API = "/hecate/v1";
 const HECATE_RUNTIME_TOKEN_HEADER = "X-Hecate-Runtime-Token";
 const HECATE_RUNTIME_TOKEN_STORAGE_KEY = "hecate.runtimeToken";
+const HECATE_INFERENCE_TOKEN_STORAGE_KEY = "hecate.inferenceToken";
 
 // PersistedContentBlock mirrors internal/api.OpenAIPersistedContentBlock.
 // Used on history-replay paths so Anthropic thinking / redacted_thinking /
@@ -1076,6 +1077,10 @@ export function buildRequestOptions(options: RequestOptions, url = ""): RequestI
   if (runtimeToken && isHecateNativeURL(url)) {
     headers.set(HECATE_RUNTIME_TOKEN_HEADER, runtimeToken);
   }
+  const inferenceToken = readInferenceToken();
+  if (inferenceToken && isLocalProviderInferenceURL(url)) {
+    headers.set("Authorization", `Bearer ${inferenceToken}`);
+  }
 
   return {
     method: options.method ?? "GET",
@@ -1088,12 +1093,40 @@ function isHecateNativeURL(url: string): boolean {
   return url === HECATE_API || url.startsWith(`${HECATE_API}/`);
 }
 
+function isLocalProviderInferenceURL(url: string): boolean {
+  const path = localURLPath(url);
+  if (!path) return false;
+  return path === "/v1/models" || path === "/v1/chat/completions" || path === "/v1/messages";
+}
+
+function localURLPath(url: string): string {
+  if (!url) return "";
+  try {
+    const base = typeof window === "undefined" ? "http://localhost" : window.location.origin;
+    const parsed = new URL(url, base);
+    if (typeof window !== "undefined" && parsed.origin !== window.location.origin) {
+      return "";
+    }
+    return parsed.pathname;
+  } catch {
+    return "";
+  }
+}
+
 function readRuntimeToken(): string {
+  return readStoredToken(HECATE_RUNTIME_TOKEN_STORAGE_KEY);
+}
+
+function readInferenceToken(): string {
+  return readStoredToken(HECATE_INFERENCE_TOKEN_STORAGE_KEY);
+}
+
+function readStoredToken(storageKey: string): string {
   if (typeof window === "undefined") return "";
   try {
     return (
-      window.sessionStorage.getItem(HECATE_RUNTIME_TOKEN_STORAGE_KEY)?.trim() ||
-      window.localStorage.getItem(HECATE_RUNTIME_TOKEN_STORAGE_KEY)?.trim() ||
+      window.sessionStorage.getItem(storageKey)?.trim() ||
+      window.localStorage.getItem(storageKey)?.trim() ||
       ""
     );
   } catch {
