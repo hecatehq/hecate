@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
@@ -11,30 +12,26 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
-func (e *AgentLoopExecutor) isGated(toolName string, task types.Task) bool {
-	if _, ok := e.gatedTools[toolName]; ok {
-		return true
-	}
-	return mcpServerPolicy(toolName, task) == types.MCPApprovalRequireApproval
+type agentLoopToolDispatcher struct {
+	shell      Executor
+	file       Executor
+	git        Executor
+	httpPolicy HTTPRequestPolicy
+	httpClient *http.Client
+	metrics    *telemetry.OrchestratorMetrics
 }
 
-func mcpServerPolicy(toolName string, task types.Task) string {
-	if !isMCPToolName(toolName) {
-		return ""
-	}
-	server, _, ok := mcpclient.SplitNamespacedToolName(toolName)
-	if !ok {
-		return ""
-	}
-	for _, cfg := range task.MCPServers {
-		if cfg.Name == server {
-			return cfg.ApprovalPolicy
-		}
-	}
-	return ""
+type agentLoopToolDispatchResult struct {
+	Text      string
+	Step      *types.TaskStep
+	Artifacts []types.TaskArtifact
 }
 
-func (e *AgentLoopExecutor) dispatchToolCall(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, mcpHost AgentMCPHost) (string, *types.TaskStep, []types.TaskArtifact, error) {
+func (d *agentLoopToolDispatcher) SetMetrics(m *telemetry.OrchestratorMetrics) {
+	d.metrics = m
+}
+
+func (d *agentLoopToolDispatcher) Dispatch(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, mcpHost AgentMCPHost) (agentLoopToolDispatchResult, error) {
 	startedAt := time.Now().UTC()
 
 	// External MCP tools surface under names of the form
@@ -42,7 +39,7 @@ func (e *AgentLoopExecutor) dispatchToolCall(ctx context.Context, spec Execution
 	// built-in switch so a server can't accidentally collide with a
 	// built-in name.
 	if mcpHost != nil && isMCPToolName(call.Function.Name) {
-		return e.dispatchMCPToolCall(ctx, spec, call, stepIndex, startedAt, mcpHost)
+		return d.dispatchMCPToolCall(ctx, spec, call, stepIndex, startedAt, mcpHost)
 	}
 
 	// Decode the tool arguments. Each tool gets its own typed shape;
@@ -53,29 +50,33 @@ func (e *AgentLoopExecutor) dispatchToolCall(ctx context.Context, spec Execution
 	case "shell_exec":
 		var args shellExecArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for shell_exec: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for shell_exec: %v", err)}, nil
 		}
 		taskCopy := spec.Task
 		taskCopy.ExecutionKind = "shell"
 		taskCopy.ShellCommand = args.Command
-		taskCopy.WorkingDirectory = args.WorkingDirectory
-		return e.runSubExecutor(ctx, spec, e.shell, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
+		if args.WorkingDirectory != "" {
+			taskCopy.WorkingDirectory = args.WorkingDirectory
+		}
+		return d.runSubExecutor(ctx, spec, d.shell, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
 
 	case "git_exec":
 		var args gitExecArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for git_exec: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for git_exec: %v", err)}, nil
 		}
 		taskCopy := spec.Task
 		taskCopy.ExecutionKind = "git"
 		taskCopy.GitCommand = args.Command
-		taskCopy.WorkingDirectory = args.WorkingDirectory
-		return e.runSubExecutor(ctx, spec, e.git, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
+		if args.WorkingDirectory != "" {
+			taskCopy.WorkingDirectory = args.WorkingDirectory
+		}
+		return d.runSubExecutor(ctx, spec, d.git, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
 
 	case "file_write":
 		var args fileWriteArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for file_write: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for file_write: %v", err)}, nil
 		}
 		op := args.Operation
 		if op == "" {
@@ -86,88 +87,92 @@ func (e *AgentLoopExecutor) dispatchToolCall(ctx context.Context, spec Execution
 		taskCopy.FilePath = args.Path
 		taskCopy.FileContent = args.Content
 		taskCopy.FileOperation = op
-		return e.runSubExecutor(ctx, spec, e.file, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
+		return d.runSubExecutor(ctx, spec, d.file, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
 
 	case "file_edit":
 		var args fileEditArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for file_edit: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for file_edit: %v", err)}, nil
 		}
 		taskCopy, before, after, absPath, errMsg := prepareFileEditTask(spec, args)
 		if errMsg != "" {
-			return errMsg, nil, nil, nil
+			return agentLoopToolDispatchResult{Text: errMsg}, nil
 		}
 		if args.Propose {
-			return proposedFileEditToolResult(spec, args, stepIndex, startedAt, call.ID, call.Function.Name, absPath, before, after)
+			return dispatchResult(proposedFileEditToolResult(spec, args, stepIndex, startedAt, call.ID, call.Function.Name, absPath, before, after))
 		}
-		return e.runSubExecutor(ctx, spec, e.file, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
+		return d.runSubExecutor(ctx, spec, d.file, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
 
 	case "read_file":
 		var args readFileArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for read_file: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for read_file: %v", err)}, nil
 		}
-		return readFileTool(spec, args, stepIndex, startedAt, call.Function.Name)
+		return dispatchResult(readFileTool(spec, args, stepIndex, startedAt, call.Function.Name))
 
 	case "grep":
 		var args grepArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for grep: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for grep: %v", err)}, nil
 		}
-		return grepTool(spec, args, stepIndex, startedAt, call.Function.Name)
+		return dispatchResult(grepTool(spec, args, stepIndex, startedAt, call.Function.Name))
 
 	case "glob":
 		var args globArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for glob: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for glob: %v", err)}, nil
 		}
-		return globTool(spec, args, stepIndex, startedAt, call.Function.Name)
+		return dispatchResult(globTool(spec, args, stepIndex, startedAt, call.Function.Name))
 
 	case "artifact_read":
 		var args artifactReadArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for artifact_read: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for artifact_read: %v", err)}, nil
 		}
-		return artifactReadTool(spec, args, stepIndex, startedAt, call.Function.Name)
+		return dispatchResult(artifactReadTool(spec, args, stepIndex, startedAt, call.Function.Name))
 
 	case "list_dir":
 		var args listDirArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for list_dir: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for list_dir: %v", err)}, nil
 		}
-		return listDirTool(spec, args, stepIndex, startedAt, call.Function.Name)
+		return dispatchResult(listDirTool(spec, args, stepIndex, startedAt, call.Function.Name))
 
 	case "git_status":
 		var args gitStatusArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for git_status: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for git_status: %v", err)}, nil
 		}
-		return gitStatusTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
+		return dispatchResult(gitStatusTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name))
 
 	case "git_diff":
 		var args gitDiffArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for git_diff: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for git_diff: %v", err)}, nil
 		}
-		return gitDiffTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
+		return dispatchResult(gitDiffTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name))
 
 	case "apply_patch":
 		var args applyPatchArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for apply_patch: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for apply_patch: %v", err)}, nil
 		}
-		return applyPatchTool(spec, args, stepIndex, startedAt, call.ID, call.Function.Name)
+		return dispatchResult(applyPatchTool(spec, args, stepIndex, startedAt, call.ID, call.Function.Name))
 
 	case "http_request":
 		var args httpRequestArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
-			return fmt.Sprintf("invalid arguments for http_request: %v", err), nil, nil, nil
+			return agentLoopToolDispatchResult{Text: fmt.Sprintf("invalid arguments for http_request: %v", err)}, nil
 		}
-		return e.httpRequestTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
+		return d.httpRequestTool(ctx, spec, args, stepIndex, startedAt, call.Function.Name)
 
 	default:
-		return fmt.Sprintf("unknown tool: %s", call.Function.Name), nil, nil, nil
+		return agentLoopToolDispatchResult{Text: fmt.Sprintf("unknown tool: %s", call.Function.Name)}, nil
 	}
+}
+
+func dispatchResult(text string, step *types.TaskStep, artifacts []types.TaskArtifact, err error) (agentLoopToolDispatchResult, error) {
+	return agentLoopToolDispatchResult{Text: text, Step: step, Artifacts: artifacts}, err
 }
 
 func isMCPToolName(name string) bool {
@@ -181,7 +186,7 @@ func isMCPToolName(name string) bool {
 // will reject bad input via CallToolResult.IsError, which the LLM can
 // see and retry. Same shape as the other dispatch helpers so the
 // caller treats every tool uniformly.
-func (e *AgentLoopExecutor) dispatchMCPToolCall(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time, host AgentMCPHost) (string, *types.TaskStep, []types.TaskArtifact, error) {
+func (d *agentLoopToolDispatcher) dispatchMCPToolCall(ctx context.Context, spec ExecutionSpec, call types.ToolCall, stepIndex int, startedAt time.Time, host AgentMCPHost) (agentLoopToolDispatchResult, error) {
 	args := json.RawMessage(call.Function.Arguments)
 	if len(args) == 0 {
 		// MCP servers typically expect at least `{}` rather than an
@@ -230,8 +235,8 @@ func (e *AgentLoopExecutor) dispatchMCPToolCall(ctx context.Context, spec Execut
 			"blocked":   true,
 			"text_size": len(text),
 		}
-		e.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, telemetry.MCPCallResultBlocked, durationMS, step.Error)
-		return text, &step, nil, nil
+		d.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, telemetry.MCPCallResultBlocked, durationMS, step.Error)
+		return agentLoopToolDispatchResult{Text: text, Step: &step}, nil
 	}
 
 	text, isError, err := host.Call(ctx, call.Function.Name, args)
@@ -283,13 +288,13 @@ func (e *AgentLoopExecutor) dispatchMCPToolCall(ctx context.Context, spec Execut
 		"is_error":  isError || err != nil,
 		"text_size": len(text),
 	}
-	e.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, callResult, durationMS, stepError)
-	return text, &step, nil, nil
+	d.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, callResult, durationMS, stepError)
+	return agentLoopToolDispatchResult{Text: text, Step: &step}, nil
 }
 
-func (e *AgentLoopExecutor) runSubExecutor(ctx context.Context, spec ExecutionSpec, exec Executor, task types.Task, stepIndex int, startedAt time.Time, toolCallID, toolName string) (string, *types.TaskStep, []types.TaskArtifact, error) {
+func (d *agentLoopToolDispatcher) runSubExecutor(ctx context.Context, spec ExecutionSpec, exec Executor, task types.Task, stepIndex int, startedAt time.Time, toolCallID, toolName string) (agentLoopToolDispatchResult, error) {
 	if exec == nil {
-		return fmt.Sprintf("%s tool is not configured on this gateway", toolName), nil, nil, nil
+		return agentLoopToolDispatchResult{Text: fmt.Sprintf("%s tool is not configured on this gateway", toolName)}, nil
 	}
 	subSpec := ExecutionSpec{
 		Task:       task,
@@ -312,10 +317,10 @@ func (e *AgentLoopExecutor) runSubExecutor(ctx context.Context, spec ExecutionSp
 	}
 	subResult, err := exec.Execute(ctx, subSpec)
 	if err != nil {
-		return fmt.Sprintf("%s tool internal error: %v", toolName, err), nil, nil, nil
+		return agentLoopToolDispatchResult{Text: fmt.Sprintf("%s tool internal error: %v", toolName, err)}, nil
 	}
 	if subResult == nil {
-		return fmt.Sprintf("%s tool returned nothing", toolName), nil, nil, nil
+		return agentLoopToolDispatchResult{Text: fmt.Sprintf("%s tool returned nothing", toolName)}, nil
 	}
 
 	// Build a single agent-loop step that summarizes the sub-tool's
@@ -361,21 +366,5 @@ func (e *AgentLoopExecutor) runSubExecutor(ctx context.Context, spec ExecutionSp
 	// stdout/file content. Full artifacts are still in the run for
 	// the UI; the LLM gets the relevant signal.
 	resultText := summarizeSubResult(subResult)
-	return resultText, &step, artifacts, nil
-}
-
-func (e *AgentLoopExecutor) gatedToolsInTurn(calls []types.ToolCall, task types.Task) []string {
-	seen := make(map[string]struct{}, len(calls))
-	out := make([]string, 0, len(calls))
-	for _, c := range calls {
-		if !e.isGated(c.Function.Name, task) {
-			continue
-		}
-		if _, dup := seen[c.Function.Name]; dup {
-			continue
-		}
-		seen[c.Function.Name] = struct{}{}
-		out = append(out, c.Function.Name)
-	}
-	return out
+	return agentLoopToolDispatchResult{Text: resultText, Step: &step, Artifacts: artifacts}, nil
 }
