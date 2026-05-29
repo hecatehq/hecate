@@ -59,7 +59,10 @@ func PatchApplied(artifact types.TaskArtifact) map[string]any {
 }
 
 func PatchReverted(artifact types.TaskArtifact, beforeExisted bool) map[string]any {
-	data := PatchApplied(artifact)
-	data["before_existed"] = beforeExisted
-	return data
+	return map[string]any{
+		"artifact_id":     artifact.ID,
+		"path":            artifact.Path,
+		"artifact_status": artifact.Status,
+		"before_existed":  beforeExisted,
+	}
 }
