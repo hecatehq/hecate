@@ -7,6 +7,7 @@ import { useChatActions } from "../../app/state/coordinators/chat";
 import { useNewChatAgentID, useChatTarget } from "../../app/state/derived";
 import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
 import { formatAbsoluteTime } from "../../lib/format";
+import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatSessionRecord } from "../../types/chat";
 import type { ProjectRecord } from "../../types/project";
@@ -105,9 +106,13 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const pendingDeleteChat = sessions.find((session) => session.id === deleteChatID) ?? null;
   const pendingDeleteProject =
     projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
+  const selectedProjectWorkspace = projectDefaultWorkspace(activeProject);
+  const workspaceForNewChat = projects.activeProjectID
+    ? selectedProjectWorkspace
+    : chat.state.agentWorkspace.trim();
   const selectedNewChatUsesWorkspace = newChatAgentID !== "hecate" || chatTarget === "agent";
   const workspaceRequiredForNewChat =
-    isAgentChat && selectedNewChatUsesWorkspace && !chat.state.agentWorkspace.trim();
+    isAgentChat && selectedNewChatUsesWorkspace && !workspaceForNewChat;
 
   function statusForAgent(agentID: ChatAgentOptionID) {
     const adapter =
@@ -131,7 +136,13 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
 
   function selectProjectScope(projectID: string) {
     const scopedSessions = filterSidebarSessionsByProject(sessions, projectID);
+    const project =
+      projectID === ""
+        ? null
+        : (projects.state.projects.find((item) => item.id === projectID) ?? null);
     void projects.actions.selectProject(projectID);
+    chat.actions.setAgentWorkspace(projectID ? projectDefaultWorkspace(project) : "");
+    chat.actions.setAgentWorkspaceBranch("");
     if (activeSessionID && scopedSessions.some((session) => session.id === activeSessionID)) {
       return;
     }
@@ -790,12 +801,7 @@ function ProjectRow({
 }
 
 function projectDetail(project: ProjectRecord): string {
-  return (
-    project.roots.find((root) => root.active)?.path ??
-    project.roots[0]?.path ??
-    project.description ??
-    ""
-  );
+  return projectDefaultWorkspace(project) || project.description || "";
 }
 
 function filterSidebarSessionsByProject(

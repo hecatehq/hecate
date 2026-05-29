@@ -9,6 +9,7 @@ import {
   createRuntimeConsoleFixture,
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
+import type { ProjectRecord } from "../../types/project";
 
 const originalNavigatorClipboardDescriptor = Object.getOwnPropertyDescriptor(
   navigator,
@@ -290,6 +291,63 @@ describe("ChatView input", () => {
     await user.click(screen.getByRole("button", { name: "Choose workspace" }));
     expect(chooseAgentWorkspace).toHaveBeenCalled();
     expect(createChatSession).not.toHaveBeenCalled();
+  });
+
+  it("uses the selected project root as the workspace for new external-agent chats", async () => {
+    const createChatSession = vi.fn(async () => undefined);
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [
+        {
+          id: "root_1",
+          path: "/workspace/hecate",
+          kind: "workspace",
+          active: true,
+          created_at: "2026-05-29T00:00:00Z",
+          updated_at: "2026-05-29T00:00:00Z",
+        },
+      ],
+      default_root_id: "root_1",
+      created_at: "2026-05-29T00:00:00Z",
+      updated_at: "2026-05-29T00:00:00Z",
+    };
+    const { state, actions } = setup(
+      {
+        activeProjectID: "proj_1",
+        projects: [project],
+        chatTarget: "external_agent",
+        agentAdapterID: "grok_build",
+        newChatAgentID: "grok_build",
+        agentWorkspace: "",
+        activeChatSessionID: "",
+        activeChatSession: null,
+        agentAdapters: [
+          {
+            id: "grok_build",
+            name: "Grok Build",
+            kind: "acp",
+            command: "grok",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+      },
+      { createChatSession },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    const newChatButton = screen.getByRole("button", { name: "New Grok Build chat" });
+    expect(newChatButton).not.toBeDisabled();
+    expect(
+      screen.queryByText("Choose a workspace in the chat view before starting agent chats."),
+    ).toBeNull();
+
+    await user.click(newChatButton);
+
+    expect(createChatSession).toHaveBeenCalledWith({ agentID: "grok_build", projectID: "proj_1" });
   });
 
   it("allows direct Hecate model chats before a workspace is selected", async () => {

@@ -260,7 +260,17 @@ describe("ConsoleShell navigation", () => {
         {
           id: "proj_1",
           name: "Hecate",
-          roots: [],
+          roots: [
+            {
+              id: "root_1",
+              path: "/Users/alice/dev/hecate",
+              kind: "workspace",
+              active: true,
+              created_at: "2026-05-21T10:00:00Z",
+              updated_at: "2026-05-21T10:00:00Z",
+            },
+          ],
+          default_root_id: "root_1",
           created_at: "2026-05-21T10:00:00Z",
           updated_at: "2026-05-21T10:00:00Z",
         },
@@ -325,7 +335,17 @@ describe("ConsoleShell navigation", () => {
         {
           id: "proj_1",
           name: "Hecate",
-          roots: [],
+          roots: [
+            {
+              id: "root_1",
+              path: "/Users/alice/dev/hecate",
+              kind: "workspace",
+              active: true,
+              created_at: "2026-05-21T10:00:00Z",
+              updated_at: "2026-05-21T10:00:00Z",
+            },
+          ],
+          default_root_id: "root_1",
           created_at: "2026-05-21T10:00:00Z",
           updated_at: "2026-05-21T10:00:00Z",
         },
@@ -370,7 +390,17 @@ describe("ConsoleShell navigation", () => {
         {
           id: "proj_1",
           name: "Hecate",
-          roots: [],
+          roots: [
+            {
+              id: "root_1",
+              path: "/Users/alice/dev/hecate",
+              kind: "workspace",
+              active: true,
+              created_at: "2026-05-21T10:00:00Z",
+              updated_at: "2026-05-21T10:00:00Z",
+            },
+          ],
+          default_root_id: "root_1",
           created_at: "2026-05-21T10:00:00Z",
           updated_at: "2026-05-21T10:00:00Z",
         },

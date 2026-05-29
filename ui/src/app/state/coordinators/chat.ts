@@ -49,6 +49,7 @@ import {
   renderChatSessionSummary,
 } from "../../runtimeConsoleChatHelpers";
 import { modelSelectionHasNoToolCalling } from "../../../lib/chat-setup-readiness";
+import { projectByID, projectDefaultWorkspace } from "../../../lib/project-workspace";
 import {
   type ChatExecutionMode,
   type HecateChatTarget,
@@ -357,6 +358,25 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setAgentWorkspaceBranch("");
   }
 
+  function workspaceForProjectID(projectID: string): string {
+    const id = projectID.trim();
+    if (!id) return "";
+    const project =
+      id === activeProjectID ? projects.activeProject : projectByID(projects.state.projects, id);
+    return projectDefaultWorkspace(project);
+  }
+
+  function workspaceForNewChat(projectID: string): string {
+    const id = projectID.trim();
+    const inherited = workspaceForProjectID(id);
+    if (inherited) return inherited;
+    return id ? "" : agentWorkspace.trim();
+  }
+
+  function workspaceForActiveTurn(): string {
+    return activeChatSession?.workspace?.trim() || workspaceForNewChat(activeProjectID);
+  }
+
   function setChatTarget(nextTarget: ChatTarget) {
     if (activeChatSessionID && activeChatSession) {
       const currentExternal = chatSessionIsExternal(activeChatSession);
@@ -416,7 +436,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       execution_mode: executionMode,
       provider_filter: providerFilter,
       model,
-      workspace: agentWorkspace.trim(),
+      workspace: workspaceForActiveTurn(),
       system_prompt: systemPrompt,
       agent_id: executionMode === "external_agent" ? agentAdapterID : "hecate",
       created_at: new Date().toISOString(),
@@ -485,7 +505,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setRuntimeHeaders(null);
     const isExternalAgent = turnExecutionMode === "external_agent";
     const isModelTurn = turnExecutionMode === "direct_model";
-    const turnWorkspace = queued?.workspace ?? agentWorkspace.trim();
+    let turnWorkspace = queued?.workspace ?? workspaceForActiveTurn();
     const turnSystemPrompt = queued?.system_prompt ?? systemPrompt;
     const turnAgentID = queued?.agent_id ?? agentAdapterID;
     setStreamingContent(
@@ -499,10 +519,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     let streamPromise: Promise<void> | null = null;
 
     try {
-      if (!isModelTurn && !turnWorkspace) {
-        setChatErrorState(chatWorkspaceRequiredError());
-        return;
-      }
       if (!isExternalAgent && !turnModel) {
         setChatErrorState(chatModelRequiredError());
         return;
@@ -522,6 +538,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           sessionID = "";
           setActiveChatSessionID("");
         }
+      }
+      turnWorkspace = turnWorkspace || sessionForSubmit?.workspace?.trim() || "";
+      if (!isModelTurn && !turnWorkspace) {
+        setChatErrorState(chatWorkspaceRequiredError());
+        return;
       }
       if (sessionID && sessionForSubmit?.agent_id) {
         const activeExternal = sessionForSubmit.agent_id !== "hecate";
@@ -740,7 +761,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         : !requestedAgentID && defaultChatTarget === "external_agent";
     if (createExternalAgent) {
       const externalAgentID = requestedAgentID || agentAdapterID;
-      const workspace = agentWorkspace.trim();
+      const workspace = workspaceForNewChat(createProjectID);
       if (!workspace) {
         setChatErrorState(chatWorkspaceRequiredError());
         setActiveChatSessionID("");
@@ -787,7 +808,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       providerFilter,
       model: requestedModel,
     });
-    const workspace = agentWorkspace.trim();
+    const workspace = workspaceForNewChat(createProjectID);
     if (executionMode === "hecate_task" && !workspace) {
       setChatErrorState(chatWorkspaceRequiredError());
       setActiveChatSessionID("");
@@ -802,12 +823,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         agent_id: "hecate",
         provider: providerFilter === "auto" ? "" : providerFilter,
         model: requestedModel,
-        ...(executionMode === "hecate_task"
-          ? {
-              workspace,
-              rtk_enabled: hecateRTKEnabled,
-            }
-          : {}),
+        ...(workspace ? { workspace } : {}),
+        ...(executionMode === "hecate_task" ? { rtk_enabled: hecateRTKEnabled } : {}),
       });
       setActiveChatSessionID(created.data.id);
       setChatTargetBySessionID((current) => {
@@ -848,10 +865,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       if (selection.model) {
         setModel(selection.model);
       }
-      if (payload.data.workspace) {
-        setAgentWorkspace(payload.data.workspace);
-        setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
-      }
+      setAgentWorkspace(payload.data.workspace ?? "");
+      setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
     } catch (error) {
       const msg = error instanceof Error ? error.message : "failed to load agent chat";
       setActiveChatSessionID("");
