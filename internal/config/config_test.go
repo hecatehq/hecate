@@ -551,6 +551,61 @@ func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 		t.Fatalf("together_ai base url = %q, want https://api.together.xyz/v1", together.BaseURL)
 	}
 
+	cohere, ok := BuiltInProviderByID("cohere")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(cohere) = not found")
+	}
+	if cohere.Protocol != "openai" {
+		t.Fatalf("cohere protocol = %q, want openai", cohere.Protocol)
+	}
+	if cohere.BaseURL != "https://api.cohere.com/compatibility/v1" {
+		t.Fatalf("cohere base url = %q, want https://api.cohere.com/compatibility/v1", cohere.BaseURL)
+	}
+
+	fireworks, ok := BuiltInProviderByID("fireworks")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(fireworks) = not found")
+	}
+	if fireworks.Protocol != "openai" {
+		t.Fatalf("fireworks protocol = %q, want openai", fireworks.Protocol)
+	}
+	if fireworks.BaseURL != "https://api.fireworks.ai/inference/v1" {
+		t.Fatalf("fireworks base url = %q, want https://api.fireworks.ai/inference/v1", fireworks.BaseURL)
+	}
+
+	huggingface, ok := BuiltInProviderByID("huggingface")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(huggingface) = not found")
+	}
+	if huggingface.Protocol != "openai" {
+		t.Fatalf("huggingface protocol = %q, want openai", huggingface.Protocol)
+	}
+	if huggingface.BaseURL != "https://router.huggingface.co/v1" {
+		t.Fatalf("huggingface base url = %q, want https://router.huggingface.co/v1", huggingface.BaseURL)
+	}
+
+	nvidia, ok := BuiltInProviderByID("nvidia")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(nvidia) = not found")
+	}
+	if nvidia.Protocol != "openai" {
+		t.Fatalf("nvidia protocol = %q, want openai", nvidia.Protocol)
+	}
+	if nvidia.BaseURL != "https://integrate.api.nvidia.com/v1" {
+		t.Fatalf("nvidia base url = %q, want https://integrate.api.nvidia.com/v1", nvidia.BaseURL)
+	}
+
+	zai, ok := BuiltInProviderByID("zai")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(zai) = not found")
+	}
+	if zai.Protocol != "openai" {
+		t.Fatalf("zai protocol = %q, want openai", zai.Protocol)
+	}
+	if zai.BaseURL != "https://api.z.ai/api/paas/v4" {
+		t.Fatalf("zai base url = %q, want https://api.z.ai/api/paas/v4", zai.BaseURL)
+	}
+
 	for _, id := range []string{"ollama", "LM Studio", "localai", "llamacpp"} {
 		_, ok := BuiltInProviderByID(id)
 		if !ok {
