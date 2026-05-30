@@ -198,15 +198,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   //      flip downstream "agent instructions" copy back to the generic
   //      "instructions" label.
   //   2. The session is on a Hecate-shaped path overall (`isHecateChat`).
-  //   3. The user toggled tools on for this session
-  //      (`hecateChatToolsEnabled`). Pre-toggle-split this third fact
-  //      lived inside `chatTarget === "agent"` (where "model" encoded
-  //      tools-off); now it has its own slice field.
-  // The legacy `chatTarget === "model"` value still appears in older
-  // installs' persisted state but is no longer written by the UI;
-  // those entries migrate to `chatToolsEnabledBySessionID[id] = false`
-  // on mount so this expression evaluates correctly against either
-  // encoding without callers having to know which one is active.
+  //   3. The user has tools turned on for this session
+  //      (`hecateChatToolsEnabled`).
+  // `chatTarget === "model"` is a legacy storage value that older
+  // installs may still hold; the slice migrates those entries to
+  // `chatToolsEnabledBySessionID[id] = false` on mount, so this
+  // expression doesn't have to special-case the old encoding.
   const isHecateAgentChat = isHecateChat && state.chatTarget === "agent" && hecateChatToolsEnabled;
   const isExternalAgentChat =
     activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
