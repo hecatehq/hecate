@@ -207,8 +207,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   // those entries migrate to `chatToolsEnabledBySessionID[id] = false`
   // on mount so this expression evaluates correctly against either
   // encoding without callers having to know which one is active.
-  const isHecateAgentChat =
-    isHecateChat && state.chatTarget === "agent" && hecateChatToolsEnabled;
+  const isHecateAgentChat = isHecateChat && state.chatTarget === "agent" && hecateChatToolsEnabled;
   const isExternalAgentChat =
     activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
   const instructionsAvailable = isHecateChat;
