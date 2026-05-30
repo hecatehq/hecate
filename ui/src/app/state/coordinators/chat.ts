@@ -52,12 +52,9 @@ import { modelSelectionHasNoToolCalling } from "../../../lib/chat-setup-readines
 import { projectByID, projectDefaultWorkspace } from "../../../lib/project-workspace";
 import {
   type ChatExecutionMode,
-  type HecateChatTarget,
   type ChatTarget,
   type QueuedChatMessage,
   chatTargetToExecutionMode,
-  executionModeToChatTarget,
-  normalizeStoredHecateChatTarget,
 } from "../_shared";
 import { useApprovals } from "../approvals";
 import { useChat } from "../chat";
@@ -187,10 +184,6 @@ function modelAvailableForProviderFilter(
     if (!providerFilter || providerFilter === "auto") return true;
     return entry.metadata?.provider === providerFilter;
   });
-}
-
-function hecateTargetForExecutionMode(mode: ChatExecutionMode): HecateChatTarget {
-  return normalizeStoredHecateChatTarget(executionModeToChatTarget(mode)) || "agent";
 }
 
 export { chatSessionIsExternal, chatSessionIsBusy };
@@ -627,9 +620,23 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         applyChatSession(created.data);
       }
       if (!isExternalAgent && sessionID) {
+        // Pin the session target to "agent" (the user-target perspective)
+        // regardless of whether this turn ran with tools on or off. The
+        // tools state lives in chatToolsEnabledBySessionID now — mirror
+        // the just-resolved turn into it so a fresh client opening this
+        // session resumes with the same toggle position the user had
+        // when they submitted. Without the toolsEnabled mirror, only
+        // the in-memory toggle state is correct; localStorage would
+        // miss the most recent turn's intent.
+        const sid = sessionID;
         setChatTargetBySessionID((current) => {
           const next = new Map(current);
-          next.set(sessionID, hecateTargetForExecutionMode(turnExecutionMode));
+          next.set(sid, "agent");
+          return next;
+        });
+        setChatToolsEnabledBySessionID((current) => {
+          const next = new Map(current);
+          next.set(sid, turnExecutionMode === "hecate_task");
           return next;
         });
       }
@@ -885,9 +892,18 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ...(executionMode === "hecate_task" ? { rtk_enabled: hecateRTKEnabled } : {}),
       });
       setActiveChatSessionID(created.data.id);
+      // Same per-session pinning as the submit path: chatTarget stays
+      // "agent" and the tools-on/off intent for this session is recorded
+      // in chatToolsEnabledBySessionID. Keeps the two coordinator entry
+      // points consistent and avoids the resume-shows-stale-toggle bug.
       setChatTargetBySessionID((current) => {
         const next = new Map(current);
-        next.set(created.data.id, hecateTargetForExecutionMode(executionMode));
+        next.set(created.data.id, "agent");
+        return next;
+      });
+      setChatToolsEnabledBySessionID((current) => {
+        const next = new Map(current);
+        next.set(created.data.id, executionMode === "hecate_task");
         return next;
       });
       applyChatSession(created.data);
