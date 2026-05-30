@@ -79,7 +79,7 @@ Each row has a trash button. Clicking it confirms via a browser dialog and then 
 
 ## Built-in presets
 
-The gateway ships with thirteen provider presets. None of them are auto-added — operators pick from the catalog when adding a provider.
+The gateway ships with fourteen provider presets. None of them are auto-added — operators pick from the catalog when adding a provider.
 
 ### Cloud presets
 
@@ -87,6 +87,7 @@ The gateway ships with thirteen provider presets. None of them are auto-added �
 | ------------- | ------------- | --------------------------------------------------------- |
 | `anthropic`   | Anthropic     | `https://api.anthropic.com/v1`                            |
 | `deepseek`    | DeepSeek      | `https://api.deepseek.com/v1`                             |
+| `fireworks`   | Fireworks AI  | `https://api.fireworks.ai/inference/v1`                   |
 | `gemini`      | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` |
 | `groq`        | Groq          | `https://api.groq.com/openai/v1`                          |
 | `mistral`     | Mistral       | `https://api.mistral.ai/v1`                               |

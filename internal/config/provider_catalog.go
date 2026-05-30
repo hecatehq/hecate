@@ -60,6 +60,22 @@ var builtInProviders = []BuiltInProvider{
 		Models:       []string{"deepseek-chat", "deepseek-reasoner"},
 	},
 	{
+		ID:           "fireworks",
+		Name:         "Fireworks AI",
+		Kind:         "cloud",
+		Protocol:     "openai",
+		BaseURL:      "https://api.fireworks.ai/inference/v1",
+		APIKeyEnv:    "PROVIDER_FIREWORKS_API_KEY",
+		DocsURL:      "https://docs.fireworks.ai/getting-started/introduction",
+		Description:  "OpenAI-compatible preset for Fireworks.ai serverless inference (Kimi, Llama, Qwen, DeepSeek, gpt-oss, and other open-weight models). Hecate discovers available models from /v1/models; model IDs are namespaced like `accounts/fireworks/models/<slug>`.",
+		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
+		// No seed list. The Fireworks catalog changes weekly and slugs
+		// are long; pre-populating creates stale-content debt. /v1/models
+		// discovery covers the surface; operators can also browse
+		// https://fireworks.ai/models for the canonical name.
+		Models: nil,
+	},
+	{
 		ID:           "gemini",
 		Name:         "Google Gemini",
 		Kind:         "cloud",

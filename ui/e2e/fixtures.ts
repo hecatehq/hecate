@@ -281,6 +281,14 @@ export const MOCK_FULL_PRESETS = [
     description: "Google Gemini.",
   },
   {
+    id: "fireworks",
+    name: "Fireworks AI",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.fireworks.ai/inference/v1",
+    description: "Fireworks AI serverless inference.",
+  },
+  {
     id: "groq",
     name: "Groq",
     kind: "cloud",
