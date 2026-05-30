@@ -558,8 +558,8 @@ func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 	if cohere.Protocol != "openai" {
 		t.Fatalf("cohere protocol = %q, want openai", cohere.Protocol)
 	}
-	if cohere.BaseURL != "https://api.cohere.com/compatibility/v1" {
-		t.Fatalf("cohere base url = %q, want https://api.cohere.com/compatibility/v1", cohere.BaseURL)
+	if cohere.BaseURL != "https://api.cohere.ai/compatibility/v1" {
+		t.Fatalf("cohere base url = %q, want https://api.cohere.ai/compatibility/v1", cohere.BaseURL)
 	}
 
 	fireworks, ok := BuiltInProviderByID("fireworks")

@@ -86,7 +86,7 @@ The gateway ships with eighteen provider presets. None of them are auto-added â€
 | ID            | Name          | Default base URL                                          |
 | ------------- | ------------- | --------------------------------------------------------- |
 | `anthropic`   | Anthropic     | `https://api.anthropic.com/v1`                            |
-| `cohere`      | Cohere        | `https://api.cohere.com/compatibility/v1`                 |
+| `cohere`      | Cohere        | `https://api.cohere.ai/compatibility/v1`                  |
 | `deepseek`    | DeepSeek      | `https://api.deepseek.com/v1`                             |
 | `fireworks`   | Fireworks AI  | `https://api.fireworks.ai/inference/v1`                   |
 | `gemini`      | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` |
