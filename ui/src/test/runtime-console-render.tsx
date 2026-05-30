@@ -208,6 +208,7 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
       selectChatSession: actions.selectChatSession,
       startNewChat: actions.startNewChat,
       setChatTarget: actions.setChatTarget,
+      setChatToolsEnabled: actions.setChatToolsEnabled,
       setNewChatAgent: actions.setNewChatAgent,
       updateToolResult: actions.updateToolResult,
       getChatApproval: actions.getChatApproval,
@@ -370,6 +371,14 @@ function FixtureSyncer({ state }: { state: RuntimeConsoleFixtureState }) {
     } else {
       chatActionsRef.current.setChatTargetBySessionID(state.chatTargetBySessionID);
     }
+    // Tools-enabled fixture sync: usePersistedState reads localStorage on
+    // mount and tests can write to chatToolsEnabled* state directly, so
+    // we mirror those into the slice each render. Without this, the
+    // useChatToolsEnabled hook falls back to the slice's localStorage-
+    // derived default and the test's pinned `defaultChatToolsEnabled` /
+    // `chatToolsEnabledBySessionID` never reach the rendered tree.
+    chatActionsRef.current.setDefaultChatToolsEnabled(state.defaultChatToolsEnabled);
+    chatActionsRef.current.setChatToolsEnabledBySessionID(state.chatToolsEnabledBySessionID);
 
     for (const [sessionID, rows] of state.pendingApprovalsBySessionID) {
       approvalsActionsRef.current.setPendingForSession(sessionID, rows);

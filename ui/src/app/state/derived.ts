@@ -78,6 +78,45 @@ export function useChatTarget(): ChatTarget {
   return state.defaultChatTarget;
 }
 
+// Resolve the tools-enabled state for the active Hecate chat session.
+//
+// Resolution order:
+//   1. Per-session override (`chatToolsEnabledBySessionID`) if set.
+//   2. Active session's intent inferred from its latest message
+//      execution_mode — `direct_model` means the user previously
+//      submitted with tools off, so default to that even if the per-
+//      session map was wiped (e.g. cross-device sync isn't a thing
+//      yet so the map only lives on the local machine).
+//   3. The user default (`defaultChatToolsEnabled`).
+//
+// External-agent sessions ignore this (they have their own tool model);
+// callers should gate the call site on `chatTarget === "agent"` before
+// reading it.
+export function useChatToolsEnabled(): boolean {
+  const { state } = useChat();
+  const sessionID = state.activeChatSessionID;
+  if (sessionID) {
+    const explicit = state.chatToolsEnabledBySessionID.get(sessionID);
+    if (typeof explicit === "boolean") return explicit;
+    const derived = deriveToolsEnabledFromSession(state.activeChatSession);
+    if (typeof derived === "boolean") return derived;
+  }
+  return state.defaultChatToolsEnabled;
+}
+
+function deriveToolsEnabledFromSession(session: ChatSessionRecord | null): boolean | null {
+  if (!session) return null;
+  const messages = session.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const mode = messages[i]?.execution_mode;
+    if (mode === "direct_model") return false;
+    if (mode === "hecate_task") return true;
+    // external_agent and unknown modes don't speak to the
+    // tools-on/off intent — keep scanning backwards.
+  }
+  return null;
+}
+
 // Provider/model derivations that several views read. Returned as one
 // bag so a view that needs three of them only pays for one hook call.
 export type RuntimeDerivedState = {

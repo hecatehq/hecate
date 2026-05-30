@@ -161,3 +161,43 @@ export function parseChatTargetsBySessionID(parsed: unknown): Map<string, Hecate
 export function serializeChatTargetsBySessionID(targets: Map<string, HecateChatTarget>): string {
   return JSON.stringify(Object.fromEntries(targets));
 }
+
+// Storage key for the user-default tools-enabled preference. Persisted
+// separately from the per-session override below so a user's "tools on
+// by default for new chats" intent survives across browser restarts
+// without bleeding into individual session overrides.
+export const chatToolsEnabledStorageKey = "hecate.chatToolsEnabled";
+
+// Storage key for the per-session tools-enabled map. Each entry pins a
+// session to an explicit tools-on/off override; a missing key falls back
+// to the default. Stored as JSON `{sessionID: boolean}`; rebuilt into a
+// Map so consumers use Map semantics (.get / .set / iteration order),
+// matching the existing `chatTargetBySessionID` pattern.
+export const chatToolsEnabledBySessionIDStorageKey = "hecate.chatToolsEnabledBySessionID";
+
+// Strict guard for the user-default tools-enabled localStorage key.
+// usePersistedState's contract is "loud failure replaces silent
+// shape-drift fallback" — return null so a corrupt key gets wiped and
+// the hook falls back to the explicit `true` default.
+export function parseStoredChatToolsEnabled(raw: string): boolean | null {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return null;
+}
+
+// Structural guard for the per-session chat-tools-enabled map. Drops
+// non-boolean entries instead of failing the whole payload so one
+// corrupt key doesn't wipe a user's well-formed sibling overrides.
+// Returns null only if the top-level shape is wrong (not an object) —
+// usePersistedState then wipes the key, matching the contract.
+export function parseChatToolsEnabledBySessionID(parsed: unknown): Map<string, boolean> | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const entries = Object.entries(parsed as Record<string, unknown>).filter(
+    (entry): entry is [string, boolean] => Boolean(entry[0]) && typeof entry[1] === "boolean",
+  );
+  return new Map(entries);
+}
+
+export function serializeChatToolsEnabledBySessionID(toolsEnabled: Map<string, boolean>): string {
+  return JSON.stringify(Object.fromEntries(toolsEnabled));
+}

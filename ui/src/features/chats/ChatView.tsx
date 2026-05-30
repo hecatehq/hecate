@@ -7,7 +7,12 @@ import { useRuntime } from "../../app/state/runtime";
 import { useSettings } from "../../app/state/settings";
 import { useChatActions } from "../../app/state/coordinators/chat";
 import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
-import { useChatTarget, useNewChatAgentID, useRuntimeDerivedState } from "../../app/state/derived";
+import {
+  useChatTarget,
+  useChatToolsEnabled,
+  useNewChatAgentID,
+  useRuntimeDerivedState,
+} from "../../app/state/derived";
 import {
   useWiredProviderActions,
   useWiredSettingsActions,
@@ -69,6 +74,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const approvals = useApprovals();
   const settings = useSettings();
   const chatTarget = useChatTarget();
+  const hecateChatToolsEnabled = useChatToolsEnabled();
   const newChatAgentID = useNewChatAgentID();
   const derived = useRuntimeDerivedState();
   const { actions: settingsActions } = useWiredSettingsActions();
@@ -139,6 +145,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     setAgentWorkspace: chatActions.updateAgentWorkspace,
     setChatConfigOption: chatActions.setChatConfigOption,
     setChatTarget: chatActions.setChatTarget,
+    setChatToolsEnabled: chatActions.setChatToolsEnabled,
     setHecateRTKEnabled: chatActions.setHecateRTKEnabled,
     setModel: chat.actions.setModel,
     setProviderFilter: chatActions.selectProviderRoute,
@@ -950,7 +957,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               {chatSettingsPanelOpen ? (
                 <ChatSettingsPanel
                   showHecateControls={isHecateChat}
-                  toolsEnabled={isHecateAgentChat}
+                  toolsEnabled={isHecateChat && hecateChatToolsEnabled}
                   toolsDisabledForModel={hecateAgentToolsDisabledForModel}
                   rtkEnabled={Boolean(state.hecateRTKEnabled)}
                   rtkAvailable={Boolean(state.hecateRTKAvailable)}
@@ -970,7 +977,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   isHecateAgentChat={isHecateAgentChat}
                   instructionsLocked={messages.length > 0}
                   systemPrompt={state.systemPrompt}
-                  onToolsChange={(enabled) => actions.setChatTarget(enabled ? "agent" : "model")}
+                  onToolsChange={actions.setChatToolsEnabled}
                   onRTKChange={handleRTKChange}
                   onConfigOptionChange={actions.setChatConfigOption}
                   onSystemPromptChange={actions.setSystemPrompt}

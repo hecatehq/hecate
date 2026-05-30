@@ -547,6 +547,7 @@ export function useRuntimeConsole() {
       setNewChatAgent: chatActions.setNewChatAgent,
       setAgentWorkspace: chatActions.updateAgentWorkspace,
       setChatTarget: chatActions.setChatTarget,
+      setChatToolsEnabled: chatActions.setChatToolsEnabled,
       setMessage,
       removeQueuedChatMessage,
       updateQueuedChatMessage,

@@ -1,4 +1,20 @@
 import "@testing-library/jest-dom/vitest";
+import { afterEach } from "vitest";
+
+// usePersistedState writes localStorage on every state change; without a
+// clean slate between tests a slice that toggled a persisted field in
+// one test would bleed its value into the next test's mount-time read
+// and the sync layer's effect would race the first user interaction.
+// Reset both web-storage backings after every test so the order of
+// `it()` blocks within a file never affects outcomes.
+afterEach(() => {
+  if (typeof globalThis.localStorage !== "undefined") {
+    globalThis.localStorage.clear();
+  }
+  if (typeof globalThis.sessionStorage !== "undefined") {
+    globalThis.sessionStorage.clear();
+  }
+});
 
 // jsdom doesn't implement scrollIntoView; ChatView uses it heavily.
 if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {

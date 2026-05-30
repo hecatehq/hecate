@@ -111,6 +111,8 @@ export type RuntimeConsoleFixtureState = {
   pendingThread: ChatMessage[] | null;
   chatTargetBySessionID: Map<string, HecateChatTarget>;
   defaultChatTarget: ChatTarget;
+  defaultChatToolsEnabled: boolean;
+  chatToolsEnabledBySessionID: Map<string, boolean>;
 };
 
 export function createRuntimeConsoleFixture(
@@ -188,6 +190,8 @@ export function createRuntimeConsoleFixture(
     pendingThread: null,
     chatTargetBySessionID: new Map(),
     defaultChatTarget: "agent",
+    defaultChatToolsEnabled: true,
+    chatToolsEnabledBySessionID: new Map(),
     ...overrides,
   };
 }
@@ -206,6 +210,7 @@ export type RuntimeConsoleFixtureActions = {
   setNewChatAgent: (id: string) => void;
   setAgentWorkspace: (workspace: string) => void;
   setChatTarget: (target: ChatTarget) => void;
+  setChatToolsEnabled: (enabled: boolean) => void;
   setMessage: (value: string) => void;
   removeQueuedChatMessage: (id: string) => void;
   updateQueuedChatMessage: (id: string, content: string) => void;
@@ -279,6 +284,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
     setNewChatAgent: () => undefined,
     setAgentWorkspace: () => undefined,
     setChatTarget: () => undefined,
+    setChatToolsEnabled: () => undefined,
     setMessage: () => undefined,
     removeQueuedChatMessage: () => undefined,
     updateQueuedChatMessage: () => undefined,

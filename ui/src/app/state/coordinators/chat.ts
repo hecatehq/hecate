@@ -156,13 +156,21 @@ function effectiveHecateExecutionMode({
   models,
   providerFilter,
   model,
+  toolsEnabled,
 }: {
   requested: ChatExecutionMode;
   models: ModelRecord[];
   providerFilter: ProviderFilter;
   model: string;
+  // User intent: false means the operator explicitly toggled tools off
+  // for this Hecate-targeted chat, so downgrade the execution mode to
+  // direct_model regardless of model capability. Independent of the
+  // capability-derived downgrade below, which handles the case where
+  // the model itself doesn't support tool calling.
+  toolsEnabled: boolean;
 }): ChatExecutionMode {
   if (requested !== "hecate_task") return requested;
+  if (!toolsEnabled) return "direct_model";
   return modelSelectionHasNoToolCalling({ models, providerFilter, model })
     ? "direct_model"
     : requested;
@@ -205,6 +213,13 @@ type ChatActionsReturn = {
   deleteChatSession: (id: string) => Promise<void>;
   renameChatSession: (id: string, title: string) => Promise<void>;
   setChatTarget: (nextTarget: ChatTarget) => void;
+  // Pin the tools-on/off state for the currently active session, or —
+  // when no session is active — set the user default. Mirrors the
+  // setChatTarget split: per-session override map + global default,
+  // resolved by `useChatToolsEnabled`. The Hecate chat-settings panel
+  // is the only caller today; new turn-level UX should funnel through
+  // here so the resolution stays single-source.
+  setChatToolsEnabled: (enabled: boolean) => void;
   setNewChatAgent: (nextAgentID: string) => void;
   updateAgentWorkspace: (nextWorkspace: string) => void;
   selectProviderRoute: (nextProvider: ProviderFilter) => void;
@@ -270,6 +285,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   const activeProjectID = projects.activeProjectID.trim();
   const {
     defaultChatTarget,
+    defaultChatToolsEnabled,
+    chatToolsEnabledBySessionID,
     agentAdapterID,
     agentConfigOptions,
     agentWorkspace,
@@ -284,6 +301,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
   const {
     setDefaultChatTarget,
     setChatTargetBySessionID,
+    setDefaultChatToolsEnabled,
+    setChatToolsEnabledBySessionID,
     setAgentAdapterID,
     setAgentConfigOptions,
     setAgentWorkspace,
@@ -400,6 +419,32 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     setDefaultChatTarget(nextTarget);
   }
 
+  // Resolve the tools-enabled flag for the given session, falling back
+  // to the user default if no per-session override is set. Mirrors the
+  // useChatToolsEnabled derived hook's order *minus* the message-tail
+  // inspection — coordinator code paths fire after the user has already
+  // toggled the panel, so deriving from prior turns here would cause a
+  // freshly-toggled "tools off" to be ignored when the previous turn
+  // ran with hecate_task.
+  function resolveToolsEnabled(sessionID: string): boolean {
+    if (!sessionID) return defaultChatToolsEnabled;
+    const explicit = chatToolsEnabledBySessionID.get(sessionID);
+    if (typeof explicit === "boolean") return explicit;
+    return defaultChatToolsEnabled;
+  }
+
+  function setChatToolsEnabled(enabled: boolean) {
+    if (activeChatSessionID) {
+      setChatToolsEnabledBySessionID((current) => {
+        const next = new Map(current);
+        next.set(activeChatSessionID, enabled);
+        return next;
+      });
+      return;
+    }
+    setDefaultChatToolsEnabled(enabled);
+  }
+
   function setNewChatAgent(nextAgentID: string) {
     if (nextAgentID === "hecate") {
       setAgentConfigOptions([]);
@@ -489,11 +534,19 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const turnModel = queued?.model ?? model;
     const requestedExecutionMode =
       queued?.execution_mode ?? chatTargetToExecutionMode(params.chatTarget);
+    // Resolve tools-enabled against the *active* session, not the
+    // queued message's pinned session: queued messages reuse the
+    // execution_mode they were enqueued with, so the toolsEnabled
+    // signal only affects fresh-from-the-composer turns.
+    const turnToolsEnabled = queued
+      ? requestedExecutionMode !== "direct_model"
+      : resolveToolsEnabled(activeChatSessionID);
     const turnExecutionMode = effectiveHecateExecutionMode({
       requested: requestedExecutionMode,
       models,
       providerFilter: turnProviderFilter,
       model: turnModel,
+      toolsEnabled: turnToolsEnabled,
     });
     if (!queued && activeChatSessionID && chatSessionIsBusy(activeChatSession)) {
       queueChatMessage(content, turnExecutionMode, activeChatSessionID);
@@ -807,6 +860,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       models,
       providerFilter,
       model: requestedModel,
+      // No active session yet — fall back to the user default. The
+      // composer hasn't had a chance to call setChatToolsEnabled
+      // against the new session ID, so the per-session map can't
+      // contribute.
+      toolsEnabled: defaultChatToolsEnabled,
     });
     const workspace = workspaceForNewChat(createProjectID);
     if (executionMode === "hecate_task" && !workspace) {
@@ -1310,6 +1368,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     deleteChatSession,
     renameChatSession,
     setChatTarget,
+    setChatToolsEnabled,
     setNewChatAgent,
     updateAgentWorkspace,
     selectProviderRoute,
