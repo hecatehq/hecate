@@ -160,7 +160,18 @@ export type CreateChatSessionPayload = {
 
 export type CreateChatMessagePayload = {
   content: string;
+  // execution_mode stays on the wire so external-agent dispatch
+  // continues to send the literal explicitly. For Hecate-side turns
+  // the UI now prefers `tools_enabled` and omits `execution_mode`;
+  // the backend derives the dispatch from the boolean when the
+  // legacy field is empty.
   execution_mode?: "external_agent" | "hecate_task" | "direct_model";
+  // tools_enabled is the per-turn tools-on/off signal. Backend
+  // dispatch routes hecate_task vs direct_model on this boolean when
+  // execution_mode is absent (the new wire shape for Hecate-side
+  // turns). External-agent turns don't use it — agent_id pins the
+  // dispatch and the agent owns its own tools.
+  tools_enabled?: boolean;
   provider?: string;
   model?: string;
   system_prompt?: string;

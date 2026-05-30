@@ -1948,10 +1948,15 @@ describe("useRuntimeConsole", () => {
 
       expect(postedBody).toMatchObject({
         content: "inspect the repo",
-        execution_mode: "hecate_task",
+        // Hecate-side turns now send `tools_enabled` and let the
+        // backend derive the dispatch. The legacy `execution_mode`
+        // field stays in the type but isn't sent for non-external
+        // turns.
+        tools_enabled: true,
         system_prompt: "Prefer small, reviewable diffs.",
         workspace: "/workspace",
       });
+      expect(postedBody).not.toHaveProperty("execution_mode");
     });
 
     it("sends Hecate Chat turns directly when the selected model is not tool-capable", async () => {
@@ -2046,10 +2051,15 @@ describe("useRuntimeConsole", () => {
 
       expect(postedBody).toMatchObject({
         content: "tell a small joke",
-        execution_mode: "direct_model",
+        // A capability-driven downgrade (model lacks tool calling)
+        // surfaces on the wire as tools_enabled=false; the backend
+        // routes to the direct-model path without needing the
+        // legacy execution_mode literal.
+        tools_enabled: false,
         provider: "ollama",
         model: "smollm2:135m",
       });
+      expect(postedBody).not.toHaveProperty("execution_mode");
       expect(postedBody).not.toHaveProperty("workspace");
       expect(result.current.state.chatError).toBe("");
     });
