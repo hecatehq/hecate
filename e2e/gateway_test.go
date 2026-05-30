@@ -273,6 +273,22 @@ func postJSON(t *testing.T, url, body string, headers map[string]string) *http.R
 	return resp
 }
 
+func getWithHeaders(t *testing.T, url string, headers map[string]string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	return resp
+}
+
 func getJSON[T any](t *testing.T, url string) T {
 	t.Helper()
 	resp, err := http.Get(url) //nolint:noctx
@@ -429,6 +445,74 @@ func TestGatewayNoProviderConfiguredReturns502(t *testing.T) {
 	if resp.StatusCode == http.StatusOK {
 		t.Fatalf("expected non-200 with no provider configured, got 200")
 	}
+}
+
+func TestGatewayRuntimeAndInferenceTokensProtectExposedSurfaces(t *testing.T) {
+	t.Parallel()
+
+	const (
+		runtimeToken   = "local-runtime-token-123456"
+		inferenceToken = "local-inference-token-123456"
+	)
+	fakeResp := `{"id":"chatcmpl-auth-e2e","object":"chat.completion","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":"auth ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`
+	upstream := fakeOpenAIServer(t, "/v1/chat/completions", fakeResp, false)
+
+	base := gatewayServer(t,
+		"HECATE_RUNTIME_TOKEN="+runtimeToken,
+		"HECATE_INFERENCE_TOKEN="+inferenceToken,
+		"PROVIDER_FAKE_API_KEY=dummy",
+		"PROVIDER_FAKE_BASE_URL="+upstream,
+		"PROVIDER_FAKE_KIND=local",
+	)
+
+	resp := getWithHeaders(t, base+"/healthz", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /healthz status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = getWithHeaders(t, base+"/hecate/v1/whoami", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /hecate/v1/whoami without runtime token status = %d, want 401", resp.StatusCode)
+	}
+	_ = readBody(t, resp)
+
+	resp = getWithHeaders(t, base+"/hecate/v1/whoami", map[string]string{
+		"X-Hecate-Runtime-Token": runtimeToken,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /hecate/v1/whoami with runtime token status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	resp = getWithHeaders(t, base+"/v1/models", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /v1/models without inference token status = %d, want 401", resp.StatusCode)
+	}
+	_ = readBody(t, resp)
+
+	resp = getWithHeaders(t, base+"/v1/models", map[string]string{
+		"x-api-key": inferenceToken,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/models with inference token status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
+	resp = postJSON(t, base+"/v1/chat/completions", body, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("POST /v1/chat/completions without inference token status = %d, want 401", resp.StatusCode)
+	}
+	_ = readBody(t, resp)
+
+	resp = postJSON(t, base+"/v1/chat/completions", body, map[string]string{
+		"Authorization": "Bearer " + inferenceToken,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /v1/chat/completions with inference token status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
 }
 
 func TestEnvExampleDoesNotExposeAgentAdapterFixtureOverrides(t *testing.T) {

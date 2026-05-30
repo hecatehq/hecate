@@ -11,6 +11,21 @@ the `x-api-key` header. It is a local deployment guard, not user management;
 keep using a reverse proxy, firewall, VPN, or equivalent control for anything
 reachable beyond your own machine.
 
+Minimum exposed-instance guardrail set:
+
+```bash
+HECATE_ADDRESS=0.0.0.0:8765
+HECATE_ALLOW_NON_LOOPBACK_BIND=1
+HECATE_ALLOWED_ORIGINS=https://hecate.example.com
+HECATE_RUNTIME_TOKEN=replace-with-at-least-24-random-characters
+HECATE_INFERENCE_TOKEN=replace-with-at-least-24-random-characters
+```
+
+Use `HECATE_RUNTIME_TOKEN` for Hecate-native clients such as the operator UI,
+MCP tools, and chat/task control-plane calls. Use `HECATE_INFERENCE_TOKEN` for
+OpenAI- or Anthropic-shaped SDK clients pointed at `/v1/*`. Keep `/healthz`
+private to the host, load balancer, or orchestrator health check.
+
 ## Contents
 
 - [Image pinning](#image-pinning)
