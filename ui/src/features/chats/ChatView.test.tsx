@@ -433,10 +433,11 @@ describe("ChatView input", () => {
   });
 
   it("toggles Hecate Chat between direct model chat and tool-backed agent mode", async () => {
-    const setChatTarget = vi.fn();
+    const setChatToolsEnabled = vi.fn();
     const { state, actions } = setup(
       {
         chatTarget: "agent",
+        defaultChatToolsEnabled: true,
         providerScopedModels: [
           {
             id: "gpt-4o-mini",
@@ -449,7 +450,7 @@ describe("ChatView input", () => {
           },
         ],
       },
-      { setChatTarget },
+      { setChatToolsEnabled },
     );
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
@@ -458,21 +459,28 @@ describe("ChatView input", () => {
     expect(screen.getByText("Mode")).toBeTruthy();
     expect(screen.getByText("Tools")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Tools on" }));
-    expect(setChatTarget).toHaveBeenCalledWith("model");
+    expect(setChatToolsEnabled).toHaveBeenCalledWith(false);
 
-    const directState = setup({ ...state, chatTarget: "model" }, { setChatTarget }).state;
+    const directState = setup(
+      { ...state, defaultChatToolsEnabled: false },
+      { setChatToolsEnabled },
+    ).state;
     rerender(withRuntimeConsole(<ChatView />, { state: directState, actions }));
     expect(screen.getByRole("button", { name: "Tools off" })).toHaveTextContent("off");
 
     await user.click(screen.getByRole("button", { name: "Tools off" }));
-    expect(setChatTarget).toHaveBeenCalledWith("agent");
+    expect(setChatToolsEnabled).toHaveBeenCalledWith(true);
   });
 
   it("keeps tools off for an existing Hecate session when the next turn is direct model chat", async () => {
-    const setChatTarget = vi.fn();
+    const setChatToolsEnabled = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent",
+        // Per-session pin: this session was explicitly toggled to
+        // tools-off, which takes precedence over both message-derived
+        // hints and the user default.
+        chatToolsEnabledBySessionID: new Map([["chat_1", false]]),
         providerScopedModels: [
           {
             id: "gpt-4o-mini",
@@ -497,7 +505,7 @@ describe("ChatView input", () => {
           messages: [],
         } as any,
       },
-      { setChatTarget },
+      { setChatToolsEnabled },
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
@@ -506,7 +514,7 @@ describe("ChatView input", () => {
 
     expect(screen.getByRole("button", { name: "Tools off" })).toHaveTextContent("off");
     await user.click(screen.getByRole("button", { name: "Tools off" }));
-    expect(setChatTarget).toHaveBeenCalledWith("agent");
+    expect(setChatToolsEnabled).toHaveBeenCalledWith(true);
   });
 
   it("shows editable system prompt instructions in chat settings before the first message", async () => {

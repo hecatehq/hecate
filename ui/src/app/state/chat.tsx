@@ -48,11 +48,16 @@ import {
   type ChatTarget,
   type HecateChatTarget,
   type QueuedChatMessage,
+  chatToolsEnabledBySessionIDStorageKey,
+  chatToolsEnabledStorageKey,
   parseChatTargetsBySessionID,
+  parseChatToolsEnabledBySessionID,
   parseQueuedChatMessageList,
   parseStoredChatTarget,
+  parseStoredChatToolsEnabled,
   queuedChatMessagesStorageKey,
   serializeChatTargetsBySessionID,
+  serializeChatToolsEnabledBySessionID,
 } from "./_shared";
 import { humanizeChatError } from "../runtimeConsoleChatHelpers";
 
@@ -66,6 +71,20 @@ export type PendingToolCall = {
 export type ChatState = {
   defaultChatTarget: ChatTarget;
   chatTargetBySessionID: Map<string, HecateChatTarget>;
+  // User-default tools-enabled preference for new Hecate chats. The
+  // per-session map below overrides this when a session has its own
+  // pinned tools state; the default applies when neither the session
+  // map nor a derived signal exists. Persisted under
+  // `hecate.chatToolsEnabled`.
+  defaultChatToolsEnabled: boolean;
+  // Per-session tools-enabled override. Mirrors `chatTargetBySessionID`
+  // shape; a missing entry falls back to `defaultChatToolsEnabled`.
+  // Populated by the user toggling the tools pill in ChatSettingsPanel.
+  // Migrated automatically on slice mount from any legacy
+  // `chatTargetBySessionID` entry set to "model" (those map to
+  // tools-off in the new model). Persisted under
+  // `hecate.chatToolsEnabledBySessionID`.
+  chatToolsEnabledBySessionID: Map<string, boolean>;
   agentAdapterID: string;
   agentConfigOptions: ChatConfigOptionRecord[];
   agentWorkspace: string;
@@ -98,6 +117,8 @@ type Setter<T> = (next: SetStateAction<T>) => void;
 export type ChatActions = {
   setDefaultChatTarget: Setter<ChatTarget>;
   setChatTargetBySessionID: Setter<Map<string, HecateChatTarget>>;
+  setDefaultChatToolsEnabled: Setter<boolean>;
+  setChatToolsEnabledBySessionID: Setter<Map<string, boolean>>;
   setAgentAdapterID: Setter<string>;
   setAgentConfigOptions: Setter<ChatConfigOptionRecord[]>;
   setAgentWorkspace: Setter<string>;
@@ -161,6 +182,44 @@ export function ChatProvider({
     initialState?.chatTargetBySessionID ?? new Map(),
     { serialize: serializeChatTargetsBySessionID },
   );
+  const [defaultChatToolsEnabled, setDefaultChatToolsEnabled] = usePersistedState<boolean>(
+    chatToolsEnabledStorageKey,
+    parseStoredChatToolsEnabled,
+    initialState?.defaultChatToolsEnabled ?? true,
+  );
+  const [chatToolsEnabledBySessionID, setChatToolsEnabledBySessionID] = usePersistedState<
+    Map<string, boolean>
+  >(
+    chatToolsEnabledBySessionIDStorageKey,
+    parseStoredJSON(parseChatToolsEnabledBySessionID),
+    initialState?.chatToolsEnabledBySessionID ?? new Map(),
+    { serialize: serializeChatToolsEnabledBySessionID },
+  );
+  // One-shot migration from the legacy chatTargetBySessionID "model"
+  // discriminant: pre-toggle installs encoded "tools off for session X"
+  // as `chatTargetBySessionID[X] = "model"`. The new model records that
+  // intent in chatToolsEnabledBySessionID instead. Run once on mount;
+  // if the user has explicit toolsEnabled entries already, don't
+  // clobber them — the migration is purely additive.
+  const toolsEnabledMigrationRanRef = useRef(false);
+  useEffect(() => {
+    if (toolsEnabledMigrationRanRef.current) return;
+    toolsEnabledMigrationRanRef.current = true;
+    let touched = false;
+    const merged = new Map(chatToolsEnabledBySessionID);
+    for (const [sessionID, target] of chatTargetBySessionID) {
+      if (target === "model" && !merged.has(sessionID)) {
+        merged.set(sessionID, false);
+        touched = true;
+      }
+    }
+    if (touched) {
+      setChatToolsEnabledBySessionID(merged);
+    }
+    // Intentional one-shot: subsequent updates to either map are user
+    // edits we don't want to re-migrate against.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [agentAdapterID, setAgentAdapterID] = usePersistedState(
     "hecate.agentAdapterID",
     parseStoredString,
@@ -303,6 +362,8 @@ export function ChatProvider({
     () => ({
       defaultChatTarget,
       chatTargetBySessionID,
+      defaultChatToolsEnabled,
+      chatToolsEnabledBySessionID,
       agentAdapterID,
       agentConfigOptions,
       agentWorkspace,
@@ -331,6 +392,8 @@ export function ChatProvider({
     [
       defaultChatTarget,
       chatTargetBySessionID,
+      defaultChatToolsEnabled,
+      chatToolsEnabledBySessionID,
       agentAdapterID,
       agentConfigOptions,
       agentWorkspace,
@@ -362,6 +425,8 @@ export function ChatProvider({
     () => ({
       setDefaultChatTarget,
       setChatTargetBySessionID,
+      setDefaultChatToolsEnabled,
+      setChatToolsEnabledBySessionID,
       setAgentAdapterID,
       setAgentConfigOptions,
       setAgentWorkspace,
@@ -390,6 +455,8 @@ export function ChatProvider({
     [
       setDefaultChatTarget,
       setChatTargetBySessionID,
+      setDefaultChatToolsEnabled,
+      setChatToolsEnabledBySessionID,
       setAgentAdapterID,
       setAgentConfigOptions,
       setAgentWorkspace,
