@@ -323,8 +323,11 @@ type OpenAICompatibleProviderConfig struct {
 	StubResponse string        `json:"stub_response"`
 	DefaultModel string        `json:"default_model"`
 	Enabled      bool          `json:"enabled"`
-	// KnownModels is the curated catalog from the built-in preset. It populates the
-	// static capabilities when no API key is set and live discovery is skipped.
+	// KnownModels is an operator-supplied static catalog override. Populated only
+	// via PROVIDER_<NAME>_MODELS env (comma-separated), it populates the static
+	// capabilities when no API key is set and live discovery is skipped. Empty
+	// by default — Hecate prefers live `/v1/models` discovery over hard-coded
+	// lists that bit-rot as upstream catalogs churn.
 	KnownModels []string `json:"known_models,omitempty"`
 	// AnthropicCacheDisabled opts the Anthropic adapter out of
 	// auto-attaching `cache_control: {"type":"ephemeral"}` markers on
