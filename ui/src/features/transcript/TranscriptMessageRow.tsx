@@ -116,6 +116,7 @@ export function TranscriptMessageRow({
   const showCapturedDiff =
     isAssistant &&
     Boolean(diffStat?.trim() || diff?.trim()) &&
+    !changedFilesLink &&
     !(visibleActivities ?? []).some(isFilesChangedActivity);
 
   return (
@@ -430,11 +431,16 @@ function ToolOutputPreview({ title, output }: { title: string; output: string })
 }
 
 function normalizeToolOutputPreview(output: string): string {
-  return output
-    .replace(/\s*(\d+)\s*(?:>|→)/g, (_match, _line: string, offset: number) =>
-      offset === 0 ? "" : "\n",
-    )
+  return stripAnsi(output)
+    .replace(/\r\n/g, "\n")
+    .replace(/(?:^|\n)[ \t]*\d{1,6}\s*(?:>|→|\|)\s*/g, "\n")
+    .replace(/[ \t]+\d{1,6}\s*(?:>|→|\|)\s*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
 function CapturedDiffDetails({ diffStat, diff }: { diffStat?: string; diff?: string }) {

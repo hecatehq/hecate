@@ -3319,7 +3319,7 @@ describe("ChatView external-agent target", () => {
       "title",
       "Workspace changes · 2 files changed, 10 insertions(+), 4 deletions(-)",
     );
-    expect(screen.getByText("2 files changed, 10 insertions(+), 4 deletions(-)")).toBeTruthy();
+    expect(screen.queryByText("2 files changed, 10 insertions(+), 4 deletions(-)")).toBeNull();
     expect(screen.getByText("raw agent output · 1 line")).toBeTruthy();
     expect(screen.getAllByText("completed").length).toBeGreaterThan(0);
     const user = userEvent.setup();

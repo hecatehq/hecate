@@ -276,12 +276,12 @@ describe("TranscriptActivityTimeline", () => {
     render(<TranscriptActivityTimeline activities={activities} />);
 
     expect(screen.getByText("Read context")).toBeInTheDocument();
-    expect(screen.getByText("read · output captured")).toBeInTheDocument();
+    expect(screen.queryByText("read · output captured")).toBeNull();
     expect(screen.queryByText(/h1 align/)).toBeNull();
     expect(screen.queryByText(/docs\/assets\/logo/)).toBeNull();
   });
 
-  it("summarizes noisy generic command activity while showing child output inline", async () => {
+  it("summarizes noisy generic command activity without expanding every output card", async () => {
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [
       {
@@ -334,10 +334,14 @@ describe("TranscriptActivityTimeline", () => {
     await user.click(screen.getByText("Commands"));
 
     expect(screen.getAllByText("Ran command")).toHaveLength(4);
-    expect(screen.queryByText(/output captured · commit abc123/)).toBeNull();
+    expect(screen.queryByText(/commit abc123/)).toBeNull();
+    expect(screen.queryByText("Tool output for call_1")).toBeNull();
+    expect(screen.queryByText("Tool output for call_4")).toBeNull();
+
+    await user.click(screen.getAllByText("Output")[0]);
+
     expect(screen.getByText("Tool output for call_1")).toBeInTheDocument();
-    expect(screen.getByText("Tool output for call_4")).toBeInTheDocument();
-    expect(screen.queryByText(/^Output$/)).toBeNull();
+    expect(screen.queryByText("Tool output for call_4")).toBeNull();
   });
 
   it("treats completed commands with fatal output as failed for transcript tone", () => {
@@ -421,7 +425,7 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText(/cancelled · 2 interrupted tools/)).toBeInTheDocument();
   });
 
-  it("includes workspace changes in the summary and expanded activity list when diffStat is supplied", () => {
+  it("includes workspace changes in the summary without duplicating a timeline row", () => {
     const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
     ];
@@ -432,8 +436,8 @@ describe("TranscriptActivityTimeline", () => {
       />,
     );
     expect(screen.getByText(/workspace changes/)).toBeInTheDocument();
-    expect(screen.getByText("Workspace changes")).toBeInTheDocument();
-    expect(screen.getByText("1 file changed, 2 insertions(+), 1 deletion(-)")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace changes")).toBeNull();
+    expect(screen.queryByText("1 file changed, 2 insertions(+), 1 deletion(-)")).toBeNull();
   });
 
   it("does not duplicate backend files_changed rows when diffStat is supplied", () => {
@@ -453,10 +457,8 @@ describe("TranscriptActivityTimeline", () => {
       />,
     );
 
-    expect(screen.getAllByText("Workspace changes")).toHaveLength(1);
-    expect(screen.getAllByText("2 files changed, 72 insertions(+), 3 deletions(-)")).toHaveLength(
-      1,
-    );
+    expect(screen.queryByText("Workspace changes")).toBeNull();
+    expect(screen.queryByText("2 files changed, 72 insertions(+), 3 deletions(-)")).toBeNull();
   });
 
   it("hides the 'started' activity when a terminal activity has appeared", () => {

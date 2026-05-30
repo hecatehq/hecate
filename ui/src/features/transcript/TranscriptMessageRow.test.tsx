@@ -548,7 +548,7 @@ describe("TranscriptMessageRow", () => {
 
     render(<TranscriptMessageRow {...baseProps} activities={activities} />);
 
-    expect(screen.getByText("read · output captured")).toBeInTheDocument();
+    expect(screen.queryByText("read · output captured")).toBeNull();
     expect(screen.queryByText(/import foo/)).toBeNull();
 
     await user.click(screen.getByText("Output"));
@@ -577,7 +577,7 @@ describe("TranscriptMessageRow", () => {
 
     render(<TranscriptMessageRow {...baseProps} activities={activities} />);
 
-    expect(screen.getByText("execute · output captured")).toBeInTheDocument();
+    expect(screen.queryByText("execute · output captured")).toBeNull();
     expect(screen.queryByText(/total 88064/)).toBeNull();
 
     await user.click(screen.getByText("Output"));
@@ -604,9 +604,60 @@ describe("TranscriptMessageRow", () => {
 
     await user.click(screen.getByText("Output"));
 
-    expect(screen.getByText(/import \{ parsePatchFiles \}/)).toBeInTheDocument();
-    expect(screen.getByText(/import \{ FileDiff \}/)).toBeInTheDocument();
-    expect(screen.queryByText(/1 │/)).toBeNull();
+    const output = screen.getByText(/import \{ parsePatchFiles \}/);
+    expect(output.textContent).toContain(
+      'import { parsePatchFiles } from "@pierre/diffs";\nimport { FileDiff } from "@pierre/diffs/react";',
+    );
+    expect(output).not.toHaveTextContent(/1(?:>|→|\|)/);
+  });
+
+  it("renders pipe-separated read-context output with real line breaks", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "completed",
+        kind: "read",
+        detail:
+          'read · output: 1 | <h1 align="center"> 2 | <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png">',
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    await user.click(screen.getByText("Output"));
+
+    const output = screen.getByText(/<h1 align="center">/);
+    expect(output.textContent).toContain(
+      '<h1 align="center">\n<img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png">',
+    );
+    expect(output).not.toHaveTextContent(/\d+\s*\|/);
+  });
+
+  it("does not duplicate captured diffs when the workspace-changes chip is available", () => {
+    const diff = [
+      "diff --git a/README.md b/README.md",
+      "index 1111111..2222222 100644",
+      "--- a/README.md",
+      "+++ b/README.md",
+      "@@ -1 +1,2 @@",
+      " # Hecate",
+      "+Local runtime console",
+    ].join("\n");
+
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        diff={diff}
+        diffStat="README.md | 1 +\n1 file changed, 1 insertion(+)"
+        changedFilesLink={{ label: "1 file", onClick: vi.fn() }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Open 1 file" })).toBeInTheDocument();
+    expect(screen.queryByText(/workspace changes · 1 file changed/)).toBeNull();
+    expect(screen.queryByTestId("diff-viewer")).toBeNull();
   });
 
   it("shows the rich diff viewer for file-change activity when a patch is captured", async () => {

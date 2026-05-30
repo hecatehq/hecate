@@ -10,7 +10,6 @@ import {
   compactAgentActivities,
   compactDetailActivities,
   detailSummaryLabel,
-  fileChangesActivity,
   formatDiffStatSummary,
   isActiveAgentActivity,
   isOutputArtifactActivity,
@@ -111,7 +110,7 @@ export function TranscriptActivityTimeline({
 }) {
   const visible = orderVisibleActivities(compactAgentActivities(activities, Boolean(diffStat)));
   const details = orderVisibleActivities(compactDetailActivities(activities, Boolean(diffStat)));
-  const primaryRaw = diffStat ? [...visible, fileChangesActivity(diffStat)] : visible;
+  const primaryRaw = visible;
   const primary = summarizeTimelineActivities(primaryRaw);
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(isActiveAgentActivity);
@@ -297,7 +296,6 @@ function TimelineActivityLine({
                     key={child.id || `child-${child.type}-${child.created_at ?? index}`}
                     activity={child}
                     renderAdvancedActivity={renderAdvancedActivity}
-                    inlineAdvanced={activity.type === "tool_group"}
                   />
                 ))}
               </div>
