@@ -426,7 +426,7 @@ function AuthenticatedShell({
             </>
           );
         })()}
-        {activeWorkspace === "chats" && chatTarget !== "model" && agentWorkspace && (
+        {activeWorkspace === "chats" && agentWorkspace && (
           <>
             <span className="hecate-statusbar__sep">|</span>
             <span className="hecate-statusbar__path" title={agentWorkspace}>

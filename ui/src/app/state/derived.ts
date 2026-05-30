@@ -14,30 +14,13 @@ import { CoordinatorOverridesContext } from "./coordinators/overrides";
 import { useProvidersAndModels } from "./providersAndModels";
 import { useRuntime } from "./runtime";
 import { deriveSessionState, type SessionState } from "../runtimeConsoleDashboard";
-import {
-  type ChatTarget,
-  type HecateChatTarget,
-  executionModeToChatTarget,
-  normalizeStoredHecateChatTarget,
-} from "./_shared";
+import { type ChatTarget } from "./_shared";
 import type { ChatSessionRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderRecord } from "../../types/provider";
 
 function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
   return Boolean(session?.agent_id && session.agent_id !== "hecate");
-}
-
-function deriveHecateChatTargetFromSession(session: ChatSessionRecord | null): HecateChatTarget {
-  if (!session) return "agent";
-  const messages = session.messages ?? [];
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const target = normalizeStoredHecateChatTarget(
-      executionModeToChatTarget(messages[i]?.execution_mode ?? ""),
-    );
-    if (target) return target;
-  }
-  return "agent";
 }
 
 function hecateTaskStatusIsActive(status?: string): boolean {
@@ -69,11 +52,7 @@ export function useChatTarget(): ChatTarget {
   if (overrides?.derivedChatTarget) return overrides.derivedChatTarget;
   if (state.activeChatSessionID && state.activeChatSession) {
     if (chatSessionIsExternal(state.activeChatSession)) return "external_agent";
-    if (sessionHasActiveHecateTaskSegment(state.activeChatSession)) return "agent";
-    return (
-      state.chatTargetBySessionID.get(state.activeChatSessionID) ??
-      deriveHecateChatTargetFromSession(state.activeChatSession)
-    );
+    return "agent";
   }
   return state.defaultChatTarget;
 }

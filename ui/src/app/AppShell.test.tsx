@@ -132,7 +132,7 @@ describe("ConsoleShell titlebar", () => {
 describe("ConsoleShell navigation", () => {
   it("keeps Chats available when no providers are configured", async () => {
     const state = createRuntimeConsoleFixture({
-      chatTarget: "model",
+      chatTarget: "agent",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
     });
     render(
@@ -234,23 +234,6 @@ describe("ConsoleShell navigation", () => {
     );
 
     expect(screen.getByText("context 79% left")).toBeInTheDocument();
-  });
-
-  it("does not show agent workspace details while chatting with models", () => {
-    const state = createRuntimeConsoleFixture({
-      chatTarget: "model",
-      agentWorkspace: "/Users/alice/dev/hecate",
-      agentWorkspaceBranch: "main",
-    });
-    render(
-      withRuntimeConsole(<ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />, {
-        state,
-        actions: createRuntimeConsoleActions(),
-      }),
-    );
-
-    expect(screen.queryByText("/Users/alice/dev/hecate")).toBeNull();
-    expect(screen.queryByText("git:main")).toBeNull();
   });
 
   it("keeps No project as the default chat-sidebar project context", () => {

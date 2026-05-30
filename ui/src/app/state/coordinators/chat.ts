@@ -856,23 +856,30 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
     const requestedChatTarget = requestedAgentID === "hecate" ? "agent" : defaultChatTarget;
     const requestedExecutionMode = chatTargetToExecutionMode(requestedChatTarget);
-    const requestedModel =
-      requestedExecutionMode === "hecate_task" &&
-      model &&
-      !modelAvailableForProviderFilter(models, providerFilter, model)
-        ? ""
-        : model;
     const executionMode = effectiveHecateExecutionMode({
       requested: requestedExecutionMode,
       models,
       providerFilter,
-      model: requestedModel,
+      model,
       // No active session yet — fall back to the user default. The
       // composer hasn't had a chance to call setChatToolsEnabled
       // against the new session ID, so the per-session map can't
       // contribute.
       toolsEnabled: defaultChatToolsEnabled,
     });
+    // The Hecate-routing availability check matters only when the turn
+    // will actually run as a Hecate task: an unroutable model on the
+    // hecate_task path falls back to "" so the gateway picks a routable
+    // default. When the effective mode downgrades to direct_model
+    // (toolsEnabled off or model lacks tool calling), the turn
+    // dispatches straight to the named provider — keep what the user
+    // picked even if it isn't in the Hecate-routing catalog.
+    const requestedModel =
+      executionMode === "hecate_task" &&
+      model &&
+      !modelAvailableForProviderFilter(models, providerFilter, model)
+        ? ""
+        : model;
     const workspace = workspaceForNewChat(createProjectID);
     if (executionMode === "hecate_task" && !workspace) {
       setChatErrorState(chatWorkspaceRequiredError());

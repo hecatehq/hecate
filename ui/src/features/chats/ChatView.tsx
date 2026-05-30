@@ -186,8 +186,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   );
   const activeSessionIsHecate = Boolean(state.activeChatSession && !activeSessionIsExternal);
   const isHecateChat =
-    activeSessionIsHecate ||
-    (!activeSessionIsExternal && (state.chatTarget === "agent" || state.chatTarget === "model"));
+    activeSessionIsHecate || (!activeSessionIsExternal && state.chatTarget === "agent");
   const isAgentChat = isHecateChat || state.chatTarget === "external_agent";
   // "Hecate-agent chat" semantically means: the user wants the *next
   // turn* to run through the Hecate agent path with tools enabled.
