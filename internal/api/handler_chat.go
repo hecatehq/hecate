@@ -1087,6 +1087,26 @@ func normalizeChatExecutionMode(mode string, session chat.Session) string {
 	return chat.ExecutionModeDirectModel
 }
 
+// chatRequestToolsEnabled returns the per-turn tools-on/off signal
+// the handler should persist for this submission. The dedicated field
+// wins when set; otherwise the value is derived from the (legacy)
+// execution_mode so existing clients continue to behave unchanged:
+//
+//   - direct_model → tools off
+//   - hecate_task / external_agent / unset → tools on (the agent path
+//     is the safe assumption when the client offers no signal)
+//
+// The capability-driven downgrade in the dispatcher (a tool-incapable
+// model on a hecate_task turn) flips this to false as well, so the
+// persisted Message always reflects what actually ran rather than
+// what the client originally requested.
+func chatRequestToolsEnabled(req CreateChatMessageRequest) bool {
+	if req.ToolsEnabled != nil {
+		return *req.ToolsEnabled
+	}
+	return strings.TrimSpace(req.ExecutionMode) != chat.ExecutionModeDirectModel
+}
+
 func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest) {
 	if busy, runStatus := h.hecateAgentSessionBusy(r.Context(), session); busy {
 		writeHecateAgentBusy(w, session, runStatus)
@@ -1130,13 +1150,20 @@ func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Re
 	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            newChatID("msg"),
 		ExecutionMode: chat.ExecutionModeDirectModel,
-		SegmentID:     segmentID,
-		Provider:      provider,
-		Model:         model,
-		Capabilities:  caps,
-		Role:          "user",
-		Content:       content,
-		CreatedAt:     startedAt,
+		// The model-chat handler dispatches when the operator submitted
+		// with tools off (or when the runtime downgraded a hecate_task
+		// turn because the model can't run tools). Either way, the
+		// persisted Message records ToolsEnabled=false so a future
+		// read against this row recovers the original intent without
+		// having to parse the execution_mode string.
+		ToolsEnabled: false,
+		SegmentID:    segmentID,
+		Provider:     provider,
+		Model:        model,
+		Capabilities: caps,
+		Role:         "user",
+		Content:      content,
+		CreatedAt:    startedAt,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -1149,6 +1176,7 @@ func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Re
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: chat.ExecutionModeDirectModel,
+		ToolsEnabled:  false,
 		SegmentID:     segmentID,
 		RunID:         runID,
 		RequestID:     RequestIDFromContext(r.Context()),
