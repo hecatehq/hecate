@@ -75,6 +75,20 @@ type SQLiteClient struct {
 //     erroring out.
 //   - foreign_keys ON: SQLite ships with FKs disabled by default, which
 //     is a footgun for persisted relational state.
+//   - _txlock=immediate: every BeginTx issues `BEGIN IMMEDIATE` so the
+//     writer lock is acquired upfront. The default `BEGIN` is DEFERRED:
+//     it starts with a shared read lock and tries to upgrade on the
+//     first write. That upgrade does NOT honor busy_timeout — if another
+//     writer holds the lock at upgrade time, SQLite returns SQLITE_BUSY
+//     immediately (SQLITE_BUSY_SNAPSHOT semantics). The taskstate
+//     terminal-transition path hit this under release-gate load: 2 of 3
+//     verify runs failed with `database is locked (5)` after ~120ms,
+//     well under the 5s busy_timeout. BEGIN IMMEDIATE serializes
+//     writers at BEGIN, which DOES honor busy_timeout, so the second
+//     writer waits instead of erroring. The same fix is applied manually
+//     in `internal/orchestrator/queue_sqlite.go` for the run-queue
+//     claim path; setting _txlock here covers every other tx by default
+//     and makes that workaround redundant (but harmless to leave).
 func NewSQLiteClient(ctx context.Context, cfg SQLiteConfig) (*SQLiteClient, error) {
 	path := strings.TrimSpace(cfg.Path)
 	if path == "" {
@@ -95,9 +109,11 @@ func NewSQLiteClient(ctx context.Context, cfg SQLiteConfig) (*SQLiteClient, erro
 	}
 
 	// _pragma= URL params are how modernc.org/sqlite accepts pragmas at
-	// connection open time. Applied to every connection in the pool.
+	// connection open time. _txlock= is a driver-specific param that
+	// controls the BEGIN form for every database/sql BeginTx call on
+	// the connection. Both apply to every connection in the pool.
 	dsn := fmt.Sprintf(
-		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)",
+		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)&_txlock=immediate",
 		path, busyMs,
 	)
 
