@@ -265,6 +265,14 @@ export const MOCK_SETTINGS_CONFIG_WITH_PROVIDERS = {
 export const MOCK_FULL_PRESETS = [
   ...MOCK_PRESETS,
   {
+    id: "cohere",
+    name: "Cohere",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.cohere.com/compatibility/v1",
+    description: "Cohere hosted models.",
+  },
+  {
     id: "deepseek",
     name: "DeepSeek",
     kind: "cloud",
@@ -281,6 +289,14 @@ export const MOCK_FULL_PRESETS = [
     description: "Google Gemini.",
   },
   {
+    id: "fireworks",
+    name: "Fireworks AI",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.fireworks.ai/inference/v1",
+    description: "Fireworks AI serverless inference.",
+  },
+  {
     id: "groq",
     name: "Groq",
     kind: "cloud",
@@ -289,12 +305,28 @@ export const MOCK_FULL_PRESETS = [
     description: "Groq inference.",
   },
   {
+    id: "huggingface",
+    name: "Hugging Face",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://router.huggingface.co/v1",
+    description: "Hugging Face Inference Providers.",
+  },
+  {
     id: "mistral",
     name: "Mistral",
     kind: "cloud",
     protocol: "openai",
     base_url: "https://api.mistral.ai/v1",
     description: "Mistral hosted models.",
+  },
+  {
+    id: "nvidia",
+    name: "NVIDIA",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://integrate.api.nvidia.com/v1",
+    description: "NVIDIA NIM inference.",
   },
   {
     id: "together_ai",
@@ -311,6 +343,14 @@ export const MOCK_FULL_PRESETS = [
     protocol: "openai",
     base_url: "https://api.x.ai/v1",
     description: "xAI Grok models.",
+  },
+  {
+    id: "zai",
+    name: "z.ai",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.z.ai/api/paas/v4",
+    description: "Zhipu z.ai GLM models.",
   },
   {
     id: "lmstudio",

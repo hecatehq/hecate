@@ -231,7 +231,6 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			cfg.AnthropicCacheDisabled = m.anthropicCacheDisabled
 		}
 		if builtIn, ok := builtInForControlPlaneProvider(item); ok {
-			cfg.KnownModels = append([]string(nil), builtIn.Models...)
 			cfg.ChatPath = builtIn.ChatPath
 			cfg.ModelsPath = builtIn.ModelsPath
 		}

@@ -1,9 +1,13 @@
 import type { CSSProperties } from "react";
 import {
   ClaudeCode,
+  CohereIcon,
   Deepseek,
+  Fireworks,
   GoogleGeminiIcon,
+  HuggingFaceIcon,
   MistralAiIcon,
+  Nvidia,
   PerplexityIcon,
   Together,
 } from "@dev.icons/react";
@@ -16,6 +20,7 @@ import {
   OllamaIcon,
   OpenaiIcon,
   Xai,
+  Zai,
 } from "@dev.icons/react/mono";
 import type { Icon as Devicon } from "@dev.icons/react";
 import hecateMarkURL from "../../assets/hecate-mark-white-64.png";
@@ -41,22 +46,27 @@ const BRAND_ICONS: Record<string, BrandIconSpec> = {
   anthropic: { component: AnthropicIcon, monochrome: true },
   claude_code: { component: ClaudeCode },
   codex: { component: OpenaiIcon, monochrome: true },
+  cohere: { component: CohereIcon },
   cursor_agent: { component: CursorIcon, monochrome: true },
   deepseek: { component: Deepseek },
+  fireworks: { component: Fireworks },
   gemini: { component: GoogleGeminiIcon },
   grok_build: { component: Xai, monochrome: true },
   groq: { component: Groq, monochrome: true },
   hecate: { image: hecateMarkURL, monochrome: true },
+  huggingface: { component: HuggingFaceIcon },
   lm_studio: { component: LmStudioIcon, monochrome: true },
   lmstudio: { component: LmStudioIcon, monochrome: true },
   llama_cpp: { component: MetaIcon, monochrome: true },
   llamacpp: { component: MetaIcon, monochrome: true },
   mistral: { component: MistralAiIcon },
+  nvidia: { component: Nvidia },
   ollama: { component: OllamaIcon, monochrome: true },
   openai: { component: OpenaiIcon, monochrome: true },
   perplexity: { component: PerplexityIcon },
   together_ai: { component: Together },
   xai: { component: Xai, monochrome: true },
+  zai: { component: Zai, monochrome: true },
 };
 
 const MONOCHROME_ICON_COLOR = "var(--mono-icon)";
