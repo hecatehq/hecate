@@ -269,7 +269,7 @@ export const MOCK_FULL_PRESETS = [
     name: "Cohere",
     kind: "cloud",
     protocol: "openai",
-    base_url: "https://api.cohere.com/compatibility/v1",
+    base_url: "https://api.cohere.ai/compatibility/v1",
     description: "Cohere hosted models.",
   },
   {

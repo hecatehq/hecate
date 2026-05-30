@@ -39,7 +39,7 @@ var builtInProviders = []BuiltInProvider{
 		Name:        "Cohere",
 		Kind:        "cloud",
 		Protocol:    "openai",
-		BaseURL:     "https://api.cohere.com/compatibility/v1",
+		BaseURL:     "https://api.cohere.ai/compatibility/v1",
 		APIKeyEnv:   "PROVIDER_COHERE_API_KEY",
 		DocsURL:     "https://docs.cohere.com/docs/compatibility-api",
 		Description: "Cohere's hosted API. Command-family models tuned for RAG, multi-step tool use, and citation-grounded answers.",
