@@ -1384,7 +1384,9 @@ test("Hecate Chat sends direct model turns when selected model lacks tools", asy
   await expect
     .poll(() => messagePayload)
     .toMatchObject({
-      execution_mode: "direct_model",
+      // UI sends tools_enabled and omits execution_mode for
+      // Hecate-side turns; backend derives the dispatch.
+      tools_enabled: false,
       provider: "ollama",
       model: "smollm2:135m",
     });
@@ -1555,7 +1557,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
   await expect
     .poll(() => messagePayload)
     .toMatchObject({
-      execution_mode: "hecate_task",
+      tools_enabled: true,
       model: "qwen2.5",
       workspace: "/tmp/hecate-e2e-workspace",
     });
@@ -1735,9 +1737,18 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     const body = await route.request().postDataJSON();
     submittedTurns.push(body);
     const turn = submittedTurns.length;
-    const executionMode = body.execution_mode || "direct_model";
+    // Mirror the backend's `normalizeChatExecutionMode` derivation:
+    // explicit execution_mode wins; otherwise derive from
+    // tools_enabled (true → hecate_task, false/undefined →
+    // direct_model). The UI sends tools_enabled for Hecate-side
+    // turns and omits execution_mode.
+    const executionMode =
+      body.execution_mode || (body.tools_enabled ? "hecate_task" : "direct_model");
     const isHecateAgent = executionMode === "hecate_task";
-    const agentTurn = submittedTurns.filter((t) => t.execution_mode === "hecate_task").length;
+    const agentTurn = submittedTurns.filter(
+      (t) =>
+        (t.execution_mode || (t.tools_enabled ? "hecate_task" : "direct_model")) === "hecate_task",
+    ).length;
     const taskID = isHecateAgent ? `task-tools-${agentTurn}` : "";
     const runID = isHecateAgent ? `run-tools-${agentTurn}` : "";
     const firstTaskNeedsApproval = isHecateAgent && agentTurn === 1 && !taskApprovalResolved;
@@ -1864,17 +1875,16 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   await expect(page.getByLabel("Tools off segment using qwen2.5")).toHaveCount(1);
 
   expect(createSessionCount).toBe(1);
-  expect(submittedTurns.map((turn) => turn.execution_mode)).toEqual([
-    "hecate_task",
-    "direct_model",
-    "hecate_task",
-  ]);
+  // UI sends tools_enabled (boolean) for Hecate-side turns and omits
+  // the legacy execution_mode literal. The three-turn sequence is
+  // tools-on / tools-off / tools-on.
+  expect(submittedTurns.map((turn) => turn.tools_enabled)).toEqual([true, false, true]);
   expect(submittedTurns.map((turn) => turn.content)).toEqual([
     "first with tools",
     "direct model turn",
     "tools again",
   ]);
-  expect(submittedTurns.filter((turn) => turn.execution_mode === "hecate_task")).toEqual([
+  expect(submittedTurns.filter((turn) => turn.tools_enabled === true)).toEqual([
     expect.objectContaining({ model: "qwen2.5", workspace: "/tmp/hecate-e2e-workspace" }),
     expect.objectContaining({ model: "qwen2.5", workspace: "/tmp/hecate-e2e-workspace" }),
   ]);
@@ -2014,7 +2024,11 @@ test("Hecate Chat falls back to direct chat when the selected model has no tools
       messages: [
         {
           id: "msg-user-direct",
-          execution_mode: body.execution_mode,
+          // Backend response carries execution_mode regardless of
+          // what the client sent — derive it from the request the
+          // same way `normalizeChatExecutionMode` does.
+          execution_mode:
+            body.execution_mode || (body.tools_enabled ? "hecate_task" : "direct_model"),
           provider: body.provider || "",
           model: body.model,
           role: "user",
@@ -2023,7 +2037,8 @@ test("Hecate Chat falls back to direct chat when the selected model has no tools
         },
         {
           id: "msg-assistant-direct",
-          execution_mode: body.execution_mode,
+          execution_mode:
+            body.execution_mode || (body.tools_enabled ? "hecate_task" : "direct_model"),
           provider: body.provider || "",
           model: body.model,
           role: "assistant",
@@ -2055,7 +2070,7 @@ test("Hecate Chat falls back to direct chat when the selected model has no tools
 
   expect(submittedTurns).toEqual([
     expect.objectContaining({
-      execution_mode: "direct_model",
+      tools_enabled: false,
       provider: "ollama",
       model: "smollm2:135m",
       content: "tell a joke",
