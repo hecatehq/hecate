@@ -596,12 +596,27 @@ type CreateChatSessionRequest struct {
 }
 
 type CreateChatMessageRequest struct {
-	Content       string `json:"content"`
+	Content string `json:"content"`
+	// ExecutionMode is the legacy per-turn dispatch discriminant.
+	// Today it carries one of "direct_model", "hecate_task", or
+	// "external_agent"; the model-chat direct_model path is being
+	// retired in favor of ToolsEnabled=false on a hecate_task turn.
+	// Reads still accept the legacy value for back-compat; the
+	// handler derives a ToolsEnabled signal from it when the explicit
+	// field is missing (see `chatRequestToolsEnabled`).
 	ExecutionMode string `json:"execution_mode,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	Model         string `json:"model,omitempty"`
-	SystemPrompt  string `json:"system_prompt,omitempty"`
-	Workspace     string `json:"workspace,omitempty"`
+	// ToolsEnabled is the per-turn tools-on/off signal. Pointer so the
+	// handler can distinguish "explicit false" from "not specified" —
+	// when nil, the handler derives the value from ExecutionMode so
+	// existing clients continue to work unchanged. New clients should
+	// set this field directly and leave ExecutionMode empty (the
+	// session's agent_id already encodes the broad agent-vs-external
+	// dispatch); the handler will route to the same destination.
+	ToolsEnabled *bool  `json:"tools_enabled,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	Model        string `json:"model,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	Workspace    string `json:"workspace,omitempty"`
 }
 
 type UpdateChatSessionRequest struct {

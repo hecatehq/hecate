@@ -102,14 +102,19 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            userID,
 		ExecutionMode: messageSnapshot.ExecutionMode,
-		SegmentID:     messageSnapshot.SegmentID,
-		TaskID:        messageSnapshot.TaskID,
-		Provider:      messageSnapshot.Provider,
-		Model:         messageSnapshot.Model,
-		Capabilities:  messageSnapshot.Capabilities,
-		Role:          "user",
-		Content:       content,
-		CreatedAt:     startedAt,
+		// Hecate-task handler: the operator submitted with tools on
+		// (otherwise the dispatcher routes to the model-chat handler
+		// path). Record the intent so a future read against this row
+		// doesn't have to interpret execution_mode to recover it.
+		ToolsEnabled: true,
+		SegmentID:    messageSnapshot.SegmentID,
+		TaskID:       messageSnapshot.TaskID,
+		Provider:     messageSnapshot.Provider,
+		Model:        messageSnapshot.Model,
+		Capabilities: messageSnapshot.Capabilities,
+		Role:         "user",
+		Content:      content,
+		CreatedAt:    startedAt,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -121,6 +126,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: messageSnapshot.ExecutionMode,
+		ToolsEnabled:  true,
 		SegmentID:     messageSnapshot.SegmentID,
 		TaskID:        messageSnapshot.TaskID,
 		RequestID:     RequestIDFromContext(r.Context()),
@@ -324,6 +330,7 @@ func hecateAgentSegmentID(session chat.Session) string {
 func hecateAgentMessageSnapshot(session chat.Session, caps types.ModelCapabilities, segmentID string) chat.Message {
 	return chat.Message{
 		ExecutionMode: chat.ExecutionModeHecateTask,
+		ToolsEnabled:  true,
 		SegmentID:     segmentID,
 		TaskID:        session.TaskID,
 		Provider:      session.Provider,
