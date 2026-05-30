@@ -32,7 +32,7 @@ var builtInProviders = []BuiltInProvider{
 		APIKeyEnv:   "PROVIDER_ANTHROPIC_API_KEY",
 		APIVersion:  "2023-06-01",
 		DocsURL:     "https://platform.claude.com/docs/en/about-claude/models/overview",
-		Description: "Anthropic's hosted API. Claude Opus, Sonnet, and Haiku via the native Messages protocol, with prompt caching and native tool use.",
+		Description: "Anthropic's hosted API. Claude Opus, Sonnet, and Haiku tiers via the native Messages protocol, with prompt caching and native tool use.",
 	},
 	{
 		ID:          "cohere",
@@ -42,7 +42,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://api.cohere.com/compatibility/v1",
 		APIKeyEnv:   "PROVIDER_COHERE_API_KEY",
 		DocsURL:     "https://docs.cohere.com/docs/compatibility-api",
-		Description: "Cohere's hosted API. Command A and R/R+ models tuned for RAG, multi-step tool use, and citation-grounded answers.",
+		Description: "Cohere's hosted API. Command-family models tuned for RAG, multi-step tool use, and citation-grounded answers.",
 	},
 	{
 		ID:          "deepseek",
@@ -52,7 +52,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://api.deepseek.com/v1",
 		APIKeyEnv:   "PROVIDER_DEEPSEEK_API_KEY",
 		DocsURL:     "https://api-docs.deepseek.com/",
-		Description: "DeepSeek's hosted API. Strong reasoning at a fraction of frontier cost — DeepSeek V3 for chat, R1 for chain-of-thought.",
+		Description: "DeepSeek's hosted API. Chat and chain-of-thought reasoning models at a fraction of frontier cost.",
 	},
 	{
 		ID:          "fireworks",
@@ -62,7 +62,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://api.fireworks.ai/inference/v1",
 		APIKeyEnv:   "PROVIDER_FIREWORKS_API_KEY",
 		DocsURL:     "https://docs.fireworks.ai/getting-started/introduction",
-		Description: "Fireworks.ai serverless inference for open-weight models — Kimi, Llama, Qwen, DeepSeek, gpt-oss. Model IDs are namespaced (`accounts/fireworks/models/<slug>`).",
+		Description: "Fireworks.ai serverless inference. Hosts an evolving catalog of open-weight models; model IDs are namespaced (`accounts/fireworks/models/<slug>`).",
 	},
 	{
 		ID:          "gemini",
@@ -72,7 +72,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://generativelanguage.googleapis.com/v1beta/openai",
 		APIKeyEnv:   "PROVIDER_GEMINI_API_KEY",
 		DocsURL:     "https://ai.google.dev/gemini-api/docs/openai",
-		Description: "Google Gemini through the OpenAI-compatible endpoint. Long-context (1M+ token) and multimodal models from the Gemini 2.5 family.",
+		Description: "Google Gemini through the OpenAI-compatible endpoint. Long-context (1M+ token) and multimodal models from the Gemini family.",
 	},
 	{
 		ID:          "groq",
@@ -82,7 +82,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://api.groq.com/openai/v1",
 		APIKeyEnv:   "PROVIDER_GROQ_API_KEY",
 		DocsURL:     "https://console.groq.com/docs/models",
-		Description: "Groq LPU inference. Sub-second time-to-first-token on open-weight models — Llama, Qwen, gpt-oss, and DeepSeek distillations.",
+		Description: "Groq LPU inference. Sub-second time-to-first-token on open-weight models — among the lowest end-to-end latency for chat completions.",
 	},
 	{
 		ID:          "huggingface",
@@ -129,7 +129,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://api.mistral.ai/v1",
 		APIKeyEnv:   "PROVIDER_MISTRAL_API_KEY",
 		DocsURL:     "https://docs.mistral.ai/getting-started/models/models_overview/",
-		Description: "Mistral's hosted API. Mistral Large for chat, Codestral for code, Pixtral for vision, Ministral for edge workloads.",
+		Description: "Mistral's hosted API. Mistral, Codestral, Pixtral, and Ministral product tiers for chat, code, vision, and edge workloads.",
 	},
 	{
 		ID:          "nvidia",
@@ -139,7 +139,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://integrate.api.nvidia.com/v1",
 		APIKeyEnv:   "PROVIDER_NVIDIA_API_KEY",
 		DocsURL:     "https://build.nvidia.com/explore/discover",
-		Description: "NVIDIA NIM via build.nvidia.com. OpenAI-shaped inference for Llama, Mistral, Qwen, DeepSeek, and other open-weight catalogs; free-trial credits.",
+		Description: "NVIDIA NIM via build.nvidia.com. OpenAI-shaped inference for a broad catalog of open-weight models; free-trial credits available.",
 	},
 	{
 		ID:          "ollama",
@@ -158,7 +158,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://api.openai.com",
 		APIKeyEnv:   "PROVIDER_OPENAI_API_KEY",
 		DocsURL:     "https://developers.openai.com/api/docs/models",
-		Description: "OpenAI's hosted API. GPT-4o / 4.1 chat models and the o-series reasoning models via the canonical Chat Completions endpoint.",
+		Description: "OpenAI's hosted API. GPT chat models and the o-series reasoning models via the canonical Chat Completions endpoint.",
 	},
 	{
 		ID:          "perplexity",
@@ -170,7 +170,7 @@ var builtInProviders = []BuiltInProvider{
 		ChatPath:    "/chat/completions",
 		ModelsPath:  "/v1/models",
 		DocsURL:     "https://docs.perplexity.ai/docs/sonar/openai-compatibility",
-		Description: "Perplexity Sonar API. Search-grounded responses with inline citations; Sonar Pro for deeper research synthesis.",
+		Description: "Perplexity Sonar API. Search-grounded responses with inline citations; the Sonar Pro tier adds deeper research synthesis.",
 	},
 	{
 		ID:          "together_ai",
@@ -180,7 +180,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://api.together.xyz/v1",
 		APIKeyEnv:   "PROVIDER_TOGETHER_AI_API_KEY",
 		DocsURL:     "https://docs.together.ai/docs/inference-models",
-		Description: "Together AI inference. Broad catalog of open-weight models (Llama, Mixtral, Qwen, DeepSeek) at competitive per-token pricing.",
+		Description: "Together AI inference. Broad catalog of open-weight models at competitive per-token pricing.",
 	},
 	{
 		ID:          "xai",
@@ -190,7 +190,7 @@ var builtInProviders = []BuiltInProvider{
 		BaseURL:     "https://api.x.ai/v1",
 		APIKeyEnv:   "PROVIDER_XAI_API_KEY",
 		DocsURL:     "https://docs.x.ai/docs/models",
-		Description: "xAI's hosted Grok API. Grok 3 / 4 reasoning models and Grok Vision for image input.",
+		Description: "xAI's hosted Grok API. Reasoning models from the Grok family with multimodal (text + image) input.",
 	},
 	{
 		ID:          "zai",

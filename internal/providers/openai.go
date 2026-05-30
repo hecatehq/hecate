@@ -377,8 +377,11 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req types.ChatReque
 }
 
 func (p *OpenAICompatibleProvider) staticCapabilities(source string) Capabilities {
-	// Prefer the curated KnownModels list (populated from the built-in preset)
-	// so users see the full catalog even when no API key is configured.
+	// KnownModels is an operator-supplied static override (only set via
+	// PROVIDER_<NAME>_MODELS env). When empty — the common case — the picker
+	// stays empty until /v1/models discovery succeeds; the runtime no longer
+	// ships hard-coded model lists per built-in preset because they bit-rot
+	// as upstream catalogs churn.
 	models := append([]string(nil), p.config.KnownModels...)
 	if p.config.DefaultModel != "" && !contains(models, p.config.DefaultModel) {
 		models = append(models, p.config.DefaultModel)
