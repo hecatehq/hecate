@@ -297,17 +297,18 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, session_id, sequence, execution_mode, segment_id, task_id, run_id, request_id, trace_id, span_id,
+				id, session_id, sequence, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id,
 				role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code,
 				cost_mode, provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at,
 				error, activities, usage, timing, context_packet
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			s.messagesTable,
 		),
 		message.ID,
 		sessionID,
 		nextSeq,
 		message.ExecutionMode,
+		boolToSQLiteInt(message.ToolsEnabled),
 		message.SegmentID,
 		message.TaskID,
 		message.RunID,
@@ -367,7 +368,7 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   execution_mode = ?, segment_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, agent_id = ?, agent_name = ?,
+			   execution_mode = ?, tools_enabled = ?, segment_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, agent_id = ?, agent_name = ?,
 			   driver_kind = ?, native_session_id = ?, status = ?, exit_code = ?,
 			   cost_mode = ?, provider = ?, model = ?, capabilities = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
 			   started_at = ?, completed_at = ?, error = ?, activities = ?, usage = ?, timing = ?, context_packet = ?
@@ -375,6 +376,7 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 			s.messagesTable,
 		),
 		message.ExecutionMode,
+		boolToSQLiteInt(message.ToolsEnabled),
 		message.SegmentID,
 		message.TaskID,
 		message.RunID,
@@ -533,6 +535,16 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	}{
 		{name: "run_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "execution_mode", definition: "TEXT NOT NULL DEFAULT ''"},
+		// Boolean stored as INTEGER (0/1). DEFAULT 1 so existing rows
+		// land on "tools on" — the agent path is the safe assumption.
+		// The legacy execution_mode='direct_model' rows get backfilled
+		// to 0 by the dedicated migration below, since those rows
+		// explicitly recorded a tools-off intent before tools-off had
+		// its own column. The handler layer treats this column as the
+		// source of truth going forward; execution_mode stays for
+		// segment routing (hecate_task vs external_agent) and
+		// backwards-compat reads.
+		{name: "tools_enabled", definition: "INTEGER NOT NULL DEFAULT 1"},
 		{name: "segment_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "task_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "request_id", definition: "TEXT NOT NULL DEFAULT ''"},
@@ -555,6 +567,25 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		if err := s.ensureMessageColumn(ctx, column.name, column.definition); err != nil {
 			return err
 		}
+	}
+
+	// Backfill `tools_enabled = 0` for rows that recorded the legacy
+	// `execution_mode = 'direct_model'` value. That literal predates
+	// the dedicated tools-enabled column and is the single signal in
+	// older data that the user submitted with tools off. The UPDATE is
+	// idempotent and runs every boot; once every direct_model row has
+	// been touched the WHERE clause selects nothing on subsequent
+	// boots. The legacy value is preserved in execution_mode so a
+	// historical-by-string read against an unmigrated session still
+	// behaves.
+	if _, err := s.client.DB().ExecContext(
+		ctx,
+		fmt.Sprintf(
+			`UPDATE %s SET tools_enabled = 0 WHERE execution_mode = 'direct_model' AND tools_enabled = 1`,
+			s.messagesTable,
+		),
+	); err != nil {
+		return fmt.Errorf("backfill sqlite agent chat tools_enabled: %w", err)
 	}
 
 	messagesIndex := strings.Trim(s.messagesTable, `"`) + "_session_seq_idx"
@@ -634,7 +665,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, execution_mode, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code, cost_mode,
+			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code, cost_mode,
 			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
 			 FROM %s
 			 WHERE session_id = ?
@@ -657,9 +688,11 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		var timing string
 		var capabilities string
 		var contextPacket string
+		var toolsEnabledInt int64
 		if err := rows.Scan(
 			&message.ID,
 			&message.ExecutionMode,
+			&toolsEnabledInt,
 			&message.SegmentID,
 			&message.TaskID,
 			&message.RunID,
@@ -704,12 +737,24 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		message.Timing = unmarshalTiming(timing)
 		message.Capabilities = unmarshalModelCapabilities(capabilities)
 		message.Context = unmarshalContextPacket(contextPacket)
+		message.ToolsEnabled = toolsEnabledInt != 0
 		messages = append(messages, message)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate sqlite agent chat messages: %w", err)
 	}
 	return messages, nil
+}
+
+// boolToSQLiteInt converts a Go bool to the 0/1 integer that the
+// `tools_enabled` column stores. SQLite has no native boolean type
+// and modernc.org/sqlite does not auto-bind bool to INTEGER, so the
+// translation has to be explicit at every write site.
+func boolToSQLiteInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func (s *SQLiteStore) ensureMessageColumn(ctx context.Context, column, definition string) error {
@@ -783,10 +828,11 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	var timing string
 	var capabilities string
 	var contextPacket string
+	var toolsEnabledInt int64
 	err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, execution_mode, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code, cost_mode,
+			`SELECT id, execution_mode, tools_enabled, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code, cost_mode,
 			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing, context_packet
 			 FROM %s
 			 WHERE id = ? AND session_id = ?`,
@@ -797,6 +843,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	).Scan(
 		&message.ID,
 		&message.ExecutionMode,
+		&toolsEnabledInt,
 		&message.SegmentID,
 		&message.TaskID,
 		&message.RunID,
@@ -845,6 +892,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	message.Timing = unmarshalTiming(timing)
 	message.Capabilities = unmarshalModelCapabilities(capabilities)
 	message.Context = unmarshalContextPacket(contextPacket)
+	message.ToolsEnabled = toolsEnabledInt != 0
 	return message, nil
 }
 
