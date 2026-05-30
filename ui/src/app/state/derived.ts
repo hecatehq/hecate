@@ -81,9 +81,17 @@ export function useChatTarget(): ChatTarget {
 // Resolve the tools-enabled state for the active Hecate chat session.
 //
 // Resolution order:
-//   1. Per-session override (`chatToolsEnabledBySessionID`) if set —
-//      this is what the in-panel toggle writes.
-//   2. The user default (`defaultChatToolsEnabled`).
+//   1. If the session has an active Hecate task segment in flight
+//      (queued / running / awaiting_approval), force tools-on. The
+//      task IS a tools execution — surfacing "Tools off" while a
+//      running task is visible would be a lie. This also restores the
+//      pre-toggle-split behavior of `useChatTarget`, which always
+//      returned "agent" while a task ran no matter what the saved
+//      preference said.
+//   2. Per-session override (`chatToolsEnabledBySessionID`) — what the
+//      in-panel toggle writes; survives across page reloads via
+//      localStorage.
+//   3. The user default (`defaultChatToolsEnabled`).
 //
 // External-agent sessions ignore this (they have their own tool model);
 // callers should gate the call site on `chatTarget === "agent"` before
@@ -92,14 +100,15 @@ export function useChatTarget(): ChatTarget {
 // The legacy `chatTargetBySessionID[id] === "model"` encoding for
 // tools-off is migrated forward at slice mount (see chat.tsx), so this
 // hook never has to look at chatTarget for back-compat. Deliberately no
-// derivation from the message-tail `execution_mode`: the latest turn's
-// mode is *historical* (was a downgrade applied because the model lacks
-// tools, or because the user asked for tools off?) and confusing those
-// would silently flip the toggle state on session resume.
+// derivation from the *historical* message-tail `execution_mode`: the
+// latest completed turn's mode could have been a capability-driven
+// downgrade rather than user intent, and confusing those would silently
+// flip the toggle state on session resume.
 export function useChatToolsEnabled(): boolean {
   const { state } = useChat();
   const sessionID = state.activeChatSessionID;
   if (sessionID) {
+    if (sessionHasActiveHecateTaskSegment(state.activeChatSession)) return true;
     const explicit = state.chatToolsEnabledBySessionID.get(sessionID);
     if (typeof explicit === "boolean") return explicit;
   }
