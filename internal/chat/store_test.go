@@ -227,6 +227,74 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 }
 
+func runStoreToolsEnabledRoundTrip(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.Create(ctx, Session{
+		ID:      "chat_tools_enabled",
+		AgentID: DefaultAgentID,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Two messages with explicit, opposite ToolsEnabled values to
+	// verify the round-trip preserves each independently and the
+	// boolean isn't being collapsed to a per-session signal.
+	if _, err := store.AppendMessage(ctx, created.ID, Message{
+		ID:            "msg_tools_on",
+		ExecutionMode: ExecutionModeHecateTask,
+		ToolsEnabled:  true,
+		Role:          "user",
+		Content:       "with tools",
+	}); err != nil {
+		t.Fatalf("AppendMessage(tools_on): %v", err)
+	}
+	if _, err := store.AppendMessage(ctx, created.ID, Message{
+		ID:            "msg_tools_off",
+		ExecutionMode: ExecutionModeHecateTask,
+		ToolsEnabled:  false,
+		Role:          "user",
+		Content:       "no tools",
+	}); err != nil {
+		t.Fatalf("AppendMessage(tools_off): %v", err)
+	}
+
+	session, ok, err := store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !ok {
+		t.Fatal("Get: ok = false")
+	}
+	byID := make(map[string]Message, len(session.Messages))
+	for _, m := range session.Messages {
+		byID[m.ID] = m
+	}
+	if got := byID["msg_tools_on"].ToolsEnabled; !got {
+		t.Errorf("msg_tools_on.ToolsEnabled = false, want true")
+	}
+	if got := byID["msg_tools_off"].ToolsEnabled; got {
+		t.Errorf("msg_tools_off.ToolsEnabled = true, want false")
+	}
+
+	// UpdateMessage flips the flag — verifies the write path preserves
+	// the column on UPDATE, not just INSERT.
+	if _, err := store.UpdateMessage(ctx, created.ID, "msg_tools_off", func(m *Message) {
+		m.ToolsEnabled = true
+	}); err != nil {
+		t.Fatalf("UpdateMessage: %v", err)
+	}
+	session, _, err = store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get after update: %v", err)
+	}
+	for _, m := range session.Messages {
+		if m.ID == "msg_tools_off" && !m.ToolsEnabled {
+			t.Errorf("msg_tools_off.ToolsEnabled after update = false, want true")
+		}
+	}
+}
+
 func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()

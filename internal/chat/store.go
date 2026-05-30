@@ -41,8 +41,17 @@ type Session struct {
 }
 
 type Message struct {
-	ID              string
-	ExecutionMode   string
+	ID            string
+	ExecutionMode string
+	// ToolsEnabled records whether the user submitted this turn with
+	// tools on. Independent of ExecutionMode: a Hecate-task turn with
+	// ToolsEnabled=false dispatches directly to the model without
+	// creating an agent_loop task, replacing the legacy
+	// ExecutionMode="direct_model" encoding. Reads against existing
+	// rows that predate this field default to true; the sqlite
+	// migration backfills false for rows that still carry the legacy
+	// "direct_model" execution_mode value.
+	ToolsEnabled    bool
 	SegmentID       string
 	TaskID          string
 	RunID           string

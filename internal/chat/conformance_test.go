@@ -41,4 +41,8 @@ func RunConformanceTests(t *testing.T, name string, factory StoreFactory) {
 		t.Parallel()
 		runStoreDeleteByProjectID(t, factory(t))
 	})
+	t.Run(name+"/ToolsEnabledRoundTrip", func(t *testing.T) {
+		t.Parallel()
+		runStoreToolsEnabledRoundTrip(t, factory(t))
+	})
 }
