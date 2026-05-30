@@ -189,7 +189,26 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     activeSessionIsHecate ||
     (!activeSessionIsExternal && (state.chatTarget === "agent" || state.chatTarget === "model"));
   const isAgentChat = isHecateChat || state.chatTarget === "external_agent";
-  const isHecateAgentChat = isHecateChat && state.chatTarget === "agent";
+  // "Hecate-agent chat" semantically means: the user wants the *next
+  // turn* to run through the Hecate agent path with tools enabled.
+  // Three orthogonal facts must all hold:
+  //   1. The user isn't routing the turn to an external agent
+  //      (`chatTarget === "agent"`) — even when the active session is
+  //      Hecate-backed, switching the target to external_agent should
+  //      flip downstream "agent instructions" copy back to the generic
+  //      "instructions" label.
+  //   2. The session is on a Hecate-shaped path overall (`isHecateChat`).
+  //   3. The user toggled tools on for this session
+  //      (`hecateChatToolsEnabled`). Pre-toggle-split this third fact
+  //      lived inside `chatTarget === "agent"` (where "model" encoded
+  //      tools-off); now it has its own slice field.
+  // The legacy `chatTarget === "model"` value still appears in older
+  // installs' persisted state but is no longer written by the UI;
+  // those entries migrate to `chatToolsEnabledBySessionID[id] = false`
+  // on mount so this expression evaluates correctly against either
+  // encoding without callers having to know which one is active.
+  const isHecateAgentChat =
+    isHecateChat && state.chatTarget === "agent" && hecateChatToolsEnabled;
   const isExternalAgentChat =
     activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
   const instructionsAvailable = isHecateChat;
