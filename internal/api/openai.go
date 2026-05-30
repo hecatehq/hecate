@@ -695,8 +695,16 @@ type ChatSegmentItem struct {
 }
 
 type ChatMessageItem struct {
-	ID              string                  `json:"id"`
-	ExecutionMode   string                  `json:"execution_mode,omitempty"`
+	ID            string `json:"id"`
+	ExecutionMode string `json:"execution_mode,omitempty"`
+	// ToolsEnabled is the per-turn tools-on/off signal the gateway
+	// recorded when this message was appended. Always present on the
+	// wire (no `omitempty`) so `false` is a meaningful "tools were
+	// off" and not indistinguishable from "the field is absent."
+	// Clients that talk to a backend predating this field should
+	// treat it as `true` by default — the agent path is the safe
+	// assumption when no signal is present.
+	ToolsEnabled    bool                    `json:"tools_enabled"`
 	SegmentID       string                  `json:"segment_id,omitempty"`
 	TaskID          string                  `json:"task_id,omitempty"`
 	RunID           string                  `json:"run_id,omitempty"`
