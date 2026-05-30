@@ -21,12 +21,6 @@ type BuiltInProvider struct {
 	DocsURL      string
 	Description  string
 	StubResponse string
-	// Models is a curated list of well-known model IDs for the provider, used as
-	// the static catalog when API-driven discovery isn't possible (no API key, or
-	// the upstream is unreachable). When discovery succeeds, the live `/v1/models`
-	// response replaces this. Local providers leave this empty since their catalog
-	// is fully dynamic (depends on what the user has loaded).
-	Models []string
 }
 
 var builtInProviders = []BuiltInProvider{
@@ -41,11 +35,6 @@ var builtInProviders = []BuiltInProvider{
 		DocsURL:      "https://platform.claude.com/docs/en/about-claude/models/overview",
 		Description:  "Native Anthropic Messages API preset. This uses Hecate's Anthropic protocol path and discovers available models from /v1/models.",
 		StubResponse: "Stubbed Anthropic response.",
-		Models: []string{
-			"claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
-			"claude-haiku-4-5", "claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest",
-			"claude-3-5-haiku-latest",
-		},
 	},
 	{
 		ID:           "deepseek",
@@ -57,7 +46,6 @@ var builtInProviders = []BuiltInProvider{
 		DocsURL:      "https://api-docs.deepseek.com/",
 		Description:  "OpenAI-compatible preset for DeepSeek hosted APIs. Hecate discovers available models from /v1/models.",
 		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
-		Models:       []string{"deepseek-chat", "deepseek-reasoner"},
 	},
 	{
 		ID:           "gemini",
@@ -69,10 +57,6 @@ var builtInProviders = []BuiltInProvider{
 		DocsURL:      "https://ai.google.dev/gemini-api/docs/openai",
 		Description:  "OpenAI-compatible preset for Gemini through Google's compatibility layer. Hecate discovers available models from /v1/models.",
 		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
-		Models: []string{
-			"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
-			"gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash",
-		},
 	},
 	{
 		ID:           "groq",
@@ -84,12 +68,6 @@ var builtInProviders = []BuiltInProvider{
 		DocsURL:      "https://console.groq.com/docs/models",
 		Description:  "OpenAI-compatible preset for Groq's low-latency inference API. Hecate discovers available models from /v1/models.",
 		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
-		Models: []string{
-			"llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama-3.1-70b-versatile",
-			"openai/gpt-oss-120b", "openai/gpt-oss-20b",
-			"deepseek-r1-distill-llama-70b", "qwen/qwen3-32b",
-			"mixtral-8x7b-32768", "gemma2-9b-it",
-		},
 	},
 	{
 		ID:           "llamacpp",
@@ -131,11 +109,6 @@ var builtInProviders = []BuiltInProvider{
 		DocsURL:      "https://docs.mistral.ai/getting-started/models/models_overview/",
 		Description:  "OpenAI-compatible preset for Mistral hosted models. Hecate discovers available models from /v1/models.",
 		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
-		Models: []string{
-			"mistral-large-latest", "mistral-medium-latest", "mistral-small-latest",
-			"codestral-latest", "ministral-8b-latest", "ministral-3b-latest",
-			"pixtral-large-latest", "open-mistral-nemo",
-		},
 	},
 	{
 		ID:           "ollama",
@@ -157,12 +130,6 @@ var builtInProviders = []BuiltInProvider{
 		DocsURL:      "https://developers.openai.com/api/docs/models",
 		Description:  "Default cloud preset using the OpenAI-compatible Chat Completions API. Hecate discovers available models from /v1/models.",
 		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
-		Models: []string{
-			"gpt-4o", "gpt-4o-mini", "gpt-4o-2024-11-20",
-			"gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
-			"o1", "o1-mini", "o3", "o3-mini", "o4-mini",
-			"gpt-4-turbo", "gpt-3.5-turbo",
-		},
 	},
 	{
 		ID:           "perplexity",
@@ -176,9 +143,6 @@ var builtInProviders = []BuiltInProvider{
 		DocsURL:      "https://docs.perplexity.ai/docs/sonar/openai-compatibility",
 		Description:  "OpenAI-compatible preset for Perplexity Sonar models. Hecate discovers available models from /v1/models.",
 		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
-		Models: []string{
-			"sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-deep-research",
-		},
 	},
 	{
 		ID:           "together_ai",
@@ -190,14 +154,6 @@ var builtInProviders = []BuiltInProvider{
 		DocsURL:      "https://docs.together.ai/docs/inference-models",
 		Description:  "OpenAI-compatible preset for Together AI hosted models. Hecate discovers available models from /v1/models.",
 		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
-		Models: []string{
-			"meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
-			"meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-			"meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-			"meta-llama/Llama-3.3-70B-Instruct-Turbo",
-			"deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1",
-			"Qwen/Qwen2.5-72B-Instruct-Turbo", "mistralai/Mixtral-8x22B-Instruct-v0.1",
-		},
 	},
 	{
 		ID:           "xai",
@@ -209,10 +165,6 @@ var builtInProviders = []BuiltInProvider{
 		DocsURL:      "https://docs.x.ai/docs/models",
 		Description:  "OpenAI-compatible preset for xAI Grok models. Hecate discovers available models from /v1/models.",
 		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
-		Models: []string{
-			"grok-4", "grok-3", "grok-3-mini", "grok-2", "grok-2-vision",
-			"grok-beta", "grok-vision-beta",
-		},
 	},
 }
 
@@ -273,6 +225,5 @@ func (p BuiltInProvider) RuntimeConfig() OpenAICompatibleProviderConfig {
 		StubMode:     false,
 		StubResponse: p.StubResponse,
 		DefaultModel: p.DefaultModel,
-		KnownModels:  append([]string(nil), p.Models...),
 	}
 }
