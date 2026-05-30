@@ -11,7 +11,6 @@ import {
   compactDetailActivities,
   capturedToolOutput,
   detailSummaryLabel,
-  fileChangesActivity,
   formatDiffStatSummary,
   isActiveAgentActivity,
   isOutputArtifactActivity,
@@ -81,17 +80,6 @@ describe("parseDiffStatRows", () => {
 
   it("trims path and change whitespace", () => {
     expect(parseDiffStatRows("  foo.ts  |  3 +-  ")).toEqual([{ path: "foo.ts", change: "3 +-" }]);
-  });
-});
-
-describe("fileChangesActivity", () => {
-  it("packages a diffStat into a synthetic files_changed activity", () => {
-    const built = fileChangesActivity("foo.ts | 3 +-\n1 file changed");
-    expect(built.id).toBe("hecate-agent:files-changed");
-    expect(built.type).toBe("files_changed");
-    expect(built.status).toBe("completed");
-    expect(built.title).toBe("Workspace changes");
-    expect(built.detail).toMatch(/^1 file changed/);
   });
 });
 
@@ -326,7 +314,7 @@ describe("activityDisplay", () => {
       ),
     ).toEqual({
       title: "Ran command",
-      detail: "execute · output captured",
+      detail: undefined,
     });
   });
 

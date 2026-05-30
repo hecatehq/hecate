@@ -14,16 +14,6 @@ export function formatDiffStatSummary(diffStat: string): string {
   return compactInlineDetail(lines[0] || "");
 }
 
-export function fileChangesActivity(diffStat: string): ChatActivityRecord {
-  return {
-    id: "hecate-agent:files-changed",
-    type: "files_changed",
-    status: "completed",
-    title: "Workspace changes",
-    detail: formatDiffStatSummary(diffStat),
-  };
-}
-
 export function parseDiffStatRows(diffStat: string): Array<{ path: string; change: string }> {
   return diffStat
     .split(/\\n|\r?\n/)
@@ -397,10 +387,10 @@ function toolActivityDetail(
 export function capturedToolOutput(activity: ChatActivityRecord): string | undefined {
   if (activity.type !== "tool_call") return undefined;
   const preview = activity.artifact_preview?.trimEnd();
-  if (preview) return preview;
   const detail = activity.detail?.trim();
-  if (!detail) return undefined;
-  return parseToolOutputDetail(detail)?.output;
+  const parsed = detail ? parseToolOutputDetail(detail)?.output : undefined;
+  if (preview && parsed) return parsed.length > preview.length ? parsed : preview;
+  return preview || parsed;
 }
 
 function isThinkingToolActivity(activity: ChatActivityRecord): boolean {
@@ -447,26 +437,30 @@ function isAdapterContextReadFailure(activity: ChatActivityRecord): boolean {
 }
 
 function toolDetailHasOutput(activity: ChatActivityRecord): boolean {
-  return /\boutput\s*:/i.test(activity.detail ?? "");
+  return Boolean(capturedToolOutput(activity)) || /\boutput\s*:/i.test(activity.detail ?? "");
 }
 
 function hasFailureLikeToolOutput(activity: ChatActivityRecord): boolean {
   if (activity.type !== "tool_call") return false;
-  const output = capturedToolOutput(activity) ?? "";
+  const output = capturedToolOutput(activity) ?? activity.detail ?? "";
   // Some ACP adapters report the tool call as completed even when the
   // command itself printed a fatal error. Keep this inference narrow:
   // it is a UI tone, not a persisted status rewrite.
   return /(^|\s)(fatal|panic):/i.test(output) || /\bexit(?:ed)?\s+code\s+[1-9]\d*/i.test(output);
 }
 
-function compactToolOutputDetail(detail: string): string {
+function compactToolOutputDetail(detail: string): string | undefined {
   const parsed = parseToolOutputDetail(detail);
   if (!parsed) return detail;
 
   const { prefix, output } = parsed;
   if (/^failed to read file:/i.test(output)) return `${prefix} · read failed`;
   if (/^cannot read binary file:/i.test(output)) return `${prefix} · binary file skipped`;
-  return `${prefix} · output captured`;
+  return simpleToolOutputPrefix(prefix) ? undefined : prefix;
+}
+
+function simpleToolOutputPrefix(prefix: string): boolean {
+  return /^(execute|read|write|edit|command|shell)$/i.test(prefix.trim());
 }
 
 function parseToolOutputDetail(detail: string): { prefix: string; output: string } | undefined {
