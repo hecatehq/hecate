@@ -130,6 +130,8 @@ export function useRuntimeConsole() {
   const {
     defaultChatTarget,
     chatTargetBySessionID,
+    defaultChatToolsEnabled,
+    chatToolsEnabledBySessionID,
     agentAdapterID,
     agentWorkspace,
     agentWorkspaceBranch,
@@ -491,6 +493,9 @@ export function useRuntimeConsole() {
       streamingContent,
       chatResult,
       chatTarget,
+      chatTargetBySessionID,
+      defaultChatToolsEnabled,
+      chatToolsEnabledBySessionID,
       pendingToolCalls,
       queuedChatMessages,
       cloudModels,
