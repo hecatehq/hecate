@@ -709,7 +709,15 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       });
       const updated = await createChatMessageRequest(sessionID, {
         content: pendingContent,
-        execution_mode: turnExecutionMode,
+        // External-agent turns continue to send the literal
+        // execution_mode — the backend dispatch on that path is
+        // unchanged. Hecate-side turns send `tools_enabled` instead
+        // and let the backend derive the execution mode; the model
+        // path eventually folds into the task path and dispatch
+        // there will route on the boolean directly.
+        ...(isExternalAgent
+          ? { execution_mode: turnExecutionMode }
+          : { tools_enabled: turnExecutionMode === "hecate_task" }),
         ...(!isExternalAgent
           ? { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel }
           : {}),

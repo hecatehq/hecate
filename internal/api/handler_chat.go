@@ -750,7 +750,7 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
-	executionMode := normalizeChatExecutionMode(req.ExecutionMode, session)
+	executionMode := normalizeChatExecutionMode(req.ExecutionMode, session, req.ToolsEnabled)
 	if executionMode == chat.ExecutionModeHecateTask && !isExternalChatSession(session) && h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req) {
 		executionMode = chat.ExecutionModeDirectModel
 	}
@@ -1076,13 +1076,37 @@ func (h *Handler) hecateTaskShouldFallbackToDirectModel(ctx context.Context, ses
 	return !modelcaps.ToolCapable(caps)
 }
 
-func normalizeChatExecutionMode(mode string, session chat.Session) string {
+// normalizeChatExecutionMode resolves the execution mode the handler
+// should dispatch on. The explicit `execution_mode` field on the
+// request still wins when set — older clients send the literal
+// directly. When it's empty:
+//
+//   - External-agent sessions always dispatch as `external_agent`
+//     (agent_id pins the session kind regardless of any per-turn
+//     flag the client may have sent).
+//   - Hecate sessions consult the per-turn `tools_enabled` signal
+//     when it's set: true → `hecate_task`, false → `direct_model`.
+//     This lets newer clients submit `tools_enabled` and omit
+//     `execution_mode` entirely, which is the wire shape the UI
+//     moves to once the model-chat dispatch path is folded into
+//     hecate_task.
+//   - When neither field is set on a Hecate session, the dispatcher
+//     defaults to `direct_model` for back-compat with the pre-
+//     tools_enabled wire shape (where the absence of `execution_mode`
+//     was a no-tools turn).
+func normalizeChatExecutionMode(mode string, session chat.Session, toolsEnabled *bool) string {
 	mode = strings.TrimSpace(mode)
 	if mode != "" {
 		return mode
 	}
 	if isExternalChatSession(session) {
 		return chat.ExecutionModeExternalAgent
+	}
+	if toolsEnabled != nil {
+		if *toolsEnabled {
+			return chat.ExecutionModeHecateTask
+		}
+		return chat.ExecutionModeDirectModel
 	}
 	return chat.ExecutionModeDirectModel
 }
