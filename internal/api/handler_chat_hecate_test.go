@@ -443,6 +443,9 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	if modelAssistant.ExecutionMode != chat.ExecutionModeDirectModel || modelAssistant.TaskID != "" || modelAssistant.Model != "gpt-4o-mini" {
 		t.Fatalf("model assistant snapshot = execution_mode %q task %q model %q", modelAssistant.ExecutionMode, modelAssistant.TaskID, modelAssistant.Model)
 	}
+	if modelAssistant.ToolsEnabled {
+		t.Errorf("model assistant tools_enabled = true, want false (direct_model dispatch records tools-off)")
+	}
 	if !strings.Contains(modelAssistant.Content, "Segment answer") {
 		t.Fatalf("model assistant content = %q", modelAssistant.Content)
 	}
@@ -456,6 +459,9 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	toolsAssistant := toolsTurn.Data.Messages[len(toolsTurn.Data.Messages)-1]
 	if toolsAssistant.ExecutionMode != chat.ExecutionModeHecateTask || toolsAssistant.TaskID != firstTaskID || toolsAssistant.SegmentID != "task:"+firstTaskID {
 		t.Fatalf("tools assistant snapshot = execution_mode %q task %q segment %q", toolsAssistant.ExecutionMode, toolsAssistant.TaskID, toolsAssistant.SegmentID)
+	}
+	if !toolsAssistant.ToolsEnabled {
+		t.Errorf("tools assistant tools_enabled = false, want true (hecate_task dispatch records tools-on)")
 	}
 
 	secondModel := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",

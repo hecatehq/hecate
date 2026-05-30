@@ -59,6 +59,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 		messages = append(messages, ChatMessageItem{
 			ID:              message.ID,
 			ExecutionMode:   message.ExecutionMode,
+			ToolsEnabled:    message.ToolsEnabled,
 			SegmentID:       message.SegmentID,
 			TaskID:          message.TaskID,
 			RunID:           message.RunID,

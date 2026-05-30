@@ -42,6 +42,17 @@ export type ChatSessionSummaryRecord = {
 export type ChatMessageRecord = {
   id: string;
   execution_mode?: "external_agent" | "hecate_task" | "direct_model" | string;
+  // tools_enabled is the per-turn tools-on/off signal the gateway
+  // recorded when this message was appended. Optional so older
+  // backends that predate the field can be tolerated; consumers
+  // should treat `undefined` as "no signal — assume tools on" (the
+  // agent path is the safe default). Today the UI doesn't derive
+  // tools-toggle state from message history (see `useChatToolsEnabled`
+  // in `app/state/derived.ts`) so this field is informational on the
+  // client side; once the backend dispatch routes on tools_enabled
+  // instead of execution_mode the field becomes the canonical wire
+  // signal.
+  tools_enabled?: boolean;
   segment_id?: string;
   task_id?: string;
   run_id?: string;
