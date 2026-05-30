@@ -44,7 +44,7 @@ export type CoordinatorOverrides = {
   // precomputed values; per-view tests still set them directly and
   // expect those values to win regardless of what the derivation
   // hooks would compute from slice state. Production never sets.
-  derivedChatTarget?: "model" | "agent" | "external_agent";
+  derivedChatTarget?: "agent" | "external_agent";
   derivedNewChatAgentID?: string;
 };
 

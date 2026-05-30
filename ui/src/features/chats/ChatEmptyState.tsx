@@ -32,7 +32,7 @@ type Props = {
   onOpenAgentSetup: () => void;
   onQuickAddLocalProviders: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefreshQuickLocalProviders: () => void;
-  onSwitchTarget: (target: "model" | "agent" | "external_agent") => void;
+  onSwitchTarget: (target: "agent" | "external_agent") => void;
   rtkAvailable: boolean;
   rtkPath: string;
   rtkEnabled: boolean;
@@ -222,15 +222,6 @@ export function ChatEmptyState({
               type="button"
             >
               <Icon d={Icons.terminal} size={13} /> Use agent
-            </button>
-          )}
-          {!modelRouteUnavailable && isAgentChat && (
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => onSwitchTarget("model")}
-              type="button"
-            >
-              <Icon d={Icons.model} size={13} /> Use model
             </button>
           )}
         </div>

@@ -16,8 +16,21 @@
 
 import type { ProviderFilter } from "../../types/provider";
 
-export type ChatTarget = "model" | "agent" | "external_agent";
-export type HecateChatTarget = "model" | "agent";
+// ChatTarget discriminates where a new chat dispatches to. Two values:
+// the local Hecate agent ("agent") or one of the external coding agents
+// (Codex, Claude Code, Cursor Agent, Grok Build — all "external_agent").
+// Tools on/off within an agent chat is a separate axis carried on
+// `chatToolsEnabledBySessionID` / `defaultChatToolsEnabled`.
+export type ChatTarget = "agent" | "external_agent";
+// HecateChatTarget kept as a single-value alias so call sites that
+// specifically require the non-external branch read self-documenting.
+// Collapses to "agent" — could be inlined, but the named type signals
+// intent at use sites that operate only on the Hecate-targeted slice.
+export type HecateChatTarget = "agent";
+// ChatExecutionMode is the runtime mode the gateway dispatches a turn
+// through. Independent of ChatTarget: a Hecate-targeted chat can still
+// run as `direct_model` when the user has tools off or the chosen model
+// lacks tool calling.
 export type ChatExecutionMode = "direct_model" | "hecate_task" | "external_agent";
 
 export type QueuedChatMessage = {
@@ -38,23 +51,13 @@ export const queuedChatMessagesStorageKey = "hecate.queuedChatMessages";
 // Coercive normalizer — drops unknown values onto the safe default
 // rather than rejecting them. Used by code paths where the wider
 // type system has already vouched for the input. For localStorage
-// reads use the strict `parseStoredChatTarget` below so corrupt keys
-// get wiped.
+// reads use the strict `parseStoredChatTarget` below.
 export function normalizeStoredChatTarget(value: string): ChatTarget {
-  switch (value) {
-    case "model":
-    case "agent":
-    case "external_agent":
-      return value;
-    default:
-      return "agent";
-  }
+  return value === "external_agent" ? "external_agent" : "agent";
 }
 
 export function chatTargetToExecutionMode(target: ChatTarget): ChatExecutionMode {
   switch (target) {
-    case "model":
-      return "direct_model";
     case "agent":
       return "hecate_task";
     case "external_agent":
@@ -64,9 +67,10 @@ export function chatTargetToExecutionMode(target: ChatTarget): ChatExecutionMode
 
 export function executionModeToChatTarget(mode: string): ChatTarget | "" {
   switch (mode) {
-    case "direct_model":
-      return "model";
     case "hecate_task":
+    case "direct_model":
+      // `direct_model` runs route through the agent path with tools
+      // off; from the user-target perspective they're still "agent".
       return "agent";
     case "external_agent":
       return "external_agent";
@@ -80,21 +84,26 @@ export function executionModeToChatTarget(mode: string): ChatTarget | "" {
 // shape-drift fallback" — return null so a corrupt key gets wiped
 // and the hook falls back to the explicit "agent" default rather
 // than silently coercing the bad value and re-persisting it.
-// normalizeStoredChatTarget (above) keeps its coercive behaviour
-// for non-storage sources where the wider type system has already
-// vouched for the input.
+//
+// The legacy "model" value (older installs encoded "tools off" as
+// chatTarget "model") coerces to "agent" so the user's existing
+// localStorage doesn't get wiped on the first read after upgrade. The
+// tools-off intent is recovered from `hecate.chatTargetBySessionID` by
+// the migration in the chat slice; there's nothing useful left on the
+// top-level chatTarget key for the legacy value to carry.
 export function parseStoredChatTarget(raw: string): ChatTarget | null {
-  return raw === "model" || raw === "agent" || raw === "external_agent" ? raw : null;
+  if (raw === "agent" || raw === "external_agent") return raw;
+  if (raw === "model") return "agent";
+  return null;
 }
 
+// Single-value collapse: HecateChatTarget only has "agent" today.
+// Accepts the legacy "model" too so the parseChatTargetsBySessionID
+// migration can fold a pre-upgrade per-session map without losing
+// entries — the value's tools-off semantic is recovered separately by
+// the migration in the chat slice.
 export function normalizeStoredHecateChatTarget(value: string): HecateChatTarget | "" {
-  switch (value) {
-    case "model":
-    case "agent":
-      return value;
-    default:
-      return "";
-  }
+  return value === "agent" || value === "model" ? "agent" : "";
 }
 
 // Structural guard for the queued-chat-messages localStorage payload.

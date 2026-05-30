@@ -186,11 +186,12 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatTarget).toBe("agent");
   });
 
-  it("preserves the saved chat target preference", async () => {
-    window.localStorage.setItem("hecate.chatTarget", "model");
+  it("preserves the saved tools-enabled preference", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    expect(result.current.state.chatTarget).toBe("model");
+    expect(result.current.state.chatTarget).toBe("agent");
+    expect(result.current.state.defaultChatToolsEnabled).toBe(false);
   });
 
   it("drops stale persisted provider and model selections when only a catalog preset remains", async () => {
@@ -269,7 +270,7 @@ describe("useRuntimeConsole", () => {
   });
 
   it("keeps expected Hecate chat setup route failures out of the global notice", async () => {
-    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     window.localStorage.setItem("hecate.providerFilter", "ollama");
     window.localStorage.setItem("hecate.model", "ministral-3:latest");
     fetchMock.mockImplementation(
@@ -330,7 +331,7 @@ describe("useRuntimeConsole", () => {
   });
 
   it("keeps a newly created tools-off Hecate chat in direct model mode", async () => {
-    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");
     let createBody: any = null;
     fetchMock.mockImplementation(
@@ -507,7 +508,7 @@ describe("useRuntimeConsole", () => {
   });
 
   it("creates a Hecate chat session from the default model when no model is preselected", async () => {
-    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     let createBody: any = null;
     fetchMock.mockImplementation(
@@ -626,7 +627,7 @@ describe("useRuntimeConsole", () => {
   });
 
   it("creates new chat sessions in the active project", async () => {
-    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");
     window.localStorage.setItem("hecate.project", "proj_1");
     const project: ProjectRecord = {
@@ -693,7 +694,7 @@ describe("useRuntimeConsole", () => {
   });
 
   it("honors an explicit project scope when creating a Hecate chat", async () => {
-    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");
     const project: ProjectRecord = {
       id: "proj_1",
@@ -751,7 +752,10 @@ describe("useRuntimeConsole", () => {
 
     expect(createBody).toMatchObject({
       agent_id: "hecate",
-      model: "",
+      // Tools-off Hecate creation dispatches as direct_model straight
+      // to the named provider, so the user's chosen model is kept
+      // even when it isn't in the Hecate-routing catalog.
+      model: "gpt-4o-mini",
       workspace: "/tmp/hecate",
       project_id: "proj_1",
     });
@@ -1775,10 +1779,6 @@ describe("useRuntimeConsole", () => {
 
   // ─── Hecate Chat session actions ───────────────────────────────────────────
   describe("Hecate Chat session actions", () => {
-    beforeEach(() => {
-      window.localStorage.setItem("hecate.chatTarget", "model");
-    });
-
     function withSessions(
       sessions: Array<{ id: string; title: string }>,
       routes: Record<string, () => Response> = {},
@@ -2721,23 +2721,27 @@ describe("useRuntimeConsole", () => {
       });
       await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("chat_a"));
       expect(result.current.state.chatTarget).toBe("agent");
+      expect(result.current.state.chatToolsEnabledBySessionID.get("chat_a")).toBeUndefined();
 
       act(() => {
-        result.current.actions.setChatTarget("model");
+        result.current.actions.setChatToolsEnabled(false);
       });
-      expect(result.current.state.chatTarget).toBe("model");
+      expect(result.current.state.chatToolsEnabledBySessionID.get("chat_a")).toBe(false);
 
       await act(async () => {
         await result.current.actions.selectChatSession("chat_b");
       });
       await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("chat_b"));
-      expect(result.current.state.chatTarget).toBe("agent");
+      // chat_b has no per-session override yet, so it falls back to the
+      // user default — the per-session pin on chat_a doesn't bleed.
+      expect(result.current.state.chatToolsEnabledBySessionID.get("chat_b")).toBeUndefined();
 
       await act(async () => {
         await result.current.actions.selectChatSession("chat_a");
       });
       await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("chat_a"));
-      expect(result.current.state.chatTarget).toBe("model");
+      // chat_a remembers its tools-off pin across the switch.
+      expect(result.current.state.chatToolsEnabledBySessionID.get("chat_a")).toBe(false);
     });
 
     it("restores provider and model from the latest Hecate chat segment on selection", async () => {

@@ -2106,7 +2106,10 @@ describe("ChatView input", () => {
     expectBefore(screen.getByLabelText("Message"), activeRunStatus);
 
     rerender(
-      withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }),
+      withRuntimeConsole(<ChatView />, {
+        state: { ...state, defaultChatToolsEnabled: false },
+        actions,
+      }),
     );
     expect(document.querySelector('[aria-label="Fixed provider: Ollama"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Fixed model: qwen2.5-coder"]')).toBeTruthy();
@@ -2291,7 +2294,10 @@ describe("ChatView input", () => {
     expect(screen.getByText(/Tools use task approvals and per-call sandboxing/)).toBeTruthy();
 
     rerender(
-      withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }),
+      withRuntimeConsole(<ChatView />, {
+        state: { ...state, defaultChatToolsEnabled: false },
+        actions,
+      }),
     );
     expect(screen.queryByText(/Tools use task approvals and per-call sandboxing/)).toBeNull();
   });

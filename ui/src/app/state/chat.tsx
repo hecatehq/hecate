@@ -195,20 +195,37 @@ export function ChatProvider({
     initialState?.chatToolsEnabledBySessionID ?? new Map(),
     { serialize: serializeChatToolsEnabledBySessionID },
   );
-  // One-shot migration from the legacy storage key
-  // `chatTargetBySessionID`: any entry with value "model" used to
-  // encode "tools off for this session" and now lives on
-  // `chatToolsEnabledBySessionID[X] = false`. Run once on mount;
-  // explicit toolsEnabled entries the user already wrote are left
-  // alone — the migration only adds entries, never overrides.
+  // One-shot back-compat migration: the per-session map
+  // `hecate.chatTargetBySessionID` once encoded "tools off for this
+  // session" as `{[sid]: "model"}` for entries without their own
+  // chatToolsEnabled override. The parser at slice-mount coerces those
+  // "model" values to "agent" before they reach this hook, so we read
+  // the raw localStorage payload directly to recover the tools-off
+  // intent for any session that was tools-off pre-upgrade. Explicit
+  // `chatToolsEnabledBySessionID` entries the user already wrote are
+  // left alone — the migration only adds entries, never overrides.
   const toolsEnabledMigrationRanRef = useRef(false);
   useEffect(() => {
     if (toolsEnabledMigrationRanRef.current) return;
     toolsEnabledMigrationRanRef.current = true;
+    let raw: string | null = null;
+    try {
+      raw = window.localStorage?.getItem("hecate.chatTargetBySessionID") ?? null;
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
     let touched = false;
     const merged = new Map(chatToolsEnabledBySessionID);
-    for (const [sessionID, target] of chatTargetBySessionID) {
-      if (target === "model" && !merged.has(sessionID)) {
+    for (const [sessionID, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (value === "model" && !merged.has(sessionID)) {
         merged.set(sessionID, false);
         touched = true;
       }

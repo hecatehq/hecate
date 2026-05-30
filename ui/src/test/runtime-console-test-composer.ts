@@ -8,12 +8,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 
-import {
-  type ChatTarget,
-  type HecateChatTarget,
-  executionModeToChatTarget,
-  normalizeStoredHecateChatTarget,
-} from "../app/state/_shared";
+import { type ChatTarget } from "../app/state/_shared";
 import { buildLocalProviderIssue } from "../lib/provider-issues";
 import type { LocalProviderIssue } from "../lib/provider-issues";
 import { filterModelsByKind, filterModelsByProvider } from "../lib/runtime-utils";
@@ -55,33 +50,6 @@ function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
   return (session.messages ?? []).some(
     (message) => message.role === "assistant" && busy(message.status),
   );
-}
-
-function hecateTaskStatusIsActive(status?: string): boolean {
-  return status === "queued" || status === "running" || status === "awaiting_approval";
-}
-
-function sessionHasActiveHecateTaskSegment(session: ChatSessionRecord | null): boolean {
-  if (!session) return false;
-  if (session.task_id && hecateTaskStatusIsActive(session.status)) return true;
-  return (session.segments ?? []).some(
-    (segment) =>
-      segment.execution_mode === "hecate_task" &&
-      Boolean(segment.task_id) &&
-      hecateTaskStatusIsActive(segment.status),
-  );
-}
-
-function deriveHecateChatTargetFromSession(session: ChatSessionRecord | null): HecateChatTarget {
-  if (!session) return "agent";
-  const messages = session.messages ?? [];
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const target = normalizeStoredHecateChatTarget(
-      executionModeToChatTarget(messages[i]?.execution_mode ?? ""),
-    );
-    if (target) return target;
-  }
-  return "agent";
 }
 
 export { humanizeChatError };
@@ -214,10 +182,7 @@ export function useRuntimeConsole() {
     activeChatSessionID && activeChatSession
       ? chatSessionIsExternal(activeChatSession)
         ? "external_agent"
-        : sessionHasActiveHecateTaskSegment(activeChatSession)
-          ? "agent"
-          : (chatTargetBySessionID.get(activeChatSessionID) ??
-            deriveHecateChatTargetFromSession(activeChatSession))
+        : "agent"
       : defaultChatTarget;
 
   // Forward-dependency ref. The cycle is dashboard.loadDashboard
