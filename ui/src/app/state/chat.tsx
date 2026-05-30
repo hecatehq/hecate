@@ -195,12 +195,12 @@ export function ChatProvider({
     initialState?.chatToolsEnabledBySessionID ?? new Map(),
     { serialize: serializeChatToolsEnabledBySessionID },
   );
-  // One-shot migration from the legacy chatTargetBySessionID "model"
-  // discriminant: pre-toggle installs encoded "tools off for session X"
-  // as `chatTargetBySessionID[X] = "model"`. The new model records that
-  // intent in chatToolsEnabledBySessionID instead. Run once on mount;
-  // if the user has explicit toolsEnabled entries already, don't
-  // clobber them — the migration is purely additive.
+  // One-shot migration from the legacy storage key
+  // `chatTargetBySessionID`: any entry with value "model" used to
+  // encode "tools off for this session" and now lives on
+  // `chatToolsEnabledBySessionID[X] = false`. Run once on mount;
+  // explicit toolsEnabled entries the user already wrote are left
+  // alone — the migration only adds entries, never overrides.
   const toolsEnabledMigrationRanRef = useRef(false);
   useEffect(() => {
     if (toolsEnabledMigrationRanRef.current) return;

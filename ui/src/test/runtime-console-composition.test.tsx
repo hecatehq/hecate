@@ -369,9 +369,9 @@ describe("useRuntimeConsole", () => {
     });
     expect(createBody).not.toHaveProperty("workspace");
     expect(result.current.state.activeChatSessionID).toBe("chat_direct");
-    // Post-toggle-decoupling: a tools-off Hecate chat lives on chatTarget
-    // "agent" with a per-session tools-disabled override, not on the
-    // legacy chatTarget "model" discriminant.
+    // A tools-off Hecate chat resolves to chatTarget "agent" with a
+    // per-session tools-disabled override on chatToolsEnabledBySessionID
+    // — the two-axis encoding the slice persists today.
     expect(result.current.state.chatTarget).toBe("agent");
     expect(result.current.state.chatToolsEnabledBySessionID.get("chat_direct")).toBe(false);
   });
@@ -1077,9 +1077,9 @@ describe("useRuntimeConsole", () => {
     });
     expect(createBody).not.toHaveProperty("workspace");
     expect(result.current.state.activeChatSessionID).toBe("chat_direct_tools_unavailable");
-    // Post-toggle-decoupling: chatTarget stays "agent"; the
-    // tools-off intent (auto-downgraded here because the model has no
-    // tool calling) is recorded on the per-session map.
+    // chatTarget stays "agent"; the tools-off intent (auto-downgraded
+    // here because the model has no tool calling) is recorded on the
+    // per-session map.
     expect(result.current.state.chatTarget).toBe("agent");
     expect(
       result.current.state.chatToolsEnabledBySessionID.get("chat_direct_tools_unavailable"),
