@@ -262,7 +262,12 @@ function TimelineActivityLine({
               background: "var(--bg1)",
             }}
           >
-            {children.length > 0 && (
+            {activity.type === "tool_group" && children.length > 0 ? (
+              <CommandGroupActivities
+                activities={children}
+                renderAdvancedActivity={renderAdvancedActivity}
+              />
+            ) : children.length > 0 ? (
               <div style={{ display: "grid", gap: 5 }}>
                 {children.map((child, index) => (
                   <TimelineActivityLine
@@ -272,11 +277,43 @@ function TimelineActivityLine({
                   />
                 ))}
               </div>
-            )}
+            ) : null}
             {advancedContent}
           </div>
         )}
       </details>
+    </div>
+  );
+}
+
+function CommandGroupActivities({
+  activities,
+  renderAdvancedActivity,
+}: {
+  activities: ChatActivityRecord[];
+  renderAdvancedActivity?: (activity: ChatActivityRecord) => ReactNode;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {activities.map((activity, index) => {
+        const advancedContent = renderAdvancedActivity?.(activity);
+        const line =
+          activity.type === "plan" ? (
+            <PlanActivityLine activity={activity} />
+          ) : (
+            <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />
+          );
+
+        return (
+          <div
+            key={activity.id || `command-${activity.type}-${activity.created_at ?? index}`}
+            style={{ display: "grid", gap: 5, minWidth: 0 }}
+          >
+            {line}
+            {advancedContent && <div style={{ marginLeft: 15 }}>{advancedContent}</div>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -286,7 +323,11 @@ function advancedSummaryLabel(activity: ChatActivityRecord): string {
   if (activity.type === "changed_files" || activity.type === "files_changed") return "Files";
   if (activity.type === "output") return "Output";
   if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Output";
-  if (activity.type === "tool_call" && /\boutput\s*:/i.test(activity.detail ?? "")) return "Output";
+  if (
+    activity.type === "tool_call" &&
+    /\boutput(?:\s+captured)?\s*(?::|·)/i.test(activity.detail ?? "")
+  )
+    return "Output";
   return "Advanced";
 }
 
