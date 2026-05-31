@@ -58,12 +58,12 @@ Together the write tools turn the MCP surface into an operator-grade control pla
 Hecate also exposes read-only MCP resources for clients that support attaching
 server-provided context directly to a prompt:
 
-| Resource / template              | MIME type          | Description                                                                                       |
-| -------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------- |
-| `hecate://tasks/recent`          | `application/json` | Recent task records, capped at 30, with status, execution kind, step count, and latest run id     |
-| `hecate://tasks/{task_id}`       | `application/json` | Detailed status for one task by id                                                                |
-| `hecate://traces/recent`         | `application/json` | Recent trace summaries, capped at 100, with status, latency, trace id, and route metadata         |
-| `hecate://traces/{request_id}`   | `application/json` | Detailed trace spans and route metadata for one gateway request id                                |
+| Resource / template            | MIME type          | Description                                                                                   |
+| ------------------------------ | ------------------ | --------------------------------------------------------------------------------------------- |
+| `hecate://tasks/recent`        | `application/json` | Recent task records, capped at 30, with status, execution kind, step count, and latest run id |
+| `hecate://tasks/{task_id}`     | `application/json` | Detailed status for one task by id                                                            |
+| `hecate://traces/recent`       | `application/json` | Recent trace summaries, capped at 100, with status, latency, trace id, and route metadata     |
+| `hecate://traces/{request_id}` | `application/json` | Detailed trace spans and route metadata for one gateway request id                            |
 
 The two exact `recent` resources are returned from `resources/list`; the
 parameterized task and trace forms are advertised via
@@ -75,12 +75,12 @@ parameterized task and trace forms are advertised via
 MCP clients that render server prompts as slash commands can use these
 workflow templates:
 
-| Prompt                | Arguments                               | Description                                                             |
-| --------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| `create_agent_task`   | `prompt` (required), `working_directory` | Guides the client to queue a new `agent_loop` task with `create_task`   |
-| `investigate_task`    | `task_id` (required)                     | Inspect one task and summarize state, latest run, approvals, or failures |
-| `investigate_trace`   | `request_id` (required)                  | Inspect one trace and explain routing, latency, status, and span clues  |
-| `operator_briefing`   | none                                    | Produce a short handoff from recent tasks and recent traffic             |
+| Prompt              | Arguments                                | Description                                                              |
+| ------------------- | ---------------------------------------- | ------------------------------------------------------------------------ |
+| `create_agent_task` | `prompt` (required), `working_directory` | Guides the client to queue a new `agent_loop` task with `create_task`    |
+| `investigate_task`  | `task_id` (required)                     | Inspect one task and summarize state, latest run, approvals, or failures |
+| `investigate_trace` | `request_id` (required)                  | Inspect one trace and explain routing, latency, status, and span clues   |
+| `operator_briefing` | none                                     | Produce a short handoff from recent tasks and recent traffic             |
 
 Streamable HTTP transport for the server side is tracked on the roadmap. The client-side direction — Hecate consuming external MCP servers — is shipped; see ["Hecate as MCP client"](#hecate-as-mcp-client) below.
 
