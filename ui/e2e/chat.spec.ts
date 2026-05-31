@@ -1759,6 +1759,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       {
         id: `msg-user-${turn}`,
         execution_mode: executionMode,
+        tools_enabled: isHecateAgent,
         segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
         task_id: isHecateAgent ? taskID : undefined,
         provider: body.provider || "",
@@ -1770,6 +1771,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       {
         id: `msg-assistant-${turn}`,
         execution_mode: executionMode,
+        tools_enabled: isHecateAgent,
         segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
         task_id: isHecateAgent ? taskID : undefined,
         run_id: isHecateAgent ? runID : undefined,
