@@ -587,6 +587,28 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText(/drwxr-xr-x@ 20 chicoxyzzy staff 640/)).toBeInTheDocument();
   });
 
+  it("strips ANSI color codes from captured command output", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_shell",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: done",
+        artifact_preview: `${String.fromCharCode(27)}[31mfailed${String.fromCharCode(27)}[0m\nnext line`,
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    await user.click(screen.getByText("Output"));
+
+    const output = screen.getByText(/failed/);
+    expect(output.textContent).toContain("failed\nnext line");
+    expect(output.textContent).not.toContain(String.fromCharCode(27));
+  });
+
   it("renders arrow-separated read-context output with real line breaks", async () => {
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [
