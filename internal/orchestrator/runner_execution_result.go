@@ -194,57 +194,27 @@ func (p executionResultPersister) applyFinalResult(ctx context.Context, executio
 		telemetry.AttrHecateResult: resultKind,
 		telemetry.AttrHecateTaskID: p.task.ID,
 	})
-	p.run.Provider = firstNonEmpty(execution.Provider, p.run.Provider)
-	p.run.ProviderKind = firstNonEmpty(execution.ProviderKind, p.run.ProviderKind)
-	p.run.Model = firstNonEmpty(execution.Model, p.run.Model)
+	transitionInput := executionResultTerminalTransitionInput{
+		Task:               p.task,
+		Run:                p.run,
+		Execution:          execution,
+		PersistedSteps:     persistedSteps,
+		PersistedArtifacts: persistedArtifacts,
+		RequestID:          p.requestID,
+		Trace:              p.trace,
+		FinishedAt:         finishedAt,
+	}
+	terminalTransition := executionResultTerminalTransition(transitionInput)
 	p.runner.metrics.RecordRun(ctx, telemetry.RunMetricsRecord{
 		TaskID:        p.task.ID,
 		RunID:         p.run.ID,
-		Status:        firstNonEmpty(execution.Status, "completed"),
+		Status:        terminalTransition.Run.Status,
 		ExecutionKind: p.task.ExecutionKind,
-		Model:         p.run.Model,
+		Model:         terminalTransition.Run.Model,
 		DurationMS:    runDurationMS,
 	})
 
-	p.run.Status = firstNonEmpty(execution.Status, "completed")
-	p.run.StepCount = len(persistedSteps)
-	p.run.ArtifactCount = len(persistedArtifacts)
-	p.run.FinishedAt = finishedAt
-	p.run.LastError = execution.LastError
-	p.run.OtelStatusCode = firstNonEmpty(execution.OtelStatusCode, "ok")
-	p.run.OtelStatusMessage = execution.OtelStatusMessage
-	if execution.CostMicrosUSD > 0 {
-		// Agent loop accumulates per-turn LLM cost and surfaces the
-		// total here. Other executors don't talk to the LLM and leave
-		// CostMicrosUSD zero — preserving an existing TotalCostMicrosUSD
-		// (e.g. set by an older execution kind not yet wired) rather
-		// than overwriting it with zero.
-		p.run.TotalCostMicrosUSD = execution.CostMicrosUSD
-	}
-	transition, err := p.runner.applyTerminalRunTransition(ctx, terminalRunTransition{
-		Task:                   p.task,
-		Run:                    p.run,
-		Status:                 p.run.Status,
-		Message:                execution.LastError,
-		RequestID:              p.requestID,
-		TraceID:                p.trace.TraceID,
-		Trace:                  p.trace,
-		Now:                    finishedAt,
-		SuppressDuplicateEvent: true,
-		UpdateRun: func(target *types.TaskRun) {
-			target.Provider = p.run.Provider
-			target.ProviderKind = p.run.ProviderKind
-			target.Model = p.run.Model
-			target.StepCount = len(persistedSteps)
-			target.ArtifactCount = len(persistedArtifacts)
-			target.TotalCostMicrosUSD = p.run.TotalCostMicrosUSD
-			target.OtelStatusCode = p.run.OtelStatusCode
-			target.OtelStatusMessage = p.run.OtelStatusMessage
-		},
-		UpdateTask: func(target *types.Task) {
-			target.RootTraceID = p.trace.TraceID
-		},
-	})
+	transition, err := p.runner.applyTerminalRunTransition(ctx, terminalTransition)
 	if err != nil {
 		return nil, err
 	}

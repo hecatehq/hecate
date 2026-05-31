@@ -393,6 +393,20 @@ func assertE2EApprovalResolved(t *testing.T, events []e2eEventEnvelope, approval
 	t.Fatalf("approval.resolved approval=%q status=%q by=%q not found in %+v", approvalID, status, by, events)
 }
 
+func assertE2EEventData(t *testing.T, events []e2eEventEnvelope, eventType, key string, want any) {
+	t.Helper()
+	for _, event := range events {
+		if event.Type != eventType {
+			continue
+		}
+		if got := event.Data[key]; got != want {
+			t.Fatalf("%s data[%q] = %T(%v), want %T(%v); event=%+v", eventType, key, got, got, want, want, event)
+		}
+		return
+	}
+	t.Fatalf("event %q not found in %+v", eventType, events)
+}
+
 func assertE2EEventTypes(t *testing.T, events []e2eEventEnvelope, want ...string) {
 	t.Helper()
 	seen := make(map[string]bool, len(events))

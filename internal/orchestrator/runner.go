@@ -717,21 +717,7 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 	r.cancelInFlightJob(run.ID)
 
 	now := time.Now().UTC()
-	result, err := r.applyTerminalRunTransition(ctx, terminalRunTransition{
-		Task:                     task,
-		Run:                      run,
-		Status:                   "cancelled",
-		Message:                  message,
-		RequestID:                requestID,
-		TraceID:                  traceID,
-		Trace:                    trace,
-		Now:                      now,
-		CancelActiveSteps:        true,
-		CancelStreamingArtifacts: true,
-		CancelPendingApprovals:   true,
-		EmitTaskUpdated:          true,
-		EventData:                map[string]any{"reason": message},
-	})
+	result, err := r.applyTerminalRunTransition(ctx, cancelRunTerminalTransition(task, run, message, requestID, traceID, trace, now))
 	if err != nil {
 		return types.TaskRun{}, err
 	}
