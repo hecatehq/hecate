@@ -35,6 +35,7 @@ func TestTaskRunQueuedLifecycleE2E(t *testing.T) {
 
 	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
 	assertE2EEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.started", "run.finished"})
+	assertE2EEventData(t, events.Data, "run.finished", "final_status", "completed")
 }
 
 func TestTaskRunClaimedStartTransitionPopulatesTraceE2E(t *testing.T) {
@@ -170,6 +171,7 @@ func TestTaskRunClaimedProcessorFinalizesFailureE2E(t *testing.T) {
 
 	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
 	assertE2EEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.started", "run.failed"})
+	assertE2EEventData(t, events.Data, "run.failed", "message", "exit status 7")
 }
 
 func TestTaskRunClaimedExecutionFinalizesOperatorCancelE2E(t *testing.T) {
@@ -205,6 +207,7 @@ func TestTaskRunClaimedExecutionFinalizesOperatorCancelE2E(t *testing.T) {
 
 	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
 	assertE2EEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.started", "run.cancelled"})
+	assertE2EEventData(t, events.Data, "run.cancelled", "reason", "run cancelled: operator stop")
 	for _, event := range events.Data {
 		if event.Type == "run.failed" {
 			t.Fatalf("unexpected run.failed after operator cancellation: %+v", event)

@@ -73,17 +73,7 @@ func (r *Runner) finalizeFailedRun(ctx context.Context, trace *profiler.Trace, t
 	if !run.StartedAt.IsZero() {
 		failedRunDurationMS = now.Sub(run.StartedAt).Milliseconds()
 	}
-	result, err := r.applyTerminalRunTransition(ctx, terminalRunTransition{
-		Task:                       task,
-		Run:                        run,
-		Status:                     status,
-		Message:                    message,
-		RequestID:                  requestID,
-		TraceID:                    trace.TraceID,
-		Trace:                      trace,
-		Now:                        now,
-		SkipIfStoredTerminalStatus: true,
-	})
+	result, err := r.applyTerminalRunTransition(ctx, failedRunTerminalTransition(task, run, requestID, status, message, trace, now))
 	if err != nil {
 		return err
 	}
