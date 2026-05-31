@@ -523,6 +523,8 @@ function buildVisibleMessage(m: ChatMessageRecord, id: string): VisibleChatMessa
     usage: m.usage,
     duration_ms: m.duration_ms,
     error: m.error,
+    timing: m.timing,
+    context_packet: m.context_packet,
   };
 }
 
