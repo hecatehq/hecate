@@ -298,7 +298,7 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText(/docs\/assets\/logo/)).toBeNull();
   });
 
-  it("summarizes noisy generic command activity without expanding every output card", async () => {
+  it("summarizes noisy generic command activity and reveals command details together", async () => {
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [
       {
@@ -352,13 +352,9 @@ describe("TranscriptActivityTimeline", () => {
 
     expect(screen.getAllByText("Ran command")).toHaveLength(4);
     expect(screen.queryByText(/commit abc123/)).toBeNull();
-    expect(screen.queryByText("Tool output for call_1")).toBeNull();
-    expect(screen.queryByText("Tool output for call_4")).toBeNull();
-
-    await user.click(screen.getAllByText("Output")[0]);
-
     expect(screen.getByText("Tool output for call_1")).toBeInTheDocument();
-    expect(screen.queryByText("Tool output for call_4")).toBeNull();
+    expect(screen.getByText("Tool output for call_4")).toBeInTheDocument();
+    expect(screen.queryByText("Output")).toBeNull();
   });
 
   it("treats completed commands with fatal output as failed for transcript tone", () => {

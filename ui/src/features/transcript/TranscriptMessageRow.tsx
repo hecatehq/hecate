@@ -433,10 +433,13 @@ function ToolOutputPreview({ title, output }: { title: string; output: string })
 }
 
 function normalizeToolOutputPreview(output: string): string {
-  return stripAnsi(output)
+  const withoutAnsi = stripAnsi(output)
     .replace(/\r\n/g, "\n")
-    .replace(/(?:^|\n)[ \t]*\d{1,6}\s*(?:>|→|\|)\s*/g, "\n")
-    .replace(/[ \t]+\d{1,6}\s*(?:>|→|\|)\s*/g, "\n")
+    .replace(/\r/g, "\n");
+
+  return withoutAnsi
+    .replace(/(?:^|[ \t\n])\d{1,6}\s*(?:>|→|\|)\s*/g, "\n")
+    .replace(/^\n+/, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

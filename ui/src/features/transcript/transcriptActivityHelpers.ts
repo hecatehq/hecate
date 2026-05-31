@@ -327,13 +327,14 @@ function toolActivityTitle(activity: ChatActivityRecord): string {
 
   const raw = stripStatusSuffix(activity.title || activity.kind || "tool").trim();
   const normalized = raw.toLowerCase();
-  const kind = (activity.kind || activity.detail || "").trim().toLowerCase();
+  const normalizedKind = (activity.kind || "").trim().toLowerCase();
+  const toolHint = `${activity.kind ?? ""} ${activity.detail ?? ""}`.trim().toLowerCase();
 
   if (opaqueToolCallID(raw)) {
-    if (kind.includes("execute") || kind.includes("command") || kind.includes("shell"))
+    if (toolHint.includes("execute") || toolHint.includes("command") || toolHint.includes("shell"))
       return "Ran command";
-    if (kind.includes("read")) return "Read context";
-    if (kind.includes("edit") || kind.includes("write")) return "Edited file";
+    if (toolHint.includes("read")) return "Read context";
+    if (toolHint.includes("edit") || toolHint.includes("write")) return "Edited file";
     return "Used tool";
   }
 
@@ -361,10 +362,15 @@ function toolActivityTitle(activity: ChatActivityRecord): string {
     return `Ran ${execMatch[1].replaceAll("_", " ")}`;
   }
 
-  if (kind === "execute" || kind === "command") {
+  if (
+    normalizedKind === "execute" ||
+    normalizedKind === "command" ||
+    /^execute(?:\s|·|$)/.test(toolHint) ||
+    /^command(?:\s|·|$)/.test(toolHint)
+  ) {
     return "Ran command";
   }
-  if (kind === "read") {
+  if (normalizedKind === "read" || /^read(?:\s|·|$)/.test(toolHint)) {
     return "Read context";
   }
 
@@ -399,7 +405,8 @@ function isThinkingToolActivity(activity: ChatActivityRecord): boolean {
   const title = stripStatusSuffix(activity.title || "")
     .trim()
     .toLowerCase();
-  return kind === "think" || title === "think";
+  const detail = (activity.detail || "").trim().toLowerCase();
+  return kind === "think" || title === "think" || /^think(?:\s|·|$)/.test(detail);
 }
 
 function modelTurnDetail(activity: ChatActivityRecord): string {
