@@ -12,15 +12,15 @@ import {
 describe("parseQueuedChatMessageList", () => {
   it("keeps valid queued chat messages", () => {
     expect(
-	      parseQueuedChatMessageList([
-	        {
-	          id: "queued-1",
-	          session_id: "chat-1",
-	          content: "continue",
-	          execution_mode: "hecate_task",
-	          tools_enabled: false,
-	          provider_filter: "auto",
-	          model: "gpt-4o-mini",
+      parseQueuedChatMessageList([
+        {
+          id: "queued-1",
+          session_id: "chat-1",
+          content: "continue",
+          execution_mode: "hecate_task",
+          tools_enabled: false,
+          provider_filter: "auto",
+          model: "gpt-4o-mini",
           workspace: "/tmp/hecate",
           system_prompt: "Be concise.",
           agent_id: "hecate",
@@ -29,12 +29,12 @@ describe("parseQueuedChatMessageList", () => {
       ]),
     ).toEqual([
       {
-	        id: "queued-1",
-	        session_id: "chat-1",
-	        content: "continue",
-	        execution_mode: "hecate_task",
-	        tools_enabled: false,
-	        provider_filter: "auto",
+        id: "queued-1",
+        session_id: "chat-1",
+        content: "continue",
+        execution_mode: "hecate_task",
+        tools_enabled: false,
+        provider_filter: "auto",
         model: "gpt-4o-mini",
         workspace: "/tmp/hecate",
         system_prompt: "Be concise.",

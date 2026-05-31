@@ -2786,7 +2786,8 @@ describe("useRuntimeConsole", () => {
                 segments: [
                   {
                     id: "model:first",
-                    execution_mode: "hecate_task", tools_enabled: false,
+                    execution_mode: "hecate_task",
+                    tools_enabled: false,
                     provider: "ollama",
                     model: "smollm2:135m",
                     status: "completed",
