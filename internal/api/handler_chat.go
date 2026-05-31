@@ -754,12 +754,11 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 	// Resolve the effective tools-on/off signal for this turn. The
 	// capability-driven downgrade (a tool-incapable model on a Hecate
 	// session) flips this to false even when the client requested
-	// tools-on, so the unified handler below dispatches to the
+	// tools-on, so the unified handler below routes the turn to the
 	// direct-model code path without the dispatcher needing a
 	// separate direct_model switch case.
 	toolsEnabled := executionMode == chat.ExecutionModeHecateTask
-	if executionMode == chat.ExecutionModeHecateTask && !isExternalChatSession(session) && h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req) {
-		executionMode = chat.ExecutionModeDirectModel
+	if toolsEnabled && !isExternalChatSession(session) && h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req) {
 		toolsEnabled = false
 	}
 	switch executionMode {
