@@ -137,11 +137,10 @@ type ClientInfo struct {
 	Version string `json:"version"`
 }
 
-// InitializeResult is the initialize response. We declare only the
-// `tools` capability — resources, prompts, sampling come in later
-// releases. The `logging` capability is not declared (we don't emit
-// MCP-formatted log notifications yet); host stderr from the
-// subprocess instead.
+// InitializeResult is the initialize response. We declare the server
+// features this process actually registered. The `logging` capability
+// is not declared (we don't emit MCP-formatted log notifications yet);
+// host stderr from the subprocess instead.
 type InitializeResult struct {
 	ProtocolVersion string             `json:"protocolVersion"`
 	Capabilities    ServerCapabilities `json:"capabilities"`
@@ -152,13 +151,31 @@ type ServerCapabilities struct {
 	// Empty object signals "this server supports tools/list and
 	// tools/call but doesn't broadcast list-changed notifications".
 	// MCP wire format treats `{}` and `null` differently here.
-	Tools *ToolsCapability `json:"tools,omitempty"`
+	Tools     *ToolsCapability     `json:"tools,omitempty"`
+	Resources *ResourcesCapability `json:"resources,omitempty"`
+	Prompts   *PromptsCapability   `json:"prompts,omitempty"`
 }
 
 type ToolsCapability struct {
 	// ListChanged advertises that we'll emit `notifications/tools/list_changed`
 	// when the tool set mutates. We don't (the set is fixed at startup),
 	// so we leave this false.
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
+type ResourcesCapability struct {
+	// ListChanged advertises notifications/resources/list_changed. The
+	// Hecate stdio server exposes a stable catalog and does not emit
+	// list-change notifications.
+	ListChanged bool `json:"listChanged,omitempty"`
+	// Subscribe advertises resources/subscribe support. Hecate
+	// resources are read-on-demand snapshots, so subscriptions stay off.
+	Subscribe bool `json:"subscribe,omitempty"`
+}
+
+type PromptsCapability struct {
+	// ListChanged advertises notifications/prompts/list_changed. The
+	// Hecate prompt catalog is fixed for the process lifetime.
 	ListChanged bool `json:"listChanged,omitempty"`
 }
 
@@ -249,4 +266,81 @@ func TextContent(text string) []ContentBlock {
 // ListToolsResult is the body of tools/list.
 type ListToolsResult struct {
 	Tools []Tool `json:"tools"`
+}
+
+// ─── Resources ──────────────────────────────────────────────────────
+
+type Resource struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	MIMEType    string `json:"mimeType,omitempty"`
+	Size        int64  `json:"size,omitempty"`
+}
+
+type ResourceTemplate struct {
+	URITemplate string `json:"uriTemplate"`
+	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	MIMEType    string `json:"mimeType,omitempty"`
+}
+
+type ListResourcesResult struct {
+	Resources []Resource `json:"resources"`
+}
+
+type ListResourceTemplatesResult struct {
+	ResourceTemplates []ResourceTemplate `json:"resourceTemplates"`
+}
+
+type ReadResourceParams struct {
+	URI string `json:"uri"`
+}
+
+type ReadResourceResult struct {
+	Contents []ResourceContents `json:"contents"`
+}
+
+type ResourceContents struct {
+	URI      string `json:"uri"`
+	MIMEType string `json:"mimeType,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Blob     string `json:"blob,omitempty"`
+}
+
+// ─── Prompts ────────────────────────────────────────────────────────
+
+type Prompt struct {
+	Name        string           `json:"name"`
+	Title       string           `json:"title,omitempty"`
+	Description string           `json:"description,omitempty"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+}
+
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+type ListPromptsResult struct {
+	Prompts []Prompt `json:"prompts"`
+}
+
+type GetPromptParams struct {
+	Name      string            `json:"name"`
+	Arguments map[string]string `json:"arguments,omitempty"`
+}
+
+type GetPromptResult struct {
+	Description string          `json:"description,omitempty"`
+	Messages    []PromptMessage `json:"messages"`
+}
+
+type PromptMessage struct {
+	Role    string       `json:"role"`
+	Content ContentBlock `json:"content"`
 }

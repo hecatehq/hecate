@@ -36,6 +36,8 @@ func runMCPServer(commandName string) {
 	client := server.NewGatewayClient(baseURL)
 	client.SetRuntimeToken(os.Getenv("HECATE_RUNTIME_TOKEN"))
 	server.RegisterDefaultTools(srv, client)
+	server.RegisterDefaultResources(srv, client)
+	server.RegisterDefaultPrompts(srv)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

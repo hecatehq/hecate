@@ -11,6 +11,8 @@ Both sides speak [MCP spec](https://modelcontextprotocol.io/) `2025-11-25`.
 
 - [Hecate as MCP server](#hecate-as-mcp-server) — expose Hecate to Claude Desktop / Cursor / Zed
   - [What's available](#whats-available)
+  - [Resources](#resources)
+  - [Prompts](#prompts)
   - [Local scenarios and built-in presets](#local-scenarios-and-built-in-presets)
   - [Configure it](#configure-it)
   - [Verify it locally](#verify-it-locally)
@@ -50,6 +52,35 @@ Seven tools — four reads and three writes:
 | `cancel_run`               | write (destructive, idempotent) | Cancel an in-flight task run. Cooperative — the worker stops at the next safe checkpoint                                                |
 
 Together the write tools turn the MCP surface into an operator-grade control plane: list tasks → see approvals → approve/reject → create new tasks → cancel runaway runs without leaving the editor.
+
+### Resources
+
+Hecate also exposes read-only MCP resources for clients that support attaching
+server-provided context directly to a prompt:
+
+| Resource / template              | MIME type          | Description                                                                                       |
+| -------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------- |
+| `hecate://tasks/recent`          | `application/json` | Recent task records, capped at 30, with status, execution kind, step count, and latest run id     |
+| `hecate://tasks/{task_id}`       | `application/json` | Detailed status for one task by id                                                                |
+| `hecate://traces/recent`         | `application/json` | Recent trace summaries, capped at 100, with status, latency, trace id, and route metadata         |
+| `hecate://traces/{request_id}`   | `application/json` | Detailed trace spans and route metadata for one gateway request id                                |
+
+The two exact `recent` resources are returned from `resources/list`; the
+parameterized task and trace forms are advertised via
+`resources/templates/list`. `resources/read` returns the same Hecate-native
+`{data: ...}` envelope shape operators see over HTTP, formatted as JSON text.
+
+### Prompts
+
+MCP clients that render server prompts as slash commands can use these
+workflow templates:
+
+| Prompt                | Arguments                               | Description                                                             |
+| --------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| `create_agent_task`   | `prompt` (required), `working_directory` | Guides the client to queue a new `agent_loop` task with `create_task`   |
+| `investigate_task`    | `task_id` (required)                     | Inspect one task and summarize state, latest run, approvals, or failures |
+| `investigate_trace`   | `request_id` (required)                  | Inspect one trace and explain routing, latency, status, and span clues  |
+| `operator_briefing`   | none                                    | Produce a short handoff from recent tasks and recent traffic             |
 
 Streamable HTTP transport for the server side is tracked on the roadmap. The client-side direction — Hecate consuming external MCP servers — is shipped; see ["Hecate as MCP client"](#hecate-as-mcp-client) below.
 
@@ -144,7 +175,7 @@ Expected output: two JSON-RPC responses on stdout (initialize result + tools lis
 
 - **Protocol version**: `2025-11-25` (current MCP revision). We track the breaking-change-free surface and adopt the additive bits that improve client UX (`title`, `annotations`, server `description`, input-validation-as-tool-error). Negotiation downgrades to whatever the client speaks.
 - **Transport**: stdio with newline-delimited JSON-RPC 2.0 messages. Streamable HTTP is on the roadmap.
-- **Capabilities declared**: `tools` only. Resources, prompts, sampling, elicitation, and the new task primitive land later.
+- **Capabilities declared**: `tools`, `resources`, and `prompts`. Sampling, elicitation, and the new task primitive land later.
 
 ---
 

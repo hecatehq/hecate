@@ -22,8 +22,10 @@ import (
 // the parent process kills us, we exit. That matches how Claude
 // Desktop / Cursor / Zed manage MCP subprocesses today.
 type Server struct {
-	info  mcp.ServerInfo
-	tools toolRegistry
+	info      mcp.ServerInfo
+	tools     toolRegistry
+	resources resourceRegistry
+	prompts   promptRegistry
 
 	// Mutex guards writes to the output stream — multiple goroutines
 	// produce responses concurrently and JSON-RPC framing requires an
@@ -39,6 +41,12 @@ func NewServer(name, version string) *Server {
 		info: mcp.ServerInfo{Name: name, Version: version},
 		tools: toolRegistry{
 			byName: make(map[string]registeredTool),
+		},
+		resources: resourceRegistry{
+			byURI: make(map[string]registeredResource),
+		},
+		prompts: promptRegistry{
+			byName: make(map[string]registeredPrompt),
 		},
 	}
 }
@@ -58,6 +66,34 @@ func (s *Server) SetDescription(d string) { s.info.Description = d }
 func (s *Server) RegisterTool(tool mcp.Tool, handler ToolHandler) {
 	s.tools.byName[tool.Name] = registeredTool{
 		descriptor: tool,
+		handler:    handler,
+	}
+}
+
+// RegisterResource wires a concrete read-only resource URI into the
+// server. The descriptor is returned from resources/list; the handler
+// is invoked for resources/read of the same URI.
+func (s *Server) RegisterResource(resource mcp.Resource, handler ResourceHandler) {
+	s.resources.byURI[resource.URI] = registeredResource{
+		descriptor: resource,
+		handler:    handler,
+	}
+}
+
+// RegisterResourceTemplate advertises a URI template. The handler is
+// tried for resources/read requests that were not handled by a concrete
+// resource URI.
+func (s *Server) RegisterResourceTemplate(template mcp.ResourceTemplate, handler ResourceHandler) {
+	s.resources.templates = append(s.resources.templates, registeredResourceTemplate{
+		descriptor: template,
+		handler:    handler,
+	})
+}
+
+// RegisterPrompt wires a user-invoked prompt template into the server.
+func (s *Server) RegisterPrompt(prompt mcp.Prompt, handler PromptHandler) {
+	s.prompts.byName[prompt.Name] = registeredPrompt{
+		descriptor: prompt,
 		handler:    handler,
 	}
 }
@@ -150,6 +186,11 @@ func (s *Server) handleMessage(ctx context.Context, raw []byte, out io.Writer) {
 //     react but spec requires we accept it
 //   - tools/list             → enumerate registered tools
 //   - tools/call             → invoke a tool by name
+//   - resources/list         → enumerate concrete resources
+//   - resources/templates/list → enumerate URI templates
+//   - resources/read         → read one resource URI
+//   - prompts/list           → enumerate prompt templates
+//   - prompts/get            → render one prompt template
 //   - ping                   → liveness check; returns empty result
 //
 // Unknown methods get a -32601 (method not found) response so MCP
@@ -165,6 +206,16 @@ func (s *Server) dispatch(ctx context.Context, req *mcp.Request) (any, *mcp.RPCE
 		return s.handleListTools()
 	case "tools/call":
 		return s.handleCallTool(ctx, req)
+	case "resources/list":
+		return s.handleListResources()
+	case "resources/templates/list":
+		return s.handleListResourceTemplates()
+	case "resources/read":
+		return s.handleReadResource(ctx, req)
+	case "prompts/list":
+		return s.handleListPrompts()
+	case "prompts/get":
+		return s.handleGetPrompt(ctx, req)
 	case "ping":
 		return struct{}{}, nil
 	default:
@@ -184,11 +235,22 @@ func (s *Server) handleInitialize(req *mcp.Request) (any, *mcp.RPCError) {
 	// they support multiple versions.
 	return mcp.InitializeResult{
 		ProtocolVersion: mcp.DeclaredProtocolVersion,
-		Capabilities: mcp.ServerCapabilities{
-			Tools: &mcp.ToolsCapability{},
-		},
-		ServerInfo: s.info,
+		Capabilities:    s.capabilities(),
+		ServerInfo:      s.info,
 	}, nil
+}
+
+func (s *Server) capabilities() mcp.ServerCapabilities {
+	caps := mcp.ServerCapabilities{
+		Tools: &mcp.ToolsCapability{},
+	}
+	if s.resources.hasAny() {
+		caps.Resources = &mcp.ResourcesCapability{}
+	}
+	if s.prompts.hasAny() {
+		caps.Prompts = &mcp.PromptsCapability{}
+	}
+	return caps
 }
 
 func (s *Server) handleListTools() (any, *mcp.RPCError) {
@@ -219,6 +281,49 @@ func (s *Server) handleCallTool(ctx context.Context, req *mcp.Request) (any, *mc
 			Content: mcp.TextContent(err.Error()),
 			IsError: true,
 		}, nil
+	}
+	return result, nil
+}
+
+func (s *Server) handleListResources() (any, *mcp.RPCError) {
+	return mcp.ListResourcesResult{Resources: s.resources.list()}, nil
+}
+
+func (s *Server) handleListResourceTemplates() (any, *mcp.RPCError) {
+	return mcp.ListResourceTemplatesResult{ResourceTemplates: s.resources.listTemplates()}, nil
+}
+
+func (s *Server) handleReadResource(ctx context.Context, req *mcp.Request) (any, *mcp.RPCError) {
+	var params mcp.ReadResourceParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return nil, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid resources/read params: "+err.Error())
+	}
+	if params.URI == "" {
+		return nil, mcp.NewError(mcp.ErrCodeInvalidParams, "uri is required")
+	}
+	result, err := s.resources.read(ctx, params.URI)
+	if err != nil {
+		return nil, mcp.NewError(mcp.ErrCodeInvalidParams, err.Error())
+	}
+	return result, nil
+}
+
+func (s *Server) handleListPrompts() (any, *mcp.RPCError) {
+	return mcp.ListPromptsResult{Prompts: s.prompts.list()}, nil
+}
+
+func (s *Server) handleGetPrompt(ctx context.Context, req *mcp.Request) (any, *mcp.RPCError) {
+	var params mcp.GetPromptParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return nil, mcp.NewError(mcp.ErrCodeInvalidParams, "invalid prompts/get params: "+err.Error())
+	}
+	prompt, ok := s.prompts.byName[params.Name]
+	if !ok {
+		return nil, mcp.NewError(mcp.ErrCodeInvalidParams, fmt.Sprintf("unknown prompt: %s", params.Name))
+	}
+	result, err := prompt.handler(ctx, params.Arguments)
+	if err != nil {
+		return nil, mcp.NewError(mcp.ErrCodeInvalidParams, err.Error())
 	}
 	return result, nil
 }
@@ -291,6 +396,115 @@ func sortToolsByName(tools []mcp.Tool) {
 	for i := 1; i < len(tools); i++ {
 		for j := i; j > 0 && tools[j-1].Name > tools[j].Name; j-- {
 			tools[j-1], tools[j] = tools[j], tools[j-1]
+		}
+	}
+}
+
+// ─── Resource registry ──────────────────────────────────────────────
+
+type ResourceHandler func(ctx context.Context, uri string) (mcp.ReadResourceResult, error)
+
+type registeredResource struct {
+	descriptor mcp.Resource
+	handler    ResourceHandler
+}
+
+type registeredResourceTemplate struct {
+	descriptor mcp.ResourceTemplate
+	handler    ResourceHandler
+}
+
+type resourceRegistry struct {
+	byURI     map[string]registeredResource
+	templates []registeredResourceTemplate
+}
+
+var errResourceNoMatch = errors.New("resource template did not match")
+
+func (r resourceRegistry) hasAny() bool {
+	return len(r.byURI) > 0 || len(r.templates) > 0
+}
+
+func (r resourceRegistry) list() []mcp.Resource {
+	out := make([]mcp.Resource, 0, len(r.byURI))
+	for _, resource := range r.byURI {
+		out = append(out, resource.descriptor)
+	}
+	sortResourcesByURI(out)
+	return out
+}
+
+func (r resourceRegistry) listTemplates() []mcp.ResourceTemplate {
+	out := make([]mcp.ResourceTemplate, 0, len(r.templates))
+	for _, template := range r.templates {
+		out = append(out, template.descriptor)
+	}
+	sortResourceTemplatesByURI(out)
+	return out
+}
+
+func (r resourceRegistry) read(ctx context.Context, uri string) (mcp.ReadResourceResult, error) {
+	if resource, ok := r.byURI[uri]; ok {
+		return resource.handler(ctx, uri)
+	}
+	for _, template := range r.templates {
+		result, err := template.handler(ctx, uri)
+		if err == nil {
+			return result, nil
+		}
+		if !errors.Is(err, errResourceNoMatch) {
+			return mcp.ReadResourceResult{}, err
+		}
+	}
+	return mcp.ReadResourceResult{}, fmt.Errorf("resource not found: %s", uri)
+}
+
+func sortResourcesByURI(resources []mcp.Resource) {
+	for i := 1; i < len(resources); i++ {
+		for j := i; j > 0 && resources[j-1].URI > resources[j].URI; j-- {
+			resources[j-1], resources[j] = resources[j], resources[j-1]
+		}
+	}
+}
+
+func sortResourceTemplatesByURI(templates []mcp.ResourceTemplate) {
+	for i := 1; i < len(templates); i++ {
+		for j := i; j > 0 && templates[j-1].URITemplate > templates[j].URITemplate; j-- {
+			templates[j-1], templates[j] = templates[j], templates[j-1]
+		}
+	}
+}
+
+// ─── Prompt registry ────────────────────────────────────────────────
+
+type PromptHandler func(ctx context.Context, args map[string]string) (mcp.GetPromptResult, error)
+
+type registeredPrompt struct {
+	descriptor mcp.Prompt
+	handler    PromptHandler
+}
+
+type promptRegistry struct {
+	byName map[string]registeredPrompt
+}
+
+func (r promptRegistry) hasAny() bool {
+	return len(r.byName) > 0
+}
+
+func (r promptRegistry) list() []mcp.Prompt {
+	out := make([]mcp.Prompt, 0, len(r.byName))
+	for _, prompt := range r.byName {
+		out = append(out, prompt.descriptor)
+	}
+	sortPromptsByName(out)
+	return out
+}
+
+func sortPromptsByName(prompts []mcp.Prompt) {
+	for i := 1; i < len(prompts); i++ {
+		for j := i; j > 0 && prompts[j-1].Name > prompts[j].Name; j-- {
+			prompts[j-1], prompts[j] = prompts[j], prompts[j-1]
 		}
 	}
 }
