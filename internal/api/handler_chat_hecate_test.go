@@ -1024,7 +1024,10 @@ func TestExternalAgentChatRejectsDirectModelExecutionMode(t *testing.T) {
 	if payload.Error.Type != errCodeRuntimeMismatch {
 		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeRuntimeMismatch)
 	}
-	if !strings.Contains(payload.Error.Message, "external agent sessions cannot run direct model turns") {
+	// After the dispatcher unification, direct_model and hecate_task
+	// share the same Hecate-side entry point, so the error copy was
+	// collapsed too — "Hecate Chat turns" covers both flavors.
+	if !strings.Contains(payload.Error.Message, "external agent sessions cannot run Hecate Chat turns") {
 		t.Fatalf("error message = %q", payload.Error.Message)
 	}
 }

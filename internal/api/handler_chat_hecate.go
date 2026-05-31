@@ -19,7 +19,21 @@ import (
 
 const hecateAgentPollInterval = 250 * time.Millisecond
 
-func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest) {
+// handleCreateHecateChatMessage is the unified entry point for every
+// Hecate-side chat-message submission. It branches on toolsEnabled:
+//   - toolsEnabled=false → delegate to handleDirectModelTurn (a
+//     direct LLM call with no agent_loop task, the runtime fallback
+//     for the legacy direct_model dispatch path).
+//   - toolsEnabled=true → existing agent_loop task creation +
+//     polling path that the Hecate Chat tools-on UX runs on.
+//
+// External-agent sessions never reach this function — the dispatcher
+// pins them to the external_agent path before getting here.
+func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest, toolsEnabled bool) {
+	if !toolsEnabled {
+		h.handleDirectModelTurn(w, r, session, req)
+		return
+	}
 	content := strings.TrimSpace(req.Content)
 	if workspace := strings.TrimSpace(req.Workspace); workspace != "" {
 		resolved, err := agentadapters.ValidateWorkspace(workspace)
