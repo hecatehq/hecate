@@ -751,23 +751,31 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	executionMode := normalizeChatExecutionMode(req.ExecutionMode, session, req.ToolsEnabled)
+	// Resolve the effective tools-on/off signal for this turn. The
+	// capability-driven downgrade (a tool-incapable model on a Hecate
+	// session) flips this to false even when the client requested
+	// tools-on, so the unified handler below dispatches to the
+	// direct-model code path without the dispatcher needing a
+	// separate direct_model switch case.
+	toolsEnabled := executionMode == chat.ExecutionModeHecateTask
 	if executionMode == chat.ExecutionModeHecateTask && !isExternalChatSession(session) && h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req) {
 		executionMode = chat.ExecutionModeDirectModel
+		toolsEnabled = false
 	}
 	switch executionMode {
-	case chat.ExecutionModeDirectModel:
+	case chat.ExecutionModeDirectModel, chat.ExecutionModeHecateTask:
+		// One unified entry point for every Hecate-side turn,
+		// regardless of tools_enabled. handleCreateHecateChatMessage
+		// branches at the top: tools-off delegates to
+		// `handleDirectModelTurn` (the former
+		// handleCreateModelChatMessage, now a private sub-path of
+		// the Hecate handler); tools-on runs the existing
+		// agent_loop task-creation path.
 		if isExternalChatSession(session) {
-			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run direct model turns")
+			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run Hecate Chat turns")
 			return
 		}
-		h.handleCreateModelChatMessage(w, r, session, req)
-		return
-	case chat.ExecutionModeHecateTask:
-		if isExternalChatSession(session) {
-			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run task-backed Hecate Chat turns")
-			return
-		}
-		h.handleCreateHecateChatMessage(w, r, session, req)
+		h.handleCreateHecateChatMessage(w, r, session, req, toolsEnabled)
 		return
 	case chat.ExecutionModeExternalAgent:
 		if !isExternalChatSession(session) {
@@ -1131,7 +1139,12 @@ func chatRequestToolsEnabled(req CreateChatMessageRequest) bool {
 	return strings.TrimSpace(req.ExecutionMode) != chat.ExecutionModeDirectModel
 }
 
-func (h *Handler) handleCreateModelChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest) {
+// handleDirectModelTurn runs the tools-off sub-path of
+// handleCreateHecateChatMessage. Called only from inside that
+// handler when toolsEnabled is false (either because the client
+// asked for tools off or because the capability-downgrade flipped
+// it). Not invoked directly by the dispatcher.
+func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest) {
 	if busy, runStatus := h.hecateAgentSessionBusy(r.Context(), session); busy {
 		writeHecateAgentBusy(w, session, runStatus)
 		return
