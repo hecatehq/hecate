@@ -587,6 +587,34 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText(/drwxr-xr-x@ 20 chicoxyzzy staff 640/)).toBeInTheDocument();
   });
 
+  it("shows full captured command output from detail-only output-captured rows", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_shell",
+        status: "completed",
+        kind: "execute",
+        detail:
+          "execute · output captured · total 88064\n" +
+          "drwxr-xr-x@ 45 chicoxyzzy staff 1440 May 27 17:43 .\n" +
+          "drwxr-xr-x@ 20 chicoxyzzy staff 640 May 27 17:40 ..",
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    expect(screen.queryByText(/total 88064/)).toBeNull();
+    expect(screen.queryByText(/drwxr-xr-x@ 45/)).toBeNull();
+
+    await user.click(screen.getByText("Output"));
+
+    expect(screen.getByText("Tool output")).toBeInTheDocument();
+    expect(screen.getByText(/total 88064/)).toBeInTheDocument();
+    expect(screen.getByText(/drwxr-xr-x@ 45 chicoxyzzy staff 1440/)).toBeInTheDocument();
+    expect(screen.getByText(/drwxr-xr-x@ 20 chicoxyzzy staff 640/)).toBeInTheDocument();
+  });
+
   it("strips ANSI color codes from captured command output", async () => {
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [

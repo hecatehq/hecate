@@ -261,6 +261,23 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText(/tool ERrtqCoy/)).toBeNull();
   });
 
+  it("uses adapter detail hints for opaque edit tool rows", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "toolu_01X4Kr7tteNtaP6emRf7ULtM",
+        status: "completed",
+        detail: "edit · 1 diff",
+      },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText("Edited file")).toBeInTheDocument();
+    expect(screen.getByText("edit · 1 diff")).toBeInTheDocument();
+    expect(screen.queryByText(/toolu_01X4/)).toBeNull();
+  });
+
   it("keeps captured read output out of the inline activity row", () => {
     const activities: ChatActivityRecord[] = [
       {
@@ -373,6 +390,45 @@ describe("TranscriptActivityTimeline", () => {
         status: "completed",
         kind: "execute",
         detail: "execute · output: ok",
+      },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText(/completed · 1 failed tool/)).toBeInTheDocument();
+    expect(screen.getByText("1 failed · output captured")).toBeInTheDocument();
+  });
+
+  it("treats output-captured fatal command details as failed for transcript tone", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_1",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output captured · ok",
+      },
+      {
+        type: "tool_call",
+        title: "call_2",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output captured · fatal: ambiguous argument 'origin/main..HEAD'",
+      },
+      {
+        type: "tool_call",
+        title: "call_3",
+        status: "completed",
+        kind: "execute",
+        detail: "execute",
+      },
+      {
+        type: "tool_call",
+        title: "call_4",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output captured · ok",
       },
       { type: "completed", title: "Run completed", status: "completed" },
     ];
