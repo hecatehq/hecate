@@ -1176,13 +1176,18 @@ selected by `HECATE_BACKEND`. They are the alpha transcript surface for Hecate
 Chat and External Agent sessions. A session has a stable `agent_id` that
 chooses the chat owner:
 
-- `agent_id="hecate"` — Hecate owns the chat. Individual turns choose
-  `execution_mode="direct_model"` for normal provider/model chat or
-  `execution_mode="hecate_task"` for a visible `agent_loop` task with Hecate
-  tools, task approvals, artifacts, and OTel. Hecate Chat sessions may opt into
-  RTK command-output compaction with `rtk_enabled=true`; shell and git tool
-  calls then launch as `rtk sh -lc <command>` while keeping Hecate approvals,
-  policy validation, sandboxing, limits, and timeouts in place.
+- `agent_id="hecate"` — Hecate owns the chat. Individual turns set
+  `execution_mode="hecate_task"` and `tools_enabled` to choose between a normal
+  provider/model call (`tools_enabled=false`) and a visible `agent_loop` task
+  with Hecate tools, task approvals, artifacts, and OTel
+  (`tools_enabled=true`). The legacy `execution_mode="direct_model"` literal is
+  still accepted as a back-compat input (older clients send it instead of
+  setting `tools_enabled=false`); the gateway folds it into the unified
+  hecate-task dispatch and records `tools_enabled=false` on the persisted
+  message. Hecate Chat sessions may opt into RTK command-output compaction with
+  `rtk_enabled=true`; shell and git tool calls then launch as `rtk sh -lc
+<command>` while keeping Hecate approvals, policy validation, sandboxing,
+  limits, and timeouts in place.
 - `agent_id="codex"`, `"claude_code"`, `"cursor_agent"`, `"grok_build"`, or another
   registered adapter id — the external adapter owns the native session while
   Hecate supervises lifecycle, transcript, diagnostics, and external-agent
@@ -1285,9 +1290,11 @@ GET /hecate/v1/chat/sessions
 
 Creates a chat session. `agent_id` chooses the session owner:
 
-- `hecate` (default) creates a Hecate Chat. It can later run
-  `execution_mode="direct_model"` turns or `execution_mode="hecate_task"`
-  turns.
+- `hecate` (default) creates a Hecate Chat. Subsequent turns send
+  `execution_mode="hecate_task"` with `tools_enabled` set per turn
+  (`tools_enabled=true` for tool-backed runs, `tools_enabled=false` for
+  direct model chat). Legacy clients sending `execution_mode="direct_model"`
+  still work; the gateway treats it as a tools-off hecate-task turn.
 - Any registered external-agent id, such as `codex`, `claude_code`,
   `cursor_agent`, or `grok_build`, creates an External Agent chat and requires
   `workspace`.
@@ -1510,30 +1517,39 @@ the user message and assistant output.
 
 `POST` also accepts per-turn overrides:
 
-- `execution_mode` — `direct_model`, `hecate_task`, or `external_agent`.
-  Hecate Chat sessions may switch between `direct_model` and `hecate_task`;
-  External Agent sessions always use `external_agent`.
-- `provider` / `model` — used for direct model turns and new task-backed
-  Hecate Chat segments. Existing task-backed segments continue with their saved
-  model snapshot until the operator turns tools off or starts a new
+- `execution_mode` — `hecate_task` or `external_agent`. Hecate Chat sessions
+  use `hecate_task` (tools-on/off is set separately via `tools_enabled`);
+  External Agent sessions always use `external_agent`. The legacy
+  `direct_model` literal is still accepted as a back-compat input — the
+  gateway normalizes it to `hecate_task` with `tools_enabled=false`.
+- `tools_enabled` (boolean) — per-turn tools-on/off signal for Hecate Chat
+  sessions. `true` opts into the tool-backed `agent_loop` path; `false`
+  dispatches the prompt directly to the selected model without creating a
+  task. When omitted, the gateway derives the value from `execution_mode`
+  (legacy `direct_model` → `false`; `hecate_task` → `true`; both omitted →
+  `false`, preserving the pre-`tools_enabled` default).
+- `provider` / `model` — used for tools-off turns and new task-backed
+  Hecate Chat segments. Existing task-backed segments continue with their
+  saved model snapshot until the operator turns tools off or starts a new
   task-backed segment.
-- `system_prompt` — applied to direct model turns.
-- `workspace` — required when starting a task-backed Hecate Chat turn on a session that
-  does not already have a workspace.
+- `system_prompt` — applied to tools-off turns.
+- `workspace` — required when starting a task-backed Hecate Chat turn
+  (`tools_enabled=true`) on a session that does not already have a workspace.
 
-For `execution_mode="direct_model"`, Hecate calls the normal gateway path and
-stores the user/assistant messages without creating a Task. For
-`execution_mode="external_agent"`, Hecate sends the prompt to the session's
-native ACP session. For `execution_mode="hecate_task"`, the first tool-enabled
-prompt creates a visible `agent_loop` task and starts it; follow-up prompts
-continue the latest terminal run when the immediately previous segment was also
-task-backed. If the previous segment was direct model chat, Hecate starts a
-fresh task-backed segment in the same transcript.
+For `tools_enabled=false` on a Hecate Chat session, Hecate calls the normal
+gateway path and stores the user/assistant messages without creating a Task.
+For `execution_mode="external_agent"`, Hecate sends the prompt to the
+session's native ACP session. For `tools_enabled=true` on a Hecate Chat
+session, the first tool-enabled prompt creates a visible `agent_loop` task and
+starts it; follow-up prompts continue the latest terminal run when the
+immediately previous segment was also task-backed. If the previous segment was
+direct model chat (tools off), Hecate starts a fresh task-backed segment in
+the same transcript.
 
 Only one task-backed segment can be active in a Hecate Chat session at a time.
 If the latest backing task is queued, running, or awaiting approval, **all** new
 turns on that chat are rejected with `409 chat.agent_session_busy`,
-including direct `execution_mode="direct_model"` turns. Operators should wait for the
+including tools-off (`tools_enabled=false`) turns. Operators should wait for the
 task to finish, resolve the pending approval, or cancel/stop the active run
 before sending another prompt. The operator UI layers a local composer queue on
 top of that API contract: prompts submitted while a run is busy are held in a
@@ -1679,7 +1695,7 @@ Chat execution errors:
 | `400`  | `chat.workspace_required`        | Task-backed Hecate Chat turns and External Agent sessions need a selected workspace path before the first turn.                                                                             |
 | `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or task-backed turns, or an External Agent adapter requires a launch model before session start.                           |
 | `400`  | `chat.agent_id_invalid`          | The requested session owner is not `hecate` and does not match a registered external-agent adapter.                                                                                         |
-| `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `direct_model`, `hecate_task`, or `external_agent`.                                                                                         |
+| `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `hecate_task` or `external_agent` (legacy `direct_model` is also accepted and normalized to `hecate_task`).                                 |
 | `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                            |
 | `400`  | `chat.adapter_not_found`         | The selected external-agent adapter is not registered.                                                                                                                                      |
 | `409`  | `chat.agent_session_busy`        | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session.    |
