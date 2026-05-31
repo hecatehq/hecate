@@ -876,6 +876,27 @@ describe("TranscriptMessageRow", () => {
     expect(output).not.toHaveTextContent(/\d+\s*\|/);
   });
 
+  it("strips padded read-context gutters without leaving stray spacing", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "completed",
+        kind: "read",
+        detail: "read · output:   42 | const answer = 42;\n  43 | return answer;",
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    await user.click(screen.getByText("Output"));
+
+    const output = screen.getByText(/const answer = 42/);
+    expect(output.textContent).toBe("const answer = 42;\nreturn answer;");
+    expect(output).not.toHaveTextContent(/\d+\s*\|/);
+  });
+
   it("strips box-drawing line gutters from read-context output", async () => {
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [
