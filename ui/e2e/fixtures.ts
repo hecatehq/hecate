@@ -617,7 +617,8 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const executionMode =
         body.execution_mode ||
         (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "hecate_task");
-      const toolsEnabled = executionMode === "external_agent" ? undefined : body.tools_enabled !== false;
+      const toolsEnabled =
+        executionMode === "external_agent" ? undefined : body.tools_enabled !== false;
       const sequence = chatSequence;
       const segmentID = `segment-${sequence}`;
       const isExternal = executionMode === "external_agent";
@@ -641,19 +642,19 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           id: `agent-msg-user-${sequence}`,
           execution_mode: executionMode,
           segment_id: isExternal ? segmentID : undefined,
-	          role: "user",
-	          content,
-	          tools_enabled: toolsEnabled,
-	          created_at: now(),
+          role: "user",
+          content,
+          tools_enabled: toolsEnabled,
+          created_at: now(),
         },
         {
           id: `agent-msg-assistant-${sequence}`,
           execution_mode: executionMode,
           segment_id: isExternal ? segmentID : undefined,
-	          role: "assistant",
-	          content:
-	            executionMode === "hecate_task" && toolsEnabled === false
-	              ? `Direct response to: ${content}`
+          role: "assistant",
+          content:
+            executionMode === "hecate_task" && toolsEnabled === false
+              ? `Direct response to: ${content}`
               : keepRunning
                 ? "I'll inspect that now."
                 : `Agent response to: ${content}`,

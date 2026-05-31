@@ -1339,19 +1339,19 @@ test("Hecate Chat sends direct model turns when selected model lacks tools", asy
           model: "smollm2:135m",
           status: "completed",
           message_count: 2,
-	          messages: [
-	            {
-	              id: "direct-user-e2e",
-	              execution_mode: "hecate_task",
-	              tools_enabled: false,
-	              role: "user",
+          messages: [
+            {
+              id: "direct-user-e2e",
+              execution_mode: "hecate_task",
+              tools_enabled: false,
+              role: "user",
               content: "tell a tiny joke",
               created_at: "2026-05-14T12:00:00Z",
             },
-	            {
-	              id: "direct-assistant-e2e",
-	              execution_mode: "hecate_task",
-	              tools_enabled: false,
+            {
+              id: "direct-assistant-e2e",
+              execution_mode: "hecate_task",
+              tools_enabled: false,
               role: "assistant",
               content: "Direct response to: tell a tiny joke",
               status: "completed",
@@ -1739,13 +1739,13 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     const body = await route.request().postDataJSON();
     submittedTurns.push(body);
     const turn = submittedTurns.length;
-	    // Hecate-owned turns always use hecate_task; tools_enabled carries
-	    // the task-runtime vs direct-provider axis.
-	    const executionMode = body.execution_mode || "hecate_task";
-	    const isHecateAgent = executionMode === "hecate_task" && body.tools_enabled !== false;
-	    const agentTurn = submittedTurns.filter(
-	      (t) => (t.execution_mode || "hecate_task") === "hecate_task" && t.tools_enabled !== false,
-	    ).length;
+    // Hecate-owned turns always use hecate_task; tools_enabled carries
+    // the task-runtime vs direct-provider axis.
+    const executionMode = body.execution_mode || "hecate_task";
+    const isHecateAgent = executionMode === "hecate_task" && body.tools_enabled !== false;
+    const agentTurn = submittedTurns.filter(
+      (t) => (t.execution_mode || "hecate_task") === "hecate_task" && t.tools_enabled !== false,
+    ).length;
     const taskID = isHecateAgent ? `task-tools-${agentTurn}` : "";
     const runID = isHecateAgent ? `run-tools-${agentTurn}` : "";
     const firstTaskNeedsApproval = isHecateAgent && agentTurn === 1 && !taskApprovalResolved;
@@ -2021,8 +2021,8 @@ test("Hecate Chat falls back to direct chat when the selected model has no tools
       messages: [
         {
           id: "msg-user-direct",
-	          execution_mode: body.execution_mode || "hecate_task",
-	          tools_enabled: body.tools_enabled !== false,
+          execution_mode: body.execution_mode || "hecate_task",
+          tools_enabled: body.tools_enabled !== false,
           provider: body.provider || "",
           model: body.model,
           role: "user",
@@ -2031,8 +2031,8 @@ test("Hecate Chat falls back to direct chat when the selected model has no tools
         },
         {
           id: "msg-assistant-direct",
-	          execution_mode: body.execution_mode || "hecate_task",
-	          tools_enabled: body.tools_enabled !== false,
+          execution_mode: body.execution_mode || "hecate_task",
+          tools_enabled: body.tools_enabled !== false,
           provider: body.provider || "",
           model: body.model,
           role: "assistant",
@@ -2119,10 +2119,10 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
     status: "running",
     message_count: 2,
     segments: [
-	      {
-	        id: "model:first",
-	        execution_mode: "hecate_task",
-	        tools_enabled: false,
+      {
+        id: "model:first",
+        execution_mode: "hecate_task",
+        tools_enabled: false,
         provider: "lmstudio",
         model: "qwen2.5",
         status: "completed",
@@ -2625,8 +2625,8 @@ test("selected-model readiness can switch to the backend-suggested fallback mode
       }),
     }),
   );
-	  await page.addInitScript(() => {
-	    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     window.localStorage.setItem("hecate.providerFilter", "auto");
     window.localStorage.setItem("hecate.model", "claude-sonnet-4-6");
     window.localStorage.setItem("hecate.project", "proj_e2e");
