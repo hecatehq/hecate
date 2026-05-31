@@ -513,6 +513,24 @@ func TestGatewayRuntimeAndInferenceTokensProtectExposedSurfaces(t *testing.T) {
 		t.Fatalf("POST /v1/chat/completions with inference token status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
 	}
 	resp.Body.Close()
+
+	messagesBody := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"messages":[{"role":"user","content":"hello"}]}`
+	resp = postJSON(t, base+"/v1/messages", messagesBody, map[string]string{
+		"anthropic-version": "2023-06-01",
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("POST /v1/messages without inference token status = %d, want 401", resp.StatusCode)
+	}
+	_ = readBody(t, resp)
+
+	resp = postJSON(t, base+"/v1/messages", messagesBody, map[string]string{
+		"anthropic-version": "2023-06-01",
+		"x-api-key":         inferenceToken,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /v1/messages with inference token status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
 }
 
 func TestEnvExampleDoesNotExposeAgentAdapterFixtureOverrides(t *testing.T) {
