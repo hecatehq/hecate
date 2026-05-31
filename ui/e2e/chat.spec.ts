@@ -2929,7 +2929,9 @@ test("workspace changes review inspects and discards a current file", async ({ p
     });
   });
 
+  let readmeFileDiffRequests = 0;
   await page.route("/hecate/v1/chat/sessions/a-diff-1/workspace-diff/files/README.md", (route) => {
+    readmeFileDiffRequests += 1;
     void route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -2969,15 +2971,19 @@ test("workspace changes review inspects and discards a current file", async ({ p
   await page.waitForSelector(".hecate-activitybar");
 
   await expect(page.getByText("Updated the docs.")).toBeVisible();
-  await expect(page.getByText("Workspace changes")).toBeVisible();
-  await page.getByRole("button", { name: "Workspace changes" }).click();
+  const workspaceChangesButton = page.getByRole("button", { name: "Workspace changes" });
+  await expect(workspaceChangesButton).toBeVisible();
+  await workspaceChangesButton.click();
   const workspaceChangesPanel = page.getByLabel("Workspace changes panel");
   await expect(
     workspaceChangesPanel.getByText("2 files changed, 6 insertions(+), 1 deletion(-)").first(),
   ).toBeVisible();
 
   await expect(page.getByRole("button", { name: "Hide diff README.md" })).toBeVisible();
-  await expect(workspaceChangesPanel).toContainText("current line");
+  await expect.poll(() => readmeFileDiffRequests).toBeGreaterThan(0);
+  const readmeDiffPreview = workspaceChangesPanel.getByTestId("workspace-file-diff-preview");
+  await expect(readmeDiffPreview).toBeVisible();
+  await expect(readmeDiffPreview.getByTestId("diff-viewer")).toBeAttached();
 
   await page.getByRole("button", { name: "Discard README.md" }).click();
   await expect(page.getByRole("button", { name: "Confirm discard README.md" })).toBeVisible();
