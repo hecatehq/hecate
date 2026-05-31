@@ -227,10 +227,7 @@ function TimelineActivityLine({
     activity.type === "plan" ? (
       <PlanActivityLine activity={activity} />
     ) : (
-      <ActivityLine
-        activity={activity}
-        prefix={activityLinePrefix(activity)}
-      />
+      <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />
     );
   const hasAdvanced = children.length > 0 || Boolean(advancedContent);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -338,10 +335,7 @@ function PlanActivityLine({ activity }: { activity: ChatActivityRecord }) {
   );
 }
 
-function ActivityLine({ activity, prefix }: {
-  activity: ChatActivityRecord;
-  prefix?: string;
-}) {
+function ActivityLine({ activity, prefix }: { activity: ChatActivityRecord; prefix?: string }) {
   const display = activityDisplay(activity);
   const status = activityEffectiveStatus(activity);
   return (
