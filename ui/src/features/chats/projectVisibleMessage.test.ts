@@ -53,4 +53,18 @@ describe("projectVisibleMessage", () => {
     // fresh object every call and are never cached.
     expect(first).not.toBe(second);
   });
+
+  it("projects timing and context_packet for the inspector", () => {
+    const timing = { total_ms: 1200, bottleneck: "model" };
+    const context_packet = { provider: "anthropic", model: "claude", message_count: 3 };
+    const m = message("m1", "hello", { timing, context_packet });
+
+    const visible = projectVisibleMessage(m, 0);
+
+    // ChatTranscriptRow forwards these into the timing/context inspector
+    // for assistant rows; omitting them from the projection silently
+    // dropped that data from reconciled snapshots.
+    expect(visible.timing).toBe(timing);
+    expect(visible.context_packet).toBe(context_packet);
+  });
 });

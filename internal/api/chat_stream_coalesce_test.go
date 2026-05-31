@@ -13,20 +13,42 @@ type coalesceFlush struct {
 	activities  []agentadapters.Activity
 }
 
-// newTestCoalescer wires a coalescer to a fake clock the test drives
-// by reassigning *now, plus a recorder capturing every flush.
-func newTestCoalescer(interval time.Duration) (*chatStreamCoalescer, *[]coalesceFlush, *time.Time) {
+// newTestCoalescer wires a coalescer to a fake clock the test drives by
+// reassigning *now and a fake trailing timer the test fires via the
+// returned func, plus a recorder capturing every flush. The coalescer
+// arms at most one trailing timer at a time, so the fake holds a single
+// pending callback; firing or cancelling it clears the slot.
+func newTestCoalescer(interval time.Duration) (*chatStreamCoalescer, *[]coalesceFlush, *time.Time, func()) {
 	var flushes []coalesceFlush
 	now := time.Unix(0, 0)
 	c := newChatStreamCoalescer(interval, func(content string, haveContent bool, activities []agentadapters.Activity) {
 		flushes = append(flushes, coalesceFlush{content: content, haveContent: haveContent, activities: activities})
 	})
 	c.clock = func() time.Time { return now }
-	return c, &flushes, &now
+
+	var pending func()
+	c.afterFunc = func(_ time.Duration, fn func()) func() bool {
+		pending = fn
+		return func() bool {
+			if pending == nil {
+				return false
+			}
+			pending = nil
+			return true
+		}
+	}
+	fireTimer := func() {
+		fn := pending
+		pending = nil
+		if fn != nil {
+			fn()
+		}
+	}
+	return c, &flushes, &now, fireTimer
 }
 
 func TestChatStreamCoalescerLeadingEdgeFlushesFirstUpdate(t *testing.T) {
-	c, flushes, _ := newTestCoalescer(50 * time.Millisecond)
+	c, flushes, _, _ := newTestCoalescer(50 * time.Millisecond)
 
 	c.output("hello")
 
@@ -39,7 +61,7 @@ func TestChatStreamCoalescerLeadingEdgeFlushesFirstUpdate(t *testing.T) {
 }
 
 func TestChatStreamCoalescerHoldsBurstAndKeepsLatestContent(t *testing.T) {
-	c, flushes, now := newTestCoalescer(50 * time.Millisecond)
+	c, flushes, now, _ := newTestCoalescer(50 * time.Millisecond)
 
 	c.output("a") // leading-edge flush at t=0
 	*now = now.Add(10 * time.Millisecond)
@@ -65,7 +87,7 @@ func TestChatStreamCoalescerHoldsBurstAndKeepsLatestContent(t *testing.T) {
 }
 
 func TestChatStreamCoalescerBuffersActivitiesInOrder(t *testing.T) {
-	c, flushes, now := newTestCoalescer(50 * time.Millisecond)
+	c, flushes, now, _ := newTestCoalescer(50 * time.Millisecond)
 
 	c.output("a") // leading-edge flush; arms the window
 	*now = now.Add(5 * time.Millisecond)
@@ -89,8 +111,34 @@ func TestChatStreamCoalescerBuffersActivitiesInOrder(t *testing.T) {
 	}
 }
 
+func TestChatStreamCoalescerTrailingTimerFlushesQuietBurst(t *testing.T) {
+	c, flushes, now, fireTimer := newTestCoalescer(50 * time.Millisecond)
+
+	c.output("a") // leading-edge flush at t=0; arms the window
+	*now = now.Add(10 * time.Millisecond)
+	c.activity(agentadapters.Activity{ID: "act-1"}) // held within window
+
+	// No later callback arrives. Without a trailing timer this activity
+	// would stay hidden until close(); the timer fires when the window
+	// closes and flushes it.
+	if len(*flushes) != 1 {
+		t.Fatalf("within-window activity: got %d flushes, want 1", len(*flushes))
+	}
+
+	*now = now.Add(40 * time.Millisecond) // window closed: t=50
+	fireTimer()
+
+	if len(*flushes) != 2 {
+		t.Fatalf("after trailing timer: got %d flushes, want 2", len(*flushes))
+	}
+	got := (*flushes)[1].activities
+	if len(got) != 1 || got[0].ID != "act-1" {
+		t.Fatalf("trailing flush activities = %+v, want [act-1]", got)
+	}
+}
+
 func TestChatStreamCoalescerCloseFlushesPendingThenStops(t *testing.T) {
-	c, flushes, now := newTestCoalescer(50 * time.Millisecond)
+	c, flushes, now, _ := newTestCoalescer(50 * time.Millisecond)
 
 	c.output("a") // leading-edge flush
 	*now = now.Add(10 * time.Millisecond)
@@ -114,8 +162,31 @@ func TestChatStreamCoalescerCloseFlushesPendingThenStops(t *testing.T) {
 	}
 }
 
+func TestChatStreamCoalescerCloseCancelsPendingTrailingTimer(t *testing.T) {
+	c, flushes, now, fireTimer := newTestCoalescer(50 * time.Millisecond)
+
+	c.output("a") // leading-edge flush at t=0
+	*now = now.Add(10 * time.Millisecond)
+	c.output("ab") // held within window; arms the trailing timer
+
+	c.close() // flushes the pending batch and cancels the timer
+	if len(*flushes) != 2 {
+		t.Fatalf("close with pending: got %d flushes, want 2", len(*flushes))
+	}
+	if got := (*flushes)[1].content; got != "ab" {
+		t.Fatalf("close flush content = %q, want %q", got, "ab")
+	}
+
+	// The cancelled timer firing late must not flush — close() and the
+	// finalize own terminal state.
+	fireTimer()
+	if len(*flushes) != 2 {
+		t.Fatalf("fired cancelled timer: got %d flushes, want 2 (no-op)", len(*flushes))
+	}
+}
+
 func TestChatStreamCoalescerCloseWithoutPendingIsNoOp(t *testing.T) {
-	c, flushes, now := newTestCoalescer(50 * time.Millisecond)
+	c, flushes, now, _ := newTestCoalescer(50 * time.Millisecond)
 
 	c.output("a") // leading-edge flush consumes the pending content
 	c.close()     // nothing pending -> no extra flush

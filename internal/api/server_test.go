@@ -2549,6 +2549,11 @@ type fakeAgentChatRunner struct {
 	closedSessions     []string
 	closeErr           error
 	configOptions      []agentcontrols.ConfigOption
+	// activitiesAfterCancel are emitted via OnActivity after ctx is
+	// cancelled (waitForCancel only), so they sit in the stream
+	// coalescer when the run returns and exercise the trailing
+	// flush/finalize persistence path under an already-done runCtx.
+	activitiesAfterCancel []agentadapters.Activity
 }
 
 func (r *fakeAgentChatRunner) PrepareSession(ctx context.Context, req agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
@@ -2609,6 +2614,11 @@ func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequ
 		}
 		output += "started\n"
 		<-ctx.Done()
+		for _, activity := range r.activitiesAfterCancel {
+			if req.OnActivity != nil {
+				req.OnActivity(activity)
+			}
+		}
 		return r.result(req, output, started, 1), context.Canceled
 	}
 	if req.OnOutput != nil && r.output != "" {
@@ -3138,6 +3148,87 @@ func TestAgentChatCancelsExternalAdapter(t *testing.T) {
 		}
 		if assistant.Error != "" {
 			t.Fatalf("assistant error = %q, want empty cancellation detail", assistant.Error)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for cancelled message POST")
+	}
+}
+
+// cancelAwareChatStore wraps a chat.Store so UpdateMessage fails when
+// its context is already cancelled, the way the production SQLite store
+// does (it runs the write under ctx). The in-memory test store ignores
+// ctx, so without this wrapper a flush under an already-cancelled
+// runCtx would silently succeed and hide the persistence-context
+// regression this test guards.
+type cancelAwareChatStore struct {
+	chat.Store
+}
+
+func (s cancelAwareChatStore) UpdateMessage(ctx context.Context, sessionID, messageID string, update func(*chat.Message)) (chat.Session, error) {
+	if err := ctx.Err(); err != nil {
+		return chat.Session{}, err
+	}
+	return s.Store.UpdateMessage(ctx, sessionID, messageID, update)
+}
+
+func TestAgentChatPersistsCoalescedActivityWhenRunCancelled(t *testing.T) {
+	dir := t.TempDir()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	// Honor ctx on writes so the post-cancel flush fails on an
+	// already-cancelled runCtx, as it would against SQLite.
+	apiHandler.SetAgentChatStore(cancelAwareChatStore{Store: chat.NewMemoryStore()})
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
+		waitForCancel: true,
+		// Emitted after ctx.Done(): the coalescer buffers this activity
+		// and only flushes it once the run has returned, when runCtx is
+		// already cancelled. It must persist under a context that
+		// outlives the run cancel, not be dropped before the finalize
+		// (which only appends terminal rows and would not restore it).
+		activitiesAfterCancel: []agentadapters.Activity{
+			{ID: "tool:held", Type: "tool_call", Status: "completed", Kind: "execute", Title: "held tool"},
+		},
+	})
+	handler := NewServer(logger, apiHandler)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	created := requestJSONToURL[ChatSessionResponse](t, http.MethodPost, server.URL+"/hecate/v1/chat/sessions", fmt.Sprintf(`{"agent_id":"codex","workspace":%q}`, dir))
+	done := make(chan ChatSessionResponse, 1)
+	go func() {
+		done <- requestJSONToURL[ChatSessionResponse](t, http.MethodPost, server.URL+"/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"please wait"}`)
+	}()
+
+	waitForAgentChatStatus(t, server.URL, created.Data.ID, "running")
+	cancelResp := postJSONToURL(t, server.URL+"/hecate/v1/chat/sessions/"+created.Data.ID+"/cancel", `{}`)
+	defer cancelResp.Body.Close()
+	if cancelResp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(cancelResp.Body)
+		t.Fatalf("cancel status = %d, want 202, body=%s", cancelResp.StatusCode, string(body))
+	}
+
+	select {
+	case updated := <-done:
+		if got := updated.Data.Status; got != "cancelled" {
+			t.Fatalf("final status = %q, want cancelled", got)
+		}
+		assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
+		if assistant.Status != "cancelled" {
+			t.Fatalf("assistant status = %q, want cancelled", assistant.Status)
+		}
+		found := false
+		for _, activity := range assistant.Activities {
+			if activity.ID != "tool:held" {
+				continue
+			}
+			found = true
+			if activity.Status != "completed" || activity.Title != "held tool" {
+				t.Fatalf("held activity = %#v, want completed 'held tool'", activity)
+			}
+		}
+		if !found {
+			t.Fatalf("coalesced activity dropped on cancel; activities = %#v", assistant.Activities)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("timed out waiting for cancelled message POST")

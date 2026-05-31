@@ -869,8 +869,17 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 	// last-write-wins (the full accumulated transcript); activities are
 	// applied in arrival order via the same per-record merge the
 	// adapter callbacks used to do inline.
+	//
+	// It persists under r.Context(), not runCtx: the trailing flush
+	// (from the coalescer's timer or close()) can run as Run is
+	// returning, so on cancel/deadline paths runCtx is already done and
+	// persisting under it would silently drop the final buffered batch.
+	// The terminal finalize below recovers content (it re-sets
+	// message.Content from result.Output) but only appends activity
+	// rows, so a dropped activity batch would be lost for good.
+	// r.Context() matches that finalize and outlives run cancellation.
 	streamFlush := func(display string, haveContent bool, activities []agentadapters.Activity) {
-		updated, updateErr := h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *chat.Message) {
+		updated, updateErr := h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *chat.Message) {
 			if haveContent {
 				message.Content = display
 				if strings.TrimSpace(display) != "" && !outputSeen {
