@@ -437,7 +437,10 @@ function isAdapterContextReadFailure(activity: ChatActivityRecord): boolean {
 }
 
 function toolDetailHasOutput(activity: ChatActivityRecord): boolean {
-  return Boolean(capturedToolOutput(activity)) || /\boutput\s*:/i.test(activity.detail ?? "");
+  return (
+    Boolean(capturedToolOutput(activity)) ||
+    /\boutput(?:\s+captured)?\s*(?::|·)/i.test(activity.detail ?? "")
+  );
 }
 
 function hasFailureLikeToolOutput(activity: ChatActivityRecord): boolean {
@@ -464,7 +467,7 @@ function simpleToolOutputPrefix(prefix: string): boolean {
 }
 
 function parseToolOutputDetail(detail: string): { prefix: string; output: string } | undefined {
-  const match = detail.match(/^(.+?)\s*·\s*output:\s*(.*)$/is);
+  const match = detail.match(/^(.+?)\s*·\s*output(?:\s+captured)?\s*(?::|·)\s*(.*)$/is);
   if (!match) return undefined;
   return {
     prefix: match[1].trim(),

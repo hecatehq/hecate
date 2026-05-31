@@ -286,7 +286,11 @@ function advancedSummaryLabel(activity: ChatActivityRecord): string {
   if (activity.type === "changed_files" || activity.type === "files_changed") return "Files";
   if (activity.type === "output") return "Output";
   if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Output";
-  if (activity.type === "tool_call" && /\boutput\s*:/i.test(activity.detail ?? "")) return "Output";
+  if (
+    activity.type === "tool_call" &&
+    /\boutput(?:\s+captured)?\s*(?::|·)/i.test(activity.detail ?? "")
+  )
+    return "Output";
   return "Advanced";
 }
 

@@ -131,6 +131,12 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   and Details grouping instead of growing separate task/activity renderers.
   Task Detail may add Task-specific advanced disclosures, but keep that debug
   layer out of Chats unless the operator explicitly asks for it.
+- Transcript rows should have one source of truth for noisy details. Do not
+  repeat captured command/read output both in the compact row and in the output
+  preview card. Do not render raw captured diffs in the transcript when the
+  message already has a workspace-changes badge or the side-panel diff viewer.
+  Group repetitive command rows into a single expandable summary that reveals
+  commands and captured output together.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.

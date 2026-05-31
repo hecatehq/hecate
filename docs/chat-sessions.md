@@ -180,7 +180,7 @@ The shared renderer keeps the high-signal path visible:
 - model turns / thinking
 - tool calls
 - approval requested / approved / rejected / cancelled
-- files changed
+- workspace changes
 - final answer
 - terminal run state
 
@@ -190,6 +190,15 @@ conversation stays readable; Task Detail opens the activity section by default
 because that view is already a run-inspection surface. Task Detail can also
 show a per-row **Advanced** disclosure with raw activity metadata such as
 step/artifact/approval ids, tool kind, path, timestamp, and summary payload.
+Repetitive command rows are collapsed into a single **Ran N commands** group;
+expanding that group shows the commands and any captured output in one layer so
+operators do not have to click through nested output disclosures. Command and
+read-context rows keep raw output out of the compact row and show normalized
+line breaks inside the output card.
+Workspace changes have one primary surface: the per-turn file badge and the
+workspace changes panel. Transcript activity may mention that workspace changes
+exist, but it should not duplicate raw patches or render a second diff viewer
+when the richer workspace diff surface is available.
 For failed tool rows, Task Detail also previews stdout/stderr artifacts captured
 for the same tool step, including an explicit empty-stream note when stderr was
 captured but contained no bytes. Artifacts from other steps are intentionally
