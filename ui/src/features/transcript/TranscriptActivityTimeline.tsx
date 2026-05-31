@@ -217,11 +217,9 @@ export function TranscriptActivityTimeline({
 function TimelineActivityLine({
   activity,
   renderAdvancedActivity,
-  inlineAdvanced = false,
 }: {
   activity: ChatActivityRecord;
   renderAdvancedActivity?: (activity: ChatActivityRecord) => ReactNode;
-  inlineAdvanced?: boolean;
 }) {
   const children = activity.children ?? [];
   const advancedContent = renderAdvancedActivity?.(activity);
@@ -232,33 +230,11 @@ function TimelineActivityLine({
       <ActivityLine
         activity={activity}
         prefix={activityLinePrefix(activity)}
-        hideDetail={inlineAdvanced && Boolean(advancedContent)}
       />
     );
   const hasAdvanced = children.length > 0 || Boolean(advancedContent);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   if (!hasAdvanced) return line;
-
-  if (inlineAdvanced) {
-    return (
-      <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
-        {line}
-        {children.length > 0 && (
-          <div style={{ display: "grid", gap: 5, marginLeft: 15 }}>
-            {children.map((child, index) => (
-              <TimelineActivityLine
-                key={child.id || `child-${child.type}-${child.created_at ?? index}`}
-                activity={child}
-                renderAdvancedActivity={renderAdvancedActivity}
-                inlineAdvanced
-              />
-            ))}
-          </div>
-        )}
-        {advancedContent && <div style={{ marginLeft: 15 }}>{advancedContent}</div>}
-      </div>
-    );
-  }
 
   return (
     <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
@@ -362,14 +338,9 @@ function PlanActivityLine({ activity }: { activity: ChatActivityRecord }) {
   );
 }
 
-function ActivityLine({
-  activity,
-  prefix,
-  hideDetail = false,
-}: {
+function ActivityLine({ activity, prefix }: {
   activity: ChatActivityRecord;
   prefix?: string;
-  hideDetail?: boolean;
 }) {
   const display = activityDisplay(activity);
   const status = activityEffectiveStatus(activity);
@@ -406,7 +377,7 @@ function ActivityLine({
       >
         {display.title}
       </span>
-      {display.detail && !hideDetail && (
+      {display.detail && (
         <span
           style={{
             fontSize: 11,
