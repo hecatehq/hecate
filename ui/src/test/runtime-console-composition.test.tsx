@@ -688,8 +688,8 @@ describe("useRuntimeConsole", () => {
       agent_id: "hecate",
       model: "gpt-4o-mini",
       project_id: "proj_1",
-      workspace: "/tmp/hecate-project",
     });
+    expect(createBody).not.toHaveProperty("workspace");
     expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
   });
 
@@ -752,13 +752,12 @@ describe("useRuntimeConsole", () => {
 
     expect(createBody).toMatchObject({
       agent_id: "hecate",
-      // Tools-off Hecate creation dispatches as direct_model straight
-      // to the named provider, so the user's chosen model is kept
-      // even when it isn't in the Hecate-routing catalog.
+      // Tools-off Hecate creation keeps execution_mode as hecate_task
+      // and records the direct provider call with tools_enabled=false.
       model: "gpt-4o-mini",
-      workspace: "/tmp/hecate",
       project_id: "proj_1",
     });
+    expect(createBody).not.toHaveProperty("workspace");
     expect(result.current.state.activeChatSession?.project_id).toBe("proj_1");
   });
 
@@ -2787,7 +2786,7 @@ describe("useRuntimeConsole", () => {
                 segments: [
                   {
                     id: "model:first",
-                    execution_mode: "direct_model",
+                    execution_mode: "hecate_task", tools_enabled: false,
                     provider: "ollama",
                     model: "smollm2:135m",
                     status: "completed",

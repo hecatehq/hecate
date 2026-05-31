@@ -4,7 +4,7 @@ import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useProjects } from "../../app/state/projects";
 import { useChatActions } from "../../app/state/coordinators/chat";
-import { useNewChatAgentID, useChatTarget } from "../../app/state/derived";
+import { useNewChatAgentID, useChatTarget, useChatToolsEnabled } from "../../app/state/derived";
 import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
 import { formatAbsoluteTime } from "../../lib/format";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
@@ -59,6 +59,7 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const providersAndModels = useProvidersAndModels();
   const projects = useProjects();
   const chatTarget = useChatTarget();
+  const chatToolsEnabled = useChatToolsEnabled();
   const { actions: settingsActions } = useWiredSettingsActions();
   const chatActions = useChatActions({
     chatTarget,
@@ -110,7 +111,8 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const workspaceForNewChat = projects.activeProjectID
     ? selectedProjectWorkspace
     : chat.state.agentWorkspace.trim();
-  const selectedNewChatUsesWorkspace = newChatAgentID !== "hecate" || chatTarget === "agent";
+  const selectedNewChatUsesWorkspace =
+    newChatAgentID !== "hecate" || (chatTarget === "agent" && chatToolsEnabled);
   const workspaceRequiredForNewChat =
     isAgentChat && selectedNewChatUsesWorkspace && !workspaceForNewChat;
 

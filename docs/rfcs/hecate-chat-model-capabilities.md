@@ -144,7 +144,7 @@ records the execution mode that produced that turn:
 
 ```ts
 type ChatAgentID = "hecate" | "codex" | "claude_code" | "cursor_agent" | string;
-type ChatExecutionMode = "direct_model" | "hecate_task" | "external_agent";
+type ChatExecutionMode = "hecate_task" | "external_agent";
 ```
 
 Hecate Chat sessions also store:
@@ -442,9 +442,9 @@ Done in the core bridge:
   chat banner while Tasks remains canonical
 - streamed assistant text from the backing task updates the chat transcript
   before the run reaches a terminal state when the provider route supports SSE
-- direct model turns and Hecate Agent turns share one Agent Chat transcript
-  using `execution_mode="direct_model"` / `execution_mode="hecate_task"`
-  message snapshots
+- tools-off direct model turns and Hecate Agent turns share one Agent Chat
+  transcript using `execution_mode="hecate_task"` with `tools_enabled=false`
+  or `tools_enabled=true` message snapshots
 - turning tools back on after a direct model segment creates a new task-backed
   segment in the same transcript
 - Hecate Chat queues prompts locally while the active task-backed segment is

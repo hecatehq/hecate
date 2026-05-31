@@ -150,7 +150,7 @@ type ContextPacket struct {
     SourcePreset string
     Provider    string
     Model       string
-    ExecutionMode string // direct_model | hecate_task | external_agent
+    ExecutionMode string // hecate_task | external_agent
     Items       []ContextItem
 }
 

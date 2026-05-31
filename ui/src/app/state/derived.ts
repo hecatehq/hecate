@@ -41,7 +41,7 @@ function sessionHasActiveHecateTaskSegment(session: ChatSessionRecord | null): b
 // chatTarget gates several views' route/copy decisions. The active
 // agent-chat session forces a target via its agent_id
 // shape; the per-session map override (used by Hecate Chat to flip
-// between agent and direct model) and the default target take effect
+// tools on/off) and the default target take effect
 // only when nothing in the session pins the target.
 export function useChatTarget(): ChatTarget {
   const { state } = useChat();
@@ -76,14 +76,10 @@ export function useChatTarget(): ChatTarget {
 // callers should gate the call site on `chatTarget === "agent"` before
 // using the result to drive UI state.
 //
-// `chatTargetBySessionID[id] === "model"` is a legacy storage value
-// migrated forward to `chatToolsEnabledBySessionID[id] = false` at
-// slice mount (see chat.tsx), so this hook never has to look at
-// chatTarget for back-compat. Deliberately no derivation from the
-// session's message-tail `execution_mode`: the latest completed turn's
-// mode could have been a capability-driven downgrade rather than user
-// intent, and confusing those would silently flip the toggle state on
-// session resume.
+// Deliberately no derivation from the session's message-tail
+// `tools_enabled`: the latest completed turn may have been a
+// capability-driven fallback rather than user intent, and confusing those
+// would silently flip the toggle state on session resume.
 export function useChatToolsEnabled(): boolean {
   const { state } = useChat();
   const sessionID = state.activeChatSessionID;

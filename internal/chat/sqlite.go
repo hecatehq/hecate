@@ -537,13 +537,8 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		{name: "execution_mode", definition: "TEXT NOT NULL DEFAULT ''"},
 		// Boolean stored as INTEGER (0/1). DEFAULT 1 so existing rows
 		// land on "tools on" — the agent path is the safe assumption.
-		// The legacy execution_mode='direct_model' rows get backfilled
-		// to 0 by the dedicated migration below, since those rows
-		// explicitly recorded a tools-off intent before tools-off had
-		// its own column. The handler layer treats this column as the
-		// source of truth going forward; execution_mode stays for
-		// segment routing (hecate_task vs external_agent) and
-		// backwards-compat reads.
+		// Tools-off direct model turns are represented as hecate_task
+		// messages with tools_enabled=0.
 		{name: "tools_enabled", definition: "INTEGER NOT NULL DEFAULT 1"},
 		{name: "segment_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "task_id", definition: "TEXT NOT NULL DEFAULT ''"},
@@ -567,41 +562,6 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		if err := s.ensureMessageColumn(ctx, column.name, column.definition); err != nil {
 			return err
 		}
-	}
-
-	// Backfill `tools_enabled = 0` for rows that recorded the legacy
-	// `execution_mode = 'direct_model'` value. That literal predates
-	// the dedicated tools-enabled column and is the single signal in
-	// older data that the user submitted with tools off. The UPDATE
-	// is idempotent and runs every boot; once every direct_model row
-	// has been touched the WHERE clause selects nothing on
-	// subsequent boots.
-	if _, err := s.client.DB().ExecContext(
-		ctx,
-		fmt.Sprintf(
-			`UPDATE %s SET tools_enabled = 0 WHERE execution_mode = 'direct_model' AND tools_enabled = 1`,
-			s.messagesTable,
-		),
-	); err != nil {
-		return fmt.Errorf("backfill sqlite agent chat tools_enabled: %w", err)
-	}
-
-	// Migrate execution_mode='direct_model' rows to 'hecate_task'.
-	// Every Hecate-side turn now persists as hecate_task; the
-	// tools-off intent is recorded on the tools_enabled column above
-	// (already backfilled by the previous statement). The two
-	// migrations together preserve the original turn semantics
-	// without leaving the legacy literal as a parallel discriminant
-	// that handler code would have to keep checking. Idempotent —
-	// re-runs select nothing once the column is fully migrated.
-	if _, err := s.client.DB().ExecContext(
-		ctx,
-		fmt.Sprintf(
-			`UPDATE %s SET execution_mode = 'hecate_task' WHERE execution_mode = 'direct_model'`,
-			s.messagesTable,
-		),
-	); err != nil {
-		return fmt.Errorf("backfill sqlite agent chat execution_mode: %w", err)
 	}
 
 	messagesIndex := strings.Trim(s.messagesTable, `"`) + "_session_seq_idx"

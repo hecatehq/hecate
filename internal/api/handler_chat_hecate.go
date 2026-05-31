@@ -22,8 +22,7 @@ const hecateAgentPollInterval = 250 * time.Millisecond
 // handleCreateHecateChatMessage is the unified entry point for every
 // Hecate-side chat-message submission. It branches on toolsEnabled:
 //   - toolsEnabled=false → delegate to handleDirectModelTurn (a
-//     direct LLM call with no agent_loop task, the runtime fallback
-//     for the legacy direct_model dispatch path).
+//     direct LLM call with no agent_loop task).
 //   - toolsEnabled=true → existing agent_loop task creation +
 //     polling path that the Hecate Chat tools-on UX runs on.
 //
@@ -377,10 +376,9 @@ func shouldStartNewHecateAgentSegment(session chat.Session, provider, model stri
 		}
 		// Post-unification: every Hecate-side message persists as
 		// `hecate_task`; the tools-on/off discriminant lives on the
-		// per-message ToolsEnabled boolean. A direct-model turn
-		// (ToolsEnabled=false) AND the legacy direct_model literal
-		// both break the running tool-task segment — the new turn
-		// gets its own backing task.
+		// per-message ToolsEnabled boolean. A tools-off turn breaks
+		// the running tool-task segment, so the next tools-on turn gets
+		// its own backing task.
 		if !isHecateTaskToolsOnMessage(message) {
 			return true
 		}
@@ -400,9 +398,6 @@ func shouldStartNewHecateAgentSegment(session chat.Session, provider, model stri
 // agent_loop runtime with tools. Used by segment continuation logic
 // to detect when a turn breaks a running tool-task segment.
 func isHecateTaskToolsOnMessage(message chat.Message) bool {
-	if message.ExecutionMode == chat.LegacyExecutionModeDirectModel {
-		return false
-	}
 	if message.ExecutionMode != chat.ExecutionModeHecateTask {
 		return false
 	}

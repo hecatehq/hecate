@@ -98,8 +98,8 @@ focused on request setup, polling, and cancellation.
 Chat sessions separate ownership from turn execution:
 
 1. `agent_id="hecate"` owns built-in Hecate Chat sessions. Each turn chooses
-   `execution_mode="direct_model"` for a plain gateway/router call or
-   `execution_mode="hecate_task"` for task-backed tools.
+   `execution_mode="hecate_task"`. `tools_enabled=false` records a plain
+   gateway/router call; `tools_enabled=true` records a task-backed tools turn.
 2. `agent_id` values such as `codex`, `claude_code`, or `cursor_agent` own
    External Agent sessions. Their turns use `execution_mode="external_agent"`
    and point at one supervised adapter session.

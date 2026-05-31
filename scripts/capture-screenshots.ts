@@ -628,7 +628,7 @@ function docsHecateToolsFallbackSession() {
       {
         id: "hecate-tools-fallback-user-1",
         runtime_kind: "model",
-        execution_mode: "direct_model",
+        execution_mode: "hecate_task", tools_enabled: false,
         segment_id: "model:smollm-joke",
         role: "user",
         content: "tell a short terminal joke",
@@ -639,7 +639,7 @@ function docsHecateToolsFallbackSession() {
       {
         id: "hecate-tools-fallback-assistant-1",
         runtime_kind: "model",
-        execution_mode: "direct_model",
+        execution_mode: "hecate_task", tools_enabled: false,
         segment_id: "model:smollm-joke",
         role: "assistant",
         content:
@@ -1613,7 +1613,7 @@ async function addProvider(params: {
   console.log(`  added provider ${params.name} (${params.kind})`);
 }
 
-// seedChatSessions creates a few direct model sessions through Hecate's
+// seedChatSessions creates a few Hecate-owned sessions through the local
 // API. The first session optionally gets a real completion so the
 // observability screenshot has a trace row to open; the main Chats
 // screenshot below is fixture-backed so it stays stable without Ollama.
@@ -1737,7 +1737,8 @@ async function main() {
   await clearAndNavigate(page);
   await page.evaluate((workspaceKey) => {
     window.localStorage.setItem(workspaceKey, "chats");
-    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
   }, WORKSPACE_KEY);
   await page.reload();

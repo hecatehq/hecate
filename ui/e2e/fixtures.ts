@@ -616,7 +616,8 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const content = String(body.content || "");
       const executionMode =
         body.execution_mode ||
-        (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "direct_model");
+        (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "hecate_task");
+      const toolsEnabled = executionMode === "external_agent" ? undefined : body.tools_enabled !== false;
       const sequence = chatSequence;
       const segmentID = `segment-${sequence}`;
       const isExternal = executionMode === "external_agent";
@@ -640,18 +641,19 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           id: `agent-msg-user-${sequence}`,
           execution_mode: executionMode,
           segment_id: isExternal ? segmentID : undefined,
-          role: "user",
-          content,
-          created_at: now(),
+	          role: "user",
+	          content,
+	          tools_enabled: toolsEnabled,
+	          created_at: now(),
         },
         {
           id: `agent-msg-assistant-${sequence}`,
           execution_mode: executionMode,
           segment_id: isExternal ? segmentID : undefined,
-          role: "assistant",
-          content:
-            executionMode === "direct_model"
-              ? `Direct response to: ${content}`
+	          role: "assistant",
+	          content:
+	            executionMode === "hecate_task" && toolsEnabled === false
+	              ? `Direct response to: ${content}`
               : keepRunning
                 ? "I'll inspect that now."
                 : `Agent response to: ${content}`,
@@ -707,7 +709,11 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           provider: body.provider || session.provider,
           model: body.model || session.model,
           workspace: session.workspace,
-          run_id: executionMode === "direct_model" ? `model_run_${sequence}` : `run_${sequence}`,
+          tools_enabled: toolsEnabled,
+          run_id:
+            executionMode === "hecate_task" && toolsEnabled === false
+              ? `model_run_${sequence}`
+              : `run_${sequence}`,
           request_id: `req_${sequence}`,
           trace_id: `trace_${sequence}`,
           cost_mode: executionMode === "external_agent" ? "external" : "hecate",

@@ -1180,14 +1180,10 @@ chooses the chat owner:
   `execution_mode="hecate_task"` and `tools_enabled` to choose between a normal
   provider/model call (`tools_enabled=false`) and a visible `agent_loop` task
   with Hecate tools, task approvals, artifacts, and OTel
-  (`tools_enabled=true`). The legacy `execution_mode="direct_model"` literal is
-  still accepted as a back-compat input (older clients send it instead of
-  setting `tools_enabled=false`); the gateway folds it into the unified
-  hecate-task dispatch and records `tools_enabled=false` on the persisted
-  message. Hecate Chat sessions may opt into RTK command-output compaction with
-  `rtk_enabled=true`; shell and git tool calls then launch as `rtk sh -lc
-<command>` while keeping Hecate approvals, policy validation, sandboxing,
-  limits, and timeouts in place.
+  (`tools_enabled=true`). Hecate Chat sessions may opt into
+  RTK command-output compaction with `rtk_enabled=true`; shell and git tool
+  calls then launch as `rtk sh -lc <command>` while keeping Hecate approvals,
+  policy validation, sandboxing, limits, and timeouts in place.
 - `agent_id="codex"`, `"claude_code"`, `"cursor_agent"`, `"grok_build"`, or another
   registered adapter id — the external adapter owns the native session while
   Hecate supervises lifecycle, transcript, diagnostics, and external-agent
@@ -1293,8 +1289,7 @@ Creates a chat session. `agent_id` chooses the session owner:
 - `hecate` (default) creates a Hecate Chat. Subsequent turns send
   `execution_mode="hecate_task"` with `tools_enabled` set per turn
   (`tools_enabled=true` for tool-backed runs, `tools_enabled=false` for
-  direct model chat). Legacy clients sending `execution_mode="direct_model"`
-  still work; the gateway treats it as a tools-off hecate-task turn.
+  direct model chat).
 - Any registered external-agent id, such as `codex`, `claude_code`,
   `cursor_agent`, or `grok_build`, creates an External Agent chat and requires
   `workspace`.
@@ -1519,15 +1514,12 @@ the user message and assistant output.
 
 - `execution_mode` — `hecate_task` or `external_agent`. Hecate Chat sessions
   use `hecate_task` (tools-on/off is set separately via `tools_enabled`);
-  External Agent sessions always use `external_agent`. The legacy
-  `direct_model` literal is still accepted as a back-compat input — the
-  gateway normalizes it to `hecate_task` with `tools_enabled=false`.
+  External Agent sessions always use `external_agent`.
 - `tools_enabled` (boolean) — per-turn tools-on/off signal for Hecate Chat
   sessions. `true` opts into the tool-backed `agent_loop` path; `false`
   dispatches the prompt directly to the selected model without creating a
-  task. When omitted, the gateway derives the value from `execution_mode`
-  (legacy `direct_model` → `false`; `hecate_task` → `true`; both omitted →
-  `false`, preserving the pre-`tools_enabled` default).
+  task. When omitted, Hecate treats Hecate-owned turns as tools-on unless model
+  capabilities require a tools-off direct model fallback.
 - `provider` / `model` — used for tools-off turns and new task-backed
   Hecate Chat segments. Existing task-backed segments continue with their
   saved model snapshot until the operator turns tools off or starts a new
@@ -1695,7 +1687,7 @@ Chat execution errors:
 | `400`  | `chat.workspace_required`        | Task-backed Hecate Chat turns and External Agent sessions need a selected workspace path before the first turn.                                                                             |
 | `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or task-backed turns, or an External Agent adapter requires a launch model before session start.                           |
 | `400`  | `chat.agent_id_invalid`          | The requested session owner is not `hecate` and does not match a registered external-agent adapter.                                                                                         |
-| `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `hecate_task` or `external_agent` (legacy `direct_model` is also accepted and normalized to `hecate_task`).                                 |
+| `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `hecate_task` or `external_agent`.                                                                                                          |
 | `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                            |
 | `400`  | `chat.adapter_not_found`         | The selected external-agent adapter is not registered.                                                                                                                                      |
 | `409`  | `chat.agent_session_busy`        | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for tools-off turns in the same Hecate Chat session.       |

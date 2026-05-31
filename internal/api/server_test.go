@@ -2104,7 +2104,7 @@ func TestAgentChatCreateAllowsEmptyHecateShellAndRequiresModelOnSend(t *testing.
 		t.Fatalf("model = %q, want empty shell model", created.Data.Model)
 	}
 
-	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`)
+	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello","tools_enabled":false}`)
 	payload := decodeRecorder[struct {
 		Error struct {
 			Type           string `json:"type"`

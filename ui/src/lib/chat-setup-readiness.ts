@@ -2,7 +2,7 @@ import type { SelectedModelIssue } from "./provider-issues";
 import type { ModelRecord } from "../types/model";
 import type { ProviderFilter } from "../types/provider";
 
-export type ChatSetupTarget = "model" | "agent" | "external_agent";
+export type ChatSetupTarget = "agent" | "external_agent";
 
 export type ChatSetupRepairKind =
   | "no_provider"
@@ -34,6 +34,7 @@ export function resolveChatSetupRepairState({
   modelRouteUnavailable,
   selectedModelIssue,
   workspace,
+  workspaceRequired,
   selectedAgentID,
   selectedAgentName,
   selectedAgentAvailable,
@@ -45,6 +46,7 @@ export function resolveChatSetupRepairState({
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
   workspace: string;
+  workspaceRequired?: boolean;
   selectedAgentID?: string;
   selectedAgentName?: string;
   selectedAgentAvailable: boolean;
@@ -82,7 +84,9 @@ export function resolveChatSetupRepairState({
     return null;
   }
 
-  if (target === "agent" && hasConfiguredProviders && !workspace.trim()) {
+  const shouldRequireWorkspace = workspaceRequired ?? target === "agent";
+
+  if (target === "agent" && shouldRequireWorkspace && hasConfiguredProviders && !workspace.trim()) {
     return workspaceRepair();
   }
 
@@ -113,7 +117,7 @@ export function resolveChatSetupRepairState({
     };
   }
 
-  if (target === "agent" && !workspace.trim()) {
+  if (target === "agent" && shouldRequireWorkspace && !workspace.trim()) {
     return workspaceRepair();
   }
 
