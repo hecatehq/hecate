@@ -15,6 +15,8 @@ import { DiffStatList, TranscriptActivityTimeline } from "./TranscriptActivityTi
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 import { capturedToolOutput } from "./transcriptActivityHelpers";
 
+const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
 export function TranscriptMessageRow({
   id,
   role,
@@ -440,7 +442,7 @@ function normalizeToolOutputPreview(output: string): string {
 }
 
 function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-9;]*m/g, "");
+  return value.replace(ANSI_ESCAPE_PATTERN, "");
 }
 
 function CapturedDiffDetails({ diffStat, diff }: { diffStat?: string; diff?: string }) {
