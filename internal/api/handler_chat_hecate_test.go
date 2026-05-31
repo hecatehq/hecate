@@ -440,7 +440,10 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 		t.Fatalf("model messages = %d, want 2", len(modelTurn.Data.Messages))
 	}
 	modelAssistant := modelTurn.Data.Messages[1]
-	if modelAssistant.ExecutionMode != chat.ExecutionModeDirectModel || modelAssistant.TaskID != "" || modelAssistant.Model != "gpt-4o-mini" {
+	// Post-unification: every Hecate-side message persists as
+	// `hecate_task`. The tools-off discriminant lives on the
+	// per-message ToolsEnabled boolean asserted below.
+	if modelAssistant.ExecutionMode != chat.ExecutionModeHecateTask || modelAssistant.TaskID != "" || modelAssistant.Model != "gpt-4o-mini" {
 		t.Fatalf("model assistant snapshot = execution_mode %q task %q model %q", modelAssistant.ExecutionMode, modelAssistant.TaskID, modelAssistant.Model)
 	}
 	if modelAssistant.ToolsEnabled {
@@ -470,8 +473,11 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 		t.Fatalf("model segment should preserve latest task pointer, got %q want %q", secondModel.Data.TaskID, firstTaskID)
 	}
 	secondModelAssistant := secondModel.Data.Messages[len(secondModel.Data.Messages)-1]
-	if secondModelAssistant.ExecutionMode != chat.ExecutionModeDirectModel || secondModelAssistant.TaskID != "" {
+	if secondModelAssistant.ExecutionMode != chat.ExecutionModeHecateTask || secondModelAssistant.TaskID != "" {
 		t.Fatalf("second model assistant snapshot = execution_mode %q task %q", secondModelAssistant.ExecutionMode, secondModelAssistant.TaskID)
+	}
+	if secondModelAssistant.ToolsEnabled {
+		t.Fatalf("second model assistant tools_enabled = true, want false (direct-model turn)")
 	}
 
 	secondTools := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
@@ -502,19 +508,15 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	if len(segments) != 5 {
 		t.Fatalf("segments = %d, want 5: %+v", len(segments), segments)
 	}
-	wantModes := []string{
-		chat.ExecutionModeDirectModel,
-		chat.ExecutionModeHecateTask,
-		chat.ExecutionModeDirectModel,
-		chat.ExecutionModeHecateTask,
-		chat.ExecutionModeHecateTask,
-	}
-	for i, want := range wantModes {
-		if segments[i].ExecutionMode != want {
-			t.Fatalf("segment %d execution_mode = %q, want %q: %+v", i, segments[i].ExecutionMode, want, segments)
+	// All segments persist as `hecate_task` now. The segment shape
+	// (model vs tools turn) is recoverable from segment.ID prefix
+	// (`segment:` vs `task:`) and the per-segment task_id population.
+	for i, segment := range segments {
+		if segment.ExecutionMode != chat.ExecutionModeHecateTask {
+			t.Fatalf("segment %d execution_mode = %q, want hecate_task: %+v", i, segment.ExecutionMode, segments)
 		}
-		if segments[i].MessageCount != 2 {
-			t.Fatalf("segment %d message_count = %d, want 2: %+v", i, segments[i].MessageCount, segments)
+		if segment.MessageCount != 2 {
+			t.Fatalf("segment %d message_count = %d, want 2: %+v", i, segment.MessageCount, segments)
 		}
 	}
 	if segments[0].ID != modelAssistant.SegmentID || segments[0].TaskID != "" || segments[0].Model != "gpt-4o-mini" {
@@ -939,8 +941,15 @@ func TestHecateAgentChatFallsBackToDirectModelWhenToolsUnavailable(t *testing.T)
 		t.Fatalf("messages = %d, want at least 2", len(updated.Data.Messages))
 	}
 	assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
-	if assistant.ExecutionMode != chat.ExecutionModeDirectModel {
-		t.Fatalf("assistant execution mode = %q, want direct_model", assistant.ExecutionMode)
+	// Post-unification: every Hecate-side turn persists as
+	// `hecate_task` regardless of tools state. The capability
+	// downgrade flips `ToolsEnabled` to false but the
+	// execution_mode stays consistent across the chat session.
+	if assistant.ExecutionMode != chat.ExecutionModeHecateTask {
+		t.Fatalf("assistant execution mode = %q, want hecate_task", assistant.ExecutionMode)
+	}
+	if assistant.ToolsEnabled {
+		t.Fatalf("assistant tools_enabled = true, want false (capability downgrade)")
 	}
 	if assistant.TaskID != "" {
 		t.Fatalf("assistant task id = %q, want empty", assistant.TaskID)

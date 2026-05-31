@@ -417,10 +417,18 @@ func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.Co
 
 const (
 	DefaultAgentID             = "hecate"
-	ExecutionModeDirectModel   = "direct_model"
 	ExecutionModeHecateTask    = "hecate_task"
 	ExecutionModeExternalAgent = "external_agent"
 )
+
+// LegacyExecutionModeDirectModel is the wire literal older clients
+// may still send and older persisted rows may still carry for what
+// is conceptually now a Hecate-task turn with tools off. Kept as a
+// named back-compat constant rather than scattered string literals
+// so the cleanup landing site is obvious — once every reachable
+// install has migrated to writing `hecate_task` + `tools_enabled =
+// false`, this constant + its readers can be deleted in one diff.
+const LegacyExecutionModeDirectModel = "direct_model"
 
 func hydrateMessageRuntimeFromSession(message *Message, session Session) {
 	if message.ExecutionMode == "" {
@@ -464,8 +472,11 @@ func defaultMessageExecutionMode(session Session) string {
 	if session.AgentID != "" && session.AgentID != DefaultAgentID {
 		return ExecutionModeExternalAgent
 	}
-	if session.TaskID != "" {
-		return ExecutionModeHecateTask
-	}
-	return ExecutionModeDirectModel
+	// Every Hecate-side session now uses `hecate_task` as the
+	// execution mode regardless of whether a backing task exists.
+	// Tools-on/off is recorded separately on `Message.ToolsEnabled`;
+	// the legacy `direct_model` value is only present on rows that
+	// predate the unification and gets folded into `hecate_task` by
+	// the sqlite migration in internal/chat/sqlite.go.
+	return ExecutionModeHecateTask
 }

@@ -375,7 +375,13 @@ func shouldStartNewHecateAgentSegment(session chat.Session, provider, model stri
 		if strings.TrimSpace(message.Content) == "" && message.Role == "assistant" {
 			continue
 		}
-		if message.ExecutionMode != chat.ExecutionModeHecateTask {
+		// Post-unification: every Hecate-side message persists as
+		// `hecate_task`; the tools-on/off discriminant lives on the
+		// per-message ToolsEnabled boolean. A direct-model turn
+		// (ToolsEnabled=false) AND the legacy direct_model literal
+		// both break the running tool-task segment — the new turn
+		// gets its own backing task.
+		if !isHecateTaskToolsOnMessage(message) {
 			return true
 		}
 		if provider != "" && strings.TrimSpace(message.Provider) != "" && strings.TrimSpace(message.Provider) != provider {
@@ -387,6 +393,20 @@ func shouldStartNewHecateAgentSegment(session chat.Session, provider, model stri
 		return false
 	}
 	return false
+}
+
+// isHecateTaskToolsOnMessage reports whether the persisted message
+// is a tools-on Hecate-task turn — i.e., a turn that ran through the
+// agent_loop runtime with tools. Used by segment continuation logic
+// to detect when a turn breaks a running tool-task segment.
+func isHecateTaskToolsOnMessage(message chat.Message) bool {
+	if message.ExecutionMode == chat.LegacyExecutionModeDirectModel {
+		return false
+	}
+	if message.ExecutionMode != chat.ExecutionModeHecateTask {
+		return false
+	}
+	return message.ToolsEnabled
 }
 
 func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session chat.Session, prompt, systemPrompt string, forceNewTask bool) (types.Task, types.TaskRun, error) {

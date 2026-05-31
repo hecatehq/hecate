@@ -751,25 +751,31 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	executionMode := normalizeChatExecutionMode(req.ExecutionMode, session, req.ToolsEnabled)
-	// Resolve the effective tools-on/off signal for this turn. The
-	// capability-driven downgrade (a tool-incapable model on a Hecate
-	// session) flips this to false even when the client requested
-	// tools-on, so the unified handler below routes the turn to the
-	// direct-model code path without the dispatcher needing a
-	// separate direct_model switch case.
-	toolsEnabled := executionMode == chat.ExecutionModeHecateTask
+	// Resolve the effective tools-on/off signal for this turn from
+	// either the new `tools_enabled` field or the legacy
+	// `execution_mode = "direct_model"` literal. The capability-
+	// driven downgrade (a tool-incapable model on a Hecate session)
+	// flips this to false even when the client requested tools-on,
+	// so the unified handler routes the turn to the direct-model
+	// code path without the dispatcher needing a separate
+	// direct_model switch case.
+	toolsEnabled := chatRequestToolsEnabled(req)
 	if toolsEnabled && !isExternalChatSession(session) && h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req) {
 		toolsEnabled = false
 	}
 	switch executionMode {
-	case chat.ExecutionModeDirectModel, chat.ExecutionModeHecateTask:
+	case chat.ExecutionModeHecateTask:
 		// One unified entry point for every Hecate-side turn,
 		// regardless of tools_enabled. handleCreateHecateChatMessage
 		// branches at the top: tools-off delegates to
 		// `handleDirectModelTurn` (the former
 		// handleCreateModelChatMessage, now a private sub-path of
 		// the Hecate handler); tools-on runs the existing
-		// agent_loop task-creation path.
+		// agent_loop task-creation path. The legacy
+		// `execution_mode = "direct_model"` literal that older
+		// clients still send normalizes to `hecate_task` inside
+		// `normalizeChatExecutionMode`, so it falls into this case
+		// the same way an explicit hecate_task would.
 		if isExternalChatSession(session) {
 			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run Hecate Chat turns")
 			return
@@ -1094,57 +1100,79 @@ func (h *Handler) hecateTaskShouldFallbackToDirectModel(ctx context.Context, ses
 
 // normalizeChatExecutionMode resolves the execution mode the handler
 // should dispatch on. The explicit `execution_mode` field on the
-// request still wins when set — older clients send the literal
-// directly. When it's empty:
+// request still wins when set — older clients send the legacy
+// `direct_model` literal directly and the dispatcher's switch case
+// accepts it. When it's empty:
 //
 //   - External-agent sessions always dispatch as `external_agent`
 //     (agent_id pins the session kind regardless of any per-turn
 //     flag the client may have sent).
-//   - Hecate sessions consult the per-turn `tools_enabled` signal
-//     when it's set: true → `hecate_task`, false → `direct_model`.
-//     This lets newer clients submit `tools_enabled` and omit
-//     `execution_mode` entirely, which is the wire shape the UI
-//     moves to once the model-chat dispatch path is folded into
-//     hecate_task.
-//   - When neither field is set on a Hecate session, the dispatcher
-//     defaults to `direct_model` for back-compat with the pre-
-//     tools_enabled wire shape (where the absence of `execution_mode`
-//     was a no-tools turn).
-func normalizeChatExecutionMode(mode string, session chat.Session, toolsEnabled *bool) string {
+//   - Every Hecate-side turn (tools on or off) normalizes to
+//     `hecate_task`. The tools-on/off axis lives on `req.ToolsEnabled`
+//     now; the dispatcher reads it separately and the unified handler
+//     branches on it.
+//
+// Returns ExecutionModeHecateTask for Hecate sessions even when the
+// client sent neither field, which matches the pre-tools_enabled
+// default behavior (the no-tools fallback) once tools-off becomes a
+// boolean flag rather than its own execution mode.
+func normalizeChatExecutionMode(mode string, session chat.Session, _ *bool) string {
 	mode = strings.TrimSpace(mode)
+	// Legacy: older clients send `direct_model` as the execution
+	// mode for tools-off turns. Internally every Hecate-side turn is
+	// `hecate_task` now; the tools-off intent is recovered separately
+	// by chatRequestToolsEnabled. Normalize the legacy literal so
+	// the dispatcher's switch only has to know about the two
+	// remaining execution modes.
+	if mode == chat.LegacyExecutionModeDirectModel {
+		return chat.ExecutionModeHecateTask
+	}
 	if mode != "" {
 		return mode
 	}
 	if isExternalChatSession(session) {
 		return chat.ExecutionModeExternalAgent
 	}
-	if toolsEnabled != nil {
-		if *toolsEnabled {
-			return chat.ExecutionModeHecateTask
-		}
-		return chat.ExecutionModeDirectModel
-	}
-	return chat.ExecutionModeDirectModel
+	return chat.ExecutionModeHecateTask
 }
 
 // chatRequestToolsEnabled returns the per-turn tools-on/off signal
-// the handler should persist for this submission. The dedicated field
-// wins when set; otherwise the value is derived from the (legacy)
-// execution_mode so existing clients continue to behave unchanged:
+// the handler should dispatch + persist for this submission. The
+// dedicated `tools_enabled` field wins when set; otherwise the value
+// is derived from the explicit execution_mode literal so older
+// clients continue to behave unchanged:
 //
-//   - direct_model → tools off
-//   - hecate_task / external_agent / unset → tools on (the agent path
-//     is the safe assumption when the client offers no signal)
+//   - explicit `tools_enabled` → use it verbatim.
+//   - "hecate_task" execution_mode → tools on (an opt-in to the
+//     agent path).
+//   - legacy "direct_model" execution_mode → tools off.
+//   - both empty → tools off, matching the pre-tools_enabled wire
+//     contract where an unspecified turn defaulted to the model-chat
+//     path. Newer clients should set `tools_enabled` explicitly.
+//   - external_agent → tools_enabled is irrelevant on that dispatch
+//     path; this function still returns a value but the dispatcher
+//     never reads it for external sessions.
 //
 // The capability-driven downgrade in the dispatcher (a tool-incapable
-// model on a hecate_task turn) flips this to false as well, so the
+// model on a hecate_task turn) flips this to false too, so the
 // persisted Message always reflects what actually ran rather than
 // what the client originally requested.
 func chatRequestToolsEnabled(req CreateChatMessageRequest) bool {
 	if req.ToolsEnabled != nil {
 		return *req.ToolsEnabled
 	}
-	return strings.TrimSpace(req.ExecutionMode) != chat.ExecutionModeDirectModel
+	switch strings.TrimSpace(req.ExecutionMode) {
+	case chat.ExecutionModeHecateTask:
+		return true
+	case chat.LegacyExecutionModeDirectModel, "":
+		return false
+	default:
+		// external_agent or any other value — return the safe
+		// default. External-agent dispatch ignores this anyway, and
+		// an unknown execution_mode hits writeChatExecutionModeInvalid
+		// before reaching the tools_enabled-driven branches.
+		return false
+	}
 }
 
 // handleDirectModelTurn runs the tools-off sub-path of
@@ -1193,22 +1221,22 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 
 	segmentID := modelSegmentID(session, provider, model)
 	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
-		ID:            newChatID("msg"),
-		ExecutionMode: chat.ExecutionModeDirectModel,
-		// The model-chat handler dispatches when the operator submitted
-		// with tools off (or when the runtime downgraded a hecate_task
-		// turn because the model can't run tools). Either way, the
-		// persisted Message records ToolsEnabled=false so a future
-		// read against this row recovers the original intent without
-		// having to parse the execution_mode string.
-		ToolsEnabled: false,
-		SegmentID:    segmentID,
-		Provider:     provider,
-		Model:        model,
-		Capabilities: caps,
-		Role:         "user",
-		Content:      content,
-		CreatedAt:    startedAt,
+		ID: newChatID("msg"),
+		// Persist every Hecate-side turn as `hecate_task`, regardless
+		// of tools state. The tools-off discriminant lives entirely
+		// on `ToolsEnabled` now; the legacy `direct_model` literal is
+		// no longer written. Reads of older rows still see the legacy
+		// value until the sqlite migration in internal/chat/sqlite.go
+		// backfills them to `hecate_task` on boot.
+		ExecutionMode: chat.ExecutionModeHecateTask,
+		ToolsEnabled:  false,
+		SegmentID:     segmentID,
+		Provider:      provider,
+		Model:         model,
+		Capabilities:  caps,
+		Role:          "user",
+		Content:       content,
+		CreatedAt:     startedAt,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -1220,7 +1248,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	contextPacket := h.directModelContextPacket(r.Context(), session, provider, model, strings.TrimSpace(req.SystemPrompt))
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
-		ExecutionMode: chat.ExecutionModeDirectModel,
+		ExecutionMode: chat.ExecutionModeHecateTask,
 		ToolsEnabled:  false,
 		SegmentID:     segmentID,
 		RunID:         runID,
@@ -1341,7 +1369,14 @@ func agentChatModelHistory(session chat.Session, systemPrompt, content string) [
 func modelSegmentID(session chat.Session, provider, model string) string {
 	for i := len(session.Messages) - 1; i >= 0; i-- {
 		message := session.Messages[i]
-		if message.ExecutionMode != chat.ExecutionModeDirectModel {
+		// A direct-model run continues into the same segment as the
+		// previous direct-model turn for the same provider/model pair.
+		// Today such turns persist as `hecate_task` + `tools_enabled =
+		// false`; older rows still on the legacy `direct_model` literal
+		// also count until the sqlite migration sweeps them. Anything
+		// else (a tools-on hecate_task turn, an external_agent turn)
+		// breaks the segment run.
+		if !messageIsDirectModelTurn(message) {
 			break
 		}
 		if message.Provider == provider && message.Model == model && message.SegmentID != "" {
@@ -1349,6 +1384,18 @@ func modelSegmentID(session chat.Session, provider, model string) string {
 		}
 	}
 	return newChatID("segment")
+}
+
+// messageIsDirectModelTurn reports whether the persisted message
+// represents a Hecate-side turn that ran without tools. Recognizes
+// both the new wire shape (execution_mode=hecate_task + tools_enabled
+// =false) and the legacy direct_model literal that pre-migration
+// rows still carry.
+func messageIsDirectModelTurn(message chat.Message) bool {
+	if message.ExecutionMode == chat.LegacyExecutionModeDirectModel {
+		return true
+	}
+	return message.ExecutionMode == chat.ExecutionModeHecateTask && !message.ToolsEnabled
 }
 
 func isTerminalAgentChatStatus(status string) bool {
