@@ -41,6 +41,8 @@ var (
 	buildOnce    sync.Once
 	builtBinPath string
 	builtBinErr  error
+	e2ePortMu    sync.Mutex
+	e2ePorts     = map[int]struct{}{}
 )
 
 const gatewayStartupTimeout = 30 * time.Second
@@ -129,36 +131,51 @@ func gatewayServer(t *testing.T, extraEnv ...string) string {
 	t.Helper()
 
 	bin := hecateBinary(t)
-	port := freePort(t)
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	baseURL := "http://" + addr
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		port := freePort(t)
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		baseURL := "http://" + addr
 
-	// HECATE_DATA_DIR points at a per-test temp dir so any state file the
-	// runtime touches (bootstrap, control plane) lands under the test's
-	// own filesystem and gets cleaned up automatically.
-	env := append(os.Environ(),
-		"HECATE_ADDRESS="+addr,
-		"HECATE_DATA_DIR="+t.TempDir(),
-	)
-	env = append(env, extraEnv...)
-	env = append(env, autoPreconfiguredEnv(extraEnv)...)
+		// HECATE_DATA_DIR points at a per-test temp dir so any state file the
+		// runtime touches (bootstrap, control plane) lands under the test's
+		// own filesystem and gets cleaned up automatically.
+		env := append(os.Environ(),
+			"HECATE_ADDRESS="+addr,
+			"HECATE_DATA_DIR="+t.TempDir(),
+		)
+		env = append(env, extraEnv...)
+		env = append(env, autoPreconfiguredEnv(extraEnv)...)
 
-	cmd := exec.Command(bin, "serve")
-	cmd.Env = env
-	output := newTailBuffer(64 * 1024)
-	cmd.Stdout = output
-	cmd.Stderr = output
+		cmd := exec.Command(bin, "serve")
+		cmd.Env = env
+		output := newTailBuffer(64 * 1024)
+		cmd.Stdout = output
+		cmd.Stderr = output
 
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start gateway: %v", err)
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start gateway: %v", err)
+		}
+		if err := waitHealthyProcessResult(baseURL, gatewayStartupTimeout, cmd, output); err != nil {
+			lastErr = err
+			if gatewayListenAddressInUse(output.String()) {
+				t.Logf("retrying gateway startup after listen-address collision on %s", addr)
+				continue
+			}
+			t.Fatalf("%v\n--- gateway output tail ---\n%s", err, output.String())
+		}
+
+		t.Cleanup(func() {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		})
+		return baseURL
 	}
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	})
-
-	waitHealthyProcess(t, baseURL, gatewayStartupTimeout, cmd, output)
-	return baseURL
+	if lastErr != nil {
+		t.Fatalf("start gateway after listen-address retries: %v", lastErr)
+	}
+	t.Fatal("start gateway after listen-address retries: exhausted attempts")
+	return ""
 }
 
 // autoPreconfiguredEnv scans extraEnv for PROVIDER_<NAME>_<FIELD>
@@ -211,6 +228,15 @@ func waitHealthyProcess(t *testing.T, baseURL string, timeout time.Duration, cmd
 
 func waitHealthyWithDiagnostics(t *testing.T, baseURL string, timeout time.Duration, cmd *exec.Cmd, output *tailBuffer) {
 	t.Helper()
+	if err := waitHealthyProcessResult(baseURL, timeout, cmd, output); err != nil {
+		if output != nil {
+			t.Fatalf("%v\n--- gateway output tail ---\n%s", err, output.String())
+		}
+		t.Fatal(err)
+	}
+}
+
+func waitHealthyProcessResult(baseURL string, timeout time.Duration, cmd *exec.Cmd, output *tailBuffer) error {
 	deadline := time.Now().Add(timeout)
 	lastProbe := "not attempted"
 	client := &http.Client{Timeout: time.Second}
@@ -218,7 +244,7 @@ func waitHealthyWithDiagnostics(t *testing.T, baseURL string, timeout time.Durat
 		resp, err := client.Get(baseURL + "/healthz") //nolint:noctx
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
-			return
+			return nil
 		}
 		if err != nil {
 			lastProbe = err.Error()
@@ -228,6 +254,10 @@ func waitHealthyWithDiagnostics(t *testing.T, baseURL string, timeout time.Durat
 		if resp != nil {
 			resp.Body.Close()
 		}
+		if output != nil && gatewayListenAddressInUse(output.String()) {
+			lastProbe += "; process output: listen address in use"
+			break
+		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	if cmd != nil && cmd.Process != nil {
@@ -236,22 +266,36 @@ func waitHealthyWithDiagnostics(t *testing.T, baseURL string, timeout time.Durat
 			lastProbe += "; process wait: " + err.Error()
 		}
 	}
-	if output != nil {
-		t.Fatalf("gateway at %s never became healthy within %s (last probe: %s)\n--- gateway output tail ---\n%s", baseURL, timeout, lastProbe, output.String())
-	}
-	t.Fatalf("gateway at %s never became healthy within %s (last probe: %s)", baseURL, timeout, lastProbe)
+	return fmt.Errorf("gateway at %s never became healthy within %s (last probe: %s)", baseURL, timeout, lastProbe)
+}
+
+func gatewayListenAddressInUse(output string) bool {
+	return strings.Contains(output, "gateway listen failed") &&
+		strings.Contains(output, "bind: address already in use")
 }
 
 // freePort asks the OS for an available TCP port.
 func freePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("freePort: %v", err)
+	for attempt := 0; attempt < 100; attempt++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("freePort: %v", err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		e2ePortMu.Lock()
+		_, used := e2ePorts[port]
+		if !used {
+			e2ePorts[port] = struct{}{}
+		}
+		e2ePortMu.Unlock()
+		ln.Close()
+		if !used {
+			return port
+		}
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-	return port
+	t.Fatal("freePort: exhausted reserved port attempts")
+	return 0
 }
 
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
