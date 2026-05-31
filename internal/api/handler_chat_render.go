@@ -172,6 +172,7 @@ func renderChatSegments(session chat.Session) []ChatSegmentItem {
 				item: ChatSegmentItem{
 					ID:            segmentID,
 					ExecutionMode: firstNonEmpty(message.ExecutionMode, defaultMessageExecutionModeForRender(session)),
+					ToolsEnabled:  message.ToolsEnabled,
 					Provider:      firstNonEmpty(message.Provider, session.Provider),
 					Model:         firstNonEmpty(message.Model, session.Model),
 					TaskID:        message.TaskID,
@@ -183,6 +184,9 @@ func renderChatSegments(session chat.Session) []ChatSegmentItem {
 		builder.item.MessageCount++
 		if builder.item.ExecutionMode == "" {
 			builder.item.ExecutionMode = firstNonEmpty(message.ExecutionMode, defaultMessageExecutionModeForRender(session))
+		}
+		if message.ToolsEnabled {
+			builder.item.ToolsEnabled = true
 		}
 		if builder.item.Provider == "" {
 			builder.item.Provider = message.Provider

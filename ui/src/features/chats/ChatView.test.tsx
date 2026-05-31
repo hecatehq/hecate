@@ -66,11 +66,8 @@ function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
           id: activeChatSessionID,
           agent_id: isExternalChat ? agentID : "hecate",
           driver_kind: isExternalChat ? "acp" : undefined,
-          execution_mode: isExternalChat
-            ? "external_agent"
-            : chatTarget === "agent"
-              ? "hecate_task"
-              : "hecate_direct",
+          execution_mode: isExternalChat ? "external_agent" : "hecate_task",
+          tools_enabled: isExternalChat ? undefined : stateOverrides.defaultChatToolsEnabled !== false,
           title: "New chat",
           provider: isExternalChat ? undefined : provider,
           model: isExternalChat ? undefined : model,
@@ -354,7 +351,7 @@ describe("ChatView input", () => {
     const createChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         agentWorkspace: "",
         activeChatSessionID: "",
         activeChatSession: null,
@@ -820,7 +817,7 @@ describe("ChatView input", () => {
   });
 
   it("enables the send button when message has content", () => {
-    const { state, actions } = setup({ chatTarget: "model", message: "hello" });
+    const { state, actions } = setup({ chatTarget: "agent", defaultChatToolsEnabled: false, message: "hello" });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
@@ -828,7 +825,7 @@ describe("ChatView input", () => {
 
   it("keeps Hecate Chat composer editable but blocks send until a model is selected", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       model: "",
       message: "hello",
     });
@@ -843,7 +840,7 @@ describe("ChatView input", () => {
 
   it("keeps model composer editable but blocks send when no provider is configured", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       message: "hello",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
       agentAdapters: [
@@ -869,7 +866,7 @@ describe("ChatView input", () => {
 
   it("blocks sending when the selected model is not discovered by the selected provider", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       providerFilter: "ollama",
       model: "llama3.1:8b",
       message: "hello",
@@ -948,7 +945,7 @@ describe("ChatView input", () => {
   it("shows stale selected-model readiness on existing transcripts", async () => {
     const onNavigate = vi.fn();
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       providerFilter: "ollama",
       model: "llama3.1:8b",
       message: "hello",
@@ -956,7 +953,7 @@ describe("ChatView input", () => {
       activeChatSession: {
         id: "chat_1",
         title: "Existing chat",
-        execution_mode: "direct_model",
+        execution_mode: "hecate_task", tools_enabled: false,
         status: "completed",
         provider: "ollama",
         model: "llama3.1:8b",
@@ -965,7 +962,7 @@ describe("ChatView input", () => {
             id: "m1",
             role: "user",
             content: "hi",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             created_at: "2026-04-20T00:00:00Z",
           },
         ],
@@ -1022,7 +1019,7 @@ describe("ChatView input", () => {
     const setProviderFilter = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         providerFilter: "anthropic",
         model: "claude-sonnet-4-6",
         message: "hello",
@@ -1079,7 +1076,7 @@ describe("ChatView input", () => {
   it("opens Connections from the model empty state", async () => {
     const onNavigate = vi.fn();
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
       agentAdapters: [
         {
@@ -1103,7 +1100,7 @@ describe("ChatView input", () => {
 
   it("keeps configured-provider model discovery repair compact in the empty state", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       providerFilter: "ollama",
       settingsConfig: {
         backend: "memory",
@@ -1213,7 +1210,7 @@ describe("ChatView input", () => {
     const setProviderFilter = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
         providerPresets: [
           {
@@ -1323,7 +1320,7 @@ describe("ChatView input", () => {
     const setProviderFilter = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
         providerPresets: [
           {
@@ -1495,7 +1492,7 @@ describe("ChatView input", () => {
     const setProviderFilter = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
         providerPresets: [
           {
@@ -1591,7 +1588,7 @@ describe("ChatView input", () => {
     const setProviderFilter = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
         providerPresets: [
           {
@@ -1639,7 +1636,7 @@ describe("ChatView input", () => {
 
   it("shows a first-run setup state when providers and agents are unavailable", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       message: "hello",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
       agentAdapters: [
@@ -1910,7 +1907,7 @@ describe("ChatView input", () => {
     const setModel = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         message: "continue",
         providerFilter: "ollama",
         model: "smollm2:135m",
@@ -2156,7 +2153,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        execution_mode: "direct_model",
+        execution_mode: "hecate_task", tools_enabled: false,
         title: "Mixed chat",
         provider: "ollama",
         model: "smollm2:135m",
@@ -2165,7 +2162,7 @@ describe("ChatView input", () => {
         segments: [
           {
             id: "model:first",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             provider: "ollama",
             model: "smollm2:135m",
             status: "completed",
@@ -2435,7 +2432,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        execution_mode: "direct_model",
+        execution_mode: "hecate_task", tools_enabled: false,
         title: "Mixed chat",
         task_id: "task_latest",
         latest_run_id: "run_latest",
@@ -2446,7 +2443,7 @@ describe("ChatView input", () => {
         messages: [
           {
             id: "m1",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             segment_id: "model:direct",
             role: "user",
             content: "tell a joke",
@@ -2454,7 +2451,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m2",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             segment_id: "model:direct",
             run_id: "model_run_1",
             trace_id: "trace_1",
@@ -2491,7 +2488,7 @@ describe("ChatView input", () => {
         segments: [
           {
             id: "model:first",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             provider: "ollama",
             model: "smollm2:135m",
             status: "completed",
@@ -2509,7 +2506,7 @@ describe("ChatView input", () => {
           },
           {
             id: "model:second",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             provider: "ollama",
             model: "smollm2:135m",
             status: "completed",
@@ -2519,7 +2516,7 @@ describe("ChatView input", () => {
         messages: [
           {
             id: "m1",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             segment_id: "model:first",
             role: "user",
             content: "answer directly",
@@ -2527,7 +2524,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m2",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             segment_id: "model:first",
             role: "assistant",
             content: "Direct answer.",
@@ -2558,7 +2555,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m5",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             segment_id: "model:second",
             role: "user",
             content: "back to direct",
@@ -2566,7 +2563,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m6",
-            execution_mode: "direct_model",
+            execution_mode: "hecate_task", tools_enabled: false,
             segment_id: "model:second",
             role: "assistant",
             content: "Direct again.",
@@ -2791,7 +2788,7 @@ describe("ChatView input", () => {
   it("calls setMessage as user types", async () => {
     const setMessage = vi.fn();
     // Start with empty message so the assertion sees only what we typed.
-    const { state, actions } = setup({ chatTarget: "model", message: "" }, { setMessage });
+    const { state, actions } = setup({ chatTarget: "agent", defaultChatToolsEnabled: false, message: "" }, { setMessage });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     const ta = screen.getByPlaceholderText(/Message/i) as HTMLTextAreaElement;
     const user = userEvent.setup();
@@ -2803,7 +2800,7 @@ describe("ChatView input", () => {
     const setMessage = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         message: "",
         activeChatSessionID: "chat_history",
         activeChatSession: {
@@ -2861,7 +2858,7 @@ describe("ChatView input", () => {
     const setMessage = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         message: "line one\nline two",
         activeChatSessionID: "chat_history",
         activeChatSession: {
@@ -2892,7 +2889,7 @@ describe("ChatView input", () => {
     const setMessage = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         message: "pending question",
         activeChatSessionID: "chat_history",
         activeChatSession: {
@@ -2953,14 +2950,14 @@ describe("ChatView chats sidebar", () => {
   }
 
   it("shows 'No chats yet' when chatSessions is empty", () => {
-    const { state, actions } = setup({ chatTarget: "model", chatSessions: [] });
+    const { state, actions } = setup({ chatTarget: "agent", defaultChatToolsEnabled: false, chatSessions: [] });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText(/No chats yet/i)).toBeTruthy();
   });
 
   it("renders one row per chat with title", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       chatSessions: [
         {
           id: "s1",
@@ -2987,12 +2984,12 @@ describe("ChatView chats sidebar", () => {
 
   it("filters chat history by title and route metadata", async () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       chatSessions: [
         {
           id: "s1",
           title: "Budget check",
-          execution_mode: "direct_model",
+          execution_mode: "hecate_task", tools_enabled: false,
           status: "completed",
           provider: "anthropic",
           message_count: 4,
@@ -3001,7 +2998,7 @@ describe("ChatView chats sidebar", () => {
         {
           id: "s2",
           title: "Release notes cleanup",
-          execution_mode: "direct_model",
+          execution_mode: "hecate_task", tools_enabled: false,
           status: "completed",
           provider: "openai",
           message_count: 2,
@@ -3078,7 +3075,7 @@ describe("ChatView chats sidebar", () => {
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         chatSessions: [
           { id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any,
         ],
@@ -3095,7 +3092,7 @@ describe("ChatView chats sidebar", () => {
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         chatSessions: [
           { id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any,
         ],
@@ -3119,7 +3116,7 @@ describe("ChatView external-agent target", () => {
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText(/External agents run as your OS user/)).toBeTruthy();
 
-    const modelState = setup({ chatTarget: "model" }).state;
+    const modelState = setup({ chatTarget: "agent", defaultChatToolsEnabled: false }).state;
     rerender(withRuntimeConsole(<ChatView />, { state: modelState, actions }));
     expect(screen.queryByText(/External agents run as your OS user/)).toBeNull();
   });
@@ -4492,7 +4489,7 @@ describe("ChatView external-agent target", () => {
 describe("ChatView model target", () => {
   it("announces markdown task-list checkbox state", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       activeChatSessionID: "s1",
       activeChatSession: {
         id: "s1",
@@ -4512,7 +4509,7 @@ describe("ChatView model target", () => {
     const setModel = vi.fn();
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         providerFilter: "openai",
         model: "gpt-4o-mini",
         activeChatSessionID: "s1",
@@ -4762,7 +4759,7 @@ describe("ChatView error display", () => {
 describe("ChatView session title", () => {
   it("shows the chat empty state without composer when no chat is selected", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       chatSessions: [],
       activeChatSessionID: "",
       activeChatSession: null,
@@ -4778,7 +4775,7 @@ describe("ChatView session title", () => {
 
   it("shows a passive new-chat canvas when chat history exists but none is active", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       chatSessions: [
         {
           id: "s1",
@@ -4825,7 +4822,7 @@ describe("ChatView session title", () => {
 
   it("shows the active session's title", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       activeChatSession: {
         id: "s1",
         title: "Hello world",
@@ -4898,7 +4895,7 @@ describe("ChatView New chat button", () => {
       activeChatSession: {
         id: "chat_new",
         agent_id: "hecate",
-        execution_mode: "hecate_direct",
+        execution_mode: "hecate_task", tools_enabled: false,
         title: "New chat",
         provider: "openai",
         model: "gpt-4o-mini",
@@ -4923,7 +4920,7 @@ describe("ChatView session focus", () => {
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         chatSessions: [
           { id: "s2", title: "Pick me", message_count: 0, provider_call_count: 0 } as any,
         ],
@@ -4952,7 +4949,7 @@ describe("ChatView session focus", () => {
   it("does NOT focus the textarea when activeChatSessionID changes from data-load", async () => {
     // Initial-load and API-driven session arrivals must not steal
     // focus — page-level shortcuts depend on it. Asserts the negative.
-    const { state, actions } = setup({ chatTarget: "model", activeChatSessionID: "" });
+    const { state, actions } = setup({ chatTarget: "agent", defaultChatToolsEnabled: false, activeChatSessionID: "" });
     const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
     const searchInput = screen.getByRole("textbox", { name: "Search chats" });
     searchInput.focus();
@@ -4969,7 +4966,7 @@ describe("ChatView history pagination", () => {
     const loadMoreChatSessions = vi.fn(async () => undefined);
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         chatSessionsHasMore: true,
         chatSessions: [
           { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
@@ -4987,7 +4984,7 @@ describe("ChatView history pagination", () => {
     const loadMoreChatSessions = vi.fn(async () => undefined);
     const { state, actions } = setup(
       {
-        chatTarget: "model",
+        chatTarget: "agent", defaultChatToolsEnabled: false,
         chatSessionsHasMore: true,
         chatSessions: [
           { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
@@ -5029,7 +5026,7 @@ describe("ChatView agent approvals", () => {
 
   it("hides the auto-mode banner when in model chat target (it's an agent-only concern)", () => {
     const { state, actions } = setup({
-      chatTarget: "model",
+      chatTarget: "agent", defaultChatToolsEnabled: false,
       agentAdapterApprovalMode: "auto",
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));

@@ -435,19 +435,16 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	}
 
 	modelTurn := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
-		`{"execution_mode":"direct_model","provider":"openai","model":"gpt-4o-mini","content":"answer directly"}`)
+		`{"execution_mode":"hecate_task","tools_enabled":false,"provider":"openai","model":"gpt-4o-mini","content":"answer directly"}`)
 	if len(modelTurn.Data.Messages) != 2 {
 		t.Fatalf("model messages = %d, want 2", len(modelTurn.Data.Messages))
 	}
 	modelAssistant := modelTurn.Data.Messages[1]
-	// Post-unification: every Hecate-side message persists as
-	// `hecate_task`. The tools-off discriminant lives on the
-	// per-message ToolsEnabled boolean asserted below.
 	if modelAssistant.ExecutionMode != chat.ExecutionModeHecateTask || modelAssistant.TaskID != "" || modelAssistant.Model != "gpt-4o-mini" {
 		t.Fatalf("model assistant snapshot = execution_mode %q task %q model %q", modelAssistant.ExecutionMode, modelAssistant.TaskID, modelAssistant.Model)
 	}
 	if modelAssistant.ToolsEnabled {
-		t.Errorf("model assistant tools_enabled = true, want false (direct_model dispatch records tools-off)")
+		t.Errorf("model assistant tools_enabled = true, want false (hecate_task dispatch records tools-off)")
 	}
 	if !strings.Contains(modelAssistant.Content, "Segment answer") {
 		t.Fatalf("model assistant content = %q", modelAssistant.Content)
@@ -468,7 +465,7 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	}
 
 	secondModel := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
-		`{"execution_mode":"direct_model","provider":"openai","model":"gpt-4o-mini","content":"back to direct chat"}`)
+		`{"execution_mode":"hecate_task","tools_enabled":false,"provider":"openai","model":"gpt-4o-mini","content":"back to direct chat"}`)
 	if secondModel.Data.TaskID != firstTaskID {
 		t.Fatalf("model segment should preserve latest task pointer, got %q want %q", secondModel.Data.TaskID, firstTaskID)
 	}
@@ -560,7 +557,7 @@ func TestHecateAgentNewSegmentLivePlaceholderDoesNotBorrowPreviousTask(t *testin
 		t.Fatalf("first tools turn task_id is empty: %+v", firstTools.Data)
 	}
 	secondModel := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
-		`{"execution_mode":"direct_model","provider":"openai","model":"gpt-4o-mini","content":"back to direct chat"}`)
+		`{"execution_mode":"hecate_task","tools_enabled":false,"provider":"openai","model":"gpt-4o-mini","content":"back to direct chat"}`)
 	if secondModel.Data.TaskID != firstTaskID {
 		t.Fatalf("direct model segment should preserve latest task pointer on the session, got %q want %q", secondModel.Data.TaskID, firstTaskID)
 	}
@@ -1023,7 +1020,7 @@ func TestExternalAgentChatRejectsDirectModelExecutionMode(t *testing.T) {
 	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
 		fmt.Sprintf(`{"agent_id":"codex","workspace":%q}`, workspace))
 	recorder := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
-		`{"execution_mode":"direct_model","provider":"openai","model":"gpt-4o-mini","content":"answer directly"}`)
+		`{"execution_mode":"hecate_task","tools_enabled":false,"provider":"openai","model":"gpt-4o-mini","content":"answer directly"}`)
 	payload := decodeRecorder[struct {
 		Error struct {
 			Type    string `json:"type"`
@@ -1033,9 +1030,6 @@ func TestExternalAgentChatRejectsDirectModelExecutionMode(t *testing.T) {
 	if payload.Error.Type != errCodeRuntimeMismatch {
 		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeRuntimeMismatch)
 	}
-	// After the dispatcher unification, direct_model and hecate_task
-	// share the same Hecate-side entry point, so the error copy was
-	// collapsed too — "Hecate Chat turns" covers both flavors.
 	if !strings.Contains(payload.Error.Message, "external agent sessions cannot run Hecate Chat turns") {
 		t.Fatalf("error message = %q", payload.Error.Message)
 	}
@@ -1171,7 +1165,7 @@ func TestHecateChatRejectsDirectModelTurnWhileBackingRunBusy(t *testing.T) {
 	}
 
 	recorder := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/chat/sessions/"+session.ID+"/messages",
-		`{"execution_mode":"direct_model","content":"answer directly","model":"gpt-4o-mini"}`)
+		`{"execution_mode":"hecate_task","tools_enabled":false,"content":"answer directly","model":"gpt-4o-mini"}`)
 	payload := decodeRecorder[struct {
 		Error struct {
 			Type        string `json:"type"`

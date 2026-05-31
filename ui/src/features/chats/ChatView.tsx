@@ -199,10 +199,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   //   2. The session is on a Hecate-shaped path overall (`isHecateChat`).
   //   3. The user has tools turned on for this session
   //      (`hecateChatToolsEnabled`).
-  // `chatTarget === "model"` is a legacy storage value that older
-  // installs may still hold; the slice migrates those entries to
-  // `chatToolsEnabledBySessionID[id] = false` on mount, so this
-  // expression doesn't have to special-case the old encoding.
   const isHecateAgentChat = isHecateChat && state.chatTarget === "agent" && hecateChatToolsEnabled;
   const isExternalAgentChat =
     activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
@@ -414,8 +410,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const chatSettingsPanelOpen = selectedChatReady && isAgentChat && chatSettingsOpen;
   const rightPanelOpen = chatSettingsPanelOpen || workspaceChangesPanelOpen;
   const rightPanelLabel = chatSettingsPanelOpen ? "Chat settings panel" : "Workspace changes panel";
-  const chatSetupRepairTarget =
-    isHecateAgentChat && hecateAgentToolsDisabledForModel ? "model" : state.chatTarget;
+  const chatSetupRepairTarget = state.chatTarget;
   const hecateChatModelReady =
     isHecateAgentChat && hecateAgentModelLocked
       ? Boolean(hecateChatModelValue)
@@ -442,6 +437,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     state.message.trim() === "";
   const chatSetupRepair = resolveChatSetupRepairState({
     target: chatSetupRepairTarget,
+    workspaceRequired: isExternalAgentChat || hecateTaskToolsAvailable,
     hasConfiguredProviders,
     modelRouteUnavailable,
     selectedModelIssue,

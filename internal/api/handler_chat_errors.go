@@ -91,9 +91,9 @@ func writeChatAgentIDInvalid(w http.ResponseWriter) {
 }
 
 func writeChatExecutionModeInvalid(w http.ResponseWriter) {
-	WriteErrorDetails(w, http.StatusBadRequest, errCodeExecutionModeInvalid, "execution_mode must be direct_model, hecate_task, or external_agent", ErrorDetails{
+	WriteErrorDetails(w, http.StatusBadRequest, errCodeExecutionModeInvalid, "execution_mode must be hecate_task or external_agent", ErrorDetails{
 		UserMessage:    "This chat mode is not supported by the current API.",
-		OperatorAction: "Use one of: direct_model, hecate_task, or external_agent.",
+		OperatorAction: "Use one of: hecate_task or external_agent.",
 	})
 }
 

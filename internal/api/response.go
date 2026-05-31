@@ -200,7 +200,7 @@ func defaultErrorAction(code string) string {
 	case errCodeModelRequired:
 		return "Use the model picker in the chat header, or add a provider that reports at least one model."
 	case errCodeAgentIDInvalid, errCodeExecutionModeInvalid:
-		return "Use agent_id hecate or a registered external agent id. For execution_mode, use direct_model, hecate_task, or external_agent."
+		return "Use agent_id hecate or a registered external agent id. For execution_mode, use hecate_task or external_agent."
 	case errCodeRuntimeMismatch:
 		return "Start a new chat or switch back to the runtime that created this session."
 	case errCodeAgentAdapterNotFound:

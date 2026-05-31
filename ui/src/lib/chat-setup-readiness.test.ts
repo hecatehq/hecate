@@ -20,7 +20,8 @@ describe("resolveChatSetupRepairState", () => {
   it("points chats without configured providers to Connections", () => {
     const repair = resolveChatSetupRepairState({
       ...base,
-      target: "model",
+      target: "agent",
+      workspaceRequired: false,
       hasConfiguredProviders: false,
       modelRouteUnavailable: true,
     });
@@ -36,7 +37,8 @@ describe("resolveChatSetupRepairState", () => {
   it("explains that configured providers may need refresh or loaded models", () => {
     const repair = resolveChatSetupRepairState({
       ...base,
-      target: "model",
+      target: "agent",
+      workspaceRequired: false,
       modelRouteUnavailable: true,
     });
 

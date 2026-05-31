@@ -77,12 +77,9 @@ export type ChatState = {
   // map nor a derived signal exists. Persisted under
   // `hecate.chatToolsEnabled`.
   defaultChatToolsEnabled: boolean;
-  // Per-session tools-enabled override. Mirrors `chatTargetBySessionID`
-  // shape; a missing entry falls back to `defaultChatToolsEnabled`.
-  // Populated by the user toggling the tools pill in ChatSettingsPanel.
-  // Migrated automatically on slice mount from any legacy
-  // `chatTargetBySessionID` entry set to "model" (those map to
-  // tools-off in the new model). Persisted under
+  // Per-session tools-enabled override. A missing entry falls back to
+  // `defaultChatToolsEnabled`. Populated by the user toggling the tools
+  // pill in ChatSettingsPanel. Persisted under
   // `hecate.chatToolsEnabledBySessionID`.
   chatToolsEnabledBySessionID: Map<string, boolean>;
   agentAdapterID: string;
@@ -195,48 +192,6 @@ export function ChatProvider({
     initialState?.chatToolsEnabledBySessionID ?? new Map(),
     { serialize: serializeChatToolsEnabledBySessionID },
   );
-  // One-shot back-compat migration: the per-session map
-  // `hecate.chatTargetBySessionID` once encoded "tools off for this
-  // session" as `{[sid]: "model"}` for entries without their own
-  // chatToolsEnabled override. The parser at slice-mount coerces those
-  // "model" values to "agent" before they reach this hook, so we read
-  // the raw localStorage payload directly to recover the tools-off
-  // intent for any session that was tools-off pre-upgrade. Explicit
-  // `chatToolsEnabledBySessionID` entries the user already wrote are
-  // left alone — the migration only adds entries, never overrides.
-  const toolsEnabledMigrationRanRef = useRef(false);
-  useEffect(() => {
-    if (toolsEnabledMigrationRanRef.current) return;
-    toolsEnabledMigrationRanRef.current = true;
-    let raw: string | null = null;
-    try {
-      raw = window.localStorage?.getItem("hecate.chatTargetBySessionID") ?? null;
-    } catch {
-      return;
-    }
-    if (!raw) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return;
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
-    let touched = false;
-    const merged = new Map(chatToolsEnabledBySessionID);
-    for (const [sessionID, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (value === "model" && !merged.has(sessionID)) {
-        merged.set(sessionID, false);
-        touched = true;
-      }
-    }
-    if (touched) {
-      setChatToolsEnabledBySessionID(merged);
-    }
-    // Intentional one-shot: subsequent updates to either map are user
-    // edits we don't want to re-migrate against.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const [agentAdapterID, setAgentAdapterID] = usePersistedState(
     "hecate.agentAdapterID",
     parseStoredString,

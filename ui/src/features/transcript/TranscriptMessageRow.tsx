@@ -961,8 +961,6 @@ function contextPacketEmpty(packet: ChatContextPacketRecord): boolean {
 
 function humanExecutionMode(mode: string): string {
   switch (mode) {
-    case "direct_model":
-      return "Direct model chat";
     case "external_agent":
       return "External agent";
     case "hecate_task":

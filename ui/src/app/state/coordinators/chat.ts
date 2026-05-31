@@ -132,23 +132,19 @@ function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null)
     return { provider: "", model: "" };
   }
   const segments = [...(session.segments ?? [])].reverse();
-  const segment = segments.find(
-    (item) => item.execution_mode === "hecate_task" || item.execution_mode === "direct_model",
-  );
+  const segment = segments.find((item) => item.execution_mode === "hecate_task");
   if (segment?.provider || segment?.model) {
     return { provider: segment.provider ?? "", model: segment.model ?? "" };
   }
   const messages = [...(session.messages ?? [])].reverse();
-  const message = messages.find(
-    (item) => item.execution_mode === "hecate_task" || item.execution_mode === "direct_model",
-  );
+  const message = messages.find((item) => item.execution_mode === "hecate_task");
   if (message?.provider || message?.model) {
     return { provider: message.provider ?? "", model: message.model ?? "" };
   }
   return { provider: session.provider ?? "", model: session.model ?? "" };
 }
 
-function effectiveHecateExecutionMode({
+function effectiveHecateToolsEnabled({
   requested,
   models,
   providerFilter,
@@ -159,18 +155,11 @@ function effectiveHecateExecutionMode({
   models: ModelRecord[];
   providerFilter: ProviderFilter;
   model: string;
-  // User intent: false means the operator explicitly toggled tools off
-  // for this Hecate-targeted chat, so downgrade the execution mode to
-  // direct_model regardless of model capability. Independent of the
-  // capability-derived downgrade below, which handles the case where
-  // the model itself doesn't support tool calling.
   toolsEnabled: boolean;
-}): ChatExecutionMode {
-  if (requested !== "hecate_task") return requested;
-  if (!toolsEnabled) return "direct_model";
-  return modelSelectionHasNoToolCalling({ models, providerFilter, model })
-    ? "direct_model"
-    : requested;
+}): boolean {
+  if (requested !== "hecate_task") return true;
+  if (!toolsEnabled) return false;
+  return !modelSelectionHasNoToolCalling({ models, providerFilter, model });
 }
 
 function modelAvailableForProviderFilter(
@@ -466,12 +455,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     content: string,
     executionMode: ChatExecutionMode,
     sessionID: string,
+    toolsEnabled: boolean,
   ): QueuedChatMessage {
     return {
       id: `queued-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       session_id: sessionID,
       content,
       execution_mode: executionMode,
+      tools_enabled: toolsEnabled,
       provider_filter: providerFilter,
       model,
       workspace: workspaceForActiveTurn(),
@@ -481,10 +472,15 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     };
   }
 
-  function queueChatMessage(content: string, executionMode: ChatExecutionMode, sessionID: string) {
+  function queueChatMessage(
+    content: string,
+    executionMode: ChatExecutionMode,
+    sessionID: string,
+    toolsEnabled: boolean,
+  ) {
     setQueuedChatMessages((current) => [
       ...current,
-      buildQueuedChatMessage(content, executionMode, sessionID),
+      buildQueuedChatMessage(content, executionMode, sessionID, toolsEnabled),
     ]);
     setMessage("");
   }
@@ -527,37 +523,33 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const turnModel = queued?.model ?? model;
     const requestedExecutionMode =
       queued?.execution_mode ?? chatTargetToExecutionMode(params.chatTarget);
-    // Resolve tools-enabled against the *active* session, not the
-    // queued message's pinned session: queued messages reuse the
-    // execution_mode they were enqueued with, so the toolsEnabled
-    // signal only affects fresh-from-the-composer turns.
-    const turnToolsEnabled = queued
-      ? requestedExecutionMode !== "direct_model"
-      : resolveToolsEnabled(activeChatSessionID);
-    const turnExecutionMode = effectiveHecateExecutionMode({
-      requested: requestedExecutionMode,
-      models,
-      providerFilter: turnProviderFilter,
-      model: turnModel,
-      toolsEnabled: turnToolsEnabled,
-    });
+    const requestedToolsEnabled = queued?.tools_enabled ?? resolveToolsEnabled(activeChatSessionID);
+    const isExternalAgent = requestedExecutionMode === "external_agent";
+    const turnToolsEnabled = isExternalAgent
+      ? true
+      : effectiveHecateToolsEnabled({
+          requested: requestedExecutionMode,
+          models,
+          providerFilter: turnProviderFilter,
+          model: turnModel,
+          toolsEnabled: requestedToolsEnabled,
+        });
+    const turnExecutionMode = requestedExecutionMode;
+    const isDirectModelTurn = !isExternalAgent && !turnToolsEnabled;
     if (!queued && activeChatSessionID && chatSessionIsBusy(activeChatSession)) {
-      queueChatMessage(content, turnExecutionMode, activeChatSessionID);
+      queueChatMessage(content, turnExecutionMode, activeChatSessionID, turnToolsEnabled);
       return;
     }
-
     setChatLoading(true);
     clearChatErrorState();
     setRuntimeHeaders(null);
-    const isExternalAgent = turnExecutionMode === "external_agent";
-    const isModelTurn = turnExecutionMode === "direct_model";
     let turnWorkspace = queued?.workspace ?? workspaceForActiveTurn();
     const turnSystemPrompt = queued?.system_prompt ?? systemPrompt;
     const turnAgentID = queued?.agent_id ?? agentAdapterID;
     setStreamingContent(
       isExternalAgent
         ? "Starting external agent..."
-        : isModelTurn
+        : isDirectModelTurn
           ? "Waiting for model output..."
           : "Starting Hecate Chat tools...",
     );
@@ -586,7 +578,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         }
       }
       turnWorkspace = turnWorkspace || sessionForSubmit?.workspace?.trim() || "";
-      if (!isModelTurn && !turnWorkspace) {
+      if (!isDirectModelTurn && !turnWorkspace) {
         setChatErrorState(chatWorkspaceRequiredError());
         return;
       }
@@ -611,8 +603,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
                 model: turnModel,
               }
             : {}),
-          ...(!isModelTurn ? { workspace: turnWorkspace } : {}),
-          ...(!isExternalAgent ? { rtk_enabled: hecateRTKEnabled } : {}),
+          ...(!isDirectModelTurn ? { workspace: turnWorkspace } : {}),
+          ...(!isExternalAgent && turnToolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
           ...(isExternalAgent && configOptions.length > 0 ? { config_options: configOptions } : {}),
         });
         sessionID = created.data.id;
@@ -620,14 +612,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         applyChatSession(created.data);
       }
       if (!isExternalAgent && sessionID) {
-        // Pin the session target to "agent" (the user-target perspective)
-        // regardless of whether this turn ran with tools on or off. The
-        // tools state lives in chatToolsEnabledBySessionID now — mirror
-        // the just-resolved turn into it so a fresh client opening this
-        // session resumes with the same toggle position the user had
-        // when they submitted. Without the toolsEnabled mirror, only
-        // the in-memory toggle state is correct; localStorage would
-        // miss the most recent turn's intent.
         const sid = sessionID;
         setChatTargetBySessionID((current) => {
           const next = new Map(current);
@@ -636,7 +620,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         });
         setChatToolsEnabledBySessionID((current) => {
           const next = new Map(current);
-          next.set(sid, turnExecutionMode === "hecate_task");
+          next.set(sid, turnToolsEnabled);
           return next;
         });
       }
@@ -652,6 +636,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
                 {
                   id: `pending-agent-user-${Date.now()}`,
                   execution_mode: turnExecutionMode,
+                  tools_enabled: !isExternalAgent ? turnToolsEnabled : undefined,
                   provider: !isExternalAgent
                     ? turnProviderFilter === "auto"
                       ? ""
@@ -682,7 +667,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
                   last.content ||
                     (isExternalAgent
                       ? "External agent is running..."
-                      : isModelTurn
+                      : isDirectModelTurn
                         ? "Model is responding..."
                         : "Hecate Chat tools are running..."),
                 );
@@ -709,20 +694,14 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       });
       const updated = await createChatMessageRequest(sessionID, {
         content: pendingContent,
-        // External-agent turns continue to send the literal
-        // execution_mode — the backend dispatch on that path is
-        // unchanged. Hecate-side turns send `tools_enabled` instead
-        // and let the backend derive the execution mode; the model
-        // path eventually folds into the task path and dispatch
-        // there will route on the boolean directly.
         ...(isExternalAgent
           ? { execution_mode: turnExecutionMode }
-          : { tools_enabled: turnExecutionMode === "hecate_task" }),
+          : { tools_enabled: turnToolsEnabled }),
         ...(!isExternalAgent
           ? { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel }
           : {}),
         ...(!isExternalAgent ? { system_prompt: turnSystemPrompt } : {}),
-        ...(turnExecutionMode === "hecate_task" ? { workspace: turnWorkspace } : {}),
+        ...(!isExternalAgent && turnToolsEnabled ? { workspace: turnWorkspace } : {}),
       });
       applyChatSession(updated.data);
     } catch (submitError) {
@@ -864,7 +843,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
     const requestedChatTarget = requestedAgentID === "hecate" ? "agent" : defaultChatTarget;
     const requestedExecutionMode = chatTargetToExecutionMode(requestedChatTarget);
-    const executionMode = effectiveHecateExecutionMode({
+    const toolsEnabled = effectiveHecateToolsEnabled({
       requested: requestedExecutionMode,
       models,
       providerFilter,
@@ -875,21 +854,16 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       // contribute.
       toolsEnabled: defaultChatToolsEnabled,
     });
-    // The Hecate-routing availability check matters only when the turn
-    // will actually run as a Hecate task: an unroutable model on the
-    // hecate_task path falls back to "" so the gateway picks a routable
-    // default. When the effective mode downgrades to direct_model
-    // (toolsEnabled off or model lacks tool calling), the turn
-    // dispatches straight to the named provider — keep what the user
-    // picked even if it isn't in the Hecate-routing catalog.
+    // The Hecate-routing availability check matters only when tools are
+    // enabled: an unroutable model falls back to "" so the gateway picks
+    // a routable default. Tools-off chat is still a Hecate-owned session,
+    // but it dispatches directly to the selected model.
     const requestedModel =
-      executionMode === "hecate_task" &&
-      model &&
-      !modelAvailableForProviderFilter(models, providerFilter, model)
+      toolsEnabled && model && !modelAvailableForProviderFilter(models, providerFilter, model)
         ? ""
         : model;
     const workspace = workspaceForNewChat(createProjectID);
-    if (executionMode === "hecate_task" && !workspace) {
+    if (toolsEnabled && !workspace) {
       setChatErrorState(chatWorkspaceRequiredError());
       setActiveChatSessionID("");
       setActiveChatSession(null);
@@ -903,8 +877,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         agent_id: "hecate",
         provider: providerFilter === "auto" ? "" : providerFilter,
         model: requestedModel,
-        ...(workspace ? { workspace } : {}),
-        ...(executionMode === "hecate_task" ? { rtk_enabled: hecateRTKEnabled } : {}),
+        ...(toolsEnabled && workspace ? { workspace } : {}),
+        ...(toolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
       });
       setActiveChatSessionID(created.data.id);
       // Same per-session pinning as the submit path: chatTarget stays
@@ -918,7 +892,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       });
       setChatToolsEnabledBySessionID((current) => {
         const next = new Map(current);
-        next.set(created.data.id, executionMode === "hecate_task");
+        next.set(created.data.id, toolsEnabled);
         return next;
       });
       applyChatSession(created.data);

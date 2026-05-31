@@ -27,17 +27,16 @@ export type ChatTarget = "agent" | "external_agent";
 // Collapses to "agent" — could be inlined, but the named type signals
 // intent at use sites that operate only on the Hecate-targeted slice.
 export type HecateChatTarget = "agent";
-// ChatExecutionMode is the runtime mode the gateway dispatches a turn
-// through. Independent of ChatTarget: a Hecate-targeted chat can still
-// run as `direct_model` when the user has tools off or the chosen model
-// lacks tool calling.
-export type ChatExecutionMode = "direct_model" | "hecate_task" | "external_agent";
+// ChatExecutionMode is the runtime owner category. Hecate-owned turns
+// always use hecate_task; tools on/off is carried separately.
+export type ChatExecutionMode = "hecate_task" | "external_agent";
 
 export type QueuedChatMessage = {
   id: string;
   session_id: string;
   content: string;
   execution_mode: ChatExecutionMode;
+  tools_enabled: boolean;
   provider_filter: ProviderFilter;
   model: string;
   workspace: string;
@@ -68,9 +67,6 @@ export function chatTargetToExecutionMode(target: ChatTarget): ChatExecutionMode
 export function executionModeToChatTarget(mode: string): ChatTarget | "" {
   switch (mode) {
     case "hecate_task":
-    case "direct_model":
-      // `direct_model` runs route through the agent path with tools
-      // off; from the user-target perspective they're still "agent".
       return "agent";
     case "external_agent":
       return "external_agent";
@@ -85,25 +81,14 @@ export function executionModeToChatTarget(mode: string): ChatTarget | "" {
 // and the hook falls back to the explicit "agent" default rather
 // than silently coercing the bad value and re-persisting it.
 //
-// The legacy "model" value (older installs encoded "tools off" as
-// chatTarget "model") coerces to "agent" so the user's existing
-// localStorage doesn't get wiped on the first read after upgrade. The
-// tools-off intent is recovered from `hecate.chatTargetBySessionID` by
-// the migration in the chat slice; there's nothing useful left on the
-// top-level chatTarget key for the legacy value to carry.
 export function parseStoredChatTarget(raw: string): ChatTarget | null {
   if (raw === "agent" || raw === "external_agent") return raw;
-  if (raw === "model") return "agent";
   return null;
 }
 
 // Single-value collapse: HecateChatTarget only has "agent" today.
-// Accepts the legacy "model" too so the parseChatTargetsBySessionID
-// migration can fold a pre-upgrade per-session map without losing
-// entries — the value's tools-off semantic is recovered separately by
-// the migration in the chat slice.
 export function normalizeStoredHecateChatTarget(value: string): HecateChatTarget | "" {
-  return value === "agent" || value === "model" ? "agent" : "";
+  return value === "agent" ? "agent" : "";
 }
 
 // Structural guard for the queued-chat-messages localStorage payload.
@@ -123,9 +108,7 @@ export function parseQueuedChatMessageList(parsed: unknown): QueuedChatMessage[]
     const content = typeof item.content === "string" ? item.content : "";
     if (!id || !sessionID || !content.trim()) return [];
     const executionMode =
-      item.execution_mode === "direct_model" ||
-      item.execution_mode === "hecate_task" ||
-      item.execution_mode === "external_agent"
+      item.execution_mode === "hecate_task" || item.execution_mode === "external_agent"
         ? item.execution_mode
         : "";
     if (!executionMode) return [];
@@ -135,6 +118,7 @@ export function parseQueuedChatMessageList(parsed: unknown): QueuedChatMessage[]
         session_id: sessionID,
         content,
         execution_mode: executionMode,
+        tools_enabled: typeof item.tools_enabled === "boolean" ? item.tools_enabled : true,
         provider_filter:
           typeof item.provider_filter === "string"
             ? (item.provider_filter as ProviderFilter)

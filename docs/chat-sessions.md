@@ -115,10 +115,7 @@ the tools-on/off axis is recorded on each message's `tools_enabled` boolean
 instead of split across two execution-mode values:
 
 - **Model** segments (`tools_enabled=false`) call the gateway/router directly
-  and store user/assistant messages without creating Tasks. Older clients may
-  still send `execution_mode="direct_model"` on the wire; the gateway folds
-  the legacy literal into the unified `hecate_task` write with
-  `tools_enabled=false` so reads against either shape behave the same.
+  and store user/assistant messages without creating Tasks.
 - **Task-backed Hecate Chat** segments map a tools-on stretch of a chat to one
   visible `agent_loop` task. The first tool-enabled prompt creates the task;
   follow-up prompts continue the latest terminal run when the previous segment

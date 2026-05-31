@@ -25,6 +25,7 @@ import {
 export type VisibleChatMessage = {
   id: string;
   execution_mode?: string;
+  tools_enabled?: boolean;
   segment_id?: string;
   task_id?: string;
   run_id?: string;
@@ -501,6 +502,7 @@ function buildVisibleMessage(m: ChatMessageRecord, id: string): VisibleChatMessa
   return {
     id,
     execution_mode: m.execution_mode,
+    tools_enabled: m.tools_enabled,
     segment_id: m.segment_id,
     task_id: m.task_id,
     run_id: m.run_id,
@@ -537,7 +539,8 @@ function fallbackSegmentID(message: VisibleChatMessage): string {
 function segmentFromMessage(message: VisibleChatMessage, segmentID: string): ChatSegmentRecord {
   return {
     id: segmentID,
-    execution_mode: message.execution_mode || "direct_model",
+    execution_mode: message.execution_mode || "hecate_task",
+    tools_enabled: message.tools_enabled,
     provider: message.provider,
     model: message.model,
     task_id: message.task_id,
@@ -645,6 +648,16 @@ function describeChatSegment(segment: ChatSegmentRecord): {
   const provider = segment.provider && segment.provider !== "auto" ? segment.provider : "";
   switch (segment.execution_mode) {
     case "hecate_task": {
+      if (segment.tools_enabled === false) {
+        const meta = [provider, "direct model chat"].filter(Boolean).join(" · ");
+        return {
+          kicker: "Tools off",
+          title: model,
+          meta,
+          label: `Tools off segment using ${model}`,
+          tone: "off",
+        };
+      }
       const meta = [
         provider,
         segment.task_id ? formatTaskLinkLabel(segment.task_id) : "",
@@ -673,13 +686,13 @@ function describeChatSegment(segment: ChatSegmentRecord): {
       };
     }
     default: {
-      const meta = [provider, "direct model chat"].filter(Boolean).join(" · ");
+      const meta = [provider, segment.status].filter(Boolean).join(" · ");
       return {
-        kicker: "Tools off",
+        kicker: "Chat",
         title: model,
         meta,
-        label: `Tools off segment using ${model}`,
-        tone: "off",
+        label: `Chat segment using ${model}`,
+        tone: "external",
       };
     }
   }
