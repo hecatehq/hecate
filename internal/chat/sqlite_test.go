@@ -78,7 +78,9 @@ func TestSQLiteStoreBackfillsToolsEnabledForLegacyDirectModelRows(t *testing.T) 
 
 	// Re-running the migration (idempotent) flips tools_enabled to 0
 	// for any direct_model row that still landed on the column
-	// default.
+	// default, and rewrites execution_mode from 'direct_model' to
+	// 'hecate_task' so the handler-side reads only have to know
+	// about one Hecate-side mode going forward.
 	if _, err := NewSQLiteStore(context.Background(), client); err != nil {
 		t.Fatalf("re-open SQLiteStore: %v", err)
 	}
@@ -94,7 +96,10 @@ func TestSQLiteStoreBackfillsToolsEnabledForLegacyDirectModelRows(t *testing.T) 
 		t.Fatalf("len(Messages) = %d, want 1", len(session.Messages))
 	}
 	if session.Messages[0].ToolsEnabled {
-		t.Errorf("legacy direct_model row ToolsEnabled = true, want false (backfill missed)")
+		t.Errorf("legacy direct_model row ToolsEnabled = true, want false (tools_enabled backfill missed)")
+	}
+	if got := session.Messages[0].ExecutionMode; got != ExecutionModeHecateTask {
+		t.Errorf("legacy direct_model row ExecutionMode = %q, want %q (execution_mode backfill missed)", got, ExecutionModeHecateTask)
 	}
 }
 

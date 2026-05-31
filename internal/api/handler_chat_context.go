@@ -11,7 +11,7 @@ import (
 const chatContextPacketVersion = "chat.context.v1"
 
 func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Session, provider, model, systemPrompt string) chat.ContextPacket {
-	packet := baseChatContextPacket(chat.ExecutionModeDirectModel, provider, model, session.Workspace)
+	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, session.Workspace)
 	packet.SystemPromptIncluded = strings.TrimSpace(systemPrompt) != ""
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	if packet.SystemPromptIncluded {

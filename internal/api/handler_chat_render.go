@@ -261,10 +261,11 @@ func defaultMessageExecutionModeForRender(session chat.Session) string {
 	if session.AgentID != "" && session.AgentID != chat.DefaultAgentID {
 		return chat.ExecutionModeExternalAgent
 	}
-	if session.TaskID != "" {
-		return chat.ExecutionModeHecateTask
-	}
-	return chat.ExecutionModeDirectModel
+	// Every Hecate-side render fallback is `hecate_task` now —
+	// regardless of whether a backing task exists. Tools-on/off is
+	// recorded on the per-message ToolsEnabled field, not on the
+	// execution_mode string.
+	return chat.ExecutionModeHecateTask
 }
 
 func agentChatUsageFromResult(usage agentadapters.Usage) chat.Usage {
