@@ -103,6 +103,12 @@ export function TranscriptMessageRow({
           if ((failed || cancelled) && isTerminalSessionMetadata(activity)) return false;
           if ((failed || cancelled) && isStaleTerminalPlaceholder(activity)) return false;
           if (failed && duplicatesFailureNotice(activity, error || content)) return false;
+          if (
+            isFilesChangedActivity(activity) &&
+            (changedFilesLink || diffStat?.trim() || diff?.trim())
+          ) {
+            return false;
+          }
           return true;
         })
       : activities;
@@ -435,11 +441,22 @@ function ToolOutputPreview({ title, output }: { title: string; output: string })
 function normalizeToolOutputPreview(output: string): string {
   const withoutAnsi = stripAnsi(output).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-  return withoutAnsi
-    .replace(/(?:^|[ \t\n])\d{1,6}\s*(?:>|→|\|)\s*/g, "\n")
+  return stripLineNumberGutters(withoutAnsi)
     .replace(/^\n+/, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function stripLineNumberGutters(output: string): string {
+  if (!looksLikeLineNumberGutter(output)) return output;
+  return output
+    .replace(/(^|\n)[ \t]*\d{1,6}\s*(?:>|→|\|)\s*/g, "$1")
+    .replace(/[ \t]+\d{1,6}\s*(?:>|→|\|)\s*/g, "\n");
+}
+
+function looksLikeLineNumberGutter(output: string): boolean {
+  const matches = output.match(/(?:^|[ \t\n])\d{1,6}\s*(?:>|→|\|)\s*/g) ?? [];
+  return matches.length > 1 || /^[ \t]*\d{1,6}\s*(?:>|→|\|)\s*/.test(output);
 }
 
 function stripAnsi(value: string): string {
