@@ -1,12 +1,15 @@
 # Tauri native desktop app recipes: deps, version stamping, sidecar build,
 # `tauri dev` / `tauri build`, Rust unit tests, packaged-app smoke.
 #
-# The Tauri app bundles hecate as its sidecar binary. The flow:
+# The Tauri app bundles hecate and, on supported targets, llama-server as
+# sidecar binaries. The flow:
 #   1. Build the Go binary for the current platform (`just build`).
 #   2. Copy it into tauri/src-tauri/binaries/ with the platform-triple suffix
 #      Tauri expects, for example hecate-aarch64-apple-darwin.
-#   3. Install Tauri JS dependencies (`bun install` inside tauri/).
-#   4. `tauri dev` / `tauri build` handles the Rust compile + bundle.
+#   3. Stage llama-server for the same target; unsupported triples get a
+#      sentinel placeholder so Cargo-only tests can compile.
+#   4. Install Tauri JS dependencies (`bun install` inside tauri/).
+#   5. `tauri dev` / `tauri build` handles the Rust compile + bundle.
 #
 # Prerequisites:
 #   rustup toolchain install stable
@@ -44,7 +47,7 @@ tauri-build-sidecars: ui-build _go-cache
 # Build hecate and stage it as a Tauri sidecar. Pass an explicit
 # target triple in CI matrix builds; local builds auto-detect the host triple.
 # Stage gateway sidecar for Tauri.
-tauri-sidecar target="": tauri-build-sidecars
+tauri-sidecar target="": tauri-build-sidecars (tauri-llama-sidecar target)
 	rust_target="{{target}}"; \
 	if [ -z "$rust_target" ]; then \
 	  rust_target=$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}'); \
@@ -57,6 +60,38 @@ tauri-sidecar target="": tauri-build-sidecars
 	dest="tauri/src-tauri/binaries/hecate-$rust_target$goexe"; \
 	echo "staging sidecar: $dest"; \
 	cp "$src" "$dest"
+
+# Stage the llama-server sidecar. macOS arm64 fetches the pinned binary via
+# the Bun helper. Other triples get an executable sentinel placeholder: the
+# desktop bundle only ships a real llama-server where we have a verified
+# upstream artifact, while Tauri still requires an externalBin path at build
+# time for every host triple.
+tauri-llama-sidecar target="":
+	rust_target="{{target}}"; \
+	if [ -z "$rust_target" ]; then \
+	  rust_target=$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}'); \
+	fi; \
+	if [ -z "$rust_target" ]; then \
+	  echo "rustc not found — cannot determine host triple" && exit 1; \
+	fi; \
+	case "$rust_target" in \
+	  *windows*) suffix=".exe" ;; \
+	  *) suffix="" ;; \
+	esac; \
+	mkdir -p tauri/src-tauri/binaries; \
+	dest="tauri/src-tauri/binaries/llama-server-$rust_target$suffix"; \
+	if [ -f "$dest" ]; then \
+	  echo "llama-server sidecar already staged: $dest"; \
+	  exit 0; \
+	fi; \
+	if [ "$rust_target" = "aarch64-apple-darwin" ] && command -v bun >/dev/null 2>&1; then \
+	  echo "fetching llama-server sidecar: $dest"; \
+	  bun scripts/fetch-llama-server.ts --target "$rust_target"; \
+	else \
+	  echo "staging llama-server placeholder: $dest"; \
+	  printf '#!/bin/sh\n# hecate-llama-server-placeholder\n# This file exists to satisfy Tauri externalBin resolution\n# at build time. It is NOT a real llama-server. The Tauri\n# sidecar resolver and the gateway both detect this sentinel\n# and refuse to set HECATE_LLAMA_SERVER_BIN to point at it.\nexit 0\n' > "$dest"; \
+	  chmod +x "$dest"; \
+	fi
 
 # Stage a minimal executable sidecar placeholder for Cargo-only Tauri tests.
 # Tauri's build script validates that the externalBin file exists at compile
@@ -75,11 +110,15 @@ tauri-test-sidecar target="":
 	  *windows*) suffix=".exe" ;; \
 	  *) suffix="" ;; \
 	esac; \
-	dest="tauri/src-tauri/binaries/hecate-$rust_target$suffix"; \
-	echo "staging test sidecar placeholder: $dest"; \
-	mkdir -p "$(dirname "$dest")"; \
-	printf '#!/bin/sh\nexit 0\n' > "$dest"; \
-	chmod +x "$dest"
+	hecate_dest="tauri/src-tauri/binaries/hecate-$rust_target$suffix"; \
+	llama_dest="tauri/src-tauri/binaries/llama-server-$rust_target$suffix"; \
+	mkdir -p "$(dirname "$hecate_dest")"; \
+	echo "staging test sidecar placeholder: $hecate_dest"; \
+	printf '#!/bin/sh\nexit 0\n' > "$hecate_dest"; \
+	chmod +x "$hecate_dest"; \
+	echo "staging llama-server test placeholder: $llama_dest"; \
+	printf '#!/bin/sh\n# hecate-llama-server-placeholder\n# This file exists to satisfy Tauri externalBin resolution\n# at build time. It is NOT a real llama-server.\nexit 0\n' > "$llama_dest"; \
+	chmod +x "$llama_dest"
 
 # Hot-reload development mode. Launches the Tauri window backed by a fresh
 # hecate sidecar build. The hecate binary is rebuilt first so the sidecar is up

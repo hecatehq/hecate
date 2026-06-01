@@ -180,4 +180,33 @@ const (
 	AttrHecateAgentProbeStatus    = "hecate.agent_adapter.probe.status"
 	AttrHecateAgentTerminalMethod = "hecate.agent_adapter.terminal.method"
 	AttrHecateChatCancelReason    = "hecate.chat.cancel.reason"
+
+	// Local-models attributes — paired with the
+	// local_model.install.* / local_model.runtime.* / local_model.proxy.*
+	// events. `local_model.id` is the slug used everywhere
+	// (registry, /v1/models, chat composer). `engine` is "llamacpp" in
+	// v1 — reserved so a future MLX engine can be distinguished.
+	// `install.error_kind` is one of the closed set defined in
+	// internal/llamacpp (network|sha_mismatch|cancelled|disk|gated|
+	// invalid_url|unknown). `runtime.reason` distinguishes
+	// operator|switch|crash on the stopped event so dashboards can
+	// alert on crash rate.
+	AttrHecateLocalModelID                    = "hecate.local_model.id"
+	AttrHecateLocalModelEngine                = "hecate.local_model.engine"
+	AttrHecateLocalModelDisplayName           = "hecate.local_model.display_name"
+	AttrHecateLocalModelRuntimePort           = "hecate.local_model.runtime.port"
+	AttrHecateLocalModelRuntimePID            = "hecate.local_model.runtime.pid"
+	AttrHecateLocalModelRuntimeContextSize    = "hecate.local_model.runtime.params.context_size"
+	AttrHecateLocalModelRuntimeReason         = "hecate.local_model.runtime.reason"
+	AttrHecateLocalModelRuntimeUptimeMS       = "hecate.local_model.runtime.uptime_ms"
+	AttrHecateLocalModelRuntimeTTFHMS         = "hecate.local_model.runtime.ttfh_ms"
+	AttrHecateLocalModelRuntimeExitCode       = "hecate.local_model.runtime.exit_code"
+	AttrHecateLocalModelInstallID             = "hecate.local_model.install.id"
+	AttrHecateLocalModelInstallSourceURL      = "hecate.local_model.install.source_url"
+	AttrHecateLocalModelInstallBytesTotal     = "hecate.local_model.install.bytes_total"
+	AttrHecateLocalModelInstallBytesDone      = "hecate.local_model.install.bytes_downloaded"
+	AttrHecateLocalModelInstallDurationMS     = "hecate.local_model.install.duration_ms"
+	AttrHecateLocalModelInstallErrorKind      = "hecate.local_model.install.error_kind"
+	AttrHecateLocalModelInstallExpectedSHA256 = "hecate.local_model.install.expected_sha256"
+	AttrHecateLocalModelInstallActualSHA256   = "hecate.local_model.install.actual_sha256"
 )

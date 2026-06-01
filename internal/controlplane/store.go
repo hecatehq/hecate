@@ -49,10 +49,42 @@ type AuditEvent struct {
 	Detail     string    `json:"detail,omitempty"`
 }
 
+// InstalledModelCapabilities mirrors the small per-model capability
+// surface the llamacpp subsystem cares about. Kept here (not in
+// internal/llamacpp) so the controlplane shape stays self-contained
+// — the llamacpp package re-exports it via a type alias.
+type InstalledModelCapabilities struct {
+	ToolCalling      string `json:"tool_calling,omitempty"`
+	Streaming        bool   `json:"streaming"`
+	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
+}
+
+// InstalledModel is the persisted record for one Hecate-managed GGUF
+// model file. The file itself at <data_dir>/<FilePath> is the source
+// of truth; this struct holds enrichment (HuggingFace URL, sha256,
+// last-loaded timestamp) that survives reboots.
+//
+// Lives in controlplane (not llamacpp) so it sits next to the other
+// persisted records and slots cleanly into the JSON-blob sqlite store
+// without a separate table.
+type InstalledModel struct {
+	ID                 string                     `json:"id"`
+	DisplayName        string                     `json:"display_name,omitempty"`
+	FilePath           string                     `json:"file_path"`
+	SourceURL          string                     `json:"source_url,omitempty"`
+	SHA256             string                     `json:"sha256,omitempty"`
+	SizeBytes          int64                      `json:"size_bytes,omitempty"`
+	RecommendedContext int                        `json:"recommended_context,omitempty"`
+	Capabilities       InstalledModelCapabilities `json:"capabilities,omitempty"`
+	InstalledAt        time.Time                  `json:"installed_at,omitempty"`
+	LastLoadedAt       time.Time                  `json:"last_loaded_at,omitempty"`
+}
+
 type State struct {
 	Providers       []Provider                `json:"providers,omitempty"`
 	ProviderSecrets []ProviderSecret          `json:"provider_secrets,omitempty"`
 	PolicyRules     []config.PolicyRuleConfig `json:"policy_rules,omitempty"`
+	InstalledModels []InstalledModel          `json:"installed_models,omitempty"`
 	Events          []AuditEvent              `json:"events,omitempty"`
 }
 
@@ -65,6 +97,8 @@ type Store interface {
 	DeleteProvider(ctx context.Context, id string) error
 	UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error)
 	DeletePolicyRule(ctx context.Context, id string) error
+	UpsertInstalledModel(ctx context.Context, model InstalledModel) (InstalledModel, error)
+	DeleteInstalledModel(ctx context.Context, id string) error
 	Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }
 
@@ -85,6 +119,7 @@ func cloneState(state State) State {
 		Providers:       make([]Provider, 0, len(state.Providers)),
 		ProviderSecrets: make([]ProviderSecret, 0, len(state.ProviderSecrets)),
 		PolicyRules:     make([]config.PolicyRuleConfig, 0, len(state.PolicyRules)),
+		InstalledModels: make([]InstalledModel, 0, len(state.InstalledModels)),
 		Events:          make([]AuditEvent, 0, len(state.Events)),
 	}
 	for _, provider := range state.Providers {
@@ -118,6 +153,9 @@ func cloneState(state State) State {
 	for _, rule := range state.PolicyRules {
 		out.PolicyRules = append(out.PolicyRules, clonePolicyRule(rule))
 	}
+	for _, model := range state.InstalledModels {
+		out.InstalledModels = append(out.InstalledModels, cloneInstalledModel(model))
+	}
 	for _, event := range state.Events {
 		out.Events = append(out.Events, AuditEvent{
 			Timestamp:  event.Timestamp,
@@ -129,6 +167,73 @@ func cloneState(state State) State {
 		})
 	}
 	return out
+}
+
+// cloneInstalledModel copies an InstalledModel by value. All fields are
+// value types today, but we keep this helper symmetric with the rest of
+// the cloneState handlers so adding a slice or pointer later doesn't
+// silently corrupt snapshots.
+func cloneInstalledModel(model InstalledModel) InstalledModel {
+	return model
+}
+
+// applyUpsertInstalledModel writes a row into State.InstalledModels by
+// ID, normalizes empties, and appends an audit event. Shared by the
+// memory and sqlite store implementations so the audit semantics stay
+// in sync.
+func applyUpsertInstalledModel(ctx context.Context, state *State, model InstalledModel) (InstalledModel, error) {
+	id := strings.TrimSpace(model.ID)
+	if id == "" {
+		return InstalledModel{}, fmt.Errorf("installed model id is required")
+	}
+	model.ID = id
+	model.FilePath = strings.TrimSpace(model.FilePath)
+	if model.FilePath == "" {
+		return InstalledModel{}, fmt.Errorf("installed model file_path is required")
+	}
+	now := time.Now().UTC()
+	action := "installed_model.created"
+	for i, existing := range state.InstalledModels {
+		if existing.ID != id {
+			continue
+		}
+		// Preserve the original InstalledAt across updates — the row
+		// represents the same file even if metadata refreshed.
+		if existing.InstalledAt.IsZero() && model.InstalledAt.IsZero() {
+			model.InstalledAt = now
+		} else if model.InstalledAt.IsZero() {
+			model.InstalledAt = existing.InstalledAt
+		}
+		state.InstalledModels[i] = cloneInstalledModel(model)
+		appendAuditEvent(state, newAuditEvent(ctx, "installed_model.updated", "installed_model", id, model.DisplayName))
+		return cloneInstalledModel(model), nil
+	}
+	if model.InstalledAt.IsZero() {
+		model.InstalledAt = now
+	}
+	state.InstalledModels = append(state.InstalledModels, cloneInstalledModel(model))
+	appendAuditEvent(state, newAuditEvent(ctx, action, "installed_model", id, model.DisplayName))
+	return cloneInstalledModel(model), nil
+}
+
+// applyDeleteInstalledModel removes a row by ID. Returns an error if
+// the id is empty; silently no-ops on missing rows so the caller's
+// idempotent "uninstall, then forget" flow stays simple.
+func applyDeleteInstalledModel(ctx context.Context, state *State, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("installed model id is required")
+	}
+	for i, existing := range state.InstalledModels {
+		if existing.ID != id {
+			continue
+		}
+		display := existing.DisplayName
+		state.InstalledModels = append(state.InstalledModels[:i], state.InstalledModels[i+1:]...)
+		appendAuditEvent(state, newAuditEvent(ctx, "installed_model.deleted", "installed_model", id, display))
+		return nil
+	}
+	return nil
 }
 
 func actorFromContext(ctx context.Context) string {

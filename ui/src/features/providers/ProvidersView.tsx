@@ -18,6 +18,7 @@ import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/
 import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { AddProviderModal } from "./AddProviderModal";
+import { LocalModelsCard } from "./LocalModelsCard";
 
 const PROVIDER_POLL_INTERVAL_MS = 30_000;
 
@@ -441,6 +442,12 @@ export function ProvidersView() {
             Add provider
           </button>
         </div>
+
+        {/* Bundled model runtime (llama.cpp). Lives above the
+            operator-configured providers since it's a Hecate-managed
+            connection — operators get one-click install + run for
+            local models without needing to add a provider row by hand. */}
+        <LocalModelsCard />
 
         {configuredProviders.length > 0 && (
           <div

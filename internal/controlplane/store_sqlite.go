@@ -175,6 +175,38 @@ func (s *SQLiteStore) DeletePolicyRule(ctx context.Context, id string) error {
 	return s.writeState(ctx, state)
 }
 
+func (s *SQLiteStore) UpsertInstalledModel(ctx context.Context, model InstalledModel) (InstalledModel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, err := s.readState(ctx)
+	if err != nil {
+		return InstalledModel{}, err
+	}
+	model, err = applyUpsertInstalledModel(ctx, &state, model)
+	if err != nil {
+		return InstalledModel{}, err
+	}
+	if err := s.writeState(ctx, state); err != nil {
+		return InstalledModel{}, err
+	}
+	return model, nil
+}
+
+func (s *SQLiteStore) DeleteInstalledModel(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, err := s.readState(ctx)
+	if err != nil {
+		return err
+	}
+	if err := applyDeleteInstalledModel(ctx, &state, id); err != nil {
+		return err
+	}
+	return s.writeState(ctx, state)
+}
+
 func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

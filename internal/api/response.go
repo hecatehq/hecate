@@ -31,6 +31,17 @@ const (
 	errCodeAgentAdapterUnavailable = "chat.adapter_unavailable"
 	errCodeSessionStopping         = "chat.session_stopping"
 	errCodeSessionNotRunning       = "chat.session_not_running"
+
+	// Local-models surface — Hecate-managed llama.cpp runtime. See
+	// docs/rfcs/local-models-llamacpp.md.
+	errCodeLocalModelsUnavailable       = "local_models_unavailable"
+	errCodeLocalModelNotInstalled       = "local_model_not_installed"
+	errCodeLocalModelRuntimeUnavailable = "local_model_runtime_unavailable"
+	errCodeLocalModelInstallInProgress  = "local_model_install_already_running"
+	errCodeLocalModelInstallNotFound    = "local_model_install_not_found"
+	errCodeHuggingFaceGated             = "huggingface_gated"
+	errCodeHuggingFaceNotFound          = "huggingface_not_found"
+	errCodeHuggingFaceUpstream          = "huggingface_upstream_error"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, payload any) {
@@ -161,6 +172,16 @@ func defaultErrorUserMessage(code string) string {
 		return "This chat is still stopping."
 	case errCodeSessionNotRunning:
 		return "There is no active run to stop."
+	case errCodeLocalModelsUnavailable:
+		return "Local model support is not available in this build."
+	case errCodeLocalModelNotInstalled:
+		return "The selected local model is not installed."
+	case errCodeLocalModelRuntimeUnavailable:
+		return "The local model runtime is not running."
+	case errCodeLocalModelInstallInProgress:
+		return "Another local model install is already running."
+	case errCodeLocalModelInstallNotFound:
+		return "No matching local model install was found."
 	default:
 		return ""
 	}
@@ -209,6 +230,16 @@ func defaultErrorAction(code string) string {
 		return "Wait a moment, then retry the action."
 	case errCodeSessionNotRunning:
 		return "Send a new message if you want to start another run."
+	case errCodeLocalModelsUnavailable:
+		return "Download the desktop app, which bundles llama.cpp, to enable local models."
+	case errCodeLocalModelNotInstalled:
+		return "Install the model from Connections → Bundled model runtime before sending requests."
+	case errCodeLocalModelRuntimeUnavailable:
+		return "Open Connections → Bundled model runtime and click Start, or wait for the cold-load to finish."
+	case errCodeLocalModelInstallInProgress:
+		return "Wait for the current install to finish or cancel it before starting another."
+	case errCodeLocalModelInstallNotFound:
+		return "Refresh the installs list — the install may have already completed or been cancelled."
 	default:
 		return ""
 	}

@@ -40,7 +40,8 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/hecate"
+      "binaries/hecate",
+      "binaries/llama-server"
     ],
     "resources": {},
     "windows": {
