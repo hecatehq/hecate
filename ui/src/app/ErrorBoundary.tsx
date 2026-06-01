@@ -28,7 +28,9 @@ export class ErrorBoundary extends Component<Props, State> {
                   <p className="console-eyebrow">Runtime error</p>
                   <h2 className="console-section__title">Something went wrong</h2>
                 </div>
-                <p className="body-muted">{this.state.error.message || "An unexpected error occurred."}</p>
+                <p className="body-muted">
+                  {this.state.error.message || "An unexpected error occurred."}
+                </p>
                 <button
                   className="toolbar-button toolbar-button--primary"
                   onClick={() => window.location.reload()}

@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 // AutoImportEnvProviders mirrors each env-PRECONFIGURED provider config into

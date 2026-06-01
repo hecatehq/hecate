@@ -5,10 +5,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProvidersView } from "./ProvidersView";
 import { AddProviderModal } from "./AddProviderModal";
 import { discoverLocalProviders } from "../../lib/api";
-import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
-import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../../types/runtime";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../../test/runtime-console-render";
+import type {
+  ConfiguredProviderRecord,
+  ProviderPresetRecord,
+  ProviderRecord,
+} from "../../types/provider";
 
-vi.mock("../../lib/api", async importOriginal => {
+vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
     ...actual,
@@ -46,16 +54,48 @@ vi.mock("../../lib/api", async importOriginal => {
 });
 
 const presets: ProviderPresetRecord[] = [
-  { id: "anthropic", name: "Anthropic", kind: "cloud", protocol: "openai", base_url: "https://api.anthropic.com/v1", description: "" },
-  { id: "llamacpp",  name: "llama.cpp", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1", description: "" },
-  { id: "localai",   name: "LocalAI",   kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1", description: "" },
-  { id: "ollama",    name: "Ollama",    kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.anthropic.com/v1",
+    description: "",
+  },
+  {
+    id: "llamacpp",
+    name: "llama.cpp",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:8080/v1",
+    description: "",
+  },
+  {
+    id: "localai",
+    name: "LocalAI",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:8080/v1",
+    description: "",
+  },
+  {
+    id: "ollama",
+    name: "Ollama",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:11434/v1",
+    description: "",
+  },
 ];
 
-function makeConfigured(id: string, overrides: Partial<ConfiguredProviderRecord> = {}): ConfiguredProviderRecord {
-  const preset = presets.find(p => p.id === id);
+function makeConfigured(
+  id: string,
+  overrides: Partial<ConfiguredProviderRecord> = {},
+): ConfiguredProviderRecord {
+  const preset = presets.find((p) => p.id === id);
   return {
-    id, name: id,
+    id,
+    name: id,
     kind: preset?.kind ?? "cloud",
     protocol: preset?.protocol ?? "openai",
     base_url: preset?.base_url ?? "",
@@ -101,10 +141,14 @@ describe("ProvidersView empty state", () => {
       providers: [],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     expect(screen.getByText("No model providers configured")).toBeTruthy();
-    expect(screen.getByText("Add a local or cloud provider to start routing requests")).toBeTruthy();
+    expect(
+      screen.getByText("Add a local or cloud provider to start routing requests"),
+    ).toBeTruthy();
     // Both the header button and empty state button should be present
     const addButtons = screen.getAllByText("Add provider");
     expect(addButtons.length).toBeGreaterThan(0);
@@ -126,7 +170,7 @@ describe("ProvidersView delete", () => {
       providers: [makeStatus("ollama")],
     });
 
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     const trashBtn = screen.getByTitle("Remove Ollama");
@@ -151,7 +195,7 @@ describe("ProvidersView add provider modal", () => {
       providers: [],
     });
     const actions = createRuntimeConsoleActions();
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
     return { actions };
   }
 
@@ -212,7 +256,7 @@ describe("ProvidersView add provider modal", () => {
       providers: [],
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getAllByText("Add provider")[0]);
@@ -228,13 +272,15 @@ describe("ProvidersView add provider modal", () => {
     await user.click(addButtons[addButtons.length - 1]);
 
     await waitFor(() => {
-      expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
-        name: "Anthropic",
-        preset_id: "anthropic",
-        kind: "cloud",
-        protocol: "openai",
-        api_key: "sk-test",
-      }));
+      expect(createProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Anthropic",
+          preset_id: "anthropic",
+          kind: "cloud",
+          protocol: "openai",
+          api_key: "sk-test",
+        }),
+      );
     });
   });
 
@@ -264,7 +310,7 @@ describe("ProvidersView add provider modal", () => {
 
   it("server error renders inline inside the modal", async () => {
     const createProvider = vi.fn(async () => {
-      throw new Error("provider with id \"anthropic\" already exists");
+      throw new Error('provider with id "anthropic" already exists');
     });
     const state = createRuntimeConsoleFixture({
       session: localSession,
@@ -273,7 +319,7 @@ describe("ProvidersView add provider modal", () => {
       providers: [],
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getAllByText("Add provider")[0]);
@@ -300,7 +346,9 @@ describe("ProvidersView edit modal", () => {
       },
       providers: [makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy" })],
     });
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Anthropic"));
@@ -321,7 +369,7 @@ describe("ProvidersView edit modal", () => {
       providers: [makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy" })],
     });
     const actions = { ...createRuntimeConsoleActions(), setProviderAPIKey };
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Anthropic"));
@@ -343,12 +391,14 @@ describe("ProvidersView edit modal", () => {
       providerPresets: presets,
       settingsConfig: {
         ...emptySettingsConfig(),
-        providers: [makeConfigured("ollama", { kind: "local", base_url: "http://127.0.0.1:11434/v1" })],
+        providers: [
+          makeConfigured("ollama", { kind: "local", base_url: "http://127.0.0.1:11434/v1" }),
+        ],
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy" })],
     });
     const actions = { ...createRuntimeConsoleActions(), setProviderBaseURL };
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Ollama"));
@@ -368,11 +418,15 @@ describe("ProvidersView edit modal", () => {
       providerPresets: presets,
       settingsConfig: {
         ...emptySettingsConfig(),
-        providers: [makeConfigured("ollama", { kind: "local", base_url: "http://127.0.0.1:11434/v1" })],
+        providers: [
+          makeConfigured("ollama", { kind: "local", base_url: "http://127.0.0.1:11434/v1" }),
+        ],
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy" })],
     });
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Ollama"));
@@ -388,9 +442,19 @@ describe("ProvidersView edit modal", () => {
         ...emptySettingsConfig(),
         providers: [makeConfigured("ollama", { kind: "local", default_model: "m1" })],
       },
-      providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy", models: ["m1", "m2"], model_count: 2 })],
+      providers: [
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          models: ["m1", "m2"],
+          model_count: 2,
+        }),
+      ],
     });
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Ollama"));
@@ -414,20 +478,42 @@ describe("ProvidersView table renders", () => {
         ],
       },
       providers: [
-        makeStatus("ollama", { kind: "local", healthy: true, status: "healthy", routing_ready: true, credential_state: "not_required", models: ["llama3"], model_count: 1 }),
-        makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy", routing_ready: true, credential_state: "configured", models: ["claude-sonnet"], model_count: 1 }),
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          credential_state: "not_required",
+          models: ["llama3"],
+          model_count: 1,
+        }),
+        makeStatus("anthropic", {
+          kind: "cloud",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          credential_state: "configured",
+          models: ["claude-sonnet"],
+          model_count: 1,
+        }),
       ],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     expect(screen.getByText("Anthropic")).toBeTruthy();
     expect(screen.getByText("Ollama")).toBeTruthy();
     const summary = screen.getByTestId("connections-readiness-summary");
     expect(within(summary).getByText("Model provider readiness")).toBeTruthy();
     expect(within(summary).getAllByText("2").length).toBeGreaterThanOrEqual(1);
-    expect(within(summary).getByText("No configured provider setup issue needs repair.")).toBeTruthy();
-    expect(within(summary).getByTestId("connections-provider-readiness-meaning")).toHaveTextContent("2 providers ready with 2 discovered models.");
+    expect(
+      within(summary).getByText("No configured provider setup issue needs repair."),
+    ).toBeTruthy();
+    expect(within(summary).getByTestId("connections-provider-readiness-meaning")).toHaveTextContent(
+      "2 providers ready with 2 discovered models.",
+    );
 
     // Health badges: both providers report healthy. Credentials are split
     // into a separate column so cloud (Configured) and local (Not required)
@@ -462,14 +548,21 @@ describe("ProvidersView table renders", () => {
             operator_action: "Add or rotate the provider API key in Connections.",
           },
           readiness_checks: [
-            { name: "credentials", status: "blocked", reason: "credential_missing", message: "Missing key." },
+            {
+              name: "credentials",
+              status: "blocked",
+              reason: "credential_missing",
+              message: "Missing key.",
+            },
           ],
         }),
       ],
     });
     const user = userEvent.setup();
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     expect(screen.getByText(/1 provider needs attention/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Open provider" }));
@@ -495,7 +588,12 @@ describe("ProvidersView table renders", () => {
           models: [],
           model_count: 0,
           readiness_checks: [
-            { name: "models", status: "blocked", reason: "no_models", message: "No models were discovered." },
+            {
+              name: "models",
+              status: "blocked",
+              reason: "no_models",
+              message: "No models were discovered.",
+            },
           ],
         }),
       ],
@@ -503,19 +601,37 @@ describe("ProvidersView table renders", () => {
     const actions = { ...createRuntimeConsoleActions(), refreshProviders };
     const user = userEvent.setup();
 
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+    await waitFor(() => expect(refreshProviders).toHaveBeenCalledTimes(1));
+    refreshProviders.mockClear();
     await user.click(screen.getByRole("button", { name: "Refresh providers" }));
 
     expect(refreshProviders).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes provider readiness when configured providers are shown", async () => {
+    const refreshProviders = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local" })],
+      },
+      providers: [],
+    });
+    const actions = { ...createRuntimeConsoleActions(), refreshProviders };
+
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
+
+    await waitFor(() => expect(refreshProviders).toHaveBeenCalledTimes(1));
+  });
+
   it("renders external-agent readiness and grants in the Connections workspace", async () => {
-    const listAgentChatGrants = vi.fn(async () => undefined);
-    const probeAgentAdapter = vi.fn(async () => null);
+    const listChatGrants = vi.fn(async () => undefined);
     const actions = {
       ...createRuntimeConsoleActions(),
-      listAgentChatGrants,
-      probeAgentAdapter,
+      listChatGrants,
     };
     const state = createRuntimeConsoleFixture({
       session: localSession,
@@ -524,7 +640,16 @@ describe("ProvidersView table renders", () => {
         ...emptySettingsConfig(),
         providers: [makeConfigured("ollama", { kind: "local" })],
       },
-      providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy", routing_ready: true, models: ["llama3"], model_count: 1 })],
+      providers: [
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          models: ["llama3"],
+          model_count: 1,
+        }),
+      ],
       agentAdapters: [
         {
           id: "codex",
@@ -536,7 +661,7 @@ describe("ProvidersView table renders", () => {
           cost_mode: "external",
         },
       ],
-      agentChatGrants: [
+      chatGrants: [
         {
           id: "grant-1",
           scope: "session",
@@ -548,13 +673,12 @@ describe("ProvidersView table renders", () => {
       ],
     });
 
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
     expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
     expect(screen.getByTestId("external-agents-row-grant-1")).toBeTruthy();
-    expect(listAgentChatGrants).toHaveBeenCalled();
-    expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
+    expect(listChatGrants).toHaveBeenCalled();
   });
 
   it("blocks submit when the typed Endpoint URL is already taken", async () => {
@@ -568,7 +692,9 @@ describe("ProvidersView table renders", () => {
       providers: [makeStatus("ollama")],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     const user = userEvent.setup();
     // Open the Add modal, then pick "Custom" so the Endpoint URL field is editable.
@@ -582,7 +708,8 @@ describe("ProvidersView table renders", () => {
     // remounts make user.type drop characters. Paste-style fireEvent
     // sets the value in one shot, which is the realistic interaction
     // anyway (operators paste their endpoint URL).
-    const urlInput = () => screen.getByPlaceholderText("http://localhost:11434/v1") as HTMLInputElement;
+    const urlInput = () =>
+      screen.getByPlaceholderText("http://localhost:11434/v1") as HTMLInputElement;
     fireEvent.change(urlInput(), { target: { value: "http://127.0.0.1:11434/v1" } });
 
     await waitFor(() => {
@@ -603,13 +730,15 @@ describe("ProvidersView table renders", () => {
       providerPresets: presets,
       settingsConfig: {
         ...emptySettingsConfig(),
-        providers: [makeConfigured("llama-cpp", { name: "llama.cpp", base_url: "http://127.0.0.1:9090/v1" })],
+        providers: [
+          makeConfigured("llama-cpp", { name: "llama.cpp", base_url: "http://127.0.0.1:9090/v1" }),
+        ],
       },
       providers: [makeStatus("llama-cpp")],
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
 
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getAllByText("Add provider")[0]);
@@ -655,7 +784,7 @@ describe("ProvidersView table renders", () => {
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
 
-    render(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    render(withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Cloud" }));
@@ -679,19 +808,21 @@ describe("ProvidersView table renders", () => {
       .mockRejectedValueOnce(new Error("local probe failed"))
       .mockResolvedValueOnce({
         object: "local_provider_discovery",
-        data: [{
-          preset_id: "ollama",
-          name: "Ollama",
-          base_url: "http://127.0.0.1:11434/v1",
-          probe_url: "http://127.0.0.1:11434/api/tags",
-          status: "running",
-          command: "ollama",
-          command_available: true,
-          command_path: "/usr/local/bin/ollama",
-          http_available: true,
-          model_count: 1,
-          models: ["llama3.1:8b"],
-        }],
+        data: [
+          {
+            preset_id: "ollama",
+            name: "Ollama",
+            base_url: "http://127.0.0.1:11434/v1",
+            probe_url: "http://127.0.0.1:11434/api/tags",
+            status: "running",
+            command: "ollama",
+            command_available: true,
+            command_path: "/usr/local/bin/ollama",
+            http_available: true,
+            model_count: 1,
+            models: ["llama3.1:8b"],
+          },
+        ],
       });
     const state = createRuntimeConsoleFixture({
       session: localSession,
@@ -700,11 +831,15 @@ describe("ProvidersView table renders", () => {
     });
     const actions = createRuntimeConsoleActions();
 
-    const { rerender } = render(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    const { rerender } = render(
+      withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }),
+    );
     expect(await screen.findByText("local probe failed")).toBeTruthy();
 
-    rerender(<AddProviderModal open={false} state={state} actions={actions} onClose={() => {}} />);
-    rerender(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    rerender(
+      withRuntimeConsole(<AddProviderModal open={false} onClose={() => {}} />, { state, actions }),
+    );
+    rerender(withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }));
 
     await waitFor(() => expect(screen.queryByText("local probe failed")).toBeNull());
     expect(await screen.findByText("Running")).toBeTruthy();
@@ -712,11 +847,11 @@ describe("ProvidersView table renders", () => {
 
   it("ignores stale local discovery responses from a previous modal open", async () => {
     let resolveSlow: (value: Awaited<ReturnType<typeof discoverLocalProviders>>) => void = () => {};
-    const slow = new Promise<Awaited<ReturnType<typeof discoverLocalProviders>>>(resolve => {
+    const slow = new Promise<Awaited<ReturnType<typeof discoverLocalProviders>>>((resolve) => {
       resolveSlow = resolve;
     });
     let resolveFast: (value: Awaited<ReturnType<typeof discoverLocalProviders>>) => void = () => {};
-    const fast = new Promise<Awaited<ReturnType<typeof discoverLocalProviders>>>(resolve => {
+    const fast = new Promise<Awaited<ReturnType<typeof discoverLocalProviders>>>((resolve) => {
       resolveFast = resolve;
     });
     vi.mocked(discoverLocalProviders).mockReturnValueOnce(slow).mockReturnValueOnce(fast);
@@ -728,52 +863,64 @@ describe("ProvidersView table renders", () => {
     const actions = createRuntimeConsoleActions();
     const initialDiscoveryCalls = vi.mocked(discoverLocalProviders).mock.calls.length;
 
-    const { rerender } = render(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
-    await waitFor(() => expect(discoverLocalProviders).toHaveBeenCalledTimes(initialDiscoveryCalls + 1));
-    rerender(<AddProviderModal open={false} state={state} actions={actions} onClose={() => {}} />);
-    rerender(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
-    await waitFor(() => expect(discoverLocalProviders).toHaveBeenCalledTimes(initialDiscoveryCalls + 2));
+    const { rerender } = render(
+      withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }),
+    );
+    await waitFor(() =>
+      expect(discoverLocalProviders).toHaveBeenCalledTimes(initialDiscoveryCalls + 1),
+    );
+    rerender(
+      withRuntimeConsole(<AddProviderModal open={false} onClose={() => {}} />, { state, actions }),
+    );
+    rerender(withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }));
+    await waitFor(() =>
+      expect(discoverLocalProviders).toHaveBeenCalledTimes(initialDiscoveryCalls + 2),
+    );
 
     resolveFast({
       object: "local_provider_discovery",
-      data: [{
-        preset_id: "ollama",
-        name: "Ollama",
-        base_url: "http://127.0.0.1:11434/v1",
-        probe_url: "http://127.0.0.1:11434/api/tags",
-        status: "running",
-        command: "ollama",
-        command_available: true,
-        command_path: "/usr/local/bin/ollama",
-        http_available: true,
-        model_count: 1,
-        models: ["llama3.1:8b"],
-      }],
+      data: [
+        {
+          preset_id: "ollama",
+          name: "Ollama",
+          base_url: "http://127.0.0.1:11434/v1",
+          probe_url: "http://127.0.0.1:11434/api/tags",
+          status: "running",
+          command: "ollama",
+          command_available: true,
+          command_path: "/usr/local/bin/ollama",
+          http_available: true,
+          model_count: 1,
+          models: ["llama3.1:8b"],
+        },
+      ],
     });
     expect(await screen.findByText("Running")).toBeTruthy();
 
     resolveSlow({
       object: "local_provider_discovery",
-      data: [{
-        preset_id: "lmstudio",
-        name: "LM Studio",
-        base_url: "http://127.0.0.1:1234/v1",
-        probe_url: "http://127.0.0.1:1234/v1/models",
-        status: "installed",
-        command: "lms",
-        command_available: true,
-        command_path: "/Users/alice/.lmstudio/bin/lms",
-        http_available: false,
-        model_count: 0,
-        models: [],
-      }],
+      data: [
+        {
+          preset_id: "lmstudio",
+          name: "LM Studio",
+          base_url: "http://127.0.0.1:1234/v1",
+          probe_url: "http://127.0.0.1:1234/v1/models",
+          status: "installed",
+          command: "lms",
+          command_available: true,
+          command_path: "/Users/alice/.lmstudio/bin/lms",
+          http_available: false,
+          model_count: 0,
+          models: [],
+        },
+      ],
     });
     await waitFor(() => expect(screen.queryByText("LM Studio")).toBeNull());
     expect(screen.getByText("Running")).toBeTruthy();
   });
 
   it("does not steal focus back to Endpoint URL after typing in Custom name", async () => {
-    window.requestAnimationFrame = callback => {
+    window.requestAnimationFrame = (callback) => {
       callback(0);
       return 0;
     };
@@ -784,7 +931,9 @@ describe("ProvidersView table renders", () => {
       providers: [],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     const user = userEvent.setup();
     await user.click(screen.getAllByText("Add provider")[0]);
@@ -794,7 +943,9 @@ describe("ProvidersView table renders", () => {
     await user.type(customNameInput, "Dev");
 
     expect(document.activeElement).toBe(customNameInput);
-    expect((screen.getByDisplayValue("http://127.0.0.1:11434/v1") as HTMLInputElement).value).toBe("http://127.0.0.1:11434/v1");
+    expect((screen.getByDisplayValue("http://127.0.0.1:11434/v1") as HTMLInputElement).value).toBe(
+      "http://127.0.0.1:11434/v1",
+    );
   });
 
   it("shows a compact discovery-pending badge for configured providers without runtime model status", () => {
@@ -803,16 +954,20 @@ describe("ProvidersView table renders", () => {
       providerPresets: presets,
       settingsConfig: {
         ...emptySettingsConfig(),
-        providers: [makeConfigured("lmstudio", { kind: "local", base_url: "http://127.0.0.1:1234/v1" })],
+        providers: [
+          makeConfigured("lmstudio", { kind: "local", base_url: "http://127.0.0.1:1234/v1" }),
+        ],
       },
       providers: [],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     expect(screen.getAllByText(/lmstudio/i).length).toBeGreaterThan(0);
-    expect(screen.getByText("Discovery pending")).toBeTruthy();
-    expect(screen.queryByText(/does not have a current model-discovery result/i)).toBeNull();
+    expect(screen.getAllByText("Not checked").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/has not received a current readiness check/i)).toBeNull();
   });
 
   it("shows provider health diagnostics and last errors", async () => {
@@ -840,8 +995,18 @@ describe("ProvidersView table renders", () => {
             operator_action: "Wait for cooldown or route to another local provider.",
           },
           readiness_checks: [
-            { name: "credentials", status: "ok", reason: "not_required", message: "No credentials are required for this provider." },
-            { name: "models", status: "ok", reason: "models_discovered", message: "1 model discovered." },
+            {
+              name: "credentials",
+              status: "ok",
+              reason: "not_required",
+              message: "No credentials are required for this provider.",
+            },
+            {
+              name: "models",
+              status: "ok",
+              reason: "models_discovered",
+              message: "1 model discovered.",
+            },
             {
               name: "health",
               status: "blocked",
@@ -849,7 +1014,12 @@ describe("ProvidersView table renders", () => {
               message: "Provider is cooling down after an upstream rate limit.",
               operator_action: "Use the backend-provided repair action.",
             },
-            { name: "routing", status: "blocked", reason: "provider_rate_limited", message: "Routing is blocked while the provider cools down after a rate limit." },
+            {
+              name: "routing",
+              status: "blocked",
+              reason: "provider_rate_limited",
+              message: "Routing is blocked while the provider cools down after a rate limit.",
+            },
           ],
           discovery_source: "live",
           last_checked_at: "2026-04-29T10:00:00Z",
@@ -862,7 +1032,9 @@ describe("ProvidersView table renders", () => {
       ],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(
+      withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }),
+    );
 
     // Health column shows "Down" for circuit-open providers.
     expect(screen.getByText("Down")).toBeTruthy();
@@ -873,15 +1045,24 @@ describe("ProvidersView table renders", () => {
     expect(screen.getByText(/Circuit open/)).toBeTruthy();
     expect(screen.getByText("Readiness")).toBeTruthy();
     expect(screen.getByText("Readiness summary")).toBeTruthy();
-    expect(screen.getByText("Ollama is temporarily unavailable because it is rate limited.")).toBeTruthy();
-    expect(screen.getByText("Next: Wait for cooldown or route to another local provider.")).toBeTruthy();
+    expect(
+      screen.getByText("Ollama is temporarily unavailable because it is rate limited."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Next: Wait for cooldown or route to another local provider."),
+    ).toBeTruthy();
     expect(screen.getAllByText("Credentials").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Models").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Health").length).toBeGreaterThan(0);
     expect(screen.getByText("Routing")).toBeTruthy();
-    expect(screen.getByText("Routing is blocked while the provider cools down after a rate limit.")).toBeTruthy();
+    expect(
+      screen.getByText("Routing is blocked while the provider cools down after a rate limit."),
+    ).toBeTruthy();
     expect(screen.getByText("Next: Use the backend-provided repair action.")).toBeTruthy();
-    expect(screen.getAllByText(/Next: Wait for cooldown or temporarily route to another provider/).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Next: Wait for cooldown or temporarily route to another provider/)
+        .length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Diagnostics")).toBeTruthy();
     expect(screen.getByText("connect: connection refused")).toBeTruthy();
     expect(screen.getAllByText("Not required").length).toBeGreaterThan(0);

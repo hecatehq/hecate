@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/controlplane"
 )
 
 // slugify converts a human name into a stable URL-safe ID.

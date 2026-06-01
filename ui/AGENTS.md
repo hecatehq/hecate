@@ -17,25 +17,29 @@ ui/src/
     chats/                ChatView
     transcript/           reusable Chats transcript rendering pieces
     overview/             ConnectYourClient, ObservabilityView
-    costs/                CostsView
-    settings/             SettingsView, PricebookTab
-    providers/            ProvidersView
+    connections/          ConnectionsPanel — providers, model capabilities, external agents
+    providers/            provider catalog/editor components used by Connections
+    settings/             SettingsView — local data cleanup / retention controls
+    usage/                UsageView
     shared/               primitives, pickers, overlays; ui.tsx is a compatibility barrel
-  lib/                    api.ts (incl. streamTaskRun SSE), markdown.ts, runtime-utils.ts
-  types/runtime.ts        TypeScript mirrors of the Go API types — keep in lockstep
+  lib/                    api.ts (incl. streamTaskRun SSE), markdown.ts, provider/readiness helpers
+  types/                  TypeScript mirrors of Go API types — keep in lockstep
   styles.css              design tokens, .dropdown-menu rule, animations
 ```
 
 ## Build / test
 
-| Command | Use for |
-|---|---|
-| `bun run typecheck` | Fast type check after any edit (`tsgo -b` under the hood) |
-| `bun run test` | Vitest run before committing — never `bun test` (skips testing-library DOM setup) |
-| `bun run test:watch` | Iteration |
-| `bun run dev` | Vite dev server on `:5173` proxying API to `:8765` |
+| Command              | Use for                                                                           |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `bun run typecheck`  | Fast type check after any edit (`tsgo -b` under the hood)                         |
+| `bun run test`       | Vitest run before committing — never `bun test` (skips testing-library DOM setup) |
+| `bun run test:watch` | Iteration                                                                         |
+| `bun run dev`        | Vite dev server on `:5173` proxying API to `:8765`                                |
+| `bun run test:e2e`   | Playwright with Vite's API proxy disabled; mock each API route explicitly         |
 
-Claude Code shortcut: `/test-affected` from the repo root when Go packages are touched. For UI work, run `bun run typecheck` and `bun run test` directly.
+Canonical verification rules live in
+[`../docs-ai/core/verification.md`](../docs-ai/core/verification.md). For UI
+work, run `bun run typecheck` and `bun run test`.
 
 ## Where to go for depth
 

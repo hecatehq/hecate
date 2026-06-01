@@ -7,7 +7,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useSettings } from "../../app/state/settings";
+import { useUsage } from "../../app/state/usage";
+import { useRuntimeDerivedState } from "../../app/state/derived";
 import { getMCPCacheStats, getRecentTraces, getRuntimeStats, getTrace } from "../../lib/api";
 import {
   buildSpanWaterfall,
@@ -16,41 +19,37 @@ import {
   findProviderInTrace,
   type TraceTimelineItem,
 } from "../../lib/runtime-trace";
-import {
-  describeRouteReason,
-  formatAbsoluteTime,
-  formatRelativeTime,
-  traceStatusBadge,
-} from "../../lib/runtime-utils";
-import type {
-  MCPCacheStatsResponse,
-  ModelRecord,
-  RuntimeStatsResponse,
-  TraceListItem,
-  TraceResponse,
-} from "../../types/runtime";
+import { formatAbsoluteTime } from "../../lib/format";
+import { describeRouteReason, formatRelativeTime, traceStatusBadge } from "../../lib/runtime-utils";
+import type { MCPCacheStatsResponse, RuntimeStatsResponse } from "../../types/runtime";
+import type { ModelRecord } from "../../types/model";
+import type { TraceListItem, TraceResponse } from "../../types/trace";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
 import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
-import { Badge, BrandAvatar, Icon, Icons, Modal, ModelPicker, ProviderPicker, Toggle } from "../shared/ui";
-
-import { CopyableID } from "./observability/CopyableID";
+import { useFloatingMenu } from "../shared/useFloatingMenu";
+import {
+  Badge,
+  BrandAvatar,
+  CopyableID,
+  Icon,
+  Icons,
+  Modal,
+  ModelPicker,
+  ProviderPicker,
+  Toggle,
+} from "../shared/ui";
 import { RecentActivityStrip } from "./observability/RecentActivityStrip";
 import { StatCard } from "./observability/StatCard";
 import { TraceDetail } from "./observability/TraceDetail";
-import {
-  DRAWER_BREAKPOINT_PX,
-  type StatusFilter,
-  tdBase,
-  thStyle,
-} from "./observability/styles";
+import { DRAWER_BREAKPOINT_PX, type StatusFilter, tdBase, thStyle } from "./observability/styles";
 
 type Props = {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
   // Optional escape hatch the empty-state "Open Chats" button uses.
   // AppShell wires it to onSelectWorkspace; in tests it's omitted and
   // the button no-ops.
-  onNavigate?: (workspace: "chats" | "connections" | "runs" | "overview" | "usage" | "settings") => void;
+  onNavigate?: (
+    workspace: "chats" | "connections" | "runs" | "overview" | "usage" | "settings",
+  ) => void;
   focusRequest?: { requestID: string; nonce: number } | null;
 };
 
@@ -62,7 +61,16 @@ type TraceGroup = {
   latencyMs?: number;
 };
 
-export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
+export function ObservabilityView({ onNavigate, focusRequest }: Props) {
+  const settings = useSettings();
+  const providersAndModels = useProvidersAndModels();
+  const usage = useUsage();
+  const derived = useRuntimeDerivedState();
+  const settingsConfig = settings.state.config;
+  const providers = providersAndModels.state.providers;
+  const providerPresets = providersAndModels.state.providerPresets;
+  const usageEvents = usage.state.events;
+  const providerScopedModels = derived.providerScopedModels;
   const [runtimeStats, setRuntimeStats] = useState<RuntimeStatsResponse["data"] | null>(null);
   const [mcpCacheStats, setMCPCacheStats] = useState<MCPCacheStatsResponse["data"] | null>(null);
   const [traces, setTraces] = useState<TraceListItem[]>([]);
@@ -111,19 +119,24 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     try {
       const res = await getRuntimeStats();
       setRuntimeStats(res.data);
-    } catch { /* silently ignore */ }
+    } catch {
+      /* silently ignore */
+    }
     try {
       const res = await getMCPCacheStats();
       setMCPCacheStats(res.data);
-    } catch { /* silently ignore */ }
+    } catch {
+      /* silently ignore */
+    }
   }, []);
 
   const loadTraces = useCallback(async () => {
     try {
       const res = await getRecentTraces(50);
       setTraces(res.data ?? []);
-    } catch { /* silently ignore */ }
-    finally {
+    } catch {
+      /* silently ignore */
+    } finally {
       setTracesLoaded(true);
     }
   }, []);
@@ -141,32 +154,38 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   }, [loadTraces]);
 
   const usageByRequest = useMemo(() => {
-    const out = new Map<string, NonNullable<typeof state.usageEvents>[number]>();
-    for (const entry of state.usageEvents ?? []) {
+    const out = new Map<string, NonNullable<typeof usageEvents>[number]>();
+    for (const entry of usageEvents ?? []) {
       if (entry.request_id) out.set(entry.request_id, entry);
     }
     return out;
-  }, [state.usageEvents]);
+  }, [usageEvents]);
 
   const traceProvider = useCallback(
-    (trace: TraceListItem) => trace.route?.final_provider
-      || (traceDetail?.request_id === trace.request_id ? findProviderInTrace(traceDetail.spans ?? []) : "")
-      || usageByRequest.get(trace.request_id)?.provider
-      || "",
+    (trace: TraceListItem) =>
+      trace.route?.final_provider ||
+      (traceDetail?.request_id === trace.request_id
+        ? findProviderInTrace(traceDetail.spans ?? [])
+        : "") ||
+      usageByRequest.get(trace.request_id)?.provider ||
+      "",
     [usageByRequest, traceDetail],
   );
   const traceModel = useCallback(
-    (trace: TraceListItem) => trace.route?.final_model
-      || (traceDetail?.request_id === trace.request_id ? findModelInTrace(traceDetail.spans ?? [], traceProvider(trace)) : "")
-      || usageByRequest.get(trace.request_id)?.model
-      || "",
+    (trace: TraceListItem) =>
+      trace.route?.final_model ||
+      (traceDetail?.request_id === trace.request_id
+        ? findModelInTrace(traceDetail.spans ?? [], traceProvider(trace))
+        : "") ||
+      usageByRequest.get(trace.request_id)?.model ||
+      "",
     [usageByRequest, traceDetail, traceProvider],
   );
 
   // Filter traces before deriving the live-mode auto-selection so the
   // highlight tracks what the operator is actually looking at.
   const filteredTraces = useMemo(() => {
-    return traces.filter(t => {
+    return traces.filter((t) => {
       if (providerFilter !== "auto" && traceProvider(t) !== providerFilter) return false;
       if (modelFilter && !modelMatchesFilter(traceModel(t), modelFilter)) return false;
       if (statusFilter === "healthy" && t.status_code === "error") return false;
@@ -186,7 +205,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   // panel still operates on the representative trace — drill-down to
   // sibling traces is a separate feature.
   const groupedTraces = useMemo(() => {
-    const statusRank = (code?: string) => code === "error" ? 2 : code === "ok" ? 1 : 0;
+    const statusRank = (code?: string) => (code === "error" ? 2 : code === "ok" ? 1 : 0);
     // A trace whose `route.final_provider` is set carries the actual
     // routing context (the provider that ran the call). A sibling
     // with empty route info is usually a route-attempt sub-trace that
@@ -194,8 +213,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     // request_id, prefer the route-carrying one as the representative
     // — otherwise the drawer header shows "request" or "—/—" even
     // though we know which provider handled the chat.
-    const hasRoute = (t: typeof filteredTraces[number]) =>
-      !!(traceProvider(t) || traceModel(t));
+    const hasRoute = (t: (typeof filteredTraces)[number]) => !!(traceProvider(t) || traceModel(t));
     const byID = new Map<string, TraceGroup>();
     for (const t of filteredTraces) {
       const existing = byID.get(t.request_id);
@@ -217,7 +235,10 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
       }
       const incoming = t.span_count ?? 0;
       const have = existing.entry.span_count ?? 0;
-      if (incoming > have || (incoming === have && statusRank(t.status_code) > statusRank(existing.entry.status_code))) {
+      if (
+        incoming > have ||
+        (incoming === have && statusRank(t.status_code) > statusRank(existing.entry.status_code))
+      ) {
         existing.entry = t;
       }
     }
@@ -257,14 +278,14 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     if (!liveMode || groupedTraces.length === 0) return;
     const newest = groupedTraces[0]?.entry;
     if (newest?.request_id) {
-      setSelectedID(id => id === newest.request_id ? id : newest.request_id);
+      setSelectedID((id) => (id === newest.request_id ? id : newest.request_id));
     }
   }, [liveMode, groupedTraces]);
 
   const fetchTraceDetail = useCallback((reqId: string) => {
     setTraceFetching(true);
     getTrace(reqId)
-      .then(res => {
+      .then((res) => {
         traceDetailRef.current = res.data;
         setTraceDetail(res.data);
       })
@@ -316,7 +337,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     return () => {
       if (traceRetryRef.current) window.clearInterval(traceRetryRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedID, drawerOpen]);
 
   const stats = normalizeRuntimeStats(runtimeStats);
@@ -325,29 +346,34 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   // back to the raw traces array would return the first match — usually
   // a different sibling than the one shown in the row, so the table
   // row and the drawer header would disagree on latency/status.
-  const selectedTrace = groupedTraces.find(g => g.entry.request_id === selectedID)?.entry
-    ?? traces.find(t => t.request_id === selectedID);
+  const selectedTrace =
+    groupedTraces.find((g) => g.entry.request_id === selectedID)?.entry ??
+    traces.find((t) => t.request_id === selectedID);
   const waterfall = useMemo(
     () => buildSpanWaterfall(traceDetail?.spans ?? []),
     [traceDetail?.spans],
   );
-  const traceTimeline = traceDetail?.spans?.length ? buildTraceTimeline(traceDetail.spans, traceDetail.started_at) : [];
+  const traceTimeline = traceDetail?.spans?.length
+    ? buildTraceTimeline(traceDetail.spans, traceDetail.started_at)
+    : [];
 
   const providerOptions = useMemo(() => {
-    const configured = state.settingsConfig?.providers ?? [];
+    const configured = settingsConfig?.providers ?? [];
     if (configured.length > 0) {
-      return configured.map(c => ({
+      return configured.map((c) => ({
         id: c.id,
-        name: state.providerPresets.find(pr => pr.id === c.id)?.name || c.name || c.id,
+        name: providerPresets.find((pr) => pr.id === c.id)?.name || c.name || c.id,
         kind: c.kind,
       }));
     }
-    return state.providers.filter(p => p.name).map(p => ({
-      id: p.name,
-      name: state.providerPresets.find(pr => pr.id === p.name)?.name || p.name,
-      kind: p.kind,
-    }));
-  }, [state.settingsConfig, state.providers, state.providerPresets]);
+    return providers
+      .filter((p) => p.name)
+      .map((p) => ({
+        id: p.name,
+        name: providerPresets.find((pr) => pr.id === p.name)?.name || p.name,
+        kind: p.kind,
+      }));
+  }, [settingsConfig, providers, providerPresets]);
 
   const modelOptions = useMemo<ModelRecord[]>(() => {
     const byID = new Map<string, ModelRecord>();
@@ -365,15 +391,15 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     for (const trace of traces) {
       add(traceModel(trace), traceProvider(trace));
     }
-    for (const entry of state.usageEvents ?? []) {
+    for (const entry of usageEvents ?? []) {
       add(entry.model, entry.provider);
     }
-    for (const model of state.providerScopedModels) {
+    for (const model of providerScopedModels) {
       add(model.id, model.metadata?.provider);
     }
 
     return Array.from(byID.values()).sort((a, b) => a.id.localeCompare(b.id));
-  }, [providerFilter, state.providerScopedModels, state.usageEvents, traceModel, traceProvider, traces]);
+  }, [providerFilter, providerScopedModels, usageEvents, traceModel, traceProvider, traces]);
 
   const drawerTitle = (() => {
     if (!selectedTrace) return selectedID ?? "";
@@ -386,7 +412,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     // breakdown still lives in the Route Summary section below.
     // `provider` is optional on the candidate type, so fall back to a
     // dash rather than letting "undefined" reach the rendered header.
-    const rejected = selectedTrace.route?.candidates?.find(c => c.outcome === "skipped");
+    const rejected = selectedTrace.route?.candidates?.find((c) => c.outcome === "skipped");
     if (rejected) return `No provider selected (tried ${rejected.provider || "—"})`;
     return "Request";
   })();
@@ -411,47 +437,57 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     const requestID = focusRequest?.requestID?.trim();
     if (!requestID) return;
     openTraceForRow(requestID);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusRequest?.nonce]);
 
   // The top region (header + stats + table) shrinks when the drawer is
   // open. Both regions flex to ~50% with internal scroll.
   const drawerActive = useDrawer && drawerOpen && !!selectedID;
 
-  const detailContent = (selectedID && (
-    <TraceDetail
-      selectedID={selectedID}
-      selectedTrace={selectedTrace}
-      selectedProvider={selectedTrace ? traceProvider(selectedTrace) : ""}
-      selectedModel={selectedTrace ? traceModel(selectedTrace) : ""}
-      usage={usageByRequest.get(selectedID)}
-      traceDetail={traceDetail}
-      traceFetching={traceFetching}
-      waterfall={waterfall}
-      traceTimeline={traceTimeline}
-      expandedSpanID={expandedSpanID}
-      setExpandedSpanID={setExpandedSpanID}
-      phaseFilter={phaseFilter}
-      setPhaseFilter={setPhaseFilter}
-    />
-  )) || null;
+  const detailContent =
+    (selectedID && (
+      <TraceDetail
+        selectedID={selectedID}
+        selectedTrace={selectedTrace}
+        selectedProvider={selectedTrace ? traceProvider(selectedTrace) : ""}
+        selectedModel={selectedTrace ? traceModel(selectedTrace) : ""}
+        usage={usageByRequest.get(selectedID)}
+        traceDetail={traceDetail}
+        traceFetching={traceFetching}
+        waterfall={waterfall}
+        traceTimeline={traceTimeline}
+        expandedSpanID={expandedSpanID}
+        setExpandedSpanID={setExpandedSpanID}
+        phaseFilter={phaseFilter}
+        setPhaseFilter={setPhaseFilter}
+      />
+    )) ||
+    null;
 
   return (
     <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-      <div style={{
-        flex: drawerActive ? "1 1 50%" : "1 1 100%",
-        minHeight: 0,
-        overflowY: "auto",
-        padding: 16,
-      }}>
-
+      <div
+        style={{
+          flex: drawerActive ? "1 1 50%" : "1 1 100%",
+          minHeight: 0,
+          overflowY: "auto",
+          padding: 16,
+        }}
+      >
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
           <span style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)" }}>Observability</span>
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
             <Toggle on={liveMode} onChange={setLiveMode} ariaLabel="Live mode" />
-            <span style={{ fontSize: 11, color: liveMode ? "var(--teal)" : "var(--t3)", width: 42, display: "inline-block" }}>
+            <span
+              style={{
+                fontSize: 11,
+                color: liveMode ? "var(--teal)" : "var(--t3)",
+                width: 42,
+                display: "inline-block",
+              }}
+            >
               {liveMode ? "Live" : "Paused"}
             </span>
           </div>
@@ -467,7 +503,8 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
               marginBottom: 20,
             }}
             aria-label="Runtime stats"
-            data-testid="runtime-stats-grid">
+            data-testid="runtime-stats-grid"
+          >
             {stats && (
               <>
                 <StatCard
@@ -512,8 +549,8 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                 />
               </>
             )}
-            {mcpCacheStats && (
-              mcpCacheStats.configured ? (
+            {mcpCacheStats &&
+              (mcpCacheStats.configured ? (
                 <StatCard
                   label="MCP cache"
                   value={mcpCacheStats.entries}
@@ -527,21 +564,30 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                   value="Disabled"
                   help="No MCP cache is configured for this gateway."
                 />
-              )
-            )}
+              ))}
           </div>
         )}
 
         {/* Recent requests filters */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          justifyContent: "space-between",
-          marginBottom: 10,
-        }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            justifyContent: "space-between",
+            marginBottom: 10,
+          }}
+        >
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>Recent requests</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              justifyContent: "flex-end",
+            }}
+          >
             <ProviderPicker
               value={providerFilter}
               onChange={(value) => {
@@ -555,7 +601,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
               value={modelFilter}
               onChange={setModelFilter}
               models={modelOptions}
-              presets={state.providerPresets}
+              presets={providerPresets}
               showProvider={providerFilter === "auto"}
               includeAll
               triggerWidth={220}
@@ -569,14 +615,20 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
             gets a "is this OK right now?" answer before parsing
             individual rows. */}
         <RecentActivityStrip
-          traces={groupedTraces.map(g => g.entry)}
+          traces={groupedTraces.map((g) => g.entry)}
           labelsByRequestID={traceLabelsByRequestID}
           latencyByRequestID={traceLatencyByRequestID}
         />
 
         {/* Table */}
         {filteredTraces.length > 0 ? (
-          <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
+          <div
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius)",
+              overflow: "hidden",
+            }}
+          >
             <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
               <colgroup>
                 <col style={{ width: "9%" }} />
@@ -629,9 +681,10 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                   // type marks both provider and model as optional, so
                   // a half-populated entry shouldn't render as "tried
                   // (empty)".
-                  const rejected = !provider && !model
-                    ? t.route?.candidates?.find(c => c.outcome === "skipped" && !!c.provider)
-                    : undefined;
+                  const rejected =
+                    !provider && !model
+                      ? t.route?.candidates?.find((c) => c.outcome === "skipped" && !!c.provider)
+                      : undefined;
                   return (
                     <tr
                       key={t.request_id}
@@ -640,31 +693,66 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                         cursor: "pointer",
                         background: isSel ? "var(--teal-bg)" : "transparent",
                         borderBottom: isLast ? undefined : "1px solid var(--border)",
-                      }}>
-                      <td style={{ ...tdBase, color: "var(--t3)" }} title={formatAbsoluteTime(time.iso)}>{time.label}</td>
-                      <td style={tdBase}><Badge status={status.status} label={status.label} /></td>
+                      }}
+                    >
+                      <td
+                        style={{ ...tdBase, color: "var(--t3)" }}
+                        title={formatAbsoluteTime(time.iso)}
+                      >
+                        {time.label}
+                      </td>
+                      <td style={tdBase}>
+                        <Badge status={status.status} label={status.label} />
+                      </td>
                       <td style={tdBase}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           {provider ? (
                             <>
                               <BrandAvatar brand={provider} fallback={provider} size={18} />
-                              <span style={{ fontSize: 12, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{provider}</span>
+                              <span
+                                style={{
+                                  fontSize: 12,
+                                  color: "var(--t1)",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {provider}
+                              </span>
                             </>
                           ) : rejected ? (
                             <span
-                              style={{ fontSize: 12, color: "var(--t3)", fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                              title={`No candidate accepted. Tried: ${rejected.provider}${rejected.skip_reason ? ` — ${rejected.skip_reason.replace(/_/g, " ")}` : ""}`}>
+                              style={{
+                                fontSize: 12,
+                                color: "var(--t3)",
+                                fontStyle: "italic",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                              title={`No candidate accepted. Tried: ${rejected.provider}${rejected.skip_reason ? ` — ${rejected.skip_reason.replace(/_/g, " ")}` : ""}`}
+                            >
                               {rejected.provider}
                             </span>
-                          ) : <span style={{ color: "var(--t3)" }}>—</span>}
+                          ) : (
+                            <span style={{ color: "var(--t3)" }}>—</span>
+                          )}
                         </div>
                       </td>
                       <td style={{ ...tdBase, color: "var(--t0)" }}>
-                        {model
-                          ? model
-                          : rejected?.model
-                            ? <span style={{ color: "var(--t3)", fontStyle: "italic" }} title="route skipped — see Provider tooltip">{rejected.model}</span>
-                            : "—"}
+                        {model ? (
+                          model
+                        ) : rejected?.model ? (
+                          <span
+                            style={{ color: "var(--t3)", fontStyle: "italic" }}
+                            title="route skipped — see Provider tooltip"
+                          >
+                            {rejected.model}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td style={{ ...tdBase, color: "var(--t1)", textAlign: "right" }}>
                         {latency != null ? `${latency}ms` : "—"}
@@ -673,29 +761,39 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                       <td
                         style={{
                           ...tdBase,
-                          color: routeLabel.tone === "fallback" ? "var(--amber)" : routeLabel.tone === "empty" ? "var(--t3)" : "var(--t2)",
+                          color:
+                            routeLabel.tone === "fallback"
+                              ? "var(--amber)"
+                              : routeLabel.tone === "empty"
+                                ? "var(--t3)"
+                                : "var(--t2)",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                         }}
-                        title={routeLabel.title}>
+                        title={routeLabel.title}
+                      >
                         {routeLabel.label}
                       </td>
-                      <td style={tdBase} onClick={e => e.stopPropagation()}>
+                      <td style={tdBase} onClick={(e) => e.stopPropagation()}>
                         <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                           <CopyableID text={t.request_id} compact />
                           {group.siblings > 0 && (
                             <span
                               title={`This request produced ${group.siblings + 1} traces; showing the one with the most spans.`}
                               style={{
-                                fontFamily: "var(--font-mono)", fontSize: 10,
+                                fontFamily: "var(--font-mono)",
+                                fontSize: 10,
                                 color: "var(--t3)",
                                 background: "var(--bg3)",
                                 border: "1px solid var(--border)",
                                 borderRadius: "var(--radius-sm)",
                                 padding: "0 4px",
                                 lineHeight: 1.4,
-                              }}>+{group.siblings}</span>
+                              }}
+                            >
+                              +{group.siblings}
+                            </span>
                           )}
                         </div>
                       </td>
@@ -707,10 +805,16 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
             </table>
           </div>
         ) : tracesLoaded ? (
-          <div style={{
-            display: "flex", flexDirection: "column", alignItems: "center",
-            justifyContent: "center", padding: "48px 16px", textAlign: "center",
-          }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "48px 16px",
+              textAlign: "center",
+            }}
+          >
             <div style={{ fontSize: 14, color: "var(--t1)", fontWeight: 500 }}>No traces yet</div>
             <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 6 }}>
               Send a chat completion to see traces here
@@ -718,22 +822,28 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
             <button
               className="btn btn-primary btn-sm"
               style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 4 }}
-              onClick={() => onNavigate?.("chats")}>
+              onClick={() => onNavigate?.("chats")}
+            >
               <Icon d={Icons.chat} size={13} /> Open Chats
             </button>
           </div>
         ) : (
-          <div style={{
-            display: "flex", flexDirection: "column", alignItems: "center",
-            justifyContent: "center", padding: "48px 16px", textAlign: "center",
-          }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "48px 16px",
+              textAlign: "center",
+            }}
+          >
             <div style={{ fontSize: 14, color: "var(--t2)", fontWeight: 500 }}>Loading traces…</div>
             <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 6 }}>
               Checking recent gateway activity
             </div>
           </div>
         )}
-
       </div>
 
       {/* Bottom drawer (wide viewports) — inline panel, not portal. */}
@@ -748,27 +858,42 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
             flexDirection: "column",
             borderTop: "1px solid var(--border)",
             background: "var(--bg1)",
-          }}>
-          <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", background: "var(--bg2)", display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              fontWeight: 500,
-              color: "var(--teal)",
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              flex: 1,
-            }}>{drawerTitle}</span>
+          }}
+        >
+          <div
+            style={{
+              padding: "10px 14px",
+              borderBottom: "1px solid var(--border)",
+              background: "var(--bg2)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                fontWeight: 500,
+                color: "var(--teal)",
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                flex: 1,
+              }}
+            >
+              {drawerTitle}
+            </span>
             {selectedID && <CopyableID text={selectedID} />}
             <button
               className="btn btn-ghost btn-sm"
               aria-label="Close"
               title="Close (Esc)"
               onClick={closeDrawer}
-              style={{ padding: "3px 6px" }}>
+              style={{ padding: "3px 6px" }}
+            >
               <Icon d={Icons.x} size={14} />
             </button>
           </div>
@@ -785,7 +910,8 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
           ariaLabel={drawerDialogLabel}
           onClose={closeDrawer}
           footer={null}
-          width={760}>
+          width={760}
+        >
           {detailContent}
         </Modal>
       )}
@@ -799,30 +925,29 @@ const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "error", label: "Error" },
 ];
 
-function StatusFilterPicker({ value, onChange }: { value: StatusFilter; onChange: (value: StatusFilter) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+function StatusFilterPicker({
+  value,
+  onChange,
+}: {
+  value: StatusFilter;
+  onChange: (value: StatusFilter) => void;
+}) {
+  const {
+    open,
+    setOpen,
+    toggle,
+    wrapRef: ref,
+    triggerRef,
+    menuRef,
+  } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right");
   const label = STATUS_FILTER_OPTIONS.find((option) => option.value === value)?.label ?? "All";
-
-  useEffect(() => {
-    const handler = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (ref.current && ref.current.contains(target)) return;
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => focusInitialDropdownItem(menuRef.current));
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, menuRef]);
 
   function closeMenu() {
     setOpen(false);
@@ -835,7 +960,12 @@ function StatusFilterPicker({ value, onChange }: { value: StatusFilter; onChange
       closeMenu();
       return;
     }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
       event.preventDefault();
       focusDropdownItem(menuRef.current, event.key);
     }
@@ -850,9 +980,25 @@ function StatusFilterPicker({ value, onChange }: { value: StatusFilter; onChange
         aria-expanded={open}
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
-        onClick={() => setOpen((current) => !current)}
-        style={{ fontFamily: "var(--font-mono)", fontSize: 11, gap: 5, color: "var(--t1)", width: 110 }}>
-        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>
+        onClick={() => toggle()}
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          gap: 5,
+          color: "var(--t1)",
+          width: 110,
+        }}
+      >
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            textAlign: "left",
+          }}
+        >
           {label}
         </span>
         <Icon d={Icons.chevD} size={11} />
@@ -863,7 +1009,8 @@ function StatusFilterPicker({ value, onChange }: { value: StatusFilter; onChange
           role="listbox"
           className="dropdown-menu dropdown-menu-floating"
           onKeyDown={onMenuKeyDown}
-          style={{ ...floatingStyle, minWidth: 110 }}>
+          style={{ ...floatingStyle, minWidth: 110 }}
+        >
           {STATUS_FILTER_OPTIONS.map((option) => (
             <button
               key={option.value}
@@ -876,8 +1023,11 @@ function StatusFilterPicker({ value, onChange }: { value: StatusFilter; onChange
               onClick={() => {
                 onChange(option.value);
                 closeMenu();
-              }}>
-              <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}>
+              }}
+            >
+              <span
+                style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}
+              >
                 {option.label}
               </span>
             </button>
@@ -888,17 +1038,16 @@ function StatusFilterPicker({ value, onChange }: { value: StatusFilter; onChange
   );
 }
 
-function normalizeRuntimeStats(stats: RuntimeStatsResponse["data"] | null): RuntimeStatsResponse["data"] | null {
+function normalizeRuntimeStats(
+  stats: RuntimeStatsResponse["data"] | null,
+): RuntimeStatsResponse["data"] | null {
   if (!stats || typeof stats.queue_depth !== "number" || typeof stats.worker_count !== "number") {
     return null;
   }
   return stats;
 }
 
-function applyTraceWindow(
-  group: TraceGroup,
-  trace: TraceListItem,
-): TraceGroup {
+function applyTraceWindow(group: TraceGroup, trace: TraceListItem): TraceGroup {
   if (typeof trace.duration_ms !== "number" || trace.duration_ms < 0) {
     return group;
   }
@@ -915,7 +1064,11 @@ function applyTraceWindow(
   return group;
 }
 
-function routeSummaryLabel(trace: TraceListItem): { label: string; title: string; tone: "default" | "fallback" | "empty" } {
+function routeSummaryLabel(trace: TraceListItem): {
+  label: string;
+  title: string;
+  tone: "default" | "fallback" | "empty";
+} {
   if (trace.route?.fallback_from) {
     const label = `Fallback from ${trace.route.fallback_from}`;
     return {
@@ -933,7 +1086,11 @@ function routeSummaryLabel(trace: TraceListItem): { label: string; title: string
   if (trace.status_code === "error" && trace.status_message) {
     return { label: trace.status_message, title: trace.status_message, tone: "default" };
   }
-  return { label: "No route", title: "No route summary was recorded for this request.", tone: "empty" };
+  return {
+    label: "No route",
+    title: "No route summary was recorded for this request.",
+    tone: "empty",
+  };
 }
 
 function modelMatchesFilter(model: string, filter: string): boolean {

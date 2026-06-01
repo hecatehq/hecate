@@ -58,14 +58,12 @@ func TestDockerOTelCollectorReceivesGRPCExport(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
-		"GATEWAY_OTEL_TRANSPORT=grpc",
-		"GATEWAY_OTEL_ENDPOINT=127.0.0.1:"+fmt.Sprint(collectorGRPCPort),
-		"GATEWAY_OTEL_TRACES_ENABLED=true",
-		"GATEWAY_OTEL_METRICS_ENABLED=true",
-		"GATEWAY_OTEL_METRICS_INTERVAL=200ms",
+		"HECATE_OTEL_TRANSPORT=grpc",
+		"HECATE_OTEL_ENDPOINT=127.0.0.1:"+fmt.Sprint(collectorGRPCPort),
+		"HECATE_OTEL_TRACES_ENABLED=true",
+		"HECATE_OTEL_METRICS_ENABLED=true",
+		"HECATE_OTEL_METRICS_INTERVAL=200ms",
 	)
 
 	resp := postJSON(t, base+"/v1/chat/completions", `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`, nil)

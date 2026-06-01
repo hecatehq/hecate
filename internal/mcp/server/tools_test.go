@@ -85,6 +85,27 @@ func TestTool_ListTasks_EmptyState(t *testing.T) {
 	}
 }
 
+func TestGatewayClient_SendsRuntimeToken(t *testing.T) {
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
+		"/hecate/v1/tasks": func(w http.ResponseWriter, r *http.Request) {
+			if got := r.Header.Get("X-Hecate-Runtime-Token"); got != "local-runtime-token-123456" {
+				t.Fatalf("X-Hecate-Runtime-Token = %q, want configured token", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		},
+	})
+	client := NewGatewayClient(srv.URL)
+	client.SetRuntimeToken("local-runtime-token-123456")
+
+	server := NewServer("t", "0")
+	RegisterDefaultTools(server, client)
+	_, err := registeredToolFor(t, server, "list_tasks")(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("list_tasks: %v", err)
+	}
+}
+
 func TestTool_GetTaskStatus_RequiresID(t *testing.T) {
 	server := NewServer("t", "0")
 	RegisterDefaultTools(server, NewGatewayClient("http://unused"))
@@ -116,40 +137,14 @@ func TestTool_GetTaskStatus_FormatsDetail(t *testing.T) {
 	}
 }
 
-func TestTool_ListChatSessions_TenantFilter(t *testing.T) {
-	srv := fakeGateway(t, map[string]http.HandlerFunc{
-		"/hecate/v1/chat/sessions": func(w http.ResponseWriter, r *http.Request) {
-			if got := r.URL.Query().Get("tenant"); got != "team-a" {
-				t.Errorf("tenant query = %q, want team-a", got)
-			}
-			if r.URL.Query().Get("limit") != "5" {
-				t.Errorf("limit query = %q, want 5", r.URL.Query().Get("limit"))
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[{"id":"sess-1","title":"Hello","tenant":"team-a","message_count":6,"provider_call_count":3,"updated_at":"2026-04-22T10:00:00Z"}]}`))
-		},
-	})
-	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
-	result, err := registeredToolFor(t, server, "list_chat_sessions")(context.Background(),
-		json.RawMessage(`{"limit":5,"tenant":"team-a"}`))
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	body := result.Content[0].Text
-	if !strings.Contains(body, "Hello") || !strings.Contains(body, "team-a") || !strings.Contains(body, "(6 messages, 3 calls)") {
-		t.Errorf("body missing fields: %s", body)
-	}
-}
-
 func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
 	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":[
-				{"request_id":"r1","provider":"openai","duration_ms":120,"status_code":"ok","total_tokens":150,"cost_usd":0.001},
-				{"request_id":"r2","provider":"openai","duration_ms":80,"status_code":"ok","total_tokens":100,"cost_usd":0.0008},
-				{"request_id":"r3","provider":"anthropic","duration_ms":300,"status_code":"error"}
+				{"request_id":"r1","span_count":4,"duration_ms":120,"status_code":"ok","route":{"final_provider":"openai","final_model":"gpt-4.1"}},
+				{"request_id":"r2","span_count":3,"duration_ms":80,"status_code":"ok","route":{"final_provider":"openai","final_model":"gpt-4.1"}},
+				{"request_id":"r3","span_count":2,"duration_ms":300,"status_code":"error","route":{"final_provider":"anthropic","final_model":"claude-opus-4-5"}}
 			]}`))
 		},
 	})
@@ -160,10 +155,133 @@ func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 	body := result.Content[0].Text
-	for _, want := range []string{"3 requests", "openai: 2 req", "anthropic: 1 req", "1 errors"} {
+	for _, want := range []string{"3 requests", "openai: 2 req", "anthropic: 1 req", "1 errors", "7 spans"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("want %q in output, got: %s", want, body)
 		}
+	}
+}
+
+func TestTool_SummarizeTraffic_ClampsLimitToTraceAPIMax(t *testing.T) {
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
+		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("limit") != "200" {
+				t.Errorf("limit query = %q, want 200", r.URL.Query().Get("limit"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		},
+	})
+	server := NewServer("t", "0")
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
+	_, err := registeredToolFor(t, server, "summarize_recent_traffic")(context.Background(), json.RawMessage(`{"limit":500}`))
+	if err != nil {
+		t.Fatalf("summarize_recent_traffic: %v", err)
+	}
+}
+
+func TestTool_SearchTraces_FiltersRecentTraceSummaries(t *testing.T) {
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
+		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("limit") != "7" {
+				t.Errorf("limit query = %q, want 7", r.URL.Query().Get("limit"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":[
+				{"request_id":"req-openai","trace_id":"trace-openai-12345678","started_at":"2026-05-24T10:00:00Z","duration_ms":42,"status_code":"ok","route":{"final_provider":"openai","final_model":"gpt-4.1","final_reason":"selected"}},
+				{"request_id":"req-anthropic","trace_id":"trace-anthropic","started_at":"2026-05-24T10:01:00Z","duration_ms":99,"status_code":"error","status_message":"provider failed","route":{"final_provider":"anthropic","final_model":"claude-opus-4-5","final_reason":"failover"}}
+			]}`))
+		},
+	})
+	server := NewServer("t", "0")
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
+
+	result, err := registeredToolFor(t, server, "search_traces")(context.Background(),
+		json.RawMessage(`{"query":"claude","limit":7}`))
+	if err != nil {
+		t.Fatalf("search_traces: %v", err)
+	}
+	body := result.Content[0].Text
+	for _, want := range []string{"Trace matches for \"claude\"", "req-anthropic", "anthropic/claude-opus-4-5", "provider failed"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("want %q in output, got: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "req-openai") {
+		t.Errorf("non-matching trace leaked into output: %s", body)
+	}
+}
+
+func TestTraceListItemMatches_RouteTargetFormats(t *testing.T) {
+	item := traceListItem{
+		RequestID: "req-anthropic",
+		Route: traceRouteRecord{
+			FinalProvider: "anthropic",
+			FinalModel:    "claude-opus-4-5",
+			FallbackFrom:  "openai/gpt-4.1",
+		},
+	}
+
+	for _, query := range []string{
+		"anthropic/claude-opus-4-5",
+		"anthropic claude-opus-4-5",
+		"openai/gpt-4.1",
+		"openai gpt-4.1",
+	} {
+		if !traceListItemMatches(item, query) {
+			t.Fatalf("traceListItemMatches(%q) = false, want true", query)
+		}
+	}
+}
+
+func TestTool_SearchTraces_FetchesExactTraceByRequestID(t *testing.T) {
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
+		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("request_id") != "req-123" {
+				t.Errorf("request_id query = %q, want req-123", r.URL.Query().Get("request_id"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{
+				"request_id":"req-123",
+				"trace_id":"trace-abc",
+				"started_at":"2026-05-24T10:00:00Z",
+				"route":{"final_provider":"openai","final_model":"gpt-4.1","final_reason":"selected"},
+				"spans":[
+					{"name":"gateway.request","kind":"server","status_code":"ok","start_time":"2026-05-24T10:00:00Z","events":[{"name":"router.selected"},{"name":"provider.call.finished"}]},
+					{"name":"provider.call","kind":"client","status_code":"ok"}
+				]
+			}}`))
+		},
+	})
+	server := NewServer("t", "0")
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
+
+	result, err := registeredToolFor(t, server, "search_traces")(context.Background(),
+		json.RawMessage(`{"request_id":"req-123","query":"ignored"}`))
+	if err != nil {
+		t.Fatalf("search_traces: %v", err)
+	}
+	body := result.Content[0].Text
+	for _, want := range []string{"Trace req-123", "Trace ID: trace-abc", "Route:", "openai/gpt-4.1", "Spans (2)", "gateway.request", "router.selected", "provider.call.finished"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("want %q in output, got: %s", want, body)
+		}
+	}
+}
+
+func TestTraceRouteFormattingIncludesReasonOnlyRouteMarker(t *testing.T) {
+	route := traceRouteRecord{FinalReason: "failover", FallbackFrom: "openai/gpt-4.1"}
+
+	var detail strings.Builder
+	writeTraceRoute(&detail, route)
+	if got, want := detail.String(), "Route: reason failover · fallback from openai/gpt-4.1\n"; got != want {
+		t.Fatalf("writeTraceRoute() = %q, want %q", got, want)
+	}
+
+	var summary strings.Builder
+	writeTraceSummaryLine(&summary, "req-1", "", "", 0, "", "", route)
+	if got := summary.String(); !strings.Contains(got, " · route reason failover · fallback from openai/gpt-4.1") {
+		t.Fatalf("summary route marker missing: %q", got)
 	}
 }
 
@@ -375,8 +493,8 @@ func TestTool_WriteToolAnnotations(t *testing.T) {
 		// Reads — auto-approvable.
 		{"list_tasks", true, false, false, true, false, false},
 		{"get_task_status", true, false, false, true, false, false},
-		{"list_chat_sessions", true, false, false, true, false, false},
 		{"summarize_recent_traffic", true, false, false, true, false, false},
+		{"search_traces", true, false, false, true, false, false},
 		// Creates — not destructive (creates new state, doesn't
 		// destroy existing); no annotations declared.
 		{"create_task", false, false, false, false, false, false},

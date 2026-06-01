@@ -38,6 +38,22 @@ Prefer restrained layout, strong type hierarchy, clear sectioning without over-c
 
 Avoid card mosaics, oversized hero copy, decorative gradients behind routine product UI, multiple accent colors fighting for attention, visual noise that hides runtime state.
 
+## Consistency guardrails
+
+Before adding or changing UI, find the closest existing precedent and reuse it unless the product behavior truly differs. Hecate's UX should feel like one operator console, not a set of unrelated experiments.
+
+- Reuse shared primitives for recurring patterns: `DropdownPicker`, `BrandAvatar`, `CopyableID`, `TranscriptActivityTimeline`, badges, inline errors, and modal/slide-over chrome.
+- Keep button height, dropdown rhythm, icon treatment, metadata labels, empty-state spacing, and hover/focus affordances consistent across Chats, Tasks, Connections, Observability, and Usage.
+- Long machine identifiers belong behind compact labels with tooltip + copy affordances. Prefer full context in Details or Task Detail over leaking raw ids into list rows.
+- If a screen already has an empty, loading, repair, or onboarding precedent, extend that component/copy path instead of adding a second parallel state.
+- When making Hecate Chat and External Agent behavior more similar, preserve their real runtime differences: Hecate owns task-backed tools; external agents own ACP-native sessions.
+- Add role/name-based tests for shared controls and view-level tests for every state that previously regressed. E2E should cover cross-view navigation, onboarding, and setup/repair flows when a bug came from app composition.
+- Before filing a PR that touches UI/TypeScript, run the UI verification ladder:
+  `cd ui && bun run typecheck`, `bun run lint`, `bun run format:check`, and
+  `bun run test`. Add targeted Playwright coverage when the change is a
+  workflow, routing, onboarding, or regression fix. If Go files changed too,
+  run the backend ladder as well.
+
 ## UX priorities
 
 Every screen should answer the following quickly:
@@ -81,7 +97,7 @@ Organize the UI around operator jobs, not components:
 - Inspect providers and models.
 - Run and compare requests.
 - Inspect trace and runtime metadata.
-- Manage providers, retention, and policy-adjacent state.
+- Manage Connections, local cleanup, and policy-adjacent state.
 - Inspect usage events and reported cost where available.
 
 Views are task-shaped, not component-shaped. If a page mixes too many concerns, split it.
@@ -97,15 +113,16 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Provider and model selection exposes local and cloud distinctions clearly.
 - In Chats, use the shared agent-picker shell. **Hecate** is the built-in
   choice and owns provider/model selection; its tools toggle switches between
-  direct model chat and Hecate-owned task execution. Codex, Claude Code, and
-  Cursor choices create External Agent sessions where adapter/workspace/native
-  session diagnostics belong.
-- Hecate Agent sessions store a workspace plus backing `task_id` /
-  `latest_run_id`. New UI affordances should show per-turn task links in the
-  transcript. Chats may resolve pending task approvals inline; Tasks remains
-  canonical for artifacts, retry/resume, full event history, and patch review.
-  While a task-backed segment is active, the whole Hecate Chat session is busy:
-  keep provider/model controls locked to the segment snapshot. If the operator
+  direct model chat and Hecate-owned task execution. Codex, Claude Code,
+  Cursor, and Grok Build choices create External Agent sessions where
+  adapter/workspace/native session diagnostics belong.
+- Hecate-owned chats store provider/model state on the session and durable
+  runtime snapshots on each message. Tools-on turns create or continue a backing
+  task and should show per-turn task links in the transcript. Chats may resolve
+  pending task approvals inline; Tasks remains canonical for artifacts,
+  retry/resume, full event history, and patch review. While a task-backed
+  segment is active, the whole Hecate Chat session is busy: keep
+  provider/model controls locked to the segment snapshot. If the operator
   submits another prompt, queue it locally in the composer and send it after
   the task finishes, is stopped, or reaches a terminal approval outcome. Do not
   pretend that local queue is durable before the message is submitted.
@@ -114,13 +131,24 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   and Details grouping instead of growing separate task/activity renderers.
   Task Detail may add Task-specific advanced disclosures, but keep that debug
   layer out of Chats unless the operator explicitly asks for it.
+- Transcript rows should have one source of truth for noisy details. Do not
+  repeat captured command/read output both in the compact row and in the output
+  preview card. Do not render raw captured diffs in the transcript when the
+  message already has a workspace-changes badge or the side-panel diff viewer.
+  Group repetitive command rows into a single expandable summary that reveals
+  commands and captured output together.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.
-- Model capability badges gate Hecate Agent sends. Explicitly tools-off models
-  should offer an inline enable/override path; unknown local/custom models
-  should explain how to record a manual probe result or operator override in
-  Connections, not silently run as an agent.
+- Model capability badges are guidance and guardrails for tools, not a reason
+  to hide plain chat. Hecate Chat should remain available when a model is
+  routable; task-backed tools-on turns require `tool_calling="basic"` or
+  `parallel`. Unknown local/custom models should show a clear capability
+  indicator, fall back to direct model chat rather than failing the whole
+  transcript, and suggest choosing a known tool-capable model for task-backed
+  turns. Put the fallback state in the chat header/status line, not as a noisy
+  composer warning. Connections shows observed provider/catalog capability
+  metadata, not a global "tools on/off" override editor.
 - Stale selected-model readiness is a composition blocker, not a post-send
   error toast. If the selected model is not in the current model picker for the
   selected route, hide/disable send and show the selected model, provider route,
@@ -134,17 +162,19 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   `ui/src/lib/chat-setup-readiness.ts`. Keep the empty state, composer notice,
   and disabled-send copy aligned there instead of adding one-off branches to
   `ChatView`.
-- Agent Chat readiness belongs in Connections and in the picker
+- External Agent readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.
-  To smoke-test missing/available adapter states without uninstalling local
-  tools, use `just dev-no-agent-adapters` or `just dev-agent-adapters
-  'claude_code=missing,codex=available'`. The override is discovery-only; do
-  not write tests that expect a forced-available adapter to run a real session.
-- Agent Chat usage is adapter-reported. Show it as helpful telemetry with the
+  To smoke-test adapter states without uninstalling local tools, use
+  `just dev-no-agent-adapters` or
+  `just dev-agent-adapters 'claude_code=no_auth,codex=ready,cursor_agent=app_missing'`.
+  These fixture env vars are test/development-only and intentionally absent from
+  `.env.example`; do not write tests that expect a forced-ready adapter to run a
+  real session.
+- External Agent usage is adapter-reported. Show it as helpful telemetry with the
   "reported by adapter · not enforced by Hecate" caveat, never as Hecate-enforced
   billing.
-- Agent Chat file changes are already applied to the selected workspace when
+- External Agent file changes are already applied to the selected workspace when
   Hecate captures them. UI copy should say "inspect" / "revert" / "keep", not
   "apply", unless the backend grows a true staged-artifact flow.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
@@ -185,27 +215,80 @@ Motion supports orientation, not decoration. Allowed: view transitions that help
 ```
 src/
   app/                  app shell, top-level orchestration, route/mode switching
+    AppShell.tsx        the chrome (nav, theme, header) — consumes slice hooks directly
+    App.tsx             mounts slice providers + <RootEffects />
+    state/              the canonical state surface — every UI piece reads from here
+      runtime.tsx         health, session, RTK availability, copy-command transient
+      chat.tsx            chat sessions, composer state, in-flight machinery
+      projects.tsx        project list, active project scope, create/rename/delete
+      providersAndModels.tsx  provider status, presets, model catalog, agent adapters
+      approvals.tsx       pending approvals + agent-chat grants
+      retention.tsx       retention runs + subsystems
+      usage.tsx           cost summary + recent events
+      settings.tsx        server config snapshot + settings error + notice banner
+      derived.ts          cross-slice derived selectors (useChatTarget, useRuntimeDerivedState, ...)
+      rootEffects.ts      <RootEffects /> — dashboard-load, RTK-sync, queued-message-drain
+      coordinators/
+        chat.ts           submission + lifecycle + targeting + files + approvals (the big one)
+        providers.ts      provider CRUD + readiness actions
+        dashboard.ts      loadDashboard + refreshes
+        settings.ts       runSettingsMutation + setNoticeMessage
+        agentAdapters.ts  adapter credential + probe ops
+        policy.ts         policy rule CRUD
+        retention.ts      runRetention (wires the slice's Result to the notice banner)
+        wired.ts          useWiredXActions — composes the cross-slice param graph once per view
+        overrides.tsx     test-only CoordinatorOverridesContext for action stubs
   features/
-    runs/               TasksView, TaskDetail, NewTaskSlideOver, TaskList — agent task list + run replay (the headline UI)
-    chats/              ChatView — interactive chat against the gateway
-    transcript/         reusable transcript pieces for Chats and Task Detail: markdown, message rows, activity timeline, file diff review
-    overview/           ConnectYourClient, ObservabilityView — request history + trace drilldown + Codex/Claude Code setup
-    connections/        ConnectionsPanel — provider readiness, model capabilities, external-agent setup/grants
-    settings/           SettingsView — retention and non-connection configuration
-    providers/          ProvidersView — detailed provider catalog/editor
-    shared/             primitives, pickers, overlays; ui.tsx is a compatibility barrel
+    runs/               TasksView, TaskDetail, NewTaskSlideOver — agent task list + run replay (the headline UI)
+    chats/              ChatView, ChatSidebar, ChatComposer, ChatHeader, ChatTranscript, ChatSettingsPanel, HecateTaskApprovalsBanner, ...
+    transcript/         reusable transcript pieces for Chats and Task Detail
+    overview/           ConnectYourClient, ObservabilityView — request history + trace drilldown
+    connections/        ConnectionsPanel — provider readiness, external-agent setup/grants
+    settings/           SettingsView — local data cleanup / retention controls
+    providers/          provider catalog/editor components used by Connections
+    shared/             primitives, pickers, overlays; ui.ts is a compatibility barrel
+    usage/              UsageView
   lib/
     api.ts              fetch wrappers + streamTaskRun (SSE consumer)
-    markdown.ts, provider-utils.ts, runtime-utils.ts
-  types/
-    runtime.ts          TypeScript mirrors of Go API types — keep in lockstep with pkg/types/ and internal/api/
+    persistedState.ts   useState wrapper that mirrors to localStorage with a schema guard
+    format.ts, markdown.ts, provider-utils.ts, runtime-utils.ts
+  types/                TypeScript mirrors of Go API types — keep in lockstep with pkg/types/ and internal/api/
+    chat.ts, task.ts, provider.ts, model.ts, agent-adapter.ts, trace.ts, usage.ts, retention.ts, runtime.ts
   test/                 shared test setup
+    runtime-console-test-composer.ts   test-only composer that aggregates slices + coordinators into the legacy {state, actions} shape
+    runtime-console-fixture.ts         default fixture state + action stubs
+    runtime-console-render.tsx         withRuntimeConsole(ui, fixture) wraps in slice providers seeded with fixture state
   styles.css            design tokens, .dropdown-menu rule, animations
 ```
 
-There is no `src/components/`. Reusable primitives live in `src/features/shared/ui.tsx`; feature-specific components live with their feature.
+There is no `src/components/`. Reusable primitives live in `src/features/shared/`; feature-specific components live with their feature.
 
 When a file gets crowded, split by responsibility, not arbitrary line count: view shell vs data hooks; presentation vs transport; domain formatting vs generic utilities.
+
+## State + action architecture
+
+Views read slice state and call coordinator actions **directly** — there is no facade hook. The shape is:
+
+- **Slice hooks** (`useRuntime`, `useChat`, `useSettings`, `useProvidersAndModels`, `useApprovals`, `useRetention`, `useUsage`) — each owns a `useReducer`-backed state slice and exposes `{state, actions}`. Views call them and destructure only the fields they use.
+- **Coordinator hooks** (`useChatActions`, `useProviderActions`, `useDashboardActions`, `useSettingsActions`, `useAgentAdapterActions`, `usePolicyActions`, `useRetentionActions`) — each owns the cross-slice action implementations for a domain. Most coordinators take a small parameter bag for cross-coordinator wiring; the **`wired.ts`** hooks (`useWiredSettingsActions`, `useWiredDashboardActions`, `useWiredProviderActions`, `useWiredPolicyActions`) resolve that wiring once and are what views typically call.
+- **Derived selectors** (`derived.ts`) — `useChatTarget`, `useRuntimeDerivedState`, `useNewChatAgentID` — for cross-slice values that don't belong in any single slice's state.
+- **Root effects** (`rootEffects.ts`) — `<RootEffects />` is mounted once in `App.tsx` and owns all cross-slice effects (dashboard-load on mount, approvals catch-up on session switch, RTK-sync, notice auto-dismiss, provider/model default cascade, queued-message-drain). Don't add cross-slice effects inside views.
+
+A typical view looks like:
+
+```tsx
+function MyView() {
+  const chat = useChat(); // slice state + actions
+  const { providers } = useProvidersAndModels().state;
+  const chatTarget = useChatTarget(); // derived selector
+  const { submitChat } = useChatActions({ chatTarget, setNoticeMessage });
+  // ... or, more often, the wired variant that resolves the param bag for you:
+  const { runSettingsMutation } = useWiredSettingsActions();
+  return <div>...</div>;
+}
+```
+
+Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-render.tsx` — it mounts all slice providers seeded with fixture state and an overrides context for action stubs. The 2284-LOC composition regression suite at `src/test/runtime-console-composition.test.tsx` exercises slices + coordinators end-to-end via the test-only `runtime-console-test-composer.ts`. Per-view tests don't need to touch the composer.
 
 ## State and data rules
 
@@ -217,14 +300,40 @@ When a file gets crowded, split by responsibility, not arbitrary line count: vie
 
 ## Build / test commands
 
-| Command | What it does | When to use |
-|---|---|---|
-| `bun run typecheck` | `tsgo -b` — fast type check, no test execution | First sanity check after edits |
-| `bun run test` | `vitest run` — full test suite | Before committing |
-| `bun run test:watch` | watch mode | During iteration |
-| `bun run dev` (or `just ui-dev` from repo root) | Vite dev server on `:5173`, proxying API to `:8765` | Live UI iteration alongside `just dev` |
+| Command                                         | What it does                                        | When to use                                      |
+| ----------------------------------------------- | --------------------------------------------------- | ------------------------------------------------ |
+| `bun run typecheck`                             | `tsgo -b` — fast type check, no test execution      | First sanity check after edits                   |
+| `bun run lint`                                  | Type-aware Oxc lint checks                          | Before committing                                |
+| `bun run format:check`                          | Oxfmt formatting check                              | Before committing                                |
+| `just format-check`                             | Go + UI + website + docs formatting check           | Mixed-surface PRs or CI format failures          |
+| `just docs-format-check`                        | Oxfmt Markdown / `.mdc` formatting check            | When UI changes update docs or screenshots       |
+| `bun run test`                                  | `vitest run` — full test suite                      | Before committing                                |
+| `bun run test:watch`                            | watch mode                                          | During iteration                                 |
+| `bun run format`                                | Oxfmt source formatting                             | Formatting-only cleanup or after formatter drift |
+| `just format`                                   | Local auto-format for Go, UI, website, and docs     | Fix formatter drift before pushing               |
+| `bun run dev` (or `just ui-dev` from repo root) | Vite dev server on `:5173`, proxying API to `:8765` | Live UI iteration alongside `just dev`           |
 
 **Never `bun test`** — it skips testing-library DOM setup and panics with `document[isPrepared]`. Always `bun run test`.
+
+Playwright starts Vite with `VITE_DISABLE_API_PROXY=1`. E2E specs should mock
+every API route they depend on; missing mocks should fail quietly as 404s, not
+fall through to the Vite dev proxy and spam `ECONNREFUSED` for `:8765`.
+
+Oxc config lives at repo root in `.oxlintrc.json` and is shared by the UI and
+website. UI and website lint scripts run `oxlint --type-aware`, backed by the
+`oxlint-tsgolint` package. The config enables the React, JSX accessibility,
+Vitest, import, TypeScript, Unicorn, and Oxc rule families, with current
+legacy-noise rules disabled explicitly. Do not loosen the config casually; if a
+rule is noisy, name the specific rule and why it is disabled.
+
+Markdown and `.mdc` docs are formatted by Oxfmt through `just docs-format` /
+`just docs-format-check`. Keep lychee for link and anchor validation; Oxfmt
+does not replace link checking.
+
+Do not mix broad Oxfmt churn into a feature diff unless the task is explicitly a
+formatting pass. When only UI source drifted, run `bun run format`; when the PR
+touches multiple surfaces or CI reports a format failure, run `just format`,
+then review the mechanical diff separately from behavior changes.
 
 ## Test patterns
 
@@ -249,6 +358,7 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
 - **`render1()` + `render2()` in the same `it` block** — don't. React Testing Library cleanup runs between tests, not within. Split into two `it`s if you need fresh mounts.
 - **Cost-ceiling banner** — gates on `run.otel_status_message === "cost_ceiling_exceeded"` (the specific string). A regression that drops or rewords that string silently breaks the "Raise ceiling & resume" affordance.
 - **Every gateway response is `{object, data}`** — `lib/api.ts` clients must read `payload.data.<field>`, not `payload.<field>`. When mocking, copy the real wire shape, not the fields you happen to need; fixtures that skip the envelope hide production bugs.
+- **Chat snapshots must preserve per-message reference identity.** Transcript rows are memoized, so a snapshot that rebuilds every message object re-renders the whole transcript. `reconcileChatSession` (in `app/state`) reuses unchanged message objects across snapshots, and `projectVisibleMessage` (in `features/chats/ChatTranscript.tsx`) caches its projection in a `WeakMap` keyed by message identity — keep both in the path. Replacing the messages array wholesale, or remapping it through a fresh `.map` each render, silently defeats the memoization and the transcript goes back to re-rendering on every token.
 - **No auth surfaces in alpha** — do not reintroduce token gates, tenant tabs,
   or key-management tabs unless the product model changes again.
 

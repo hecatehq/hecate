@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-open-workspace-target"
+description = "Enables opening the active workspace in a local editor, terminal, or file manager."
+commands.allow = ["open_workspace_target"]
+
+[[permission]]
+identifier = "deny-open-workspace-target"
+description = "Denies opening the active workspace in a local editor, terminal, or file manager."
+commands.deny = ["open_workspace_target"]

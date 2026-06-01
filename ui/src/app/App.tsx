@@ -1,25 +1,73 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { startTransition, useEffect, useLayoutEffect } from "react";
 
-import { ConsoleShell, getAvailableWorkspaces, type WorkspaceID } from "./AppShell";
-import { useRuntimeConsole } from "./useRuntimeConsole";
+import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
+import { ApprovalsProvider } from "./state/approvals";
+import { ChatProvider } from "./state/chat";
+import { ProvidersAndModelsProvider } from "./state/providersAndModels";
+import { ProjectsProvider } from "./state/projects";
+import { RetentionProvider } from "./state/retention";
+import { RootEffects } from "./state/rootEffects";
+import { RuntimeProvider } from "./state/runtime";
+import { SettingsProvider } from "./state/settings";
+import { UsageProvider } from "./state/usage";
+import { usePersistedState } from "../lib/persistedState";
 import { isTauriRuntime } from "../lib/tauri";
 
-const WORKSPACE_STORAGE_KEY = "hecate.workspace.v2";
+const WORKSPACE_STORAGE_KEY = "hecate.workspace";
 
+// Derive the validity guard from the single AppShell tuple so a new
+// workspace doesn't silently fail the parse here.
+const VALID_WORKSPACE_IDS = new Set<WorkspaceID>(WORKSPACE_IDS);
+const parseWorkspaceID = (raw: string): WorkspaceID | null =>
+  VALID_WORKSPACE_IDS.has(raw as WorkspaceID) ? (raw as WorkspaceID) : null;
+
+// Slice providers wrap RootEffects + AppConsole directly. The
+// retired useRuntimeConsole facade is gone: views read slice state
+// through useRuntime / useChat / etc. and dispatch coordinator
+// actions through useChatActions / useWiredProviderActions / …
+// RootEffects owns the cross-slice effects (dashboard load, notice
+// auto-dismiss, queued-message drain) that previously lived in the
+// facade's hook body.
 export default function App() {
-  const { state, actions } = useRuntimeConsole();
-  const [preferredWorkspace, setPreferredWorkspace] = useState<WorkspaceID>(() => {
-    const saved = localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    return (saved as WorkspaceID) ?? "chats";
-  });
+  return (
+    <RuntimeProvider>
+      <UsageProvider>
+        <ProvidersAndModelsProvider>
+          <ProjectsProvider>
+            <ChatProvider>
+              <RetentionProvider>
+                <ApprovalsProvider>
+                  <SettingsProvider>
+                    <RootEffects />
+                    <AppConsole />
+                  </SettingsProvider>
+                </ApprovalsProvider>
+              </RetentionProvider>
+            </ChatProvider>
+          </ProjectsProvider>
+        </ProvidersAndModelsProvider>
+      </UsageProvider>
+    </RuntimeProvider>
+  );
+}
+
+function AppConsole() {
+  const [preferredWorkspace, setPreferredWorkspace] = usePersistedState<WorkspaceID>(
+    WORKSPACE_STORAGE_KEY,
+    parseWorkspaceID,
+    "chats",
+  );
 
   const workspaces = getAvailableWorkspaces();
-  const activeWorkspace: WorkspaceID =
-    workspaces.some(w => w.id === preferredWorkspace) ? preferredWorkspace : "overview";
+  const activeWorkspace: WorkspaceID = workspaces.some((w) => w.id === preferredWorkspace)
+    ? preferredWorkspace
+    : "overview";
 
   function handleSelectWorkspace(id: WorkspaceID) {
-    localStorage.setItem(WORKSPACE_STORAGE_KEY, id);
-    setPreferredWorkspace(id);
+    // Workspace views are lazy chunks. Mark navigation as a transition
+    // so React keeps the current view visible while the next chunk is
+    // fetched instead of flashing the Suspense fallback for a frame.
+    startTransition(() => setPreferredWorkspace(id));
   }
 
   useEffect(() => {
@@ -37,7 +85,9 @@ export default function App() {
     return installTauriDocumentMarkers();
   }, []);
 
-  return <ConsoleShell actions={actions} activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} state={state} />;
+  return (
+    <ConsoleShell activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} />
+  );
 }
 
 export function installTauriDocumentMarkers(): () => void {
@@ -108,15 +158,7 @@ function editableTarget(target: EventTarget | null): HTMLInputElement | HTMLText
 }
 
 function isTextInput(input: HTMLInputElement): boolean {
-  return [
-    "",
-    "email",
-    "password",
-    "search",
-    "tel",
-    "text",
-    "url",
-  ].includes(input.type);
+  return ["", "email", "password", "search", "tel", "text", "url"].includes(input.type);
 }
 
 async function pasteIntoEditable(target: HTMLInputElement | HTMLTextAreaElement) {

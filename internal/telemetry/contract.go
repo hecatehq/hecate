@@ -50,7 +50,7 @@ const (
 	EventResponseReturned = "response.returned"
 )
 
-// Body capture (opt-in via GATEWAY_TRACE_BODIES)
+// Body capture (opt-in via HECATE_TRACE_BODIES)
 const (
 	EventRequestBodyCaptured  = "request.body.captured"
 	EventResponseBodyCaptured = "response.body.captured"
@@ -126,12 +126,12 @@ const (
 
 // External agent chats
 const (
-	EventAgentChatRunStarted    = "agent_chat.run.started"
-	EventAgentChatOutputStarted = "agent_chat.output.started"
-	EventAgentChatFilesChanged  = "agent_chat.files_changed"
-	EventAgentChatRunFinished   = "agent_chat.run.finished"
-	EventAgentChatRunFailed     = "agent_chat.run.failed"
-	EventAgentChatRunCancelled  = "agent_chat.run.cancelled"
+	EventAgentChatRunStarted    = "chat.run.started"
+	EventAgentChatOutputStarted = "chat.output.started"
+	EventAgentChatFilesChanged  = "chat.files_changed"
+	EventAgentChatRunFinished   = "chat.run.finished"
+	EventAgentChatRunFailed     = "chat.run.failed"
+	EventAgentChatRunCancelled  = "chat.run.cancelled"
 )
 
 // Local models — Hecate-managed llama.cpp runtime. See
@@ -259,7 +259,7 @@ const (
 
 	SpanRetentionRun = "retention.run"
 
-	SpanAgentChatRun = "agent_chat.run"
+	SpanAgentChatRun = "chat.run"
 
 	SpanLocalModelInstall = "local_model.install"
 	SpanLocalModelRuntime = "local_model.runtime"
@@ -286,16 +286,16 @@ const (
 	MetricProviderCallDuration   = "hecate.provider.call.duration"
 
 	// External agent chat metrics
-	MetricAgentChatRunsTotal   = "hecate.agent_chat.runs"
-	MetricAgentChatRunDuration = "hecate.agent_chat.run.duration"
-	MetricAgentChatRunTiming   = "hecate.agent_chat.run.timing"
+	MetricAgentChatRunsTotal   = "hecate.chat.runs"
+	MetricAgentChatRunDuration = "hecate.chat.run.duration"
+	MetricAgentChatRunTiming   = "hecate.chat.run.timing"
 	// MetricAgentChatCancelledTotal counts agent-chat run/turn endings
 	// that terminated via cancellation. The reason label
 	// distinguishes operator (explicit Cancel call from the HTTP
 	// layer), request_cancelled (ctx died before the operator clicked
 	// anything), and shutdown (process tear-down). Runs that completed
 	// or failed organically don't fire this counter.
-	MetricAgentChatCancelledTotal = "hecate.agent_chat.cancelled"
+	MetricAgentChatCancelledTotal = "hecate.chat.cancelled"
 
 	// External-adapter runtime metrics — the sibling to
 	// AgentAdapterApprovalMetrics. probe is fired once per
@@ -561,30 +561,30 @@ var requiredEventAttrs = map[string][]string{
 		AttrErrorType,
 	},
 	EventAgentChatRunStarted: {
-		AttrHecateAgentChatSessionID,
+		AttrHecateChatSessionID,
 		AttrHecateRunID,
 		AttrHecateAgentAdapterID,
 	},
 	EventAgentChatOutputStarted: {
-		AttrHecateAgentChatSessionID,
+		AttrHecateChatSessionID,
 		AttrHecateRunID,
 		AttrHecateAgentAdapterID,
 		AttrHecateAgentOutputBytes,
 	},
 	EventAgentChatFilesChanged: {
-		AttrHecateAgentChatSessionID,
+		AttrHecateChatSessionID,
 		AttrHecateRunID,
 		AttrHecateAgentAdapterID,
 		AttrHecateAgentDiffCaptured,
 	},
 	EventAgentChatRunFinished: {
-		AttrHecateAgentChatSessionID,
+		AttrHecateChatSessionID,
 		AttrHecateRunID,
 		AttrHecateAgentAdapterID,
 		AttrHecateRunDurationMS,
 	},
 	EventAgentChatRunFailed: {
-		AttrHecateAgentChatSessionID,
+		AttrHecateChatSessionID,
 		AttrHecateRunID,
 		AttrHecateAgentAdapterID,
 		AttrHecateRunDurationMS,
@@ -592,7 +592,7 @@ var requiredEventAttrs = map[string][]string{
 		AttrErrorType,
 	},
 	EventAgentChatRunCancelled: {
-		AttrHecateAgentChatSessionID,
+		AttrHecateChatSessionID,
 		AttrHecateRunID,
 		AttrHecateAgentAdapterID,
 		AttrHecateRunDurationMS,

@@ -124,14 +124,21 @@ func writeGoHelperBinary(t *testing.T, dir, name, source string) string {
 func TestDetectVersionParsesOutputFromNonZeroExit(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
-		t.Skip("skip shell script test on Windows")
+		t.Skip("skip helper binary exit-code test on Windows")
 	}
 	dir := t.TempDir()
-	path := filepath.Join(dir, "nonzero-adapter")
-	content := "#!/bin/sh\necho adapter 3.4.5\nexit 1\n"
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatalf("write nonzero script: %v", err)
-	}
+	path := writeGoHelperBinary(t, dir, "nonzero-adapter", `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	fmt.Println("adapter 3.4.5")
+	os.Exit(1)
+}
+`)
 	got := DetectVersion(context.Background(), path)
 	if got != "3.4.5" {
 		t.Fatalf("DetectVersion = %q, want 3.4.5 from non-zero output", got)
@@ -143,6 +150,28 @@ func TestDetectVersionMissingBinaryReturnsEmpty(t *testing.T) {
 	got := DetectVersion(context.Background(), "/does/not/exist/fake-adapter")
 	if got != "" {
 		t.Fatalf("DetectVersion = %q, want empty for missing binary", got)
+	}
+}
+
+func TestResolveVersionProbeUsesInjectedLookupForCandidatePaths(t *testing.T) {
+	t.Setenv("HOME", "/tmp/hecate-home")
+	probe := VersionProbe{CandidatePaths: []string{"${HOME}/bin/fake-adapter"}}
+	calledWith := ""
+	got, ok := resolveVersionProbe(probe, func(name string) (string, error) {
+		calledWith = name
+		if name == "/tmp/hecate-home/bin/fake-adapter" {
+			return "/resolved/fake-adapter", nil
+		}
+		return "", exec.ErrNotFound
+	})
+	if !ok {
+		t.Fatal("resolveVersionProbe = false, want candidate lookup success")
+	}
+	if got != "/resolved/fake-adapter" {
+		t.Fatalf("resolved path = %q, want injected lookup result", got)
+	}
+	if calledWith != "/tmp/hecate-home/bin/fake-adapter" {
+		t.Fatalf("lookup called with %q, want expanded candidate path", calledWith)
 	}
 }
 

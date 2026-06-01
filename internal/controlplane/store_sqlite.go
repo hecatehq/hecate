@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/storage"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 // SQLiteStore mirrors the memory Store-interface surface while keeping
@@ -132,38 +132,6 @@ func (s *SQLiteStore) DeleteProvider(ctx context.Context, id string) error {
 	return s.writeState(ctx, state)
 }
 
-func (s *SQLiteStore) UpsertAgentAdapterCredential(ctx context.Context, credential AgentAdapterCredential) (AgentAdapterCredential, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return AgentAdapterCredential{}, err
-	}
-	credential, err = applyUpsertAgentAdapterCredential(ctx, &state, credential)
-	if err != nil {
-		return AgentAdapterCredential{}, err
-	}
-	if err := s.writeState(ctx, state); err != nil {
-		return AgentAdapterCredential{}, err
-	}
-	return credential, nil
-}
-
-func (s *SQLiteStore) DeleteAgentAdapterCredential(ctx context.Context, adapterID, name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return err
-	}
-	if err := applyDeleteAgentAdapterCredential(ctx, &state, adapterID, name); err != nil {
-		return err
-	}
-	return s.writeState(ctx, state)
-}
-
 func (s *SQLiteStore) UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error) {
 	rule, err := normalizePolicyRule(rule)
 	if err != nil {
@@ -207,56 +175,6 @@ func (s *SQLiteStore) DeletePolicyRule(ctx context.Context, id string) error {
 	return s.writeState(ctx, state)
 }
 
-func (s *SQLiteStore) UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	record, err = applyModelCapabilityOverride(ctx, &state, record)
-	if err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	if err := s.writeState(ctx, state); err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	return record, nil
-}
-
-func (s *SQLiteStore) DeleteModelCapabilityOverride(ctx context.Context, provider, model string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return err
-	}
-	if err := applyDeleteModelCapabilityOverride(ctx, &state, provider, model); err != nil {
-		return err
-	}
-	return s.writeState(ctx, state)
-}
-
-func (s *SQLiteStore) UpsertModelCapabilityProbe(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	record, err = applyModelCapabilityProbe(ctx, &state, record)
-	if err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	if err := s.writeState(ctx, state); err != nil {
-		return ModelCapabilityRecord{}, err
-	}
-	return record, nil
-}
-
 func (s *SQLiteStore) UpsertInstalledModel(ctx context.Context, model InstalledModel) (InstalledModel, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -289,7 +207,7 @@ func (s *SQLiteStore) DeleteInstalledModel(ctx context.Context, id string) error
 	return s.writeState(ctx, state)
 }
 
-func (s *SQLiteStore) PruneAuditEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

@@ -2,15 +2,40 @@
 
 How "done" is determined. Treat the floors as floors, not nice-to-haves.
 
+## Pre-PR rule
+
+Do not file a PR until the verification for every touched implementation
+surface has passed locally:
+
+- Touch `ui/`, `website/`, `.ts`, `.tsx`, `.js`, `.jsx`, CSS, Vitest, or
+  Playwright files: run the UI checks listed below.
+- Touch Go files, Go modules, backend config, or e2e helpers: run the Go
+  checks listed below.
+- Touch both frontend and backend surfaces: run both ladders.
+
+Docs-only and agent-guidance-only changes do not require TypeScript or Go
+tests, but still need the relevant docs checks when formatting, links, or
+screenshots are affected. If a required check cannot run, say why before
+filing the PR and call out the residual risk.
+
+Agent-guidance changes (`AGENTS.md`, `CLAUDE.md`, `docs-ai/**`, or scoped
+`AGENTS.md` files) should also run `just agent-docs-check`. `just docs-check`
+includes it.
+
 ## Backend verification ladder
 
-| Step | Command | When |
-|---|---|---|
-| Build | `go build ./...` | Always, before claiming done |
-| Vet | `go vet ./...` or targeted packages | Go backend/runtime changes; use targeted vet during iteration |
-| Focused tests | `/test-affected` (or `go test -race -count=1 ./<package>/...`) | During iteration |
-| Race suite | `go test -race -timeout 10m ./...` (or `/race`) | **Floor** for runtime/backend changes |
-| E2E | `go test -tags e2e ./e2e/...` | When the change crosses the api → orchestrator → providers/sandbox/mcp chain |
+| Step          | Command                                                | When                                                                         |
+| ------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Format check  | `just go-format-check`                                 | Before claiming done for Go edits; also covered by `just format-check` / CI  |
+| Build         | `go build ./...`                                       | Always, before claiming done                                                 |
+| Vet           | `go vet ./...` or targeted packages                    | Go backend/runtime changes; use targeted vet during iteration                |
+| Focused tests | `go test -race -count=1 ./<package>/...`               | During iteration                                                             |
+| Race suite    | `go test -race -timeout 10m ./...` or `just test-race` | **Floor** for runtime/backend changes                                        |
+| E2E           | `go test -tags e2e ./e2e/...`                          | When the change crosses the api → orchestrator → providers/sandbox/mcp chain |
+
+Use `just format` when you want the repo-managed local auto-format pass: Go
+source via `gofmt -s`, UI and website via Oxfmt, and Markdown / `.mdc` docs via
+Oxfmt. Review the resulting diff like any other code change.
 
 Run `go vet` for Go changes before claiming done. Targeted vet is fine while
 iterating, for example `go vet ./internal/api ./internal/gateway`; use
@@ -23,14 +48,30 @@ E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and 
 
 ## UI verification ladder
 
-| Step | Command | When |
-|---|---|---|
-| Type check | `cd ui && bun run typecheck` | First sanity check after any `.ts`/`.tsx` edit (`tsgo -b`, fast) |
-| Tests | `cd ui && bun run test` | Before claiming done — vitest |
-| Watch mode | `cd ui && bun run test:watch` | During iteration |
-| Snapshot update | `cd ui && bun run test -- -u` | When a UI shape change is intentional |
+| Step              | Command                         | When                                                                  |
+| ----------------- | ------------------------------- | --------------------------------------------------------------------- |
+| Type check        | `cd ui && bun run typecheck`    | First sanity check after any `.ts`/`.tsx` edit (`tsgo -b`, fast)      |
+| Lint              | `cd ui && bun run lint`         | Before claiming done; also covered by `just ui-lint` and CI           |
+| Format check      | `cd ui && bun run format:check` | Before claiming done; also covered by `just ui-format-check` and CI   |
+| Repo format check | `just format-check`             | Mixed Go / UI / website / docs changes; mirrors CI format gates       |
+| Docs format check | `just docs-format-check`        | Markdown / `.mdc` changes; also covered by `just verify` and Links CI |
+| Tests             | `cd ui && bun run test`         | Before claiming done — vitest                                         |
+| Watch mode        | `cd ui && bun run test:watch`   | During iteration                                                      |
+| Snapshot update   | `cd ui && bun run test -- -u`   | When a UI shape change is intentional                                 |
+| Format            | `cd ui && bun run format`       | Intentional formatting-only cleanup; review the diff                  |
+| Repo format       | `just format`                   | Local auto-format for Go, UI, website, and docs                       |
 
 **Never `bun test`** — it skips the testing-library DOM setup and panics on `document[isPrepared]`. Always `bun run test`.
+
+UI linting uses Oxc (`oxlint`) with type-aware TypeScript checks via
+`oxlint-tsgolint`. Formatting uses Oxfmt (`oxfmt`); keep formatter churn
+separate from behavior changes unless the requested task is explicitly a
+formatting cleanup. The shared `.oxlintrc.json` enables React, accessibility,
+Vitest, import, TypeScript, Unicorn, and Oxc rules; rule disables should stay
+specific and justified by current app architecture or tracked migration debt.
+Markdown and `.mdc` docs are also formatted with Oxfmt through
+`just docs-format-check` / `just docs-format`. Lychee still owns link and
+fragment validation; Oxfmt only normalizes text formatting.
 
 When updating snapshots, review the diff carefully. Accidental snapshot churn is the most common silent regression vector.
 
@@ -56,6 +97,8 @@ Full matrix in [`../skills/tester/SKILL.md`](../skills/tester/SKILL.md).
 ## Done criteria — UI
 
 - `bun run typecheck` clean.
+- `bun run lint` clean.
+- `bun run format:check` clean.
 - `bun run test` clean.
 - Main workflow obvious in seconds; current state visible; labels read like product UI.
 - Loading, empty, and error states are explicit.

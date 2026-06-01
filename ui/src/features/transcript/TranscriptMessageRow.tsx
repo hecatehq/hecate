@@ -1,24 +1,73 @@
 import { useState } from "react";
 
-import type { AgentChatActivityRecord, AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord, AgentChatTimingRecord, AgentChatUsageRecord } from "../../types/runtime";
+import type {
+  ChatActivityRecord,
+  ChatContextPacketRecord,
+  ChatTimingRecord,
+  ChatUsageRecord,
+} from "../../types/chat";
+import { formatDurationMs } from "../../lib/format";
 import { CodeBlock } from "../shared/Atoms";
 import { BrandAvatar } from "../shared/BrandAvatar";
+import { DiffViewer } from "../shared/DiffViewer";
 import { Icon, Icons } from "../shared/Icons";
-import { TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
-import { TranscriptDiffReview } from "./TranscriptDiffReview";
+import { DiffStatList, TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
+import { capturedToolOutput } from "./transcriptActivityHelpers";
 
-export function TranscriptMessageRow({ id, role, model, brand, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, traceLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, agentTiming, error, setupAction, onCopy, copied }: {
-  id: string; role: "user" | "assistant"; model?: string; brand?: string; content: string;
-  time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
-  badge?: string; runtimeMeta?: string; agentSessionID?: string;
+const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
+export function TranscriptMessageRow({
+  id,
+  role,
+  model,
+  brand,
+  content,
+  diffStat,
+  diff,
+  time,
+  promptTokens,
+  completionTokens,
+  costUsd,
+  badge,
+  runtimeMeta,
+  runtimeMetaTitle,
+  taskLink,
+  traceLink,
+  changedFilesLink,
+  activities,
+  rawOutput,
+  agentUsage,
+  agentTiming,
+  contextPacket,
+  error,
+  setupAction,
+  onCopy,
+  copied,
+}: {
+  id: string;
+  role: "user" | "assistant";
+  model?: string;
+  brand?: string;
+  content: string;
+  diffStat?: string;
+  diff?: string;
+  time: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  costUsd?: string;
+  badge?: string;
+  runtimeMeta?: string;
+  runtimeMetaTitle?: string;
   taskLink?: { label: string; title?: string; onClick: () => void };
   traceLink?: { label: string; title?: string; onClick: () => void };
-  activities?: AgentChatActivityRecord[]; diffStat?: string; diff?: string;
-  onListAgentFiles?: (sessionID: string, messageID: string) => Promise<AgentChatChangedFileRecord[]>;
-  onGetAgentFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<AgentChatChangedFileDiffRecord | null>;
-  onRevertAgentFiles?: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
-  rawOutput?: string; agentUsage?: AgentChatUsageRecord; agentTiming?: AgentChatTimingRecord; error?: string;
+  changedFilesLink?: { label: string; title?: string; onClick?: () => void };
+  activities?: ChatActivityRecord[];
+  rawOutput?: string;
+  agentUsage?: ChatUsageRecord;
+  agentTiming?: ChatTimingRecord;
+  contextPacket?: ChatContextPacketRecord;
+  error?: string;
   // setupAction is an inline button rendered inside the agent-run
   // failure notice. The chat passes it when the failure has a
   // known one-click recovery path — currently just the Claude Code
@@ -26,42 +75,92 @@ export function TranscriptMessageRow({ id, role, model, brand, content, time, pr
   // card in Connections). Optional in all other
   // cases.
   setupAction?: { label: string; title?: string; onClick: () => void };
-  onCopy: (id: string, text: string) => void; copied: boolean;
+  onCopy: (id: string, text: string) => void;
+  copied: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const isAssistant = role === "assistant";
   const hasTokenData = isAssistant && (promptTokens ?? 0) > 0;
-  const showRawOutput = isAssistant && rawOutput && rawOutput.trim() && rawOutput.trim() !== content.trim();
-  const waitingForAgentOutput = isAssistant && !content.trim() && activities?.some(isActiveAgentActivity);
   const failed = isAssistant && badge === "failed";
   const cancelled = isAssistant && badge === "cancelled";
-  const thinkingForAgent = isAssistant
-    && badge === "running"
-    && content.trim() !== ""
-    && isLikelyTransientAgentNarration(content)
-    && !(activities ?? []).some(activity => activity.type === "tool_call");
-  const renderActivityAdvanced = isAssistant && activities?.length
-    ? (activity: AgentChatActivityRecord) => renderAgentActivityAdvanced(activity, activities, taskLink)
-    : undefined;
+  const showRawOutput =
+    isAssistant &&
+    rawOutput &&
+    rawOutput.trim() &&
+    rawOutput.trim() !== content.trim() &&
+    !(cancelled && isRoutineCancellationRawOutput(rawOutput));
+  const waitingForAgentOutput =
+    isAssistant && !content.trim() && activities?.some(isActiveAgentActivity);
+  const thinkingForAgent =
+    isAssistant &&
+    badge === "running" &&
+    content.trim() !== "" &&
+    isLikelyTransientAgentNarration(content) &&
+    !(activities ?? []).some((activity) => activity.type === "tool_call");
+  const visibleActivities =
+    isAssistant && activities?.length
+      ? activities.filter((activity) => {
+          if ((failed || cancelled) && isTerminalSessionMetadata(activity)) return false;
+          if ((failed || cancelled) && isStaleTerminalPlaceholder(activity)) return false;
+          if (failed && duplicatesFailureNotice(activity, error || content)) return false;
+          if (
+            isFilesChangedActivity(activity) &&
+            (changedFilesLink || diffStat?.trim() || diff?.trim())
+          ) {
+            return false;
+          }
+          return true;
+        })
+      : activities;
+  const renderActivityAdvanced =
+    isAssistant && visibleActivities?.length
+      ? (activity: ChatActivityRecord) =>
+          renderAgentActivityAdvanced(activity, visibleActivities, {
+            taskLink,
+            diffStat,
+            diff,
+          })
+      : undefined;
+  const showCapturedDiff =
+    isAssistant &&
+    Boolean(diffStat?.trim() || diff?.trim()) &&
+    !changedFilesLink &&
+    !(visibleActivities ?? []).some(isFilesChangedActivity);
 
   return (
-    <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
-      style={{ padding: "4px 16px 12px", maxWidth: 820, margin: "0 auto", width: "100%" }}>
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ padding: "4px 16px 12px", maxWidth: 820, margin: "0 auto", width: "100%" }}
+    >
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
         <BrandAvatar
           assistant={isAssistant}
-          brand={isAssistant ? (brand || model) : undefined}
+          brand={isAssistant ? brand || model : undefined}
           fallback={isAssistant ? model : "U"}
           size={28}
           style={{ marginTop: 2 }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "5px 8px", marginBottom: 5 }}>
-            {isAssistant
-              ? <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--teal)" }}>{model || "hecate"}</span>
-              : <span style={{ fontSize: 11, color: "var(--t2)", fontWeight: 500 }}>You</span>
-            }
-            <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>{time}</span>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "5px 8px",
+              marginBottom: 5,
+            }}
+          >
+            {isAssistant ? (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--teal)" }}>
+                {model || "hecate"}
+              </span>
+            ) : (
+              <span style={{ fontSize: 11, color: "var(--t2)", fontWeight: 500 }}>You</span>
+            )}
+            <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
+              {time}
+            </span>
             {hasTokenData && (
               <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
                 {promptTokens}↑ {completionTokens}↓
@@ -69,35 +168,68 @@ export function TranscriptMessageRow({ id, role, model, brand, content, time, pr
               </span>
             )}
             {isAssistant && badge && (
-              <span className="badge badge-muted" style={{ fontSize: 10 }}>{badge}</span>
+              <span className="badge badge-muted" style={{ fontSize: 10 }}>
+                {badge}
+              </span>
             )}
             {isAssistant && taskLink && (
-              <HeaderMetaButton label={taskLink.label} title={taskLink.title} onClick={taskLink.onClick} />
+              <HeaderMetaButton
+                label={taskLink.label}
+                title={taskLink.title}
+                onClick={taskLink.onClick}
+              />
             )}
             {isAssistant && traceLink && (
-              <HeaderMetaButton label={traceLink.label} title={traceLink.title} onClick={traceLink.onClick} />
+              <HeaderMetaButton
+                label={traceLink.label}
+                title={traceLink.title}
+                onClick={traceLink.onClick}
+              />
+            )}
+            {isAssistant && changedFilesLink && (
+              <HeaderMetaButton
+                label={changedFilesLink.label}
+                title={changedFilesLink.title}
+                onClick={changedFilesLink.onClick}
+              />
             )}
             {isAssistant && runtimeMeta && (
-              <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>{runtimeMeta}</span>
+              <span
+                title={runtimeMetaTitle}
+                style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}
+              >
+                {runtimeMeta}
+              </span>
             )}
-            <div style={{ marginLeft: "auto", display: "flex", gap: 4, opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}>
-              <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px", gap: 4 }}
-                onClick={() => onCopy(id, content)}>
+            <div
+              style={{
+                marginLeft: "auto",
+                display: "flex",
+                gap: 4,
+                opacity: hovered ? 1 : 0,
+                transition: "opacity 0.15s",
+              }}
+            >
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ padding: "2px 6px", gap: 4 }}
+                onClick={() => onCopy(id, content)}
+              >
                 <Icon d={copied ? Icons.check : Icons.copy} size={12} />
               </button>
             </div>
           </div>
           {failed ? (
-            <AgentRunNotice
-              status="failed"
-              message={error || content}
-              action={setupAction}
-            />
+            <>
+              {shouldRenderFailedContent(content, error) ? (
+                <TranscriptMarkdown content={content} />
+              ) : null}
+              <AgentRunNotice status="failed" message={error || content} action={setupAction} />
+            </>
           ) : cancelled ? (
             <>
-              {content.trim()
-                ? <TranscriptMarkdown content={content} />
-                : null}
+              {/* Cancel messages may be normalized by the backend; preserve partial text as-is. */}
+              {content.trim() ? <TranscriptMarkdown content={content} /> : null}
               <AgentRunNotice
                 status="cancelled"
                 message={error || "Stopped before the agent returned more output."}
@@ -106,41 +238,58 @@ export function TranscriptMessageRow({ id, role, model, brand, content, time, pr
           ) : thinkingForAgent ? (
             <AgentLiveText content={content} />
           ) : waitingForAgentOutput ? (
-            <div style={{ alignItems: "center", color: "var(--t2)", display: "flex", fontSize: 13, gap: 8, lineHeight: 1.7 }}>
-              <span style={{ background: "var(--teal)", borderRadius: 999, display: "inline-block", height: 6, opacity: 0.8, width: 6 }} />
+            <div
+              style={{
+                alignItems: "center",
+                color: "var(--t2)",
+                display: "flex",
+                fontSize: 13,
+                gap: 8,
+                lineHeight: 1.7,
+              }}
+            >
+              <span
+                style={{
+                  background: "var(--teal)",
+                  borderRadius: 999,
+                  display: "inline-block",
+                  height: 6,
+                  opacity: 0.8,
+                  width: 6,
+                }}
+              />
               Waiting for agent output...
             </div>
           ) : (
             <TranscriptMarkdown content={content} />
           )}
-          {isAssistant && activities && activities.length > 0 && (
+          {isAssistant && visibleActivities && visibleActivities.length > 0 && (
             <TranscriptActivityTimeline
-              activities={activities}
-              diffStat={diffStat}
+              activities={visibleActivities}
               renderAdvancedActivity={renderActivityAdvanced}
             />
           )}
+          {showCapturedDiff && <CapturedDiffDetails diffStat={diffStat} diff={diff} />}
           {isAssistant && agentTiming && !agentTimingEmpty(agentTiming) && (
             <AgentTiming timing={agentTiming} />
+          )}
+          {isAssistant && contextPacket && !contextPacketEmpty(contextPacket) && (
+            <ContextInspector packet={contextPacket} />
           )}
           {isAssistant && agentUsage && !agentUsageEmpty(agentUsage) && (
             <AgentUsage usage={agentUsage} />
           )}
-          {isAssistant && (diff || diffStat) && (
-            <TranscriptDiffReview
-              sessionID={agentSessionID ?? ""}
-              messageID={id}
-              diffStat={diffStat}
-              diff={diff}
-              onListFiles={onListAgentFiles}
-              onGetFileDiff={onGetAgentFileDiff}
-              onRevertFiles={onRevertAgentFiles}
-            />
-          )}
           {showRawOutput && (
             <details style={{ marginTop: 8 }}>
-              <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
-                raw adapter output{rawOutput ? ` · ${formatLineCount(rawOutput)}` : ""}
+              <summary
+                style={{
+                  cursor: "pointer",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 11,
+                  color: "var(--t3)",
+                }}
+              >
+                raw agent output{rawOutput ? ` · ${formatLineCount(rawOutput)}` : ""}
               </summary>
               <div style={{ marginTop: 6 }}>
                 <CodeBlock code={rawOutput} lang="text" />
@@ -154,12 +303,35 @@ export function TranscriptMessageRow({ id, role, model, brand, content, time, pr
 }
 
 function renderAgentActivityAdvanced(
-  activity: AgentChatActivityRecord,
-  activities: AgentChatActivityRecord[],
-  taskLink?: { label: string; title?: string; onClick: () => void },
+  activity: ChatActivityRecord,
+  activities: ChatActivityRecord[],
+  options: {
+    taskLink?: { label: string; title?: string; onClick: () => void };
+    diffStat?: string;
+    diff?: string;
+  },
 ) {
-  if (activity.type === "output" || (activity.type === "artifact" && isOutputArtifactActivity(activity))) {
+  if (activity.type === "changed_files" || activity.type === "files_changed") {
+    return (
+      <ActivityFilesPreview activity={activity} diffStat={options.diffStat} diff={options.diff} />
+    );
+  }
+
+  if (
+    activity.type === "output" ||
+    (activity.type === "artifact" && isOutputArtifactActivity(activity))
+  ) {
     return <OutputArtifactPreview artifact={activity} />;
+  }
+
+  const toolOutput = capturedToolOutput(activity);
+  if (toolOutput) {
+    return (
+      <ToolOutputPreview
+        title={activity.kind === "read" ? "Read output" : "Tool output"}
+        output={toolOutput}
+      />
+    );
   }
 
   if (activity.type !== "tool_call" || activity.status !== "failed") return null;
@@ -170,23 +342,21 @@ function renderAgentActivityAdvanced(
   return (
     <div style={{ display: "grid", gap: 7 }}>
       <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.5 }}>
-        This tool failed. Preview the related run output here, or open the backing task for the full capture.
+        This tool failed. Preview the related run output here, or open the backing task for the full
+        capture.
       </div>
       <div style={{ display: "grid", gap: 7 }}>
-        {outputArtifacts.map(artifact => (
-          <OutputArtifactPreview
-            key={artifact.artifact_id || artifact.title}
-            artifact={artifact}
-          />
+        {outputArtifacts.map((artifact) => (
+          <OutputArtifactPreview key={artifact.artifact_id || artifact.title} artifact={artifact} />
         ))}
       </div>
-      {taskLink && (
+      {options.taskLink && (
         <div>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={taskLink.onClick}
-            title={`Open ${taskLink.label} output`}
+            onClick={options.taskLink.onClick}
+            title={`Open ${options.taskLink.label} output`}
             style={{ fontSize: 10, padding: "2px 7px" }}
           >
             Open task output
@@ -197,28 +367,162 @@ function renderAgentActivityAdvanced(
   );
 }
 
-function OutputArtifactPreview({ artifact }: { artifact: AgentChatActivityRecord }) {
+function ActivityFilesPreview({
+  activity,
+  diffStat,
+  diff,
+}: {
+  activity: ChatActivityRecord;
+  diffStat?: string;
+  diff?: string;
+}) {
+  const fallbackStat = [activity.detail, activity.title]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join("\n");
+  const stat = (diffStat?.trim() ? diffStat : fallbackStat).trim();
+  const patch = diff?.trim() ?? "";
+
+  if (!stat && !patch) {
+    return (
+      <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>
+        Workspace changes were captured, but this snapshot does not include a diffstat preview.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 7 }}>
+      {patch ? <DiffViewer diff={patch} compact embedded /> : <DiffStatList diffStat={stat} />}
+    </div>
+  );
+}
+
+function ToolOutputPreview({ title, output }: { title: string; output: string }) {
+  const preview = normalizeToolOutputPreview(output);
+  return (
+    <div
+      style={{
+        background: "var(--bg0)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          borderBottom: "1px solid var(--border)",
+          color: "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          padding: "4px 7px",
+        }}
+      >
+        {title}
+      </div>
+      <pre
+        style={{
+          color: "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          lineHeight: 1.55,
+          margin: 0,
+          maxHeight: 180,
+          overflow: "auto",
+          padding: "7px",
+          whiteSpace: "pre-wrap",
+        }}
+      >
+        {preview}
+      </pre>
+    </div>
+  );
+}
+
+function normalizeToolOutputPreview(output: string): string {
+  const withoutAnsi = stripAnsi(output).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  return stripLineNumberGutters(withoutAnsi)
+    .replace(/^\n+/, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function stripLineNumberGutters(output: string): string {
+  if (!looksLikeLineNumberGutter(output)) return output;
+  return output
+    .replace(/(^|\n)[ \t]*\d{1,6}\s*(?:>|→|\|)\s*/g, "$1")
+    .replace(/[ \t]+\d{1,6}\s*(?:>|→|\|)\s*/g, "\n");
+}
+
+function looksLikeLineNumberGutter(output: string): boolean {
+  const matches = output.match(/(?:^|[ \t\n])\d{1,6}\s*(?:>|→|\|)\s*/g) ?? [];
+  return matches.length > 1 || /^[ \t]*\d{1,6}\s*(?:>|→|\|)\s*/.test(output);
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(ANSI_ESCAPE_PATTERN, "");
+}
+
+function CapturedDiffDetails({ diffStat, diff }: { diffStat?: string; diff?: string }) {
+  const stat = diffStat?.trim() ?? "";
+  const patch = diff?.trim() ?? "";
+  const summary = stat ? formatCapturedDiffSummary(stat) : "captured workspace diff";
+  return (
+    <details style={{ marginTop: 8 }}>
+      <summary
+        style={{
+          color: "var(--t3)",
+          cursor: "pointer",
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+        }}
+      >
+        workspace changes{summary ? ` · ${summary}` : ""}
+      </summary>
+      <div style={{ display: "grid", gap: 7, marginTop: 6 }}>
+        {stat && <DiffStatList diffStat={stat} />}
+        {patch && <DiffViewer diff={patch} />}
+      </div>
+    </details>
+  );
+}
+
+function formatCapturedDiffSummary(diffStat: string): string {
+  const lines = diffStat
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines[lines.length - 1] ?? "";
+}
+
+function OutputArtifactPreview({ artifact }: { artifact: ChatActivityRecord }) {
   const isStderr = outputArtifactStream(artifact) === "stderr";
   const preview = artifact.artifact_preview?.replace(/[\r\n]+$/, "");
   return (
-    <div style={{
-      border: `1px solid ${isStderr ? "rgba(239, 95, 95, 0.28)" : "var(--border)"}`,
-      borderRadius: "var(--radius-sm)",
-      background: "var(--bg0)",
-      overflow: "hidden",
-    }}>
-      <div style={{
-        alignItems: "center",
-        borderBottom: "1px solid var(--border)",
-        display: "flex",
-        gap: 8,
-        padding: "4px 7px",
-      }}>
-        <span style={{
-          color: isStderr ? "var(--red)" : "var(--t1)",
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-        }}>
+    <div
+      style={{
+        border: `1px solid ${isStderr ? "rgba(239, 95, 95, 0.28)" : "var(--border)"}`,
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg0)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          alignItems: "center",
+          borderBottom: "1px solid var(--border)",
+          display: "flex",
+          gap: 8,
+          padding: "4px 7px",
+        }}
+      >
+        <span
+          style={{
+            color: isStderr ? "var(--red)" : "var(--t1)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+          }}
+        >
           {artifact.title}
         </span>
         {artifact.artifact_size_bytes ? (
@@ -228,29 +532,33 @@ function OutputArtifactPreview({ artifact }: { artifact: AgentChatActivityRecord
         ) : null}
       </div>
       {preview ? (
-        <pre style={{
-          color: isStderr ? "var(--red)" : "var(--t1)",
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          lineHeight: 1.55,
-          margin: 0,
-          maxHeight: 130,
-          overflow: "auto",
-          padding: "7px",
-          whiteSpace: "pre-wrap",
-        }}>{preview}</pre>
+        <pre
+          style={{
+            color: isStderr ? "var(--red)" : "var(--t1)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            lineHeight: 1.55,
+            margin: 0,
+            maxHeight: 130,
+            overflow: "auto",
+            padding: "7px",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {preview}
+        </pre>
       ) : (
         <div style={{ color: "var(--t3)", fontSize: 11, padding: "7px" }}>
-          Preview unavailable in this snapshot.
+          No output preview was captured for this snapshot.
         </div>
       )}
     </div>
   );
 }
 
-function relatedOutputArtifacts(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
+function relatedOutputArtifacts(activities: ChatActivityRecord[]): ChatActivityRecord[] {
   const seen = new Set<string>();
-  const out: AgentChatActivityRecord[] = [];
+  const out: ChatActivityRecord[] = [];
   for (const activity of activities) {
     if (activity.type !== "artifact") continue;
     if ((activity.artifact_size_bytes ?? 0) <= 0) continue;
@@ -264,12 +572,12 @@ function relatedOutputArtifacts(activities: AgentChatActivityRecord[]): AgentCha
   return out;
 }
 
-function isOutputArtifactActivity(activity: AgentChatActivityRecord): boolean {
+function isOutputArtifactActivity(activity: ChatActivityRecord): boolean {
   const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
   return /\b(std(out|err)|git-std(out|err))\b/.test(label);
 }
 
-function outputArtifactStream(activity: AgentChatActivityRecord): "stdout" | "stderr" {
+function outputArtifactStream(activity: ChatActivityRecord): "stdout" | "stderr" {
   const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
   return label.includes("stderr") ? "stderr" : "stdout";
 }
@@ -281,8 +589,26 @@ function HeaderMetaButton({
 }: {
   label: string;
   title?: string;
-  onClick: () => void;
+  onClick?: () => void;
 }) {
+  if (!onClick) {
+    return (
+      <span
+        title={title}
+        style={{
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          color: "var(--t2)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          lineHeight: 1.5,
+          padding: "1px 6px",
+        }}
+      >
+        {label}
+      </span>
+    );
+  }
   return (
     <button
       type="button"
@@ -321,11 +647,52 @@ function isLikelyTransientAgentNarration(text: string): boolean {
     "i’ll inspect ",
     "let me ",
     "checking ",
-  ].some(prefix => normalized.startsWith(prefix));
+  ].some((prefix) => normalized.startsWith(prefix));
 }
 
-function isActiveAgentActivity(activity: AgentChatActivityRecord): boolean {
+function isActiveAgentActivity(activity: ChatActivityRecord): boolean {
   return activity.status === "running" || activity.status === "in_progress";
+}
+
+function isStaleTerminalPlaceholder(activity: ChatActivityRecord): boolean {
+  return (
+    isActiveAgentActivity(activity) && (activity.type === "running" || activity.type === "started")
+  );
+}
+
+function isTerminalSessionMetadata(activity: ChatActivityRecord): boolean {
+  return (
+    activity.type === "resumed" || activity.type === "started" || activity.type === "recovered"
+  );
+}
+
+function isFilesChangedActivity(activity: ChatActivityRecord): boolean {
+  // Keep in sync with changed-file activity rows emitted from
+  // internal/api/handler_chat_activities.go and handler_chat_files.go.
+  return activity.type === "changed_files" || activity.type === "files_changed";
+}
+
+function isRoutineCancellationRawOutput(rawOutput: string): boolean {
+  return rawOutput.trim().toLowerCase() === "context canceled";
+}
+
+function shouldRenderFailedContent(content: string, error?: string): boolean {
+  const visible = content.trim();
+  if (!visible) return false;
+  return visible !== (error ?? "").trim();
+}
+
+function duplicatesFailureNotice(activity: ChatActivityRecord, message: string): boolean {
+  if (activity.type !== "failed" && activity.status !== "failed") return false;
+  if (activity.type === "tool_call") return false;
+  // Keep this title list in sync with generic terminal failure rows from
+  // internal/api/handler_chat_activities.go and handler_chat.go. Richer
+  // diagnostic titles should remain visible in the activity timeline.
+  const title = activity.title.trim().toLowerCase();
+  if (title !== "failed" && title !== "run failed") return false;
+  const detail = activity.detail?.trim() ?? "";
+  if (!detail) return true;
+  return detail === message.trim();
 }
 
 function AgentRunNotice({
@@ -345,13 +712,15 @@ function AgentRunNotice({
   // detail.
   const visible = message ? message.replace(/\s*\([a-z][a-z0-9_]+_required\)\s*$/i, "").trim() : "";
   return (
-    <div style={{
-      border: "1px solid var(--border)",
-      borderLeft: `3px solid ${color}`,
-      borderRadius: "var(--radius-sm)",
-      background: "var(--bg2)",
-      padding: "9px 10px",
-    }}>
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderLeft: `3px solid ${color}`,
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg2)",
+        padding: "9px 10px",
+      }}
+    >
       <div style={{ color, fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 4 }}>
         agent run {status}
       </div>
@@ -380,7 +749,16 @@ function AgentRunNotice({
 function AgentLiveText({ content }: { content: string }) {
   return (
     <div style={{ alignItems: "baseline", display: "flex", gap: 6, minWidth: 0 }}>
-      <div style={{ color: "var(--t0)", flex: "0 1 auto", fontSize: 13, lineHeight: 1.7, minWidth: 0, whiteSpace: "pre-wrap" }}>
+      <div
+        style={{
+          color: "var(--t0)",
+          flex: "0 1 auto",
+          fontSize: 13,
+          lineHeight: 1.7,
+          minWidth: 0,
+          whiteSpace: "pre-wrap",
+        }}
+      >
         {content}
       </div>
       <span
@@ -401,22 +779,147 @@ function AgentLiveText({ content }: { content: string }) {
   );
 }
 
-function AgentUsage({ usage }: { usage: AgentChatUsageRecord }) {
+function AgentUsage({ usage }: { usage: ChatUsageRecord }) {
   const cost = formatAgentReportedCost(usage);
   const context = formatAgentContextUsage(usage);
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        marginTop: 8,
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        color: "var(--t3)",
+      }}
+    >
       {cost && <span>{cost}</span>}
       {context && <span>{context}</span>}
-      <span>reported by adapter · not enforced by Hecate</span>
+      <span>reported usage · not enforced by Hecate</span>
     </div>
   );
 }
 
-function AgentTiming({ timing }: { timing: AgentChatTimingRecord }) {
-  const bottleneck = timing.bottleneck && timing.bottleneck_ms
-    ? `${humanTimingLabel(timing.bottleneck)} ${formatDurationMS(timing.bottleneck_ms)}`
-    : "";
+function ContextInspector({ packet }: { packet: ChatContextPacketRecord }) {
+  const modelLabel = [packet.provider, packet.model].filter(Boolean).join(" · ");
+  const sources = packet.sources ?? [];
+  const summaryParts = [
+    "context",
+    packet.message_count
+      ? `${packet.message_count} message${packet.message_count === 1 ? "" : "s"}`
+      : "",
+    modelLabel,
+  ].filter(Boolean);
+  return (
+    <details style={{ marginTop: 8 }}>
+      <summary
+        style={{
+          color: "var(--t3)",
+          cursor: "pointer",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          lineHeight: 1.6,
+        }}
+      >
+        {summaryParts.join(" · ")}
+      </summary>
+      <div
+        style={{
+          background: "var(--bg1)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          display: "grid",
+          gap: 6,
+          marginTop: 6,
+          padding: "8px 9px",
+        }}
+      >
+        {packet.execution_mode && (
+          <ContextRow label="mode" value={humanExecutionMode(packet.execution_mode)} />
+        )}
+        {packet.workspace && <ContextRow label="workspace" value={packet.workspace} />}
+        {sources.length > 0 && (
+          <div style={{ display: "grid", gap: 5 }}>
+            {sources.map((source, index) => (
+              <ContextSourceRow key={`${source.kind}-${source.label}-${index}`} source={source} />
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function ContextRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0, 1fr)", gap: 8 }}>
+      <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+        {label}
+      </span>
+      <span
+        style={{
+          color: "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ContextSourceRow({
+  source,
+}: {
+  source: NonNullable<ChatContextPacketRecord["sources"]>[number];
+}) {
+  const detail = source.detail?.trim();
+  const label = source.label || source.kind;
+  const trust = source.trust ? ` · ${source.trust}` : "";
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--border)",
+        display: "grid",
+        gap: 2,
+        paddingTop: 5,
+      }}
+    >
+      <div style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+        {label}
+        <span style={{ color: "var(--t3)" }}>{trust}</span>
+      </div>
+      {detail && (
+        <div
+          style={{
+            color: "var(--t3)",
+            fontSize: 10,
+            lineHeight: 1.5,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={detail}
+        >
+          {detail}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentTiming({ timing }: { timing: ChatTimingRecord }) {
+  const bottleneck =
+    timing.bottleneck && timing.bottleneck_ms
+      ? `${humanTimingLabel(timing.bottleneck)} ${formatDurationMs(timing.bottleneck_ms)}`
+      : "";
   const items = [
     ["total", timing.total_ms],
     ["queue", timing.queue_ms],
@@ -428,10 +931,12 @@ function AgentTiming({ timing }: { timing: AgentChatTimingRecord }) {
   const counts = [
     timing.turn_count ? `${timing.turn_count} turn${timing.turn_count === 1 ? "" : "s"}` : "",
     timing.tool_count ? `${timing.tool_count} tool${timing.tool_count === 1 ? "" : "s"}` : "",
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <div
-      aria-label="Hecate Agent timing summary"
+      aria-label="Hecate Chat timing summary"
       style={{
         background: "rgba(0, 194, 184, 0.05)",
         border: "1px solid var(--teal-border)",
@@ -449,15 +954,42 @@ function AgentTiming({ timing }: { timing: AgentChatTimingRecord }) {
     >
       {bottleneck && <span style={{ color: "var(--teal)" }}>bottleneck · {bottleneck}</span>}
       {items.map(([label, value]) => (
-        <span key={label}>{label} {formatDurationMS(value)}</span>
+        <span key={label}>
+          {label} {formatDurationMs(value)}
+        </span>
       ))}
       {counts && <span>{counts}</span>}
     </div>
   );
 }
 
-function agentTimingEmpty(timing: AgentChatTimingRecord): boolean {
-  return !timing.total_ms &&
+function contextPacketEmpty(packet: ChatContextPacketRecord): boolean {
+  return (
+    !packet.version &&
+    !packet.execution_mode &&
+    !packet.provider &&
+    !packet.model &&
+    !packet.workspace &&
+    !packet.system_prompt_included &&
+    !packet.message_count &&
+    (packet.sources ?? []).length === 0
+  );
+}
+
+function humanExecutionMode(mode: string): string {
+  switch (mode) {
+    case "external_agent":
+      return "External agent";
+    case "hecate_task":
+      return "Hecate task runtime";
+    default:
+      return mode;
+  }
+}
+
+function agentTimingEmpty(timing: ChatTimingRecord): boolean {
+  return (
+    !timing.total_ms &&
     !timing.queue_ms &&
     !timing.model_ms &&
     !timing.tool_ms &&
@@ -465,33 +997,30 @@ function agentTimingEmpty(timing: AgentChatTimingRecord): boolean {
     !timing.overhead_ms &&
     !timing.turn_count &&
     !timing.tool_count &&
-    !timing.bottleneck;
+    !timing.bottleneck
+  );
 }
 
-function agentUsageEmpty(usage: AgentChatUsageRecord): boolean {
-  return !usage.reported_cost_amount && !usage.reported_cost_currency && !(usage.context_size ?? 0) && !(usage.context_used ?? 0);
+function agentUsageEmpty(usage: ChatUsageRecord): boolean {
+  return (
+    !usage.reported_cost_amount &&
+    !usage.reported_cost_currency &&
+    !(usage.context_size ?? 0) &&
+    !(usage.context_used ?? 0)
+  );
 }
 
 function humanTimingLabel(label: string): string {
   return label === "tools" ? "tools" : label;
 }
 
-function formatDurationMS(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "0ms";
-  if (value < 1000) return `${Math.round(value)}ms`;
-  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}s`;
-  const minutes = Math.floor(value / 60_000);
-  const seconds = Math.round((value - minutes * 60_000) / 1000);
-  return `${minutes}m ${seconds}s`;
-}
-
-function formatAgentReportedCost(usage: AgentChatUsageRecord): string {
+function formatAgentReportedCost(usage: ChatUsageRecord): string {
   if (!usage.reported_cost_amount && !usage.reported_cost_currency) return "";
   const currency = usage.reported_cost_currency ? ` ${usage.reported_cost_currency}` : "";
   return `${usage.reported_cost_amount || "0"}${currency}`;
 }
 
-function formatAgentContextUsage(usage: AgentChatUsageRecord): string {
+function formatAgentContextUsage(usage: ChatUsageRecord): string {
   const used = usage.context_used ?? 0;
   const size = usage.context_size ?? 0;
   if (!used && !size) return "";

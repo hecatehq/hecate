@@ -19,10 +19,15 @@
 # Node deps are reinstalled inside the ui-builder stage.
 node_modules
 ui/node_modules
+website/node_modules
+tauri/node_modules
 
 # Built artifacts — the build stages regenerate these.
 /hecate
+/dist
 ui/dist
+website/dist
+tauri/src-tauri/target
 ui/test-results
 ui/playwright-report
 ui/coverage

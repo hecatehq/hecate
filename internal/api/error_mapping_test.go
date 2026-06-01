@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/providers"
+	"github.com/hecatehq/hecate/internal/providers"
 )
 
 func TestClassifyGatewayError(t *testing.T) {

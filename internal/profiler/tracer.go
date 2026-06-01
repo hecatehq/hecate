@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -138,7 +138,7 @@ func NewTrace(requestID string, otelTracer oteltrace.Tracer) *Trace {
 		Kind:       "server",
 		StartTime:  startedAt,
 		EndTime:    startedAt,
-		Attributes: map[string]any{telemetry.AttrServiceName: "hecate-gateway"},
+		Attributes: map[string]any{telemetry.AttrServiceName: telemetry.ServiceName},
 		Events:     make([]types.TraceEvent, 0, 8),
 		StatusCode: "unset",
 	}
@@ -312,7 +312,7 @@ func spanSpecForEvent(name string) spanSpec {
 		return spanSpec{name: telemetry.SpanOrchestratorQueue, kind: "internal"}
 	case hasPrefix(name, "retention."):
 		return spanSpec{name: telemetry.SpanRetentionRun, kind: "internal"}
-	case hasPrefix(name, "agent_chat."):
+	case hasPrefix(name, "chat."):
 		return spanSpec{name: telemetry.SpanAgentChatRun, kind: "internal"}
 	case hasPrefix(name, "governor."):
 		return spanSpec{name: telemetry.SpanGatewayGovernor, kind: "internal"}
@@ -372,8 +372,8 @@ func otelAttributesForEvent(name string, attrs map[string]any) map[string]any {
 		out[telemetry.AttrHecatePhase] = "approval"
 	case hasPrefix(name, "retention."):
 		out[telemetry.AttrHecatePhase] = "retention"
-	case hasPrefix(name, "agent_chat."):
-		out[telemetry.AttrHecatePhase] = "agent_chat"
+	case hasPrefix(name, "chat."):
+		out[telemetry.AttrHecatePhase] = "chat"
 	case hasPrefix(name, "local_model.install."):
 		out[telemetry.AttrHecatePhase] = "local_model_install"
 	case hasPrefix(name, "local_model.runtime."):

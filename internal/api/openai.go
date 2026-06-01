@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/agentcontrols"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // OpenAIMessageContent is the polymorphic OpenAI message-content
@@ -97,17 +97,15 @@ type OpenAIContentImageURL struct {
 }
 
 type OpenAIChatCompletionRequest struct {
-	Model        string              `json:"model"`
-	Provider     string              `json:"provider,omitempty"`
-	SessionID    string              `json:"session_id,omitempty"`
-	SessionTitle string              `json:"session_title,omitempty"`
-	Messages     []OpenAIChatMessage `json:"messages"`
-	MaxTokens    int                 `json:"max_tokens,omitempty"`
-	Temperature  float64             `json:"temperature,omitempty"`
-	User         string              `json:"user,omitempty"`
-	Tools        []OpenAITool        `json:"tools,omitempty"`
-	ToolChoice   json.RawMessage     `json:"tool_choice,omitempty"`
-	Stream       bool                `json:"stream,omitempty"`
+	Model       string              `json:"model"`
+	Provider    string              `json:"provider,omitempty"`
+	Messages    []OpenAIChatMessage `json:"messages"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+	Temperature float64             `json:"temperature,omitempty"`
+	User        string              `json:"user,omitempty"`
+	Tools       []OpenAITool        `json:"tools,omitempty"`
+	ToolChoice  json.RawMessage     `json:"tool_choice,omitempty"`
+	Stream      bool                `json:"stream,omitempty"`
 	// ResponseFormat carries the OpenAI structured-output knob:
 	// {"type":"text"|"json_object"|"json_schema",...}. Passed
 	// through verbatim to OpenAI-compat upstreams; Anthropic
@@ -234,58 +232,9 @@ type OpenAIModelsResponse struct {
 	Data   []OpenAIModelData `json:"data"`
 }
 
-type ModelCapabilityUpsertRequest struct {
-	Provider         string `json:"provider"`
-	Model            string `json:"model"`
-	ToolCalling      string `json:"tool_calling,omitempty"`
-	Streaming        *bool  `json:"streaming,omitempty"`
-	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
-	Note             string `json:"note,omitempty"`
-}
-
-type ModelCapabilityResponse struct {
-	Object string              `json:"object"`
-	Data   ModelCapabilityItem `json:"data"`
-}
-
-type ModelCapabilityItem struct {
-	Provider         string `json:"provider"`
-	Model            string `json:"model"`
-	ToolCalling      string `json:"tool_calling"`
-	Streaming        bool   `json:"streaming"`
-	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
-	Source           string `json:"source"`
-	Note             string `json:"note,omitempty"`
-	UpdatedAt        string `json:"updated_at,omitempty"`
-}
-
 type SessionResponse struct {
 	Object string              `json:"object"`
 	Data   SessionResponseItem `json:"data"`
-}
-
-type ChatSessionsResponse struct {
-	Object  string                   `json:"object"`
-	Data    []ChatSessionSummaryItem `json:"data"`
-	HasMore bool                     `json:"has_more"`
-}
-
-type ChatSessionResponse struct {
-	Object string          `json:"object"`
-	Data   ChatSessionItem `json:"data"`
-}
-
-type CreateChatSessionRequest struct {
-	Title string `json:"title"`
-}
-
-// UpdateChatSessionRequest patches an existing chat session. Both fields
-// are pointers so a request can leave a field unchanged by omitting it
-// entirely (`null` and "absent" are treated the same — leave alone). To
-// clear a field, send the empty string explicitly.
-type UpdateChatSessionRequest struct {
-	Title        *string `json:"title,omitempty"`
-	SystemPrompt *string `json:"system_prompt,omitempty"`
 }
 
 // SessionResponseItem reports who is calling. In single-user mode this
@@ -295,75 +244,61 @@ type SessionResponseItem struct {
 	Role string `json:"role"`
 }
 
-type ChatSessionSummaryItem struct {
-	ID                string `json:"id"`
-	Title             string `json:"title"`
-	MessageCount      int    `json:"message_count"`
-	ProviderCallCount int    `json:"provider_call_count"`
-	CreatedAt         string `json:"created_at,omitempty"`
-	UpdatedAt         string `json:"updated_at,omitempty"`
-	LastModel         string `json:"last_model,omitempty"`
-	LastProvider      string `json:"last_provider,omitempty"`
-	LastCostUSD       string `json:"last_cost_usd,omitempty"`
-	LastRequestID     string `json:"last_request_id,omitempty"`
-}
-
-// ChatSessionItem is the full session payload returned by the
-// session-fetch endpoint. Messages and ProviderCalls are flat,
-// independently-iterable arrays — the relationship between them is
-// expressed through ChatSessionMessageItem.ProducedByCallID, which
-// references ChatProviderCallItem.ID. The UI builds whatever
-// projection it wants (exchange-grouped view, raw transcript, etc.).
-type ChatSessionItem struct {
-	ID            string                   `json:"id"`
-	Title         string                   `json:"title"`
-	SystemPrompt  string                   `json:"system_prompt,omitempty"`
-	CreatedAt     string                   `json:"created_at,omitempty"`
-	UpdatedAt     string                   `json:"updated_at,omitempty"`
-	Messages      []ChatSessionMessageItem `json:"messages"`
-	ProviderCalls []ChatProviderCallItem   `json:"provider_calls"`
-}
-
-// ChatSessionMessageItem is one row from the session's flat message
-// stream. Sequence is monotonic per session and is the authoritative
-// ordering. ProducedByCallID, when set, points at the
-// ChatProviderCallItem.ID that emitted this message (assistant or
-// runtime-emitted tool messages); empty for client-supplied messages
-// (user, system, client-injected tool results). The OpenAIChatMessage
-// embed flattens role / content / tool_calls / content_blocks /
-// tool_error onto the same JSON object.
-type ChatSessionMessageItem struct {
-	ID               string `json:"id"`
-	Sequence         int    `json:"sequence"`
-	ProducedByCallID string `json:"produced_by_call_id,omitempty"`
-	CreatedAt        string `json:"created_at,omitempty"`
-	OpenAIChatMessage
-}
-
-// ChatProviderCallItem is one row from the session's provider-call
-// observability stream. Each row corresponds to one upstream
-// chat-completion request (its routing decision, model, tokens, cost).
-type ChatProviderCallItem struct {
-	ID                string `json:"id"`
-	RequestID         string `json:"request_id"`
-	RequestedProvider string `json:"requested_provider,omitempty"`
-	Provider          string `json:"provider"`
-	ProviderKind      string `json:"provider_kind,omitempty"`
-	RequestedModel    string `json:"requested_model,omitempty"`
-	Model             string `json:"model"`
-	CostMicrosUSD     int64  `json:"cost_micros_usd"`
-	CostUSD           string `json:"cost_usd"`
-	PromptTokens      int    `json:"prompt_tokens"`
-	CompletionTokens  int    `json:"completion_tokens"`
-	TotalTokens       int    `json:"total_tokens"`
-	CreatedAt         string `json:"created_at,omitempty"`
-}
-
 type OpenAIModelData struct {
 	ID       string         `json:"id"`
 	Object   string         `json:"object"`
 	OwnedBy  string         `json:"owned_by"`
 	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
+type ProjectsResponse struct {
+	Object string                `json:"object"`
+	Data   []ProjectResponseItem `json:"data"`
+}
+
+type ProjectResponse struct {
+	Object string              `json:"object"`
+	Data   ProjectResponseItem `json:"data"`
+}
+
+type ProjectResponseItem struct {
+	ID                       string                             `json:"id"`
+	Name                     string                             `json:"name"`
+	Description              string                             `json:"description,omitempty"`
+	Roots                    []ProjectRootResponseItem          `json:"roots"`
+	ContextSources           []ProjectContextSourceResponseItem `json:"context_sources"`
+	DefaultRootID            string                             `json:"default_root_id,omitempty"`
+	DefaultProvider          string                             `json:"default_provider,omitempty"`
+	DefaultModel             string                             `json:"default_model,omitempty"`
+	DefaultAgentProfile      string                             `json:"default_agent_profile,omitempty"`
+	DefaultToolsEnabled      *bool                              `json:"default_tools_enabled,omitempty"`
+	DefaultWorkspaceMode     string                             `json:"default_workspace_mode,omitempty"`
+	DefaultSystemPrompt      string                             `json:"default_system_prompt,omitempty"`
+	DefaultCompactToolOutput *bool                              `json:"default_compact_tool_output,omitempty"`
+	CreatedAt                string                             `json:"created_at"`
+	UpdatedAt                string                             `json:"updated_at"`
+	LastOpenedAt             string                             `json:"last_opened_at,omitempty"`
+}
+
+type ProjectRootResponseItem struct {
+	ID        string `json:"id"`
+	Path      string `json:"path"`
+	Kind      string `json:"kind"`
+	GitRemote string `json:"git_remote,omitempty"`
+	GitBranch string `json:"git_branch,omitempty"`
+	Active    bool   `json:"active"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type ProjectContextSourceResponseItem struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	Title     string `json:"title,omitempty"`
+	Path      string `json:"path"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
 
 type ProviderStatusResponse struct {
@@ -386,14 +321,14 @@ type AgentAdapterResponse struct {
 	Data   []AgentAdapterResponseItem `json:"data"`
 }
 
-type AgentChatSessionsResponse struct {
-	Object string                        `json:"object"`
-	Data   []AgentChatSessionSummaryItem `json:"data"`
+type ChatSessionsResponse struct {
+	Object string                   `json:"object"`
+	Data   []ChatSessionSummaryItem `json:"data"`
 }
 
-type AgentChatSessionResponse struct {
-	Object string               `json:"object"`
-	Data   AgentChatSessionItem `json:"data"`
+type ChatSessionResponse struct {
+	Object string          `json:"object"`
+	Data   ChatSessionItem `json:"data"`
 }
 
 type WorkspaceDialogResponse struct {
@@ -619,28 +554,28 @@ type LocalProviderDiscoveryResponseItem struct {
 }
 
 type AgentAdapterResponseItem struct {
-	ID                   string                              `json:"id"`
-	Name                 string                              `json:"name"`
-	Kind                 string                              `json:"kind"`
-	Command              string                              `json:"command"`
-	Args                 []string                            `json:"args,omitempty"`
-	Managed              bool                                `json:"managed,omitempty"`
-	ManagedPackage       string                              `json:"managed_package,omitempty"`
-	Available            bool                                `json:"available"`
-	Status               string                              `json:"status"`
-	Path                 string                              `json:"path,omitempty"`
-	Error                string                              `json:"error,omitempty"`
-	Description          string                              `json:"description,omitempty"`
-	CostMode             string                              `json:"cost_mode,omitempty"`
-	DocsURL              string                              `json:"docs_url,omitempty"`
-	Version              string                              `json:"version,omitempty"`
-	SupportedRange       string                              `json:"supported_range,omitempty"`
-	VersionOutsideRange  bool                                `json:"version_outside_range,omitempty"`
-	AuthStatus           string                              `json:"auth_status,omitempty"`
-	AuthError            string                              `json:"auth_error,omitempty"`
-	CredentialConfigured bool                                `json:"credential_configured,omitempty"`
-	CredentialPreview    string                              `json:"credential_preview,omitempty"`
-	ClaudeCodeCLI        *AgentAdapterSetupCommandStatusItem `json:"claude_code_cli,omitempty"`
+	ID                  string                              `json:"id"`
+	Name                string                              `json:"name"`
+	Kind                string                              `json:"kind"`
+	Command             string                              `json:"command"`
+	Args                []string                            `json:"args,omitempty"`
+	Managed             bool                                `json:"managed,omitempty"`
+	ManagedPackage      string                              `json:"managed_package,omitempty"`
+	Available           bool                                `json:"available"`
+	Status              string                              `json:"status"`
+	Path                string                              `json:"path,omitempty"`
+	Error               string                              `json:"error,omitempty"`
+	Description         string                              `json:"description,omitempty"`
+	CostMode            string                              `json:"cost_mode,omitempty"`
+	DocsURL             string                              `json:"docs_url,omitempty"`
+	AdapterVersion      string                              `json:"adapter_version,omitempty"`
+	AgentVersion        string                              `json:"agent_version,omitempty"`
+	SupportedRange      string                              `json:"supported_range,omitempty"`
+	VersionOutsideRange bool                                `json:"version_outside_range,omitempty"`
+	AuthStatus          string                              `json:"auth_status,omitempty"`
+	AuthError           string                              `json:"auth_error,omitempty"`
+	ConfigOptions       []agentcontrols.ConfigOption        `json:"config_options,omitempty"`
+	ClaudeCodeCLI       *AgentAdapterSetupCommandStatusItem `json:"claude_code_cli,omitempty"`
 }
 
 type AgentAdapterSetupCommandStatusItem struct {
@@ -649,43 +584,34 @@ type AgentAdapterSetupCommandStatusItem struct {
 	ExecutablePath string `json:"executable_path,omitempty"`
 }
 
-type AgentAdapterCredentialSetRequest struct {
-	Name  string `json:"name,omitempty"`
-	Value string `json:"value"`
+type CreateChatSessionRequest struct {
+	Title         string                       `json:"title,omitempty"`
+	ProjectID     string                       `json:"project_id,omitempty"`
+	AgentID       string                       `json:"agent_id,omitempty"`
+	Provider      string                       `json:"provider,omitempty"`
+	Model         string                       `json:"model,omitempty"`
+	Workspace     string                       `json:"workspace"`
+	RTKEnabled    bool                         `json:"rtk_enabled,omitempty"`
+	ConfigOptions []agentcontrols.ConfigOption `json:"config_options,omitempty"`
 }
 
-type AgentAdapterCredentialResponse struct {
-	Object string                             `json:"object"`
-	Data   AgentAdapterCredentialResponseItem `json:"data"`
-}
-
-type AgentAdapterCredentialResponseItem struct {
-	AdapterID  string `json:"adapter_id"`
-	Name       string `json:"name"`
-	Configured bool   `json:"configured"`
-	Preview    string `json:"preview,omitempty"`
-}
-
-type CreateAgentChatSessionRequest struct {
-	Title       string `json:"title,omitempty"`
-	RuntimeKind string `json:"runtime_kind,omitempty"`
-	AdapterID   string `json:"adapter_id,omitempty"`
-	Provider    string `json:"provider,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Workspace   string `json:"workspace"`
-	RTKEnabled  bool   `json:"rtk_enabled,omitempty"`
-}
-
-type CreateAgentChatMessageRequest struct {
-	Content      string `json:"content"`
-	RuntimeKind  string `json:"runtime_kind,omitempty"`
+type CreateChatMessageRequest struct {
+	Content string `json:"content"`
+	// ExecutionMode identifies the runtime owner for this turn:
+	// "hecate_task" or "external_agent". Tools-off Hecate turns still
+	// use "hecate_task" and carry ToolsEnabled=false.
+	ExecutionMode string `json:"execution_mode,omitempty"`
+	// ToolsEnabled is the per-turn tools-on/off signal. Pointer so the
+	// handler can distinguish "explicit false" from "not specified".
+	// When nil, Hecate defaults to tools on.
+	ToolsEnabled *bool  `json:"tools_enabled,omitempty"`
 	Provider     string `json:"provider,omitempty"`
 	Model        string `json:"model,omitempty"`
 	SystemPrompt string `json:"system_prompt,omitempty"`
 	Workspace    string `json:"workspace,omitempty"`
 }
 
-type UpdateAgentChatSessionRequest struct {
+type UpdateChatSessionRequest struct {
 	Title *string `json:"title,omitempty"`
 }
 
@@ -697,11 +623,11 @@ type SetAgentChatSettingsRequest struct {
 	RTKEnabled *bool `json:"rtk_enabled,omitempty"`
 }
 
-type AgentChatSessionSummaryItem struct {
+type ChatSessionSummaryItem struct {
 	ID              string                  `json:"id"`
 	Title           string                  `json:"title"`
-	RuntimeKind     string                  `json:"runtime_kind"`
-	AdapterID       string                  `json:"adapter_id,omitempty"`
+	ProjectID       string                  `json:"project_id,omitempty"`
+	AgentID         string                  `json:"agent_id"`
 	DriverKind      string                  `json:"driver_kind,omitempty"`
 	NativeSessionID string                  `json:"native_session_id,omitempty"`
 	TaskID          string                  `json:"task_id,omitempty"`
@@ -718,11 +644,11 @@ type AgentChatSessionSummaryItem struct {
 	UpdatedAt       string                  `json:"updated_at,omitempty"`
 }
 
-type AgentChatSessionItem struct {
+type ChatSessionItem struct {
 	ID                   string                       `json:"id"`
 	Title                string                       `json:"title"`
-	RuntimeKind          string                       `json:"runtime_kind"`
-	AdapterID            string                       `json:"adapter_id,omitempty"`
+	ProjectID            string                       `json:"project_id,omitempty"`
+	AgentID              string                       `json:"agent_id"`
 	DriverKind           string                       `json:"driver_kind,omitempty"`
 	NativeSessionID      string                       `json:"native_session_id,omitempty"`
 	TaskID               string                       `json:"task_id,omitempty"`
@@ -742,27 +668,36 @@ type AgentChatSessionItem struct {
 	ConfigOptions        []agentcontrols.ConfigOption `json:"config_options,omitempty"`
 	CreatedAt            string                       `json:"created_at,omitempty"`
 	UpdatedAt            string                       `json:"updated_at,omitempty"`
-	Segments             []AgentChatSegmentItem       `json:"segments,omitempty"`
-	Messages             []AgentChatMessageItem       `json:"messages"`
+	Segments             []ChatSegmentItem            `json:"segments,omitempty"`
+	Messages             []ChatMessageItem            `json:"messages"`
 }
 
-type AgentChatSegmentItem struct {
-	ID           string `json:"id"`
-	RuntimeKind  string `json:"runtime_kind"`
-	Provider     string `json:"provider,omitempty"`
-	Model        string `json:"model,omitempty"`
-	TaskID       string `json:"task_id,omitempty"`
-	LatestRunID  string `json:"latest_run_id,omitempty"`
-	Workspace    string `json:"workspace,omitempty"`
-	Status       string `json:"status,omitempty"`
-	MessageCount int    `json:"message_count"`
-	StartedAt    string `json:"started_at,omitempty"`
-	UpdatedAt    string `json:"updated_at,omitempty"`
+type ChatSegmentItem struct {
+	ID            string `json:"id"`
+	ExecutionMode string `json:"execution_mode"`
+	ToolsEnabled  bool   `json:"tools_enabled"`
+	Provider      string `json:"provider,omitempty"`
+	Model         string `json:"model,omitempty"`
+	TaskID        string `json:"task_id,omitempty"`
+	LatestRunID   string `json:"latest_run_id,omitempty"`
+	Workspace     string `json:"workspace,omitempty"`
+	Status        string `json:"status,omitempty"`
+	MessageCount  int    `json:"message_count"`
+	StartedAt     string `json:"started_at,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
 }
 
-type AgentChatMessageItem struct {
-	ID              string                  `json:"id"`
-	RuntimeKind     string                  `json:"runtime_kind,omitempty"`
+type ChatMessageItem struct {
+	ID            string `json:"id"`
+	ExecutionMode string `json:"execution_mode,omitempty"`
+	// ToolsEnabled is the per-turn tools-on/off signal the gateway
+	// recorded when this message was appended. Always present on the
+	// wire (no `omitempty`) so `false` is a meaningful "tools were
+	// off" and not indistinguishable from "the field is absent."
+	// Clients that talk to a backend predating this field should
+	// treat it as `true` by default — the agent path is the safe
+	// assumption when no signal is present.
+	ToolsEnabled    bool                    `json:"tools_enabled"`
 	SegmentID       string                  `json:"segment_id,omitempty"`
 	TaskID          string                  `json:"task_id,omitempty"`
 	RunID           string                  `json:"run_id,omitempty"`
@@ -772,8 +707,8 @@ type AgentChatMessageItem struct {
 	Role            string                  `json:"role"`
 	Content         string                  `json:"content"`
 	RawOutput       string                  `json:"raw_output,omitempty"`
-	AdapterID       string                  `json:"adapter_id,omitempty"`
-	AdapterName     string                  `json:"adapter_name,omitempty"`
+	AgentID         string                  `json:"agent_id,omitempty"`
+	AgentName       string                  `json:"agent_name,omitempty"`
 	DriverKind      string                  `json:"driver_kind,omitempty"`
 	NativeSessionID string                  `json:"native_session_id,omitempty"`
 	Status          string                  `json:"status,omitempty"`
@@ -790,24 +725,56 @@ type AgentChatMessageItem struct {
 	CompletedAt     string                  `json:"completed_at,omitempty"`
 	DurationMS      int64                   `json:"duration_ms,omitempty"`
 	Error           string                  `json:"error,omitempty"`
-	Activities      []AgentChatActivityItem `json:"activities,omitempty"`
-	Usage           *AgentChatUsageItem     `json:"usage,omitempty"`
-	Timing          *AgentChatTimingItem    `json:"timing,omitempty"`
+	Activities      []ChatActivityItem      `json:"activities,omitempty"`
+	Usage           *ChatUsageItem          `json:"usage,omitempty"`
+	Timing          *ChatTimingItem         `json:"timing,omitempty"`
+	ContextPacket   *ChatContextPacketItem  `json:"context_packet,omitempty"`
 }
 
-type AgentChatChangedFileItem struct {
+type ChatContextPacketItem struct {
+	Version              string                  `json:"version,omitempty"`
+	ExecutionMode        string                  `json:"execution_mode,omitempty"`
+	Provider             string                  `json:"provider,omitempty"`
+	Model                string                  `json:"model,omitempty"`
+	Workspace            string                  `json:"workspace,omitempty"`
+	SystemPromptIncluded bool                    `json:"system_prompt_included,omitempty"`
+	MessageCount         int                     `json:"message_count,omitempty"`
+	Sources              []ChatContextSourceItem `json:"sources,omitempty"`
+}
+
+type ChatContextSourceItem struct {
+	Kind   string `json:"kind"`
+	Label  string `json:"label"`
+	Detail string `json:"detail,omitempty"`
+	Trust  string `json:"trust,omitempty"`
+}
+
+type ChatChangedFileItem struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
 	Status    string `json:"status"`
 }
 
-type AgentChatChangedFilesResponse struct {
-	Object string                     `json:"object"`
-	Data   []AgentChatChangedFileItem `json:"data"`
+type ChatChangedFilesResponse struct {
+	Object string                `json:"object"`
+	Data   []ChatChangedFileItem `json:"data"`
 }
 
-type AgentChatChangedFileDiffItem struct {
+type ChatWorkspaceDiffItem struct {
+	Workspace  string                `json:"workspace,omitempty"`
+	DiffStat   string                `json:"diff_stat,omitempty"`
+	Diff       string                `json:"diff,omitempty"`
+	HasChanges bool                  `json:"has_changes"`
+	Files      []ChatChangedFileItem `json:"files"`
+}
+
+type ChatWorkspaceDiffResponse struct {
+	Object string                `json:"object"`
+	Data   ChatWorkspaceDiffItem `json:"data"`
+}
+
+type ChatChangedFileDiffItem struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
@@ -815,28 +782,43 @@ type AgentChatChangedFileDiffItem struct {
 	Diff      string `json:"diff"`
 }
 
-type AgentChatChangedFileDiffResponse struct {
-	Object string                       `json:"object"`
-	Data   AgentChatChangedFileDiffItem `json:"data"`
+type ChatChangedFileDiffResponse struct {
+	Object string                  `json:"object"`
+	Data   ChatChangedFileDiffItem `json:"data"`
 }
 
-type RevertAgentChatMessageFilesRequest struct {
+type RevertChatMessageFilesRequest struct {
 	Paths []string `json:"paths,omitempty"`
 }
 
-type AgentChatRevertItem struct {
-	Reverted bool                       `json:"reverted"`
-	Paths    []string                   `json:"paths"`
-	DiffStat string                     `json:"diff_stat,omitempty"`
-	Files    []AgentChatChangedFileItem `json:"files"`
+type WorkspaceOpenRequest struct {
+	Path   string `json:"path"`
+	Target string `json:"target"`
 }
 
-type AgentChatRevertResponse struct {
-	Object string              `json:"object"`
-	Data   AgentChatRevertItem `json:"data"`
+type WorkspaceOpenResponseItem struct {
+	Path   string `json:"path"`
+	Target string `json:"target"`
 }
 
-type AgentChatActivityItem struct {
+type WorkspaceOpenResponse struct {
+	Object string                    `json:"object"`
+	Data   WorkspaceOpenResponseItem `json:"data"`
+}
+
+type ChatRevertItem struct {
+	Reverted bool                  `json:"reverted"`
+	Paths    []string              `json:"paths"`
+	DiffStat string                `json:"diff_stat,omitempty"`
+	Files    []ChatChangedFileItem `json:"files"`
+}
+
+type ChatRevertResponse struct {
+	Object string         `json:"object"`
+	Data   ChatRevertItem `json:"data"`
+}
+
+type ChatActivityItem struct {
 	ID                string `json:"id,omitempty"`
 	Type              string `json:"type"`
 	Status            string `json:"status,omitempty"`
@@ -851,14 +833,14 @@ type AgentChatActivityItem struct {
 	NeedsAction       bool   `json:"needs_action,omitempty"`
 }
 
-type AgentChatUsageItem struct {
+type ChatUsageItem struct {
 	ContextSize          int    `json:"context_size,omitempty"`
 	ContextUsed          int    `json:"context_used,omitempty"`
 	ReportedCostAmount   string `json:"reported_cost_amount,omitempty"`
 	ReportedCostCurrency string `json:"reported_cost_currency,omitempty"`
 }
 
-type AgentChatTimingItem struct {
+type ChatTimingItem struct {
 	TotalMS        int64  `json:"total_ms,omitempty"`
 	QueueMS        int64  `json:"queue_ms,omitempty"`
 	ModelMS        int64  `json:"model_ms,omitempty"`
@@ -986,6 +968,21 @@ type MCPCacheStatsResponseItem struct {
 	// Idle is the count of entries with refcount == 0 (the ones the
 	// reaper will evict once their lastUsed crosses the TTL boundary).
 	Idle int `json:"idle"`
+}
+
+type SystemResetDataResponse struct {
+	Object string                      `json:"object"`
+	Data   SystemResetDataResponseItem `json:"data"`
+}
+
+type SystemResetDataResponseItem struct {
+	ProjectsDeleted            int `json:"projects_deleted"`
+	ChatSessionsDeleted        int `json:"chat_sessions_deleted"`
+	TasksDeleted               int `json:"tasks_deleted"`
+	ProvidersDeleted           int `json:"providers_deleted"`
+	PolicyRulesDeleted         int `json:"policy_rules_deleted"`
+	AgentApprovalGrantsDeleted int `json:"agent_approval_grants_deleted"`
+	DatabaseRowsDeleted        int `json:"database_rows_deleted"`
 }
 
 type UsageSummaryResponseItem struct {

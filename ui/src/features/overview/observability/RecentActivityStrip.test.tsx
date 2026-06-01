@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 
-import type { TraceListItem } from "../../../types/runtime";
+import type { TraceListItem } from "../../../types/trace";
 
 import { RecentActivityStrip } from "./RecentActivityStrip";
 
@@ -61,7 +61,9 @@ describe("RecentActivityStrip", () => {
       ["a", 100],
       ["b", 300],
     ]);
-    const { container } = render(<RecentActivityStrip traces={traces} latencyByRequestID={latencyByRequestID} />);
+    const { container } = render(
+      <RecentActivityStrip traces={traces} latencyByRequestID={latencyByRequestID} />,
+    );
     const text = container.textContent || "";
     expect(text).toMatch(/p50.*100ms/);
     expect(text).toMatch(/p95.*300ms/);
@@ -70,7 +72,12 @@ describe("RecentActivityStrip", () => {
 
   it("shows recovered count when a trace has fallback_from", () => {
     const traces = [
-      trace({ request_id: "a", duration_ms: 100, status_code: "ok", route: { fallback_from: "openai" } }),
+      trace({
+        request_id: "a",
+        duration_ms: 100,
+        status_code: "ok",
+        route: { fallback_from: "openai" },
+      }),
       trace({ request_id: "b", duration_ms: 200, status_code: "ok" }),
     ];
     const { container } = render(<RecentActivityStrip traces={traces} />);
@@ -78,9 +85,7 @@ describe("RecentActivityStrip", () => {
   });
 
   it("uses derived provider/model labels in dot tooltips when route fields are missing", () => {
-    const traces = [
-      trace({ request_id: "req-1", duration_ms: 25, status_code: "ok" }),
-    ];
+    const traces = [trace({ request_id: "req-1", duration_ms: 25, status_code: "ok" })];
     const labelsByRequestID = new Map([
       ["req-1", { provider: "ollama", model: "ministral-3:latest" }],
     ]);
@@ -98,8 +103,18 @@ describe("RecentActivityStrip", () => {
     // fault, not a recovery — the dot is red, the error count
     // increments, the recovered count does not.
     const traces = [
-      trace({ request_id: "a", duration_ms: 100, status_code: "error", route: { fallback_from: "openai" } }),
-      trace({ request_id: "b", duration_ms: 200, status_code: "ok", route: { fallback_from: "openai" } }),
+      trace({
+        request_id: "a",
+        duration_ms: 100,
+        status_code: "error",
+        route: { fallback_from: "openai" },
+      }),
+      trace({
+        request_id: "b",
+        duration_ms: 200,
+        status_code: "ok",
+        route: { fallback_from: "openai" },
+      }),
     ];
     const { container } = render(<RecentActivityStrip traces={traces} />);
     const text = container.textContent || "";

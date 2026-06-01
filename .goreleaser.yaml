@@ -26,23 +26,7 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/hecate/agent-runtime/internal/version.Version={{ .Version }}
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-  - id: hecate-acp
-    main: ./cmd/hecate-acp
-    binary: hecate-acp
-    env:
-      - CGO_ENABLED=0
-    flags:
-      - -trimpath
-    ldflags:
-      - -s -w
-      - -X github.com/hecate/agent-runtime/internal/version.Version={{ .Version }}
+      - -X github.com/hecatehq/hecate/internal/version.Version={{ .Version }}
     goos:
       - linux
       - darwin
@@ -54,7 +38,6 @@ archives:
   - id: binaries
     ids:
       - hecate
-      - hecate-acp
     formats:
       - tar.gz
     name_template: >-
@@ -67,16 +50,13 @@ archives:
       - README.md
 
 # Multi-arch Docker image. GoReleaser stages the freshly cross-compiled
-# hecate and hecate-acp binaries under linux/<arch>/ and docker buildx builds
-# a manifest for linux/amd64 + linux/arm64. The container still starts
-# `hecate` by default; hecate-acp is included so every distribution shape
-# carries the same ACP bridge companion.
+# hecate binary under linux/<arch>/ and docker buildx builds a manifest for
+# linux/amd64 + linux/arm64.
 dockers_v2:
   - id: hecate
     dockerfile: Dockerfile.release
     ids:
       - hecate
-      - hecate-acp
     images:
       - "ghcr.io/hecatehq/hecate"
     tags:

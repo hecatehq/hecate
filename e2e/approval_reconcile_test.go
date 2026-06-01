@@ -21,7 +21,7 @@ import (
 
 // TestApprovalReconcilePersistsAndFlipsAcrossRestart is the binary-
 // level smoke for startup reconcile. It boots the real
-// hecate binary with GATEWAY_CHAT_SESSIONS_BACKEND=sqlite, inserts a
+// hecate binary with HECATE_BACKEND=sqlite, inserts a
 // pending agent-chat approval directly into the SQLite db (simulating
 // a process that crashed mid-RequestPermission), kills the binary,
 // restarts it, and asserts via the HTTP API that the surviving
@@ -47,20 +47,20 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	commonEnv := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + workDir,
-		"GATEWAY_DATA_DIR=" + dataDir,
-		"GATEWAY_CHAT_SESSIONS_BACKEND=sqlite",
-		"GATEWAY_SQLITE_PATH=" + dbPath,
+		"HECATE_DATA_DIR=" + dataDir,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_SQLITE_PATH=" + dbPath,
 		// Start with auto so the approval coordinator boots cleanly even
 		// without any adapter activity. Mode doesn't affect reconcile,
 		// which runs before the gateway accepts traffic.
-		"GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto",
+		"HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto",
 	}
 
 	// ── First start: bring the gateway up to materialize the schema.
 	addr1 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd1 := exec.Command(bin)
+	cmd1 := exec.Command(bin, "serve")
 	cmd1.Dir = workDir
-	cmd1.Env = append([]string{"GATEWAY_ADDRESS=" + addr1}, commonEnv...)
+	cmd1.Env = append([]string{"HECATE_ADDRESS=" + addr1}, commonEnv...)
 	cmd1.Stdout = io.Discard
 	cmd1.Stderr = io.Discard
 	if err := cmd1.Start(); err != nil {
@@ -72,7 +72,7 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	// insert below references a valid session_id. The approval
 	// reconcile contract doesn't need a live ACP subprocess, and CI
 	// runners intentionally do not carry operator auth for Codex.
-	sessionID := injectAgentChatSession(t, dbPath)
+	sessionID := injectChatSession(t, dbPath)
 
 	if err := cmd1.Process.Kill(); err != nil {
 		t.Fatalf("kill first run: %v", err)
@@ -88,9 +88,9 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	// requests. By the time /healthz responds, the row is already
 	// flipped — we never observe it in pending state via the API.
 	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd2 := exec.Command(bin)
+	cmd2 := exec.Command(bin, "serve")
 	cmd2.Dir = workDir
-	cmd2.Env = append([]string{"GATEWAY_ADDRESS=" + addr2}, commonEnv...)
+	cmd2.Env = append([]string{"HECATE_ADDRESS=" + addr2}, commonEnv...)
 	cmd2.Stdout = io.Discard
 	cmd2.Stderr = io.Discard
 	if err := cmd2.Start(); err != nil {
@@ -137,16 +137,16 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	commonEnv := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + workDir,
-		"GATEWAY_DATA_DIR=" + dataDir,
-		"GATEWAY_CHAT_SESSIONS_BACKEND=sqlite",
-		"GATEWAY_SQLITE_PATH=" + dbPath,
-		"GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=prompt",
+		"HECATE_DATA_DIR=" + dataDir,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_SQLITE_PATH=" + dbPath,
+		"HECATE_AGENT_ADAPTER_APPROVAL_MODE=prompt",
 	}
 
 	addr1 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd1 := exec.Command(bin)
+	cmd1 := exec.Command(bin, "serve")
 	cmd1.Dir = workDir
-	cmd1.Env = append([]string{"GATEWAY_ADDRESS=" + addr1}, commonEnv...)
+	cmd1.Env = append([]string{"HECATE_ADDRESS=" + addr1}, commonEnv...)
 	cmd1.Stdout = io.Discard
 	cmd1.Stderr = io.Discard
 	if err := cmd1.Start(); err != nil {
@@ -155,7 +155,7 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	waitHealthy(t, "http://"+addr1, gatewayStartupTimeout)
 
 	base1 := "http://" + addr1
-	sessionID := injectAgentChatSession(t, dbPath)
+	sessionID := injectChatSession(t, dbPath)
 	approvalID := injectPendingApproval(t, dbPath, sessionID)
 	mustResolveApproval(t, base1, sessionID, approvalID, `{"decision":"approve","scope":"session"}`)
 
@@ -173,9 +173,9 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	_ = cmd1.Wait()
 
 	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd2 := exec.Command(bin)
+	cmd2 := exec.Command(bin, "serve")
 	cmd2.Dir = workDir
-	cmd2.Env = append([]string{"GATEWAY_ADDRESS=" + addr2}, commonEnv...)
+	cmd2.Env = append([]string{"HECATE_ADDRESS=" + addr2}, commonEnv...)
 	cmd2.Stdout = io.Discard
 	cmd2.Stderr = io.Discard
 	if err := cmd2.Start(); err != nil {
@@ -213,7 +213,7 @@ type apiGrant struct {
 	Decision  string `json:"decision"`
 }
 
-func injectAgentChatSession(t *testing.T, dbPath string) string {
+func injectChatSession(t *testing.T, dbPath string) string {
 	t.Helper()
 
 	db, err := sql.Open("sqlite", dbPath)
@@ -223,15 +223,14 @@ func injectAgentChatSession(t *testing.T, dbPath string) string {
 	defer db.Close()
 
 	now := time.Now().UTC()
-	sessionID := "agent_chat_e2e_" + fmt.Sprintf("%d", now.UnixNano())
+	sessionID := "chat_e2e_" + fmt.Sprintf("%d", now.UnixNano())
 	_, err = db.Exec(
-		`INSERT INTO hecate_agent_chat_sessions (
-			id, title, runtime_kind, adapter_id, driver_kind, native_session_id, workspace, workspace_branch,
+		`INSERT INTO hecate_chat_sessions (
+			id, title, agent_id, driver_kind, native_session_id, workspace, workspace_branch,
 			status, task_id, latest_run_id, provider, model, capabilities, config_options, turns_used, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sessionID,
 		"reconcile smoke",
-		"external_agent",
 		"codex",
 		"acp",
 		"native_e2e",
@@ -256,7 +255,7 @@ func injectAgentChatSession(t *testing.T, dbPath string) string {
 
 func mustResolveApproval(t *testing.T, baseURL, sessionID, approvalID, body string) {
 	t.Helper()
-	url := fmt.Sprintf("%s/hecate/v1/agent-chat/sessions/%s/approvals/%s/resolve", baseURL, sessionID, approvalID)
+	url := fmt.Sprintf("%s/hecate/v1/chat/sessions/%s/approvals/%s/resolve", baseURL, sessionID, approvalID)
 	resp, err := http.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("resolve approval: %v", err)
@@ -270,7 +269,7 @@ func mustResolveApproval(t *testing.T, baseURL, sessionID, approvalID, body stri
 
 func mustListGrants(t *testing.T, baseURL string) []apiGrant {
 	t.Helper()
-	resp, err := http.Get(baseURL + "/hecate/v1/agent-chat/grants")
+	resp, err := http.Get(baseURL + "/hecate/v1/chat/grants")
 	if err != nil {
 		t.Fatalf("list grants: %v", err)
 	}
@@ -290,7 +289,7 @@ func mustListGrants(t *testing.T, baseURL string) []apiGrant {
 
 func mustGetApproval(t *testing.T, baseURL, sessionID, approvalID string) apiApproval {
 	t.Helper()
-	url := fmt.Sprintf("%s/hecate/v1/agent-chat/sessions/%s/approvals/%s", baseURL, sessionID, approvalID)
+	url := fmt.Sprintf("%s/hecate/v1/chat/sessions/%s/approvals/%s", baseURL, sessionID, approvalID)
 	resp, err := http.Get(url)
 	if err != nil {
 		t.Fatalf("GET approval: %v", err)
@@ -329,10 +328,10 @@ func injectPendingApproval(t *testing.T, dbPath, sessionID string) string {
 	scopes := `["once","session","workspace_tool","adapter_tool"]`
 	payload := `{"sessionId":"` + sessionID + `","options":[]}`
 
-	// Default GATEWAY_SQLITE_TABLE_PREFIX is "hecate"; combined with
-	// agent_chat_approvals → hecate_agent_chat_approvals.
+	// Default HECATE_SQLITE_TABLE_PREFIX is "hecate"; combined with
+	// agent_chat_approvals → hecate_chat_approvals.
 	_, err = db.ExecContext(context.Background(),
-		`INSERT INTO hecate_agent_chat_approvals (
+		`INSERT INTO hecate_chat_approvals (
 			id, session_id, adapter_id, workspace, tool_kind, tool_name, status,
 			acp_payload, acp_options, scope_choices,
 			selected_option, scope, decision, path, decision_note,

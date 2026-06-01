@@ -39,7 +39,17 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      GATEWAY_PUBLIC_URL: "http://127.0.0.1:8765"
+      HECATE_PUBLIC_URL: "http://127.0.0.1:8765"
+      # Pin data + sqlite paths to /data here (not just in the Dockerfile)
+      # because env_file: below loads .env, and Compose's env_file values
+      # *override* image ENVs. Developers running source-dev with
+      # HECATE_DATA_DIR=.data (relative, in-repo for `just dev`) would
+      # otherwise see the container write state to a relative path inside
+      # the workdir instead of the hecate-data volume mounted at /data —
+      # breaking the bootstrap round-trip and any state durability the
+      # named volume is meant to provide.
+      HECATE_DATA_DIR: "/data"
+      HECATE_SQLITE_PATH: "/data/hecate.db"
       PROVIDER_OLLAMA_BASE_URL: "http://host.docker.internal:11434/v1"
       PROVIDER_LMSTUDIO_BASE_URL: "http://host.docker.internal:1234/v1"
       PROVIDER_LLAMACPP_BASE_URL: "http://host.docker.internal:8080/v1"

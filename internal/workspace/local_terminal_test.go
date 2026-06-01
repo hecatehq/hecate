@@ -71,8 +71,8 @@ func TestLocalTerminal_OneShotCaptureExit(t *testing.T) {
 }
 
 // TestLocalTerminal_StdinDrivesProcess writes a line to stdin and
-// confirms the child echoes it back. Locks the stdin path that
-// editor-driven terminals will rely on once ACPWorkspace lands.
+// confirms the child echoes it back. Locks the stdin path for
+// interactive terminal callers.
 func TestLocalTerminal_StdinDrivesProcess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix shell semantics")
@@ -140,9 +140,7 @@ func TestLocalTerminal_CloseKillsRunningProcess(t *testing.T) {
 
 // TestLocalTerminal_WaitForExitRetainsBoundedOutput confirms WaitForExit
 // returns captured stdout/stderr even when the caller never consumes
-// Output() — the documented bounded-retention contract. Mirrors the
-// behavior ACPWorkspace.acpTerminal already had, and the asymmetry
-// Copilot flagged on PR #107.
+// Output() — the documented bounded-retention contract.
 func TestLocalTerminal_WaitForExitRetainsBoundedOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix shell semantics")

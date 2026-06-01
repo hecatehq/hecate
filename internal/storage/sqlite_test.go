@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -66,6 +68,113 @@ func TestSQLiteClient_RejectsEmptyPath(t *testing.T) {
 	}
 }
 
+func TestSQLiteClient_HardensFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file mode checks do not map cleanly to Windows ACLs")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "hecate.db")
+
+	client, err := NewSQLiteClient(context.Background(), SQLiteConfig{Path: path})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	dirInfo, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("stat sqlite dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("sqlite dir mode = %#o, want 0700", got)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat sqlite file: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("sqlite file mode = %#o, want 0600", got)
+	}
+}
+
+func TestSQLiteClient_DoesNotChmodExistingParentDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file mode checks do not map cleanly to Windows ACLs")
+	}
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir shared dir: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod shared dir: %v", err)
+	}
+	path := filepath.Join(dir, "hecate.db")
+
+	client, err := NewSQLiteClient(context.Background(), SQLiteConfig{Path: path})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat shared dir: %v", err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o755 {
+		t.Fatalf("existing sqlite parent mode = %#o, want unchanged 0755", got)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat sqlite file: %v", err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("sqlite file mode = %#o, want 0600", got)
+	}
+}
+
+func TestSQLiteClient_ClearDataDeletesPrefixedRowsOnly(t *testing.T) {
+	dir := t.TempDir()
+	client, err := NewSQLiteClient(context.Background(), SQLiteConfig{
+		Path:        filepath.Join(dir, "hecate.db"),
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	ctx := context.Background()
+	if _, err := client.DB().ExecContext(ctx, `CREATE TABLE `+client.QualifiedTable("one")+` (id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatalf("create one: %v", err)
+	}
+	if _, err := client.DB().ExecContext(ctx, `CREATE TABLE `+client.QualifiedTable("two")+` (id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatalf("create two: %v", err)
+	}
+	if _, err := client.DB().ExecContext(ctx, `CREATE TABLE "other_table" (id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatalf("create other: %v", err)
+	}
+	for _, statement := range []string{
+		`INSERT INTO ` + client.QualifiedTable("one") + ` (id) VALUES ('a'), ('b')`,
+		`INSERT INTO ` + client.QualifiedTable("two") + ` (id) VALUES ('c')`,
+		`INSERT INTO "other_table" (id) VALUES ('d')`,
+	} {
+		if _, err := client.DB().ExecContext(ctx, statement); err != nil {
+			t.Fatalf("insert fixture: %v", err)
+		}
+	}
+
+	deleted, err := client.ClearData(ctx)
+	if err != nil {
+		t.Fatalf("ClearData: %v", err)
+	}
+	if deleted != 3 {
+		t.Fatalf("deleted = %d, want 3", deleted)
+	}
+	assertTableCount(t, client, client.QualifiedTable("one"), 0)
+	assertTableCount(t, client, client.QualifiedTable("two"), 0)
+	assertTableCount(t, client, `"other_table"`, 1)
+}
+
 func TestSanitizeIdentifier(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -104,6 +213,17 @@ func TestSanitizeIdentifier(t *testing.T) {
 				t.Fatalf("sanitizeIdentifier(%q, %q) = %q, want %q", tt.value, tt.fallback, got, tt.want)
 			}
 		})
+	}
+}
+
+func assertTableCount(t *testing.T, client *SQLiteClient, table string, want int) {
+	t.Helper()
+	var got int
+	if err := client.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&got); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	if got != want {
+		t.Fatalf("count %s = %d, want %d", table, got, want)
 	}
 }
 

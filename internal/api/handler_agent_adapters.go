@@ -5,14 +5,14 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentadapters"
 )
 
 func (h *Handler) HandleAgentAdapters(w http.ResponseWriter, r *http.Request) {
 	items := agentadapters.List(r.Context())
 	data := make([]AgentAdapterResponseItem, 0, len(items))
 	for _, item := range items {
-		data = append(data, h.renderAgentAdapterItem(r.Context(), item))
+		data = append(data, renderAgentAdapterItem(r.Context(), item))
 	}
 
 	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
@@ -28,20 +28,14 @@ func (h *Handler) HandleAgentAdapterProbe(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "adapter id is required")
 		return
 	}
-	status, ok := agentadapters.StatusForAdapter(ctx, id, nil)
-	if !ok {
+	if _, ok := agentadapters.FindAdapter(id); !ok {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "adapter not found")
 		return
 	}
-	result := h.probeAgentAdapter(ctx, id, h.agentAdapterCredentialEnv(ctx, id))
-	item := h.renderAgentAdapterItem(ctx, status)
-	if id == "claude_code" && result.Status == agentadapters.ProbeStatusReady && !item.CredentialConfigured && status.AuthStatus != agentadapters.AuthStatusOK {
-		// Claude Code can complete the ACP handshake with a normal CLI login,
-		// but chat turns still require an adapter-visible credential in
-		// Hecate's environment. Do not let a bare ready probe erase the
-		// onboarding state.
-		item.AuthStatus, item.AuthError = status.AuthStatus, status.AuthError
-	} else {
+	result := h.probeAgentAdapter(ctx, id)
+	status, _ := agentadapters.StatusForAdapterAfterExplicitProbe(ctx, id, nil)
+	item := renderAgentAdapterItem(ctx, status)
+	if !agentadapters.DevOverrideActive(id) {
 		item.AuthStatus, item.AuthError = authStatusFromProbe(result, item.AuthStatus, item.AuthError)
 	}
 	WriteJSON(w, http.StatusOK, AgentAdapterProbeResponse{
@@ -70,7 +64,7 @@ func (h *Handler) HandleAgentAdapterRefreshLauncher(w http.ResponseWriter, r *ht
 	}
 	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
 		Object: "agent_adapters",
-		Data:   []AgentAdapterResponseItem{h.renderAgentAdapterItem(r.Context(), status)},
+		Data:   []AgentAdapterResponseItem{renderAgentAdapterItem(r.Context(), status)},
 	})
 }
 
@@ -84,7 +78,7 @@ type AgentAdapterProbeData struct {
 	Health  agentadapters.ProbeResult `json:"health"`
 }
 
-func renderAgentAdapterItem(item agentadapters.Status) AgentAdapterResponseItem {
+func renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
 	rendered := AgentAdapterResponseItem{
 		ID:                  item.ID,
 		Name:                item.Name,
@@ -100,36 +94,19 @@ func renderAgentAdapterItem(item agentadapters.Status) AgentAdapterResponseItem 
 		Description:         item.Description,
 		CostMode:            item.CostMode,
 		DocsURL:             item.DocsURL,
-		Version:             item.Version,
+		AdapterVersion:      item.AdapterVersion,
+		AgentVersion:        item.AgentVersion,
 		SupportedRange:      item.SupportedRange,
 		VersionOutsideRange: item.VersionOutsideRange,
 		AuthStatus:          item.AuthStatus,
 		AuthError:           item.AuthError,
+		ConfigOptions:       agentadapters.LaunchConfigOptions(ctx, item),
 	}
 	if item.ID == "claude_code" {
 		rendered.ClaudeCodeCLI = &AgentAdapterSetupCommandStatusItem{
 			Available:      item.ClaudeCodeCLI.Available,
 			Command:        item.ClaudeCodeCLI.Command,
 			ExecutablePath: item.ClaudeCodeCLI.ExecutablePath,
-		}
-	}
-	return rendered
-}
-
-func (h *Handler) renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
-	rendered := renderAgentAdapterItem(item)
-	if h == nil || h.controlPlane == nil {
-		return rendered
-	}
-	state, err := h.controlPlane.Snapshot(ctx)
-	if err != nil {
-		return rendered
-	}
-	for _, credential := range state.AgentAdapterCredentials {
-		if credential.AdapterID == item.ID {
-			rendered.CredentialConfigured = true
-			rendered.CredentialPreview = credential.ValuePreview
-			break
 		}
 	}
 	return rendered

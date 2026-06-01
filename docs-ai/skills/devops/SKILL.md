@@ -24,7 +24,7 @@ Anything with a CI/CD, environment, deploy, or migration footprint:
 - **CI/CD.** Which workflow files run? Will `paths-ignore` skip this change accidentally? Does the change need a `[skip ci]` marker, or does it require CI to actually run?
 - **Environment.** New env vars must land in `.env.example` AND the relevant `docs/<feature>.md` env-var table — same change, not as a follow-up. Stale env-var docs cause more on-call pages than missing features.
 - **Config compatibility.** Does an old config still boot? If not, that's a breaking change — needs a migration note in the commit body.
-- **Schema migrations.** Which storage tiers are affected? Memory is rebuilt on boot (fine). SQLite needs a forward-compatible migration and roll-forward considerations. The retention worker subsystems (`traces`, `usage_events`, `audit`, `provider_history`, `turn_events`, `agent_chat_approvals`) must keep mirroring.
+- **Schema migrations.** Which storage tiers are affected? Memory is rebuilt on boot (fine). SQLite needs a forward-compatible migration and roll-forward considerations. The retention worker subsystems (`traces`, `usage_events`, `audit`, `provider_history`, `turn_events`, `chat_approvals`) must keep mirroring.
 - **Deploy and release risk.** Is this safe to roll out behind a flag? Does it need a flag at all? What's the blast radius if it misbehaves?
 - **Rollback.** Can this change be reverted cleanly? If a schema change is involved, is the rollback path documented?
 - **Observability.** New code paths get OTel spans, not just log lines. Stable error codes for new failure modes (see `internal/api/error_mapping.go`). Trace IDs surfaced.

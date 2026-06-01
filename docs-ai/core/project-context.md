@@ -1,12 +1,21 @@
 # Project context
 
-Hecate is an open-source AI gateway and agent-task runtime. The Go gateway embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle. Hecate is gateway-local, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
+Hecate is an open-source local AI runtime console. The main Go runtime runs the local HTTP service, embeds the React operator UI, routes OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Hecate is local-first, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did Hecate just decide, why, what did it cost, what happens on the next failure, and where is the trace.
+
+Hecate's own boundary is the runtime/control plane: projects, chats, tasks,
+providers, supervised external agents, approvals, tool policy, storage, and
+observability. Higher-level assistant behavior should be built from those
+primitives through agent profiles, presets, project memory, and context
+assembly rather than hidden prompt glue or provider-specific shortcuts.
+Model-backed assistant turns should carry a small context-inspector packet:
+execution mode, route/workspace metadata, source provenance, and visible
+transcript counts. Do not store full prompt bodies, raw transcript text, file
+contents, or adapter-private prompt packing in that packet.
 
 ## Repository layout
 
 ```
-cmd/hecate/               hecate binary entry: gateway, embedded UI, MCP subcommand
-cmd/hecate-acp/            ACP stdio bridge for editor agent panels
+cmd/hecate/               main runtime entry: gateway service, embedded UI, MCP subcommand
 
 pkg/types/                 public types (ChatRequest, Message, ContentBlock, ...)
                              — no internal/ imports
@@ -17,26 +26,31 @@ internal/providers/        outbound HTTP per provider (openai, anthropic)
                              openAIChatMessage, openAIMessageContent (lowercase)
                              — same JSON shape as api/, deliberate duplication
 internal/orchestrator/     task runtime (queue, runner, agent_loop, sandbox)
-internal/sandbox/          per-call sh subprocess: policy validation,
-                             env sanitisation, output cap, optional
-                             bwrap/sandbox-exec wrapper
+internal/workspacefs/      shared workspace path resolver for file/search/write
+                             operations owned by Hecate
+internal/processrunner/    bounded local subprocess seam: cwd, env, timeout,
+                             streaming output, output caps
+internal/gitrunner/        Git-specific runner for Hecate-owned Git helpers
+internal/sandbox/          policy validation + OS isolation wrapper for tool
+                             subprocesses; shell uses ProcessRunner, broad git_exec
+                             still runs through this executor
 internal/taskstate/        task / run / step / artifact / approval persistence
 internal/storage/          sqlite client wrappers
 internal/retention/        retention worker (subsystems: traces, usage_events, audit,
                              provider_history, turn_events,
-                             agent_chat_approvals)
+                             chat_approvals)
 internal/mcp/              stdio MCP server (read tools + write tools)
-internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor
-internal/agentchat/        Agent Chat transcript persistence and runtime linkage
+internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor,
+                             Grok Build
+internal/chat/        chat transcript persistence and runtime linkage
 internal/modelcaps/        model tool-capability merge logic and defaults
 
 ui/                        React/Vite operator UI (embedded via //go:embed ui/dist)
 e2e/                       binary-startup tests, build tag e2e (sub-tags: ollama, docker)
 docs/                      long-form references (canonical product/runtime docs)
 
-.claude/                   Claude Code adapter (slash commands, settings)
-.cursor/                   Cursor adapter (.mdc rule files)
-docs-ai/                        canonical, vendor-neutral agent instruction layer (this directory)
+CLAUDE.md                  Claude Code compatibility shim importing AGENTS.md
+docs-ai/                   canonical, provider-neutral agent instruction layer (this directory)
 ```
 
 ## Architecture rings
@@ -53,7 +67,7 @@ The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAI
 
 ## Storage tier rule
 
-Every backend-bound concern (taskstate, chatstate, agentchat, approvals, governor, retention history) ships with two tiers, mirrored exactly:
+Every backend-bound concern (taskstate, chat, approvals, governor, retention history) ships with two tiers, mirrored exactly:
 
 - `memory` — in-process, default, perfect for `go test` and `just dev`.
 - `sqlite` — single-file persistence via `modernc.org/sqlite` (no CGO).
@@ -77,9 +91,9 @@ When adding a new persisted thing, mirror both. Add a `<thing>_test.go` that run
 
 These earn extra scrutiny; changes here are not drive-by territory.
 
-- **Sandbox boundary** (`internal/sandbox/`) — per-call `sh` subprocess spawned directly from the gateway after policy validation, env sanitisation, output cap, and a wall-clock timeout (Layer 1). On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (Layer 2 — auto-detected at startup via `internal/sandbox/wrapper.go`, no opt-in flag). No separate `sandboxd` daemon — the safety properties run inline. CPU / FD / address-space caps are *not* applied per-call (`setrlimit` would shrink the long-running gateway) — operators who need them run under systemd or in a container with `--cpus` / `--memory` flags. New tool kinds follow the same `internal/sandbox/` shape. See `docs/sandbox.md` for the layer model and `docs/agent-runtime.md` for the network-egress policy that sits on top.
+- **Workspace and subprocess boundary** (`internal/workspacefs/`, `internal/processrunner/`, `internal/gitrunner/`, `internal/sandbox/`) — Hecate-mediated file/search/write operations resolve paths through WorkspaceFS. Shell commands go through the sandbox executor and ProcessRunner; Hecate-owned Git helpers use GitRunner where they do not need the broad `git_exec` shell-shaped interface. The sandbox layer still applies policy validation, env sanitisation, output caps, wall-clock timeout, and optional `bwrap` / `sandbox-exec` OS isolation (auto-detected at startup via `internal/sandbox/wrapper.go`, no opt-in flag). No separate `sandboxd` daemon — the safety properties run inline. CPU / FD / address-space caps are _not_ applied per-call (`setrlimit` would shrink the long-running gateway) — operators who need them run under systemd or in a container with `--cpus` / `--memory` flags. New workspace tool kinds use WorkspaceFS / ProcessRunner / GitRunner as appropriate rather than raw filesystem, process, or git calls. See `docs/sandbox.md` for the layer model and `docs/agent-runtime.md` for the network-egress policy that sits on top.
 - **Approval lifecycle** (`internal/taskstate`, `awaiting_approval`) — pre-execution and mid-loop approvals halt the run. New gates use the same `TaskApproval` shape.
-- **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `trace_snapshots`, `usage_events`, `audit_events`, `provider_history`, `turn_events`, `agent_chat_approvals`. Persisted things must mirror.
+- **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `trace_snapshots`, `usage_events`, `audit_events`, `provider_history`, `turn_events`, `chat_approvals`. Persisted things must mirror.
 - **Usage/cost fields** — money fields are `int64` micro-USD (`1_000_000` = `$1`) when present. Never `float64`; Hecate records usage events for visibility, not spend enforcement.
 - **No auth layer.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; bind elsewhere only behind a reverse proxy or firewall.
 
@@ -88,18 +102,17 @@ These earn extra scrutiny; changes here are not drive-by territory.
 Long-form references live in `docs/`. Update them in the same change as the
 code, not as a follow-up. Don't restate their content here — link and move on.
 
-| Question | Doc |
-|---|---|
-| How does a request flow through the gateway? What are the storage tiers? | [`docs/architecture.md`](../../docs/architecture.md) |
-| What `agent_loop` tools exist? What are the system prompt layers? Cost model? | [`docs/agent-runtime.md`](../../docs/agent-runtime.md) |
-| What are the task / run / step / approval HTTP endpoints? | [`docs/runtime-api.md`](../../docs/runtime-api.md) |
-| What does this SSE event payload look like? | [`docs/events.md`](../../docs/events.md) |
-| What OTel spans and metrics does the gateway emit? | [`docs/telemetry.md`](../../docs/telemetry.md) |
-| How do I configure a provider? What providers are supported? | [`docs/providers.md`](../../docs/providers.md) |
-| How do I configure MCP? What tools does the server expose? | [`docs/mcp.md`](../../docs/mcp.md) |
-| How do Hecate Chat segments and model capabilities work? | [`docs/chat-sessions.md`](../../docs/chat-sessions.md), [`docs/rfcs/unified-chats-and-model-capabilities.md`](../../docs/rfcs/unified-chats-and-model-capabilities.md) |
-| How do external Agent Chat adapters work? | [`docs/external-agent-adapters.md`](../../docs/external-agent-adapters.md) |
-| How does an editor ACP host connect to Hecate? | [`docs/acp.md`](../../docs/acp.md) |
-| How do I deploy? What are the Compose profiles? | [`docs/deployment.md`](../../docs/deployment.md) |
-| How do I build and test locally? What does `[skip ci]` mean? | [`docs/development.md`](../../docs/development.md) |
-| What sandbox isolation layers are shipped? How do namespaces work? | [`docs/sandbox.md`](../../docs/sandbox.md) |
+| Question                                                                      | Doc                                                                                                                                                        |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| How does a request flow through the gateway? What are the storage tiers?      | [`docs/architecture.md`](../../docs/architecture.md)                                                                                                       |
+| What `agent_loop` tools exist? What are the system prompt layers? Cost model? | [`docs/agent-runtime.md`](../../docs/agent-runtime.md)                                                                                                     |
+| What are the task / run / step / approval HTTP endpoints?                     | [`docs/runtime-api.md`](../../docs/runtime-api.md)                                                                                                         |
+| What does this SSE event payload look like?                                   | [`docs/events.md`](../../docs/events.md)                                                                                                                   |
+| What OTel spans and metrics does the gateway emit?                            | [`docs/telemetry.md`](../../docs/telemetry.md)                                                                                                             |
+| How do I configure a provider? What providers are supported?                  | [`docs/providers.md`](../../docs/providers.md)                                                                                                             |
+| How do I configure MCP? What tools does the server expose?                    | [`docs/mcp.md`](../../docs/mcp.md)                                                                                                                         |
+| How do Hecate Chat segments and model capabilities work?                      | [`docs/chat-sessions.md`](../../docs/chat-sessions.md), [`docs/rfcs/hecate-chat-model-capabilities.md`](../../docs/rfcs/hecate-chat-model-capabilities.md) |
+| How do external-agent adapters work?                                          | [`docs/external-agent-adapters.md`](../../docs/external-agent-adapters.md)                                                                                 |
+| How do I deploy? What are the Compose profiles?                               | [`docs/deployment.md`](../../docs/deployment.md)                                                                                                           |
+| How do I build and test locally? What does `[skip ci]` mean?                  | [`docs/development.md`](../../docs/development.md)                                                                                                         |
+| What sandbox isolation layers are shipped? How do namespaces work?            | [`docs/sandbox.md`](../../docs/sandbox.md)                                                                                                                 |

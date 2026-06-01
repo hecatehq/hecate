@@ -3,7 +3,7 @@
 // ordered list; buildSpanWaterfall computes the per-span waterfall row
 // data including critical-path classification.
 
-import type { TraceListItem, TraceSpanRecord } from "../types/runtime";
+import type { TraceListItem, TraceSpanRecord } from "../types/trace";
 import { describeRouteReason } from "./runtime-routing";
 
 export type TraceTimelineItem = {
@@ -27,7 +27,7 @@ export type TraceTimelineItem = {
     | "approval"
     | "artifact"
     | "retention"
-    | "agent_chat"
+    | "chat"
     | "other";
   attributes?: Record<string, unknown>;
 };
@@ -67,16 +67,23 @@ export type TraceWaterfall = {
   phases: TraceTimelineItem["phase"][];
 };
 
-export function buildTraceTimeline(spans: TraceSpanRecord[], traceStartedAt?: string): TraceTimelineItem[] {
-  const flattened: TraceTimelineItem[] = [];
+export function buildTraceTimeline(
+  spans: TraceSpanRecord[],
+  traceStartedAt?: string,
+): TraceTimelineItem[] {
+  const byEvent = new Map<string, { item: TraceTimelineItem; rootMirror: boolean }>();
   const startSource = traceStartedAt || spans[0]?.start_time || "";
   const startMs = parseISOWithSubMs(startSource);
 
   for (const span of spans) {
+    const rootMirror = !span.parent_span_id && span.name === "gateway.request";
     for (const event of span.events ?? []) {
       const currentMs = parseISOWithSubMs(event.timestamp);
-      const offsetMs = Number.isFinite(startMs) && Number.isFinite(currentMs) ? Math.max(0, currentMs - startMs) : 0;
-      flattened.push({
+      const offsetMs =
+        Number.isFinite(startMs) && Number.isFinite(currentMs)
+          ? Math.max(0, currentMs - startMs)
+          : 0;
+      const item = {
         name: event.name,
         timestamp: event.timestamp,
         offsetMs,
@@ -85,12 +92,39 @@ export function buildTraceTimeline(spans: TraceSpanRecord[], traceStartedAt?: st
         spanKind: span.kind || "internal",
         phase: tracePhaseFromEvent(event.name),
         attributes: event.attributes,
-      });
+      };
+      const key = traceTimelineEventKey(event);
+      const existing = byEvent.get(key);
+      if (!existing || (existing.rootMirror && !rootMirror)) {
+        byEvent.set(key, { item, rootMirror });
+      }
     }
   }
 
+  const flattened = Array.from(byEvent.values(), ({ item }) => item);
   flattened.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
   return flattened;
+}
+
+function traceTimelineEventKey(event: {
+  name: string;
+  timestamp: string;
+  attributes?: unknown;
+}): string {
+  return [event.name, event.timestamp, stableTraceValueKey(event.attributes ?? null)].join(
+    "\u0000",
+  );
+}
+
+function stableTraceValueKey(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableTraceValueKey).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableTraceValueKey(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function formatTraceOffsetMs(ms: number): string {
@@ -112,10 +146,15 @@ export function findModelInTrace(spans: TraceSpanRecord[], provider?: string): s
   for (const span of spans) {
     const spanProvider = traceStringAttr(span.attributes ?? {}, "gen_ai.provider.name");
     if (!normalizedProvider || !spanProvider || spanProvider === normalizedProvider) {
-      const spanModel = traceStringAttr(span.attributes ?? {}, "gen_ai.response.model")
-        || traceStringAttr(span.attributes ?? {}, "gen_ai.request.model");
+      const spanModel =
+        traceStringAttr(span.attributes ?? {}, "gen_ai.response.model") ||
+        traceStringAttr(span.attributes ?? {}, "gen_ai.request.model");
       if (spanModel) {
-        candidates.push({ priority: span.name === "gateway.router" ? 2 : 1, timestamp: parseISOWithSubMs(span.start_time ?? ""), model: spanModel });
+        candidates.push({
+          priority: span.name === "gateway.router" ? 2 : 1,
+          timestamp: parseISOWithSubMs(span.start_time ?? ""),
+          model: spanModel,
+        });
       }
     }
 
@@ -130,13 +169,24 @@ export function findModelInTrace(spans: TraceSpanRecord[], provider?: string): s
 
       const responseModel = traceStringAttr(attrs, "gen_ai.response.model");
       if (responseModel) {
-        candidates.push({ priority: 3, timestamp: parseISOWithSubMs(event.timestamp), model: responseModel });
+        candidates.push({
+          priority: 3,
+          timestamp: parseISOWithSubMs(event.timestamp),
+          model: responseModel,
+        });
       }
 
       const requestModel = traceStringAttr(attrs, "gen_ai.request.model");
       if (requestModel) {
-        const priority = event.name === "provider.call.finished" || event.name === "router.candidate.selected" ? 2 : 1;
-        candidates.push({ priority, timestamp: parseISOWithSubMs(event.timestamp), model: requestModel });
+        const priority =
+          event.name === "provider.call.finished" || event.name === "router.candidate.selected"
+            ? 2
+            : 1;
+        candidates.push({
+          priority,
+          timestamp: parseISOWithSubMs(event.timestamp),
+          model: requestModel,
+        });
       }
     }
   }
@@ -159,14 +209,25 @@ export function findProviderInTrace(spans: TraceSpanRecord[]): string {
   for (const span of spans) {
     const spanProvider = traceStringAttr(span.attributes ?? {}, "gen_ai.provider.name");
     if (spanProvider) {
-      candidates.push({ priority: span.name === "gateway.router" || span.name.startsWith("provider.") ? 2 : 1, timestamp: parseISOWithSubMs(span.start_time ?? ""), provider: spanProvider });
+      candidates.push({
+        priority: span.name === "gateway.router" || span.name.startsWith("provider.") ? 2 : 1,
+        timestamp: parseISOWithSubMs(span.start_time ?? ""),
+        provider: spanProvider,
+      });
     }
 
     for (const event of span.events ?? []) {
       const provider = traceStringAttr(event.attributes ?? {}, "gen_ai.provider.name");
       if (!provider) continue;
-      const selected = event.name === "router.selected" || event.name === "router.candidate.selected" || event.name.startsWith("provider.call.");
-      candidates.push({ priority: selected ? 3 : 1, timestamp: parseISOWithSubMs(event.timestamp), provider });
+      const selected =
+        event.name === "router.selected" ||
+        event.name === "router.candidate.selected" ||
+        event.name.startsWith("provider.call.");
+      candidates.push({
+        priority: selected ? 3 : 1,
+        timestamp: parseISOWithSubMs(event.timestamp),
+        provider,
+      });
     }
   }
 
@@ -209,7 +270,7 @@ export function formatTraceAttributeValue(value: unknown): string {
 // of an event name — the legend in the waterfall reads off these.
 export function tracePhaseFromSpan(name: string): TraceTimelineItem["phase"] {
   const lower = name.toLowerCase();
-  if (lower.includes("agent_chat")) return "agent_chat";
+  if (lower.includes("chat")) return "chat";
   if (lower.includes("retention")) return "retention";
   if (lower.includes("queue")) return "queue";
   if (lower.includes("approval")) return "approval";
@@ -286,11 +347,11 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
   // still get `unknownTiming: true` because we can't draw their bar.
   type Parsed = {
     span: TraceSpanRecord;
-    start: number;       // NaN if unparseable
-    end: number;         // NaN if unparseable
+    start: number; // NaN if unparseable
+    end: number; // NaN if unparseable
     startValid: boolean;
     endValid: boolean;
-    durMs: number;       // end - start, or NaN if either is bad
+    durMs: number; // end - start, or NaN if either is bad
   };
   const parsed: Parsed[] = spans.map((s) => {
     const startRaw = s.start_time ? parseISOWithSubMs(s.start_time) : NaN;
@@ -325,12 +386,13 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
   const startValidParsed = parsed.filter((p) => p.startValid);
   const t0 = startValidParsed.length > 0 ? Math.min(...startValidParsed.map((p) => p.start)) : 0;
   const endValidParsed = parsed.filter((p) => p.startValid && p.endValid);
-  const rawTotalMs = startValidParsed.length > 0
-    ? Math.max(
-      ...endValidParsed.map((p) => p.end - t0),
-      ...startValidParsed.map((p) => p.start - t0),
-    )
-    : 0;
+  const rawTotalMs =
+    startValidParsed.length > 0
+      ? Math.max(
+          ...endValidParsed.map((p) => p.end - t0),
+          ...startValidParsed.map((p) => p.start - t0),
+        )
+      : 0;
   const totalMs = rawTotalMs > 0 ? rawTotalMs : 1;
 
   const byID = new Map<string, TraceSpanRecord>();
@@ -422,7 +484,10 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
       let bestD = -1;
       for (const k of kids) {
         const d: number = descent(k.span_id);
-        if (d > bestD) { bestD = d; best = k; }
+        if (d > bestD) {
+          bestD = d;
+          best = k;
+        }
       }
       node = best;
     }
@@ -449,8 +514,9 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
       durMs: unknownTiming ? NaN : p.durMs,
       depth: depthOf(p.span.span_id),
       phase: tracePhaseFromSpan(p.span.name),
-      hasError: p.span.status_code === "error"
-        || (p.span.attributes?.["error"] != null && p.span.attributes?.["error"] !== ""),
+      hasError:
+        p.span.status_code === "error" ||
+        (p.span.attributes?.["error"] != null && p.span.attributes?.["error"] !== ""),
       critical: criticalIDs.has(p.span.span_id),
       unknownTiming,
       negativeDuration,
@@ -494,8 +560,8 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
 }
 
 export function tracePhaseFromEvent(name: string): TraceTimelineItem["phase"] {
-  if (name.startsWith("agent_chat.")) {
-    return "agent_chat";
+  if (name.startsWith("chat.")) {
+    return "chat";
   }
   if (name.startsWith("retention.")) {
     return "retention";

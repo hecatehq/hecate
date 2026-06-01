@@ -5,7 +5,8 @@
 // cross-domain helpers (CSV parsing, model filters, relative time)
 // remain here because they don't fit any of the more focused files.
 
-import type { ModelFilter, ModelRecord, ProviderFilter } from "../types/runtime";
+import type { ModelFilter, ModelRecord } from "../types/model";
+import type { ProviderFilter } from "../types/provider";
 
 export function parseCSV(value: string): string[] {
   return value
@@ -25,7 +26,10 @@ export function filterModelsByKind(models: ModelRecord[], filter: ModelFilter): 
   }
 }
 
-export function filterModelsByProvider(models: ModelRecord[], provider: ProviderFilter): ModelRecord[] {
+export function filterModelsByProvider(
+  models: ModelRecord[],
+  provider: ProviderFilter,
+): ModelRecord[] {
   if (provider === "auto") {
     return models;
   }
@@ -50,21 +54,6 @@ export function formatRelativeTime(iso: string): { label: string; iso: string } 
   const hr = Math.floor(min / 60);
   if (hr < 24) return { label: `${hr}h ago`, iso };
   return { label: new Date(parsed).toLocaleDateString(), iso };
-}
-
-export function formatAbsoluteTime(value?: string): string {
-  if (!value) return "";
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZoneName: "short",
-  }).format(new Date(parsed));
 }
 
 // ─── Barrel re-exports ───────────────────────────────────────────────────────
@@ -100,6 +89,4 @@ export {
   describeRouteRecovery,
 } from "./runtime-routing";
 
-export {
-  describeUsageScope,
-} from "./runtime-usage";
+export { describeUsageScope } from "./runtime-usage";

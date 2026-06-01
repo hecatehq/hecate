@@ -3,27 +3,25 @@ package gateway
 import (
 	"bytes"
 	"context"
-	cryptoRand "crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/catalog"
-	"github.com/hecate/agent-runtime/internal/chatstate"
-	"github.com/hecate/agent-runtime/internal/governor"
-	"github.com/hecate/agent-runtime/internal/models"
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/internal/retention"
-	"github.com/hecate/agent-runtime/internal/router"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/catalog"
+	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/models"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/internal/retention"
+	"github.com/hecatehq/hecate/internal/router"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type Dependencies struct {
@@ -41,9 +39,9 @@ type Dependencies struct {
 	Tracer          profiler.Tracer
 	Metrics         *telemetry.Metrics
 	Retention       *retention.Manager
-	ChatSessions    chatstate.Store
-	// TraceBodyCapture enables recording (redacted) message bodies in traces.
+	// TraceBodyCapture enables recording message body diagnostics in traces.
 	TraceBodyCapture  bool
+	TraceBodyMode     string
 	TraceBodyMaxBytes int
 }
 
@@ -64,11 +62,17 @@ type Service struct {
 	metrics           *telemetry.Metrics
 	retention         *retention.Manager
 	providerHistory   providers.HealthHistoryStore
-	chatSessions      chatstate.Store
 	providers         providers.Registry
 	traceBodyCapture  bool
 	traceBodyMaxBytes int
+	traceBodyMode     string
 }
+
+const (
+	traceBodyModeMetadata     = "metadata"
+	traceBodyModeRedactedText = "redacted_text"
+	traceBodyMaxItems         = 128
+)
 
 type ChatResult struct {
 	Response *types.ChatResponse
@@ -106,14 +110,6 @@ type TraceResult struct {
 	StartedAt time.Time
 	Spans     []types.TraceSpan
 	Route     types.RouteDecisionReport
-}
-
-type ChatSessionResult struct {
-	Session types.ChatSession
-}
-
-type ChatSessionListResult struct {
-	Sessions []types.ChatSession
 }
 
 type RetentionResult struct {
@@ -188,6 +184,7 @@ func NewService(deps Dependencies) *Service {
 	if traceBodyMaxBytes <= 0 {
 		traceBodyMaxBytes = 4096
 	}
+	traceBodyMode := normalizeTraceBodyMode(deps.TraceBodyMode)
 
 	return &Service{
 		finalizer:         finalizer,
@@ -200,10 +197,10 @@ func NewService(deps Dependencies) *Service {
 		metrics:           deps.Metrics,
 		retention:         deps.Retention,
 		providerHistory:   deps.ProviderHistory,
-		chatSessions:      deps.ChatSessions,
 		providers:         deps.Providers,
 		traceBodyCapture:  deps.TraceBodyCapture,
 		traceBodyMaxBytes: traceBodyMaxBytes,
+		traceBodyMode:     traceBodyMode,
 	}
 }
 
@@ -598,6 +595,12 @@ func (s *Service) HandleChatStreamCapture(ctx context.Context, req types.ChatReq
 		ID:        id,
 		Model:     model,
 		CreatedAt: time.Now().UTC(),
+		Route: types.RouteDecision{
+			Provider:     handle.Metadata.Provider,
+			ProviderKind: handle.Metadata.ProviderKind,
+			Model:        handle.Metadata.Model,
+			Reason:       handle.Metadata.RouteReason,
+		},
 		Choices: []types.ChatChoice{{
 			Index: 0,
 			Message: types.Message{
@@ -686,713 +689,6 @@ func normalizeResilienceOptions(options ResilienceOptions) ResilienceOptions {
 	return options
 }
 
-func (s *Service) ListModels(ctx context.Context) (*ModelsResult, error) {
-	seen := make(map[string]struct{})
-	modelsOut := make([]types.ModelInfo, 0, 16)
-
-	for _, entry := range s.catalog.Snapshot(ctx) {
-		for _, modelID := range entry.Models {
-			key := entry.Name + "/" + modelID
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-
-			modelsOut = append(modelsOut, types.ModelInfo{
-				ID:              modelID,
-				Provider:        entry.Name,
-				Kind:            string(entry.Kind),
-				OwnedBy:         entry.Name,
-				Default:         modelID == entry.DefaultModel,
-				DiscoverySource: entry.DiscoverySource,
-				Readiness:       providerModelReadinessForEntry(entry, entry.Name, modelID).ToModelReadiness(),
-			})
-		}
-	}
-
-	return &ModelsResult{Models: modelsOut}, nil
-}
-
-func (s *Service) ProviderStatus(ctx context.Context) (*ProviderStatusResult, error) {
-	entries := s.catalog.Snapshot(ctx)
-	statuses := make([]types.ProviderStatus, 0, len(entries))
-	for _, entry := range entries {
-		status := types.ProviderStatus{
-			Name:                entry.Name,
-			Kind:                string(entry.Kind),
-			BaseURL:             entry.BaseURL,
-			CredentialState:     entry.CredentialState,
-			CredentialReady:     providerCredentialReady(entry.CredentialState),
-			Healthy:             entry.Healthy,
-			Status:              entry.Status,
-			RoutingReady:        providerRoutingReady(entry),
-			RoutingBlocked:      providerRoutingBlockedReason(entry),
-			DefaultModel:        entry.DefaultModel,
-			Models:              append([]string(nil), entry.Models...),
-			DiscoverySource:     entry.DiscoverySource,
-			LastError:           entry.LastError,
-			LastErrorClass:      entry.HealthReason,
-			LastLatencyMS:       entry.LastLatencyMS,
-			ConsecutiveFailures: entry.ConsecutiveFailures,
-			TotalSuccesses:      entry.TotalSuccesses,
-			TotalFailures:       entry.TotalFailures,
-			Timeouts:            entry.Timeouts,
-			ServerErrors:        entry.ServerErrors,
-			RateLimits:          entry.RateLimits,
-			Error:               entry.Error,
-		}
-		status.ReadinessChecks = providerReadinessChecks(entry)
-		status.Readiness = providerReadinessSummary(entry, status.ReadinessChecks)
-		if entry.RefreshedAt != "" {
-			if ts, err := time.Parse(time.RFC3339, entry.RefreshedAt); err == nil {
-				status.RefreshedAt = ts
-			}
-		}
-		if entry.LastCheckedAt != "" {
-			if ts, err := time.Parse(time.RFC3339, entry.LastCheckedAt); err == nil {
-				status.LastCheckedAt = ts
-			}
-		}
-		if entry.OpenUntil != "" {
-			if ts, err := time.Parse(time.RFC3339, entry.OpenUntil); err == nil {
-				status.OpenUntil = ts
-			}
-		}
-		statuses = append(statuses, status)
-	}
-
-	return &ProviderStatusResult{Providers: statuses}, nil
-}
-
-func (s *Service) ProviderModelReadiness(ctx context.Context, provider, model string) (*ProviderModelReadinessResult, error) {
-	model = strings.TrimSpace(model)
-	provider = strings.TrimSpace(provider)
-	if strings.EqualFold(provider, "auto") {
-		provider = ""
-	}
-	readiness := providerModelReadiness(s.catalog.Snapshot(ctx), provider, model)
-	return &ProviderModelReadinessResult{Readiness: readiness}, nil
-}
-
-func (s *Service) ProviderHealthHistory(ctx context.Context, provider string, limit int) (*ProviderHealthHistoryResult, error) {
-	if s.providerHistory == nil {
-		return &ProviderHealthHistoryResult{}, nil
-	}
-	records, err := s.providerHistory.List(ctx, providers.HealthHistoryFilter{
-		Provider: provider,
-		Limit:    limit,
-	})
-	if err != nil {
-		return nil, err
-	}
-	kindByProvider := make(map[string]string, 8)
-	for _, entry := range s.catalog.Snapshot(ctx) {
-		kindByProvider[entry.Name] = string(entry.Kind)
-	}
-	out := make([]types.ProviderHealthHistoryEntry, 0, len(records))
-	for _, record := range records {
-		item := types.ProviderHealthHistoryEntry{
-			Provider:            record.Provider,
-			ProviderKind:        kindByProvider[record.Provider],
-			Model:               record.Model,
-			Event:               record.Event,
-			Status:              record.Status,
-			Available:           record.Available,
-			Error:               record.Error,
-			ErrorClass:          record.ErrorClass,
-			Reason:              record.Reason,
-			RouteReason:         record.RouteReason,
-			RequestID:           record.RequestID,
-			TraceID:             record.TraceID,
-			PeerProvider:        record.PeerProvider,
-			PeerModel:           record.PeerModel,
-			PeerRouteReason:     record.PeerRouteReason,
-			HealthStatus:        record.HealthStatus,
-			PeerHealthStatus:    record.PeerHealthStatus,
-			LatencyMS:           record.LatencyMS,
-			ConsecutiveFailures: record.ConsecutiveFailures,
-			TotalSuccesses:      record.TotalSuccesses,
-			TotalFailures:       record.TotalFailures,
-			Timeouts:            record.Timeouts,
-			ServerErrors:        record.ServerErrors,
-			RateLimits:          record.RateLimits,
-			AttemptCount:        record.AttemptCount,
-			EstimatedMicrosUSD:  record.EstimatedMicrosUSD,
-		}
-		if record.OpenUntil != "" {
-			if ts, err := time.Parse(time.RFC3339Nano, record.OpenUntil); err == nil {
-				item.OpenUntil = ts
-			}
-		}
-		if record.Timestamp != "" {
-			if ts, err := time.Parse(time.RFC3339Nano, record.Timestamp); err == nil {
-				item.Timestamp = ts
-			}
-		}
-		out = append(out, item)
-	}
-	return &ProviderHealthHistoryResult{Entries: out}, nil
-}
-
-func providerCredentialReady(state string) bool {
-	switch state {
-	case "", "unknown", "configured", "not_required":
-		return true
-	default:
-		return false
-	}
-}
-
-func providerRoutingReady(entry catalog.Entry) bool {
-	return providerRoutingBlockedReason(entry) == ""
-}
-
-func providerRoutingBlockedReason(entry catalog.Entry) string {
-	if entry.Status == "disabled" {
-		return "provider_disabled"
-	}
-	if !providerCredentialReady(entry.CredentialState) {
-		return "credential_missing"
-	}
-	if entry.Status == "open" {
-		if entry.HealthReason == "rate_limit" {
-			return "provider_rate_limited"
-		}
-		return "circuit_open"
-	}
-	if !entry.Healthy && entry.Status != "half_open" {
-		if entry.HealthReason == "rate_limit" {
-			return "provider_rate_limited"
-		}
-		return "provider_unhealthy"
-	}
-	if entry.DefaultModel == "" && len(entry.Models) == 0 {
-		return "no_models"
-	}
-	return ""
-}
-
-func providerReadinessChecks(entry catalog.Entry) []types.ProviderReadinessCheck {
-	return []types.ProviderReadinessCheck{
-		providerCredentialCheck(entry),
-		providerModelDiscoveryCheck(entry),
-		providerHealthCheck(entry),
-		providerRoutingCheck(entry),
-	}
-}
-
-func providerReadinessSummary(entry catalog.Entry, checks []types.ProviderReadinessCheck) types.ReadinessSummary {
-	if len(checks) == 0 {
-		return types.ReadinessSummary{
-			Status:         "unknown",
-			Reason:         "unknown",
-			Message:        "Provider readiness has not been checked yet.",
-			OperatorAction: "Refresh provider status after configuration or startup settles.",
-		}
-	}
-
-	var routingBlocked, firstBlocked, firstWarning, firstUnknown *types.ProviderReadinessCheck
-	for i := range checks {
-		check := &checks[i]
-		if check.Name == "routing" && check.Status == "blocked" {
-			routingBlocked = check
-			continue
-		}
-		if check.Status == "blocked" && firstBlocked == nil {
-			firstBlocked = check
-		}
-		if check.Status == "warning" && firstWarning == nil {
-			firstWarning = check
-		}
-		if check.Status == "unknown" && firstUnknown == nil {
-			firstUnknown = check
-		}
-	}
-	if routingBlocked != nil {
-		return providerReadinessSummaryFromCheck("blocked", *routingBlocked)
-	}
-	if firstBlocked != nil {
-		return providerReadinessSummaryFromCheck("blocked", *firstBlocked)
-	}
-	if firstWarning != nil {
-		return providerReadinessSummaryFromCheck("warning", *firstWarning)
-	}
-	if firstUnknown != nil {
-		return providerReadinessSummaryFromCheck("unknown", *firstUnknown)
-	}
-	return types.ReadinessSummary{
-		Status:  "ok",
-		Reason:  "ready",
-		Message: fmt.Sprintf("Provider %q is ready for routing.", entry.Name),
-	}
-}
-
-func providerReadinessSummaryFromCheck(status string, check types.ProviderReadinessCheck) types.ReadinessSummary {
-	return types.ReadinessSummary{
-		Status:         status,
-		Reason:         check.Reason,
-		Message:        check.Message,
-		OperatorAction: check.OperatorAction,
-	}
-}
-
-func providerCredentialCheck(entry catalog.Entry) types.ProviderReadinessCheck {
-	switch entry.CredentialState {
-	case "configured":
-		return providerReadinessCheck("credentials", "ok", "configured", "Credentials are configured.")
-	case "not_required":
-		return providerReadinessCheck("credentials", "ok", "not_required", "No credentials are required for this provider.")
-	case "missing":
-		return providerReadinessCheck("credentials", "blocked", "credential_missing", "Add credentials before Hecate can route requests to this provider.")
-	case "", "unknown":
-		return providerReadinessCheck("credentials", "unknown", "unknown", "Hecate could not determine credential state yet.")
-	default:
-		return providerReadinessCheck("credentials", "blocked", "credential_missing", fmt.Sprintf("Credential state %q blocks routing.", entry.CredentialState))
-	}
-}
-
-func providerModelDiscoveryCheck(entry catalog.Entry) types.ProviderReadinessCheck {
-	switch {
-	case entry.Status == "disabled":
-		return providerReadinessCheck("models", "blocked", "provider_disabled", "Model discovery is skipped while this provider is disabled.")
-	case entry.DiscoverySource == "self_referential":
-		return providerReadinessCheck("models", "blocked", "self_referential", "Model discovery is skipped because this provider points back to Hecate.")
-	}
-
-	count := entry.DiscoveredModelCount
-	switch {
-	case count > 0:
-		return providerReadinessCheck("models", "ok", "models_discovered", fmt.Sprintf("%d model%s discovered.", count, pluralS(count)))
-	case entry.DefaultModel != "":
-		return providerReadinessCheck("models", "warning", "default_model_only", fmt.Sprintf("No models were discovered; Hecate can still try the configured default model %q.", entry.DefaultModel))
-	case entry.LastError != "" || entry.Error != "":
-		return providerReadinessCheck("models", "unknown", "discovery_failed", fmt.Sprintf("Model discovery failed before returning a model list: %s", firstNonEmpty(entry.LastError, entry.Error)))
-	default:
-		return providerReadinessCheck("models", "blocked", "no_models", "No models were discovered and no default model is configured.")
-	}
-}
-
-func providerHealthCheck(entry catalog.Entry) types.ProviderReadinessCheck {
-	switch entry.Status {
-	case "healthy":
-		if entry.Healthy {
-			return providerReadinessCheck("health", "ok", "healthy", "Provider health checks are passing.")
-		}
-		return providerReadinessCheck("health", "unknown", providerReadinessHealthReason(entry.HealthReason), providerHealthPendingMessage(entry.HealthReason))
-	case "degraded":
-		if entry.Healthy {
-			return providerReadinessCheck("health", "warning", providerReadinessHealthReason(entry.HealthReason), providerHealthDegradedMessage(entry.HealthReason))
-		}
-		if entry.HealthReason == "rate_limit" {
-			return providerReadinessCheck("health", "blocked", "provider_rate_limited", "Provider is cooling down after an upstream rate limit.")
-		}
-		return providerReadinessCheck("health", "blocked", "provider_unhealthy", "Provider is degraded after recent failures.")
-	case "half_open":
-		return providerReadinessCheck("health", "warning", "recovery_probe", "Circuit is half-open; Hecate is testing recovery.")
-	case "open":
-		if entry.HealthReason == "rate_limit" {
-			return providerReadinessCheck("health", "blocked", "provider_rate_limited", "Provider is cooling down after an upstream rate limit.")
-		}
-		return providerReadinessCheck("health", "blocked", "circuit_open", "Provider circuit is open after recent failures.")
-	case "unhealthy":
-		return providerReadinessCheck("health", "blocked", providerReadinessHealthReason(entry.HealthReason), providerHealthFailureMessage(entry.HealthReason))
-	case "disabled":
-		return providerReadinessCheck("health", "blocked", "provider_disabled", "Provider is disabled.")
-	default:
-		if !entry.Healthy {
-			return providerReadinessCheck("health", "unknown", providerReadinessHealthReason(entry.HealthReason), providerHealthPendingMessage(entry.HealthReason))
-		}
-		return providerReadinessCheck("health", "unknown", firstNonEmpty(entry.Status, "unknown"), "Provider health has not been checked yet.")
-	}
-}
-
-func providerReadinessHealthReason(reason string) string {
-	switch reason {
-	case "rate_limit":
-		return "provider_rate_limited"
-	case "latency":
-		return "provider_slow"
-	case "timeout", "server_error", "other":
-		return "provider_unhealthy"
-	case "":
-		return "health_pending"
-	default:
-		return "provider_unhealthy"
-	}
-}
-
-func providerHealthFailureMessage(reason string) string {
-	switch reason {
-	case "rate_limit":
-		return "Provider is cooling down after an upstream rate limit."
-	case "latency":
-		return "Provider is slower than the configured degraded-latency threshold."
-	case "":
-		return "Provider health checks are failing."
-	default:
-		return fmt.Sprintf("Provider health checks are failing with error class %q.", reason)
-	}
-}
-
-func providerHealthDegradedMessage(reason string) string {
-	switch reason {
-	case "latency":
-		return "Provider is routable but slower than the configured degraded-latency threshold."
-	case "":
-		return "Provider is routable but currently degraded."
-	default:
-		return fmt.Sprintf("Provider is routable but degraded after error class %q.", reason)
-	}
-}
-
-func providerHealthPendingMessage(reason string) string {
-	if reason == "" {
-		return "Provider health is still settling."
-	}
-	return fmt.Sprintf("Provider health is still settling after error class %q.", reason)
-}
-
-func providerRoutingCheck(entry catalog.Entry) types.ProviderReadinessCheck {
-	if reason := providerRoutingBlockedReason(entry); reason != "" {
-		return providerReadinessCheck("routing", "blocked", reason, providerRoutingBlockedMessage(reason))
-	}
-	return providerReadinessCheck("routing", "ok", "routable", "Provider is eligible for routing.")
-}
-
-func providerRoutingBlockedMessage(reason string) string {
-	switch reason {
-	case "credential_missing":
-		return "Routing is blocked until credentials are configured."
-	case "provider_disabled":
-		return "Routing is blocked because this provider is disabled."
-	case "provider_rate_limited":
-		return "Routing is blocked while the provider cools down after a rate limit."
-	case "circuit_open":
-		return "Routing is blocked while the provider circuit is open."
-	case "provider_unhealthy":
-		return "Routing is blocked because provider health checks are failing."
-	case "no_models":
-		return "Routing is blocked because no models are available."
-	default:
-		return "Routing is blocked."
-	}
-}
-
-func providerReadinessCheck(name, status, reason, message string) types.ProviderReadinessCheck {
-	return types.ProviderReadinessCheck{
-		Name:           name,
-		Status:         status,
-		Reason:         reason,
-		Message:        message,
-		OperatorAction: providerReadinessOperatorAction(name, reason),
-	}
-}
-
-func providerReadinessOperatorAction(name, reason string) string {
-	switch reason {
-	case "configured", "not_required", "healthy", "routable", "models_discovered":
-		return ""
-	case "credential_missing":
-		return "Add or rotate this provider's API key, then refresh provider status."
-	case "provider_disabled":
-		if name == "models" {
-			return "Enable the provider before model discovery can run."
-		}
-		return "Enable the provider when you want Hecate to route to it."
-	case "self_referential":
-		return "Change the base URL so it points at the provider, not Hecate."
-	case "discovery_failed":
-		return "Check the endpoint and refresh provider status after the server is reachable."
-	case "default_model_only":
-		return "Send a test request or refresh discovery to confirm the default model is real."
-	case "no_models":
-		return "Start the provider and pull or load at least one model."
-	case "provider_slow":
-		return "Keep this provider enabled if the latency is acceptable, or route to a faster provider."
-	case "provider_rate_limited":
-		return "Wait for cooldown or temporarily route to another provider."
-	case "provider_unhealthy":
-		return "Inspect the latest health error and provider server logs, then refresh provider status."
-	case "circuit_open":
-		return "Wait for recovery or test the provider after fixing the upstream issue."
-	case "recovery_probe":
-		return "Retry once the half-open probe succeeds."
-	case "health_pending", "unknown":
-		return "Refresh provider status after configuration or startup settles."
-	default:
-		if name == "routing" {
-			return "Open Connections to inspect readiness checks and repair the blocked dependency."
-		}
-		return ""
-	}
-}
-
-func pluralS(count int) string {
-	if count == 1 {
-		return ""
-	}
-	return "s"
-}
-
-func (s *Service) UsageSummaryWithFilter(ctx context.Context, filter governor.UsageFilter) (*UsageSummaryResult, error) {
-	summary, err := s.governor.UsageSummary(ctx, filter)
-	if err != nil {
-		return nil, err
-	}
-	return &UsageSummaryResult{Summary: summary}, nil
-}
-
-func (s *Service) UsageEvents(ctx context.Context, limit int) (*UsageEventsResult, error) {
-	entries, err := s.governor.RecentUsageEvents(ctx, limit)
-	if err != nil {
-		return nil, err
-	}
-	return &UsageEventsResult{Entries: entries}, nil
-}
-
-func (s *Service) CreateChatSession(ctx context.Context, session types.ChatSession) (*ChatSessionResult, error) {
-	if s.chatSessions == nil {
-		return nil, fmt.Errorf("chat session store is not configured")
-	}
-	created, err := s.chatSessions.CreateSession(ctx, session)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionResult{Session: created}, nil
-}
-
-func (s *Service) GetChatSession(ctx context.Context, id string) (*ChatSessionResult, error) {
-	if s.chatSessions == nil {
-		return nil, fmt.Errorf("chat session store is not configured")
-	}
-	session, ok, err := s.chatSessions.GetSession(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, fmt.Errorf("chat session %q not found", id)
-	}
-	return &ChatSessionResult{Session: session}, nil
-}
-
-func (s *Service) ListChatSessions(ctx context.Context, filter chatstate.Filter) (*ChatSessionListResult, error) {
-	if s.chatSessions == nil {
-		return &ChatSessionListResult{Sessions: nil}, nil
-	}
-	sessions, err := s.chatSessions.ListSessions(ctx, filter)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionListResult{Sessions: sessions}, nil
-}
-
-func (s *Service) DeleteChatSession(ctx context.Context, id string) error {
-	if s.chatSessions == nil {
-		return fmt.Errorf("chat session store not configured")
-	}
-	return s.chatSessions.DeleteSession(ctx, id)
-}
-
-func (s *Service) UpdateChatSessionTitle(ctx context.Context, id string, title string) (*ChatSessionResult, error) {
-	if s.chatSessions == nil {
-		return nil, fmt.Errorf("chat session store not configured")
-	}
-	session, err := s.chatSessions.UpdateSession(ctx, id, title)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionResult{Session: session}, nil
-}
-
-func (s *Service) UpdateChatSessionSystemPrompt(ctx context.Context, id string, prompt string) (*ChatSessionResult, error) {
-	if s.chatSessions == nil {
-		return nil, fmt.Errorf("chat session store not configured")
-	}
-	session, err := s.chatSessions.UpdateSessionSystemPrompt(ctx, id, prompt)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionResult{Session: session}, nil
-}
-
-// RecordChatExchange persists one upstream chat-completion request as a
-// (messages, provider_call) pair on the chat session.
-//
-// "New" client-supplied messages are everything in req.Messages that
-// comes after a possible session-system-prompt prefix and after the
-// already-persisted message count. They are appended verbatim with no
-// ProducedByCallID — the operator/runtime supplied them. The assistant
-// response from result.Response.Choices[0] is appended after them with
-// ProducedByCallID pointing at the new ChatProviderCall.
-//
-// This handles three flows uniformly:
-//   - First turn: req.Messages = [user]; persist [user, assistant_response].
-//   - Multi-turn replay: req.Messages = [...history, new_user]; persist [new_user, assistant_response].
-//   - Tool loop continuation: req.Messages = [...history, tool_result, ...];
-//     persist [tool_result..., assistant_response]. Orphan tool_call_ids
-//     no longer occur on subsequent provider switches because the full
-//     intermediate sequence is preserved.
-func (s *Service) RecordChatExchange(ctx context.Context, sessionID string, req types.ChatRequest, result *ChatResult) (*ChatSessionResult, error) {
-	if s.chatSessions == nil || sessionID == "" || result == nil || result.Response == nil {
-		return nil, nil
-	}
-
-	// Read current state so we know how many messages are already
-	// persisted (and therefore which req.Messages tail is new).
-	existing, ok, err := s.chatSessions.GetSession(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, fmt.Errorf("chat session %q not found", sessionID)
-	}
-
-	// applySessionSystemPrompt prepends a system message that isn't
-	// part of the persisted conversation. Skip it when computing the
-	// "new tail" if it matches the session's stored SystemPrompt.
-	skipPrefix := 0
-	if len(req.Messages) > 0 && strings.EqualFold(req.Messages[0].Role, "system") {
-		if existing.SystemPrompt != "" && req.Messages[0].Content == existing.SystemPrompt {
-			skipPrefix = 1
-		}
-	}
-
-	start := skipPrefix + len(existing.Messages)
-	if start > len(req.Messages) {
-		// Defensive: a request that omits some prior history would
-		// otherwise produce a negative slice. Clamp and let the
-		// assistant message land alone — better than panicking, and
-		// consistent with the assistant being the only thing the
-		// provider actually emitted this round.
-		start = len(req.Messages)
-	}
-	newInputs := req.Messages[start:]
-
-	callID := newProviderCallID()
-	call := types.ChatProviderCall{
-		ID:                callID,
-		RequestID:         req.RequestID,
-		RequestedProvider: req.Scope.ProviderHint,
-		Provider:          result.Metadata.Provider,
-		ProviderKind:      result.Metadata.ProviderKind,
-		RequestedModel:    req.Model,
-		Model:             result.Metadata.Model,
-		CostMicrosUSD:     result.Metadata.CostMicrosUSD,
-		PromptTokens:      result.Metadata.PromptTokens,
-		CompletionTokens:  result.Metadata.CompletionTokens,
-		TotalTokens:       result.Metadata.TotalTokens,
-		CreatedAt:         result.Response.CreatedAt,
-	}
-
-	messages := make([]types.ChatSessionMessage, 0, len(newInputs))
-	for _, m := range newInputs {
-		messages = append(messages, types.ChatSessionMessage{
-			ID:      newSessionMessageID(),
-			Message: m,
-			// ProducedByCallID empty: the operator/client supplied
-			// this. Tool-result messages the client hands back also
-			// land here without a producing call — they were emitted
-			// outside the gateway.
-		})
-	}
-
-	if len(result.Response.Choices) > 0 {
-		assistant := result.Response.Choices[0].Message
-		if assistant.Role == "" {
-			assistant.Role = "assistant"
-		}
-		messages = append(messages, types.ChatSessionMessage{
-			ID:               newSessionMessageID(),
-			ProducedByCallID: callID,
-			Message:          assistant,
-		})
-	}
-
-	session, err := s.chatSessions.AppendExchange(ctx, sessionID, messages, call)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionResult{Session: session}, nil
-}
-
-func newProviderCallID() string {
-	return "call_" + randomHex(12)
-}
-
-func newSessionMessageID() string {
-	return "msg_" + randomHex(12)
-}
-
-func randomHex(byteLen int) string {
-	buf := make([]byte, byteLen)
-	if _, err := cryptoRand.Read(buf); err != nil {
-		// Fall back to nanosecond timestamp; collision-resistant
-		// enough for an in-process fallback when /dev/urandom is
-		// unavailable, which is essentially never.
-		return time.Now().UTC().Format("20060102150405.000000000")
-	}
-	return hex.EncodeToString(buf)
-}
-
-type TraceListResult struct {
-	Items []TraceResult
-}
-
-func (s *Service) ListTraces(ctx context.Context, limit int) (*TraceListResult, error) {
-	traces := s.tracer.List(limit)
-	items := make([]TraceResult, 0, len(traces))
-	for _, t := range traces {
-		spans := t.Spans()
-		item := TraceResult{
-			RequestID: t.RequestID,
-			TraceID:   t.TraceID,
-			StartedAt: t.StartedAt,
-			Spans:     spans,
-			Route:     buildRouteDecisionReport(spans),
-		}
-		items = append(items, item)
-	}
-	return &TraceListResult{Items: items}, nil
-}
-
-func (s *Service) Trace(ctx context.Context, requestID string) (*TraceResult, error) {
-	if requestID == "" {
-		return nil, fmt.Errorf("%w: request_id is required", errClient)
-	}
-
-	trace, ok := s.tracer.Get(requestID)
-	if !ok {
-		return nil, fmt.Errorf("trace %q not found", requestID)
-	}
-
-	spans := trace.Spans()
-	return &TraceResult{
-		RequestID: trace.RequestID,
-		TraceID:   trace.TraceID,
-		StartedAt: trace.StartedAt,
-		Spans:     spans,
-		Route:     buildRouteDecisionReport(spans),
-	}, nil
-}
-
-func (s *Service) RunRetention(ctx context.Context, req retention.RunRequest) (*RetentionResult, error) {
-	if s.retention == nil {
-		return nil, fmt.Errorf("retention manager is not configured")
-	}
-	return &RetentionResult{Run: s.retention.Run(ctx, req)}, nil
-}
-
-func (s *Service) ListRetentionRuns(ctx context.Context, limit int) (*RetentionHistoryResult, error) {
-	if s.retention == nil {
-		return nil, fmt.Errorf("retention manager is not configured")
-	}
-	runs, err := s.retention.ListRuns(ctx, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list retention runs: %w", err)
-	}
-	return &RetentionHistoryResult{Runs: runs}, nil
-}
-
 func validate(req types.ChatRequest) error {
 	if len(req.Messages) == 0 {
 		return errors.New("at least one message is required")
@@ -1405,42 +701,48 @@ func validate(req types.ChatRequest) error {
 	return nil
 }
 
-// captureRequestBody records a redacted, size-capped snapshot of the request
-// messages into the distributed trace when GATEWAY_TRACE_BODIES=true.
+// captureRequestBody records a safe-by-default diagnostic snapshot of request
+// messages into the distributed trace when HECATE_TRACE_BODIES=true.
 func (s *Service) captureRequestBody(trace *profiler.Trace, req types.ChatRequest) {
-	type capturedMsg struct {
-		Role    string `json:"role"`
-		Content string `json:"content,omitempty"`
-		Blocks  int    `json:"blocks,omitempty"`
+	type capturedMessage struct {
+		Role         string `json:"role"`
+		Content      string `json:"content,omitempty"`
+		ContentBytes int    `json:"content_bytes,omitempty"`
+		Blocks       int    `json:"blocks,omitempty"`
+		ToolCalls    int    `json:"tool_calls,omitempty"`
 	}
-	msgs := make([]capturedMsg, 0, len(req.Messages))
+	messageCount := len(req.Messages)
+	captureCount := min(messageCount, traceBodyMaxItems)
+	msgs := make([]capturedMessage, 0, captureCount)
 	remaining := s.traceBodyMaxBytes
-	for _, m := range req.Messages {
-		content := redactSensitiveText(m.Content)
-		if len(content) > remaining {
-			content = content[:remaining] + "…[truncated]"
-			remaining = 0
-		} else {
-			remaining -= len(content)
+	for _, m := range req.Messages[:captureCount] {
+		item := capturedMessage{
+			Role:         m.Role,
+			ContentBytes: len(m.Content),
+			Blocks:       len(m.ContentBlocks),
+			ToolCalls:    len(m.ToolCalls),
 		}
-		msgs = append(msgs, capturedMsg{
-			Role:    m.Role,
-			Content: content,
-			Blocks:  len(m.ContentBlocks),
-		})
-		if remaining <= 0 {
+		if s.traceBodyMode == traceBodyModeRedactedText {
+			item.Content, remaining = redactedTraceContent(m.Content, remaining)
+		}
+		msgs = append(msgs, item)
+		if s.traceBodyMode == traceBodyModeRedactedText && remaining <= 0 {
 			break
 		}
 	}
 	b, _ := json.Marshal(msgs)
 	trace.Record("request.body.captured", map[string]any{
-		"messages": string(b),
-		"model":    req.Model,
+		"messages":          string(b),
+		"message_count":     messageCount,
+		"messages_captured": len(msgs),
+		"truncated":         len(msgs) < messageCount || (s.traceBodyMode == traceBodyModeRedactedText && remaining <= 0),
+		"model":             req.Model,
+		"mode":              s.traceBodyMode,
 	})
 }
 
-// captureResponseBody records a redacted, size-capped snapshot of the response
-// into the distributed trace when GATEWAY_TRACE_BODIES=true.
+// captureResponseBody records a safe-by-default diagnostic snapshot of the
+// response into the distributed trace when HECATE_TRACE_BODIES=true.
 func (s *Service) captureResponseBody(trace *profiler.Trace, resp *types.ChatResponse) {
 	if resp == nil || len(resp.Choices) == 0 {
 		return
@@ -1448,34 +750,58 @@ func (s *Service) captureResponseBody(trace *profiler.Trace, resp *types.ChatRes
 	type capturedChoice struct {
 		Role         string `json:"role"`
 		Content      string `json:"content,omitempty"`
+		ContentBytes int    `json:"content_bytes,omitempty"`
 		FinishReason string `json:"finish_reason,omitempty"`
 		ToolCalls    int    `json:"tool_calls,omitempty"`
 	}
-	choices := make([]capturedChoice, 0, len(resp.Choices))
+	choiceCount := len(resp.Choices)
+	captureCount := min(choiceCount, traceBodyMaxItems)
+	choices := make([]capturedChoice, 0, captureCount)
 	remaining := s.traceBodyMaxBytes
-	for _, c := range resp.Choices {
-		content := redactSensitiveText(c.Message.Content)
-		if len(content) > remaining {
-			content = content[:remaining] + "…[truncated]"
-			remaining = 0
-		} else {
-			remaining -= len(content)
-		}
-		choices = append(choices, capturedChoice{
+	for _, c := range resp.Choices[:captureCount] {
+		item := capturedChoice{
 			Role:         c.Message.Role,
-			Content:      content,
+			ContentBytes: len(c.Message.Content),
 			FinishReason: c.FinishReason,
 			ToolCalls:    len(c.Message.ToolCalls),
-		})
-		if remaining <= 0 {
+		}
+		if s.traceBodyMode == traceBodyModeRedactedText {
+			item.Content, remaining = redactedTraceContent(c.Message.Content, remaining)
+		}
+		choices = append(choices, item)
+		if s.traceBodyMode == traceBodyModeRedactedText && remaining <= 0 {
 			break
 		}
 	}
 	b, _ := json.Marshal(choices)
 	trace.Record("response.body.captured", map[string]any{
-		"choices": string(b),
-		"model":   resp.Model,
+		"choices":          string(b),
+		"choice_count":     choiceCount,
+		"choices_captured": len(choices),
+		"truncated":        len(choices) < choiceCount || (s.traceBodyMode == traceBodyModeRedactedText && remaining <= 0),
+		"model":            resp.Model,
+		"mode":             s.traceBodyMode,
 	})
+}
+
+func normalizeTraceBodyMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case traceBodyModeRedactedText:
+		return traceBodyModeRedactedText
+	default:
+		return traceBodyModeMetadata
+	}
+}
+
+func redactedTraceContent(content string, remaining int) (string, int) {
+	content = redactSensitiveText(content)
+	if remaining <= 0 {
+		return "…[truncated]", 0
+	}
+	if len(content) > remaining {
+		return content[:remaining] + "…[truncated]", 0
+	}
+	return content, remaining - len(content)
 }
 
 // redactSensitiveText masks patterns that look like secrets in captured bodies.
@@ -1483,5 +809,23 @@ func redactSensitiveText(s string) string {
 	// Simple heuristic: mask anything that looks like "key": "sk-..." or
 	// "authorization": "Bearer ..." — exact fields are already stripped at
 	// the HTTP layer; this is a belt-and-suspenders pass over message content.
-	return s
+	out := authorizationHeaderPattern.ReplaceAllString(s, "${1}[redacted]")
+	out = bearerTokenPattern.ReplaceAllString(out, "${1}[redacted]")
+	out = secretAssignmentPattern.ReplaceAllString(out, "${1}[redacted]")
+	out = secretJSONFieldPattern.ReplaceAllString(out, "${1}[redacted]${3}")
+	out = providerSecretPattern.ReplaceAllString(out, "[redacted]")
+	return out
 }
+
+var (
+	authorizationHeaderPattern = regexp.MustCompile(`(?i)(\bAuthorization\s*:\s*)(?:Bearer\s+)?[A-Za-z0-9._~+/=-]{12,}`)
+	bearerTokenPattern         = regexp.MustCompile(`(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]{12,}`)
+	// Environment and dotenv-style assignments commonly show up in prompts
+	// when an operator pastes setup snippets. Keep the variable name visible
+	// so traces remain useful without retaining the secret value.
+	secretAssignmentPattern = regexp.MustCompile(`(?i)\b((?:OPENAI|ANTHROPIC|CLAUDE|CODEX|CURSOR|GITHUB|GITLAB|NPM|AWS|GOOGLE|AZURE|HECATE)?_?(?:API[_-]?KEY|AUTH[_-]?TOKEN|ACCESS[_-]?TOKEN|SECRET(?:_KEY)?|TOKEN|PASSWORD)\s*=\s*)[^\s"']+`)
+	secretJSONFieldPattern  = regexp.MustCompile(`(?i)(["']?(?:api[_-]?key|auth[_-]?token|access[_-]?token|secret(?:[_-]?key)?|token|password|authorization)["']?\s*:\s*["']?)([^"',}\s]+)(["']?)`)
+	// Provider setup tokens are often pasted as prose, not just as field
+	// values. Match long sk-* values while leaving short words untouched.
+	providerSecretPattern = regexp.MustCompile(`\bsk-[A-Za-z0-9][A-Za-z0-9._-]{16,}\b`)
+)

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/storage"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 func newSQLiteTestStore(t *testing.T) *SQLiteStore {
@@ -56,11 +56,6 @@ func TestSQLiteStore_SnapshotEmptyOnFreshDatabase(t *testing.T) {
 	if len(state.Providers) != 0 || len(state.PolicyRules) != 0 {
 		t.Fatalf("expected empty state, got %+v", state)
 	}
-}
-
-func TestSQLiteStore_ModelCapabilityLifecycle(t *testing.T) {
-	t.Parallel()
-	runStoreModelCapabilityLifecycle(t, newSQLiteTestStore(t))
 }
 
 func TestSQLiteStore_InstalledModelLifecycle(t *testing.T) {

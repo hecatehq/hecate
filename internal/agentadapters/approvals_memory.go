@@ -8,9 +8,8 @@ import (
 )
 
 // MemoryApprovalStore is a goroutine-safe in-process ApprovalStore.
-// All state lives in maps and is discarded on process exit. Suitable
-// for tests, dev, and anyone running with
-// GATEWAY_AGENT_CHAT_BACKEND=memory (the default).
+// All state lives in maps and is discarded on process exit. Suitable for
+// tests, dev, and anyone running with HECATE_BACKEND=memory (the default).
 type MemoryApprovalStore struct {
 	mu        sync.Mutex
 	approvals map[string]Approval
@@ -259,6 +258,12 @@ func (s *MemoryApprovalStore) PruneExpiredGrants(_ context.Context, now time.Tim
 		}
 	}
 	return deleted, nil
+}
+
+// Prune implements retention.Pruner. See ApprovalRetentionStore.Prune
+// for the contract.
+func (s *MemoryApprovalStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+	return pruneApprovalsAndGrants(ctx, s, maxAge, maxCount)
 }
 
 // ReconcilePending sweeps pending rows and marks them timed_out

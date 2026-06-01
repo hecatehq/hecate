@@ -8,7 +8,7 @@ import (
 
 func TestFromACPOptions_NormalizesSelectAndBoolean(t *testing.T) {
 	description := "pick a model"
-	category := acp.SessionConfigOptionCategoryOther("model")
+	category := acp.SessionConfigOptionCategoryModel
 	selectOptions := acp.SessionConfigSelectOptionsUngrouped{
 		{Value: acp.SessionConfigValueId("fast"), Name: "Fast"},
 		{Value: acp.SessionConfigValueId("smart"), Name: "Smart", Description: &description},
@@ -19,7 +19,7 @@ func TestFromACPOptions_NormalizesSelectAndBoolean(t *testing.T) {
 			Id:           acp.SessionConfigId("model"),
 			Name:         "Model",
 			Description:  &description,
-			Category:     &acp.SessionConfigOptionCategory{Other: &category},
+			Category:     &category,
 			CurrentValue: acp.SessionConfigValueId("fast"),
 			Options:      acp.SessionConfigSelectOptions{Ungrouped: &selectOptions},
 		}},
@@ -88,6 +88,44 @@ func TestFromACPOptions_PreservesUnknownVariants(t *testing.T) {
 	}
 	if got[0].Type != ConfigOptionTypeUnknown || got[0].ID != "unknown_1" || got[0].Name == "" {
 		t.Fatalf("unknown option = %#v", got[0])
+	}
+}
+
+func TestFromACPModelState_NormalizesModelPicker(t *testing.T) {
+	description := "larger context"
+	got, ok := FromACPModelState(&acp.SessionModelState{
+		CurrentModelId: acp.ModelId("smart"),
+		AvailableModels: []acp.ModelInfo{
+			{ModelId: acp.ModelId("fast"), Name: "Fast"},
+			{ModelId: acp.ModelId("smart"), Name: "Smart", Description: &description},
+		},
+	})
+	if !ok {
+		t.Fatal("FromACPModelState ok = false, want true")
+	}
+	if got.ID != "model" || got.Category != "model" || got.Source != ConfigOptionSourceACPModel {
+		t.Fatalf("model option identity = %#v", got)
+	}
+	if got.CurrentValue != "smart" {
+		t.Fatalf("current value = %q, want smart", got.CurrentValue)
+	}
+	if len(got.Options) != 2 || got.Options[1].Description != "larger context" {
+		t.Fatalf("model options = %#v, want ACP models with descriptions", got.Options)
+	}
+}
+
+func TestFromACPModelState_PreservesCurrentModelWhenMissingFromList(t *testing.T) {
+	got, ok := FromACPModelState(&acp.SessionModelState{
+		CurrentModelId: acp.ModelId("custom"),
+		AvailableModels: []acp.ModelInfo{
+			{ModelId: acp.ModelId("fast"), Name: "Fast"},
+		},
+	})
+	if !ok {
+		t.Fatal("FromACPModelState ok = false, want true")
+	}
+	if len(got.Options) != 2 || got.Options[0].Value != "custom" {
+		t.Fatalf("model options = %#v, want current model preserved first", got.Options)
 	}
 }
 

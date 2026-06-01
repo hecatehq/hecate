@@ -78,7 +78,6 @@ html[data-tauri-os="macos"] .hecate-shell {
   flex-shrink: 0;
 }
 
-
 .hecate-activitybtn {
   position: relative;
   width: 40px;
@@ -93,7 +92,9 @@ html[data-tauri-os="macos"] .hecate-shell {
   background: transparent;
   color: var(--t3);
   cursor: pointer;
-  transition: color 0.1s, background 0.1s;
+  transition:
+    color 0.1s,
+    background 0.1s;
   padding: 0;
 }
 
@@ -127,11 +128,37 @@ html[data-tauri-os="macos"] .hecate-shell {
   overflow: hidden;
 }
 
+.workspace-fallback {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.workspace-fallback__label {
+  color: var(--t3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 /* Status bar dots — use -lo variants for contrast against --teal background */
-.hecate-statusbar .dot-green { background: var(--green-lo); box-shadow: 0 0 5px var(--green-lo); }
-.hecate-statusbar .dot-red   { background: var(--red-lo);   box-shadow: 0 0 5px var(--red-lo);   }
-.hecate-statusbar .dot-amber { background: var(--amber-lo); box-shadow: 0 0 5px var(--amber-lo); }
-.hecate-statusbar .dot-muted { background: var(--teal-lo); }
+.hecate-statusbar .dot-green {
+  background: var(--green-lo);
+  box-shadow: 0 0 5px var(--green-lo);
+}
+.hecate-statusbar .dot-red {
+  background: var(--red-lo);
+  box-shadow: 0 0 5px var(--red-lo);
+}
+.hecate-statusbar .dot-amber {
+  background: var(--amber-lo);
+  box-shadow: 0 0 5px var(--amber-lo);
+}
+.hecate-statusbar .dot-muted {
+  background: var(--teal-lo);
+}
 
 /* Status bar */
 .hecate-statusbar {
@@ -164,7 +191,6 @@ html[data-tauri-os="macos"] .hecate-shell {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 
 /* Persistent error banner (fatal/connection errors only) */
 .page-banner {
@@ -240,7 +266,7 @@ html[data-tauri-os="macos"] .hecate-shell {
   border: 1px solid;
   font-size: 12px;
   font-family: var(--font-mono);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   pointer-events: all;
   animation: toast-in 0.15s ease;
 }
@@ -273,8 +299,14 @@ html[data-tauri-os="macos"] .hecate-shell {
 }
 
 @keyframes toast-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 /* Error boundary */

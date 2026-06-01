@@ -8,7 +8,7 @@ import (
 	"path"
 	"strings"
 
-	hecate "github.com/hecate/agent-runtime"
+	hecate "github.com/hecatehq/hecate"
 )
 
 var apiPathPrefixes = []string{"/admin", "/v1", "/hecate/v1"}

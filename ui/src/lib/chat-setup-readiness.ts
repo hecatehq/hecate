@@ -1,20 +1,20 @@
 import type { SelectedModelIssue } from "./provider-issues";
+import type { ModelRecord } from "../types/model";
+import type { ProviderFilter } from "../types/provider";
 
-export type ChatSetupTarget = "model" | "agent" | "external_agent";
+export type ChatSetupTarget = "agent" | "external_agent";
 
 export type ChatSetupRepairKind =
   | "no_provider"
   | "no_routable_model"
   | "selected_model_not_ready"
-  | "tools_disabled"
   | "workspace_required"
   | "external_agent_unavailable"
-  | "claude_code_setup";
+  | "external_agent_setup";
 
 export type ChatSetupRepairAction =
   | "open_connections"
   | "choose_workspace"
-  | "enable_tools"
   | "use_suggested_model"
   | "open_agent_setup";
 
@@ -33,23 +33,25 @@ export function resolveChatSetupRepairState({
   hasConfiguredProviders,
   modelRouteUnavailable,
   selectedModelIssue,
-  toolsDisabledForModel,
   workspace,
+  workspaceRequired,
+  selectedAgentID,
   selectedAgentName,
   selectedAgentAvailable,
   anyAgentAvailable,
-  claudeCodeSetupRequired,
+  externalAgentSetupRequired,
 }: {
   target: ChatSetupTarget;
   hasConfiguredProviders: boolean;
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
-  toolsDisabledForModel: boolean;
   workspace: string;
+  workspaceRequired?: boolean;
+  selectedAgentID?: string;
   selectedAgentName?: string;
   selectedAgentAvailable: boolean;
   anyAgentAvailable: boolean;
-  claudeCodeSetupRequired: boolean;
+  externalAgentSetupRequired: boolean;
 }): ChatSetupRepairState | null {
   if (target === "external_agent") {
     if (!anyAgentAvailable || !selectedAgentAvailable) {
@@ -65,11 +67,12 @@ export function resolveChatSetupRepairState({
         tone: "amber",
       };
     }
-    if (claudeCodeSetupRequired) {
+    if (externalAgentSetupRequired) {
+      const agent = selectedAgentName || "Selected agent";
       return {
-        kind: "claude_code_setup",
-        title: "Set up Claude Code",
-        message: "Claude Code needs an adapter-visible credential before Hecate can start a session.",
+        kind: "external_agent_setup",
+        title: `Set up ${agent}`,
+        message: externalAgentSetupMessage(selectedAgentID, agent),
         action: "open_agent_setup",
         actionLabel: "Open setup",
         tone: "amber",
@@ -81,12 +84,18 @@ export function resolveChatSetupRepairState({
     return null;
   }
 
+  const shouldRequireWorkspace = workspaceRequired ?? target === "agent";
+
+  if (target === "agent" && shouldRequireWorkspace && hasConfiguredProviders && !workspace.trim()) {
+    return workspaceRepair();
+  }
+
   if (modelRouteUnavailable) {
     return {
       kind: hasConfiguredProviders ? "no_routable_model" : "no_provider",
       title: hasConfiguredProviders ? "No routable model" : "No model provider configured",
       message: hasConfiguredProviders
-        ? "Hecate can see provider configuration, but no provider currently reports a routable model."
+        ? "Providers are configured, but none currently report a routable model. Start the local provider or refresh Connections after loading a model."
         : "Add a model provider before sending through Hecate.",
       action: "open_connections",
       actionLabel: "Open Connections",
@@ -108,22 +117,24 @@ export function resolveChatSetupRepairState({
     };
   }
 
-  if (target === "agent" && toolsDisabledForModel) {
-    return {
-      kind: "tools_disabled",
-      title: "Tools are disabled for this model",
-      message: "Turn tools off for direct chat, or enable tool-calling for this provider/model in Connections.",
-      action: "enable_tools",
-      actionLabel: "Enable tools",
-      tone: "amber",
-    };
-  }
-
-  if (target === "agent" && !workspace.trim()) {
+  if (target === "agent" && shouldRequireWorkspace && !workspace.trim()) {
     return workspaceRepair();
   }
 
   return null;
+}
+
+function externalAgentSetupMessage(agentID: string | undefined, agent: string): string {
+  switch (agentID) {
+    case "cursor_agent":
+      return "Cursor Agent needs the local CLI installed, available on PATH, and signed in with cursor-agent login before Hecate can start a session.";
+    case "grok_build":
+      return "Grok Build needs the Grok CLI installed, signed in with grok login, and a model selected before Hecate can start a session.";
+    case "claude_code":
+      return "Claude Code needs local CLI sign-in before Hecate can start a session.";
+    default:
+      return `${agent} needs local CLI sign-in before Hecate can start a session.`;
+  }
 }
 
 function workspaceRepair(): ChatSetupRepairState {
@@ -135,4 +146,29 @@ function workspaceRepair(): ChatSetupRepairState {
     actionLabel: "Choose workspace",
     tone: "amber",
   };
+}
+
+export function modelSelectionHasNoToolCalling({
+  models,
+  providerFilter,
+  model,
+}: {
+  models: ModelRecord[];
+  providerFilter: ProviderFilter;
+  model: string;
+}): boolean {
+  if (!model) return false;
+  const matches = models.filter((entry) => {
+    if (entry.id !== model) return false;
+    if (!providerFilter || providerFilter === "auto") return true;
+    return entry.metadata?.provider === providerFilter;
+  });
+  if (matches.length === 0) return false;
+  return matches.every(
+    (entry) => !toolCallingSupportsTaskMode(entry.metadata?.capabilities?.tool_calling),
+  );
+}
+
+export function toolCallingSupportsTaskMode(value?: string): boolean {
+  return value === "basic" || value === "parallel";
 }

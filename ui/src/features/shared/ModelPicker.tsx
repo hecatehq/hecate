@@ -15,13 +15,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
-import type { ModelRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { ModelRecord } from "../../types/model";
+import type { ProviderPresetRecord } from "../../types/provider";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
+import { useFloatingMenu } from "./useFloatingMenu";
 
 export function ModelPicker({
-  value, onChange, models,
+  value,
+  onChange,
+  models,
   presets,
   disabledProviders,
   modelWarnings,
@@ -70,41 +74,38 @@ export function ModelPicker({
   allLabel?: string;
   variant?: "header" | "composer";
 }) {
-  const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const {
+    open,
+    setOpen,
+    toggle,
+    wrapRef: ref,
+    triggerRef,
+    menuRef,
+  } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
+    // onCloseRef inside useFloatingMenu absorbs closure-identity
+    // churn, so passing a fresh () => setFilter("") each render
+    // doesn't re-bind the document listener — no useCallback needed.
+    onClose: () => setFilter(""),
+  });
   // Right-anchored: the menu is 300px wide and the trigger is at the
   // right side of its row in the chat header, so left-anchoring would
   // push it off-screen on narrow viewports.
-  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right", variant === "composer" ? "up" : "down");
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      // Click-outside detection has to consider BOTH the wrap (which
-      // contains the trigger) and the floating menu (which lives at
-      // a different DOM ancestor when rendered fixed-position). Without
-      // checking the menu, clicking inside the menu would close it.
-      if (ref.current && ref.current.contains(target)) return;
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-      setFilter("");
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const floatingStyle = useFloatingDropdownStyle(
+    triggerRef,
+    open,
+    "right",
+    variant === "composer" ? "up" : "down",
+  );
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 0);
-    else setFilter("");
   }, [open]);
 
-  const providerName = (id: string) => presets?.find(p => p.id === id)?.name || id;
+  const providerName = (id: string) => presets?.find((p) => p.id === id)?.name || id;
   const matchedFilter = filter
-    ? models.filter(m => m.id.toLowerCase().includes(filter.toLowerCase()))
+    ? models.filter((m) => m.id.toLowerCase().includes(filter.toLowerCase()))
     : models;
   // Sort usable models above disabled ones — within each bucket the
   // source order is preserved (provider-grouped, alphabetical-ish).
@@ -129,7 +130,12 @@ export function ModelPicker({
   // check covers both "no providers configured" and "scoped provider has
   // no models" without extra plumbing.
   const isEmpty = models.length === 0 && !includeAll;
-  const label = includeAll && value === allValue ? allLabel : isEmpty ? "no models available" : (value || models[0]?.id || "model");
+  const label =
+    includeAll && value === allValue
+      ? allLabel
+      : isEmpty
+        ? "no models available"
+        : value || "Pick a model";
   const buttonWidth = triggerWidth === undefined ? undefined : triggerWidth;
   const disabledTitle = isEmpty
     ? "No discovered models for this provider. Configure credentials or start the local runtime."
@@ -137,7 +143,6 @@ export function ModelPicker({
 
   function closeMenu() {
     setOpen(false);
-    setFilter("");
     triggerRef.current?.focus();
   }
 
@@ -186,7 +191,12 @@ export function ModelPicker({
       closeMenu();
       return;
     }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
       event.preventDefault();
       focusDropdownItem(menuRef.current, event.key);
     }
@@ -200,7 +210,9 @@ export function ModelPicker({
         aria-expanded={open}
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
-        onClick={() => { if (!isEmpty) setOpen(o => !o); }}
+        onClick={() => {
+          if (!isEmpty) toggle();
+        }}
         disabled={isEmpty}
         title={disabledTitle}
         style={{
@@ -213,16 +225,26 @@ export function ModelPicker({
           opacity: isEmpty ? 0.6 : undefined,
           ...(variant === "composer"
             ? {
-              background: "var(--bg1)",
-              borderColor: "var(--border)",
-              borderRadius: "var(--radius-sm)",
-              minHeight: 34,
-              padding: "5px 10px",
-            }
+                background: "var(--bg1)",
+                borderColor: "var(--border)",
+                borderRadius: "var(--radius-sm)",
+                minHeight: 34,
+                padding: "5px 10px",
+              }
             : {}),
-        }}>
+        }}
+      >
         {variant !== "composer" && <Icon d={Icons.model} size={13} />}
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            textAlign: "left",
+          }}
+        >
           {label}
         </span>
         <Icon d={Icons.chevD} size={11} />
@@ -242,8 +264,8 @@ export function ModelPicker({
               placeholder="Filter models…"
               aria-label="Filter models"
               value={filter}
-              onChange={e => setFilter(e.target.value)}
-              onClick={e => e.stopPropagation()}
+              onChange={(e) => setFilter(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
               onKeyDown={onInputKeyDown}
             />
           </div>
@@ -260,18 +282,56 @@ export function ModelPicker({
                   onClick={() => {
                     onChange(allValue);
                     closeMenu();
-                  }}>
-                  <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}>
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      textAlign: "left",
+                    }}
+                  >
                     {allLabel}
                   </span>
                 </button>
                 {filtered.length > 0 && <div className="dropdown-divider" />}
               </>
             )}
-            {filtered.length === 0 && (!includeAll || filter.trim()) && (
-              <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--t3)" }}>No models match</div>
+            {!includeAll && filter.trim() === "" && (
+              <>
+                <button
+                  type="button"
+                  data-dropdown-item
+                  data-selected={value === "" ? "true" : undefined}
+                  className={`dropdown-item ${value === "" ? "selected" : ""}`}
+                  aria-selected={value === ""}
+                  role="option"
+                  onClick={() => {
+                    onChange("");
+                    closeMenu();
+                  }}
+                >
+                  <span
+                    style={{
+                      flex: 1,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      textAlign: "left",
+                    }}
+                  >
+                    Pick a model
+                  </span>
+                </button>
+                {filtered.length > 0 && <div className="dropdown-divider" />}
+              </>
             )}
-            {filtered.map(m => {
+            {filtered.length === 0 && (!includeAll || filter.trim()) && (
+              <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--t3)" }}>
+                No models match
+              </div>
+            )}
+            {filtered.map((m) => {
               const provider = m.metadata?.provider;
               const reason = provider ? disabledProviders?.get(provider) : undefined;
               const disabled = !!reason;
@@ -293,20 +353,34 @@ export function ModelPicker({
                   role="option"
                   title={rowTitle}
                   style={disabled ? { cursor: "not-allowed" } : undefined}
-                  onClick={() => selectModel(m)}>
+                  onClick={() => selectModel(m)}
+                >
                   {/* Only the model id dims when disabled. Provider
                       name keeps its t3 color so the right column reads
                       consistently across enabled + disabled rows. */}
                   <span
                     style={{
-                      flex: 1, fontFamily: "var(--font-mono)", fontSize: 12,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      flex: 1,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                       opacity: disabled ? 0.5 : 1,
-                    }}>
+                    }}
+                  >
                     {m.id}
                   </span>
                   {showProvider && provider && (
-                    <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)", flexShrink: 0, marginLeft: 6 }}>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "var(--t3)",
+                        fontFamily: "var(--font-mono)",
+                        flexShrink: 0,
+                        marginLeft: 6,
+                      }}
+                    >
                       {providerName(provider)}
                     </span>
                   )}
@@ -315,13 +389,27 @@ export function ModelPicker({
                       across rows so the model-id and provider-name
                       columns stay coherent. Disabled (red key) wins
                       over warning (amber ⚠) when both could fire. */}
-                  <span style={{ display: "inline-flex", flexShrink: 0, marginLeft: 6, width: 11, justifyContent: "center" }}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      flexShrink: 0,
+                      marginLeft: 6,
+                      width: 11,
+                      justifyContent: "center",
+                    }}
+                  >
                     {disabled ? (
-                      <span aria-label="credentials missing" style={{ color: "var(--red)", display: "inline-flex" }}>
+                      <span
+                        aria-label="credentials missing"
+                        style={{ color: "var(--red)", display: "inline-flex" }}
+                      >
                         <Icon d={Icons.keys} size={11} />
                       </span>
                     ) : warning ? (
-                      <span aria-label={warning} style={{ color: "var(--amber)", display: "inline-flex" }}>
+                      <span
+                        aria-label={warning}
+                        style={{ color: "var(--amber)", display: "inline-flex" }}
+                      >
                         <Icon d={Icons.warning} size={11} />
                       </span>
                     ) : null}

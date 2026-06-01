@@ -1,12 +1,12 @@
 {
   "name": "hecate-app",
   "private": true,
-  "version": "0.1.0-alpha.30",
+  "version": "0.1.0-alpha.39",
   "homepage": "https://hecate.sh",
   "scripts": {
     "tauri": "tauri"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2.11.2"
   }
 }

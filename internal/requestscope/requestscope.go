@@ -7,7 +7,7 @@ package requestscope
 import (
 	"strings"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // Build constructs a RequestScope for a single-user gateway request.

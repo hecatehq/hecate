@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { ResolveAgentChatApprovalPayload } from "../../lib/api";
-import type { AgentChatApprovalOption, AgentChatApprovalRecord } from "../../types/runtime";
+import type { ResolveChatApprovalPayload } from "../../lib/api";
+import type { ChatApprovalOption, ChatApprovalRecord } from "../../types/chat";
 import { Icon, Icons, Modal } from "../shared/ui";
 
 // AgentApprovalModal renders the operator decision UI for a single
@@ -12,7 +12,7 @@ import { Icon, Icons, Modal } from "../shared/ui";
 //   - Full row is fetched on open (not held in the pending map) so the
 //     banner stays cheap. While the fetch is in flight we show a
 //     spinner; on failure we close.
-//   - The "adapter_tool" scope is broad — we require an explicit
+//   - The broad agent-tool scope requires an explicit
 //     "Confirm" step before sending the resolve to avoid one-click
 //     blanket-allow mistakes.
 //   - There's no diff preview surface today — the `agentApprovalItem`
@@ -24,13 +24,24 @@ type Props = {
   sessionID: string;
   approvalID: string;
   onClose: () => void;
-  fetchApproval: (sessionID: string, approvalID: string) => Promise<AgentChatApprovalRecord | null>;
-  onResolve: (sessionID: string, approvalID: string, payload: ResolveAgentChatApprovalPayload) => Promise<boolean>;
+  fetchApproval: (sessionID: string, approvalID: string) => Promise<ChatApprovalRecord | null>;
+  onResolve: (
+    sessionID: string,
+    approvalID: string,
+    payload: ResolveChatApprovalPayload,
+  ) => Promise<boolean>;
   onCancel: (sessionID: string, approvalID: string) => Promise<boolean>;
 };
 
-export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApproval, onResolve, onCancel }: Props) {
-  const [row, setRow] = useState<AgentChatApprovalRecord | null>(null);
+export function AgentApprovalModal({
+  sessionID,
+  approvalID,
+  onClose,
+  fetchApproval,
+  onResolve,
+  onCancel,
+}: Props) {
+  const [row, setRow] = useState<ChatApprovalRecord | null>(null);
   const [error, setError] = useState<string>("");
   const [decision, setDecision] = useState<"allow" | "deny">("allow");
   const [scope, setScope] = useState<string>("");
@@ -128,7 +139,11 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
               onClick={() => void handleSubmit()}
               data-testid="agent-approval-modal-submit"
             >
-              {decision === "allow" ? <Icon d={Icons.approve} size={13} /> : <Icon d={Icons.deny} size={13} />}{" "}
+              {decision === "allow" ? (
+                <Icon d={Icons.approve} size={13} />
+              ) : (
+                <Icon d={Icons.deny} size={13} />
+              )}{" "}
               {busy ? "Sending…" : submitLabel}
             </button>
           </div>
@@ -136,13 +151,25 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
       }
     >
       {error && (
-        <div style={{ padding: "10px 12px", border: "1px solid var(--red-border)", borderRadius: "var(--radius-sm)", background: "var(--red-bg)", color: "var(--red)", fontSize: 12 }}>
+        <div
+          style={{
+            padding: "10px 12px",
+            border: "1px solid var(--red-border)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--red-bg)",
+            color: "var(--red)",
+            fontSize: 12,
+          }}
+        >
           {error}
         </div>
       )}
 
       {!row && !error && (
-        <div style={{ padding: 24, textAlign: "center", color: "var(--t3)", fontSize: 12 }} data-testid="agent-approval-modal-loading">
+        <div
+          style={{ padding: 24, textAlign: "center", color: "var(--t3)", fontSize: 12 }}
+          data-testid="agent-approval-modal-loading"
+        >
           Loading approval…
         </div>
       )}
@@ -151,7 +178,15 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Identity row: who's asking, what for. */}
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                color: "var(--t3)",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+            >
               {row.adapter_id}
               {row.workspace ? ` · ${row.workspace}` : ""}
             </span>
@@ -162,10 +197,26 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
 
           {/* Decision toggle. */}
           <div>
-            <label style={{ fontSize: 11, color: "var(--t2)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6, display: "block" }}>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                marginBottom: 6,
+                display: "block",
+              }}
+            >
               Decision
             </label>
-            <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+            <div
+              style={{
+                display: "flex",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                overflow: "hidden",
+              }}
+            >
               {(["allow", "deny"] as const).map((kind) => (
                 <button
                   key={kind}
@@ -178,12 +229,18 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
                   style={{
                     flex: 1,
                     padding: "8px 12px",
-                    background: decision === kind
-                      ? (kind === "allow" ? "var(--teal-bg)" : "var(--red-bg)")
-                      : "transparent",
-                    color: decision === kind
-                      ? (kind === "allow" ? "var(--teal)" : "var(--red)")
-                      : "var(--t2)",
+                    background:
+                      decision === kind
+                        ? kind === "allow"
+                          ? "var(--teal-bg)"
+                          : "var(--red-bg)"
+                        : "transparent",
+                    color:
+                      decision === kind
+                        ? kind === "allow"
+                          ? "var(--teal)"
+                          : "var(--red)"
+                        : "var(--t2)",
                     border: "none",
                     fontSize: 12,
                     cursor: "pointer",
@@ -198,14 +255,23 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
             </div>
           </div>
 
-          {/* ACP options. The adapter offers one or more concrete options
+          {/* ACP options. The agent offers one or more concrete options
               the operator can pick from (e.g. "approve_for_session" /
-              "approve_once"). We send back option_id so the adapter
+              "approve_once"). We send back option_id so the agent
               receives the exact choice it surfaced. */}
           {row.acp_options.length > 0 && (
             <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6, display: "block" }}>
-                Adapter option
+              <label
+                style={{
+                  fontSize: 11,
+                  color: "var(--t2)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  marginBottom: 6,
+                  display: "block",
+                }}
+              >
+                Agent option
               </label>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {row.acp_options.map((opt) => {
@@ -220,7 +286,8 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
                         gap: 8,
                         padding: "6px 10px",
                         border: `1px solid ${selectedOption === opt.option_id ? "var(--teal-border)" : "var(--border)"}`,
-                        background: selectedOption === opt.option_id ? "var(--teal-bg)" : "var(--bg3)",
+                        background:
+                          selectedOption === opt.option_id ? "var(--teal-bg)" : "var(--bg3)",
                         borderRadius: "var(--radius-sm)",
                         cursor: matchesDecision ? "pointer" : "not-allowed",
                         opacity: matchesDecision ? 1 : 0.5,
@@ -237,7 +304,9 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
                         }}
                       />
                       <span style={{ fontSize: 12, color: "var(--t0)", flex: 1 }}>{opt.name}</span>
-                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+                      <span
+                        style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}
+                      >
                         {opt.kind}
                       </span>
                     </label>
@@ -252,7 +321,16 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
               meaningful for this tool). */}
           {row.scope_choices && row.scope_choices.length > 0 && (
             <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6, display: "block" }}>
+              <label
+                style={{
+                  fontSize: 11,
+                  color: "var(--t2)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  marginBottom: 6,
+                  display: "block",
+                }}
+              >
                 Apply to
               </label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -273,7 +351,7 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
                       cursor: "pointer",
                     }}
                   >
-                    {s}
+                    {approvalScopeLabel(s)}
                   </button>
                 ))}
               </div>
@@ -290,7 +368,9 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
                     fontSize: 11,
                   }}
                 >
-                  <Icon d={Icons.warning} size={12} /> <strong>Broad scope:</strong> the adapter_tool scope grants this decision to every future call to this tool from this adapter. Click {buttonLabel} once to arm, then again to confirm.
+                  <Icon d={Icons.warning} size={12} /> <strong>Broad scope:</strong> the agent-tool
+                  scope grants this decision to every future call to this tool from this agent.
+                  Click {buttonLabel} once to arm, then again to confirm.
                 </div>
               )}
             </div>
@@ -298,7 +378,16 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
 
           {/* Optional note for the audit log. */}
           <div>
-            <label style={{ fontSize: 11, color: "var(--t2)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6, display: "block" }}>
+            <label
+              style={{
+                fontSize: 11,
+                color: "var(--t2)",
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                marginBottom: 6,
+                display: "block",
+              }}
+            >
               Note (optional)
             </label>
             <textarea
@@ -328,19 +417,28 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
   );
 }
 
+function approvalScopeLabel(scope: string): string {
+  switch (scope) {
+    case "workspace_tool":
+      return "workspace tool";
+    case "adapter_tool":
+      return "agent tool";
+    default:
+      return scope.replaceAll("_", " ");
+  }
+}
+
 function defaultOptionForDecision(
-  options: AgentChatApprovalOption[],
+  options: ChatApprovalOption[],
   decision: "allow" | "deny",
 ): string {
   return options.find((opt) => optionMatchesDecision(opt, decision))?.option_id ?? "";
 }
 
-function optionMatchesDecision(
-  option: AgentChatApprovalOption,
-  decision: "allow" | "deny",
-): boolean {
-  const wanted = decision === "allow"
-    ? new Set(["allow_once", "allow_always"])
-    : new Set(["reject_once", "reject_always"]);
+function optionMatchesDecision(option: ChatApprovalOption, decision: "allow" | "deny"): boolean {
+  const wanted =
+    decision === "allow"
+      ? new Set(["allow_once", "allow_always"])
+      : new Set(["reject_once", "reject_always"]);
   return wanted.has(option.kind);
 }

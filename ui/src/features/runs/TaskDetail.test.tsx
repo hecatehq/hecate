@@ -1,9 +1,16 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { TaskDetail } from "./TaskDetail";
-import type { TaskActivityRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
+import type {
+  TaskActivityRecord,
+  TaskArtifactRecord,
+  TaskRecord,
+  TaskRunEventRecord,
+  TaskRunRecord,
+  TaskStepRecord,
+} from "../../types/task";
 
 function makeTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
   return {
@@ -151,7 +158,12 @@ describe("TaskDetail run picker", () => {
     const onSelectRun = vi.fn();
     const run1 = makeRun({ id: "run-1", number: 1, status: "failed" });
     const run2 = makeRun({ id: "run-2", number: 2, status: "completed" });
-    const { render, user } = setup({ runs: [run2, run1], run: run2, selectedRunID: run2.id, onSelectRun });
+    const { render, user } = setup({
+      runs: [run2, run1],
+      run: run2,
+      selectedRunID: run2.id,
+      onSelectRun,
+    });
     render();
     await user.click(screen.getByRole("button", { name: /select run/i }));
     const options = await screen.findAllByRole("option");
@@ -160,14 +172,14 @@ describe("TaskDetail run picker", () => {
   });
 
   it("links chat-origin tasks back to their source chat", async () => {
-    const onOpenAgentChat = vi.fn();
+    const onOpenChat = vi.fn();
     const { render, user } = setup({
-      task: makeTask({ origin_kind: "agent_chat", origin_id: "agent_chat_123" }),
-      onOpenAgentChat,
+      task: makeTask({ origin_kind: "chat", origin_id: "chat_123" }),
+      onOpenChat,
     });
     render();
     await user.click(screen.getByRole("button", { name: /from chat/i }));
-    expect(onOpenAgentChat).toHaveBeenCalledWith("agent_chat_123");
+    expect(onOpenChat).toHaveBeenCalledWith("chat_123");
   });
 
   it("hides the picker when there are zero runs", () => {
@@ -239,7 +251,9 @@ describe("TaskDetail step drill-down", () => {
 
 describe("TaskDetail runtime activity and patches", () => {
   it("renders normalized runtime activity rows", () => {
-    const { render } = setup({ activity: [makeActivity({ type: "patch", status: "proposed", title: "main.go.patch" })] });
+    const { render } = setup({
+      activity: [makeActivity({ type: "patch", status: "proposed", title: "main.go.patch" })],
+    });
     render();
     expect(screen.getByText(/Runtime activity/i)).toBeTruthy();
     expect(screen.getByText("Patch")).toBeTruthy();
@@ -260,15 +274,27 @@ describe("TaskDetail runtime activity and patches", () => {
           status: "completed",
           summary: { command: "git status" },
         }),
-        makeActivity({ id: "activity-files", type: "changed_files", title: "git-changes.json", path: "git-changes.json", status: "ready" }),
-        makeActivity({ id: "activity-final", type: "final_answer", title: "agent-final-answer.txt", path: "agent-final-answer.txt", status: "ready" }),
+        makeActivity({
+          id: "activity-files",
+          type: "changed_files",
+          title: "git-changes.json",
+          path: "git-changes.json",
+          status: "ready",
+        }),
+        makeActivity({
+          id: "activity-final",
+          type: "final_answer",
+          title: "agent-final-answer.txt",
+          path: "agent-final-answer.txt",
+          status: "ready",
+        }),
       ],
     });
     render();
 
     expect(screen.getByText("Ran git")).toBeTruthy();
     expect(screen.getByText("Artifacts · 2 items")).toBeTruthy();
-    expect(screen.getByText("Changed files")).toBeTruthy();
+    expect(screen.getAllByText("Workspace changes").length).toBeGreaterThan(0);
     expect(screen.getAllByText("git-changes.json").length).toBeGreaterThan(0);
     expect(screen.getByText("Final answer artifact")).toBeTruthy();
     expect(screen.getAllByText("agent-final-answer.txt").length).toBeGreaterThan(0);
@@ -279,14 +305,16 @@ describe("TaskDetail runtime activity and patches", () => {
   });
 
   it("keeps early useful activity rows instead of pre-slicing before compaction", () => {
-    const activity = Array.from({ length: 13 }, (_, index) => makeActivity({
-      id: `activity-${index}`,
-      type: "tool_call",
-      title: "read_file",
-      tool_name: "read_file",
-      path: `file-${index}.ts`,
-      status: "completed",
-    }));
+    const activity = Array.from({ length: 13 }, (_, index) =>
+      makeActivity({
+        id: `activity-${index}`,
+        type: "tool_call",
+        title: "read_file",
+        tool_name: "read_file",
+        path: `file-${index}.ts`,
+        status: "completed",
+      }),
+    );
     const { render } = setup({ activity });
     render();
 
@@ -402,7 +430,7 @@ describe("TaskDetail runtime activity and patches", () => {
     render();
 
     await user.click(screen.getByText("Artifacts · 1 item"));
-    await user.click(screen.getByText("Preview"));
+    await user.click(screen.getByText("Output"));
 
     expect(screen.getByText("git-stdout.txt")).toBeTruthy();
     expect(screen.getByText(/On branch feature\/runtime/)).toBeTruthy();
@@ -478,7 +506,9 @@ describe("TaskDetail runtime activity and patches", () => {
 
     expect(screen.getByText("git status")).toBeTruthy();
     expect(screen.getByText("128")).toBeTruthy();
-    expect(screen.getByText("No stdout or stderr artifacts were captured for this tool.")).toBeTruthy();
+    expect(
+      screen.getByText("No stdout or stderr artifacts were captured for this tool."),
+    ).toBeTruthy();
   });
 
   it("does not show output from another step when a failed tool has no matching artifacts", async () => {
@@ -513,7 +543,9 @@ describe("TaskDetail runtime activity and patches", () => {
 
     await user.click(screen.getAllByText("Advanced")[0]);
 
-    expect(screen.getByText("No stdout or stderr artifacts were captured for this tool.")).toBeTruthy();
+    expect(
+      screen.getByText("No stdout or stderr artifacts were captured for this tool."),
+    ).toBeTruthy();
     expect(screen.queryByText("unrelated output")).toBeNull();
   });
 
@@ -616,8 +648,8 @@ describe("TaskDetail runtime activity and patches", () => {
     render();
     await user.click(screen.getByRole("button", { name: /preview/i }));
     expect(screen.getByText("Patch preview")).toBeTruthy();
-    expect(screen.getByText("-old")).toBeTruthy();
-    expect(screen.getByText("+new")).toBeTruthy();
+    expect(screen.getByTestId("diff-viewer")).toBeTruthy();
+    expect(document.querySelectorAll("diffs-container.diff-viewer-file")).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: /apply patch/i }));
     expect(onApplyPatch).toHaveBeenCalledWith("art-patch-1");
   });
@@ -653,11 +685,47 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.getByText("context deadline exceeded")).toBeTruthy();
   });
 
+  it("labels approval rejection separately from generic cancellation", () => {
+    const run = makeRun({
+      status: "cancelled",
+      last_error: "approval rejected",
+    });
+    const task = makeTask({
+      status: "cancelled",
+      last_error: "approval rejected",
+      latest_run_id: run.id,
+    });
+    const { render } = setup({ task, run, runs: [run] });
+    render();
+
+    expect(screen.getAllByText("rejected").length).toBeGreaterThan(0);
+    expect(screen.getByText("Outcome")).toBeTruthy();
+    expect(screen.getByText("Approval rejected")).toBeTruthy();
+    expect(
+      screen.getByText("The run was stopped because the pending approval was rejected."),
+    ).toBeTruthy();
+  });
+
   it("renders the run timeline from persisted events", () => {
     const events: TaskRunEventRecord[] = [
-      makeEvent({ event_id: "evt_01HX0000000000000000000001", sequence: 1, type: "run.created", occurred_at: "2026-04-27T17:00:00Z" }),
-      makeEvent({ event_id: "evt_01HX0000000000000000000002", sequence: 2, type: "run.queued", occurred_at: "2026-04-27T17:00:01Z" }),
-      makeEvent({ event_id: "evt_01HX0000000000000000000003", sequence: 3, type: "run.finished", occurred_at: "2026-04-27T17:00:02Z" }),
+      makeEvent({
+        event_id: "evt_01HX0000000000000000000001",
+        sequence: 1,
+        type: "run.created",
+        occurred_at: "2026-04-27T17:00:00Z",
+      }),
+      makeEvent({
+        event_id: "evt_01HX0000000000000000000002",
+        sequence: 2,
+        type: "run.queued",
+        occurred_at: "2026-04-27T17:00:01Z",
+      }),
+      makeEvent({
+        event_id: "evt_01HX0000000000000000000003",
+        sequence: 3,
+        type: "run.finished",
+        occurred_at: "2026-04-27T17:00:02Z",
+      }),
     ];
     const { render } = setup({ events });
     render();
@@ -735,6 +803,58 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.queryByText(/turn/i)).toBeNull();
   });
 
+  it("labels the broad run interrupt as Stop run for active runs", async () => {
+    const { render, user, props } = setup({
+      run: makeRun({ status: "running" }),
+    });
+    render();
+
+    expect(screen.queryByRole("button", { name: /^cancel$/i })).toBeNull();
+    const stop = screen.getByRole("button", { name: /stop run/i });
+    await user.click(stop);
+
+    expect(props.onCancelRun).toHaveBeenCalledOnce();
+  });
+
+  it("renders canonical routed provider names in the run overview", () => {
+    const { render } = setup({
+      run: makeRun({ provider: "ollama", provider_kind: "local", model: "ministral-3:latest" }),
+    });
+    render();
+
+    expect(screen.getByText("Ollama")).toBeTruthy();
+    expect(screen.getAllByText("ministral-3:latest").length).toBeGreaterThan(0);
+  });
+
+  it("does not render auto route hints as a fake provider name", () => {
+    const { render } = setup({
+      run: makeRun({ provider: "auto", model: "ministral-3:latest" }),
+    });
+    render();
+
+    expect(screen.queryByText("provider auto")).toBeNull();
+    expect(screen.getByText("Auto route")).toBeTruthy();
+  });
+
+  it("hides the broad run stop action when an approval decision is visible", () => {
+    const approval = {
+      id: "approval-1",
+      task_id: "task-1",
+      run_id: "run-1",
+      kind: "shell_command",
+      status: "pending",
+      reason: "Needs explicit shell approval",
+    } as any;
+    const { render } = setup({
+      approvals: [approval],
+      run: makeRun({ status: "awaiting_approval" }),
+    });
+    render();
+
+    expect(screen.queryByRole("button", { name: /stop run/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /reject and stop/i })).toBeTruthy();
+  });
+
   it("renders approval metadata and actions in the top-level callout", async () => {
     const onResolveApproval = vi.fn();
     const approval = {
@@ -755,9 +875,10 @@ describe("TaskDetail runtime debugging", () => {
     render();
     expect(screen.getByTestId("task-approval-callout")).toBeTruthy();
     expect(screen.getByText(/Approval required/i)).toBeTruthy();
+    expect(screen.getByText(/approve or reject/i)).toBeTruthy();
     expect(screen.getByText(/Shell execution/i)).toBeTruthy();
     expect(screen.getByText(/requested by/i)).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: /approve/i }));
+    await user.click(screen.getByRole("button", { name: /approve and resume/i }));
     expect(onResolveApproval).toHaveBeenCalledWith(approval, "approve");
   });
 
@@ -765,14 +886,14 @@ describe("TaskDetail runtime debugging", () => {
     const { render } = setup({
       approvals: [
         {
-        id: "approval-1",
-        task_id: "task-1",
-        run_id: "run-1",
-        kind: "shell_command",
-        status: "pending",
-        reason: "Needs explicit shell approval",
-        requested_by: "agent_loop",
-        created_at: "2026-04-27T17:00:00Z",
+          id: "approval-1",
+          task_id: "task-1",
+          run_id: "run-1",
+          kind: "shell_command",
+          status: "pending",
+          reason: "Needs explicit shell approval",
+          requested_by: "agent_loop",
+          created_at: "2026-04-27T17:00:00Z",
         } as any,
         {
           id: "approval-2",
@@ -787,7 +908,8 @@ describe("TaskDetail runtime debugging", () => {
     });
     render();
     expect(screen.getByText(/2 approvals required/i)).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /approve/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /approve and resume/i })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /reject and stop/i })).toHaveLength(2);
   });
 });
 
@@ -797,11 +919,13 @@ describe("TaskDetail agent conversation viewer", () => {
     {
       role: "assistant",
       content: "Let me read it.",
-      tool_calls: [{
-        id: "call-1",
-        type: "function",
-        function: { name: "read_file", arguments: '{"path":"README.md"}' },
-      }],
+      tool_calls: [
+        {
+          id: "call-1",
+          type: "function",
+          function: { name: "read_file", arguments: '{"path":"README.md"}' },
+        },
+      ],
     },
     {
       role: "tool",
@@ -970,8 +1094,20 @@ describe("TaskDetail agent conversation viewer", () => {
     // cost; the bubble must surface that cost as $X.XXX next to
     // "turn N". 1500 µUSD = $0.002 (rounded), 250000 = $0.250.
     const modelSteps: TaskStepRecord[] = [
-      makeStep({ id: "s-m1", index: 1, kind: "model", title: "Agent turn 1", output_summary: { cost_micros_usd: 1500 } }),
-      makeStep({ id: "s-m2", index: 2, kind: "model", title: "Agent turn 2", output_summary: { cost_micros_usd: 250000 } }),
+      makeStep({
+        id: "s-m1",
+        index: 1,
+        kind: "model",
+        title: "Agent turn 1",
+        output_summary: { cost_micros_usd: 1500 },
+      }),
+      makeStep({
+        id: "s-m2",
+        index: 2,
+        kind: "model",
+        title: "Agent turn 2",
+        output_summary: { cost_micros_usd: 250000 },
+      }),
     ];
     const { render } = setup({
       artifacts: [makeConvoArtifact()],
@@ -1013,8 +1149,8 @@ describe("TaskDetail agent conversation viewer", () => {
       makeStep({ id: "s-m2", index: 2, kind: "model", title: "Agent turn 2", output_summary: {} }),
     ];
     const streamTurnCosts = new Map<number, number>([
-      [1, 1500],     // $0.002
-      [2, 250000],   // $0.250
+      [1, 1500], // $0.002
+      [2, 250000], // $0.250
     ]);
     const { render } = setup({
       artifacts: [makeConvoArtifact()],
@@ -1035,7 +1171,7 @@ describe("TaskDetail agent conversation viewer", () => {
     render();
     const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
     expect(retryButtons.length).toBe(2);
-    retryButtons.forEach(b => expect((b as HTMLButtonElement).disabled).toBe(true));
+    retryButtons.forEach((b) => expect((b as HTMLButtonElement).disabled).toBe(true));
   });
 });
 
@@ -1112,7 +1248,9 @@ describe("TaskDetail cost ceiling banner", () => {
     const input = screen.getByRole("spinbutton") as HTMLInputElement;
     await user.clear(input);
     await user.type(input, "0.100"); // below 0.500
-    const button = screen.getByRole("button", { name: /Raise ceiling & resume/i }) as HTMLButtonElement;
+    const button = screen.getByRole("button", {
+      name: /Raise ceiling & resume/i,
+    }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByText(/Must be at least \$0\.500/i)).toBeTruthy();
     await user.click(button);
@@ -1195,7 +1333,12 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     // Pinning this guard keeps a future regex slip-up (matching
     // anything containing "mcp") from putting the badge on
     // unrelated rows.
-    const builtin = makeStep({ id: "step-shell", kind: "tool", tool_name: "shell_exec", title: "shell_exec (completed)" });
+    const builtin = makeStep({
+      id: "step-shell",
+      kind: "tool",
+      tool_name: "shell_exec",
+      title: "shell_exec (completed)",
+    });
     const { render } = setup({ steps: [builtin] });
     render();
     expect(screen.queryByLabelText(/mcp tool call/i)).toBeNull();
@@ -1220,7 +1363,12 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
   });
 
   it("expanded StepDetail on a built-in shows the single-line tool label, not transport/server", async () => {
-    const builtin = makeStep({ id: "step-shell", kind: "tool", tool_name: "shell_exec", title: "shell_exec (completed)" });
+    const builtin = makeStep({
+      id: "step-shell",
+      kind: "tool",
+      tool_name: "shell_exec",
+      title: "shell_exec (completed)",
+    });
     const { render, user } = setup({ steps: [builtin] });
     render();
     await user.click(screen.getByRole("button", { name: /step shell_exec/i }));
@@ -1239,7 +1387,9 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     const { render, user } = setup({ steps: [makeMcpStep()] });
     render();
     await user.click(screen.getByRole("button", { name: /step mcp__filesystem__read_text_file/i }));
-    expect(screen.getByText(/full upstream result rendered in the agent conversation/i)).toBeTruthy();
+    expect(
+      screen.getByText(/full upstream result rendered in the agent conversation/i),
+    ).toBeTruthy();
   });
 
   it("renders a clickable Request ID that calls onOpenTrace when wired", async () => {
@@ -1250,6 +1400,20 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     const button = screen.getByRole("button", { name: "req_abc_123" });
     await user.click(button);
     expect(onOpenTrace).toHaveBeenCalledWith("req_abc_123");
+  });
+
+  it("shows the full run id in the run panel and copies it", async () => {
+    const run = makeRun({ id: "run_full_identifier_123" });
+    const { render } = setup({ run, runs: [run], selectedRunID: run.id });
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render();
+    expect(screen.getByText("run_full_i…er_123")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /copy run_full_identifier_123/i }));
+    expect(writeText).toHaveBeenCalledWith("run_full_identifier_123");
   });
 
   it("renders Request ID as plain text when onOpenTrace is not wired", () => {

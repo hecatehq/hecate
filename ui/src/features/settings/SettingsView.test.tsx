@@ -1,10 +1,20 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetSystemData } from "../../lib/api";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
-import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../../test/runtime-console-render";
+
+vi.mock("../../lib/api", async (importOriginal) => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  resetSystemData: vi.fn(),
+}));
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
   const state = createRuntimeConsoleFixture(stateOverrides);
@@ -14,6 +24,7 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 }
 
 beforeEach(() => {
+  vi.mocked(resetSystemData).mockReset();
   sessionStorage.removeItem("hecate.settingsFocus");
   sessionStorage.removeItem("hecate.connectionsFocus");
 });
@@ -26,7 +37,7 @@ beforeEach(() => {
 describe("SettingsView", () => {
   it("renders maintenance cleanup without legacy tabs", () => {
     const { state, actions } = setup();
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     expect(screen.getByText("Maintenance")).toBeTruthy();
     expect(screen.getByText(/Clean up old local runtime data/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Retention" })).toBeNull();
@@ -37,7 +48,7 @@ describe("SettingsView", () => {
 
   it("starts on the cleanup controls", () => {
     const { state, actions } = setup();
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     expect(screen.getByText(/Run cleanup/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Clean up now/i })).toBeTruthy();
   });
@@ -48,7 +59,7 @@ describe("SettingsView", () => {
     // screen. Without this effect the list stays empty forever.
     const loadRetentionRuns = vi.fn().mockResolvedValue(undefined);
     const { state, actions } = setup({}, { loadRetentionRuns });
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     expect(loadRetentionRuns).toHaveBeenCalledTimes(1);
   });
 });
@@ -56,7 +67,7 @@ describe("SettingsView", () => {
 describe("SettingsView maintenance cleanup", () => {
   it("shows known subsystems as toggle chips", async () => {
     const { state, actions } = setup();
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     for (const sub of ["Trace snapshots", "Usage events", "Audit events"]) {
       expect(await screen.findByText(sub)).toBeTruthy();
     }
@@ -65,7 +76,7 @@ describe("SettingsView maintenance cleanup", () => {
   it("clicking a chip calls setRetentionSubsystems", async () => {
     const setRetentionSubsystems = vi.fn();
     const { state, actions, user } = setup({}, { setRetentionSubsystems });
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     await user.click(await screen.findByText("Audit events"));
     expect(setRetentionSubsystems).toHaveBeenCalledWith("audit_events");
   });
@@ -73,7 +84,7 @@ describe("SettingsView maintenance cleanup", () => {
   it("'Clean up now' button triggers runRetention action", async () => {
     const runRetention = vi.fn(async () => undefined);
     const { state, actions, user } = setup({}, { runRetention });
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     await user.click(await screen.findByRole("button", { name: /Clean up now/i }));
     expect(runRetention).toHaveBeenCalled();
   });
@@ -85,10 +96,66 @@ describe("SettingsView maintenance cleanup", () => {
         trigger: "manual",
       },
     });
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
     expect(await screen.findByText(/Last run/i)).toBeTruthy();
     expect(screen.getByText("0 removed")).toBeTruthy();
+  });
+
+  it("labels the reset affordance as runtime-only on memory backend", async () => {
+    const { state, actions, user } = setup({
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+    });
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(screen.getByText("Reset runtime state")).toBeTruthy();
+    expect(screen.getByText(/current in-memory state/i)).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: /Reset/i }));
+
+    expect(screen.getByText(/memory storage/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reset runtime state" })).toBeDisabled();
+  });
+
+  it("labels the reset affordance as local data cleanup on sqlite backend", async () => {
+    const { state, actions } = setup({
+      settingsConfig: { backend: "sqlite", providers: [], policy_rules: [], events: [] },
+    });
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    expect(screen.getByText("Reset local data")).toBeTruthy();
+    expect(screen.getByText(/remaining Hecate database rows/i)).toBeTruthy();
+  });
+
+  it("resets local data after typed confirmation and refreshes dashboard state", async () => {
+    vi.mocked(resetSystemData).mockResolvedValue({
+      object: "system_reset",
+      data: {
+        projects_deleted: 1,
+        chat_sessions_deleted: 2,
+        tasks_deleted: 1,
+        providers_deleted: 1,
+        policy_rules_deleted: 1,
+        agent_approval_grants_deleted: 1,
+        database_rows_deleted: 3,
+      },
+    });
+    const loadDashboard = vi.fn(async () => undefined);
+    const { state, actions, user } = setup(
+      { settingsConfig: { backend: "sqlite", providers: [], policy_rules: [], events: [] } },
+      { loadDashboard },
+    );
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
+
+    await user.click(await screen.findByRole("button", { name: /Reset/i }));
+    const confirm = screen.getByRole("button", { name: "Reset local data" });
+    expect(confirm).toBeDisabled();
+
+    await user.type(screen.getByLabelText(/Type RESET/i), "RESET");
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+
+    await waitFor(() => expect(resetSystemData).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(loadDashboard).toHaveBeenCalledTimes(1));
   });
 });
 
@@ -96,29 +163,6 @@ describe("SettingsView maintenance cleanup", () => {
 // focused on retention.
 
 describe("Connections external-agent panel", () => {
-  const modelCapabilityState = {
-    models: [
-      {
-        id: "qwen2.5-coder",
-        owned_by: "ollama",
-        metadata: {
-          provider: "ollama",
-          provider_kind: "local",
-          capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
-        },
-      },
-      {
-        id: "gpt-4o-mini",
-        owned_by: "openai",
-        metadata: {
-          provider: "openai",
-          provider_kind: "cloud",
-          capabilities: { tool_calling: "parallel", streaming: true, source: "catalog" },
-        },
-      },
-    ],
-  };
-
   it("summarizes model provider connections and links to Connections when requested", async () => {
     const onNavigate = vi.fn();
     const { state, actions, user } = setup({
@@ -148,104 +192,62 @@ describe("Connections external-agent panel", () => {
         events: [],
       },
       providers: [
-        { name: "ollama", kind: "local", healthy: true, status: "healthy", routing_ready: true, model_count: 3 },
-        { name: "anthropic", kind: "cloud", healthy: false, status: "unhealthy", routing_ready: false, readiness: { status: "blocked", reason: "missing_credential" } },
+        {
+          name: "ollama",
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: true,
+          model_count: 3,
+        },
+        {
+          name: "anthropic",
+          kind: "cloud",
+          healthy: false,
+          status: "unhealthy",
+          routing_ready: false,
+          readiness: { status: "blocked", reason: "missing_credential" },
+        },
       ],
       models: [
         { id: "llama3", owned_by: "ollama" },
         { id: "claude-sonnet", owned_by: "anthropic" },
       ],
     });
-    render(<ConnectionsPanel state={state} actions={actions} onNavigate={onNavigate} />);
+    render(withRuntimeConsole(<ConnectionsPanel onNavigate={onNavigate} />, { state, actions }));
 
     const card = await screen.findByTestId("connections-model-providers");
     expect(within(card).getByText("Model providers")).toBeTruthy();
     expect(within(card).getByText("2 configured")).toBeTruthy();
     expect(within(card).getByText("Ready")).toBeTruthy();
     expect(within(card).getByText("Needs attention")).toBeTruthy();
-    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent("Next repair");
-    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent("Provider blocked");
+    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent(
+      "Next repair",
+    );
+    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent(
+      "Provider blocked",
+    );
 
     await user.click(within(card).getByRole("button", { name: "Open Connections" }));
     expect(onNavigate).toHaveBeenCalledWith("connections");
   });
 
-  it("renders model capabilities inside Connections", async () => {
-    const { state, actions } = setup(modelCapabilityState);
-    render(<ConnectionsPanel state={state} actions={actions} />);
-
-    expect(await screen.findByTestId("connections-model-capabilities")).toBeTruthy();
-    expect(await screen.findByTestId("model-capabilities-list")).toBeTruthy();
-    expect(screen.getByText("qwen2.5-coder")).toBeTruthy();
-    expect(screen.getAllByText("tools on").length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("saves the model tools switch from Connections", async () => {
-    const upsertModelCapabilityOverride = vi.fn(async () => true);
-    const { state, actions, user } = setup(modelCapabilityState, { upsertModelCapabilityOverride });
-    render(<ConnectionsPanel state={state} actions={actions} />);
-    const row = await screen.findByTestId("model-capability-row-ollama-qwen2.5-coder");
-
-    await user.click(within(row).getByRole("button", { name: "tools on" }));
-
-    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
-      provider: "ollama",
-      model: "qwen2.5-coder",
-      tool_calling: "basic",
-      note: "Tools enabled from Connections.",
-    }));
-  });
-
-  it("saves and clears model capability overrides from Connections", async () => {
-    const upsertModelCapabilityOverride = vi.fn(async () => true);
-    const deleteModelCapabilityOverride = vi.fn(async () => true);
-    const { state, actions, user } = setup(
-      {
-        models: [
-          {
-            id: "local-tools",
-            owned_by: "ollama",
-            metadata: {
-              provider: "ollama",
-              provider_kind: "local",
-              capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
-            },
-          },
-        ],
-      },
-      { upsertModelCapabilityOverride, deleteModelCapabilityOverride },
-    );
-    render(<ConnectionsPanel state={state} actions={actions} />);
-    const row = await screen.findByTestId("model-capability-row-ollama-local-tools");
-
-    await user.click(within(row).getByRole("button", { name: "tools off" }));
-    await user.click(within(row).getByRole("button", { name: "Clear override" }));
-
-    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
-      provider: "ollama",
-      model: "local-tools",
-      tool_calling: "none",
-      note: "Tools disabled from Connections.",
-    }));
-    expect(deleteModelCapabilityOverride).toHaveBeenCalledWith("ollama", "local-tools");
-  });
-
-  it("fires listAgentChatGrants when the tab opens", async () => {
-    const listAgentChatGrants = vi.fn(async () => undefined);
-    const { state, actions } = setup({}, { listAgentChatGrants });
-    render(<ConnectionsPanel state={state} actions={actions} />);
-    expect(listAgentChatGrants).toHaveBeenCalled();
+  it("fires listChatGrants when the tab opens", async () => {
+    const listChatGrants = vi.fn(async () => undefined);
+    const { state, actions } = setup({}, { listChatGrants });
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+    expect(listChatGrants).toHaveBeenCalled();
   });
 
   it("renders the empty-state copy when there are no grants", async () => {
     const { state, actions } = setup();
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     expect(await screen.findByTestId("external-agents-empty")).toBeTruthy();
   });
 
   it("renders one row per grant with adapter / tool / decision metadata", async () => {
     const { state, actions } = setup({
-      agentChatGrants: [
+      chatGrants: [
         {
           id: "g-1",
           scope: "session",
@@ -267,7 +269,7 @@ describe("Connections external-agent panel", () => {
         },
       ],
     });
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     expect(await screen.findByTestId("external-agents-list")).toBeTruthy();
     // Scope decision-tone assertions to row content so they don't
     // accidentally match the section description above.
@@ -278,10 +280,10 @@ describe("Connections external-agent panel", () => {
   });
 
   it("revoke asks for inline confirmation before deleting the grant", async () => {
-    const deleteAgentChatGrant = vi.fn(async () => true);
+    const deleteChatGrant = vi.fn(async () => true);
     const { state, actions, user } = setup(
       {
-        agentChatGrants: [
+        chatGrants: [
           {
             id: "g-7",
             scope: "session",
@@ -292,20 +294,20 @@ describe("Connections external-agent panel", () => {
           },
         ],
       },
-      { deleteAgentChatGrant },
+      { deleteChatGrant },
     );
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     await user.click(await screen.findByTestId("external-agents-revoke-g-7"));
-    expect(deleteAgentChatGrant).not.toHaveBeenCalled();
+    expect(deleteChatGrant).not.toHaveBeenCalled();
     await user.click(await screen.findByTestId("external-agents-confirm-revoke-g-7"));
-    expect(deleteAgentChatGrant).toHaveBeenCalledWith("g-7");
+    expect(deleteChatGrant).toHaveBeenCalledWith("g-7");
   });
 
   it("revoke confirmation can be cancelled inline", async () => {
-    const deleteAgentChatGrant = vi.fn(async () => true);
+    const deleteChatGrant = vi.fn(async () => true);
     const { state, actions, user } = setup(
       {
-        agentChatGrants: [
+        chatGrants: [
           {
             id: "g-8",
             scope: "session",
@@ -316,21 +318,21 @@ describe("Connections external-agent panel", () => {
           },
         ],
       },
-      { deleteAgentChatGrant },
+      { deleteChatGrant },
     );
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     await user.click(await screen.findByTestId("external-agents-revoke-g-8"));
     expect(await screen.findByTestId("external-agents-confirm-revoke-g-8")).toBeTruthy();
     await user.click(await screen.findByTestId("external-agents-cancel-revoke-g-8"));
-    expect(deleteAgentChatGrant).not.toHaveBeenCalled();
+    expect(deleteChatGrant).not.toHaveBeenCalled();
     expect(screen.queryByTestId("external-agents-confirm-revoke-g-8")).toBeNull();
   });
 
   it("surfaces the listing error inline when the load fails", async () => {
     const { state, actions } = setup({
-      agentChatGrantsError: "list failed: 500",
+      chatGrantsError: "list failed: 500",
     });
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     expect(await screen.findByText(/list failed: 500/)).toBeTruthy();
   });
 
@@ -353,36 +355,44 @@ describe("Connections external-agent panel", () => {
         events: [],
       },
     });
-    const { rerender } = render(<ConnectionsPanel state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
     expect(await screen.findByTestId("anthropic-provider-key-card")).toBeTruthy();
 
-    rerender(<ConnectionsPanel state={{ ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } }} actions={actions} />);
+    rerender(
+      withRuntimeConsole(<ConnectionsPanel />, {
+        state: { ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } },
+        actions,
+      }),
+    );
 
     expect(screen.getByTestId("anthropic-provider-key-card")).toBeTruthy();
   });
 
   it("saves and clears the Anthropic provider key from Connections settings", async () => {
     const setProviderAPIKey = vi.fn(async () => undefined);
-    const { state, actions, user } = setup({
-      settingsConfig: {
-        backend: "memory",
-        providers: [
-          {
-            id: "anthropic",
-            name: "Anthropic",
-            preset_id: "anthropic",
-            kind: "cloud",
-            protocol: "anthropic",
-            base_url: "https://api.anthropic.com",
-            credential_configured: true,
-          },
-        ],
-        policy_rules: [],
-        events: [],
+    const { state, actions, user } = setup(
+      {
+        settingsConfig: {
+          backend: "memory",
+          providers: [
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              preset_id: "anthropic",
+              kind: "cloud",
+              protocol: "anthropic",
+              base_url: "https://api.anthropic.com",
+              credential_configured: true,
+            },
+          ],
+          policy_rules: [],
+          events: [],
+        },
       },
-    }, { setProviderAPIKey });
-    render(<ConnectionsPanel state={state} actions={actions} />);
+      { setProviderAPIKey },
+    );
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
     await user.type(await screen.findByLabelText("Anthropic API key"), "sk-ant-new");
     await user.click(screen.getByRole("button", { name: "Update key" }));
@@ -392,9 +402,11 @@ describe("Connections external-agent panel", () => {
     expect(setProviderAPIKey).toHaveBeenNthCalledWith(2, "anthropic", "");
   });
 
-  // Adapter status panel — surfaces auto-probe results when the tab
-  // opens. The section is hidden when no adapters are registered (no
-  // point showing an empty card); otherwise each row renders inline
+  // External agent status panel — surfaces readiness diagnostics.
+  // Direct binaries can be checked quietly; managed package-launcher
+  // agents require an explicit confirmation before a manual check.
+  // The section is hidden when no agents are registered (no point
+  // showing an empty card); otherwise each row renders inline
   // diagnostic copy when a result exists.
   describe("adapter status panel", () => {
     function withAdapter(overrides: Record<string, unknown> = {}) {
@@ -416,226 +428,323 @@ describe("Connections external-agent panel", () => {
 
     it("hides the panel when no adapters are registered", async () => {
       const { state, actions } = setup({ agentAdapters: [] });
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(screen.queryByTestId("external-agents-adapters")).toBeNull();
     });
 
     it("renders one row per adapter without a manual test button", async () => {
       const { state, actions } = setup(withAdapter());
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
       expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
       expect(screen.queryByTestId("external-agents-test-codex")).toBeNull();
     });
 
-    it("auto-runs adapter probes when the tab opens", async () => {
-      const probeAgentAdapter = vi.fn(async () => null);
-      const { state, actions } = setup(withAdapter(), { probeAgentAdapter });
-      render(<ConnectionsPanel state={state} actions={actions} />);
-      expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
+    it("shows bridge and underlying agent versions separately", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              adapter_version: "1.2.3",
+              agent_version: "0.48.0",
+            },
+          ],
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const row = await screen.findByTestId("external-agents-adapter-codex");
+      expect(row).toHaveTextContent("bridge 1.2.3");
+      expect(row).toHaveTextContent("agent 0.48.0");
     });
 
-    it("auto-runs adapter probes when adapters arrive after the tab opens", async () => {
-      const probeAgentAdapter = vi.fn(async () => null);
-      const { state, actions } = setup({ agentAdapters: [] }, { probeAgentAdapter });
-      const { rerender } = render(<ConnectionsPanel state={state} actions={actions} />);
-      expect(probeAgentAdapter).not.toHaveBeenCalled();
-
-      const nextState = createRuntimeConsoleFixture(withAdapter());
-      rerender(<ConnectionsPanel state={nextState} actions={actions} />);
-      expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
-      rerender(<ConnectionsPanel state={{ ...nextState }} actions={actions} />);
-      expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
+    it("renders compact local sign-in when the cached probe says auth is missing", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapterHealthByID: new Map([
+            [
+              "codex",
+              {
+                adapter_id: "codex",
+                status: "auth_required",
+                stage: "initialize",
+                path: "/usr/local/bin/codex-acp",
+                error: "Authentication required",
+                hint: "Run codex login",
+                duration_ms: 412,
+              },
+            ],
+          ]),
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+      const row = await screen.findByTestId("external-agents-adapter-codex");
+      expect(within(row).getByText("sign in")).toBeTruthy();
+      expect(within(row).getByText("Local sign-in")).toBeTruthy();
+      expect(within(row).getByText("codex login")).toBeTruthy();
+      expect(screen.queryByTestId("external-agents-adapter-codex-detail")).toBeNull();
+      expect(screen.queryByTestId("external-agents-adapter-codex-auth-warning")).toBeNull();
+      expect(row).not.toHaveTextContent("path /usr/local/bin/codex-acp");
+      expect(row).not.toHaveTextContent("412 ms");
+      expect(row).not.toHaveTextContent("auth unknown");
     });
 
-    it("renders the auth-required hint when the cached probe says auth is missing", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapterHealthByID: new Map([
-          ["codex", {
-            adapter_id: "codex",
-            status: "auth_required",
-            stage: "initialize",
-            path: "/usr/local/bin/codex-acp",
-            error: "Authentication required",
-            hint: "Run codex login",
-            duration_ms: 412,
-          }],
-        ]),
-      }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
-      const detail = await screen.findByTestId("external-agents-adapter-codex-detail");
-      expect(within(detail).getByText("Run codex login")).toBeTruthy();
-      expect(within(detail).getByText(/Authentication required/)).toBeTruthy();
+    it("shows missing adapters as setup notifications", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex-acp",
+              managed_package: "@zed-industries/codex-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unknown",
+            },
+            {
+              id: "cursor_agent",
+              name: "Cursor Agent",
+              kind: "acp",
+              command: "cursor-agent",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unknown",
+            },
+          ],
+          agentAdapterHealthByID: new Map([
+            [
+              "codex",
+              {
+                adapter_id: "codex",
+                status: "not_installed",
+                stage: "lookup",
+                error: "codex-acp command was not found",
+                hint: 'Install Node/npm so Hecate can manage "@zed-industries/codex-acp" automatically.',
+                duration_ms: 0,
+              },
+            ],
+            [
+              "cursor_agent",
+              {
+                adapter_id: "cursor_agent",
+                status: "error",
+                stage: "ready",
+                path: "dev-override://cursor_agent",
+                error: "forced app CLI missing by HECATE_AGENT_ADAPTER_DEV_OVERRIDES",
+                hint: "Install Cursor with Agent support, then sign in with Cursor Agent.",
+                duration_ms: 0,
+              },
+            ],
+          ]),
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      const codex = await screen.findByTestId("external-agents-adapter-codex");
+      expect(within(codex).getByText("not configured")).toBeTruthy();
+      expect(codex).toHaveTextContent("Set up to use: Install Node/npm");
+      expect(codex).not.toHaveTextContent("not installed");
+      expect(codex).not.toHaveTextContent("auth unknown");
+      expect(codex).not.toHaveTextContent("0 ms");
+
+      const cursor = await screen.findByTestId("external-agents-adapter-cursor_agent");
+      expect(within(cursor).getByText("not configured")).toBeTruthy();
+      expect(cursor).toHaveTextContent("Set up to use: Install Cursor with Agent support");
+      expect(cursor).not.toHaveTextContent("error");
+      expect(cursor).not.toHaveTextContent("auth unknown");
+      expect(cursor).not.toHaveTextContent("dev-override://cursor_agent");
     });
 
-    it("renders discovery auth warnings before a full probe has run", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "cursor_agent",
-            name: "Cursor Agent",
-            kind: "acp",
-            command: "cursor-agent",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "unauthenticated",
-            auth_error: "Run cursor-agent login",
-          },
-        ],
-      }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
-      expect(await screen.findByTestId("external-agents-adapter-cursor_agent-auth-warning")).toHaveTextContent("auth required");
-      expect(screen.getByTestId("external-agents-adapter-cursor_agent-auth-detail")).toHaveTextContent("Run cursor-agent login");
+    it("renders local sign-in from discovery auth before a full probe has run", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "cursor_agent",
+              name: "Cursor Agent",
+              kind: "acp",
+              command: "cursor-agent",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unauthenticated",
+              auth_error: "Run cursor-agent login",
+            },
+          ],
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+      const row = await screen.findByTestId("external-agents-adapter-cursor_agent");
+      expect(within(row).getByText("sign in")).toBeTruthy();
+      expect(within(row).getByText("Local sign-in")).toBeTruthy();
+      expect(within(row).getByText("cursor-agent login")).toBeTruthy();
+      expect(screen.queryByTestId("external-agents-adapter-cursor_agent-auth-warning")).toBeNull();
+      expect(screen.queryByTestId("external-agents-adapter-cursor_agent-auth-detail")).toBeNull();
     });
 
     it("shows an inline checking status while a probe is in flight", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapterHealthLoadingByID: new Map([["codex", true]]),
-      }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
-      expect(await screen.findByTestId("external-agents-checking-codex")).toHaveTextContent(/checking/i);
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapterHealthLoadingByID: new Map([["codex", true]]),
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+      expect(await screen.findByTestId("external-agents-checking-codex")).toHaveTextContent(
+        /checking/i,
+      );
     });
 
-    it("shows Claude Code guided setup and saves the pasted token", async () => {
-      const setAgentAdapterCredential = vi.fn(async () => true);
-      const probeAgentAdapter = vi.fn(async () => null);
-      const { state, actions, user } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "unknown",
-            auth_error: "Save a Claude Code token here; Hecate validates it before storing.",
-          },
-        ],
-      }), { setAgentAdapterCredential, probeAgentAdapter });
-      render(<ConnectionsPanel state={state} actions={actions} />);
+    it("does not flash Claude Code local auth guidance before readiness is verified", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unknown",
+            },
+          ],
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-      expect(await screen.findByTestId("claude-code-guided-setup")).toBeTruthy();
-      await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
-      await user.click(screen.getByRole("button", { name: "Save" }));
-
-      expect(setAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN");
+      expect(await screen.findByTestId("external-agents-adapter-claude_code")).toBeTruthy();
+      expect(screen.queryByText("Local sign-in")).toBeNull();
+      expect(screen.queryByText(/does not store credentials/)).toBeNull();
+      expect(screen.queryByLabelText("Claude Code credential")).toBeNull();
     });
 
+    it("shows Claude Code local auth guidance when discovery reports missing auth", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              managed: true,
+              managed_package: "@agentclientprotocol/claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "unauthenticated",
+              auth_error: "Run `claude /login` in Terminal.",
+            },
+          ],
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-
-    it("keeps Claude Code token editing visible when the adapter handshake is ready but no token is configured", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "unknown",
-          },
-        ],
-        agentAdapterHealthByID: new Map([
-          ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
-        ]),
-      }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
-
-      expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
-      expect(screen.queryByText("Claude Code token verified")).toBeNull();
-      expect(screen.getByText("adapter installed")).toBeTruthy();
-      expect(screen.getByText("token not saved")).toBeTruthy();
-      expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+      expect(await screen.findByText("Local sign-in")).toBeTruthy();
+      expect(screen.getByText("claude /login")).toBeTruthy();
+      expect(screen.getByText(/does not store credentials/)).toBeTruthy();
+      expect(screen.queryByLabelText("Claude Code credential")).toBeNull();
     });
 
-    it("shows CLI sign-in separately from Hecate's adapter token", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "ok",
-          },
-        ],
-        agentAdapterHealthByID: new Map([
-          ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
-        ]),
-      }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
+    it("does not show Claude Code local auth guidance after the adapter probe succeeds", async () => {
+      const { state, actions } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              cost_mode: "external",
+              auth_status: "ok",
+            },
+          ],
+          agentAdapterHealthByID: new Map([
+            [
+              "claude_code",
+              { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 },
+            ],
+          ]),
+        }),
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-      expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
-      expect(screen.getByText("adapter installed")).toBeTruthy();
-      expect(screen.getByText("token not saved")).toBeTruthy();
-      expect(screen.getByText("CLI signed in")).toBeTruthy();
-      expect(screen.queryByText("Claude Code token verified")).toBeNull();
-      expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
-    });
-
-    it("shows a token-verified result after Claude Code token validation passes", async () => {
-      const { state, actions } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            auth_status: "unknown",
-            credential_configured: true,
-            credential_preview: "sk-a...SwAA",
-          },
-        ],
-        agentAdapterHealthByID: new Map([
-          ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
-        ]),
-      }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
-
-      expect(await screen.findByText("Claude Code token verified")).toBeTruthy();
-      expect(screen.getByText(/Hecate has a validated adapter token/)).toBeTruthy();
-      expect(screen.getByText("adapter installed")).toBeTruthy();
-      expect(screen.getByText("token valid")).toBeTruthy();
-      expect(screen.getByText(/Stored token/)).toBeTruthy();
-      expect(screen.getByText("Token valid.")).toBeTruthy();
+      expect(await screen.findByText("ready")).toBeTruthy();
+      expect(screen.queryByText("Local sign-in")).toBeNull();
       expect(screen.queryByTestId("external-agents-adapter-claude_code-auth-warning")).toBeNull();
-      expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
-      expect(screen.getByPlaceholderText("Paste a replacement CLAUDE_CODE_OAUTH_TOKEN")).toBeTruthy();
+      expect(screen.queryByLabelText("Claude Code credential")).toBeNull();
     });
 
-    it("can remove a stored Claude Code token", async () => {
-      const deleteAgentAdapterCredential = vi.fn(async () => true);
-      const { state, actions, user } = setup(withAdapter({
-        agentAdapters: [
-          {
-            id: "claude_code",
-            name: "Claude Code",
-            kind: "acp",
-            command: "claude-agent-acp",
-            available: true,
-            status: "available",
-            cost_mode: "external",
-            credential_configured: true,
-            credential_preview: "clau...oken",
-          },
-        ],
-      }), { deleteAgentAdapterCredential });
-      render(<ConnectionsPanel state={state} actions={actions} />);
-      await user.click(await screen.findByRole("button", { name: "Remove" }));
+    it("copies the Claude Code sign-in command", async () => {
+      const copyCommand = vi.fn(async () => undefined);
+      const { state, actions, user } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              managed: true,
+              managed_package: "@agentclientprotocol/claude-agent-acp",
+              cost_mode: "external",
+              auth_status: "unauthenticated",
+            },
+          ],
+        }),
+        { copyCommand },
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
-      expect(deleteAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "CLAUDE_CODE_OAUTH_TOKEN");
+      await user.click(await screen.findByRole("button", { name: "Copy command" }));
+      expect(copyCommand).toHaveBeenCalledWith("claude /login");
+    });
+
+    it("can retest an adapter after local sign-in", async () => {
+      const probeAgentAdapter = vi.fn(async () => null);
+      const { state, actions, user } = setup(
+        withAdapter({
+          agentAdapters: [
+            {
+              id: "claude_code",
+              name: "Claude Code",
+              kind: "acp",
+              command: "claude-agent-acp",
+              available: true,
+              status: "available",
+              managed: true,
+              managed_package: "@agentclientprotocol/claude-agent-acp",
+              cost_mode: "external",
+              auth_status: "unauthenticated",
+            },
+          ],
+        }),
+        { probeAgentAdapter },
+      );
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
+
+      await user.click(await screen.findByRole("button", { name: "Test again" }));
+      expect(probeAgentAdapter).not.toHaveBeenCalled();
+      expect(await screen.findByRole("dialog", { name: "Run managed agent check?" })).toBeTruthy();
+      expect(screen.getByText(/@agentclientprotocol\/claude-agent-acp/)).toBeTruthy();
+      await user.click(screen.getByRole("button", { name: "Run check" }));
+      expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
     });
   });
 });

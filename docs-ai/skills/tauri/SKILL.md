@@ -18,15 +18,15 @@ Operator-facing companion: [`../../../docs/desktop-app.md`](../../../docs/deskto
 
 ## Architecture in one paragraph
 
-The Tauri app is a thin chrome-frame around the Hecate gateway. On launch the Rust layer allocates a free loopback port, spawns the `hecate` binary as a companion process (not a Tauri shell-plugin sidecar — see gotchas), polls `/healthz` until the gateway is healthy, then navigates the webview to `http://127.0.0.1:{port}/`. The gateway serves its own embedded React UI. No second frontend build, no API bridge, no Vite dev server required.
+The Tauri app is a thin chrome-frame around the main Hecate runtime running in gateway mode. On launch the Rust layer allocates a free loopback port, spawns the `hecate` binary as a companion process (not a Tauri shell-plugin sidecar — see gotchas), polls `/healthz` until the gateway is healthy, then navigates the webview to `http://127.0.0.1:{port}/`. The gateway serves its own embedded React UI. No second frontend build, no API bridge, no Vite dev server required.
 
 ### Why we keep `//go:embed` instead of `frontendDist`
 
 Most Tauri apps point `tauri.conf.json` → `frontendDist: "../ui/dist"` and let the webview load UI files directly from the bundled app. We don't, on purpose:
 
 - **Same-origin loopback surface.** The webview loads from `http://127.0.0.1:{port}/` and the API is at `http://127.0.0.1:{port}/v1/...`. Same origin means no CORS dance and no Tauri IPC bridge. Splitting UI (`tauri://localhost`) from API (`127.0.0.1:{port}`) breaks that property and requires a meaningful security refactor to restore.
-- **Hecate-sidecar property.** The same `hecate` binary ships through Docker, the goreleaser tarballs, *and* the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
-- **Bundle-size cost is small.** Embedding adds ~13 MB to the binary, which means a `.dmg` of ~25 MB instead of ~12 MB. Desktop apps routinely ship at 100+ MB; this isn't a real constraint.
+- **Hecate-sidecar property.** The same `hecate` runtime binary ships through Docker, the goreleaser tarballs, _and_ the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
+- **Bundle-size cost is negligible.** The built UI is ~730 KB on disk (~200 KB gzipped over the wire). Embedding it adds ~2% to the `hecate` binary (32 MB → 33 MB) and ~1 MB to the `.dmg`. Desktop apps routinely ship at 100+ MB; this isn't even close to a constraint, and any "ship a UI-less variant" optimization would save kilobytes for a meaningful maintenance cost.
 
 If the gateway and UI ever decouple (gateway as pure API + separate static-server for UI), revisit this. Until then, keep the embed.
 
@@ -64,14 +64,14 @@ tauri/
 
 ## Just recipes
 
-| Recipe | What it does |
-|---|---|
-| `just tauri-install` | `bun install` inside `tauri/` |
-| `just tauri-version` | runs `scripts/stamp-version.ts` — stamps Cargo.toml, package.json, tauri.conf.json to current git tag (or `TAURI_VERSION`) |
-| `just tauri-sidecar` | `just build` then copies `hecate` → `tauri/src-tauri/binaries/hecate-{triple}` |
-| `just tauri-dev` | `tauri-sidecar` + `tauri-install` + `bunx tauri dev` |
-| `just tauri-build` | `tauri-sidecar` + `tauri-version` + `bunx tauri build` |
-| `just test-tauri-smoke` | app-only Tauri build + launch packaged macOS app, probe `/healthz`, quit, verify sidecar exits |
+| Recipe                  | What it does                                                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `just tauri-install`    | `bun install` inside `tauri/`                                                                                              |
+| `just tauri-version`    | runs `scripts/stamp-version.ts` — stamps Cargo.toml, package.json, tauri.conf.json to current git tag (or `TAURI_VERSION`) |
+| `just tauri-sidecar`    | `just build` then copies `hecate` → `tauri/src-tauri/binaries/hecate-{triple}`                                             |
+| `just tauri-dev`        | `tauri-sidecar` + `tauri-install` + `bunx tauri dev`                                                                       |
+| `just tauri-build`      | `tauri-sidecar` + `tauri-version` + `bunx tauri build`                                                                     |
+| `just test-tauri-smoke` | app-only Tauri build + launch packaged macOS app, probe `/healthz`, quit, verify sidecar exits                             |
 
 Pass `TAURI_TARGET=universal-apple-darwin` (or any Rust target triple) to `tauri-build` for cross-compile. With just, env vars go before the command: `TAURI_TARGET=universal-apple-darwin just tauri-build`. Run `just tauri-sidecar` separately when you change Go code but not Rust — it's the fast path.
 
@@ -82,20 +82,23 @@ Pass `TAURI_TARGET=universal-apple-darwin` (or any Rust target triple) to `tauri
 Three responsibilities:
 
 **`resolve_binary()`** — finds the `hecate` binary. Priority:
+
 1. `HECATE_BIN` env var (override for CI / custom layouts)
 2. Debug build: walks up from `CARGO_MANIFEST_DIR` (= `tauri/src-tauri`) → repo root → `hecate`
 3. Release build: looks next to the running executable for `hecate-{TARGET}` (externalBin canonical name) then plain `hecate`
 
-**`resolve_data_dir(app)`** — resolves the platform data directory via Tauri's path API, creates it if absent, passes it to the gateway as `GATEWAY_DATA_DIR`:
+**`resolve_data_dir(app)`** — resolves the platform data directory via Tauri's path API, creates it if absent, passes it to the gateway as `HECATE_DATA_DIR`:
+
 - macOS: `~/Library/Application Support/sh.hecate.app/`
 - Windows: `%APPDATA%\sh.hecate.app\`
 - Linux: `~/.local/share/sh.hecate.app/`
 
-**`spawn_and_wait(app)`** — spawns the hecate binary (via `std::process::Command`, not tokio — see gotchas), polls `/healthz` every 250 ms, returns `GatewayHandle { base_url, port, child }` on success.
+**`spawn_and_wait(app)`** — spawns the `hecate` runtime (via `std::process::Command`, not tokio — see gotchas), polls `/healthz` every 250 ms, returns `GatewayHandle { base_url, port, child }` on success.
 
 ### `lib.rs`
 
 Tauri builder setup:
+
 - Gets the `"main"` window (already created by `tauri.conf.json`) — does NOT call `WebviewWindowBuilder::new` (that would panic with "label already exists").
 - Manages `GatewayChild(Mutex<Option<std::process::Child>>)` in Tauri app state.
 - Spawns a `tauri::async_runtime` task: calls `spawn_and_wait`, stores the child, navigates the window.
@@ -104,6 +107,7 @@ Tauri builder setup:
 ## Gateway↔webview integration
 
 The webview loads `http://127.0.0.1:{port}/`. Because this is a loopback connection with no `Origin` header:
+
 - The gateway treats the native app as the local operator surface.
 - Browser same-origin checks still protect ordinary web traffic, but they are
   not a network security boundary.
@@ -111,32 +115,44 @@ The webview loads `http://127.0.0.1:{port}/`. Because this is a loopback connect
 
 ## Binary resolver — dev vs release
 
-| Context | How `hecate` is found |
-|---|---|
-| `just tauri-dev` | `CARGO_MANIFEST_DIR/../../hecate` (repo root, built by `just build`) |
-| `just tauri-build` bundle | `exe_dir/hecate-{TARGET}` (placed by Tauri's externalBin bundler) |
-| Any context | `HECATE_BIN` env var wins if set |
+| Context                   | How `hecate` is found                                                |
+| ------------------------- | -------------------------------------------------------------------- |
+| `just tauri-dev`          | `CARGO_MANIFEST_DIR/../../hecate` (repo root, built by `just build`) |
+| `just tauri-build` bundle | `exe_dir/hecate-{TARGET}` (placed by Tauri's externalBin bundler)    |
+| Any context               | `HECATE_BIN` env var wins if set                                     |
 
 The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's bundler to include the sidecar binary. When signing is configured later, Tauri signs/notarizes bundled sidecars as part of the native app pipeline. `just tauri-sidecar` stages it as `binaries/hecate-{triple}` which is the name the bundler expects.
 
 ## Process lifecycle
 
-- The hecate child is spawned with `stdin/stdout/stderr = null` so it doesn't inherit the Tauri terminal.
-- The `Child` handle is stored in `GatewayChild` managed state.
+- The hecate child is spawned with `stdin = null` and `stdout = null` so it doesn't fight the Tauri process for the terminal in dev mode; `stderr` is redirected to `<data_dir>/gateway.log` (truncated per launch) so startup failures stay diagnosable instead of vanishing.
+- The native wrapper writes lifecycle breadcrumbs to `app.log`: app startup,
+  sidecar spawn/readiness, navigation, update-check dispatch, badge failures,
+  graceful drain, fallback kill, runtime-state cleanup, and ACP adapter
+  process/session lifecycle. When debugging desktop issues, inspect `app.log`
+  for wrapper behavior and `gateway.log` for gateway stderr.
+- The `Child` handle is stored in `GatewayChild` managed state; the gateway's base URL is stored alongside it in `GatewayBaseURL` so the close-window flow can reach the gateway HTTP surface.
 - The splash remains visible for at least 2 s before navigating to the gateway UI; keep this native-side so fast startups don't create a flash.
 - `tauri-plugin-window-state` restores size and position between launches.
-- `RunEvent::Exit` kills the child via `child.kill()` before the app exits.
+- **Quit funnel.** Every "user wants to quit" trigger (red-X `WindowEvent::CloseRequested`, `cmd+Q` / menu Quit `RunEvent::ExitRequested`) is intercepted and routed through `handle_quit_request`:
+  1. `GET /hecate/v1/system/stats` → `running_runs`.
+  2. If > 0, native confirmation dialog (`tauri-plugin-dialog`). "Keep running" cancels and clears the latch; "Quit anyway" continues.
+  3. `POST /hecate/v1/system/shutdown` → poll `/healthz` until it stops responding (12 s deadline). The endpoint writes to a buffered quit channel that joins the same `select` as `SIGINT`/`SIGTERM` in `cmd/hecate/main.go`, so the gateway runs its existing drain (retention cancel, runner shutdown, HTTP server shutdown).
+  4. `app.exit(0)`.
+  - `QUIT_IN_PROGRESS` atomic latch keeps `app.exit(0)`'s re-entrant `ExitRequested` from re-prompting.
+- `RunEvent::Exit` is the final cleanup: `child.try_wait()` for up to 2 s (graceful path leaves nothing to wait on) and then `child.kill()` as a fallback if the gateway never exited (drain timed out, /system/shutdown unreachable, etc.). Also removes `hecate.runtime.json` from the data dir.
 - If the gateway fails to start within 30 s, the splash switches to a failure panel with the error, gateway log path, and data-dir path. The native Hecate menu can open both paths even when the gateway UI never loads.
 
 ## Tauri-specific rules
 
 - **Never call `WebviewWindowBuilder::new(app, "main", …)` in setup.** The window is already created by `tauri.conf.json`; calling the builder again panics with "a webview with label `main` already exists". Use `app.get_webview_window("main")` instead.
 - **`tauri.conf.json` `plugins.shell` does not accept a `sidecar` field.** In Tauri 2.x the shell plugin config only accepts `open`. Sidecar permissions are set in `capabilities/default.json`.
-- **Use `std::process::Command`, not `tokio::process::Command`.** The `Child::kill()` call must be synchronous (called from `RunEvent::Exit`, not an async runtime). tokio's `Child::kill()` is async and cannot be awaited from the exit handler.
+- **Use `std::process::Command`, not `tokio::process::Command`.** The `Child::kill()` and `Child::try_wait()` calls in `RunEvent::Exit` must be synchronous — the exit handler is not running in an async runtime. tokio's `Child` API is async and would need to be awaited, which isn't possible there.
 - **`externalBin` uses the target triple suffix.** The binary must be named `hecate-{triple}` in `tauri/src-tauri/binaries/`. `just tauri-sidecar` does this automatically. The release-mode path resolver tries `hecate-{TARGET}` (compile-time constant) then plain `hecate`.
-- **The gateway data directory must be writable.** A bundled `.app` on macOS is read-only. Always pass `GATEWAY_DATA_DIR` pointing to the Tauri-resolved app data directory — never let the gateway default to `.data/` next to its binary.
+- **The gateway data directory must be writable.** A bundled `.app` on macOS is read-only. Always pass `HECATE_DATA_DIR` pointing to the Tauri-resolved app data directory — never let the gateway default to `.data/` next to its binary.
 - **`gen/schemas/` is committed.** These files are generated by `tauri dev`/`tauri build` and needed at compile time for the capabilities system. Don't gitignore them.
 - **`env!("TARGET")` requires `build.rs` forwarding.** Cargo sets `TARGET` for build scripts, not for the main crate compile. `tauri/src-tauri/build.rs` re-exports it via `cargo:rustc-env=TARGET=...` so `env!("TARGET")` resolves in `src/sidecar.rs`. Worked locally only because the incremental cache held the artifact; clean builds (CI) surface the error.
+- **Updater install does not relaunch by itself.** The JS updater's `downloadAndInstall()` only downloads and applies the bundle. The UI must call `@tauri-apps/plugin-process` `relaunch()` afterwards, the Rust app must register `tauri_plugin_process::init()`, and `capabilities/default.json` must include `process:allow-restart`. On macOS, the install promise can stall after the download reaches 100%; keep the renderer watchdog in `ui/src/lib/desktop-update.ts` so Hecate still relaunches instead of pinning the banner forever.
 - **Icons must be format-correct, not just valid PNGs.** Renaming a `.png` to `.ico`/`.icns` makes the macOS bundler tolerate it, but Windows `RC.EXE` strictly validates ICO format and the build fails. Regenerate the full set with `bunx @tauri-apps/cli icon path/to/source.png` whenever artwork changes — it produces real `.ico` (multi-size MS Windows resource) and `.icns` (Mac OS X icon). Prune the iOS/Android/Microsoft Store outputs unless you actually ship to those platforms.
 - **`permissions/autogenerated/` is committed**, same as `gen/schemas/`. `tauri-build` regenerates the per-command `allow-*`/`deny-*` TOML files there whenever you change `AppManifest::commands(&[...])` in `build.rs`. Commit the regenerated files — they're part of the ACL surface and reviewers should see them change when commands are added or renamed.
 
@@ -146,12 +162,12 @@ Tauri 2 gates every IPC call (custom commands AND auto-injected runtime scripts 
 
 ### Symptom → cause table
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| `data-tauri-drag-region` doesn't drag the window on the gateway UI but works on the splash | The gateway origin (`http://127.0.0.1:{port}`) isn't an allowed remote URL for the capability | Add `"remote": { "urls": ["http://127.0.0.1:*/*"] }` to `capabilities/default.json` |
-| Drag doesn't work anywhere | `core:window:allow-start-dragging` not in the capability's `permissions` (not in `core:default`) | Add it explicitly |
-| `invoke("my_command", …)` rejects with `"… not allowed. Plugin not found"` | App-defined commands have no ACL entry by default; on remote origins they're rejected | Add to `AppManifest::commands(&[...])` in `build.rs` *and* reference the generated `allow-<command>` in the capability |
-| Webview console shows nothing on click but drag still fails | Tauri's `drag.js` reject is unhandled — promise rejection vanishes. Add temporary capture-phase `mousedown` listener in App.tsx that invokes `getCurrentWindow().startDragging()` with an explicit `.catch(console.warn)` | Diagnostic only; remove once the capability is right |
+| Symptom                                                                                    | Likely cause                                                                                                                                                                                                              | Fix                                                                                                                    |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `data-tauri-drag-region` doesn't drag the window on the gateway UI but works on the splash | The gateway origin (`http://127.0.0.1:{port}`) isn't an allowed remote URL for the capability                                                                                                                             | Add `"remote": { "urls": ["http://127.0.0.1:*/*"] }` to `capabilities/default.json`                                    |
+| Drag doesn't work anywhere                                                                 | `core:window:allow-start-dragging` not in the capability's `permissions` (not in `core:default`)                                                                                                                          | Add it explicitly                                                                                                      |
+| `invoke("my_command", …)` rejects with `"… not allowed. Plugin not found"`                 | App-defined commands have no ACL entry by default; on remote origins they're rejected                                                                                                                                     | Add to `AppManifest::commands(&[...])` in `build.rs` _and_ reference the generated `allow-<command>` in the capability |
+| Webview console shows nothing on click but drag still fails                                | Tauri's `drag.js` reject is unhandled — promise rejection vanishes. Add temporary capture-phase `mousedown` listener in App.tsx that invokes `getCurrentWindow().startDragging()` with an explicit `.catch(console.warn)` | Diagnostic only; remove once the capability is right                                                                   |
 
 ### What `core:default` includes (and doesn't)
 
@@ -193,7 +209,7 @@ The relevant pieces live in `ui/src/app/`:
 
 ### Rules
 
-- **`data-tauri-drag-region` values matter.** Bare attribute / `="true"` / `=""` triggers drag *only* when the click target IS that element — a click on any child doesn't drag. Use `="deep"` when you wrap interactive content (titlebar with banner buttons) so the empty parent areas drag while children stay live. Tauri's drag.js auto-detects clickable elements (`<button>`, `<input>`, `<a>`, things with `role=button`, `contenteditable`, non-`-1` `tabindex`) and skips drag for them; no `-webkit-app-region: no-drag` opt-out needed.
+- **`data-tauri-drag-region` values matter.** Bare attribute / `="true"` / `=""` triggers drag _only_ when the click target IS that element — a click on any child doesn't drag. Use `="deep"` when you wrap interactive content (titlebar with banner buttons) so the empty parent areas drag while children stay live. Tauri's drag.js auto-detects clickable elements (`<button>`, `<input>`, `<a>`, things with `role=button`, `contenteditable`, non-`-1` `tabindex`) and skips drag for them; no `-webkit-app-region: no-drag` opt-out needed.
 - **Don't rely on CSS `-webkit-app-region: drag` on macOS.** Modern WKWebView doesn't honor it in Tauri 2; the JS-based `data-tauri-drag-region` path (gated on `core:window:allow-start-dragging`) is the one that actually works.
 - **Set `user-select: none` and `cursor: default` on the titlebar.** Without them, dragging from over the banner text leaves a selection smear and the I-beam cursor flickers.
 - **Splash drag works without the remote-URL capability** because `frontendDist: "../splash"` is a local origin. The main UI needs `remote.urls` (see the Capabilities / ACL section).
@@ -201,6 +217,7 @@ The relevant pieces live in `ui/src/app/`:
 ## Adding a new Tauri feature
 
 Before adding Tauri commands (`#[tauri::command]`) or IPC:
+
 - Check if the gateway REST API already covers the use case. The webview can call `http://127.0.0.1:{port}/v1/…` directly — no IPC needed for gateway operations.
 - Use IPC only for truly desktop-native concerns: file dialogs, OS notifications, system tray, auto-update triggers, deep links.
 
@@ -226,6 +243,7 @@ just test-tauri-smoke
 ```
 
 `cargo check` is the fast iteration loop. Full `tauri dev` is the integration test — it exercises the real binary, real port allocation, real healthz poll, and the webview navigation.
+`just tauri-rust-test` runs the Rust test suite with a placeholder sidecar; use it for Tauri Rust changes that don't need a real gateway binary.
 `just test-tauri-smoke` is the packaged-app lifecycle check for macOS; it is
 not part of `verify` because it opens a GUI window.
 
@@ -233,29 +251,31 @@ not part of `verify` because it opens a GUI window.
 
 Three workflow files split responsibilities:
 
-| File | Trigger | What it does |
-|---|---|---|
-| `.github/workflows/_tauri-shared.yml` | `workflow_call` only | Reusable matrix build. Single source of truth for Tauri build steps. |
-| `.github/workflows/release.yml` | tag push (`v*`) | Goreleaser job, then calls `_tauri-shared.yml` with `tagName` set → bundles upload to the GitHub Release. |
-| `.github/workflows/test.yml` | PR / `master` push | Main test gate. Its `Tauri desktop bundles` job calls `_tauri-shared.yml` after cheaper checks pass or skip. |
-| `.github/workflows/tauri-build.yml` | manual dispatch | Explicit desktop rebuild/debug run from the Actions tab. |
+| File                                  | Trigger              | What it does                                                                                                 |
+| ------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `.github/workflows/_tauri-shared.yml` | `workflow_call` only | Reusable matrix build. Single source of truth for Tauri build steps.                                         |
+| `.github/workflows/release.yml`       | tag push (`v*`)      | Goreleaser job, then calls `_tauri-shared.yml` with `tagName` set → bundles upload to the GitHub Release.    |
+| `.github/workflows/test.yml`          | PR / `master` push   | Main test gate. Its `Tauri desktop bundles` job calls `_tauri-shared.yml` after cheaper checks pass or skip. |
+| `.github/workflows/tauri-build.yml`   | manual dispatch      | Explicit desktop rebuild/debug run from the Actions tab.                                                     |
 
 **Matrix** (same for both callers):
 
-| Runner | Rust target | Bundles produced |
-|---|---|---|
-| `macos-latest` | `aarch64-apple-darwin` | `.dmg` |
-| `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb`, `.AppImage` |
-| `windows-latest` | `x86_64-pc-windows-msvc` | `.msi` |
+| Runner           | Rust target                | Bundles produced    |
+| ---------------- | -------------------------- | ------------------- |
+| `macos-latest`   | `aarch64-apple-darwin`     | `.dmg`              |
+| `ubuntu-22.04`   | `x86_64-unknown-linux-gnu` | `.deb`, `.AppImage` |
+| `windows-latest` | `x86_64-pc-windows-msvc`   | `.msi`              |
 
-**Steps per matrix leg** (in `_tauri-shared.yml`): Rust + Go + Bun setup → Linux Tauri 2 prereqs (webkit2gtk-4.1, libxdo, patchelf, …) → `just ui-install` → `just tauri-sidecar <matrix-target>` (builds `hecate` / `hecate-acp` with the tag injected, then stages them as `binaries/<name>-{triple}[.exe]`) → `cd tauri && bun install --frozen-lockfile` → `bun scripts/stamp-version.ts` → `tauri-apps/tauri-action@v0` (build, conditionally upload).
+**Steps per matrix leg** (in `_tauri-shared.yml`): Rust + Go + Bun setup → Linux Tauri 2 prereqs (webkit2gtk-4.1, libxdo, patchelf, …) → `just ui-install` → `just tauri-sidecar <matrix-target>` (builds `hecate` with the tag injected, then stages it as `binaries/hecate-{triple}[.exe]`) → `cd tauri && bun install --frozen-lockfile` → `bun scripts/stamp-version.ts` → `tauri-apps/tauri-action@v0` (build, conditionally upload).
 
 **PR-run behaviour:** `test.yml` owns PR validation. Its path filter scopes the
 desktop matrix to changes that could plausibly break a Tauri build (`tauri/**`,
-`cmd/hecate/**`, `cmd/hecate-acp/**`, `ui/**`, `Justfile`, version scripts,
-release packaging files, and `.github/workflows/*.yml`). The matrix waits for
-the cheaper Go, TypeScript, e2e, Docker smoke, and Tauri Rust jobs to pass (or
-skip by path filter) before it starts, and it does not upload unsigned bundles.
+`cmd/hecate/**`, `Justfile`, `just/**`, version scripts, release
+packaging files, and `.github/workflows/*.yml`). UI-only PRs do not trigger the
+desktop matrix; they are covered by the TypeScript jobs and by `build-hecate`,
+which rebuilds the embedded UI. The desktop matrix waits for the cheaper Go,
+TypeScript, e2e, Docker smoke, and Tauri Rust jobs to pass (or skip by path
+filter) before it starts, and it does not upload unsigned bundles.
 `concurrency: cancel-in-progress: true` cancels older runs on the same ref.
 `tauri-build.yml` is manual-only for explicit desktop reruns/debugging; dispatch
 it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
@@ -265,9 +285,9 @@ it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
 ### Pipeline footguns
 
 - **`tauri-action`'s auto-install is unreliable with `projectPath` set.** It silently skips `bun install` in `tauri/`, leaving `node_modules/.bin/tauri` missing — `bun run tauri build` then fails with "tauri: command not found". Always run `cd tauri && bun install --frozen-lockfile` ourselves before the action.
-- **`build.rs` validates `externalBin` paths at build-script run time.** Any step that compiles the Rust crate (`cargo check`, `cargo build`, `tauri build`) needs the sidecar staged at `binaries/hecate-{triple}[.exe]` first. Run `just tauri-sidecar <target>` before any Rust compile; it builds and stages the versioned sidecars in one step. Plain `just build` leaves the gateway version as `dev`; release/native bundles need the versioned sidecar path so `/healthz` and the UI status bar match the Tauri app version.
+- **`build.rs` validates `externalBin` paths at build-script run time.** Any step that compiles the Rust crate (`cargo check`, `cargo build`, `tauri build`) needs a sidecar file staged at `binaries/hecate-{triple}[.exe]` first. For Rust-only tests/checks, run `just tauri-test-sidecar` or `just tauri-rust-test`; those stage a lightweight placeholder because the gateway is not executed. For real dev/build/release bundles, run `just tauri-sidecar <target>` so `/healthz` and the UI status bar report the packaged Tauri version instead of `dev`.
 - **Just + Git Bash on Windows runners.** Set `defaults.run.shell: bash` job-wide. Default Windows shell is PowerShell; the Justfile shell recipes and our `cp`/`if` blocks only work in bash. On Windows runners, `bash` resolves to Git Bash.
-- **Go sidecar names differ by host and bundle target.** `just tauri-sidecar <target>` reads `go env GOEXE`, then stages `hecate$GOEXE` and `hecate-acp$GOEXE` to `binaries/<name>-<target>$GOEXE`. A missing source fails at `cp`, which usually means the versioned sidecar build failed earlier in the recipe.
+- **Go sidecar names differ by host and bundle target.** `just tauri-sidecar <target>` reads `go env GOEXE`, then stages `hecate$GOEXE` to `binaries/hecate-<target>$GOEXE`. A missing source fails at `cp`, which usually means the versioned sidecar build failed earlier in the recipe.
 - **`just tauri-build-sidecars` runs `just ui-build` which checks for `ui/node_modules/@vitejs/plugin-react`.** That's the canary file. CI must run `just ui-install` before building Tauri sidecars. Goreleaser handles the normal gateway build via its `before:` hook (`bun install --cwd ui --frozen-lockfile`); the Tauri matrix does it explicitly.
 - **`TAURI_VERSION` may include the `v` prefix.** `scripts/resolve-tauri-version.ts` normalizes either `v0.1.0-alpha.N` or `0.1.0-alpha.N`; both `stamp-version.ts` and `just tauri-build-sidecars` use that shared resolver so Tauri metadata and Go sidecar versions stay aligned.
 - **Windows MSI rejects pre-release identifiers in the version.** WiX requires a four-part numeric `Major.Minor.Build.Revision` (each ≤ 65535). `0.1.0-alpha.8` fails with "optional pre-release identifier in app version must be numeric-only". `stamp-version.ts` writes a derived four-part version to `bundle.windows.wix.version` (e.g. `0.1.0-alpha.8` → `0.1.0.8`); MSI uses that override, every other bundler still sees the canonical semver. NSIS has no version-override field in Tauri's schema — the matrix is MSI-only on Windows for that reason. If NSIS is ever added, expect the same failure mode and find an upstream fix.
@@ -276,7 +296,11 @@ it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
 
 macOS bundles are signed with a Developer ID Application certificate and notarized by Apple **on release-workflow runs when the seven `APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets are configured**. "Release-workflow run" = any invocation of `release.yml` (tag push or `workflow_dispatch`); both pass a non-empty `tagName` to the reusable workflow. The CI workflow in `.github/workflows/_tauri-shared.yml` reads the secrets via env, gated on two conditions in series: `matrix.os == 'macos-latest'` AND `inputs.tagName != ''`. PR validation in `test.yml` and manual `tauri-build.yml` rebuilds deliberately do not use `secrets: inherit`, so they always produce unsigned bundles by design — they're throwaway artifacts. Maintainer-side setup checklist for the secrets is in [`docs/macos-signing.md`](../../../docs/macos-signing.md), including a verification recipe and a rotation playbook. Operators downloading an unsigned build (PR validation, fork builds, releases cut before secrets landed) need right-click → Open on first launch.
 
-Windows MSI signing (Authenticode + EV cert ~$300+/yr) is not yet wired. SmartScreen warns until it lands; document in release notes.
+macOS Apple Silicon is the only desktop path maintainers currently launch-test.
+Linux `.deb` / `.AppImage` and Windows `.msi` bundles are CI-built but have not
+yet been manually exercised on real machines; keep README, release notes, and
+docs honest about that. Windows MSI signing (Authenticode + EV cert ~$300+/yr)
+is not yet wired, so SmartScreen warnings are expected once the MSI is tested.
 
 ### Auto-update
 
@@ -295,5 +319,5 @@ Outside the Tauri runtime (web build, Docker, bare-binary serving the embedded U
 
 - `cargo check` passes with no warnings.
 - `just tauri-dev` launches the window, shows the splash, navigates to the gateway UI, and auto-logs in without a token paste.
-- Closing the window does not leave a `hecate` process running (`pgrep hecate` returns nothing after quit).
+- Closing the window — red-X, `cmd+Q`, or menu Quit — leaves no `hecate` process running (`pgrep hecate` returns nothing after quit), via the graceful drain path. Running tasks surface a confirmation dialog before being interrupted.
 - See [`../../core/verification.md`](../../core/verification.md) for the full ladder.

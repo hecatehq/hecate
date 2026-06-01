@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/controlplane"
-	"github.com/hecate/agent-runtime/internal/secrets"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/secrets"
 )
 
 type ControlPlaneRuntimeManager struct {
@@ -32,7 +32,7 @@ func NewControlPlaneRuntimeManager(logger *slog.Logger, baseConfigs []config.Ope
 }
 
 // SetGlobalAnthropicCacheDisabled records the gateway-wide
-// GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle (inverted). Once set,
+// HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle (inverted). Once set,
 // every Anthropic-protocol provider that enters the registry through
 // Reload — whether it came from env, the control-plane UI, or any
 // future on-demand registration path — has its cache flag stamped to
@@ -220,19 +220,17 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			Enabled:      true,
 		}
 		// Apply the gateway-wide Anthropic cache toggle to any
-		// Anthropic-protocol provider, regardless of whether it has
-		// a matching env-derived base config. The flag is global by
+		// provider whose protocol respects it. The flag is global by
 		// design (the AnthropicProvider's caching behavior is the
 		// same conceptual knob whether the operator added the
 		// provider via env or via the Providers tab); inheriting it
 		// only via name-match left CP-only Anthropic providers stuck
 		// at the default. SetGlobalAnthropicCacheDisabled is the
 		// single source of truth.
-		if strings.EqualFold(cfg.Protocol, "anthropic") {
+		if entry, _ := lookupProtocolDispatch(cfg.Protocol); entry.SupportsAnthropicCache {
 			cfg.AnthropicCacheDisabled = m.anthropicCacheDisabled
 		}
 		if builtIn, ok := builtInForControlPlaneProvider(item); ok {
-			cfg.KnownModels = append([]string(nil), builtIn.Models...)
 			cfg.ChatPath = builtIn.ChatPath
 			cfg.ModelsPath = builtIn.ModelsPath
 		}
@@ -382,12 +380,8 @@ func buildProviders(configs []config.OpenAICompatibleProviderConfig, logger *slo
 			logger.Warn("skipping provider with empty name")
 			continue
 		}
-		switch strings.ToLower(strings.TrimSpace(providerCfg.Protocol)) {
-		case "anthropic":
-			items = append(items, NewAnthropicProvider(providerCfg, logger))
-		default:
-			items = append(items, NewOpenAICompatibleProvider(providerCfg, logger))
-		}
+		entry, _ := lookupProtocolDispatch(providerCfg.Protocol)
+		items = append(items, entry.Constructor(providerCfg, logger))
 	}
 	return items
 }

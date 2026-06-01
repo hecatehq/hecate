@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/storage"
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 // SQLiteApprovalStore is the durable backend for agent-chat approvals
@@ -19,10 +19,10 @@ import (
 // Schema is created by migrate() on construction; the store is safe
 // to instantiate multiple times against the same client. Two tables:
 //
-//   - agent_chat_approvals  — one row per RequestPermission. The full
+//   - chat_approvals        — one row per RequestPermission. The full
 //     ACP payload + options are stored as JSON blobs so the wire shape
 //     can evolve without schema churn.
-//   - agent_chat_approval_grants — operator-authored "always allow /
+//   - chat_approval_grants — operator-authored "always allow /
 //     always deny" decisions broader than `once` scope.
 //
 // Process-local waiters are NOT persisted: a Hecate restart cannot
@@ -46,10 +46,10 @@ func NewSQLiteApprovalStore(ctx context.Context, client *storage.SQLiteClient) (
 	}
 	store := &SQLiteApprovalStore{
 		client:        client,
-		approvals:     client.QualifiedTable("agent_chat_approvals"),
-		grants:        client.QualifiedTable("agent_chat_approval_grants"),
-		approvalsBase: client.TableName("agent_chat_approvals"),
-		grantsBase:    client.TableName("agent_chat_approval_grants"),
+		approvals:     client.QualifiedTable("chat_approvals"),
+		grants:        client.QualifiedTable("chat_approval_grants"),
+		approvalsBase: client.TableName("chat_approvals"),
+		grantsBase:    client.TableName("chat_approval_grants"),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -356,6 +356,12 @@ func (s *SQLiteApprovalStore) DeleteGrant(ctx context.Context, id string) error 
 	return nil
 }
 
+// Prune implements retention.Pruner. See ApprovalRetentionStore.Prune
+// for the contract.
+func (s *SQLiteApprovalStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+	return pruneApprovalsAndGrants(ctx, s, maxAge, maxCount)
+}
+
 // PruneExpiredGrants removes grants whose ExpiresAt is in the past.
 // Returns the number deleted. Called by the retention worker. Live
 // grants (no expiry, or expiry in the future) are never touched.
@@ -588,7 +594,7 @@ func (s *SQLiteApprovalStore) migrate(ctx context.Context) error {
 			s.approvals,
 		),
 	); err != nil {
-		return fmt.Errorf("migrate sqlite agent_chat_approvals: %w", err)
+		return fmt.Errorf("migrate sqlite chat_approvals: %w", err)
 	}
 	if _, err := s.client.DB().ExecContext(
 		ctx,
@@ -626,7 +632,7 @@ func (s *SQLiteApprovalStore) migrate(ctx context.Context) error {
 			s.grants,
 		),
 	); err != nil {
-		return fmt.Errorf("migrate sqlite agent_chat_approval_grants: %w", err)
+		return fmt.Errorf("migrate sqlite chat_approval_grants: %w", err)
 	}
 	if _, err := s.client.DB().ExecContext(
 		ctx,

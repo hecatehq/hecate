@@ -36,11 +36,11 @@ For the full request lifecycle that produces these traces, see [`architecture.md
 
 Hecate produces three independent observability surfaces. They overlap in vocabulary but serve different consumers; mixing them up is the most common cause of "I'm seeing the wrong shape" confusion.
 
-| Surface | Where it lives | What it's for | Reference |
-|---|---|---|---|
-| **OTel traces / metrics / logs** | Your tracing backend (via OTLP/HTTP export) | Long-term observability across many requests | This doc |
-| **Persisted run events** | The gateway's `task_state_run_events` table | Subscribe-able timeline of one task or many; powers operator UI + dashboards | [`events.md`](events.md) |
-| **Response headers + `/hecate/v1/traces`** | Per-request, in-memory | Fast local debugging without a collector | This doc |
+| Surface                                    | Where it lives                              | What it's for                                                                | Reference                |
+| ------------------------------------------ | ------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------ |
+| **OTel traces / metrics / logs**           | Your tracing backend (via OTLP/HTTP export) | Long-term observability across many requests                                 | This doc                 |
+| **Persisted run events**                   | The gateway's `task_state_run_events` table | Subscribe-able timeline of one task or many; powers operator UI + dashboards | [`events.md`](events.md) |
+| **Response headers + `/hecate/v1/traces`** | Per-request, in-memory                      | Fast local debugging without a collector                                     | This doc                 |
 
 The `events.md` catalog is the canonical reference for what `/hecate/v1/events` and the per-run SSE feed will hand you. This doc focuses on OTel spans, metrics, and the local debug surfaces.
 
@@ -93,6 +93,9 @@ The trace endpoint returns:
 - the final provider, model, and route reason
 
 The Observability workspace in the operator UI surfaces traces, request history, and run-state cards.
+The event flow keeps high-signal attributes compact by showing the first few
+inline, while hover titles and the trace details drawer preserve the complete
+attribute keys and values for debugging.
 
 ![Observability workspace — request history, run-state cards, and span tree](screenshots/observe.png)
 
@@ -103,10 +106,10 @@ independently.
 
 Shared identity (applied to traces, metrics, and logs as a single OpenTelemetry Resource):
 
-- `GATEWAY_OTEL_SERVICE_NAME`
-- `GATEWAY_OTEL_SERVICE_VERSION`
-- `GATEWAY_OTEL_SERVICE_INSTANCE_ID` (auto-generated per process when unset)
-- `GATEWAY_OTEL_DEPLOYMENT_ENVIRONMENT` (e.g. `production`, `staging`)
+- `HECATE_OTEL_SERVICE_NAME`
+- `HECATE_OTEL_SERVICE_VERSION`
+- `HECATE_OTEL_SERVICE_INSTANCE_ID` (auto-generated per process when unset)
+- `HECATE_OTEL_DEPLOYMENT_ENVIRONMENT` (e.g. `production`, `staging`)
 - `OTEL_RESOURCE_ATTRIBUTES` is honored last and can override any of the above
 
 The runtime also auto-detects telemetry SDK, host, and process attributes
@@ -115,12 +118,12 @@ can group instances without extra wiring.
 
 Shared OTLP defaults:
 
-- `GATEWAY_OTEL_ENDPOINT`
-- `GATEWAY_OTEL_HEADERS`
-- `GATEWAY_OTEL_TIMEOUT`
-- `GATEWAY_OTEL_TRANSPORT` — `http` (default) or `grpc`
+- `HECATE_OTEL_ENDPOINT`
+- `HECATE_OTEL_HEADERS`
+- `HECATE_OTEL_TIMEOUT`
+- `HECATE_OTEL_TRANSPORT` — `http` (default) or `grpc`
 
-When `GATEWAY_OTEL_ENDPOINT` is set with `http` transport, Hecate derives
+When `HECATE_OTEL_ENDPOINT` is set with `http` transport, Hecate derives
 standard OTLP/HTTP signal endpoints by appending `/v1/traces`, `/v1/metrics`,
 and `/v1/logs`.
 With `grpc` transport, the same host:port endpoint is used for every enabled
@@ -128,44 +131,45 @@ signal. Per-signal variables below override the shared defaults.
 
 Traces:
 
-- `GATEWAY_OTEL_TRACES_ENABLED`
-- `GATEWAY_OTEL_TRACES_ENDPOINT`
-- `GATEWAY_OTEL_TRACES_HEADERS`
-- `GATEWAY_OTEL_TRACES_TIMEOUT`
-- `GATEWAY_OTEL_TRACES_TRANSPORT`
-- `GATEWAY_OTEL_TRACES_SAMPLER` — one of `always_on`, `always_off`, `traceidratio`, `parentbased_always_on` (default), `parentbased_always_off`, `parentbased_traceidratio`
-- `GATEWAY_OTEL_TRACES_SAMPLER_ARG` — float in `[0, 1]`, used by the ratio samplers
+- `HECATE_OTEL_TRACES_ENABLED`
+- `HECATE_OTEL_TRACES_ENDPOINT`
+- `HECATE_OTEL_TRACES_HEADERS`
+- `HECATE_OTEL_TRACES_TIMEOUT`
+- `HECATE_OTEL_TRACES_TRANSPORT`
+- `HECATE_OTEL_TRACES_SAMPLER` — one of `always_on`, `always_off`, `traceidratio`, `parentbased_always_on` (default), `parentbased_always_off`, `parentbased_traceidratio`
+- `HECATE_OTEL_TRACES_SAMPLER_ARG` — float in `[0, 1]`, used by the ratio samplers
 
 Metrics:
 
-- `GATEWAY_OTEL_METRICS_ENABLED`
-- `GATEWAY_OTEL_METRICS_ENDPOINT`
-- `GATEWAY_OTEL_METRICS_HEADERS`
-- `GATEWAY_OTEL_METRICS_TIMEOUT`
-- `GATEWAY_OTEL_METRICS_TRANSPORT`
-- `GATEWAY_OTEL_METRICS_INTERVAL`
-- `GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER` — optional override for histogram/counter exemplar sampling: `trace_based` (SDK default), `always_on`, or `always_off`
+- `HECATE_OTEL_METRICS_ENABLED`
+- `HECATE_OTEL_METRICS_ENDPOINT`
+- `HECATE_OTEL_METRICS_HEADERS`
+- `HECATE_OTEL_METRICS_TIMEOUT`
+- `HECATE_OTEL_METRICS_TRANSPORT`
+- `HECATE_OTEL_METRICS_INTERVAL`
+- `HECATE_OTEL_METRICS_EXEMPLAR_FILTER` — optional override for histogram/counter exemplar sampling: `trace_based` (SDK default), `always_on`, or `always_off`
 
 Logs:
 
-- `GATEWAY_OTEL_LOGS_ENABLED`
-- `GATEWAY_OTEL_LOGS_ENDPOINT`
-- `GATEWAY_OTEL_LOGS_HEADERS`
-- `GATEWAY_OTEL_LOGS_TIMEOUT`
-- `GATEWAY_OTEL_LOGS_TRANSPORT`
+- `HECATE_OTEL_LOGS_ENABLED`
+- `HECATE_OTEL_LOGS_ENDPOINT`
+- `HECATE_OTEL_LOGS_HEADERS`
+- `HECATE_OTEL_LOGS_TIMEOUT`
+- `HECATE_OTEL_LOGS_TRANSPORT`
 
 Behavior to know:
 
-- traces export only when `GATEWAY_OTEL_TRACES_ENABLED=true`
-- metrics export only when `GATEWAY_OTEL_METRICS_ENABLED=true`
-- logs export only when `GATEWAY_OTEL_LOGS_ENABLED=true`
+- traces export only when `HECATE_OTEL_TRACES_ENABLED=true`
+- metrics export only when `HECATE_OTEL_METRICS_ENABLED=true`
+- logs export only when `HECATE_OTEL_LOGS_ENABLED=true`
 - signal-specific endpoint, headers, timeout, and transport override shared settings
 - if log endpoint, headers, timeout, or transport are omitted, log export falls back to the trace signal settings
 
 Trace body capture is configured separately from OTLP export:
 
-- `GATEWAY_TRACE_BODIES`
-- `GATEWAY_TRACE_BODY_MAX_BYTES`
+- `HECATE_TRACE_BODIES`
+- `HECATE_TRACE_BODY_MODE`
+- `HECATE_TRACE_BODY_MAX_BYTES`
 
 ## Trace Context Propagation
 
@@ -201,7 +205,7 @@ tests enforce three invariants for known events:
 Event families that need operator-facing guarantees can also declare required
 attributes. The test suite currently validates required attributes for the
 core gateway request path, provider execution, usage/cost, response return,
-and external agent-chat lifecycle. When adding a new runtime event, add it to
+and external chat lifecycle. When adding a new runtime event, add it to
 the contract first, then choose the span and phase deliberately.
 
 ## Core Vocabulary
@@ -293,16 +297,16 @@ Normalized results are:
 
 Gateway traces are centered around a small set of runtime stages. Each stage maps to a child span under the root `gateway.request` span:
 
-| Span name | Phase |
-|---|---|
-| `gateway.request` | Root span, present on every request |
-| `gateway.request.parse` | Request parsing and validation |
-| `gateway.governor` | Governor and policy decisions |
-| `gateway.router` | Route selection |
-| `gateway.provider` | Provider execution, retry, and failover |
-| `gateway.usage` | Usage normalization and recording |
-| `gateway.response` | Response return |
-| `gateway.runtime` | Catch-all for unknown or not-yet-classified events |
+| Span name               | Phase                                              |
+| ----------------------- | -------------------------------------------------- |
+| `gateway.request`       | Root span, present on every request                |
+| `gateway.request.parse` | Request parsing and validation                     |
+| `gateway.governor`      | Governor and policy decisions                      |
+| `gateway.router`        | Route selection                                    |
+| `gateway.provider`      | Provider execution, retry, and failover            |
+| `gateway.usage`         | Usage normalization and recording                  |
+| `gateway.response`      | Response return                                    |
+| `gateway.runtime`       | Catch-all for unknown or not-yet-classified events |
 
 Known Hecate event constants should not land in `gateway.runtime`; contract
 tests fail if they do.
@@ -311,14 +315,14 @@ Route selection emits OTel-shaped events under `gateway.router` so the local
 trace inspector and OTLP backends can explain the route, not just show the
 winner:
 
-| Event | When | Key attributes |
-|---|---|---|
-| `router.selected` | The router picked the initial provider/model | `gen_ai.provider.name`, `gen_ai.request.model`, `hecate.provider.kind`, `hecate.route.reason` |
-| `router.candidate.skipped` | A provider/model was not selected before execution | `hecate.route.skip_reason`, `hecate.provider.health_status`, `hecate.provider.index` |
-| `router.candidate.considered` | The executor is about to preflight/call a runtime candidate | `hecate.route.outcome=considered`, `hecate.provider.index` |
-| `router.candidate.denied` | Policy or route preflight denied a candidate | `hecate.route.skip_reason`, `hecate.cost.estimated_micros_usd`, `hecate.policy.rule_id`, `hecate.policy.reason` |
-| `router.candidate.selected` | A candidate survived preflight and will be called | `hecate.route.outcome=selected`, `hecate.cost.estimated_micros_usd` |
-| `governor.model_rewrite` | The governor rewrote the requested model before routing | `gen_ai.request.model.original`, `gen_ai.request.model.rewritten`, `hecate.policy.rule_id`, `hecate.policy.action`, `hecate.policy.reason` |
+| Event                         | When                                                        | Key attributes                                                                                                                             |
+| ----------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `router.selected`             | The router picked the initial provider/model                | `gen_ai.provider.name`, `gen_ai.request.model`, `hecate.provider.kind`, `hecate.route.reason`                                              |
+| `router.candidate.skipped`    | A provider/model was not selected before execution          | `hecate.route.skip_reason`, `hecate.provider.health_status`, `hecate.provider.index`                                                       |
+| `router.candidate.considered` | The executor is about to preflight/call a runtime candidate | `hecate.route.outcome=considered`, `hecate.provider.index`                                                                                 |
+| `router.candidate.denied`     | Policy or route preflight denied a candidate                | `hecate.route.skip_reason`, `hecate.cost.estimated_micros_usd`, `hecate.policy.rule_id`, `hecate.policy.reason`                            |
+| `router.candidate.selected`   | A candidate survived preflight and will be called           | `hecate.route.outcome=selected`, `hecate.cost.estimated_micros_usd`                                                                        |
+| `governor.model_rewrite`      | The governor rewrote the requested model before routing     | `gen_ai.request.model.original`, `gen_ai.request.model.rewritten`, `hecate.policy.rule_id`, `hecate.policy.action`, `hecate.policy.reason` |
 
 Common skip reasons include `unsupported_model`, `circuit_open`,
 `provider_not_requested`, `no_default_model`, `no_model`,
@@ -333,25 +337,37 @@ Provider execution also emits attempt-level metrics. These are intentionally
 separate from finalized chat metrics: retries and failed attempts are visible
 even when a later provider recovers the request.
 
-When `GATEWAY_TRACE_BODIES=true`, the gateway also records redacted, size-capped trace events named:
+When `HECATE_TRACE_BODIES=true`, the gateway also records trace events named:
 
 - `request.body.captured`
 - `response.body.captured`
 
-These events contain truncated message or choice snapshots and are intended for local debugging and carefully controlled observability setups, not blanket production payload capture.
+By default, `HECATE_TRACE_BODY_MODE=metadata` records only message shape:
+roles, content byte counts, content-block counts, tool-call counts, model, and
+finish reasons. It does not record prompt or response text. This is the
+recommended mode for routine local debugging because it preserves request shape
+without storing operator data in traces. Metadata capture is capped to the
+first 128 request messages or response choices and sets a `truncated` attribute
+when the event omits additional entries.
+
+`HECATE_TRACE_BODY_MODE=redacted_text` records size-capped text snapshots after
+heuristic secret redaction. This mode is for short-lived debugging in trusted
+local or tightly controlled observability setups. Redaction is best effort; it
+is not a data-loss-prevention boundary. `HECATE_TRACE_BODY_MAX_BYTES` only
+applies in `redacted_text` mode.
 
 ### Orchestrator Spans
 
 Coding-runtime operations emit their own spans, grouped by lifecycle stage:
 
-| Span name | Events |
-|---|---|
-| `orchestrator.task` | `orchestrator.task.started`, `orchestrator.task.finished` |
-| `orchestrator.run` | `orchestrator.run.started`, `orchestrator.run.finished`, `orchestrator.run.failed` |
-| `orchestrator.step` | `orchestrator.step.completed`, `orchestrator.step.failed` |
-| `orchestrator.artifact` | `orchestrator.artifact.created`, `orchestrator.artifact.failed` |
-| `orchestrator.approval` | `orchestrator.approval.requested`, `orchestrator.approval.resolved`, `orchestrator.approval.failed` |
-| `orchestrator.queue` | `queue.enqueued`, `queue.claimed`, `queue.acked`, `queue.nacked`, `queue.lease_extended`, `queue.lease_extend_failed` |
+| Span name               | Events                                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `orchestrator.task`     | `orchestrator.task.started`, `orchestrator.task.finished`                                                             |
+| `orchestrator.run`      | `orchestrator.run.started`, `orchestrator.run.finished`, `orchestrator.run.failed`                                    |
+| `orchestrator.step`     | `orchestrator.step.completed`, `orchestrator.step.failed`                                                             |
+| `orchestrator.artifact` | `orchestrator.artifact.created`, `orchestrator.artifact.failed`                                                       |
+| `orchestrator.approval` | `orchestrator.approval.requested`, `orchestrator.approval.resolved`, `orchestrator.approval.failed`                   |
+| `orchestrator.queue`    | `queue.enqueued`, `queue.claimed`, `queue.acked`, `queue.nacked`, `queue.lease_extended`, `queue.lease_extend_failed` |
 
 Generic runtime tool events (`tool.completed`, `tool.failed`) are grouped under
 `orchestrator.step`. Policy tool blocks (`policy.tool_blocked`) are grouped
@@ -366,74 +382,66 @@ attributes, to avoid accidental high-cardinality trace dimensions. Runs carry
 `hecate.run.duration_ms`. Queue claim events carry `hecate.queue.wait_ms` —
 the time the run spent in the queue between enqueue and claim.
 
-`agent_loop` runs *also* emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost/tokens summary and `/hecate/v1/events` subscriptions. The OTel side carries duration on the spans above; the task-local cost breakdown lives on the run event.
+`agent_loop` runs _also_ emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost/tokens summary and `/hecate/v1/events` subscriptions. The OTel side carries duration on the spans above; the task-local cost breakdown lives on the run event.
 
-### Agent Chat Spans
+### Chat Run Spans
 
-External coding-agent chats emit OTel-shaped trace data as well. `POST
-/hecate/v1/agent-chat/sessions/{id}/messages` returns `X-Trace-Id` and `X-Span-Id`;
+Chat turns emit OTel-shaped trace data as well. `POST
+/hecate/v1/chat/sessions/{id}/messages` returns `X-Trace-Id` and `X-Span-Id`;
 the assistant message stores `request_id`, `trace_id`, and `span_id` so the
 Chats UI can point operators back to `/hecate/v1/traces?request_id=...`.
 
-| Span name | Events |
-|---|---|
-| `agent_chat.run` | `agent_chat.run.started`, `agent_chat.output.started`, `agent_chat.files_changed`, `agent_chat.run.finished`, `agent_chat.run.failed`, `agent_chat.run.cancelled` |
+| Span name                        | Events                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `chat.run`                       | `chat.run.started`, `chat.output.started`, `chat.files_changed`, `chat.run.finished`, `chat.run.failed`, `chat.run.cancelled`                                                                                                                                                                                                                    |
 | `agent_adapter.approval.request` | wraps the coordinator's RequestPermission decision (grant short-circuit, mode default, or prompt-mode wait); attributes include `hecate.agent_adapter.id`, `hecate.agent_adapter.session_id`, `hecate.agent_adapter.tool_kind`, `hecate.agent_adapter.approval.mode`, and `hecate.agent_adapter.approval.path` once the resolution path is known |
-| `agent_adapter.approval.resolve` | wraps the operator decision-application path; attributes include `hecate.agent_adapter.approval.id`, `hecate.agent_adapter.approval.decision`, `hecate.agent_adapter.approval.scope`, and the same adapter / session / tool_kind context once the row loads |
+| `agent_adapter.approval.resolve` | wraps the operator decision-application path; attributes include `hecate.agent_adapter.approval.id`, `hecate.agent_adapter.approval.decision`, `hecate.agent_adapter.approval.scope`, and the same adapter / session / tool_kind context once the row loads                                                                                      |
 
-Agent-chat spans carry adapter and workspace attributes such as
+External Agent spans carry adapter and workspace attributes such as
 `hecate.agent_adapter.id`, `hecate.agent_adapter.command`,
 `hecate.agent_adapter.driver.kind`, `hecate.agent_adapter.native_session.id`,
-`hecate.agent_chat.session.id`, `hecate.run.id`, `hecate.workspace.path`,
+`hecate.chat.session.id`, `hecate.run.id`, `hecate.workspace.path`,
 `hecate.agent_adapter.output.bytes`, and
 `hecate.agent_adapter.diff.captured`. Raw transcript text is intentionally not
-emitted as OTel attributes; it is persisted on the Agent Chat message and shown
+emitted as OTel attributes; it is persisted on the chat message and shown
 behind the raw-output diagnostic disclosure instead.
 
 External-agent approval metrics:
 
-| Metric | Type | Labels | Meaning |
-|---|---|---|---|
-| `hecate.agent_adapter.approval.requested` | counter | `adapter`, `tool_kind`, `mode` | ACP RequestPermission calls received from external agent adapters. |
-| `hecate.agent_adapter.approval.resolved` | counter | `adapter`, `tool_kind`, `mode`, `decision`, `scope`, `path`, `status` | Approvals resolved, labeled by how (operator / grant / default_mode / timeout / request_cancelled). |
-| `hecate.agent_adapter.approval.duration` | histogram | same labels as `resolved` | Time from RequestPermission to resolution. |
-| `hecate.agent_adapter.approval.timed_out` | counter | `adapter`, `tool_kind`, `mode` | Approvals that hit the prompt-mode timeout. Dedicated counter so dashboards can alert on timeout rate without joining `resolved` on `path=timeout`. |
-| `hecate.agent_adapter.approval.grants_active` | up-down counter | none | Live count of durable "always allow / always deny" grants. Incremented on grant create, decremented on grant delete. Seeded at process start from the SQLite store so a restart doesn't reset the dashboard line to zero. |
-| `hecate.agent_adapter.probe` | counter | `adapter`, `status` | Adapter health probes grouped by final classification (`ready` / `not_installed` / `auth_required` / `error`). One increment per `agentadapters.Probe` call. |
-| `hecate.agent_adapter.terminal_rpc_unsupported` | counter | `adapter`, `method` | ACP terminal RPC calls Hecate does not implement, grouped by method (`create` / `kill` / `output` / `release` / `wait`). The matching error returned to the adapter is `agentadapters.ErrTerminalRPCUnsupported`, wrapping JSON-RPC method-not-found (-32601). |
-
-### ACP Bridge Spans
-
-The `hecate-acp` stdio bridge has its own OTel trace provider. When trace export
-is enabled for the bridge, JSON-RPC handling emits `acp.rpc` spans and each
-gateway HTTP call emits an `acp.gateway.request` client span. The bridge injects
-`traceparent`, `tracestate`, and `baggage` into gateway requests, so editor ACP
-sessions can stitch through `hecate-acp` into the gateway traces.
+| Metric                                          | Type            | Labels                                                                | Meaning                                                                                                                                                                                                                                                        |
+| ----------------------------------------------- | --------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hecate.agent_adapter.approval.requested`       | counter         | `adapter`, `tool_kind`, `mode`                                        | ACP RequestPermission calls received from external agent adapters.                                                                                                                                                                                             |
+| `hecate.agent_adapter.approval.resolved`        | counter         | `adapter`, `tool_kind`, `mode`, `decision`, `scope`, `path`, `status` | Approvals resolved, labeled by how (operator / grant / default_mode / timeout / request_cancelled).                                                                                                                                                            |
+| `hecate.agent_adapter.approval.duration`        | histogram       | same labels as `resolved`                                             | Time from RequestPermission to resolution.                                                                                                                                                                                                                     |
+| `hecate.agent_adapter.approval.timed_out`       | counter         | `adapter`, `tool_kind`, `mode`                                        | Approvals that hit the prompt-mode timeout. Dedicated counter so dashboards can alert on timeout rate without joining `resolved` on `path=timeout`.                                                                                                            |
+| `hecate.agent_adapter.approval.grants_active`   | up-down counter | none                                                                  | Live count of durable "always allow / always deny" grants. Incremented on grant create, decremented on grant delete. Seeded at process start from the SQLite store so a restart doesn't reset the dashboard line to zero.                                      |
+| `hecate.agent_adapter.probe`                    | counter         | `adapter`, `status`                                                   | Adapter health probes grouped by final classification (`ready` / `not_installed` / `auth_required` / `error`). One increment per `agentadapters.Probe` call.                                                                                                   |
+| `hecate.agent_adapter.terminal_rpc_unsupported` | counter         | `adapter`, `method`                                                   | ACP terminal RPC calls Hecate does not implement, grouped by method (`create` / `kill` / `output` / `release` / `wait`). The matching error returned to the adapter is `agentadapters.ErrTerminalRPCUnsupported`, wrapping JSON-RPC method-not-found (-32601). |
 
 ### Retention Spans
 
 Retention manager runs emit events under the `retention.run` span:
 
-| Event | When |
-|---|---|
-| `retention.run.started` | A retention pass begins |
-| `retention.subsystem.finished` | One subsystem pruned successfully |
-| `retention.subsystem.failed` | One subsystem pruning failed |
-| `retention.run.finished` | All subsystems processed |
-| `retention.history.persisted` | Run record written to history store |
-| `retention.history.failed` | History write failed |
+| Event                          | When                                |
+| ------------------------------ | ----------------------------------- |
+| `retention.run.started`        | A retention pass begins             |
+| `retention.subsystem.finished` | One subsystem pruned successfully   |
+| `retention.subsystem.failed`   | One subsystem pruning failed        |
+| `retention.run.finished`       | All subsystems processed            |
+| `retention.history.persisted`  | Run record written to history store |
+| `retention.history.failed`     | History write failed                |
 
 The retention worker handles the following subsystems. The **subsystem name** is what the runtime exposes (in retention history rows, in `POST /hecate/v1/system/retention/run`'s `subsystems` array, and in `retention.subsystem.*` events); the **env-var prefix** is the config knob — they don't always match verbatim.
 
-| Subsystem (runtime) | Env-var prefix | What it prunes |
-|---|---|---|
-| `trace_snapshots` | `GATEWAY_RETENTION_TRACES_` | Per-request profiler trace snapshots |
-| `usage_events` | `GATEWAY_RETENTION_USAGE_EVENTS_` | Gateway usage event rows |
-| `audit_events` | `GATEWAY_RETENTION_AUDIT_EVENTS_` | Settings audit log |
-| `provider_history` | `GATEWAY_RETENTION_PROVIDER_HISTORY_` | Persisted provider health and failover history rows exposed by `GET /hecate/v1/providers/history` |
-| `turn_events` | `GATEWAY_RETENTION_TURN_EVENTS_` | `turn.completed` rows in the run-events table — high-cardinality bulk telemetry from agent_loop runs. Other event types (`run.started`, `run.finished`, `approval.*`) are never touched |
+| Subsystem (runtime) | Env-var prefix                       | What it prunes                                                                                                                                                                          |
+| ------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trace_snapshots`   | `HECATE_RETENTION_TRACES_`           | Per-request profiler trace snapshots                                                                                                                                                    |
+| `usage_events`      | `HECATE_RETENTION_USAGE_EVENTS_`     | Gateway usage event rows                                                                                                                                                                |
+| `audit_events`      | `HECATE_RETENTION_AUDIT_EVENTS_`     | Settings audit log                                                                                                                                                                      |
+| `provider_history`  | `HECATE_RETENTION_PROVIDER_HISTORY_` | Persisted provider health and failover history rows exposed by `GET /hecate/v1/providers/history`                                                                                       |
+| `turn_events`       | `HECATE_RETENTION_TURN_EVENTS_`      | `turn.completed` rows in the run-events table — high-cardinality bulk telemetry from agent_loop runs. Other event types (`run.started`, `run.finished`, `approval.*`) are never touched |
 
-Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TRACES_MAX_AGE=24h`). See `.env.example` for the defaults.
+Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `HECATE_RETENTION_TRACES_MAX_AGE=24h`). See `.env.example` for the defaults.
 
 ### Local Models Spans
 
@@ -477,44 +485,44 @@ Canonical attributes are in `internal/telemetry/semconv.go`
 
 ### Gateway Metrics
 
-| Instrument | Type | Unit | Description |
-|---|---|---|---|
-| `hecate.gateway.requests` | Counter | `{request}` | Total gateway requests grouped by result |
-| `hecate.gateway.request.duration` | Histogram | `ms` | Gateway request duration |
-| `gen_ai.gateway.chat.requests` | Counter | `{request}` | Chat completion responses finalized |
-| `gen_ai.gateway.cost` | Counter | `1` | Known/reported cost in micros USD when available |
-| `gen_ai.client.tokens.input` | Counter | `{token}` | Accumulated prompt tokens |
-| `gen_ai.client.tokens.output` | Counter | `{token}` | Accumulated completion tokens |
-| `gen_ai.client.tokens.total` | Counter | `{token}` | Accumulated total tokens |
-| `hecate.gateway.retries` | Counter | `{retry}` | Provider retry attempts beyond the first |
-| `hecate.gateway.failovers` | Counter | `{failover}` | Provider failover events |
-| `hecate.provider.calls` | Counter | `{call}` | Upstream provider call attempts grouped by provider, model, result, retry attempt, and health status |
-| `hecate.provider.call.duration` | Histogram | `ms` | Upstream provider call latency with the same attributes as `hecate.provider.calls` |
+| Instrument                        | Type      | Unit         | Description                                                                                          |
+| --------------------------------- | --------- | ------------ | ---------------------------------------------------------------------------------------------------- |
+| `hecate.gateway.requests`         | Counter   | `{request}`  | Total gateway requests grouped by result                                                             |
+| `hecate.gateway.request.duration` | Histogram | `ms`         | Gateway request duration                                                                             |
+| `gen_ai.gateway.chat.requests`    | Counter   | `{request}`  | Chat completion responses finalized                                                                  |
+| `gen_ai.gateway.cost`             | Counter   | `1`          | Known/reported cost in micros USD when available                                                     |
+| `gen_ai.client.tokens.input`      | Counter   | `{token}`    | Accumulated prompt tokens                                                                            |
+| `gen_ai.client.tokens.output`     | Counter   | `{token}`    | Accumulated completion tokens                                                                        |
+| `gen_ai.client.tokens.total`      | Counter   | `{token}`    | Accumulated total tokens                                                                             |
+| `hecate.gateway.retries`          | Counter   | `{retry}`    | Provider retry attempts beyond the first                                                             |
+| `hecate.gateway.failovers`        | Counter   | `{failover}` | Provider failover events                                                                             |
+| `hecate.provider.calls`           | Counter   | `{call}`     | Upstream provider call attempts grouped by provider, model, result, retry attempt, and health status |
+| `hecate.provider.call.duration`   | Histogram | `ms`         | Upstream provider call latency with the same attributes as `hecate.provider.calls`                   |
 
 ### Orchestrator Metrics
 
-| Instrument | Type | Unit | Description |
-|---|---|---|---|
-| `hecate.orchestrator.runs` | Counter | `{run}` | Total runs grouped by status and execution kind |
-| `hecate.orchestrator.run.duration` | Histogram | `ms` | Run wall-clock duration |
-| `hecate.orchestrator.queue.wait_duration` | Histogram | `ms` | Time a run spent in the queue before being claimed |
-| `hecate.orchestrator.steps` | Counter | `{step}` | Total steps grouped by kind and result |
-| `hecate.orchestrator.step.duration` | Histogram | `ms` | Step wall-clock duration |
-| `hecate.orchestrator.approvals` | Counter | `{approval}` | Approval gates resolved, grouped by kind and decision |
-| `hecate.orchestrator.approval.wait_duration` | Histogram | `ms` | Time a run spent waiting for an approval gate |
-| `hecate.orchestrator.queue.lease_extend_failures` | Counter | `{failure}` | Queue lease extension failures |
-| `hecate.orchestrator.mcp.tool_calls` | Counter | `{call}` | MCP tool dispatches grouped by `hecate.mcp.server`, `hecate.mcp.tool`, and `hecate.mcp.call.result` (`dispatched` / `tool_error` / `failed` / `blocked`) |
-| `hecate.orchestrator.mcp.tool_call.duration` | Histogram | `ms` | MCP tool dispatch wall-clock duration; same attribute set as the counter |
-| `hecate.orchestrator.mcp.cache_events` | Counter | `{event}` | Shared-client cache events grouped by `hecate.mcp.cache.event` (`hit` / `miss` / `evicted`) and (when known) `hecate.mcp.server` |
+| Instrument                                        | Type      | Unit         | Description                                                                                                                                              |
+| ------------------------------------------------- | --------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hecate.orchestrator.runs`                        | Counter   | `{run}`      | Total runs grouped by status and execution kind                                                                                                          |
+| `hecate.orchestrator.run.duration`                | Histogram | `ms`         | Run wall-clock duration                                                                                                                                  |
+| `hecate.orchestrator.queue.wait_duration`         | Histogram | `ms`         | Time a run spent in the queue before being claimed                                                                                                       |
+| `hecate.orchestrator.steps`                       | Counter   | `{step}`     | Total steps grouped by kind and result                                                                                                                   |
+| `hecate.orchestrator.step.duration`               | Histogram | `ms`         | Step wall-clock duration                                                                                                                                 |
+| `hecate.orchestrator.approvals`                   | Counter   | `{approval}` | Approval gates resolved, grouped by kind and decision                                                                                                    |
+| `hecate.orchestrator.approval.wait_duration`      | Histogram | `ms`         | Time a run spent waiting for an approval gate                                                                                                            |
+| `hecate.orchestrator.queue.lease_extend_failures` | Counter   | `{failure}`  | Queue lease extension failures                                                                                                                           |
+| `hecate.orchestrator.mcp.tool_calls`              | Counter   | `{call}`     | MCP tool dispatches grouped by `hecate.mcp.server`, `hecate.mcp.tool`, and `hecate.mcp.call.result` (`dispatched` / `tool_error` / `failed` / `blocked`) |
+| `hecate.orchestrator.mcp.tool_call.duration`      | Histogram | `ms`         | MCP tool dispatch wall-clock duration; same attribute set as the counter                                                                                 |
+| `hecate.orchestrator.mcp.cache_events`            | Counter   | `{event}`    | Shared-client cache events grouped by `hecate.mcp.cache.event` (`hit` / `miss` / `evicted`) and (when known) `hecate.mcp.server`                         |
 
-### Agent Chat Metrics
+### Chat Run Metrics
 
-| Instrument | Type | Unit | Description |
-|---|---|---|---|
-| `hecate.agent_chat.runs` | Counter | `{run}` | Agent-chat runs grouped by adapter/runtime, driver kind, status, and result |
-| `hecate.agent_chat.run.duration` | Histogram | `ms` | Agent-chat run wall-clock duration |
-| `hecate.agent_chat.run.timing` | Histogram | `ms` | Task-backed Hecate Agent timing buckets grouped by `hecate.agent_chat.timing.bucket` (`queue` / `model` / `tools` / `approval` / `overhead`) plus the same runtime/status/result labels as `hecate.agent_chat.run.duration` |
-| `hecate.agent_chat.cancelled` | Counter | `{cancellation}` | Agent-chat run/turn endings that terminated via cancellation, labeled by `adapter` and `reason` (`operator` / `request_cancelled` / `shutdown`). Distinguishes explicit operator cancels from request-context death and `SessionManager.Shutdown`-driven tear-downs. |
+| Instrument                 | Type      | Unit             | Description                                                                                                                                                                                                                                                    |
+| -------------------------- | --------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hecate.chat.runs`         | Counter   | `{run}`          | Chat runs grouped by adapter/runtime, driver kind, status, and result                                                                                                                                                                                          |
+| `hecate.chat.run.duration` | Histogram | `ms`             | Chat run wall-clock duration                                                                                                                                                                                                                                   |
+| `hecate.chat.run.timing`   | Histogram | `ms`             | Task-backed Hecate Chat timing buckets grouped by `hecate.chat.timing.bucket` (`queue` / `model` / `tools` / `approval` / `overhead`) plus the same runtime/status/result labels as `hecate.chat.run.duration`                                                 |
+| `hecate.chat.cancelled`    | Counter   | `{cancellation}` | Chat run/turn endings that terminated via cancellation, labeled by `adapter` and `reason` (`operator` / `request_cancelled` / `shutdown`). Distinguishes explicit operator cancels from request-context death and `SessionManager.Shutdown`-driven tear-downs. |
 
 Metric attributes reuse the same vocabulary as traces — provider, model,
 cache, failover, result, step kind, approval decision, queue backend, run
@@ -539,7 +547,7 @@ labels.
 The Go OTel SDK records metric exemplars with the trace-based filter by
 default, so histogram/counter samples recorded under a sampled trace can carry
 trace/span IDs to supporting backends. Set
-`GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER=always_on` for local collector smoke
+`HECATE_OTEL_METRICS_EXEMPLAR_FILTER=always_on` for local collector smoke
 tests when you want every sample eligible for exemplars, or `always_off` if
 your backend does not support them yet.
 
@@ -576,21 +584,21 @@ your preferred backend.
 1. Point Hecate to collector OTLP/HTTP:
 
 ```bash
-GATEWAY_OTEL_TRACES_ENABLED=true
-GATEWAY_OTEL_METRICS_ENABLED=true
-GATEWAY_OTEL_LOGS_ENABLED=true
-GATEWAY_OTEL_ENDPOINT=http://127.0.0.1:4318
-GATEWAY_OTEL_TRANSPORT=http
+HECATE_OTEL_TRACES_ENABLED=true
+HECATE_OTEL_METRICS_ENABLED=true
+HECATE_OTEL_LOGS_ENABLED=true
+HECATE_OTEL_ENDPOINT=http://127.0.0.1:4318
+HECATE_OTEL_TRANSPORT=http
 ```
 
 For OTLP/gRPC, use the collector gRPC port instead:
 
 ```bash
-GATEWAY_OTEL_TRACES_ENABLED=true
-GATEWAY_OTEL_METRICS_ENABLED=true
-GATEWAY_OTEL_LOGS_ENABLED=true
-GATEWAY_OTEL_ENDPOINT=127.0.0.1:4317
-GATEWAY_OTEL_TRANSPORT=grpc
+HECATE_OTEL_TRACES_ENABLED=true
+HECATE_OTEL_METRICS_ENABLED=true
+HECATE_OTEL_LOGS_ENABLED=true
+HECATE_OTEL_ENDPOINT=127.0.0.1:4317
+HECATE_OTEL_TRANSPORT=grpc
 ```
 
 2. Run collector with an OTLP receiver and your exporter(s), for example:
@@ -639,7 +647,7 @@ This keeps Hecate vendor-neutral and lets you change backends without touching r
 ### Secure headers and token guidance
 
 - prefer short-lived ingest credentials
-- set secrets in `GATEWAY_OTEL_*_HEADERS` via secret manager, not plaintext files
+- set secrets in `HECATE_OTEL_*_HEADERS` via secret manager, not plaintext files
 - avoid reusing provider API keys for telemetry ingest
 - rotate ingest tokens and verify by checking `last_activity_at`/error counters in runtime telemetry health
 
@@ -647,7 +655,7 @@ This keeps Hecate vendor-neutral and lets you change backends without touching r
 
 ### No traces visible in backend
 
-1. Verify `GATEWAY_OTEL_TRACES_ENABLED=true`.
+1. Verify `HECATE_OTEL_TRACES_ENABLED=true`.
 2. Check `GET /hecate/v1/system/stats` for telemetry signal error counters/messages.
 3. Confirm collector receiver endpoint and path (`/v1/traces` for OTLP/HTTP).
 4. Send a request and confirm `X-Trace-Id` is returned.
@@ -682,12 +690,11 @@ Working today:
 - OTLP/HTTP and OTLP/gRPC export for traces, metrics, and logs (each independently toggleable)
 - W3C TextMap propagator on inbound — `traceparent`, `tracestate`, `baggage` are honored automatically; the gateway becomes a child of the upstream trace
 - W3C TextMap propagator on outbound provider calls — provider discovery, non-streaming chat, and streaming chat carry `traceparent` / `baggage` downstream
-- ACP bridge tracing — `hecate-acp` emits JSON-RPC and gateway-client spans, and propagates trace context into gateway requests
 - Sandbox/tool trace depth — shell and file tool steps expose sandbox wrapper/policy, timeout, exit, output-size, truncation, and file patch metadata through OTel-shaped `hecate.*` attributes
 - Metric cardinality guardrails — closed-set labels collapse unknown values to `other`; free-form labels reject control characters and oversized values
-- Metric exemplar filter configuration — Hecate exposes the SDK exemplar filter through `GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER`
+- Metric exemplar filter configuration — Hecate exposes the SDK exemplar filter through `HECATE_OTEL_METRICS_EXEMPLAR_FILTER`
 - Sampler selection: `always_on` / `always_off` / `traceidratio` / `parentbased_*` (default: `parentbased_always_on`)
-- Resource attributes auto-populated (telemetry SDK, host, process; service identity from `GATEWAY_OTEL_SERVICE_*`)
+- Resource attributes auto-populated (telemetry SDK, host, process; service identity from `HECATE_OTEL_SERVICE_*`)
 - Stable span and metric vocabulary (`gen_ai.*` for OTel-standard fields, `hecate.*` for product-specific fields)
 - High-cardinality protection on `hecate.error.kind` — values outside the closed set are normalized to `other`
 

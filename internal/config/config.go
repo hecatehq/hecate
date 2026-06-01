@@ -3,13 +3,14 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 type Config struct {
@@ -17,13 +18,14 @@ type Config struct {
 	Router    RouterConfig
 	Provider  ProviderConfig
 	Chat      ChatConfig
+	Projects  ProjectsConfig
 	OTel      OTelConfig
 	Governor  GovernorConfig
 	Retention RetentionConfig
 	// SQLite is the single-node durable tier. Subsystems opt in via
-	// GATEWAY_*_BACKEND=sqlite; the client is opened lazily once any
-	// subsystem actually needs it. See storage.SQLiteClient for the
-	// pragmas applied per connection.
+	// HECATE_BACKEND=sqlite; the client is opened lazily once any subsystem
+	// actually needs it. See storage.SQLiteClient for the pragmas applied per
+	// connection.
 	SQLite    SQLiteConfig
 	Providers ProvidersConfig
 	LogLevel  string
@@ -31,6 +33,10 @@ type Config struct {
 
 type ServerConfig struct {
 	Address                    string
+	AllowNonLoopbackBind       bool
+	AllowedOrigins             []string
+	RuntimeToken               string
+	InferenceToken             string
 	PublicURL                  string
 	DataDir                    string
 	BootstrapFile              string
@@ -46,7 +52,7 @@ type ServerConfig struct {
 	TaskMaxConcurrentPerTenant int
 	// TaskReconcileInterval controls how often the periodic reconciler
 	// scans for runs stuck in "running" past 3× the lease duration.
-	// Default 30s. Set via GATEWAY_TASK_RECONCILE_INTERVAL (Go duration
+	// Default 30s. Set via HECATE_TASK_RECONCILE_INTERVAL (Go duration
 	// string, e.g. "30s", "1m").
 	TaskReconcileInterval time.Duration
 	// TaskAgentLoopMaxTurns caps how many LLM round-trips an
@@ -121,7 +127,7 @@ type ServerConfig struct {
 	//   - "auto":   auto-approve everything. Danger mode kept for
 	//               batch / CI / smoke. Logged at WARN on startup.
 	//   - "deny":   auto-reject everything. Audit / compliance.
-	// Set via GATEWAY_AGENT_ADAPTER_APPROVAL_MODE.
+	// Set via HECATE_AGENT_ADAPTER_APPROVAL_MODE.
 	//
 	// Background: prior to this knob the gateway silently auto-approved
 	// every adapter request. Default flips to "prompt" because the
@@ -132,28 +138,32 @@ type ServerConfig struct {
 	AgentAdapterApprovalMode string
 	// AgentAdapterApprovalTimeout is how long a pending approval waits
 	// before resolving to ACP `Cancelled`. Default 5m. Set via
-	// GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT (Go duration string).
+	// HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT (Go duration string).
 	AgentAdapterApprovalTimeout time.Duration
-	// AgentChatMaxTurnsPerSession caps how many user→assistant round-trips
+	// ChatMaxTurnsPerSession caps how many user→assistant round-trips
 	// a single agent-chat session may execute. 0 (default) means unlimited.
 	// When the ceiling is reached, POST
-	// /hecate/v1/agent-chat/sessions/{id}/messages returns HTTP 422 with code
-	// "agent_chat.session_limit_exceeded".
-	// Set via GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION.
-	AgentChatMaxTurnsPerSession int
-	// AgentChatMaxSessionDuration caps wall-clock age for an agent-chat
+	// /hecate/v1/chat/sessions/{id}/messages returns HTTP 422 with code
+	// "chat.session_limit_exceeded".
+	// Set via HECATE_CHAT_MAX_TURNS_PER_SESSION.
+	ChatMaxTurnsPerSession int
+	// ChatMaxSessionDuration caps wall-clock age for an agent-chat
 	// session. 0 (default) means unlimited.
-	// Set via GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION.
-	AgentChatMaxSessionDuration time.Duration
-	// AgentChatIdleTimeout auto-closes sessions that have not changed for this
+	// Set via HECATE_CHAT_MAX_SESSION_DURATION.
+	ChatMaxSessionDuration time.Duration
+	// ChatIdleTimeout auto-closes sessions that have not changed for this
 	// long. 0 (default) disables the sweeper.
-	// Set via GATEWAY_AGENT_CHAT_IDLE_TIMEOUT.
-	AgentChatIdleTimeout time.Duration
+	// Set via HECATE_CHAT_IDLE_TIMEOUT.
+	ChatIdleTimeout time.Duration
 
-	// TraceBodyCapture enables recording (redacted) request and response bodies
-	// in the distributed trace.  Off by default; enable via GATEWAY_TRACE_BODIES=true.
+	// TraceBodyCapture enables recording request and response body diagnostics
+	// in the distributed trace. Off by default; enable via HECATE_TRACE_BODIES=true.
 	TraceBodyCapture bool
+	// TraceBodyMode controls whether body diagnostics contain metadata only
+	// (default) or redacted text snapshots. Set via HECATE_TRACE_BODY_MODE.
+	TraceBodyMode string
 	// TraceBodyMaxBytes caps each captured body at this many bytes (default 4096).
+	// Only applies when TraceBodyMode is "redacted_text".
 	TraceBodyMaxBytes int
 
 	// RateLimit controls per-API-key request throttling.
@@ -189,8 +199,10 @@ type ProviderConfig struct {
 
 type ChatConfig struct {
 	SessionsBackend string
-	SessionsKey     string
-	SessionLimit    int
+}
+
+type ProjectsConfig struct {
+	Backend string
 }
 
 type OTelSignalConfig struct {
@@ -261,12 +273,12 @@ type RetentionConfig struct {
 	// task-run events table. Other event types (run.started/finished,
 	// approval.*) are kept for forensics.
 	TurnEvents RetentionPolicy
-	// AgentChatApprovals prunes resolved (non-pending) external-adapter
+	// ChatApprovals prunes resolved (non-pending) external-adapter
 	// approval rows. Pending rows are never auto-pruned — they're caller
 	// state, not history. Grants are not subject to MaxAge / MaxCount;
 	// only their own ExpiresAt drives deletion (operator-authored intent
 	// outlives normal retention windows).
-	AgentChatApprovals RetentionPolicy
+	ChatApprovals RetentionPolicy
 }
 
 type RetentionPolicy struct {
@@ -276,8 +288,8 @@ type RetentionPolicy struct {
 
 type SQLiteConfig struct {
 	// Path is the on-disk file. Defaults to .data/hecate.db so a fresh
-	// `just dev` plus `GATEWAY_*_BACKEND=sqlite` Just Works without
-	// extra mkdir or env. Parent directories are auto-created.
+	// `just dev` plus `HECATE_BACKEND=sqlite` Just Works without extra
+	// mkdir or env. Parent directories are auto-created.
 	Path        string
 	TablePrefix string
 	BusyTimeout time.Duration
@@ -286,7 +298,7 @@ type SQLiteConfig struct {
 type ProvidersConfig struct {
 	OpenAICompatible []OpenAICompatibleProviderConfig
 	// AnthropicCacheDisabled is the gateway-wide value of
-	// GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED (inverted). It applies
+	// HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED (inverted). It applies
 	// to every Anthropic-protocol provider regardless of how the
 	// provider was added (env, control-plane UI, programmatic) — the
 	// runtime manager stamps it onto resolved provider configs at
@@ -311,8 +323,11 @@ type OpenAICompatibleProviderConfig struct {
 	StubResponse string        `json:"stub_response"`
 	DefaultModel string        `json:"default_model"`
 	Enabled      bool          `json:"enabled"`
-	// KnownModels is the curated catalog from the built-in preset. It populates the
-	// static capabilities when no API key is set and live discovery is skipped.
+	// KnownModels is an operator-supplied static catalog override. Populated only
+	// via PROVIDER_<NAME>_MODELS env (comma-separated), it populates the static
+	// capabilities when no API key is set and live discovery is skipped. Empty
+	// by default — Hecate prefers live `/v1/models` discovery over hard-coded
+	// lists that bit-rot as upstream catalogs churn.
 	KnownModels []string `json:"known_models,omitempty"`
 	// AnthropicCacheDisabled opts the Anthropic adapter out of
 	// auto-attaching `cache_control: {"type":"ephemeral"}` markers on
@@ -321,7 +336,7 @@ type OpenAICompatibleProviderConfig struct {
 	// hits cut input-token cost ~90% on the static prefix of long
 	// agent_loop / chat sessions with no latency penalty, so the
 	// safe default is to leave it on and let operators flip the
-	// global GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED=false toggle
+	// global HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED=false toggle
 	// for cost-tier comparisons or debugging. The env loader
 	// inverts that toggle into this field so CP-stored provider
 	// records (zero-valued bool) and direct test constructions also
@@ -334,113 +349,117 @@ type OpenAICompatibleProviderConfig struct {
 }
 
 func LoadFromEnv() Config {
+	storageBackend := strings.ToLower(strings.TrimSpace(getEnv("HECATE_BACKEND", "memory")))
 	providersCfg := loadProvidersFromEnv()
 	return Config{
 		Server: ServerConfig{
-			Address: getEnv("GATEWAY_ADDRESS", "127.0.0.1:8765"),
-			// PublicURL is written to hecate.runtime.json so local helper
-			// processes such as hecate-acp can discover the externally
-			// reachable gateway URL. Empty means derive from Address.
-			PublicURL: getEnv("GATEWAY_PUBLIC_URL", ""),
+			Address:              getEnv("HECATE_ADDRESS", "127.0.0.1:8765"),
+			AllowNonLoopbackBind: getEnvBool("HECATE_ALLOW_NON_LOOPBACK_BIND", false),
+			AllowedOrigins:       splitCSV(getEnv("HECATE_ALLOWED_ORIGINS", "")),
+			RuntimeToken:         getEnv("HECATE_RUNTIME_TOKEN", ""),
+			InferenceToken:       getEnv("HECATE_INFERENCE_TOKEN", ""),
+			// PublicURL is written to hecate.runtime.json for local
+			// diagnostics. Empty means derive from Address.
+			PublicURL: getEnv("HECATE_PUBLIC_URL", ""),
 			// Default `.data/` keeps the auto-generated bootstrap file
 			// (AES-GCM key for persisted provider secrets) out of the repo root so a stray
 			// `git add .` can't sweep it up. Docker overrides this to /data
 			// via the Dockerfile.
-			DataDir:       getEnv("GATEWAY_DATA_DIR", ".data"),
-			BootstrapFile: getEnv("GATEWAY_BOOTSTRAP_FILE", ""),
-			// Default is "memory" to match every other backend selector
-			// (chat sessions, tasks, cache, …).
-			ControlPlaneBackend:            getEnv("GATEWAY_CONTROL_PLANE_BACKEND", "memory"),
-			ControlPlaneKey:                getEnv("GATEWAY_CONTROL_PLANE_KEY", "control-plane"),
-			ControlPlaneSecretKey:          getEnv("GATEWAY_CONTROL_PLANE_SECRET_KEY", ""),
-			TasksBackend:                   getEnv("GATEWAY_TASKS_BACKEND", "memory"),
+			DataDir:                        getEnv("HECATE_DATA_DIR", ".data"),
+			BootstrapFile:                  getEnv("HECATE_BOOTSTRAP_FILE", ""),
+			ControlPlaneBackend:            storageBackend,
+			ControlPlaneKey:                getEnv("HECATE_CONTROL_PLANE_KEY", "control-plane"),
+			ControlPlaneSecretKey:          getEnv("HECATE_CONTROL_PLANE_SECRET_KEY", ""),
+			TasksBackend:                   storageBackend,
 			TaskApprovalPolicies:           splitCSV(getEnvApprovalPolicies()),
-			TaskQueueBackend:               getEnv("GATEWAY_TASK_QUEUE_BACKEND", "memory"),
-			TaskQueueWorkers:               getEnvInt("GATEWAY_TASK_QUEUE_WORKERS", 1),
-			TaskQueueBuffer:                getEnvInt("GATEWAY_TASK_QUEUE_BUFFER", 128),
-			TaskQueueLeaseSeconds:          getEnvInt("GATEWAY_TASK_QUEUE_LEASE_SECONDS", 30),
-			TaskReconcileInterval:          getEnvDuration("GATEWAY_TASK_RECONCILE_INTERVAL", 30*time.Second),
-			TaskAgentLoopMaxTurns:          getEnvInt("GATEWAY_TASK_AGENT_LOOP_MAX_TURNS", 8),
-			TaskMaxMCPServersPerTask:       getEnvInt("GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK", 16),
-			TaskMCPClientCacheMaxEntries:   getEnvInt("GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES", 256),
-			TaskMCPClientCachePingInterval: getEnvDuration("GATEWAY_TASK_MCP_CLIENT_CACHE_PING_INTERVAL", 60*time.Second),
-			TaskMCPClientCachePingTimeout:  getEnvDuration("GATEWAY_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT", 5*time.Second),
-			TaskAgentSystemPrompt:          getEnv("GATEWAY_TASK_AGENT_SYSTEM_PROMPT", ""),
-			TaskHTTPTimeout:                getEnvDuration("GATEWAY_TASK_HTTP_TIMEOUT", 30*time.Second),
-			TaskHTTPMaxResponseBytes:       getEnvInt("GATEWAY_TASK_HTTP_MAX_RESPONSE_BYTES", 256*1024),
-			TaskHTTPAllowPrivateIPs:        getEnvBool("GATEWAY_TASK_HTTP_ALLOW_PRIVATE_IPS", false),
-			TaskHTTPAllowedHosts:           splitCSV(getEnv("GATEWAY_TASK_HTTP_ALLOWED_HOSTS", "")),
-			TaskShellAllowPrivateIPs:       getEnvBool("GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS", false),
-			TaskShellAllowedHosts:          splitCSV(getEnv("GATEWAY_TASK_SHELL_ALLOWED_HOSTS", "")),
-			AgentAdapterApprovalMode:       getEnv("GATEWAY_AGENT_ADAPTER_APPROVAL_MODE", "prompt"),
-			AgentAdapterApprovalTimeout:    getEnvDuration("GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT", 5*time.Minute),
-			AgentChatMaxTurnsPerSession:    getEnvInt("GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION", 0),
-			AgentChatMaxSessionDuration:    getEnvDuration("GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION", 0),
-			AgentChatIdleTimeout:           getEnvDuration("GATEWAY_AGENT_CHAT_IDLE_TIMEOUT", 0),
-			TaskMaxConcurrentPerTenant:     getEnvInt("GATEWAY_TASK_MAX_CONCURRENT_PER_TENANT", 0),
-			TraceBodyCapture:               getEnvBool("GATEWAY_TRACE_BODIES", false),
-			TraceBodyMaxBytes:              getEnvInt("GATEWAY_TRACE_BODY_MAX_BYTES", 4096),
+			TaskQueueBackend:               storageBackend,
+			TaskQueueWorkers:               getEnvInt("HECATE_TASK_QUEUE_WORKERS", 1),
+			TaskQueueBuffer:                getEnvInt("HECATE_TASK_QUEUE_BUFFER", 128),
+			TaskQueueLeaseSeconds:          getEnvInt("HECATE_TASK_QUEUE_LEASE_SECONDS", 30),
+			TaskReconcileInterval:          getEnvDuration("HECATE_TASK_RECONCILE_INTERVAL", 30*time.Second),
+			TaskAgentLoopMaxTurns:          getEnvInt("HECATE_TASK_AGENT_LOOP_MAX_TURNS", 8),
+			TaskMaxMCPServersPerTask:       getEnvInt("HECATE_TASK_MAX_MCP_SERVERS_PER_TASK", 16),
+			TaskMCPClientCacheMaxEntries:   getEnvInt("HECATE_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES", 256),
+			TaskMCPClientCachePingInterval: getEnvDuration("HECATE_TASK_MCP_CLIENT_CACHE_PING_INTERVAL", 60*time.Second),
+			TaskMCPClientCachePingTimeout:  getEnvDuration("HECATE_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT", 5*time.Second),
+			TaskAgentSystemPrompt:          getEnv("HECATE_TASK_AGENT_SYSTEM_PROMPT", ""),
+			TaskHTTPTimeout:                getEnvDuration("HECATE_TASK_HTTP_TIMEOUT", 30*time.Second),
+			TaskHTTPMaxResponseBytes:       getEnvInt("HECATE_TASK_HTTP_MAX_RESPONSE_BYTES", 256*1024),
+			TaskHTTPAllowPrivateIPs:        getEnvBool("HECATE_TASK_HTTP_ALLOW_PRIVATE_IPS", false),
+			TaskHTTPAllowedHosts:           splitCSV(getEnv("HECATE_TASK_HTTP_ALLOWED_HOSTS", "")),
+			TaskShellAllowPrivateIPs:       getEnvBool("HECATE_TASK_SHELL_ALLOW_PRIVATE_IPS", false),
+			TaskShellAllowedHosts:          splitCSV(getEnv("HECATE_TASK_SHELL_ALLOWED_HOSTS", "")),
+			AgentAdapterApprovalMode:       getEnv("HECATE_AGENT_ADAPTER_APPROVAL_MODE", "prompt"),
+			AgentAdapterApprovalTimeout:    getEnvDuration("HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT", 5*time.Minute),
+			ChatMaxTurnsPerSession:         getEnvInt("HECATE_CHAT_MAX_TURNS_PER_SESSION", 0),
+			ChatMaxSessionDuration:         getEnvDuration("HECATE_CHAT_MAX_SESSION_DURATION", 0),
+			ChatIdleTimeout:                getEnvDuration("HECATE_CHAT_IDLE_TIMEOUT", 0),
+			TaskMaxConcurrentPerTenant:     getEnvInt("HECATE_TASK_MAX_CONCURRENT_PER_TENANT", 0),
+			TraceBodyCapture:               getEnvBool("HECATE_TRACE_BODIES", false),
+			TraceBodyMode:                  getEnv("HECATE_TRACE_BODY_MODE", "metadata"),
+			TraceBodyMaxBytes:              getEnvInt("HECATE_TRACE_BODY_MAX_BYTES", 4096),
 			RateLimit: RateLimitConfig{
-				Enabled:           getEnvBool("GATEWAY_RATE_LIMIT_ENABLED", false),
-				RequestsPerMinute: getEnvInt64("GATEWAY_RATE_LIMIT_RPM", 60),
-				BurstSize:         getEnvInt64("GATEWAY_RATE_LIMIT_BURST", 0), // 0 = same as RPM
+				Enabled:           getEnvBool("HECATE_RATE_LIMIT_ENABLED", false),
+				RequestsPerMinute: getEnvInt64("HECATE_RATE_LIMIT_RPM", 60),
+				BurstSize:         getEnvInt64("HECATE_RATE_LIMIT_BURST", 0), // 0 = same as RPM
 			},
 		},
 		Router: RouterConfig{
-			DefaultModel: getEnv("GATEWAY_DEFAULT_MODEL", "gpt-5.4-mini"),
+			DefaultModel: "",
 		},
 		Provider: ProviderConfig{
-			MaxAttempts:                    getEnvInt("GATEWAY_PROVIDER_MAX_ATTEMPTS", 2),
-			RetryBackoff:                   getEnvDuration("GATEWAY_PROVIDER_RETRY_BACKOFF", 200*time.Millisecond),
-			FailoverEnabled:                getEnvBool("GATEWAY_PROVIDER_FAILOVER_ENABLED", true),
-			HealthThreshold:                getEnvInt("GATEWAY_PROVIDER_HEALTH_FAILURE_THRESHOLD", 3),
-			HealthCooldown:                 getEnvDuration("GATEWAY_PROVIDER_HEALTH_COOLDOWN", 30*time.Second),
-			HealthLatencyDegradedThreshold: getEnvDuration("GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD", 0),
-			HistoryBackend:                 getEnv("GATEWAY_PROVIDER_HISTORY_BACKEND", "memory"),
-			HistoryLimit:                   getEnvInt("GATEWAY_PROVIDER_HISTORY_LIMIT", 100),
+			MaxAttempts:                    getEnvInt("HECATE_PROVIDER_MAX_ATTEMPTS", 2),
+			RetryBackoff:                   getEnvDuration("HECATE_PROVIDER_RETRY_BACKOFF", 200*time.Millisecond),
+			FailoverEnabled:                getEnvBool("HECATE_PROVIDER_FAILOVER_ENABLED", true),
+			HealthThreshold:                getEnvInt("HECATE_PROVIDER_HEALTH_FAILURE_THRESHOLD", 3),
+			HealthCooldown:                 getEnvDuration("HECATE_PROVIDER_HEALTH_COOLDOWN", 30*time.Second),
+			HealthLatencyDegradedThreshold: getEnvDuration("HECATE_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD", 0),
+			HistoryBackend:                 storageBackend,
+			HistoryLimit:                   getEnvInt("HECATE_PROVIDER_HISTORY_LIMIT", 100),
 		},
 		Chat: ChatConfig{
-			SessionsBackend: getEnv("GATEWAY_CHAT_SESSIONS_BACKEND", "memory"),
-			SessionsKey:     getEnv("GATEWAY_CHAT_SESSIONS_KEY", "chat-sessions"),
-			SessionLimit:    getEnvInt("GATEWAY_CHAT_SESSIONS_LIMIT", 50),
+			SessionsBackend: storageBackend,
+		},
+		Projects: ProjectsConfig{
+			Backend: storageBackend,
 		},
 		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{
-			DenyAll:              getEnvBool("GATEWAY_DENY_ALL", false),
-			MaxPromptTokens:      getEnvInt("GATEWAY_MAX_PROMPT_TOKENS", 64_000),
-			ModelRewriteTo:       getEnv("GATEWAY_MODEL_REWRITE_TO", ""),
-			UsageBackend:         getEnv("GATEWAY_USAGE_BACKEND", "memory"),
-			UsageKey:             getEnv("GATEWAY_USAGE_KEY", "global"),
-			UsageScope:           getEnv("GATEWAY_USAGE_SCOPE", "global"),
-			RouteMode:            getEnv("GATEWAY_ROUTE_MODE", "any"),
-			AllowedProviders:     splitCSV(getEnv("GATEWAY_ALLOWED_PROVIDERS", "")),
-			DeniedProviders:      splitCSV(getEnv("GATEWAY_DENIED_PROVIDERS", "")),
-			AllowedModels:        splitCSV(getEnv("GATEWAY_ALLOWED_MODELS", "")),
-			DeniedModels:         splitCSV(getEnv("GATEWAY_DENIED_MODELS", "")),
-			AllowedProviderKinds: splitCSV(getEnv("GATEWAY_ALLOWED_PROVIDER_KINDS", "")),
-			UsageHistoryLimit:    getEnvInt("GATEWAY_USAGE_HISTORY_LIMIT", 20),
+			DenyAll:              getEnvBool("HECATE_DENY_ALL", false),
+			MaxPromptTokens:      getEnvInt("HECATE_MAX_PROMPT_TOKENS", 64_000),
+			ModelRewriteTo:       getEnv("HECATE_MODEL_REWRITE_TO", ""),
+			UsageBackend:         storageBackend,
+			UsageKey:             getEnv("HECATE_USAGE_KEY", "global"),
+			UsageScope:           getEnv("HECATE_USAGE_SCOPE", "global"),
+			RouteMode:            getEnv("HECATE_ROUTE_MODE", "any"),
+			AllowedProviders:     splitCSV(getEnv("HECATE_ALLOWED_PROVIDERS", "")),
+			DeniedProviders:      splitCSV(getEnv("HECATE_DENIED_PROVIDERS", "")),
+			AllowedModels:        splitCSV(getEnv("HECATE_ALLOWED_MODELS", "")),
+			DeniedModels:         splitCSV(getEnv("HECATE_DENIED_MODELS", "")),
+			AllowedProviderKinds: splitCSV(getEnv("HECATE_ALLOWED_PROVIDER_KINDS", "")),
+			UsageHistoryLimit:    getEnvInt("HECATE_USAGE_HISTORY_LIMIT", 20),
 		},
 		Retention: RetentionConfig{
-			Enabled:         getEnvBool("GATEWAY_RETENTION_ENABLED", false),
-			HistoryBackend:  getEnv("GATEWAY_RETENTION_HISTORY_BACKEND", "memory"),
-			Interval:        getEnvDuration("GATEWAY_RETENTION_INTERVAL", 15*time.Minute),
-			TraceSnapshots:  loadRetentionPolicyFromEnv("GATEWAY_RETENTION_TRACES_", 24*time.Hour, 2000),
-			UsageEvents:     loadRetentionPolicyFromEnv("GATEWAY_RETENTION_USAGE_EVENTS_", 30*24*time.Hour, 200),
-			AuditEvents:     loadRetentionPolicyFromEnv("GATEWAY_RETENTION_AUDIT_EVENTS_", 30*24*time.Hour, 500),
-			ProviderHistory: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_PROVIDER_HISTORY_", 7*24*time.Hour, 10_000),
+			Enabled:         getEnvBool("HECATE_RETENTION_ENABLED", false),
+			HistoryBackend:  storageBackend,
+			Interval:        getEnvDuration("HECATE_RETENTION_INTERVAL", 15*time.Minute),
+			TraceSnapshots:  loadRetentionPolicyFromEnv("HECATE_RETENTION_TRACES_", 24*time.Hour, 2000),
+			UsageEvents:     loadRetentionPolicyFromEnv("HECATE_RETENTION_USAGE_EVENTS_", 30*24*time.Hour, 200),
+			AuditEvents:     loadRetentionPolicyFromEnv("HECATE_RETENTION_AUDIT_EVENTS_", 30*24*time.Hour, 500),
+			ProviderHistory: loadRetentionPolicyFromEnv("HECATE_RETENTION_PROVIDER_HISTORY_", 7*24*time.Hour, 10_000),
 			// turn.completed events accumulate fast on long
 			// agent runs (one per LLM round-trip). 7d/100k is a
 			// generous default; tune down on busy installs.
-			TurnEvents: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_TURN_EVENTS_", 7*24*time.Hour, 100_000),
+			TurnEvents: loadRetentionPolicyFromEnv("HECATE_RETENTION_TURN_EVENTS_", 7*24*time.Hour, 100_000),
 			// External-adapter approval history. Only resolved rows
 			// are pruned; pending rows stay until startup reconcile
 			// flips them. Default 30d/10k mirrors task_approvals.
-			AgentChatApprovals: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_AGENT_CHAT_APPROVALS_", 30*24*time.Hour, 10_000),
+			ChatApprovals: loadRetentionPolicyFromEnv("HECATE_RETENTION_CHAT_APPROVALS_", 30*24*time.Hour, 10_000),
 		},
 		SQLite: SQLiteConfig{
-			Path:        getEnv("GATEWAY_SQLITE_PATH", ".data/hecate.db"),
-			TablePrefix: getEnv("GATEWAY_SQLITE_TABLE_PREFIX", "hecate"),
-			BusyTimeout: getEnvDuration("GATEWAY_SQLITE_BUSY_TIMEOUT", 5*time.Second),
+			Path:        getEnv("HECATE_SQLITE_PATH", ".data/hecate.db"),
+			TablePrefix: getEnv("HECATE_SQLITE_TABLE_PREFIX", "hecate"),
+			BusyTimeout: getEnvDuration("HECATE_SQLITE_BUSY_TIMEOUT", 5*time.Second),
 		},
 		Providers: providersCfg,
 		LogLevel:  getEnv("LOG_LEVEL", "INFO"),
@@ -464,18 +483,34 @@ func (c Config) Validate() error {
 		errs = append(errs, fmt.Errorf("%s must be one of %s (got %q)", label, strings.Join(allowed, ", "), value))
 	}
 
-	validateBackend("GATEWAY_CONTROL_PLANE_BACKEND", c.Server.ControlPlaneBackend, "memory", "sqlite")
-	validateBackend("GATEWAY_TASKS_BACKEND", c.Server.TasksBackend, "memory", "sqlite")
-	validateBackend("GATEWAY_TASK_QUEUE_BACKEND", c.Server.TaskQueueBackend, "memory", "sqlite")
-	validateBackend("GATEWAY_CHAT_SESSIONS_BACKEND", c.Chat.SessionsBackend, "memory", "sqlite")
-	validateBackend("GATEWAY_USAGE_BACKEND", c.Governor.UsageBackend, "memory", "sqlite")
-	validateBackend("GATEWAY_RETENTION_HISTORY_BACKEND", c.Retention.HistoryBackend, "memory", "sqlite")
-	validateBackend("GATEWAY_PROVIDER_HISTORY_BACKEND", c.Provider.HistoryBackend, "memory", "sqlite")
+	for _, backend := range []string{
+		c.Server.ControlPlaneBackend,
+		c.Server.TasksBackend,
+		c.Server.TaskQueueBackend,
+		c.Chat.SessionsBackend,
+		c.Projects.Backend,
+		c.Governor.UsageBackend,
+		c.Retention.HistoryBackend,
+		c.Provider.HistoryBackend,
+	} {
+		validateBackend("HECATE_BACKEND", backend, "memory", "sqlite")
+	}
 	if publicURL := strings.TrimSpace(c.Server.PublicURL); publicURL != "" {
 		u, err := url.ParseRequestURI(publicURL)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-			errs = append(errs, fmt.Errorf("GATEWAY_PUBLIC_URL must be an absolute http(s) URL (got %q)", publicURL))
+			errs = append(errs, fmt.Errorf("HECATE_PUBLIC_URL must be an absolute http(s) URL (got %q)", publicURL))
 		}
+	}
+	for _, origin := range c.Server.AllowedOrigins {
+		if !validAllowedOrigin(origin) {
+			errs = append(errs, fmt.Errorf("HECATE_ALLOWED_ORIGINS entries must be exact http(s) origins without path/query/fragment (got %q)", origin))
+		}
+	}
+	if token := strings.TrimSpace(c.Server.RuntimeToken); token != "" && len(token) < 24 {
+		errs = append(errs, errors.New("HECATE_RUNTIME_TOKEN must be at least 24 characters when set"))
+	}
+	if token := strings.TrimSpace(c.Server.InferenceToken); token != "" && len(token) < 24 {
+		errs = append(errs, errors.New("HECATE_INFERENCE_TOKEN must be at least 24 characters when set"))
 	}
 
 	validPolicies := map[string]struct{}{
@@ -488,19 +523,19 @@ func (c Config) Validate() error {
 			continue
 		}
 		if _, ok := validPolicies[p]; !ok {
-			errs = append(errs, fmt.Errorf("GATEWAY_TASK_APPROVAL_POLICIES: unknown policy name %q (valid: shell_exec, git_exec, file_write, network_egress, read_file, all_tools)", p))
+			errs = append(errs, fmt.Errorf("HECATE_TASK_APPROVAL_POLICIES: unknown policy name %q (valid: shell_exec, git_exec, file_write, network_egress, read_file, all_tools)", p))
 		}
 	}
 
 	if c.Retention.Enabled && c.Retention.Interval <= 0 {
-		errs = append(errs, errors.New("GATEWAY_RETENTION_INTERVAL must be positive when retention is enabled"))
+		errs = append(errs, errors.New("HECATE_RETENTION_INTERVAL must be positive when retention is enabled"))
 	}
 	for label, policy := range map[string]RetentionPolicy{
-		"GATEWAY_RETENTION_TRACES":           c.Retention.TraceSnapshots,
-		"GATEWAY_RETENTION_USAGE_EVENTS":     c.Retention.UsageEvents,
-		"GATEWAY_RETENTION_AUDIT_EVENTS":     c.Retention.AuditEvents,
-		"GATEWAY_RETENTION_PROVIDER_HISTORY": c.Retention.ProviderHistory,
-		"GATEWAY_RETENTION_TURN_EVENTS":      c.Retention.TurnEvents,
+		"HECATE_RETENTION_TRACES":           c.Retention.TraceSnapshots,
+		"HECATE_RETENTION_USAGE_EVENTS":     c.Retention.UsageEvents,
+		"HECATE_RETENTION_AUDIT_EVENTS":     c.Retention.AuditEvents,
+		"HECATE_RETENTION_PROVIDER_HISTORY": c.Retention.ProviderHistory,
+		"HECATE_RETENTION_TURN_EVENTS":      c.Retention.TurnEvents,
 	} {
 		if policy.MaxAge < 0 {
 			errs = append(errs, fmt.Errorf("%s_MAX_AGE must be zero or positive", label))
@@ -510,37 +545,37 @@ func (c Config) Validate() error {
 		}
 	}
 	if c.Provider.MaxAttempts <= 0 {
-		errs = append(errs, errors.New("GATEWAY_PROVIDER_MAX_ATTEMPTS must be positive"))
+		errs = append(errs, errors.New("HECATE_PROVIDER_MAX_ATTEMPTS must be positive"))
 	}
 	if c.Provider.HealthThreshold < 0 {
-		errs = append(errs, errors.New("GATEWAY_PROVIDER_HEALTH_FAILURE_THRESHOLD must be zero or positive"))
+		errs = append(errs, errors.New("HECATE_PROVIDER_HEALTH_FAILURE_THRESHOLD must be zero or positive"))
 	}
 	if c.Provider.HealthLatencyDegradedThreshold < 0 {
-		errs = append(errs, errors.New("GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD must be zero or positive"))
+		errs = append(errs, errors.New("HECATE_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD must be zero or positive"))
 	}
 	if c.Provider.HistoryLimit < 0 {
-		errs = append(errs, errors.New("GATEWAY_PROVIDER_HISTORY_LIMIT must be zero or positive"))
+		errs = append(errs, errors.New("HECATE_PROVIDER_HISTORY_LIMIT must be zero or positive"))
 	}
 	if c.Server.TaskQueueWorkers <= 0 {
-		errs = append(errs, errors.New("GATEWAY_TASK_QUEUE_WORKERS must be positive"))
+		errs = append(errs, errors.New("HECATE_TASK_QUEUE_WORKERS must be positive"))
 	}
 	if c.Server.TaskQueueBuffer < 0 {
-		errs = append(errs, errors.New("GATEWAY_TASK_QUEUE_BUFFER must be zero or positive"))
+		errs = append(errs, errors.New("HECATE_TASK_QUEUE_BUFFER must be zero or positive"))
 	}
-	if c.Server.AgentChatMaxTurnsPerSession < 0 {
-		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION must be zero or positive"))
+	if c.Server.ChatMaxTurnsPerSession < 0 {
+		errs = append(errs, errors.New("HECATE_CHAT_MAX_TURNS_PER_SESSION must be zero or positive"))
 	}
-	if c.Server.AgentChatMaxSessionDuration < 0 {
-		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION must be zero or positive"))
+	if c.Server.ChatMaxSessionDuration < 0 {
+		errs = append(errs, errors.New("HECATE_CHAT_MAX_SESSION_DURATION must be zero or positive"))
 	}
-	if c.Server.AgentChatIdleTimeout < 0 {
-		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_IDLE_TIMEOUT must be zero or positive"))
+	if c.Server.ChatIdleTimeout < 0 {
+		errs = append(errs, errors.New("HECATE_CHAT_IDLE_TIMEOUT must be zero or positive"))
 	}
 	if c.Server.RateLimit.Enabled && c.Server.RateLimit.RequestsPerMinute <= 0 {
-		errs = append(errs, errors.New("GATEWAY_RATE_LIMIT_RPM must be positive when rate limiting is enabled"))
+		errs = append(errs, errors.New("HECATE_RATE_LIMIT_RPM must be positive when rate limiting is enabled"))
 	}
 	if c.Server.RateLimit.BurstSize < 0 {
-		errs = append(errs, errors.New("GATEWAY_RATE_LIMIT_BURST must be zero or positive"))
+		errs = append(errs, errors.New("HECATE_RATE_LIMIT_BURST must be zero or positive"))
 	}
 	for _, item := range durationEnvKeys() {
 		if raw := strings.TrimSpace(os.Getenv(item)); raw != "" {
@@ -553,10 +588,10 @@ func (c Config) Validate() error {
 		key   string
 		value string
 	}{
-		{"GATEWAY_OTEL_TRANSPORT", c.OTel.Transport},
-		{"GATEWAY_OTEL_TRACES_TRANSPORT", c.OTel.Traces.Transport},
-		{"GATEWAY_OTEL_METRICS_TRANSPORT", c.OTel.Metrics.Transport},
-		{"GATEWAY_OTEL_LOGS_TRANSPORT", c.OTel.Logs.Transport},
+		{"HECATE_OTEL_TRANSPORT", c.OTel.Transport},
+		{"HECATE_OTEL_TRACES_TRANSPORT", c.OTel.Traces.Transport},
+		{"HECATE_OTEL_METRICS_TRANSPORT", c.OTel.Metrics.Transport},
+		{"HECATE_OTEL_LOGS_TRANSPORT", c.OTel.Logs.Transport},
 	} {
 		switch item.value {
 		case "", "http", "grpc":
@@ -567,7 +602,12 @@ func (c Config) Validate() error {
 	switch strings.ToLower(strings.TrimSpace(c.OTel.MetricsExemplarFilter)) {
 	case "", "trace_based", "tracebased", "sampled", "always_on", "alwayson", "always_off", "alwaysoff":
 	default:
-		errs = append(errs, fmt.Errorf("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER must be one of trace_based, always_on, or always_off"))
+		errs = append(errs, fmt.Errorf("HECATE_OTEL_METRICS_EXEMPLAR_FILTER must be one of trace_based, always_on, or always_off"))
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Server.TraceBodyMode)) {
+	case "", "metadata", "redacted_text":
+	default:
+		errs = append(errs, fmt.Errorf("HECATE_TRACE_BODY_MODE must be one of metadata or redacted_text"))
 	}
 
 	return errors.Join(errs...)
@@ -575,34 +615,49 @@ func (c Config) Validate() error {
 
 func durationEnvKeys() []string {
 	return []string{
-		"GATEWAY_TASK_MCP_CLIENT_CACHE_PING_INTERVAL",
-		"GATEWAY_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT",
-		"GATEWAY_TASK_HTTP_TIMEOUT",
-		"GATEWAY_PROVIDER_RETRY_BACKOFF",
-		"GATEWAY_PROVIDER_HEALTH_COOLDOWN",
-		"GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD",
-		"GATEWAY_OTEL_TIMEOUT",
-		"GATEWAY_OTEL_TRACES_TIMEOUT",
-		"GATEWAY_OTEL_METRICS_TIMEOUT",
-		"GATEWAY_OTEL_LOGS_TIMEOUT",
-		"GATEWAY_OTEL_METRICS_INTERVAL",
-		"GATEWAY_RETENTION_INTERVAL",
-		"GATEWAY_RETENTION_TRACES_MAX_AGE",
-		"GATEWAY_RETENTION_USAGE_EVENTS_MAX_AGE",
-		"GATEWAY_RETENTION_AUDIT_EVENTS_MAX_AGE",
-		"GATEWAY_RETENTION_PROVIDER_HISTORY_MAX_AGE",
-		"GATEWAY_RETENTION_TURN_EVENTS_MAX_AGE",
-		"GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION",
-		"GATEWAY_AGENT_CHAT_IDLE_TIMEOUT",
-		"GATEWAY_SQLITE_BUSY_TIMEOUT",
+		"HECATE_TASK_MCP_CLIENT_CACHE_PING_INTERVAL",
+		"HECATE_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT",
+		"HECATE_TASK_HTTP_TIMEOUT",
+		"HECATE_PROVIDER_RETRY_BACKOFF",
+		"HECATE_PROVIDER_HEALTH_COOLDOWN",
+		"HECATE_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD",
+		"HECATE_OTEL_TIMEOUT",
+		"HECATE_OTEL_TRACES_TIMEOUT",
+		"HECATE_OTEL_METRICS_TIMEOUT",
+		"HECATE_OTEL_LOGS_TIMEOUT",
+		"HECATE_OTEL_METRICS_INTERVAL",
+		"HECATE_RETENTION_INTERVAL",
+		"HECATE_RETENTION_TRACES_MAX_AGE",
+		"HECATE_RETENTION_USAGE_EVENTS_MAX_AGE",
+		"HECATE_RETENTION_AUDIT_EVENTS_MAX_AGE",
+		"HECATE_RETENTION_PROVIDER_HISTORY_MAX_AGE",
+		"HECATE_RETENTION_TURN_EVENTS_MAX_AGE",
+		"HECATE_CHAT_MAX_SESSION_DURATION",
+		"HECATE_CHAT_IDLE_TIMEOUT",
+		"HECATE_SQLITE_BUSY_TIMEOUT",
 	}
 }
 
+func validAllowedOrigin(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+	if u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	return u.Path == "" || u.Path == "/"
+}
+
 func loadOTelFromEnv() OTelConfig {
-	sharedEndpoint := strings.TrimSpace(getEnv("GATEWAY_OTEL_ENDPOINT", ""))
-	sharedHeaders := parseEnvMap(getEnv("GATEWAY_OTEL_HEADERS", ""))
-	sharedTimeout := getEnvDuration("GATEWAY_OTEL_TIMEOUT", 5*time.Second)
-	sharedTransport := normalizeOTelTransport(getEnv("GATEWAY_OTEL_TRANSPORT", "http"))
+	sharedEndpoint := strings.TrimSpace(getEnv("HECATE_OTEL_ENDPOINT", ""))
+	sharedHeaders := parseEnvMap(getEnv("HECATE_OTEL_HEADERS", ""))
+	sharedTimeout := getEnvDuration("HECATE_OTEL_TIMEOUT", 5*time.Second)
+	sharedTransport := normalizeOTelTransport(getEnv("HECATE_OTEL_TRANSPORT", "http"))
 
 	traces := loadOTelSignalFromEnv(
 		"TRACES",
@@ -637,18 +692,18 @@ func loadOTelFromEnv() OTelConfig {
 	}
 
 	return OTelConfig{
-		ServiceName:           getEnv("GATEWAY_OTEL_SERVICE_NAME", "hecate-gateway"),
-		ServiceVersion:        getEnv("GATEWAY_OTEL_SERVICE_VERSION", ""),
-		ServiceInstanceID:     getEnv("GATEWAY_OTEL_SERVICE_INSTANCE_ID", ""),
-		DeploymentEnvironment: getEnv("GATEWAY_OTEL_DEPLOYMENT_ENVIRONMENT", ""),
+		ServiceName:           getEnv("HECATE_OTEL_SERVICE_NAME", "hecate"),
+		ServiceVersion:        getEnv("HECATE_OTEL_SERVICE_VERSION", ""),
+		ServiceInstanceID:     getEnv("HECATE_OTEL_SERVICE_INSTANCE_ID", ""),
+		DeploymentEnvironment: getEnv("HECATE_OTEL_DEPLOYMENT_ENVIRONMENT", ""),
 		Endpoint:              sharedEndpoint,
 		Headers:               cloneStringMap(sharedHeaders),
 		Timeout:               sharedTimeout,
 		Transport:             sharedTransport,
-		MetricsInterval:       getEnvDuration("GATEWAY_OTEL_METRICS_INTERVAL", 30*time.Second),
-		MetricsExemplarFilter: getEnv("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", ""),
-		TracesSampler:         getEnv("GATEWAY_OTEL_TRACES_SAMPLER", ""),
-		TracesSamplerArg:      getEnvFloat64("GATEWAY_OTEL_TRACES_SAMPLER_ARG", 1.0),
+		MetricsInterval:       getEnvDuration("HECATE_OTEL_METRICS_INTERVAL", 30*time.Second),
+		MetricsExemplarFilter: getEnv("HECATE_OTEL_METRICS_EXEMPLAR_FILTER", ""),
+		TracesSampler:         getEnv("HECATE_OTEL_TRACES_SAMPLER", ""),
+		TracesSamplerArg:      getEnvFloat64("HECATE_OTEL_TRACES_SAMPLER_ARG", 1.0),
 		Traces:                traces,
 		Metrics:               metrics,
 		Logs:                  logs,
@@ -656,7 +711,7 @@ func loadOTelFromEnv() OTelConfig {
 }
 
 func loadOTelSignalFromEnv(signal, sharedEndpoint, httpPath string, sharedHeaders map[string]string, sharedTimeout time.Duration, sharedTransport string) OTelSignalConfig {
-	prefix := "GATEWAY_OTEL_" + signal + "_"
+	prefix := "HECATE_OTEL_" + signal + "_"
 	transport := normalizeOTelTransport(getEnv(prefix+"TRANSPORT", sharedTransport))
 	endpoint := strings.TrimSpace(getEnv(prefix+"ENDPOINT", ""))
 	if endpoint == "" && sharedEndpoint != "" {
@@ -693,6 +748,32 @@ func normalizeOTelTransport(value string) string {
 	return telemetry.NormalizeOTLPTransport(value)
 }
 
+func (cfg ServerConfig) ValidateNetworkExposure() error {
+	if ListenAddressIsLoopback(cfg.Address) || cfg.AllowNonLoopbackBind {
+		return nil
+	}
+	return fmt.Errorf("HECATE_ADDRESS %q binds beyond loopback; set HECATE_ALLOW_NON_LOOPBACK_BIND=1 only when a firewall, reverse proxy, or equivalent access-control layer protects the gateway", cfg.Address)
+}
+
+func ListenAddressIsLoopback(address string) bool {
+	host := strings.TrimSpace(address)
+	if host == "" {
+		return false
+	}
+	if splitHost, _, err := net.SplitHostPort(host); err == nil {
+		host = splitHost
+	}
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func cloneStringMap(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil
@@ -715,19 +796,19 @@ func loadRetentionPolicyFromEnv(prefix string, defaultAge time.Duration, default
 // whether the Anthropic adapter auto-attaches prompt-cache markers on
 // outbound system + tools sections. Default is enabled — caching is
 // the safe, cheaper option; operators flip
-// GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED=false only for cost-tier
+// HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED=false only for cost-tier
 // comparisons or to debug a suspected cache-related issue. Returns
 // the inverted (`disabled`) form so the zero-value bool stamped on
 // every provider config means "caching on" — CP-stored records and
 // direct test constructions then inherit the safe default without
 // each call site remembering to opt in.
 func anthropicCacheDisabledFromEnv() bool {
-	return !getEnvBool("GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED", true)
+	return !getEnvBool("HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED", true)
 }
 
 func loadProvidersFromEnv() ProvidersConfig {
 	// Only register providers that have at least one explicit env var
-	// (PROVIDER_<NAME>_BASE_URL / _API_KEY / _DEFAULT_MODEL / etc.).
+	// (PROVIDER_<NAME>_BASE_URL / _API_KEY / etc.).
 	// Previously this seeded the list with every built-in preset and
 	// relied on providerConfigFromEnv falling back to the catalog's
 	// base_url to keep them — which auto-registered all 12 presets at
@@ -784,7 +865,7 @@ func providerNameFromEnvKey(key string) (string, bool) {
 		return "", false
 	}
 	nameAndField := strings.TrimPrefix(key, prefix)
-	for _, suffix := range []string{"_API_KEY", "_BASE_URL", "_DEFAULT_MODEL"} {
+	for _, suffix := range []string{"_API_KEY", "_BASE_URL"} {
 		if strings.HasSuffix(nameAndField, suffix) {
 			name := strings.TrimSuffix(nameAndField, suffix)
 			name = strings.ToLower(name)
@@ -804,7 +885,7 @@ func providerConfigFromEnv(name string) (OpenAICompatibleProviderConfig, bool) {
 		return OpenAICompatibleProviderConfig{}, false
 	}
 
-	cfg := providerDefaults(name, getEnv("GATEWAY_DEFAULT_MODEL", "gpt-5.4-mini"))
+	cfg := providerDefaults(name)
 	prefixes := []string{providerEnvPrefix(name)}
 	for _, prefix := range prefixes {
 		cfg.Kind = getEnv(prefix+"KIND", cfg.Kind)
@@ -812,7 +893,9 @@ func providerConfigFromEnv(name string) (OpenAICompatibleProviderConfig, bool) {
 		cfg.APIKey = getEnv(prefix+"API_KEY", cfg.APIKey)
 		cfg.StubMode = getEnvBool(prefix+"STUB_MODE", cfg.StubMode)
 		cfg.StubResponse = getEnv(prefix+"STUB_RESPONSE", cfg.StubResponse)
-		cfg.DefaultModel = getEnv(prefix+"DEFAULT_MODEL", cfg.DefaultModel)
+		if models := splitCSV(getEnv(prefix+"MODELS", "")); len(models) > 0 {
+			cfg.KnownModels = models
+		}
 	}
 
 	// Auto-registration is gated on an explicit opt-in flag. Other
@@ -832,9 +915,9 @@ func providerConfigFromEnv(name string) (OpenAICompatibleProviderConfig, bool) {
 	return cfg, true
 }
 
-func providerDefaults(name, globalDefaultModel string) OpenAICompatibleProviderConfig {
+func providerDefaults(name string) OpenAICompatibleProviderConfig {
 	if builtIn, ok := BuiltInProviderByID(name); ok {
-		return builtIn.RuntimeConfig(globalDefaultModel)
+		return builtIn.RuntimeConfig()
 	}
 	return OpenAICompatibleProviderConfig{
 		Name:         strings.ToLower(strings.TrimSpace(name)),
@@ -882,13 +965,13 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-// getEnvApprovalPolicies reads GATEWAY_TASK_APPROVAL_POLICIES and honours an
+// getEnvApprovalPolicies reads HECATE_TASK_APPROVAL_POLICIES and honours an
 // explicitly empty value (KEY=) as "no policies". os.Getenv cannot distinguish
 // "not set" from "set to empty"; os.LookupEnv can. An empty value is the
 // documented opt-out for fully-trusted environments, so we must not fall back
 // to the default in that case.
 func getEnvApprovalPolicies() string {
-	const key = "GATEWAY_TASK_APPROVAL_POLICIES"
+	const key = "HECATE_TASK_APPROVAL_POLICIES"
 	if value, ok := os.LookupEnv(key); ok {
 		return value
 	}

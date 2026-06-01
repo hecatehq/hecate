@@ -3,13 +3,20 @@
 // manual "Check for Updates…" trigger so the user can tell their
 // click did something. Inert outside Tauri.
 // "Install and Restart" downloads + installs the new bundle and
-// relaunches; the plugin handles the relaunch.
+// relaunches; the hook calls the process plugin after install.
 
 import { useDesktopUpdate } from "../../lib/desktop-update";
 
 export function UpdateBanner() {
-  const { update, installing, progress, lastCheckResult, dismiss, installAndRestart } =
-    useDesktopUpdate();
+  const {
+    update,
+    installing,
+    installPhase,
+    progress,
+    lastCheckResult,
+    dismiss,
+    installAndRestart,
+  } = useDesktopUpdate();
 
   if (update) {
     return (
@@ -20,9 +27,13 @@ export function UpdateBanner() {
             <>
               {" "}
               <span className="page-banner__progress-text">
-                {progress !== null
-                  ? `Downloading… ${Math.round(progress * 100)}%`
-                  : "Downloading…"}
+                {installPhase === "restarting"
+                  ? "Restarting…"
+                  : installPhase === "finishing"
+                    ? "Finishing install…"
+                    : progress !== null
+                      ? `Downloading… ${Math.round(progress * 100)}%`
+                      : "Downloading…"}
               </span>
             </>
           )}
@@ -41,8 +52,15 @@ export function UpdateBanner() {
           <button
             className="btn btn-primary btn-sm"
             disabled={installing}
-            onClick={() => void installAndRestart()}>
-            {installing ? "Installing…" : "Install and Restart"}
+            onClick={() => void installAndRestart()}
+          >
+            {installing
+              ? installPhase === "restarting"
+                ? "Restarting…"
+                : installPhase === "finishing"
+                  ? "Finishing…"
+                  : "Installing…"
+              : "Install and Restart"}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={dismiss} disabled={installing}>
             Dismiss

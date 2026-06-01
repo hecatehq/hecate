@@ -11,23 +11,24 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/controlplane"
-	"github.com/hecate/agent-runtime/internal/gateway"
-	"github.com/hecate/agent-runtime/internal/llamacpp"
-	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
-	"github.com/hecate/agent-runtime/internal/modelcaps"
-	"github.com/hecate/agent-runtime/internal/orchestrator"
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/ratelimit"
-	"github.com/hecate/agent-runtime/internal/sandbox"
-	"github.com/hecate/agent-runtime/internal/secrets"
-	"github.com/hecate/agent-runtime/internal/taskstate"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/internal/version"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/llamacpp"
+	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/ratelimit"
+	"github.com/hecatehq/hecate/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/version"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type Handler struct {
@@ -39,7 +40,8 @@ type Handler struct {
 	taskStore                taskstate.Store
 	taskRunner               *orchestrator.Runner
 	tracer                   profiler.Tracer
-	agentChat                agentchat.Store
+	agentChat                chat.Store
+	projects                 projects.Store
 	agentChatRunner          agentadapters.Runner
 	agentChatLive            *agentChatLive
 	agentChatIdleSweepCancel context.CancelFunc
@@ -72,8 +74,17 @@ type Handler struct {
 	// through to agentadapters.Probe; tests install a fake via
 	// SetAgentAdapterProbe so they can exercise the handler without
 	// spawning real ACP binaries.
-	agentAdapterProbe    AgentAdapterProbe
-	agentAdapterEnvProbe AgentAdapterEnvProbe
+	agentAdapterProbe AgentAdapterProbe
+	stateCleaner      StateCleaner
+	// quitFunc is wired by main.go to request an orderly process
+	// shutdown — used by HandleSystemShutdown when the desktop app's
+	// close-window confirmation flow asks the gateway to quit. nil in
+	// tests and when no quit signal is wired (the endpoint then returns
+	// 503). The callback should be cheap and non-blocking: it typically
+	// just sends on a buffered channel that main.go selects on alongside
+	// SIGINT/SIGTERM, so the same drain path (retention cancel, runner
+	// shutdown, http server shutdown) runs regardless of trigger.
+	quitFunc func()
 	// localModels is the Hecate-managed local-model runtime
 	// service (llama.cpp). Nil when the feature is dormant —
 	// every handler under /hecate/v1/local-models/* checks this
@@ -126,6 +137,10 @@ type ProviderRuntime interface {
 	RotateSecret(ctx context.Context, id, apiKey string) (controlplane.Provider, error)
 	DeleteCredential(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
+}
+
+type StateCleaner interface {
+	ClearData(ctx context.Context) (int, error)
 }
 
 // NewHandler wires the api.Handler from already-constructed dependencies.
@@ -221,7 +236,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	}
 	// Wire the four-layer agent_loop system-prompt composer. Layers
 	// are concatenated broadest-first:
-	//   1. global default — operator's GATEWAY_TASK_AGENT_SYSTEM_PROMPT
+	//   1. global default — operator's HECATE_TASK_AGENT_SYSTEM_PROMPT
 	//   2. tenant — controlplane Tenant.SystemPrompt
 	//   3. workspace — CLAUDE.md or AGENTS.md in the workspace root
 	//      (matches what Claude Code / Codex CLI users already write)
@@ -250,12 +265,12 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	agentChatRunner := agentadapters.NewSessionManager()
 	agentChatRunner.SetLogger(logger)
 	agentChatRunner.SetAdapterMetrics(agentAdapterMetrics)
-	// Approval coordinator: applies GATEWAY_AGENT_ADAPTER_APPROVAL_MODE
+	// Approval coordinator: applies HECATE_AGENT_ADAPTER_APPROVAL_MODE
 	// to each ACP RequestPermission, records the approval row, exposes
 	// it to the operator UI/API, and emits approval.* metrics. Default
 	// mode is `prompt`; headless operators who want the old
 	// auto-approve behavior must set
-	// GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto explicitly.
+	// HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto explicitly.
 	approvalMode := agentadapters.ApprovalMode(strings.TrimSpace(cfg.Server.AgentAdapterApprovalMode))
 	if approvalMode == "" {
 		approvalMode = agentadapters.ModePrompt
@@ -263,7 +278,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	if approvalMode == agentadapters.ModeAuto {
 		telemetry.Warn(logger, context.Background(), "agent_adapter.approval_mode.auto",
 			slog.String("event.name", "agent_adapter.approval_mode.auto"),
-			slog.String("warning", "GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto: every adapter RequestPermission is auto-approved with no operator review"),
+			slog.String("warning", "HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto: every adapter RequestPermission is auto-approved with no operator review"),
 		)
 	}
 	// agentChatLive is constructed before the hook builder so the
@@ -299,14 +314,14 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		taskRunner:          runner,
 		tracer:              tracer,
 		rateLimiter:         rl,
-		agentChat:           agentchat.NewMemoryStore(),
+		agentChat:           chat.NewMemoryStore(),
+		projects:            projects.NewMemoryStore(),
 		agentChatRunner:     agentChatRunner,
 		agentChatLive:       agentChatLive,
 		orchestratorMetrics: orchestratorMetrics,
 		agentChatMetrics:    agentChatMetrics,
 		approvalConfig:      approvalCfg,
 	}
-	agentChatRunner.SetCredentialEnvProvider(h.agentAdapterCredentialEnv)
 	h.startAgentChatIdleSweeper()
 	return h
 }
@@ -358,12 +373,19 @@ func (h *Handler) SetAgentApprovalStore(store agentadapters.ApprovalStore) {
 	}
 }
 
-func (h *Handler) SetAgentChatStore(store agentchat.Store) {
+func (h *Handler) SetAgentChatStore(store chat.Store) {
 	if store == nil {
 		return
 	}
 	h.agentChat = store
 	h.reconcileAgentChatStore(context.Background())
+}
+
+func (h *Handler) SetProjectStore(store projects.Store) {
+	if store == nil {
+		return
+	}
+	h.projects = store
 }
 
 func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {
@@ -373,11 +395,15 @@ func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {
 	h.agentChatRunner = runner
 }
 
+func (h *Handler) SetStateCleaner(cleaner StateCleaner) {
+	h.stateCleaner = cleaner
+}
+
 func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
 	if h.agentChat == nil {
 		return
 	}
-	count, err := agentchat.ReconcileInterruptedRuns(ctx, h.agentChat, time.Now().UTC())
+	count, err := chat.ReconcileInterruptedRuns(ctx, h.agentChat, time.Now().UTC())
 	if err != nil {
 		telemetry.Warn(h.logger, ctx, "agent chat reconciliation failed", slog.Any("error", err))
 		return
@@ -385,6 +411,20 @@ func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
 	if count > 0 {
 		telemetry.Info(h.logger, ctx, "agent chat reconciliation completed", slog.Int("interrupted_runs", count))
 	}
+}
+
+// SetQuitFunc wires a programmatic shutdown trigger. When set, a
+// POST /hecate/v1/system/shutdown call invokes f after acknowledging the
+// request. cmd/hecate/main.go provides a closure that signals the same
+// channel its SIGINT/SIGTERM handler selects on, so the existing drain
+// path runs regardless of trigger — that wiring is unconditional, so
+// every standard gateway deployment (Docker, systemd, Tauri sidecar)
+// exposes the endpoint. nil is a valid argument and is the default;
+// the endpoint then returns 503. This path is for test harnesses and
+// custom embedders that build a Handler without wiring quit — never
+// reached by the shipped cmd/hecate binary.
+func (h *Handler) SetQuitFunc(f func()) {
+	h.quitFunc = f
 }
 
 // SetSecretCipher wires the settings AES-GCM cipher into the
@@ -399,9 +439,6 @@ func (h *Handler) SetSecretCipher(cipher secrets.Cipher) {
 	}
 	h.secretCipher = cipher
 	h.rebuildMCPHostFactory()
-	if mgr, ok := h.agentChatRunner.(*agentadapters.SessionManager); ok {
-		mgr.SetCredentialEnvProvider(h.agentAdapterCredentialEnv)
-	}
 }
 
 // SetLocalModelsService wires the Hecate-managed local-models
@@ -507,27 +544,25 @@ func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	result, err := h.service.ListModels(ctx)
+	var result *gateway.ModelsResult
+	var err error
+	if requestRefresh(r) {
+		result, err = h.service.RefreshModels(ctx)
+	} else {
+		result, err = h.service.ListModels(ctx)
+	}
 	if err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.models.list.failed",
 			slog.String("event.name", "gateway.models.list.failed"),
 			slog.Any("error", err),
 		)
-		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 
-	cpState, err := h.settingsState(ctx)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
-		return
-	}
 	data := make([]OpenAIModelData, 0, len(result.Models))
 	for _, model := range result.Models {
-		caps := model.Capabilities
-		if caps.ToolCalling == "" {
-			caps = modelcaps.Resolve(model.Provider, model.Kind, model.ID, model.DiscoverySource, cpState)
-		}
+		caps := modelcaps.ResolveWithProviderCapability(model.Provider, model.Kind, model.ID, model.DiscoverySource, model.Capabilities)
 		data = append(data, OpenAIModelData{
 			ID:      model.ID,
 			Object:  "model",
@@ -586,6 +621,12 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func requestRefresh(r *http.Request) bool {
+	// Accept explicit booleans only so accidental ?refresh does not bypass cache.
+	raw := strings.TrimSpace(r.URL.Query().Get("refresh"))
+	return raw == "1" || strings.EqualFold(raw, "true")
+}
+
 func renderModelReadiness(readiness types.ModelReadiness) ModelReadinessResponseItem {
 	return ModelReadinessResponseItem{
 		Provider:              readiness.Provider,
@@ -634,7 +675,7 @@ func settingsActor(r *http.Request) string {
 // decodeJSON decodes the request body into v and writes a 400 on failure.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_request", "request body must be valid JSON")
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request body must be valid JSON")
 		return false
 	}
 	return true
@@ -687,7 +728,7 @@ func buildApprovalCoordinatorHooks(
 				Mode:      string(mode),
 			})
 			if live != nil {
-				live.publishApprovalRequested(AgentChatApprovalRequestedEvent{
+				live.publishApprovalRequested(ChatApprovalRequestedEvent{
 					ApprovalID:   a.ID,
 					SessionID:    a.SessionID,
 					AdapterID:    a.AdapterID,
@@ -745,9 +786,9 @@ func buildApprovalCoordinatorHooks(
 // approvalResolvedEventFromRow projects the coordinator's full
 // Approval shape down to the SSE payload. Frontends that need more
 // detail (acp_options, full payload) follow up with
-// GET /hecate/v1/agent-chat/sessions/{id}/approvals/{id}.
-func approvalResolvedEventFromRow(a agentadapters.Approval) AgentChatApprovalResolvedEvent {
-	out := AgentChatApprovalResolvedEvent{
+// GET /hecate/v1/chat/sessions/{id}/approvals/{id}.
+func approvalResolvedEventFromRow(a agentadapters.Approval) ChatApprovalResolvedEvent {
+	out := ChatApprovalResolvedEvent{
 		ApprovalID:     a.ID,
 		SessionID:      a.SessionID,
 		Status:         string(a.Status),

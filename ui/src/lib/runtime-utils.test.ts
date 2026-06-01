@@ -15,7 +15,6 @@ import {
   filterModelsByProvider,
   findModelInTrace,
   findProviderInTrace,
-  formatAbsoluteTime,
   formatRelativeTime,
   formatTraceAttributeKey,
   formatTraceAttributeValue,
@@ -29,11 +28,23 @@ import {
   tracePhaseFromSpan,
 } from "./runtime-utils";
 import type { TraceRouteRecord } from "./runtime-utils";
-import type { ModelRecord, ProviderRecord, RuntimeHeaders, TraceListItem, TraceSpanRecord, UsageSummaryRecord } from "../types/runtime";
+import type { RuntimeHeaders } from "../types/runtime";
+import type { ModelRecord } from "../types/model";
+import type { ProviderRecord } from "../types/provider";
+import type { TraceListItem, TraceSpanRecord } from "../types/trace";
+import type { UsageSummaryRecord } from "../types/usage";
 
 const models: ModelRecord[] = [
-  { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
-  { id: "llama3.1:8b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
+  {
+    id: "gpt-4o-mini",
+    owned_by: "openai",
+    metadata: { provider: "openai", provider_kind: "cloud" },
+  },
+  {
+    id: "llama3.1:8b",
+    owned_by: "ollama",
+    metadata: { provider: "ollama", provider_kind: "local" },
+  },
 ];
 
 const providers: ProviderRecord[] = [
@@ -96,19 +107,36 @@ describe("runtime-utils", () => {
     const t0 = "2026-04-21T10:00:00.000Z";
     const at = (ms: number) => new Date(Date.parse(t0) + ms).toISOString();
     const spans: TraceSpanRecord[] = [
-      { trace_id: "t", span_id: "root", name: "gateway.request",
-        start_time: at(0), end_time: at(400) },
-      { trace_id: "t", span_id: "long", parent_span_id: "root", name: "provider.openai",
-        start_time: at(50), end_time: at(380) },
-      { trace_id: "t", span_id: "short", parent_span_id: "root", name: "gateway.usage",
-        start_time: at(385), end_time: at(395) },
+      {
+        trace_id: "t",
+        span_id: "root",
+        name: "gateway.request",
+        start_time: at(0),
+        end_time: at(400),
+      },
+      {
+        trace_id: "t",
+        span_id: "long",
+        parent_span_id: "root",
+        name: "provider.openai",
+        start_time: at(50),
+        end_time: at(380),
+      },
+      {
+        trace_id: "t",
+        span_id: "short",
+        parent_span_id: "root",
+        name: "gateway.usage",
+        start_time: at(385),
+        end_time: at(395),
+      },
     ];
     const wf = buildSpanWaterfall(spans);
     expect(wf.totalMs).toBe(400);
     expect(wf.spans).toHaveLength(3);
-    const root = wf.spans.find(s => s.span.span_id === "root")!;
-    const long = wf.spans.find(s => s.span.span_id === "long")!;
-    const short = wf.spans.find(s => s.span.span_id === "short")!;
+    const root = wf.spans.find((s) => s.span.span_id === "root")!;
+    const long = wf.spans.find((s) => s.span.span_id === "long")!;
+    const short = wf.spans.find((s) => s.span.span_id === "short")!;
     expect(root.depth).toBe(0);
     expect(long.depth).toBe(1);
     expect(short.depth).toBe(1);
@@ -144,7 +172,9 @@ describe("runtime-utils", () => {
   });
 
   it("formats route and provider diagnostics", () => {
-    expect(describeRouteReason("provider_default_model_failover")).toBe("Provider default model after failover");
+    expect(describeRouteReason("provider_default_model_failover")).toBe(
+      "Provider default model after failover",
+    );
     expect(findProvider(providers, "ollama")).toEqual(providers[1]);
     expect(providerStatusTone(providers[1])).toBe("danger");
     expect(providerStatusTone(providers[0])).toBe("healthy");
@@ -224,7 +254,7 @@ describe("runtime-utils", () => {
     expect(tracePhaseFromEvent("policy.tool_blocked")).toBe("approval");
     expect(tracePhaseFromEvent("tool.completed")).toBe("tool");
     expect(tracePhaseFromEvent("retention.run.finished")).toBe("retention");
-    expect(tracePhaseFromEvent("agent_chat.run.finished")).toBe("agent_chat");
+    expect(tracePhaseFromEvent("chat.run.finished")).toBe("chat");
     expect(tracePhaseFromEvent("response.returned")).toBe("response");
     // Unknown prefix → "other" (default branch).
     expect(tracePhaseFromEvent("custom.event")).toBe("other");
@@ -241,7 +271,7 @@ describe("runtime-utils", () => {
     expect(tracePhaseFromSpan("orchestrator.approval")).toBe("approval");
     expect(tracePhaseFromSpan("orchestrator.artifact")).toBe("artifact");
     expect(tracePhaseFromSpan("retention.run")).toBe("retention");
-    expect(tracePhaseFromSpan("agent_chat.run")).toBe("agent_chat");
+    expect(tracePhaseFromSpan("chat.run")).toBe("chat");
     expect(tracePhaseFromSpan("gateway.runtime")).toBe("other");
   });
 
@@ -249,9 +279,13 @@ describe("runtime-utils", () => {
 
   it("describeRouteRecovery prefers half-open probe over fallback messages", () => {
     const route: TraceRouteRecord = {
-      candidates: [{ provider: "openai", model: "gpt-4o", outcome: "selected", health_status: "half_open" }],
+      candidates: [
+        { provider: "openai", model: "gpt-4o", outcome: "selected", health_status: "half_open" },
+      ],
     } as unknown as TraceRouteRecord;
-    expect(describeRouteRecovery(route, runtimeHeaders)).toBe("Recovered via half-open provider probe");
+    expect(describeRouteRecovery(route, runtimeHeaders)).toBe(
+      "Recovered via half-open provider probe",
+    );
   });
 
   it("describeRouteRecovery names the fallback source when one is present", () => {
@@ -261,7 +295,9 @@ describe("runtime-utils", () => {
 
   it("describeRouteRecovery describes failovers without a named source", () => {
     const route: TraceRouteRecord = {
-      candidates: [{ provider: "openai", model: "gpt-4o", outcome: "selected", health_status: "healthy" }],
+      candidates: [
+        { provider: "openai", model: "gpt-4o", outcome: "selected", health_status: "healthy" },
+      ],
       failovers: [{ from: "openai", to: "anthropic" }],
     } as unknown as TraceRouteRecord;
     expect(describeRouteRecovery(route)).toBe("Recovered after one or more failover hops");
@@ -290,23 +326,32 @@ describe("runtime-utils", () => {
     expect(describeRouteCandidateOutcome({ outcome: "completed" } as any)).toBe("Completed route");
     expect(describeRouteCandidateOutcome({ outcome: "failed" } as any)).toBe("Failed attempt");
     expect(describeRouteCandidateOutcome({ outcome: "skipped" } as any)).toBe("Skipped");
-    expect(describeRouteCandidateOutcome({ outcome: "half_open_probe" } as any)).toBe("Half Open Probe");
+    expect(describeRouteCandidateOutcome({ outcome: "half_open_probe" } as any)).toBe(
+      "Half Open Probe",
+    );
     expect(describeRouteCandidateOutcome({} as any)).toBe("Candidate");
   });
 
   it("explainRouteCandidate turns route outcomes into operator-readable reasons", () => {
-    expect(explainRouteCandidate({ outcome: "selected", reason: "pinned_provider_model" } as any))
-      .toBe("Chosen because pinned provider and model.");
-    expect(explainRouteCandidate({ outcome: "selected" } as any))
-      .toBe("Chosen by the router.");
-    expect(explainRouteCandidate({ outcome: "skipped", skip_reason: "provider_rate_limited" } as any))
-      .toBe("Skipped because cooling down after upstream 429.");
-    expect(explainRouteCandidate({ outcome: "failed", detail: "upstream returned 503" } as any))
-      .toBe("upstream returned 503");
-    expect(explainRouteCandidate({ outcome: "denied", policy_reason: "cloud providers are blocked" } as any))
-      .toBe("cloud providers are blocked");
-    expect(explainRouteCandidate({ outcome: "candidate" } as any))
-      .toBe("Considered by the router.");
+    expect(
+      explainRouteCandidate({ outcome: "selected", reason: "pinned_provider_model" } as any),
+    ).toBe("Chosen because pinned provider and model.");
+    expect(explainRouteCandidate({ outcome: "selected" } as any)).toBe("Chosen by the router.");
+    expect(
+      explainRouteCandidate({ outcome: "skipped", skip_reason: "provider_rate_limited" } as any),
+    ).toBe("Skipped because cooling down after upstream 429.");
+    expect(
+      explainRouteCandidate({ outcome: "failed", detail: "upstream returned 503" } as any),
+    ).toBe("upstream returned 503");
+    expect(
+      explainRouteCandidate({
+        outcome: "denied",
+        policy_reason: "cloud providers are blocked",
+      } as any),
+    ).toBe("cloud providers are blocked");
+    expect(explainRouteCandidate({ outcome: "candidate" } as any)).toBe(
+      "Considered by the router.",
+    );
   });
 
   // ── provider helpers ─────────────────────────────────────────────────
@@ -315,9 +360,33 @@ describe("runtime-utils", () => {
     // The "looks healthy but isn't" mismatch is a real wire state — the
     // health tracker can flag a provider as unhealthy after threshold-N
     // failures even while its self-reported status is still "healthy".
-    expect(providerStatusTone({ name: "x", kind: "cloud", healthy: false, status: "healthy", default_model: "" })).toBe("warning");
-    expect(providerStatusTone({ name: "x", kind: "cloud", healthy: true, status: "healthy", default_model: "" })).toBe("healthy");
-    expect(providerStatusTone({ name: "x", kind: "cloud", healthy: false, status: "open", default_model: "" })).toBe("danger");
+    expect(
+      providerStatusTone({
+        name: "x",
+        kind: "cloud",
+        healthy: false,
+        status: "healthy",
+        default_model: "",
+      }),
+    ).toBe("warning");
+    expect(
+      providerStatusTone({
+        name: "x",
+        kind: "cloud",
+        healthy: true,
+        status: "healthy",
+        default_model: "",
+      }),
+    ).toBe("healthy");
+    expect(
+      providerStatusTone({
+        name: "x",
+        kind: "cloud",
+        healthy: false,
+        status: "open",
+        default_model: "",
+      }),
+    ).toBe("danger");
     expect(providerStatusTone(undefined)).toBe("neutral");
   });
 
@@ -339,12 +408,18 @@ describe("runtime-utils", () => {
     expect(describeUsageScope(null)).toBe("No scope");
 
     const base: UsageSummaryRecord = {
-      key: "x", scope: "global", backend: "memory", used_micros_usd: 0, used_usd: "$0.000000",
+      key: "x",
+      scope: "global",
+      backend: "memory",
+      used_micros_usd: 0,
+      used_usd: "$0.000000",
     };
     // scope only → just the scope label.
     expect(describeUsageScope({ ...base })).toBe("global");
     // scope + provider.
-    expect(describeUsageScope({ ...base, scope: "provider", provider: "openai" })).toBe("provider / provider openai");
+    expect(describeUsageScope({ ...base, scope: "provider", provider: "openai" })).toBe(
+      "provider / provider openai",
+    );
   });
 
   it("describeRouteSkipReason labels known and unknown skip reasons", () => {
@@ -355,7 +430,9 @@ describe("runtime-utils", () => {
     expect(describeRouteSkipReason("provider_unavailable")).toBe("Provider unavailable");
     expect(describeRouteSkipReason("provider_slow")).toBe("Slower than peers");
     expect(describeRouteSkipReason("provider_less_stable")).toBe("Recent failures");
-    expect(describeRouteSkipReason("provider_rate_limited")).toBe("Cooling down after upstream 429");
+    expect(describeRouteSkipReason("provider_rate_limited")).toBe(
+      "Cooling down after upstream 429",
+    );
     // Unknown code falls back to titleized form
     expect(describeRouteSkipReason("some_new_reason")).toBe("Some New Reason");
     // Missing value returns empty string
@@ -364,13 +441,24 @@ describe("runtime-utils", () => {
 
   it("traceStatusBadge maps trace items to Badge tones", () => {
     const base: TraceListItem = { request_id: "r", span_count: 1 };
-    expect(traceStatusBadge({ ...base, status_code: "ok" })).toEqual({ status: "healthy", label: "Healthy" });
-    expect(traceStatusBadge({ ...base, status_code: "error" })).toEqual({ status: "down", label: "Error" });
-    expect(traceStatusBadge({ ...base, status_code: "ok", route: { fallback_from: "openai" } })).toEqual({ status: "degraded", label: "Recovered" });
+    expect(traceStatusBadge({ ...base, status_code: "ok" })).toEqual({
+      status: "healthy",
+      label: "Healthy",
+    });
+    expect(traceStatusBadge({ ...base, status_code: "error" })).toEqual({
+      status: "down",
+      label: "Error",
+    });
+    expect(
+      traceStatusBadge({ ...base, status_code: "ok", route: { fallback_from: "openai" } }),
+    ).toEqual({ status: "degraded", label: "Recovered" });
     // Missing status_code falls through to a degraded "Issue" or
     // describeRouteReason when present.
     expect(traceStatusBadge({ ...base })).toEqual({ status: "degraded", label: "Issue" });
-    expect(traceStatusBadge({ ...base, route: { final_reason: "requested_model" } })).toEqual({ status: "degraded", label: "Requested model" });
+    expect(traceStatusBadge({ ...base, route: { final_reason: "requested_model" } })).toEqual({
+      status: "degraded",
+      label: "Requested model",
+    });
   });
 
   it("formatRelativeTime renders short relative durations", () => {
@@ -390,15 +478,5 @@ describe("runtime-utils", () => {
     // 1-23h -> hours
     const twoHr = new Date(now - 2 * 60 * 60_000).toISOString();
     expect(formatRelativeTime(twoHr).label).toBe("2h ago");
-  });
-
-  it("formatAbsoluteTime renders readable local timestamps for tooltips", () => {
-    expect(formatAbsoluteTime("")).toBe("");
-    expect(formatAbsoluteTime("not-a-date")).toBe("not-a-date");
-
-    const label = formatAbsoluteTime("2026-05-14T21:50:35.33722Z");
-    expect(label).toContain("2026");
-    expect(label).toContain("35");
-    expect(label).not.toContain("T21:50:35.33722Z");
   });
 });

@@ -14,8 +14,9 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 - There is not yet a dedicated migration CLI or rollback workflow.
 - The gateway defaults to `127.0.0.1:8765` and enforces same-origin browser
   requests, but same-origin is not a network security boundary. If you bind it
-  beyond the local machine, bring your own access controls, firewall, or reverse
-  proxy. The practical threat model lives in [Security](security.md).
+  beyond the local machine, Hecate requires `HECATE_ALLOW_NON_LOOPBACK_BIND=1`;
+  bring your own access controls, firewall, or reverse proxy. The practical
+  threat model lives in [Security](security.md).
 
 ## Provider Lifecycle
 
@@ -24,7 +25,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   also auto-import into the Connections view on first boot; subsequent
   boots leave operator UI edits untouched. See [providers.md](providers.md)
   for the full env-vs-UI lifecycle.
-- Credentials, base URLs, defaults, and model-capability overrides are managed through
+- Credentials, base URLs, and provider defaults are managed through
   the persisted settings store. Taking a provider out of rotation is done by
   deleting it — there is no enable/disable toggle.
 - Custom clients are supported separately: external callers can use Hecate's
@@ -42,10 +43,10 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 - Hecate records token usage events for gateway-controlled model calls, but it
   does not enforce global spend controls.
 - Provider cost is shown only when it is known from provider-reported fields or
-  adapter-reported usage. Treat it as operator visibility, not billing
+  agent-reported usage. Treat it as operator visibility, not billing
   enforcement.
-- External Agent sessions often run through the adapter's own subscription or
-  account. Hecate labels those values as adapter-reported and does not enforce
+- External Agent sessions often run through the agent's own subscription or
+  account. Hecate labels those values as agent-reported and does not enforce
   external spend.
 - Local models report tokens when the runtime provides them; host, GPU, and
   electricity cost are not measured.
@@ -54,16 +55,16 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 
 - `agent_loop` and MCP integration are alpha. They are useful for controlled
   workflows, but the behavior surface is still expanding.
-- `agent_loop` tasks require a model to be configured — either via
-  `requested_model` on the task or the gateway's default model. A missing model
+- `agent_loop` tasks require `requested_model` on the task. A missing model
   is caught at start time and returns a 422 `model_not_configured` error; the
-  run is never created. There is no runtime check that the configured model
-  actually supports tool-calling until the loop's first LLM call.
+  run is never created. Tool support is still ultimately enforced by the
+  provider at call time, so stale or incomplete capability metadata can still
+  surface as a model/tool error during the first LLM call.
 - Runs that are stuck in `running` state (e.g. after a worker crash or process
   restart) are recovered automatically by the periodic reconciler and re-queued
   without operator intervention. The recovery window is three times the
-  configured lease duration (`GATEWAY_TASK_QUEUE_LEASE_SECONDS`); the scan
-  cadence is `GATEWAY_TASK_RECONCILE_INTERVAL` (default `30s`).
+  configured lease duration (`HECATE_TASK_QUEUE_LEASE_SECONDS`); the scan
+  cadence is `HECATE_TASK_RECONCILE_INTERVAL` (default `30s`).
 - The sandbox is a per-call `sh` subprocess with env sanitisation, output cap,
   and wall-clock timeout applied inline by the gateway. It is not a container,
   chroot, or VM; the subprocess runs as the same OS user as the gateway.
@@ -86,33 +87,39 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 ## Hecate Chat
 
 - Hecate Chat can mix tools-off direct model turns and tools-on task-backed
-  Hecate Agent turns in one transcript. Message-level runtime snapshots are
+  turns in one transcript. Message-level runtime snapshots are
   persisted so old turns keep their original provider/model/task context even
   when the header selection changes later.
-- Only one task-backed Hecate Agent segment can be active in a chat at a time.
-  The HTTP API rejects new turns with `409 agent_chat.agent_session_busy` while
+- Only one task-backed segment can be active in a Hecate Chat session at a time.
+  The HTTP API rejects new turns with `409 chat.agent_session_busy` while
   the backing task is queued, running, or awaiting approval. The operator UI
   turns this into a local **Queued next** composer FIFO and sends the prompt
   after the active run settles; queued prompts are not durable until submitted.
-- Tools-on Hecate Chat currently blocks only models explicitly marked
-  `tool_calling="none"`. Unknown local/custom models are labelled as unknown
-  and can be marked manually in Connections; automatic capability probing is
-  not shipped yet.
-- Workspace modes and named Hecate Agent profiles are still roadmap items.
+- Tools-on Hecate Chat needs a model known to support tools
+  (`tool_calling="basic"` or `parallel`). If the selected model is unknown or
+  explicitly does not support tools, the operator UI keeps the transcript
+  usable by sending the next prompt as a direct model turn and showing a
+  capability repair hint. Ollama models can be enriched from their native
+  capability metadata; generic OpenAI-compatible local models often remain
+  `unknown` until the provider reports richer metadata.
+- Workspace modes and named agent profiles are still roadmap items.
   Tools-on chat uses the selected workspace with the current built-in profile.
 - Tasks remains canonical for full run history, retry/resume, artifacts, and
   patch review. Chats projects the high-signal run activity and approval
   controls, but it is not a replacement for every Task Detail inspection flow.
 
-## External Agent Adapters
+## External Agents
 
-- Codex, Claude Code, and Cursor Agent run as trusted local subprocesses in the
+- Codex, Claude Code, Cursor Agent, and Grok Build run as trusted local subprocesses in the
   selected workspace. Hecate supervises lifecycle, approvals, timeouts,
   diagnostics, and Git diff capture, but it does not sandbox those agents or
   own their internal runtime loops.
-- Adapter auth and billing state belongs to the underlying CLI account. Hecate
+- Agent auth and billing state belongs to the underlying CLI account. Hecate
   can probe common failures and surface friendly hints, but operators still
   need to use each agent's own login/status flow when credentials expire.
+- Readiness fixtures are diagnostic only. They can force Connections and Chats
+  status states for UI testing, but real External Agent chats still require the
+  underlying CLI and ACP adapter to start successfully.
 - Patch review is alpha-grade: Hecate captures Git diffs, exposes changed-file
   inspection, and can revert captured paths, but a full side-by-side review
   workspace is not shipped yet.
@@ -143,6 +150,11 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 
 ## Desktop App
 
+- macOS Apple Silicon is the only desktop bundle maintainers currently
+  launch-test. Linux `.deb` / `.AppImage` and Windows `.msi` artifacts are
+  generated by CI but have not yet been manually tested on real machines, so
+  expect bugs. Prefer Docker or the standalone binary tarballs on Linux and
+  Windows if you need the more predictable alpha path today.
 - Windows bundles are not yet code-signed. SmartScreen shows
   "Windows protected your PC." on first launch; the user-facing
   escape is **More info → Run anyway**. macOS bundles cut by
@@ -155,10 +167,9 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 - Homebrew distribution is not published yet. When it exists, it will improve
   installation and upgrades, but it will not replace Apple Developer ID
   signing/notarization for the native macOS app.
-- Platforms shipped: macOS (Apple Silicon), Linux x86_64, Windows x86_64.
-  macOS Intel, Linux arm64, and Windows arm64 are not yet built.
-- Closing only the window on macOS does not quit the app — the gateway
-  sidecar keeps running. Use `cmd+Q` to fully quit.
+- Desktop artifacts currently built: macOS (Apple Silicon), Linux x86_64,
+  Windows x86_64. Only macOS is manually exercised today. macOS Intel, Linux
+  arm64, and Windows arm64 are not yet built.
 - Per-platform data dir: settings on macOS don't migrate to a Linux
   build of the same version. Multi-machine users keep separate config
   per OS.

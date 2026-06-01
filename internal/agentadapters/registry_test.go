@@ -3,19 +3,21 @@ package agentadapters
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	t.Parallel()
 
 	items := BuiltIns()
-	if len(items) != 3 {
-		t.Fatalf("built-in adapter count = %d, want 3", len(items))
+	if len(items) != 4 {
+		t.Fatalf("built-in adapter count = %d, want 4", len(items))
 	}
 
 	found := map[string]Adapter{}
@@ -34,6 +36,18 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 	}
 	if got := found["cursor_agent"]; len(got.Args) != 1 || got.Args[0] != "acp" {
 		t.Fatalf("cursor_agent adapter = %#v", got)
+	}
+	if got := found["grok_build"]; got.Command != "grok" || got.Kind != DriverKindACP || got.CostMode != "external" {
+		t.Fatalf("grok_build adapter = %#v", got)
+	}
+	if got := found["grok_build"]; strings.Join(got.Args, " ") != "agent stdio" || len(got.LaunchSuffixArgs) != 0 {
+		t.Fatalf("grok_build adapter args = %#v", got.Args)
+	}
+	if got := found["grok_build"]; got.LaunchModel.ConfigID != "" || len(got.LaunchModel.ListArgs) != 0 || len(got.LaunchModel.ArgTemplate) != 0 {
+		t.Fatalf("grok_build launch model config = %#v, want ACP-owned model state", got.LaunchModel)
+	}
+	if got := found["grok_build"]; len(got.LaunchOptions) != 0 {
+		t.Fatalf("grok_build launch options = %#v, want ACP-owned controls only", got.LaunchOptions)
 	}
 }
 
@@ -62,6 +76,9 @@ func TestListWithLookupReportsAvailability(t *testing.T) {
 	}
 	if _, ok := byID["cursor_agent"]; !ok {
 		t.Fatalf("missing cursor_agent status in %#v", response)
+	}
+	if _, ok := byID["grok_build"]; !ok {
+		t.Fatalf("missing grok_build status in %#v", response)
 	}
 }
 
@@ -102,6 +119,61 @@ func TestStatusForAdapterHonorsDiscoveryOverrideAvailable(t *testing.T) {
 	}
 }
 
+func TestStatusForAdapterHonorsDevOverrideAuthRequired(t *testing.T) {
+	t.Setenv(adapterDevOverrideEnv, "codex=auth_required")
+
+	status, ok := StatusForAdapter(context.Background(), "codex", func(file string) (string, error) {
+		return "", errors.New("not found on PATH")
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(codex) ok = false")
+	}
+	if !status.Available || status.Status != StatusAvailable || status.Path != "dev-override://codex" {
+		t.Fatalf("status = %#v, want forced available", status)
+	}
+	if status.AuthStatus != AuthStatusUnauthenticated {
+		t.Fatalf("auth status = %q, want unauthenticated", status.AuthStatus)
+	}
+	if !strings.Contains(status.AuthError, "codex login") {
+		t.Fatalf("auth error = %q, want codex login guidance", status.AuthError)
+	}
+}
+
+func TestDevOverrideActive(t *testing.T) {
+	t.Setenv(adapterDevOverrideEnv, "all=missing,codex=ready")
+
+	if !DevOverrideActive("codex") {
+		t.Fatalf("DevOverrideActive(codex) = false, want true")
+	}
+	if !DevOverrideActive("claude_code") {
+		t.Fatalf("DevOverrideActive(claude_code) = false, want true from all=missing")
+	}
+	t.Setenv(adapterDevOverrideEnv, "fake=broken")
+	if DevOverrideActive("fake") {
+		t.Fatalf("DevOverrideActive(fake) = true for invalid override value")
+	}
+}
+
+func TestStatusForAdapterHonorsDevOverrideAppMissing(t *testing.T) {
+	t.Setenv(adapterDevOverrideEnv, "all=ready,claude_code=app_missing")
+
+	status, ok := StatusForAdapter(context.Background(), "claude_code", func(file string) (string, error) {
+		return "/usr/local/bin/" + file, nil
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(claude_code) ok = false")
+	}
+	if !status.Available || status.Status != StatusAvailable || status.Path != "dev-override://claude_code" {
+		t.Fatalf("status = %#v, want forced available app-missing fixture", status)
+	}
+	if status.AuthStatus != AuthStatusUnknown {
+		t.Fatalf("auth status = %q, want unknown for app-missing fixture", status.AuthStatus)
+	}
+	if !strings.Contains(status.Error, "app CLI missing") {
+		t.Fatalf("error = %q, want app CLI missing marker", status.Error)
+	}
+}
+
 func TestStatusForAdapterDiscoveryOverridePrefersExactMatch(t *testing.T) {
 	t.Setenv(adapterDiscoveryOverrideEnv, "all=missing,codex=available")
 
@@ -135,7 +207,7 @@ func TestStatusForAdapterIgnoresInvalidDiscoveryOverride(t *testing.T) {
 		Command: "fake-adapter",
 	}, func(file string) (string, error) {
 		return "", errors.New("not found on PATH")
-	})
+	}, statusProbeOptions{})
 	if status.Available || status.Status != StatusMissing || !strings.Contains(status.Error, "not found") {
 		t.Fatalf("status = %#v, want normal missing lookup", status)
 	}
@@ -255,8 +327,138 @@ func TestShouldProbeVersionForStatusSkipsPlannedManagedLauncher(t *testing.T) {
 		}
 		return "", errors.New("not found on PATH")
 	}
-	if shouldProbeVersionForStatus(adapter, path, lookup) {
-		t.Fatalf("shouldProbeVersionForStatus returned true for planned managed launcher")
+	if shouldProbeAdapterVersionForStatus(adapter, path, lookup, false) {
+		t.Fatalf("shouldProbeAdapterVersionForStatus returned true for planned managed launcher")
+	}
+}
+
+func TestStatusForAdapterDoesNotRunManagedPackageForVersion(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
+	marker := filepath.Join(dir, "runner-called")
+
+	runnerPath := writeGoHelperBinary(t, dir, "fake-npx", fmt.Sprintf(`package main
+
+import "os"
+
+func main() {
+	if err := os.WriteFile(%q, []byte("called"), 0o644); err != nil {
+		panic(err)
+	}
+}
+`, marker))
+	adapter := Adapter{
+		ID:      "managed_test",
+		Name:    "Managed Test",
+		Command: "managed-test-acp",
+		Managed: ManagedLauncher{
+			Package: "@example/managed-test-acp",
+			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@example/managed-test-acp"}}},
+		},
+		SupportedRange: ">=4.0.0",
+	}
+	status := statusForAdapter(context.Background(), adapter, func(file string) (string, error) {
+		if file == "npx" {
+			return runnerPath, nil
+		}
+		return "", errors.New("not found on PATH")
+	}, statusProbeOptions{})
+	if !status.Available {
+		t.Fatalf("status = %#v, want managed adapter available", status)
+	}
+	if status.AdapterVersion != "" {
+		t.Fatalf("status.AdapterVersion = %q, want passive status to avoid package-manager execution", status.AdapterVersion)
+	}
+	if status.VersionOutsideRange {
+		t.Fatalf("status.VersionOutsideRange = true, want false when version is unknown")
+	}
+	if _, err := os.Stat(status.Path); !os.IsNotExist(err) {
+		t.Fatalf("managed status lookup wrote launcher at %q, stat error = %v", status.Path, err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("passive managed status probe executed package runner, marker stat error = %v", err)
+	}
+}
+
+func TestStatusForAdapterReportsManagedAgentVersionWithoutRunningPackage(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
+	marker := filepath.Join(dir, "runner-called")
+	agent := writeFakeBinary(t, dir, "codex", "codex 9.8.7")
+	runnerPath := writeGoHelperBinary(t, dir, "fake-npx", fmt.Sprintf(`package main
+
+import "os"
+
+func main() {
+	if err := os.WriteFile(%q, []byte("called"), 0o644); err != nil {
+		panic(err)
+	}
+}
+`, marker))
+	adapter := Adapter{
+		ID:      "managed_test",
+		Name:    "Managed Test",
+		Command: "managed-test-acp",
+		AgentVersion: VersionProbe{
+			Command: "codex",
+			Args:    []string{"--version"},
+		},
+		Managed: ManagedLauncher{
+			Package: "@example/managed-test-acp",
+			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@example/managed-test-acp"}}},
+		},
+		SupportedRange: ">=4.0.0",
+	}
+	status := statusForAdapter(context.Background(), adapter, func(file string) (string, error) {
+		switch file {
+		case "codex":
+			return agent, nil
+		case "npx":
+			return runnerPath, nil
+		default:
+			return "", errors.New("not found on PATH")
+		}
+	}, statusProbeOptions{})
+	if status.AgentVersion != "9.8.7" {
+		t.Fatalf("status.AgentVersion = %q, want 9.8.7", status.AgentVersion)
+	}
+	if status.AdapterVersion != "" {
+		t.Fatalf("status.AdapterVersion = %q, want passive status to avoid package-manager execution", status.AdapterVersion)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("passive managed status probe executed package runner, marker stat error = %v", err)
+	}
+}
+
+func TestStatusForAdapterExplicitProbeAllowsManagedAdapterVersion(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
+
+	adapter := Adapter{
+		ID:      "managed_test",
+		Name:    "Managed Test",
+		Command: "managed-test-acp",
+		Managed: ManagedLauncher{
+			Package: "@example/managed-test-acp",
+			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@example/managed-test-acp"}}},
+		},
+		SupportedRange: ">=4.0.0",
+	}
+	path := filepath.Join(dir, managedLauncherName(adapter.Command))
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho managed-test-acp 4.5.6\n"), 0o755); err != nil {
+		t.Fatalf("write planned launcher: %v", err)
+	}
+	status := statusForAdapter(context.Background(), adapter, func(file string) (string, error) {
+		if file == "npx" {
+			return "/usr/local/bin/npx", nil
+		}
+		return "", errors.New("not found on PATH")
+	}, statusProbeOptions{allowManagedAdapterVersion: true})
+	if status.AdapterVersion != "4.5.6" {
+		t.Fatalf("status.AdapterVersion = %q, want 4.5.6", status.AdapterVersion)
+	}
+	if status.VersionOutsideRange {
+		t.Fatalf("status.VersionOutsideRange = true, want version in supported range")
 	}
 }
 
@@ -266,10 +468,10 @@ func TestShouldProbeVersionForStatusAllowsDirectBinary(t *testing.T) {
 		t.Fatalf("write executable: %v", err)
 	}
 
-	if !shouldProbeVersionForStatus(Adapter{Command: "codex-acp"}, exe, func(file string) (string, error) {
+	if !shouldProbeAdapterVersionForStatus(Adapter{Command: "codex-acp"}, exe, func(file string) (string, error) {
 		return "", errors.New("not found on PATH")
-	}) {
-		t.Fatalf("shouldProbeVersionForStatus returned false for direct binary")
+	}, false) {
+		t.Fatalf("shouldProbeAdapterVersionForStatus returned false for direct binary")
 	}
 }
 
@@ -474,7 +676,114 @@ func TestCaptureGitDiffWorksFromRepositorySubdirectory(t *testing.T) {
 	}
 }
 
-func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
+func TestCaptureACPTurnResultOmitsUnchangedPreexistingDiff(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	root := initializedGitWorkspace(t)
+	file := filepath.Join(root, "README.md")
+	if err := os.WriteFile(file, []byte("hello\nalready dirty\n"), 0o644); err != nil {
+		t.Fatalf("modify file: %v", err)
+	}
+	initialStat, initialDiff := captureGitDiff(context.Background(), root, 64*1024)
+	if initialStat == "" || initialDiff == "" {
+		t.Fatal("initial dirty diff is empty")
+	}
+
+	result, err := captureACPTurnResult(
+		context.Background(),
+		Adapter{ID: "grok_build"},
+		RunRequest{Workspace: root, MaxOutputBytes: 64 * 1024},
+		"native_1",
+		"done",
+		"done",
+		Usage{},
+		0,
+		timeNowForTest(),
+		timeNowForTest(),
+		initialStat,
+		initialDiff,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("captureACPTurnResult: %v", err)
+	}
+	if result.DiffStat != "" || result.Diff != "" {
+		t.Fatalf("unchanged diff attached to turn: stat=%q diff=%q", result.DiffStat, result.Diff)
+	}
+}
+
+func TestCaptureACPTurnResultIncludesDiffChangedDuringTurn(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	root := initializedGitWorkspace(t)
+	initialStat, initialDiff := captureGitDiff(context.Background(), root, 64*1024)
+	file := filepath.Join(root, "README.md")
+	if err := os.WriteFile(file, []byte("hello\nchanged during turn\n"), 0o644); err != nil {
+		t.Fatalf("modify file: %v", err)
+	}
+
+	result, err := captureACPTurnResult(
+		context.Background(),
+		Adapter{ID: "grok_build"},
+		RunRequest{Workspace: root, MaxOutputBytes: 64 * 1024},
+		"native_1",
+		"done",
+		"done",
+		Usage{},
+		0,
+		timeNowForTest(),
+		timeNowForTest(),
+		initialStat,
+		initialDiff,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("captureACPTurnResult: %v", err)
+	}
+	if !strings.Contains(result.DiffStat, "README.md") {
+		t.Fatalf("diff stat = %q, want README.md", result.DiffStat)
+	}
+	if !strings.Contains(result.Diff, "+changed during turn") {
+		t.Fatalf("diff = %q, want turn change", result.Diff)
+	}
+}
+
+func initializedGitWorkspace(t *testing.T) string {
+	t.Helper()
+
+	root := t.TempDir()
+	if err := exec.Command("git", "-C", root, "init", "-b", "main").Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := exec.Command("git", "-C", root, "config", "user.email", "test@example.com").Run(); err != nil {
+		t.Fatalf("git config email: %v", err)
+	}
+	if err := exec.Command("git", "-C", root, "config", "user.name", "Test User").Run(); err != nil {
+		t.Fatalf("git config name: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := exec.Command("git", "-C", root, "add", ".").Run(); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := exec.Command("git", "-C", root, "commit", "-m", "init").Run(); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+	return root
+}
+
+func timeNowForTest() time.Time {
+	return time.Now().UTC()
+}
+
+func TestSanitizedEnvPreservesRuntimeEssentialsOnlyWithoutAdapter(t *testing.T) {
 	t.Parallel()
 
 	env := sanitizedEnv([]string{
@@ -485,8 +794,15 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 		"CLAUDE_CONFIG_DIR=/tmp/claude",
 		"CODEX_HOME=/tmp/codex",
 		"CURSOR_API_KEY=cursor-test",
+		"PROVIDER_XAI_API_KEY=provider-xai-test",
+		"XAI_API_KEY=xai-test",
 		"VOLTA_HOME=/Users/alice/.volta",
-		"GATEWAY_AUTH_TOKEN=secret",
+		"APPDATA=C:\\Users\\alice\\AppData\\Roaming",
+		"LOCALAPPDATA=C:\\Users\\alice\\AppData\\Local",
+		"SSL_CERT_FILE=/etc/ssl/corp.pem",
+		"NODE_EXTRA_CA_CERTS=/etc/ssl/node-corp.pem",
+		"HTTPS_PROXY=http://proxy.local:8080",
+		"HECATE_AUTH_TOKEN=secret",
 	})
 
 	got := map[string]bool{}
@@ -496,42 +812,120 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 	for _, want := range []string{
 		"PATH=/bin",
 		"HOME=/Users/alice",
-		"OPENAI_API_KEY=sk-test",
-		"ANTHROPIC_API_KEY=sk-ant-test",
-		"CLAUDE_CONFIG_DIR=/tmp/claude",
-		"CODEX_HOME=/tmp/codex",
-		"CURSOR_API_KEY=cursor-test",
 		"VOLTA_HOME=/Users/alice/.volta",
+		"APPDATA=C:\\Users\\alice\\AppData\\Roaming",
+		"LOCALAPPDATA=C:\\Users\\alice\\AppData\\Local",
+		"SSL_CERT_FILE=/etc/ssl/corp.pem",
+		"NODE_EXTRA_CA_CERTS=/etc/ssl/node-corp.pem",
 	} {
 		if !got[want] {
 			t.Fatalf("missing allowed env %q in %#v", want, env)
 		}
 	}
-	if got["GATEWAY_AUTH_TOKEN=secret"] {
-		t.Fatalf("gateway secret leaked into adapter env: %#v", env)
+	for _, leaked := range []string{
+		"OPENAI_API_KEY=sk-test",
+		"ANTHROPIC_API_KEY=sk-ant-test",
+		"CLAUDE_CONFIG_DIR=/tmp/claude",
+		"CODEX_HOME=/tmp/codex",
+		"CURSOR_API_KEY=cursor-test",
+		"HECATE_AUTH_TOKEN=secret",
+		"XAI_API_KEY=xai-test",
+		"HTTPS_PROXY=http://proxy.local:8080",
+	} {
+		if got[leaked] {
+			t.Fatalf("credential env %q leaked into generic adapter env: %#v", leaked, env)
+		}
 	}
 }
 
-func TestMergeEnvOverridesSanitizedBase(t *testing.T) {
+func TestSanitizedEnvUsesPerAdapterCredentialPrefixes(t *testing.T) {
 	t.Parallel()
 
-	got := mergeEnv([]string{
+	input := []string{
 		"PATH=/bin",
-		"CLAUDE_CODE_OAUTH_TOKEN=old",
-		"HOME=/tmp/home",
-	}, []string{
-		"CLAUDE_CODE_OAUTH_TOKEN=new",
-		"BAD_ENTRY",
-		"CURSOR_API_KEY=cursor-token",
-	})
-	want := []string{
-		"PATH=/bin",
-		"HOME=/tmp/home",
-		"CLAUDE_CODE_OAUTH_TOKEN=new",
-		"CURSOR_API_KEY=cursor-token",
+		"OPENAI_API_KEY=sk-test",
+		"ANTHROPIC_API_KEY=sk-ant-test",
+		"CLAUDE_CONFIG_DIR=/tmp/claude",
+		"CODEX_HOME=/tmp/codex",
+		"CURSOR_API_KEY=cursor-test",
+		"HECATE_AUTH_TOKEN=secret",
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("mergeEnv() = %#v, want %#v", got, want)
+	cases := []struct {
+		name    string
+		adapter string
+		want    []string
+		block   []string
+	}{
+		{
+			name:    "codex",
+			adapter: "codex",
+			want:    []string{"PATH=/bin", "OPENAI_API_KEY=sk-test", "CODEX_HOME=/tmp/codex"},
+			block:   []string{"ANTHROPIC_API_KEY=sk-ant-test", "CLAUDE_CONFIG_DIR=/tmp/claude", "CURSOR_API_KEY=cursor-test", "HECATE_AUTH_TOKEN=secret"},
+		},
+		{
+			name:    "claude",
+			adapter: "claude_code",
+			want:    []string{"PATH=/bin", "ANTHROPIC_API_KEY=sk-ant-test", "CLAUDE_CONFIG_DIR=/tmp/claude"},
+			block:   []string{"OPENAI_API_KEY=sk-test", "CODEX_HOME=/tmp/codex", "CURSOR_API_KEY=cursor-test", "HECATE_AUTH_TOKEN=secret"},
+		},
+		{
+			name:    "cursor",
+			adapter: "cursor_agent",
+			want:    []string{"PATH=/bin", "CURSOR_API_KEY=cursor-test"},
+			block:   []string{"OPENAI_API_KEY=sk-test", "CODEX_HOME=/tmp/codex", "ANTHROPIC_API_KEY=sk-ant-test", "CLAUDE_CONFIG_DIR=/tmp/claude", "HECATE_AUTH_TOKEN=secret"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			env := sanitizedEnvForAdapter(tc.adapter, input)
+			got := map[string]bool{}
+			for _, item := range env {
+				got[item] = true
+			}
+			for _, want := range tc.want {
+				if !got[want] {
+					t.Fatalf("missing adapter env %q in %#v", want, env)
+				}
+			}
+			for _, blocked := range tc.block {
+				if got[blocked] {
+					t.Fatalf("blocked env %q leaked into %s env: %#v", blocked, tc.adapter, env)
+				}
+			}
+		})
+	}
+}
+
+func TestSanitizedEnvMapsProviderXAIKeyOnlyForGrokBuild(t *testing.T) {
+	t.Parallel()
+
+	env := sanitizedEnvForAdapter("grok_build", []string{
+		"PATH=/bin",
+		"PROVIDER_XAI_API_KEY=provider-xai-test",
+	})
+
+	got := map[string]bool{}
+	for _, item := range env {
+		got[item] = true
+	}
+	if !got["XAI_API_KEY=provider-xai-test"] {
+		t.Fatalf("missing XAI_API_KEY bridge in %#v", env)
+	}
+	if got["PROVIDER_XAI_API_KEY=provider-xai-test"] {
+		t.Fatalf("provider-scoped key leaked into adapter env: %#v", env)
+	}
+
+	env = sanitizedEnvForAdapter("codex", []string{
+		"PATH=/bin",
+		"PROVIDER_XAI_API_KEY=provider-xai-test",
+	})
+	got = map[string]bool{}
+	for _, item := range env {
+		got[item] = true
+	}
+	if got["XAI_API_KEY=provider-xai-test"] || got["PROVIDER_XAI_API_KEY=provider-xai-test"] {
+		t.Fatalf("xAI key leaked into non-Grok adapter env: %#v", env)
 	}
 }
 
@@ -605,5 +999,21 @@ func TestNormalizeErrorExplainsClaudeAuthRequirement(t *testing.T) {
 	}
 	if !strings.Contains(got, "claude_code_auth_required") {
 		t.Fatalf("NormalizeError = %q, want claude_code_auth_required token for UI pattern-match", got)
+	}
+}
+
+func TestNormalizeErrorExtractsJSONRPCStringData(t *testing.T) {
+	t.Parallel()
+
+	err := errors.New(`{"code":-32603,"message":"Internal error","data":"stream error (api_error): no healthy upstream"}`)
+	got := NormalizeError("Grok Build", err)
+	if !strings.Contains(got, "Grok Build error: stream error (api_error): no healthy upstream") {
+		t.Fatalf("NormalizeError = %q, want Grok Build upstream diagnostic", got)
+	}
+	if !strings.Contains(got, "XAI_API_KEY") {
+		t.Fatalf("NormalizeError = %q, want XAI_API_KEY recovery hint", got)
+	}
+	if strings.Contains(got, `{"code"`) {
+		t.Fatalf("NormalizeError = %q, want parsed message instead of raw JSON", got)
 	}
 }

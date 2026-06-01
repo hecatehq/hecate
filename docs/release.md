@@ -66,14 +66,17 @@ Every `v*` tag fires `.github/workflows/release.yml`, which expands into
 five Actions jobs:
 
 1. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
-   `linux+darwin × amd64+arm64`; each tarball includes `hecate` and
-   `hecate-acp`. It also publishes multi-arch Docker images on
+   `linux+darwin × amd64+arm64`; each tarball includes `hecate`. It also
+   publishes multi-arch Docker images on
    `ghcr.io/hecatehq/hecate`, source tarball, checksums, GitHub Release
    entry.
 2. **`tauri / build`** (matrix, ~10–15 min, runs after goreleaser) —
    three legs building native desktop bundles and uploading them to the same
    Release entry: `.dmg` (macOS arm64), `.deb` + `.AppImage` (Linux x86_64),
-   `.msi` (Windows x86_64).
+   `.msi` (Windows x86_64). This is packaging validation, not platform
+   confidence: maintainers currently launch-test the macOS Apple Silicon
+   desktop path only. Linux and Windows desktop bundles are CI-built but not
+   manually exercised on real machines yet.
 3. **`tauri / publish updater manifest`** — stitches signed updater payloads
    into `latest.json` and uploads the GitHub Release copy.
 4. **`tauri / publish updater manifest to website`** — commits the same
@@ -90,20 +93,22 @@ Acceptance after the run:
 - All release jobs green.
 - Release entry marked **Pre-release** for `-alpha.N` tags.
 - Goreleaser-side artifacts attached: tarballs for each goos/goarch + checksums.
-  Each tarball contains both `hecate` and `hecate-acp`.
+  Each tarball contains `hecate`.
 - Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
   If any is missing, the matrix leg silently skipped upload — open the run
   to see what failed.
+- Release notes and README copy keep the desktop-platform caveat honest:
+  macOS Apple Silicon is launch-tested; Linux and Windows desktop bundles are
+  experimental until real-machine smoke coverage exists.
 - README Desktop app table and pinned install examples point at the release
   tag. The workflow commits this docs-only refresh to `master` with `[skip ci]`.
 - `https://hecate.sh/releases/alpha/latest.json` serves the same version as
   the release tag. This is the updater endpoint bundled into alpha.28+ desktop
   apps; the GitHub Release `latest.json` asset is a backup/source artifact.
 - `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix —
-  goreleaser uses bare semver as the docker tag). The image contains both
-  `/usr/local/bin/hecate` and `/usr/local/bin/hecate-acp`; the entrypoint is
-  `/usr/local/bin/hecate`.
-- `docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:X.Y.Z` then
+  goreleaser uses bare semver as the docker tag). The image contains
+  `/usr/local/bin/hecate`; the entrypoint is `/usr/local/bin/hecate`.
+- `docker run --rm -p 127.0.0.1:8765:8765 ghcr.io/hecatehq/hecate:X.Y.Z` then
   `curl :8765/healthz` returns `version: "X.Y.Z"`.
 
 ## Alpha gate
@@ -120,11 +125,10 @@ The target runs the non-destructive launch checks in order:
 2. Go unit tests
 3. `go vet`
 4. Go race tests
-5. ACP bridge smoke test
-6. Docker smoke test
-7. UI unit tests
-8. UI e2e tests
-9. production binary build with embedded UI
+5. Docker smoke test
+6. UI unit tests
+7. UI e2e tests
+8. production binary build with embedded UI
 
 If a check is intentionally skipped, call it out in the release notes with the
 reason and the risk. Docker smoke and UI e2e are allowed to be slow; they are
@@ -137,18 +141,20 @@ matrix is the next opportunity to catch regressions.
 
 ## Cut the release
 
-The canonical entry point is the `just release` recipe, which runs
-`just verify` first and then delegates to `scripts/release.ts`:
+The canonical entry point is the `just release` recipe, which first runs a
+fast release preflight, then `just verify`, then delegates to
+`scripts/release.ts`:
 
 ```bash
 just release vX.Y.Z
 ```
 
-It performs, in order: the full project verification gate,
-clean-worktree check, tag-uniqueness check, goreleaser-on-PATH check,
-goreleaser snapshot dry-run, interactive confirmation prompt, Tauri
-version stamp commit (Cargo.toml, package.json, tauri.conf.json),
-annotated tag, push.
+It performs, in order: clean-worktree check, tag-uniqueness check,
+goreleaser-on-PATH check, Docker-daemon check when the snapshot is enabled,
+the full project verification gate, goreleaser snapshot dry-run, interactive
+confirmation prompt, Tauri version stamp commit (Cargo.toml, package.json,
+tauri.conf.json), annotated tag, tag push, and local branch restore to the
+pre-stamp commit.
 
 Pass `--skip-snapshot` to skip the dry-run when you've already validated
 locally:
@@ -163,13 +169,14 @@ the canonical release notes (what `git show vX.Y.Z` and the GitHub
 Releases page surface):
 
 ```bash
-bun scripts/stamp-version.ts                   # stamps Tauri version files
+pre_stamp=$(git rev-parse HEAD)
+TAURI_VERSION=X.Y.Z bun scripts/stamp-version.ts
 git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock \
         tauri/src-tauri/tauri.conf.json tauri/package.json
 git commit -m "chore(tauri): stamp version X.Y.Z"
-git push origin master
 git tag -a vX.Y.Z -F /tmp/release-notes.txt    # message from a file
 git push origin vX.Y.Z
+git reset --hard "$pre_stamp"                  # keep the stamp on the tag only
 ```
 
 ## Snapshot dry-run
@@ -203,6 +210,11 @@ Pre-flight checks before the snapshot run (the script enforces these):
   leak into a follow-up commit and break the next release on `--clean`. The
   `ui/dist/` entry in `.gitignore` does **not** cover repo-root `dist/`.
 - `goreleaser` itself is on PATH (`go install github.com/goreleaser/goreleaser/v2@latest`).
+- Docker is reachable when the snapshot is enabled. The snapshot builds local
+  Docker images, so `just release` fails early if Docker Desktop is stopped or
+  the current Docker context points at a missing socket. If `just verify` has
+  already passed and only the local snapshot is blocked, rerun with
+  `--skip-snapshot`.
 
 ## Post-release docs refresh
 

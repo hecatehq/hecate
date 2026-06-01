@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/gitrunner"
 )
 
 const (
@@ -22,7 +22,26 @@ const (
 	StatusMissing   = "missing"
 )
 
-const adapterDiscoveryOverrideEnv = "GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES"
+// ErrLaunchModelRequired means Hecate owns the model launch flag for an
+// adapter and the operator has not selected a concrete model yet.
+var ErrLaunchModelRequired = errors.New("launch model required")
+
+// adapterDiscoveryOverrideEnv is intentionally narrower than
+// adapterDevOverrideEnv: keep it for backend tests that only need catalog
+// states, while UI/dev smoke fixtures should use the dev override so catalog
+// and probe visuals stay aligned.
+const adapterDiscoveryOverrideEnv = "HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES"
+const adapterDevOverrideEnv = "HECATE_AGENT_ADAPTER_DEV_OVERRIDES"
+
+const (
+	adapterDevOverrideMissing      = "missing"
+	adapterDevOverrideAvailable    = "available"
+	adapterDevOverrideReady        = "ready"
+	adapterDevOverrideAuthRequired = "auth_required"
+	adapterDevOverrideBilling      = "billing"
+	adapterDevOverrideAppMissing   = "app_missing"
+	adapterDevOverrideError        = "error"
+)
 
 const (
 	AuthStatusOK              = "ok"
@@ -32,17 +51,60 @@ const (
 )
 
 type Adapter struct {
-	ID             string
-	Name           string
+	ID               string
+	Name             string
+	Command          string
+	Args             []string
+	CandidatePaths   []string
+	AgentVersion     VersionProbe
+	Managed          ManagedLauncher
+	LaunchSuffixArgs []string
+	LaunchModel      LaunchModelConfig
+	LaunchOptions    []LaunchSelectConfig
+	Kind             string
+	Description      string
+	CostMode         string
+	DocsURL          string
+	SupportedRange   string
+}
+
+type VersionProbe struct {
 	Command        string
 	Args           []string
 	CandidatePaths []string
-	Managed        ManagedLauncher
-	Kind           string
-	Description    string
-	CostMode       string
-	DocsURL        string
-	SupportedRange string
+}
+
+type LaunchModelConfig struct {
+	ConfigID       string
+	ArgTemplate    []string
+	ListArgs       []string
+	FallbackModels []LaunchModel
+}
+
+type LaunchModel struct {
+	ID          string
+	Name        string
+	Description string
+	Default     bool
+}
+
+type LaunchSelectConfig struct {
+	ConfigID         string
+	Name             string
+	Description      string
+	Category         string
+	Default          string
+	UnsetValue       string
+	UnsetName        string
+	UnsetDescription string
+	ArgTemplate      []string
+	Options          []LaunchSelectOption
+}
+
+type LaunchSelectOption struct {
+	ID          string
+	Name        string
+	Description string
 }
 
 type ManagedLauncher struct {
@@ -62,7 +124,8 @@ type Status struct {
 	Status              string
 	Path                string
 	Error               string
-	Version             string
+	AdapterVersion      string
+	AgentVersion        string
 	VersionOutsideRange bool
 	AuthStatus          string
 	AuthError           string
@@ -77,6 +140,7 @@ type RunRequest struct {
 	Workspace               string
 	PreviousNativeSessionID string
 	Prompt                  string
+	ConfigOptions           []agentcontrols.ConfigOption
 	Timeout                 time.Duration
 	MaxOutputBytes          int64
 	OnOutput                func(string)
@@ -88,6 +152,7 @@ type PrepareSessionRequest struct {
 	AdapterID               string
 	Workspace               string
 	PreviousNativeSessionID string
+	ConfigOptions           []agentcontrols.ConfigOption
 }
 
 type PrepareSessionResult struct {
@@ -137,12 +202,13 @@ type Usage struct {
 }
 
 type Activity struct {
-	ID     string
-	Type   string
-	Status string
-	Kind   string
-	Title  string
-	Detail string
+	ID              string
+	Type            string
+	Status          string
+	Kind            string
+	Title           string
+	Detail          string
+	ArtifactPreview string
 }
 
 func (u Usage) Empty() bool {
@@ -159,6 +225,16 @@ func BuiltIns() []Adapter {
 				"${HOME}/.local/bin/codex-acp",
 				"/opt/homebrew/bin/codex-acp",
 				"/usr/local/bin/codex-acp",
+			},
+			AgentVersion: VersionProbe{
+				Command: "codex",
+				Args:    []string{"--version"},
+				CandidatePaths: []string{
+					"${HOME}/.local/bin/codex",
+					"${HOME}/.volta/bin/codex",
+					"/opt/homebrew/bin/codex",
+					"/usr/local/bin/codex",
+				},
 			},
 			Managed: ManagedLauncher{
 				Package: "@zed-industries/codex-acp",
@@ -180,6 +256,16 @@ func BuiltIns() []Adapter {
 				"${HOME}/.local/bin/claude-agent-acp",
 				"/opt/homebrew/bin/claude-agent-acp",
 				"/usr/local/bin/claude-agent-acp",
+			},
+			AgentVersion: VersionProbe{
+				Command: "claude",
+				Args:    []string{"--version"},
+				CandidatePaths: []string{
+					"${HOME}/.local/bin/claude",
+					"${HOME}/.volta/bin/claude",
+					"/opt/homebrew/bin/claude",
+					"/usr/local/bin/claude",
+				},
 			},
 			Managed: ManagedLauncher{
 				Package: "@agentclientprotocol/claude-agent-acp",
@@ -207,6 +293,22 @@ func BuiltIns() []Adapter {
 			Description:    "Run Cursor Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
 			CostMode:       "external",
 			DocsURL:        "https://cursor.com/cli",
+			SupportedRange: ">=0.1.0",
+		},
+		{
+			ID:      "grok_build",
+			Name:    "Grok Build",
+			Command: "grok",
+			Args:    []string{"agent", "stdio"},
+			CandidatePaths: []string{
+				"${HOME}/.local/bin/grok",
+				"/opt/homebrew/bin/grok",
+				"/usr/local/bin/grok",
+			},
+			Kind:           "acp",
+			Description:    "Run Grok Build through its ACP mode as a long-lived external coding-agent session supervised by Hecate.",
+			CostMode:       "external",
+			DocsURL:        "https://docs.x.ai/build/cli/headless-scripting#acp",
 			SupportedRange: ">=0.1.0",
 		},
 	}
@@ -237,12 +339,24 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 	items := BuiltIns()
 	out := make([]Status, 0, len(items))
 	for _, item := range items {
-		out = append(out, statusForAdapter(ctx, item, lookup))
+		out = append(out, statusForAdapter(ctx, item, lookup, statusProbeOptions{}))
 	}
 	return out
 }
 
 func StatusForAdapter(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
+	return statusForAdapterByID(ctx, id, lookup, statusProbeOptions{})
+}
+
+func StatusForAdapterAfterExplicitProbe(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
+	return statusForAdapterByID(ctx, id, lookup, statusProbeOptions{allowManagedAdapterVersion: true})
+}
+
+type statusProbeOptions struct {
+	allowManagedAdapterVersion bool
+}
+
+func statusForAdapterByID(ctx context.Context, id string, lookup LookupFunc, opts statusProbeOptions) (Status, bool) {
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
@@ -250,12 +364,12 @@ func StatusForAdapter(ctx context.Context, id string, lookup LookupFunc) (Status
 		if item.ID != strings.TrimSpace(id) {
 			continue
 		}
-		return statusForAdapter(ctx, item, lookup), true
+		return statusForAdapter(ctx, item, lookup, opts), true
 	}
 	return Status{}, false
 }
 
-func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Status {
+func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc, opts statusProbeOptions) Status {
 	status := Status{
 		Adapter:    item,
 		Status:     StatusMissing,
@@ -268,6 +382,9 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Stat
 		status.Error = err.Error()
 		return status
 	}
+	if override, ok := adapterDevOverride(item.ID); ok {
+		return applyAdapterDevOverride(status, override)
+	}
 	if override, ok := adapterDiscoveryOverride(item.ID); ok {
 		return applyAdapterDiscoveryOverride(status, override)
 	}
@@ -279,20 +396,24 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Stat
 	status.Available = true
 	status.Status = StatusAvailable
 	status.Path = path
-	if shouldProbeVersionForStatus(item, path, lookup) {
+	if item.Managed.Package != "" && shouldProbeAdapterVersionForStatus(item, path, lookup, opts.allowManagedAdapterVersion) {
 		v := DetectVersion(ctx, path)
-		status.Version = v
-		status.VersionOutsideRange = !satisfiesRange(v, item.SupportedRange)
+		status.AdapterVersion = v
 	}
+	status.AgentVersion = detectAgentVersionForStatus(ctx, item, path, lookup)
+	status.VersionOutsideRange = !satisfiesRange(firstNonEmptyVersion(status.AdapterVersion, status.AgentVersion), item.SupportedRange)
 	status.AuthStatus, status.AuthError = DetectAuthStatus(item)
 	return status
 }
 
-func shouldProbeVersionForStatus(adapter Adapter, path string, lookup LookupFunc) bool {
+func shouldProbeAdapterVersionForStatus(adapter Adapter, path string, lookup LookupFunc, allowManaged bool) bool {
 	if !shouldProbeVersion(path) {
 		return false
 	}
 	if adapter.Managed.Package == "" {
+		return true
+	}
+	if allowManaged {
 		return true
 	}
 	planned, err := plannedManagedLauncher(adapter, lookup)
@@ -300,6 +421,26 @@ func shouldProbeVersionForStatus(adapter Adapter, path string, lookup LookupFunc
 		return true
 	}
 	return filepath.Clean(planned) != filepath.Clean(path)
+}
+
+func detectAgentVersionForStatus(ctx context.Context, adapter Adapter, path string, lookup LookupFunc) string {
+	if adapter.AgentVersion.Command != "" {
+		return DetectVersionProbe(ctx, adapter.AgentVersion, lookup)
+	}
+	if adapter.Managed.Package != "" {
+		return ""
+	}
+	return DetectVersion(ctx, path)
+}
+
+func firstNonEmptyVersion(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func shouldProbeVersion(path string) bool {
@@ -311,7 +452,24 @@ func shouldProbeVersion(path string) bool {
 }
 
 func adapterDiscoveryOverride(adapterID string) (string, bool) {
-	raw := strings.TrimSpace(os.Getenv(adapterDiscoveryOverrideEnv))
+	return adapterOverride(adapterDiscoveryOverrideEnv, adapterID, normalizeAdapterDiscoveryOverride)
+}
+
+func adapterDevOverride(adapterID string) (string, bool) {
+	return adapterOverride(adapterDevOverrideEnv, adapterID, normalizeAdapterDevOverride)
+}
+
+// DevOverrideActive reports whether HECATE_AGENT_ADAPTER_DEV_OVERRIDES has
+// a valid fixture for adapterID. API handlers use it to keep visual smoke-test
+// state synthetic end-to-end instead of letting a probe response "correct" the
+// catalog row from the real machine.
+func DevOverrideActive(adapterID string) bool {
+	_, ok := adapterDevOverride(adapterID)
+	return ok
+}
+
+func adapterOverride(envName, adapterID string, normalize func(string) (string, bool)) (string, bool) {
+	raw := strings.TrimSpace(os.Getenv(envName))
 	if raw == "" {
 		return "", false
 	}
@@ -326,14 +484,15 @@ func adapterDiscoveryOverride(adapterID string) (string, bool) {
 		if key == "" || value == "" {
 			continue
 		}
-		switch value {
-		case StatusAvailable, StatusMissing:
-			if key == adapterID {
-				return value, true
-			}
-			if key == "all" {
-				allOverride = value
-			}
+		normalized, ok := normalize(value)
+		if !ok {
+			continue
+		}
+		if key == adapterID {
+			return normalized, true
+		}
+		if key == "all" {
+			allOverride = normalized
 		}
 	}
 	if allOverride != "" {
@@ -342,8 +501,91 @@ func adapterDiscoveryOverride(adapterID string) (string, bool) {
 	return "", false
 }
 
+func normalizeAdapterDiscoveryOverride(value string) (string, bool) {
+	switch value {
+	case StatusAvailable, StatusMissing:
+		return value, true
+	default:
+		return "", false
+	}
+}
+
+func normalizeAdapterDevOverride(value string) (string, bool) {
+	switch value {
+	case "missing", "connector_missing", "acp_missing":
+		return adapterDevOverrideMissing, true
+	case "available", "unknown":
+		return adapterDevOverrideAvailable, true
+	case "ready", "ok", "auth_ok":
+		return adapterDevOverrideReady, true
+	case "auth_required", "unauthenticated", "no_auth":
+		return adapterDevOverrideAuthRequired, true
+	case "billing":
+		return adapterDevOverrideBilling, true
+	case "app_missing", "cli_missing":
+		return adapterDevOverrideAppMissing, true
+	case "error":
+		return adapterDevOverrideError, true
+	default:
+		return "", false
+	}
+}
+
+func applyAdapterDevOverride(status Status, override string) Status {
+	status.AdapterVersion = ""
+	status.AgentVersion = ""
+	status.VersionOutsideRange = false
+	status.AuthStatus = AuthStatusUnknown
+	status.AuthError = ""
+	status.ClaudeCodeCLI = SetupCommandStatus{}
+	switch override {
+	case adapterDevOverrideMissing:
+		status.Available = false
+		status.Status = StatusMissing
+		status.Path = ""
+		status.Error = "forced ACP connector missing by " + adapterDevOverrideEnv
+	case adapterDevOverrideReady:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced ready by " + adapterDevOverrideEnv
+		status.AuthStatus = AuthStatusOK
+	case adapterDevOverrideAuthRequired:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced auth_required by " + adapterDevOverrideEnv
+		status.AuthStatus = AuthStatusUnauthenticated
+		status.AuthError = adapterSignInHint(status.Adapter)
+	case adapterDevOverrideBilling:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced billing by " + adapterDevOverrideEnv
+		status.AuthStatus = AuthStatusBilling
+		status.AuthError = "Billing or usage limit requires attention."
+	case adapterDevOverrideAppMissing:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced app CLI missing by " + adapterDevOverrideEnv
+	case adapterDevOverrideError:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced probe error by " + adapterDevOverrideEnv
+	default:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced available by " + adapterDevOverrideEnv
+	}
+	return status
+}
+
 func applyAdapterDiscoveryOverride(status Status, override string) Status {
-	status.Version = ""
+	status.AdapterVersion = ""
+	status.AgentVersion = ""
 	status.VersionOutsideRange = false
 	status.AuthStatus = AuthStatusUnknown
 	status.AuthError = ""
@@ -473,7 +715,7 @@ func RefreshManagedLauncher(ctx context.Context, id string, lookup LookupFunc) (
 	if _, err := ensureManagedLauncher(adapter, lookup); err != nil {
 		return Status{}, err
 	}
-	return statusForAdapter(ctx, adapter, lookup), nil
+	return statusForAdapter(ctx, adapter, lookup, statusProbeOptions{}), nil
 }
 
 func GCManagedLaunchers() (int, error) {
@@ -657,14 +899,17 @@ func ValidateWorkspace(path string) (string, error) {
 }
 
 func sanitizedEnv(env []string) []string {
+	return sanitizedEnvForAdapter("", env)
+}
+
+func sanitizedEnvForAdapter(adapterID string, env []string) []string {
 	allowedPrefixes := []string{
-		"ANTHROPIC_",
-		"CODEX_",
-		"CLAUDE_",
-		"CURSOR_",
-		"OPENAI_",
 		"PATH=",
+		"Path=",
 		"HOME=",
+		"USERPROFILE=",
+		"HOMEDRIVE=",
+		"HOMEPATH=",
 		"TMPDIR=",
 		"TEMP=",
 		"TMP=",
@@ -672,12 +917,41 @@ func sanitizedEnv(env []string) []string {
 		"LC_",
 		"TERM=",
 		"USER=",
+		"USERNAME=",
 		"LOGNAME=",
+		"APPDATA=",
+		"LOCALAPPDATA=",
 		"XDG_",
 		"VOLTA_",
+		"SSL_CERT_FILE=",
+		"SSL_CERT_DIR=",
+		"NODE_EXTRA_CA_CERTS=",
+		"SystemRoot=",
+		"WINDIR=",
+		"ComSpec=",
+	}
+	switch strings.ToLower(strings.TrimSpace(adapterID)) {
+	case "codex":
+		allowedPrefixes = append(allowedPrefixes, "CODEX_", "OPENAI_")
+	case "claude_code":
+		allowedPrefixes = append(allowedPrefixes, "ANTHROPIC_", "CLAUDE_")
+	case "cursor_agent":
+		allowedPrefixes = append(allowedPrefixes, "CURSOR_")
+	}
+	includeXAI := strings.EqualFold(strings.TrimSpace(adapterID), "grok_build")
+	if includeXAI {
+		allowedPrefixes = append(allowedPrefixes, "XAI_")
 	}
 	out := make([]string, 0, len(env))
+	hasXAIAPIKey := false
+	providerXAIAPIKey := ""
 	for _, entry := range env {
+		if includeXAI && strings.HasPrefix(entry, "XAI_API_KEY=") && strings.TrimSpace(strings.TrimPrefix(entry, "XAI_API_KEY=")) != "" {
+			hasXAIAPIKey = true
+		}
+		if includeXAI && strings.HasPrefix(entry, "PROVIDER_XAI_API_KEY=") {
+			providerXAIAPIKey = strings.TrimSpace(strings.TrimPrefix(entry, "PROVIDER_XAI_API_KEY="))
+		}
 		for _, prefix := range allowedPrefixes {
 			if strings.HasPrefix(entry, prefix) {
 				out = append(out, entry)
@@ -685,59 +959,14 @@ func sanitizedEnv(env []string) []string {
 			}
 		}
 	}
-	return out
-}
-
-func mergeEnv(base []string, overrides []string) []string {
-	if len(overrides) == 0 {
-		return append([]string(nil), base...)
+	if includeXAI && !hasXAIAPIKey && providerXAIAPIKey != "" {
+		out = append(out, "XAI_API_KEY="+providerXAIAPIKey)
 	}
-	names := make(map[string]struct{}, len(overrides))
-	filteredOverrides := make([]string, 0, len(overrides))
-	for _, entry := range overrides {
-		name, value, ok := strings.Cut(entry, "=")
-		name = strings.TrimSpace(name)
-		if !ok || name == "" {
-			continue
-		}
-		names[name] = struct{}{}
-		filteredOverrides = append(filteredOverrides, name+"="+value)
-	}
-	out := make([]string, 0, len(base)+len(filteredOverrides))
-	for _, entry := range base {
-		name, _, ok := strings.Cut(entry, "=")
-		if ok {
-			if _, replace := names[name]; replace {
-				continue
-			}
-		}
-		out = append(out, entry)
-	}
-	out = append(out, filteredOverrides...)
 	return out
 }
 
 func captureGitDiff(ctx context.Context, workspace string, maxBytes int64) (string, string) {
-	diffCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	if strings.TrimSpace(runGitCapture(diffCtx, workspace, 1024, "rev-parse", "--is-inside-work-tree")) != "true" {
-		return "", ""
-	}
-	return runGitCapture(diffCtx, workspace, maxBytes, "diff", "--stat"), runGitCapture(diffCtx, workspace, maxBytes, "diff", "--no-ext-diff", "--binary")
-}
-
-func runGitCapture(ctx context.Context, workspace string, maxBytes int64, args ...string) string {
-	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = workspace
-	cmd.Env = sanitizedEnv(os.Environ())
-	var out limitedBuffer
-	out.limit = maxBytes
-	cmd.Stdout = &out
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(out.String())
+	return gitrunner.NewLocalRunner().Diff(ctx, workspace, maxBytes)
 }
 
 type limitedBuffer struct {

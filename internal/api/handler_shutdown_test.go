@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/mcp"
-	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
-	"github.com/hecate/agent-runtime/internal/orchestrator"
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/taskstate"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/mcp"
+	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // newShutdownTestRunner builds a minimal *orchestrator.Runner suitable

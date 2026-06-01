@@ -1,5 +1,5 @@
 import type { Plugin } from "vite";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
 // preserveDistGitkeep emits ui/dist/.gitkeep alongside the build
@@ -78,14 +78,24 @@ function preloadLikelyFirstWorkspace(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), preloadLikelyFirstWorkspace(), preserveDistGitkeep()],
-  server: {
-    port: 5173,
-    proxy: {
-      "/healthz": "http://127.0.0.1:8765",
-      "/hecate": "http://127.0.0.1:8765",
-      "/v1": "http://127.0.0.1:8765",
+const apiProxyTarget = "http://127.0.0.1:8765";
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, ".");
+  const apiProxyDisabled = env.VITE_DISABLE_API_PROXY === "1";
+
+  return {
+    plugins: [react(), preloadLikelyFirstWorkspace(), preserveDistGitkeep()],
+    server: {
+      port: 5173,
+      strictPort: apiProxyDisabled,
+      proxy: apiProxyDisabled
+        ? undefined
+        : {
+            "/healthz": apiProxyTarget,
+            "/hecate": apiProxyTarget,
+            "/v1": apiProxyTarget,
+          },
     },
-  },
+  };
 });

@@ -3,7 +3,7 @@ package requestscope
 import (
 	"testing"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestBuildTrimsProviderHint(t *testing.T) {

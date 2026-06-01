@@ -68,13 +68,11 @@ func TestMain(m *testing.M) {
 	suiteGateway, err = startGatewayProcess(
 		"PROVIDER_OLLAMA_BASE_URL="+suiteOllamaURL,
 		"PROVIDER_OLLAMA_KIND=local",
-		"PROVIDER_OLLAMA_DEFAULT_MODEL="+ollamaModel,
-		"GATEWAY_DEFAULT_MODEL="+ollamaModel,
-		"GATEWAY_OTEL_TRACES_ENABLED=true",
-		"GATEWAY_OTEL_TRACES_ENDPOINT=http://"+suiteOTLP.addr(),
-		"GATEWAY_OTEL_METRICS_ENABLED=true",
-		"GATEWAY_OTEL_METRICS_ENDPOINT=http://"+suiteOTLP.addr(),
-		"GATEWAY_OTEL_METRICS_INTERVAL=2s",
+		"HECATE_OTEL_TRACES_ENABLED=true",
+		"HECATE_OTEL_TRACES_ENDPOINT=http://"+suiteOTLP.addr(),
+		"HECATE_OTEL_METRICS_ENABLED=true",
+		"HECATE_OTEL_METRICS_ENDPOINT=http://"+suiteOTLP.addr(),
+		"HECATE_OTEL_METRICS_INTERVAL=2s",
 	)
 	if err != nil {
 		log.Fatalf("start gateway: %v", err)
@@ -325,13 +323,13 @@ func startGatewayProcess(extraEnv ...string) (string, error) {
 		return "", fmt.Errorf("mkdir temp data dir: %w", err)
 	}
 	env := append(os.Environ(),
-		"GATEWAY_ADDRESS="+addr,
-		"GATEWAY_DATA_DIR="+dataDir,
+		"HECATE_ADDRESS="+addr,
+		"HECATE_DATA_DIR="+dataDir,
 	)
 	env = append(env, extraEnv...)
 	env = append(env, autoPreconfiguredEnv(extraEnv)...)
 
-	cmd := exec.Command(bin)
+	cmd := exec.Command(bin, "serve")
 	cmd.Env = env
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard

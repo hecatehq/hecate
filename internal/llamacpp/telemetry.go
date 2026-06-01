@@ -7,7 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 // llamacppTracer is the per-package OTel tracer. Backs the install /
@@ -21,7 +21,7 @@ import (
 // single-tenant background runtime, so a global is the simplest shape
 // without compromising testability (the OTel SDK's NoopTracerProvider
 // turns every Start into a no-op).
-var llamacppTracer = otel.Tracer("github.com/hecate/agent-runtime/internal/llamacpp")
+var llamacppTracer = otel.Tracer("github.com/hecatehq/hecate/internal/llamacpp")
 
 // installSpanName is the span the install events attach to. One span
 // per install_id — Start at POST /install, End on terminal event

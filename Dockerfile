@@ -3,8 +3,7 @@
 # Multi-stage build. Three layers:
 #   1. ui-builder:  Bun compiles the React operator UI to ui/dist.
 #   2. go-builder:  Go compiles cmd/hecate with //go:embed pulling in
-#                   ui/dist from the previous stage, plus cmd/hecate-acp
-#                   as the ACP stdio bridge companion.
+#                   ui/dist from the previous stage.
 #   3. runtime:     distroless/static — small base, no shell, runs as
 #                   non-root. Suitable for production.
 #
@@ -54,11 +53,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags='-s -w' \
     -o /out/hecate \
     ./cmd/hecate
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -trimpath \
-    -ldflags='-s -w' \
-    -o /out/hecate-acp \
-    ./cmd/hecate-acp
 
 # Pre-create an empty /data dir owned by distroless's nonroot uid (65532)
 # so that, when compose mounts a named volume on top, the volume inherits
@@ -72,10 +66,8 @@ RUN mkdir -p /out/data && chown 65532:65532 /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
-# Copy the static binaries. The image starts the gateway by default; hecate-acp
-# is present so all distribution shapes carry the same bridge companion.
+# Copy the static binary. The image starts the gateway by default.
 COPY --from=go-builder /out/hecate /usr/local/bin/hecate
-COPY --from=go-builder /out/hecate-acp /usr/local/bin/hecate-acp
 
 # /data holds the auto-generated bootstrap secret (control-plane encryption
 # key) and any file-backed control-plane state. We
@@ -85,22 +77,18 @@ COPY --from=go-builder /out/hecate-acp /usr/local/bin/hecate-acp
 # nonroot binary can't persist its bootstrap file.
 COPY --from=go-builder --chown=65532:65532 /out/data /data
 
-ENV GATEWAY_ADDRESS=0.0.0.0:8765 \
-    GATEWAY_PUBLIC_URL=http://127.0.0.1:8765 \
-    GATEWAY_DATA_DIR=/data \
-    GATEWAY_SQLITE_PATH=/data/hecate.db \
+ENV HECATE_ADDRESS=0.0.0.0:8765 \
+    HECATE_ALLOW_NON_LOOPBACK_BIND=1 \
+    HECATE_PUBLIC_URL=http://127.0.0.1:8765 \
+    HECATE_DATA_DIR=/data \
+    HECATE_SQLITE_PATH=/data/hecate.db \
     # Default the durable subsystems to SQLite in the docker image so
-    # `docker compose up` persists pricebook / tasks / chat sessions
-    # across restarts without extra config. The .db lives on the /data
+    # `docker compose up` persists settings, projects, runtime history,
+    # tasks, and chat sessions across restarts without extra config.
+    # The .db lives on the /data
     # volume and is wiped by `just reset-docker` along with the rest
     # of the stack. Operators can override to `memory` for ephemeral.
-    GATEWAY_CONTROL_PLANE_BACKEND=sqlite \
-    GATEWAY_RETENTION_HISTORY_BACKEND=sqlite \
-    GATEWAY_CHAT_SESSIONS_BACKEND=sqlite \
-    GATEWAY_TASKS_BACKEND=sqlite \
-    GATEWAY_TASK_QUEUE_BACKEND=sqlite \
-    GATEWAY_CACHE_BACKEND=sqlite \
-    GATEWAY_BUDGET_BACKEND=sqlite \
+    HECATE_BACKEND=sqlite \
     # Local inference: from inside a container 127.0.0.1 is the container's
     # own loopback, not the host. Override all local provider base URLs to
     # use host.docker.internal so model discovery reaches a server running on
@@ -119,3 +107,4 @@ VOLUME ["/data"]
 EXPOSE 8765
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/hecate"]
+CMD ["serve"]

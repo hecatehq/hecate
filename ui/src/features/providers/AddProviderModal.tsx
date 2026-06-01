@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import {
+  useEnsureProviderPresetsLoaded,
+  useProvidersAndModels,
+} from "../../app/state/providersAndModels";
+import { useSettings } from "../../app/state/settings";
+import { useWiredProviderActions } from "../../app/state/coordinators/wired";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolvedBaseURL } from "../../lib/provider-utils";
-import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError, Modal } from "../shared/ui";
 
 type Props = {
   open: boolean;
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
   onClose: () => void;
 };
 
@@ -21,7 +24,13 @@ type AddFormState = {
   protocol: string;
 };
 
-export function AddProviderModal({ open, state, actions, onClose }: Props) {
+export function AddProviderModal({ open, onClose }: Props) {
+  useEnsureProviderPresetsLoaded(open);
+  const settings = useSettings();
+  const providersAndModels = useProvidersAndModels();
+  const providerActions = useWiredProviderActions();
+  const providerPresets = providersAndModels.state.providerPresets;
+  const settingsConfig = settings.state.config;
   const [step, setStep] = useState<"pick" | "form">("pick");
   const [pickTab, setPickTab] = useState<"cloud" | "local">("local");
   const [preset, setPreset] = useState<ProviderPresetRecord | null>(null);
@@ -52,27 +61,28 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
   useEffect(() => {
     if (!open || step !== "pick" || pickTab !== "local") return;
     void refreshLocalDiscovery();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, step, pickTab]);
 
   useEffect(() => {
     if (!open || step !== "form") return;
-    const target = preset === null
-      ? nameInputRef.current
-      : form.kind === "local"
-        ? urlInputRef.current
-        : apiKeyInputRef.current;
+    const target =
+      preset === null
+        ? nameInputRef.current
+        : form.kind === "local"
+          ? urlInputRef.current
+          : apiKeyInputRef.current;
     requestAnimationFrame(() => target?.focus());
-  // Focus only when the operator enters the form; per-keystroke form updates
-  // must not steal focus back to the preset's first editable field.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Focus only when the operator enters the form; per-keystroke form updates
+    // must not steal focus back to the preset's first editable field.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, step, preset?.id]);
 
   if (!open) return null;
 
-  const localPresets = state.providerPresets.filter(p => p.kind === "local");
-  const cloudPresets = state.providerPresets.filter(p => p.kind === "cloud");
-  const configuredProviders = state.settingsConfig?.providers ?? [];
+  const localPresets = providerPresets.filter((p) => p.kind === "local");
+  const cloudPresets = providerPresets.filter((p) => p.kind === "cloud");
+  const configuredProviders = settingsConfig?.providers ?? [];
 
   function close() {
     onClose();
@@ -100,7 +110,7 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
     setLoading(true);
     setError("");
     try {
-      await actions.createProvider({
+      await providerActions.createProvider({
         name: form.name.trim(),
         preset_id: preset?.id,
         custom_name: form.custom_name.trim() || undefined,
@@ -118,7 +128,7 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
   }
 
   function pickPreset(nextPreset: ProviderPresetRecord) {
-    const discovery = localDiscovery.find(item => item.preset_id === nextPreset.id);
+    const discovery = localDiscovery.find((item) => item.preset_id === nextPreset.id);
     setPreset(nextPreset);
     setForm({
       name: nextPreset.name,
@@ -148,38 +158,70 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-          <TabButton id="cloud" label="Cloud" active={pickTab === "cloud"} onClick={() => setPickTab("cloud")} />
-          <TabButton id="local" label="Local" active={pickTab === "local"} onClick={() => setPickTab("local")} />
+        <div
+          style={{
+            display: "flex",
+            gap: 4,
+            borderBottom: "1px solid var(--border)",
+            marginBottom: 4,
+          }}
+        >
+          <TabButton
+            id="cloud"
+            label="Cloud"
+            active={pickTab === "cloud"}
+            onClick={() => setPickTab("cloud")}
+          />
+          <TabButton
+            id="local"
+            label="Local"
+            active={pickTab === "local"}
+            onClick={() => setPickTab("local")}
+          />
           {pickTab === "local" && (
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={() => void refreshLocalDiscovery()}
               disabled={localDiscoveryLoading}
-              style={{ marginLeft: "auto", padding: "6px 8px", color: "var(--t2)" }}>
+              style={{ marginLeft: "auto", padding: "6px 8px", color: "var(--t2)" }}
+            >
               {localDiscoveryLoading ? "Checking..." : "Check local"}
             </button>
           )}
         </div>
         {pickTab === "local" && (
-          <div style={{ fontSize: 11, color: localDiscoveryError ? "var(--red)" : "var(--t3)", lineHeight: 1.45, marginTop: -8 }}>
-            {localDiscoveryError || "Checks command availability and probes each unique local endpoint once."}
+          <div
+            style={{
+              fontSize: 11,
+              color: localDiscoveryError ? "var(--red)" : "var(--t3)",
+              lineHeight: 1.45,
+              marginTop: -8,
+            }}
+          >
+            {localDiscoveryError ||
+              "Checks command availability and probes each unique local endpoint once."}
           </div>
         )}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gridAutoRows: `minmax(${rowHeight}px, auto)`,
-          alignContent: "start",
-          gap: rowGap,
-          minHeight: gridMinHeight,
-        }}>
-          {presets.map(p => (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gridAutoRows: `minmax(${rowHeight}px, auto)`,
+            alignContent: "start",
+            gap: rowGap,
+            minHeight: gridMinHeight,
+          }}
+        >
+          {presets.map((p) => (
             <PresetButton
               key={p.id}
               preset={p}
-              discovery={p.kind === "local" ? localDiscovery.find(item => item.preset_id === p.id) : undefined}
+              discovery={
+                p.kind === "local"
+                  ? localDiscovery.find((item) => item.preset_id === p.id)
+                  : undefined
+              }
               onClick={() => pickPreset(p)}
             />
           ))}
@@ -194,21 +236,35 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
     const showAPIKey = form.kind === "cloud";
     const currentBaseURL = resolvedBaseURL(
       preset?.id ?? "",
-      preset ? { id: preset.id, name: preset.name, kind: preset.kind, protocol: preset.protocol, base_url: preset.base_url, credential_configured: false } : undefined,
-      state.providerPresets,
+      preset
+        ? {
+            id: preset.id,
+            name: preset.name,
+            kind: preset.kind,
+            protocol: preset.protocol,
+            base_url: preset.base_url,
+            credential_configured: false,
+          }
+        : undefined,
+      providerPresets,
     );
     const effectiveBaseURL = (showURL ? form.base_url.trim() : currentBaseURL).trim();
     const baseURLTakenBy = effectiveBaseURL
-      ? configuredProviders.find(p => {
-          const url = resolvedBaseURL(p.id, p, state.providerPresets);
+      ? configuredProviders.find((p) => {
+          const url = resolvedBaseURL(p.id, p, providerPresets);
           return url && url === effectiveBaseURL;
         })
       : undefined;
-    const duplicateProvider = findDuplicateProviderID(configuredProviders, form.name, form.custom_name);
+    const duplicateProvider = findDuplicateProviderID(
+      configuredProviders,
+      form.name,
+      form.custom_name,
+    );
     const duplicateMessage = duplicateProvider
       ? providerDuplicateMessage(duplicateProvider, form.name, form.custom_name, preset !== null)
       : "";
-    const saveDisabled = loading || !form.name.trim() || Boolean(baseURLTakenBy) || Boolean(duplicateProvider);
+    const saveDisabled =
+      loading || !form.name.trim() || Boolean(baseURLTakenBy) || Boolean(duplicateProvider);
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <button
@@ -216,56 +272,81 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
           className="btn btn-ghost btn-sm"
           onClick={() => setStep("pick")}
           disabled={loading}
-          style={{ alignSelf: "flex-start", padding: "2px 6px 2px 0", color: "var(--t2)", display: "flex", alignItems: "center", gap: 4 }}>
+          style={{
+            alignSelf: "flex-start",
+            padding: "2px 6px 2px 0",
+            color: "var(--t2)",
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
           <Icon d={Icons.chevL} size={11} />
           <span style={{ fontSize: 11 }}>All providers</span>
         </button>
         <div>
-          <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>Name</label>
+          <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
+            Name
+          </label>
           <input
             className="input"
             type="text"
             value={form.name}
             ref={nameInputRef}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             placeholder="My Provider"
             readOnly={preset !== null}
             disabled={preset !== null}
-            title={preset !== null ? "Preset names are fixed — use Custom name below to disambiguate two instances of the same preset" : undefined}
+            title={
+              preset !== null
+                ? "Preset names are fixed — use Custom name below to disambiguate two instances of the same preset"
+                : undefined
+            }
           />
         </div>
         <div>
           <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
-            Custom name <span style={{ color: "var(--t3)", fontWeight: 400, textTransform: "none" }}>optional</span>
+            Custom name{" "}
+            <span style={{ color: "var(--t3)", fontWeight: 400, textTransform: "none" }}>
+              optional
+            </span>
           </label>
           <input
             className="input"
             type="text"
             value={form.custom_name}
-            onChange={e => setForm(f => ({ ...f, custom_name: e.target.value }))}
+            onChange={(e) => setForm((f) => ({ ...f, custom_name: e.target.value }))}
             placeholder="e.g. Prod, Dev, Staging"
             aria-invalid={Boolean(duplicateProvider)}
           />
           {duplicateMessage && (
-            <div role="status" style={{ marginTop: 6, fontSize: 11, color: "var(--amber)", lineHeight: 1.4 }}>
+            <div
+              role="status"
+              style={{ marginTop: 6, fontSize: 11, color: "var(--amber)", lineHeight: 1.4 }}
+            >
               {duplicateMessage}
             </div>
           )}
         </div>
         {showURL && (
           <div>
-            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>Endpoint URL</label>
+            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
+              Endpoint URL
+            </label>
             <input
               className="input"
               type="text"
               value={form.base_url}
               ref={urlInputRef}
-              onChange={e => setForm(f => ({ ...f, base_url: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, base_url: e.target.value }))}
               placeholder={currentBaseURL || "http://localhost:11434/v1"}
               style={{ fontFamily: "var(--font-mono)" }}
             />
             {baseURLTakenBy && (
-              <div role="status" style={{ marginTop: 6, fontSize: 11, color: "var(--amber)", lineHeight: 1.4 }}>
+              <div
+                role="status"
+                style={{ marginTop: 6, fontSize: 11, color: "var(--amber)", lineHeight: 1.4 }}
+              >
                 Endpoint already used by{" "}
                 <span style={{ fontFamily: "var(--font-mono)" }}>
                   {baseURLTakenBy.name || baseURLTakenBy.id}
@@ -277,11 +358,8 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
         )}
         {!showURL && baseURLTakenBy && (
           <div role="status" style={{ fontSize: 11, color: "var(--amber)", lineHeight: 1.4 }}>
-            Endpoint{" "}
-            <span style={{ fontFamily: "var(--font-mono)" }}>
-              {effectiveBaseURL}
-            </span>{" "}
-            is already used by{" "}
+            Endpoint <span style={{ fontFamily: "var(--font-mono)" }}>{effectiveBaseURL}</span> is
+            already used by{" "}
             <span style={{ fontFamily: "var(--font-mono)" }}>
               {baseURLTakenBy.name || baseURLTakenBy.id}
             </span>
@@ -290,7 +368,9 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
         )}
         {showAPIKey && (
           <div>
-            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>API Key</label>
+            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
+              API Key
+            </label>
             <input
               className="input"
               type="password"
@@ -303,14 +383,19 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
               data-form-type="other"
               value={form.api_key}
               ref={apiKeyInputRef}
-              onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))}
+              onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
               placeholder="sk-…"
               style={{ fontFamily: "var(--font-mono)", letterSpacing: "0.1em" }}
             />
           </div>
         )}
         {error && <InlineError message={error} />}
-        <button className="btn btn-primary btn-sm" style={{ justifyContent: "center", marginTop: 4 }} disabled={saveDisabled} onClick={() => void submitAdd()}>
+        <button
+          className="btn btn-primary btn-sm"
+          style={{ justifyContent: "center", marginTop: 4 }}
+          disabled={saveDisabled}
+          onClick={() => void submitAdd()}
+        >
           {loading ? "Adding..." : "Add provider"}
         </button>
       </div>
@@ -322,7 +407,8 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
       title={step === "pick" ? "Add provider" : preset ? preset.name : "Custom provider"}
       onClose={close}
       footer={null}
-      width={680}>
+      width={680}
+    >
       {step === "pick" ? renderPickStep() : renderFormStep()}
     </Modal>
   );
@@ -333,7 +419,10 @@ function emptyAddForm(kind: "cloud" | "local"): AddFormState {
 }
 
 function providerSlug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function providerIDFor(name: string, customName: string): string {
@@ -348,11 +437,13 @@ function findDuplicateProviderID(
 ) {
   const id = providerIDFor(name, customName);
   if (!id) return undefined;
-  return providers.find(provider => provider.id === id);
+  return providers.find((provider) => provider.id === id);
 }
 
 function providerDisplayName(provider: { id: string; name: string; custom_name?: string }): string {
-  return provider.custom_name ? `${provider.name} (${provider.custom_name})` : provider.name || provider.id;
+  return provider.custom_name
+    ? `${provider.name} (${provider.custom_name})`
+    : provider.name || provider.id;
 }
 
 function providerDuplicateMessage(
@@ -384,22 +475,67 @@ function PresetButton({
   return (
     <button
       className="btn btn-ghost"
-      style={{ minHeight: 60, height: "100%", display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius)" }}
-      onClick={onClick}>
+      style={{
+        minHeight: 60,
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        textAlign: "left",
+        padding: "10px 12px",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+      }}
+      onClick={onClick}
+    >
       <BrandAvatar brand={preset.id} fallback={preset.name} size={28} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: "var(--t0)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
             {preset.name}
           </div>
           {status && (
-            <span title={status.title} style={{ fontSize: 10, lineHeight: "16px", height: 16, borderRadius: 999, padding: "0 6px", whiteSpace: "nowrap", color: status.color, background: status.background, border: `1px solid ${status.border}`, flexShrink: 0 }}>
+            <span
+              title={status.title}
+              style={{
+                fontSize: 10,
+                lineHeight: "16px",
+                height: 16,
+                borderRadius: 999,
+                padding: "0 6px",
+                whiteSpace: "nowrap",
+                color: status.color,
+                background: status.background,
+                border: `1px solid ${status.border}`,
+                flexShrink: 0,
+              }}
+            >
               {status.label}
             </span>
           )}
         </div>
         {preset.description && (
-          <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.35, marginTop: 2, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--t3)",
+              lineHeight: 1.35,
+              marginTop: 2,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
             {preset.description}
           </div>
         )}
@@ -412,26 +548,77 @@ function CustomButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       className="btn btn-ghost"
-      style={{ minHeight: 60, height: "100%", display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 12px", border: "1px dashed var(--border)", borderRadius: "var(--radius)" }}
-      onClick={onClick}>
-      <div style={{ width: 28, height: 28, borderRadius: "var(--radius-sm)", background: "var(--bg3)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "var(--t3)", flexShrink: 0 }}>
+      style={{
+        minHeight: 60,
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        textAlign: "left",
+        padding: "10px 12px",
+        border: "1px dashed var(--border)",
+        borderRadius: "var(--radius)",
+      }}
+      onClick={onClick}
+    >
+      <div
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: "var(--radius-sm)",
+          background: "var(--bg3)",
+          border: "1px solid var(--border)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 18,
+          color: "var(--t3)",
+          flexShrink: 0,
+        }}
+      >
         <Icon d={Icons.edit} size={13} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>Custom</div>
-        <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>openai-compatible</div>
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--t3)",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+          }}
+        >
+          openai-compatible
+        </div>
       </div>
     </button>
   );
 }
 
-function TabButton({ id: _id, label, active, onClick }: { id: "cloud" | "local"; label: string; active: boolean; onClick: () => void }) {
+function TabButton({
+  id: _id,
+  label,
+  active,
+  onClick,
+}: {
+  id: "cloud" | "local";
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
       className="btn btn-ghost btn-sm"
       onClick={onClick}
-      style={{ padding: "6px 12px", borderRadius: 0, borderBottom: `2px solid ${active ? "var(--teal)" : "transparent"}`, color: active ? "var(--t0)" : "var(--t2)", fontWeight: active ? 500 : 400 }}>
+      style={{
+        padding: "6px 12px",
+        borderRadius: 0,
+        borderBottom: `2px solid ${active ? "var(--teal)" : "transparent"}`,
+        color: active ? "var(--t0)" : "var(--t2)",
+        fontWeight: active ? 500 : 400,
+      }}
+    >
       {label}
     </button>
   );
@@ -446,7 +633,9 @@ function localDiscoveryStatus(item: LocalProviderDiscoveryRecord | undefined): {
 } | null {
   if (!item) return null;
   if (item.http_available) {
-    const models = item.model_count ? ` · ${item.model_count} model${item.model_count === 1 ? "" : "s"}` : "";
+    const models = item.model_count
+      ? ` · ${item.model_count} model${item.model_count === 1 ? "" : "s"}`
+      : "";
     return {
       label: "Running",
       title: `HTTP probe passed at ${item.probe_url}${models}`,
@@ -466,7 +655,8 @@ function localDiscoveryStatus(item: LocalProviderDiscoveryRecord | undefined): {
   }
   return {
     label: "Not detected",
-    title: item.error || `No ${item.command || "provider"} command on PATH and no local HTTP response`,
+    title:
+      item.error || `No ${item.command || "provider"} command on PATH and no local HTTP response`,
     color: "var(--t3)",
     background: "var(--bg3)",
     border: "var(--border)",

@@ -4,11 +4,11 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/hecate/agent-runtime/internal/governor"
-	"github.com/hecate/agent-runtime/internal/models"
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/models"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // ResponseFinalizer turns a successful provider call into a ChatResult.

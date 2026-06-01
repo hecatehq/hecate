@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // mcpHTTPServer is a minimal in-process MCP server that responds to

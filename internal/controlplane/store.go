@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 type Provider struct {
@@ -40,15 +40,6 @@ type ProviderSecret struct {
 	RotatedAt       time.Time `json:"rotated_at,omitempty"`
 }
 
-type AgentAdapterCredential struct {
-	AdapterID      string    `json:"adapter_id"`
-	Name           string    `json:"name"`
-	ValueEncrypted string    `json:"value_encrypted"`
-	ValuePreview   string    `json:"value_preview,omitempty"`
-	CreatedAt      time.Time `json:"created_at,omitempty"`
-	RotatedAt      time.Time `json:"rotated_at,omitempty"`
-}
-
 type AuditEvent struct {
 	Timestamp  time.Time `json:"timestamp"`
 	Actor      string    `json:"actor"`
@@ -56,22 +47,6 @@ type AuditEvent struct {
 	TargetType string    `json:"target_type"`
 	TargetID   string    `json:"target_id"`
 	Detail     string    `json:"detail,omitempty"`
-}
-
-// ModelCapabilityRecord is an operator- or probe-supplied capability
-// assertion for one provider/model pair. It is intentionally small: the
-// catalog/discovery layer owns model existence, while this record only stores
-// Hecate-specific execution capability facts and their provenance.
-type ModelCapabilityRecord struct {
-	Provider         string     `json:"provider"`
-	Model            string     `json:"model"`
-	ToolCalling      string     `json:"tool_calling,omitempty"`
-	Streaming        *bool      `json:"streaming,omitempty"`
-	MaxContextTokens int        `json:"max_context_tokens,omitempty"`
-	Source           string     `json:"source,omitempty"`
-	Note             string     `json:"note,omitempty"`
-	UpdatedAt        time.Time  `json:"updated_at,omitempty"`
-	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
 }
 
 // InstalledModelCapabilities mirrors the small per-model capability
@@ -106,14 +81,11 @@ type InstalledModel struct {
 }
 
 type State struct {
-	Providers                 []Provider                `json:"providers,omitempty"`
-	ProviderSecrets           []ProviderSecret          `json:"provider_secrets,omitempty"`
-	AgentAdapterCredentials   []AgentAdapterCredential  `json:"agent_adapter_credentials,omitempty"`
-	PolicyRules               []config.PolicyRuleConfig `json:"policy_rules,omitempty"`
-	ModelCapabilityOverrides  []ModelCapabilityRecord   `json:"model_capability_overrides,omitempty"`
-	ModelCapabilityProbeState []ModelCapabilityRecord   `json:"model_capability_probe_state,omitempty"`
-	InstalledModels           []InstalledModel          `json:"installed_models,omitempty"`
-	Events                    []AuditEvent              `json:"events,omitempty"`
+	Providers       []Provider                `json:"providers,omitempty"`
+	ProviderSecrets []ProviderSecret          `json:"provider_secrets,omitempty"`
+	PolicyRules     []config.PolicyRuleConfig `json:"policy_rules,omitempty"`
+	InstalledModels []InstalledModel          `json:"installed_models,omitempty"`
+	Events          []AuditEvent              `json:"events,omitempty"`
 }
 
 type Store interface {
@@ -123,16 +95,11 @@ type Store interface {
 	RotateProviderSecret(ctx context.Context, id string, secret ProviderSecret) (Provider, error)
 	DeleteProviderCredential(ctx context.Context, id string) (Provider, error)
 	DeleteProvider(ctx context.Context, id string) error
-	UpsertAgentAdapterCredential(ctx context.Context, credential AgentAdapterCredential) (AgentAdapterCredential, error)
-	DeleteAgentAdapterCredential(ctx context.Context, adapterID, name string) error
 	UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error)
 	DeletePolicyRule(ctx context.Context, id string) error
-	UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error)
-	DeleteModelCapabilityOverride(ctx context.Context, provider, model string) error
-	UpsertModelCapabilityProbe(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error)
 	UpsertInstalledModel(ctx context.Context, model InstalledModel) (InstalledModel, error)
 	DeleteInstalledModel(ctx context.Context, id string) error
-	PruneAuditEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
+	Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }
 
 type actorContextKey struct{}
@@ -149,14 +116,11 @@ func WithActor(ctx context.Context, actor string) context.Context {
 
 func cloneState(state State) State {
 	out := State{
-		Providers:                 make([]Provider, 0, len(state.Providers)),
-		ProviderSecrets:           make([]ProviderSecret, 0, len(state.ProviderSecrets)),
-		AgentAdapterCredentials:   make([]AgentAdapterCredential, 0, len(state.AgentAdapterCredentials)),
-		PolicyRules:               make([]config.PolicyRuleConfig, 0, len(state.PolicyRules)),
-		ModelCapabilityOverrides:  make([]ModelCapabilityRecord, 0, len(state.ModelCapabilityOverrides)),
-		ModelCapabilityProbeState: make([]ModelCapabilityRecord, 0, len(state.ModelCapabilityProbeState)),
-		InstalledModels:           make([]InstalledModel, 0, len(state.InstalledModels)),
-		Events:                    make([]AuditEvent, 0, len(state.Events)),
+		Providers:       make([]Provider, 0, len(state.Providers)),
+		ProviderSecrets: make([]ProviderSecret, 0, len(state.ProviderSecrets)),
+		PolicyRules:     make([]config.PolicyRuleConfig, 0, len(state.PolicyRules)),
+		InstalledModels: make([]InstalledModel, 0, len(state.InstalledModels)),
+		Events:          make([]AuditEvent, 0, len(state.Events)),
 	}
 	for _, provider := range state.Providers {
 		out.Providers = append(out.Providers, Provider{
@@ -186,24 +150,8 @@ func cloneState(state State) State {
 			RotatedAt:       secret.RotatedAt,
 		})
 	}
-	for _, credential := range state.AgentAdapterCredentials {
-		out.AgentAdapterCredentials = append(out.AgentAdapterCredentials, AgentAdapterCredential{
-			AdapterID:      credential.AdapterID,
-			Name:           credential.Name,
-			ValueEncrypted: credential.ValueEncrypted,
-			ValuePreview:   credential.ValuePreview,
-			CreatedAt:      credential.CreatedAt,
-			RotatedAt:      credential.RotatedAt,
-		})
-	}
 	for _, rule := range state.PolicyRules {
 		out.PolicyRules = append(out.PolicyRules, clonePolicyRule(rule))
-	}
-	for _, record := range state.ModelCapabilityOverrides {
-		out.ModelCapabilityOverrides = append(out.ModelCapabilityOverrides, cloneModelCapabilityRecord(record))
-	}
-	for _, record := range state.ModelCapabilityProbeState {
-		out.ModelCapabilityProbeState = append(out.ModelCapabilityProbeState, cloneModelCapabilityRecord(record))
 	}
 	for _, model := range state.InstalledModels {
 		out.InstalledModels = append(out.InstalledModels, cloneInstalledModel(model))
@@ -217,19 +165,6 @@ func cloneState(state State) State {
 			TargetID:   event.TargetID,
 			Detail:     event.Detail,
 		})
-	}
-	return out
-}
-
-func cloneModelCapabilityRecord(record ModelCapabilityRecord) ModelCapabilityRecord {
-	out := record
-	if record.Streaming != nil {
-		streaming := *record.Streaming
-		out.Streaming = &streaming
-	}
-	if record.ExpiresAt != nil {
-		expiresAt := *record.ExpiresAt
-		out.ExpiresAt = &expiresAt
 	}
 	return out
 }

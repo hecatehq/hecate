@@ -36,10 +36,43 @@ var detectVersionTimeout = 5 * time.Second
 // not reachable, does not respond within detectVersionTimeout, or
 // prints no recognisable version string.
 func DetectVersion(ctx context.Context, path string) string {
+	return detectVersionCommand(ctx, path, "--version")
+}
+
+func DetectVersionProbe(ctx context.Context, probe VersionProbe, lookup LookupFunc) string {
+	path, ok := resolveVersionProbe(probe, lookup)
+	if !ok {
+		return ""
+	}
+	return detectVersionCommand(ctx, path, probe.Args...)
+}
+
+func resolveVersionProbe(probe VersionProbe, lookup LookupFunc) (string, bool) {
+	if lookup == nil {
+		lookup = exec.LookPath
+	}
+	if strings.TrimSpace(probe.Command) != "" {
+		if path, err := lookup(probe.Command); err == nil {
+			return path, true
+		}
+	}
+	for _, candidate := range probe.CandidatePaths {
+		path := expandPath(candidate)
+		if path == "" {
+			continue
+		}
+		if resolved, err := lookup(path); err == nil {
+			return resolved, true
+		}
+	}
+	return "", false
+}
+
+func detectVersionCommand(ctx context.Context, command string, args ...string) string {
 	ctx, cancel := context.WithTimeout(ctx, detectVersionTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, path, "--version")
+	cmd := exec.CommandContext(ctx, command, args...)
 	out, _ := cmd.CombinedOutput()
 	// Some CLI adapters print version text before exiting non-zero, so prefer
 	// any captured semver token before treating the command as unusable.

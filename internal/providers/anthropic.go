@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 const defaultAnthropicVersion = "2023-06-01"
@@ -26,6 +26,7 @@ type AnthropicProvider struct {
 	mu         sync.Mutex
 	cachedCaps Capabilities
 	capsExpiry time.Time
+	capsFlight *capabilityDiscoveryCall
 }
 
 type anthropicMessagesRequest struct {
@@ -211,6 +212,14 @@ func (p *AnthropicProvider) supportsResolvedModel(ctx context.Context, model str
 }
 
 func (p *AnthropicProvider) Capabilities(ctx context.Context) (Capabilities, error) {
+	return p.capabilities(ctx, false)
+}
+
+func (p *AnthropicProvider) RefreshCapabilities(ctx context.Context) (Capabilities, error) {
+	return p.capabilities(ctx, true)
+}
+
+func (p *AnthropicProvider) capabilities(ctx context.Context, refresh bool) (Capabilities, error) {
 	if p.config.StubMode {
 		return p.staticCapabilities("config"), nil
 	}
@@ -220,9 +229,11 @@ func (p *AnthropicProvider) Capabilities(ctx context.Context) (Capabilities, err
 		p.Name(),
 		p.Kind(),
 		p.config.APIKey,
+		refresh,
 		&p.mu,
 		&p.cachedCaps,
 		&p.capsExpiry,
+		&p.capsFlight,
 		p.discoverCapabilities,
 		p.staticCapabilities,
 	)

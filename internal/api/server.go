@@ -11,9 +11,9 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	registerHealthRoutes(mux, handler)
 	registerProviderCompatibleRoutes(mux, handler)
 	registerHecateRuntimeRoutes(mux, handler)
+	registerHecateProjectRoutes(mux, handler)
 	registerHecateAgentRoutes(mux, handler)
 	registerHecateTaskRoutes(mux, handler)
-	registerHecateChatRoutes(mux, handler)
 	registerHecateOperationsRoutes(mux, handler)
 	registerHecateSettingsRoutes(mux, handler)
 	registerLocalModelsRoutes(mux, handler)
@@ -29,7 +29,10 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 		mux,
 		TraceContextMiddleware,
 		RequestIDMiddleware,
-		SameOriginMiddleware,
+		OTelHTTPSpanMiddleware,
+		SameOriginMiddlewareWithAllowedOrigins(handler.config.Server.AllowedOrigins),
+		RuntimeTokenMiddleware(handler.config.Server.RuntimeToken),
+		InferenceTokenMiddleware(handler.config.Server.InferenceToken),
 		LoggingMiddleware(logger),
 		RecoveryMiddleware(logger),
 	)
@@ -56,14 +59,21 @@ func registerHecateRuntimeRoutes(mux *http.ServeMux, handler *Handler) {
 	// collide with provider protocol routes.
 	mux.HandleFunc("GET /hecate/v1/whoami", handler.HandleSession)
 
-	// Provider/model diagnostics and capability overrides power setup, routing,
-	// and Hecate Chat tool-eligibility decisions.
+	// Provider/model diagnostics power setup, routing, and Hecate Chat
+	// tool-eligibility decisions.
 	mux.HandleFunc("GET /hecate/v1/providers/presets", handler.HandleProviderPresets)
 	mux.HandleFunc("GET /hecate/v1/providers/status", handler.HandleProviderStatus)
 	mux.HandleFunc("GET /hecate/v1/providers/history", handler.HandleProviderHealthHistory)
-	mux.HandleFunc("PUT /hecate/v1/model-capabilities/overrides", handler.HandleUpsertModelCapabilityOverride)
-	mux.HandleFunc("DELETE /hecate/v1/model-capabilities/overrides", handler.HandleDeleteModelCapabilityOverride)
-	mux.HandleFunc("POST /hecate/v1/model-capabilities/probes", handler.HandleRecordModelCapabilityProbe)
+}
+
+func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
+	// Projects are durable user/work identity. Chats and tasks can later attach
+	// to them for shared defaults, memory, and context assembly.
+	mux.HandleFunc("GET /hecate/v1/projects", handler.HandleProjects)
+	mux.HandleFunc("POST /hecate/v1/projects", handler.HandleCreateProject)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}", handler.HandleProject)
+	mux.HandleFunc("PATCH /hecate/v1/projects/{id}", handler.HandleUpdateProject)
+	mux.HandleFunc("DELETE /hecate/v1/projects/{id}", handler.HandleDeleteProject)
 }
 
 func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
@@ -72,34 +82,35 @@ func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/agent-adapters", handler.HandleAgentAdapters)
 	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/probe", handler.HandleAgentAdapterProbe)
 	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/refresh-launcher", handler.HandleAgentAdapterRefreshLauncher)
-	mux.HandleFunc("PUT /hecate/v1/agent-adapters/{id}/credentials", handler.HandleSetAgentAdapterCredential)
-	mux.HandleFunc("DELETE /hecate/v1/agent-adapters/{id}/credentials/{name}", handler.HandleDeleteAgentAdapterCredential)
 	mux.HandleFunc("GET /hecate/v1/agent-adapters/{id}/health", handler.HandleAgentAdapterHealth)
-	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions", handler.HandleAgentChatSessions)
-	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions", handler.HandleCreateAgentChatSession)
-	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions/{id}", handler.HandleAgentChatSession)
-	mux.HandleFunc("PATCH /hecate/v1/agent-chat/sessions/{id}", handler.HandleUpdateAgentChatSession)
-	mux.HandleFunc("DELETE /hecate/v1/agent-chat/sessions/{id}", handler.HandleDeleteAgentChatSession)
-	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions/{id}/stream", handler.HandleAgentChatSessionStream)
-	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions/{id}/cancel", handler.HandleCancelAgentChatSession)
-	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions/{id}/close", handler.HandleCloseAgentChatSession)
-	mux.HandleFunc("PATCH /hecate/v1/agent-chat/sessions/{id}/settings", handler.HandleSetAgentChatSettings)
-	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions/{id}/config-options/{config_id}", handler.HandleSetAgentChatConfigOption)
-	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions/{id}/messages", handler.HandleCreateAgentChatMessage)
-	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files", handler.HandleAgentChatMessageFiles)
-	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files/{path...}", handler.HandleAgentChatMessageFileDiff)
-	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/revert", handler.HandleRevertAgentChatMessageFiles)
-	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions/{id}/approvals", handler.HandleListAgentChatApprovals)
-	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}", handler.HandleGetAgentChatApproval)
-	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve", handler.HandleResolveAgentChatApproval)
-	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/cancel", handler.HandleCancelAgentChatApproval)
-	mux.HandleFunc("GET /hecate/v1/agent-chat/grants", handler.HandleListAgentChatGrants)
-	mux.HandleFunc("DELETE /hecate/v1/agent-chat/grants/{grant_id}", handler.HandleDeleteAgentChatGrant)
+	mux.HandleFunc("GET /hecate/v1/chat/sessions", handler.HandleChatSessions)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions", handler.HandleCreateChatSession)
+	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}", handler.HandleChatSession)
+	mux.HandleFunc("PATCH /hecate/v1/chat/sessions/{id}", handler.HandleUpdateChatSession)
+	mux.HandleFunc("DELETE /hecate/v1/chat/sessions/{id}", handler.HandleDeleteChatSession)
+	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/stream", handler.HandleChatSessionStream)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/cancel", handler.HandleCancelChatSession)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/close", handler.HandleCloseChatSession)
+	mux.HandleFunc("PATCH /hecate/v1/chat/sessions/{id}/settings", handler.HandleSetAgentChatSettings)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/config-options/{config_id}", handler.HandleSetAgentChatConfigOption)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/messages", handler.HandleCreateChatMessage)
+	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/workspace-diff", handler.HandleChatWorkspaceDiff)
+	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/workspace-diff/files/{path...}", handler.HandleChatWorkspaceFileDiff)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/workspace-diff/revert", handler.HandleRevertChatWorkspaceFiles)
+	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/messages/{message_id}/files", handler.HandleChatMessageFiles)
+	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/messages/{message_id}/files/{path...}", handler.HandleChatMessageFileDiff)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/messages/{message_id}/revert", handler.HandleRevertChatMessageFiles)
+	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/approvals", handler.HandleListChatApprovals)
+	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}/approvals/{approval_id}", handler.HandleGetChatApproval)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/approvals/{approval_id}/resolve", handler.HandleResolveChatApproval)
+	mux.HandleFunc("POST /hecate/v1/chat/sessions/{id}/approvals/{approval_id}/cancel", handler.HandleCancelChatApproval)
+	mux.HandleFunc("GET /hecate/v1/chat/grants", handler.HandleListChatGrants)
+	mux.HandleFunc("DELETE /hecate/v1/chat/grants/{grant_id}", handler.HandleDeleteChatGrant)
 }
 
 func registerHecateTaskRoutes(mux *http.ServeMux, handler *Handler) {
 	// Native task/runtime API: tasks, runs, approvals, events, patches, and
-	// artifacts. This is the canonical execution surface for Hecate Agent.
+	// artifacts. This is the canonical execution surface for task-backed Hecate Chat.
 	mux.HandleFunc("GET /hecate/v1/tasks", handler.HandleTasks)
 	mux.HandleFunc("POST /hecate/v1/tasks", handler.HandleCreateTask)
 	mux.HandleFunc("GET /hecate/v1/tasks/{id}", handler.HandleTask)
@@ -131,19 +142,10 @@ func registerHecateTaskRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/events/stream", handler.HandleEventsStream)
 }
 
-func registerHecateChatRoutes(mux *http.ServeMux, handler *Handler) {
-	// Direct model-chat history is Hecate UI/runtime state. The actual model
-	// invocation protocol remains /v1/chat/completions.
-	mux.HandleFunc("GET /hecate/v1/chat/sessions", handler.HandleChatSessions)
-	mux.HandleFunc("POST /hecate/v1/chat/sessions", handler.HandleCreateChatSession)
-	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}", handler.HandleChatSession)
-	mux.HandleFunc("PATCH /hecate/v1/chat/sessions/{id}", handler.HandleUpdateChatSession)
-	mux.HandleFunc("DELETE /hecate/v1/chat/sessions/{id}", handler.HandleDeleteChatSession)
-}
-
 func registerHecateOperationsRoutes(mux *http.ServeMux, handler *Handler) {
 	// Local bridge endpoint used by the desktop app / browser UI.
 	mux.HandleFunc("POST /hecate/v1/workspace-dialog", handler.HandleWorkspaceDialog)
+	mux.HandleFunc("POST /hecate/v1/workspace-open", handler.HandleWorkspaceOpen)
 
 	// Observability and system operations: local traces, request history,
 	// retention, runtime health, and MCP diagnostics.
@@ -152,6 +154,8 @@ func registerHecateOperationsRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("POST /hecate/v1/system/retention/run", handler.HandleRetentionRun)
 	mux.HandleFunc("GET /hecate/v1/system/stats", handler.HandleRuntimeStats)
 	mux.HandleFunc("GET /hecate/v1/system/mcp/cache", handler.HandleMCPCacheStats)
+	mux.HandleFunc("POST /hecate/v1/system/reset-data", handler.HandleSystemResetData)
+	mux.HandleFunc("POST /hecate/v1/system/shutdown", handler.HandleSystemShutdown)
 	mux.HandleFunc("POST /hecate/v1/mcp/probe", handler.HandleMCPProbe)
 	mux.HandleFunc("GET /hecate/v1/usage/events", handler.HandleUsageEvents)
 	mux.HandleFunc("GET /hecate/v1/usage/summary", handler.HandleUsageSummary)

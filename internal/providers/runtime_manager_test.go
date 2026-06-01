@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/controlplane"
-	"github.com/hecate/agent-runtime/internal/secrets"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/secrets"
 )
 
 func TestControlPlaneRuntimeManagerUpsertReloadsRegistryAndEncryptsSecrets(t *testing.T) {
@@ -229,7 +229,7 @@ func TestControlPlaneRuntimeManagerNormalizesPresetNameCasing(t *testing.T) {
 }
 
 // TestControlPlaneRuntimeManagerAppliesAnthropicCacheToggleByProtocol pins
-// that the global GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle reaches
+// that the global HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle reaches
 // every Anthropic-protocol provider regardless of how it ended up in the
 // registry. The earlier name-match-only fallback left CP-only Anthropic
 // providers stuck at the default; this test guards against a regression.

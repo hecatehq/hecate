@@ -3,7 +3,7 @@ package api
 import (
 	"testing"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // TestDecodeTurnCostFromEventData_LiftsAllFields confirms the helper
@@ -74,13 +74,13 @@ func TestDecodeTurnCostFromEventData_TolerantToInts(t *testing.T) {
 	}
 }
 
-// TestDecodeTaskRunEventData_TurnCompletedReturnsTurnOverlay
-// verifies the decoder treats turn.completed as a Turn-only
-// overlay (ok=false so the streaming handler rebuilds full state)
-// while still populating Turn so the overlay can be merged after.
-func TestDecodeTaskRunEventData_TurnCompletedReturnsTurnOverlay(t *testing.T) {
+// TestTaskRunStreamProjector_DecodeTurnCompletedReturnsTurnOverlay
+// verifies the projector decoder treats turn.completed as a Turn-only
+// overlay (ok=false so projection rebuilds full state) while still
+// populating Turn so the overlay can be merged after.
+func TestTaskRunStreamProjector_DecodeTurnCompletedReturnsTurnOverlay(t *testing.T) {
 	t.Parallel()
-	h := &Handler{}
+	projector := newTaskRunStreamProjector(nil)
 	event := types.TaskRunEvent{
 		EventType: "turn.completed",
 		Data: map[string]any{
@@ -92,15 +92,15 @@ func TestDecodeTaskRunEventData_TurnCompletedReturnsTurnOverlay(t *testing.T) {
 			"step_id":                         "step-1",
 		},
 	}
-	state, ok, err := h.decodeTaskRunEventData(event)
+	state, ok, err := projector.decodeEventData(event)
 	if err != nil {
-		t.Fatalf("decodeTaskRunEventData error = %v", err)
+		t.Fatalf("decodeEventData error = %v", err)
 	}
 	if ok {
 		// `ok=false` is intentional — turn.completed payloads
-		// don't carry a full snapshot; the streaming handler treats
+		// don't carry a full snapshot; the stream projector treats
 		// false as "rebuild from store, then merge overlay".
-		t.Errorf("decodeTaskRunEventData(turn.completed) ok = true, want false (overlay-only)")
+		t.Errorf("decodeEventData(turn.completed) ok = true, want false (overlay-only)")
 	}
 	if state.Turn == nil {
 		t.Fatal("state.Turn is nil — overlay was not populated")
@@ -122,12 +122,12 @@ func TestDecodeTaskRunEventData_TurnCompletedReturnsTurnOverlay(t *testing.T) {
 	}
 }
 
-// TestDecodeTaskRunEventData_OtherEventsUnaffected confirms the new
+// TestTaskRunStreamProjector_DecodeOtherEventsUnaffected confirms the new
 // turn.completed branch doesn't accidentally short-circuit
 // other event types — the existing snapshot-decode path stays.
-func TestDecodeTaskRunEventData_OtherEventsUnaffected(t *testing.T) {
+func TestTaskRunStreamProjector_DecodeOtherEventsUnaffected(t *testing.T) {
 	t.Parallel()
-	h := &Handler{}
+	projector := newTaskRunStreamProjector(nil)
 	// Snapshot-shaped event (the legacy path).
 	event := types.TaskRunEvent{
 		EventType: "run.started",
@@ -137,12 +137,12 @@ func TestDecodeTaskRunEventData_OtherEventsUnaffected(t *testing.T) {
 			},
 		},
 	}
-	state, ok, err := h.decodeTaskRunEventData(event)
+	state, ok, err := projector.decodeEventData(event)
 	if err != nil {
-		t.Fatalf("decodeTaskRunEventData error = %v", err)
+		t.Fatalf("decodeEventData error = %v", err)
 	}
 	if !ok {
-		t.Fatal("decodeTaskRunEventData(run.started) ok = false, want true")
+		t.Fatal("decodeEventData(run.started) ok = false, want true")
 	}
 	if state.Run.ID != "run-A" {
 		t.Errorf("state.Run.ID = %q, want run-A", state.Run.ID)

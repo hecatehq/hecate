@@ -1,4 +1,5 @@
-import type { ConfiguredProviderRecord, ModelRecord, ProviderRecord } from "../types/runtime";
+import type { ModelRecord } from "../types/model";
+import type { ConfiguredProviderRecord, ProviderRecord } from "../types/provider";
 
 export type LocalProviderIssue = {
   provider: string;
@@ -54,20 +55,24 @@ export function buildSelectedModelIssue({
     return null;
   }
   const matchingModels = selectableModels.filter((entry) => entry.id === model);
-  const providerMatches = providerFilter === "auto"
-    ? matchingModels
-    : matchingModels.filter((entry) => entry.metadata?.provider === providerFilter);
+  const providerMatches =
+    providerFilter === "auto"
+      ? matchingModels
+      : matchingModels.filter((entry) => entry.metadata?.provider === providerFilter);
   const readinessCandidates = providerMatches.length > 0 ? providerMatches : matchingModels;
   if (readinessCandidates.length > 0) {
-    const readyCandidate = readinessCandidates.find((entry) => entry.metadata?.readiness?.ready !== false);
+    const readyCandidate = readinessCandidates.find(
+      (entry) => entry.metadata?.readiness?.ready !== false,
+    );
     if (readyCandidate) {
       return null;
     }
     const readiness = readinessCandidates[0]?.metadata?.readiness;
     if (readiness) {
-      const providerLabel = providerFilter === "auto"
-        ? readiness.matched_provider || readiness.provider || "All providers"
-        : configuredProvider?.name || runtimeProvider?.name || providerFilter;
+      const providerLabel =
+        providerFilter === "auto"
+          ? readiness.matched_provider || readiness.provider || "All providers"
+          : configuredProvider?.name || runtimeProvider?.name || providerFilter;
       const details = [
         { label: "Selected model", value: model },
         { label: "Provider route", value: providerLabel },
@@ -80,10 +85,14 @@ export function buildSelectedModelIssue({
         details.push({ label: "Blocked by", value: readiness.provider_blocked_reason });
       }
       if (readiness.suggested_models?.length) {
-        details.push({ label: "Try instead", value: readiness.suggested_models.slice(0, 3).join(", ") });
+        details.push({
+          label: "Try instead",
+          value: readiness.suggested_models.slice(0, 3).join(", "),
+        });
       }
       const steps = [
-        readiness.operator_action || "Open Connections to inspect readiness and repair the blocked dependency.",
+        readiness.operator_action ||
+          "Open Connections to inspect readiness and repair the blocked dependency.",
         readiness.suggested_models?.length
           ? `Try ${readiness.suggested_models[0]} from the model picker.`
           : "Refresh Connections after changing credentials, health, or local model availability.",
@@ -103,11 +112,13 @@ export function buildSelectedModelIssue({
     return null;
   }
 
-  const providerLabel = providerFilter === "auto"
-    ? "All providers"
-    : configuredProvider?.name || runtimeProvider?.name || providerFilter;
+  const providerLabel =
+    providerFilter === "auto"
+      ? "All providers"
+      : configuredProvider?.name || runtimeProvider?.name || providerFilter;
   const isLocal = configuredProvider?.kind === "local" || runtimeProvider?.kind === "local";
-  const modelCount = runtimeProvider?.model_count ?? runtimeProvider?.models?.length ?? selectableModels.length;
+  const modelCount =
+    runtimeProvider?.model_count ?? runtimeProvider?.models?.length ?? selectableModels.length;
   const details = [
     { label: "Selected model", value: model },
     { label: "Provider route", value: providerLabel },
@@ -123,29 +134,32 @@ export function buildSelectedModelIssue({
     details.push({ label: "Last error", value: runtimeProvider.last_error });
   }
 
-  const title = providerFilter === "auto"
-    ? "Selected model is not routable"
-    : "Selected model is not available from this provider";
-  const message = providerFilter === "auto"
-    ? `No configured provider currently reports "${model}". Pick a discovered model or add a provider that serves it.`
-    : `${providerLabel} is configured, but it does not currently report "${model}" in model discovery.`;
-  const steps = providerFilter === "auto"
-    ? [
-        "Pick a model that appears in the model picker.",
-        "Open Connections to inspect discovery, health, routing readiness, and credential state.",
-        "If the model should be served locally, start the local provider and refresh Connections.",
-      ]
-    : isLocal
-    ? [
-        "Start the local provider app or server.",
-        `Pull or load ${model} in that provider, or pick one of its discovered models.`,
-        "Refresh Connections to update the discovered model list.",
-      ]
-    : [
-        "Check provider credentials and account model access.",
-        "Pick a model that appears in the model picker, or add a provider that serves this model.",
-        "Open Connections to inspect health, discovery, and routing readiness.",
-      ];
+  const title =
+    providerFilter === "auto"
+      ? "Selected model is not routable"
+      : "Selected model is not available from this provider";
+  const message =
+    providerFilter === "auto"
+      ? `No configured provider currently reports "${model}". Pick a discovered model or add a provider that serves it.`
+      : `${providerLabel} is configured, but it does not currently report "${model}" in model discovery.`;
+  const steps =
+    providerFilter === "auto"
+      ? [
+          "Pick a model that appears in the model picker.",
+          "Open Connections to inspect discovery, health, routing readiness, and credential state.",
+          "If the model should be served locally, start the local provider and refresh Connections.",
+        ]
+      : isLocal
+        ? [
+            "Start the local provider app or server.",
+            `Pull or load ${model} in that provider, or pick one of its discovered models.`,
+            "Refresh Connections to update the discovered model list.",
+          ]
+        : [
+            "Check provider credentials and account model access.",
+            "Pick a model that appears in the model picker, or add a provider that serves this model.",
+            "Open Connections to inspect health, discovery, and routing readiness.",
+          ];
 
   return { title, message, providerLabel, model, details, steps };
 }

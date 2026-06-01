@@ -1,16 +1,17 @@
 // AgentAdapterPicker is the dropdown the chat view uses to switch
-// between registered external-agent adapters (Codex / Claude Code /
-// Cursor Agent). It surfaces both the dashboard's discovery flag and
+// between registered external-agent adapters. It surfaces both the
+// dashboard's discovery flag and
 // the on-demand probe result so operators can see at a glance which
 // adapter is actually usable on this machine.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type { KeyboardEvent } from "react";
 
-import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
+import { useFloatingMenu } from "./useFloatingMenu";
 
 // adapterPickerDiagnostic combines the dashboard's "is the binary on
 // PATH?" flag with the on-demand probe result into one row diagnostic.
@@ -25,7 +26,7 @@ function adapterPickerDiagnostic(
     switch (health.status) {
       case "ready":
         return {
-          title: health.path ? `Ready (${health.path})` : "Ready",
+          title: adapterReadyTitle(adapter, health.path),
           iconColor: "var(--green)",
           chipLabel: "ready",
           chipColor: "var(--teal)",
@@ -40,41 +41,95 @@ function adapterPickerDiagnostic(
       case "not_installed":
         return {
           title: health.hint || health.error || `${adapter.name} command was not found`,
-          iconColor: "var(--red)",
-          chipLabel: "missing",
-          chipColor: "var(--red)",
+          iconColor: "var(--t3)",
+          chipLabel: "setup",
+          chipColor: "var(--t3)",
         };
       case "error":
+        if (adapterProbeLooksLikeSetupState(health)) {
+          return {
+            title: health.hint || health.error || `Set up ${adapter.name} to use it`,
+            iconColor: "var(--t3)",
+            chipLabel: "setup",
+            chipColor: "var(--t3)",
+          };
+        }
         return {
           title: health.error || `${adapter.name} probe failed`,
-          iconColor: "var(--red)",
-          chipLabel: "error",
-          chipColor: "var(--red)",
+          iconColor: "var(--amber)",
+          chipLabel: "issue",
+          chipColor: "var(--amber)",
         };
     }
   }
   if (!adapter.available) {
     return {
       title: adapter.error || `${adapter.name} command was not found`,
-      iconColor: "var(--red)",
-      chipLabel: "",
-      chipColor: "",
+      iconColor: "var(--t3)",
+      chipLabel: "setup",
+      chipColor: "var(--t3)",
+    };
+  }
+  if (adapter.auth_status === "billing") {
+    return {
+      title: adapter.auth_error || "Billing or usage limit requires attention",
+      iconColor: "var(--amber)",
+      chipLabel: "billing",
+      chipColor: "var(--amber)",
+    };
+  }
+  if (adapter.auth_status === "unauthenticated") {
+    return {
+      title: adapter.auth_error || "Authentication required",
+      iconColor: "var(--amber)",
+      chipLabel: "auth",
+      chipColor: "var(--amber)",
+    };
+  }
+  if (adapter.auth_status === "unknown") {
+    return {
+      title:
+        adapter.auth_error || "Auth has not been verified yet. Test this adapter in Connections.",
+      iconColor: "var(--t3)",
+      chipLabel: "check",
+      chipColor: "var(--t3)",
     };
   }
   if (adapter.auth_status && adapter.auth_status !== "ok") {
     return {
       title: adapter.auth_error || `Auth status: ${adapter.auth_status}`,
-      iconColor: adapter.auth_status === "billing" ? "var(--red)" : "var(--amber)",
-      chipLabel: adapter.auth_status === "billing" ? "billing" : "auth",
-      chipColor: adapter.auth_status === "billing" ? "var(--red)" : "var(--amber)",
+      iconColor: "var(--amber)",
+      chipLabel: "auth",
+      chipColor: "var(--amber)",
     };
   }
   return {
-    title: adapter.path || adapter.description || adapter.name,
+    title: adapterAvailableTitle(adapter),
     iconColor: "var(--green)",
     chipLabel: "",
     chipColor: "",
   };
+}
+
+function adapterProbeLooksLikeSetupState(health: AgentAdapterHealthRecord): boolean {
+  const text = `${health.hint ?? ""} ${health.error ?? ""}`.toLowerCase();
+  return (
+    text.includes("app cli missing") ||
+    text.includes("command was not found") ||
+    text.includes("setup docs:") ||
+    text.startsWith("install ")
+  );
+}
+
+function adapterReadyTitle(adapter: AgentAdapterRecord, path: string | undefined): string {
+  const suffix = path ? ` Path: ${path}` : "";
+  return `${adapter.name} is ready. Hecate verified agent startup, auth, and ACP session creation.${suffix}`;
+}
+
+function adapterAvailableTitle(adapter: AgentAdapterRecord): string {
+  const command = adapter.path || adapter.command;
+  const suffix = command ? ` Command: ${command}` : "";
+  return `${adapter.name} is available. Hecate found the local agent command and auth looks configured; open Connections to run the full ACP readiness check.${suffix}`;
 }
 
 export function AgentAdapterPicker({
@@ -99,22 +154,15 @@ export function AgentAdapterPicker({
   disabledReason?: string;
   triggerWidth?: number;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const {
+    open,
+    setOpen,
+    toggle,
+    wrapRef: ref,
+    triggerRef,
+    menuRef,
+  } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left");
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (ref.current && ref.current.contains(target)) return;
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -122,7 +170,7 @@ export function AgentAdapterPicker({
       focusInitialDropdownItem(menuRef.current);
     });
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, menuRef]);
 
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
@@ -131,7 +179,12 @@ export function AgentAdapterPicker({
       triggerRef.current?.focus();
       return;
     }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
       event.preventDefault();
       focusDropdownItem(menuRef.current, event.key);
     }
@@ -146,12 +199,14 @@ export function AgentAdapterPicker({
     <div className="dropdown-wrap" ref={ref}>
       <button
         ref={triggerRef}
-        aria-label="External agent adapter"
+        aria-label="External agent"
         aria-expanded={open}
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
         disabled={locked}
-        onClick={() => { if (!locked) setOpen((current) => !current); }}
+        onClick={() => {
+          if (!locked) toggle();
+        }}
         style={{
           fontFamily: "var(--font-mono)",
           fontSize: 11,
@@ -161,11 +216,20 @@ export function AgentAdapterPicker({
           opacity: locked ? 0.7 : undefined,
           cursor: locked ? "not-allowed" : undefined,
         }}
-        title={isEmpty ? "No external agent adapters are registered" : disabledReason || label}
+        title={isEmpty ? "No external agents are registered" : disabledReason || label}
         type="button"
       >
         <Icon d={Icons.terminal} size={13} />
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            textAlign: "left",
+          }}
+        >
           {label}
         </span>
         {!locked && <Icon d={Icons.chevD} size={11} />}

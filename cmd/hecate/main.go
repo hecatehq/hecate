@@ -18,50 +18,44 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
-	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
-	"github.com/hecate/agent-runtime/internal/api"
-	"github.com/hecate/agent-runtime/internal/bootstrap"
-	"github.com/hecate/agent-runtime/internal/catalog"
-	"github.com/hecate/agent-runtime/internal/chatstate"
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/controlplane"
-	"github.com/hecate/agent-runtime/internal/gateway"
-	"github.com/hecate/agent-runtime/internal/governor"
-	"github.com/hecate/agent-runtime/internal/llamacpp"
-	"github.com/hecate/agent-runtime/internal/orchestrator"
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/internal/retention"
-	"github.com/hecate/agent-runtime/internal/router"
-	"github.com/hecate/agent-runtime/internal/secrets"
-	"github.com/hecate/agent-runtime/internal/storage"
-	"github.com/hecate/agent-runtime/internal/taskstate"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/internal/version"
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/api"
+	"github.com/hecatehq/hecate/internal/bootstrap"
+	"github.com/hecatehq/hecate/internal/catalog"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/llamacpp"
+	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/internal/retention"
+	"github.com/hecatehq/hecate/internal/router"
+	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/internal/storage"
+	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/version"
 )
 
-func main() {
-	// Tiny manual flag parse: a single `--version` / `-v` short-circuit.
-	// We don't want to pull in the full flag package here because the rest
-	// of configuration is env-driven; mixing the two would muddle the
-	// surface. Anything other than `--version`/`-v` falls through to the
-	// regular env-driven startup.
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "--version", "-v", "version":
-			fmt.Println(version.Version)
-			return
-		case "mcp-server":
-			runMCPServer()
-			return
-		}
-	}
-
+func runServe() {
 	cfg := config.LoadFromEnv()
 	if err := cfg.Validate(); err != nil {
 		slog.Error("config validation failed", slog.Any("error", err))
 		os.Exit(1)
+	}
+	if err := cfg.Server.ValidateNetworkExposure(); err != nil {
+		slog.Error("network exposure guard failed", slog.Any("error", err))
+		os.Exit(1)
+	}
+	if !config.ListenAddressIsLoopback(cfg.Server.Address) {
+		slog.Warn("gateway binding beyond loopback; ensure an access-control layer protects Hecate",
+			slog.String("listen_addr", cfg.Server.Address),
+			slog.String("ack_env", "HECATE_ALLOW_NON_LOOPBACK_BIND"),
+		)
 	}
 
 	// Resolve the auto-generated control-plane encryption key. Env values
@@ -70,7 +64,12 @@ func main() {
 	bootstrapPath := resolveBootstrapPath(cfg.Server.BootstrapFile, cfg.Server.DataDir)
 	boot, err := bootstrap.Resolve(bootstrapPath, cfg.Server.ControlPlaneSecretKey)
 	if err != nil {
-		slog.Error("bootstrap secret init failed", slog.String("path", bootstrapPath), slog.Any("error", err))
+		slog.Error(
+			"bootstrap secret init failed",
+			slog.String("path", bootstrapPath),
+			slog.String("hint", "Hecate requires hecate.bootstrap.json to contain a valid 32-byte base64 key and use private file permissions; fix ownership, ACLs, or POSIX mode bits, or unset an invalid HECATE_CONTROL_PLANE_SECRET_KEY"),
+			slog.Any("error", err),
+		)
 		os.Exit(1)
 	}
 	cfg.Server.ControlPlaneSecretKey = boot.ControlPlaneSecretKey
@@ -198,14 +197,14 @@ func main() {
 	}()
 	tracer := profiler.NewInMemoryTracer(profiler.NewOTelTracer(otelProvider))
 	usageStore := buildUsageStore(cfg, logger, sqliteClient)
-	chatSessionStore := buildChatSessionStore(cfg, logger, sqliteClient)
 	agentChatStore := buildAgentChatStore(cfg, logger, sqliteClient)
-	// Approval store shares the agent-chat backend selector
-	// (GATEWAY_CHAT_SESSIONS_BACKEND) so all agent-chat state lives
-	// together. Startup reconcile fires before the gateway accepts
-	// any request: pending rows from a prior process can't be
-	// resurrected (process-local waiters are lost), so they're
-	// marked timed_out with path=startup_reconcile up front.
+	projectStore := buildProjectStore(cfg, logger, sqliteClient)
+	// Approval state follows HECATE_BACKEND so chat transcripts, grants,
+	// and pending approval rows move together across memory/sqlite modes.
+	// Startup reconcile fires before the gateway accepts any request:
+	// pending rows from a prior process can't be resurrected
+	// (process-local waiters are lost), so they're marked timed_out with
+	// path=startup_reconcile up front.
 	approvalStore := buildApprovalStore(cfg, logger, sqliteClient)
 	if rec, ok := approvalStore.(agentadapters.ApprovalRetentionStore); ok {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -257,7 +256,6 @@ func main() {
 		tracer,
 		metrics,
 		retentionManager,
-		chatSessionStore,
 	))
 
 	retentionCtx, retentionCancel := context.WithCancel(context.Background())
@@ -268,11 +266,13 @@ func main() {
 
 	handler := api.NewHandler(cfg, logger, service, controlPlaneStore, taskStore, taskQueue, providerRuntime)
 	handler.SetAgentChatStore(agentChatStore)
+	handler.SetProjectStore(projectStore)
 	handler.SetAgentApprovalStore(approvalStore)
+	handler.SetStateCleaner(sqliteClient)
 	// Wire the cipher into the handler and its underlying runner so MCP
 	// server env values are encrypted at task-creation time and decrypted
 	// at subprocess spawn time. SetSecretCipher is a no-op when cipher
-	// is nil (no GATEWAY_CONTROL_PLANE_SECRET_KEY configured).
+	// is nil (no HECATE_CONTROL_PLANE_SECRET_KEY configured).
 	handler.SetSecretCipher(secretCipher)
 	// MCP client cache: amortizes subprocess spawn cost across runs by
 	// holding one Client per upstream config and handing it back to
@@ -280,10 +280,22 @@ func main() {
 	// and tears it down on Shutdown after the runner has drained, so
 	// in-flight runs always see a live client. Zero TTL falls back to
 	// the cache's internal default (5 minutes idle eviction).
+	// quit is the desktop-app shutdown channel. The Tauri close-window
+	// handler calls POST /hecate/v1/system/shutdown which signals here,
+	// joining the same drain path SIGINT/SIGTERM take below. Buffered so
+	// the handler returns without blocking when the channel is empty;
+	// the handler's select-default also tolerates a double-fire.
+	quit := make(chan struct{}, 1)
+	handler.SetQuitFunc(func() {
+		select {
+		case quit <- struct{}{}:
+		default:
+		}
+	})
 	handler.SetMCPClientCache(orchestrator.NewAgentMCPClientCache(orchestrator.AgentMCPClientCacheOptions{
 		// TTL=0 lets the cache use its internal default (5 min).
 		// We don't expose a TTL knob today; if operators ask, add
-		// GATEWAY_TASK_MCP_CLIENT_CACHE_TTL alongside the existing
+		// HECATE_TASK_MCP_CLIENT_CACHE_TTL alongside the existing
 		// max-entries / ping-interval / ping-timeout knobs.
 		MaxEntries:   cfg.Server.TaskMCPClientCacheMaxEntries,
 		PingInterval: cfg.Server.TaskMCPClientCachePingInterval,
@@ -398,12 +410,18 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
+	var shutdownTrigger string
+	select {
+	case sig := <-stop:
+		shutdownTrigger = sig.String()
+	case <-quit:
+		shutdownTrigger = "system_shutdown_endpoint"
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	logger.Info("gateway shutting down")
+	logger.Info("gateway shutting down", slog.String("trigger", shutdownTrigger))
 	retentionCancel()
 	// Stop the task runner before closing the HTTP server. The HTTP
 	// layer only enqueues jobs and is quick to drain; the long-poll
@@ -592,7 +610,6 @@ func buildGatewayDependencies(
 	tracer profiler.Tracer,
 	metrics *telemetry.Metrics,
 	retentionManager *retention.Manager,
-	chatSessionStore chatstate.Store,
 ) gateway.Dependencies {
 	return gateway.Dependencies{
 		Logger: logger,
@@ -610,8 +627,8 @@ func buildGatewayDependencies(
 		Tracer:            tracer,
 		Metrics:           metrics,
 		Retention:         retentionManager,
-		ChatSessions:      chatSessionStore,
 		TraceBodyCapture:  cfg.Server.TraceBodyCapture,
+		TraceBodyMode:     cfg.Server.TraceBodyMode,
 		TraceBodyMaxBytes: cfg.Server.TraceBodyMaxBytes,
 	}
 }
@@ -621,13 +638,12 @@ func pruneableProviderHistory(store providers.HealthHistoryStore) retention.Prun
 	return pruner
 }
 
-// approvalRetentionPruner exposes the AgentChatApprovalPruner surface
-// when the configured approval store implements it. Memory and SQLite
-// both do; tests that swap in a stub may not — returning nil is
-// harmless because the retention worker skips subsystems with a nil
-// pruner.
-func approvalRetentionPruner(store agentadapters.ApprovalStore) retention.AgentChatApprovalPruner {
-	pruner, _ := store.(retention.AgentChatApprovalPruner)
+// approvalRetentionPruner exposes the Pruner surface when the
+// configured approval store implements it. Memory and SQLite both do;
+// tests that swap in a stub may not — returning nil is harmless
+// because the retention worker skips subsystems with a nil pruner.
+func approvalRetentionPruner(store agentadapters.ApprovalStore) retention.Pruner {
+	pruner, _ := store.(retention.Pruner)
 	return pruner
 }
 
@@ -752,43 +768,43 @@ func sqliteRequired(cfg config.Config) bool {
 	return cfg.Governor.UsageBackend == "sqlite" ||
 		cfg.Server.ControlPlaneBackend == "sqlite" ||
 		cfg.Chat.SessionsBackend == "sqlite" ||
+		cfg.Projects.Backend == "sqlite" ||
 		cfg.Server.TasksBackend == "sqlite" ||
 		cfg.Server.TaskQueueBackend == "sqlite" ||
 		cfg.Retention.HistoryBackend == "sqlite"
 }
 
-func buildChatSessionStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) chatstate.Store {
-	switch cfg.Chat.SessionsBackend {
+func buildProjectStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) projects.Store {
+	switch cfg.Projects.Backend {
 	case "sqlite":
-		store, err := chatstate.NewSQLiteStore(context.Background(), sqliteClient)
+		store, err := projects.NewSQLiteStore(context.Background(), sqliteClient)
 		if err != nil {
-			logger.Error("chat session store init failed", slog.Any("error", err))
+			logger.Error("project store init failed", slog.Any("error", err))
 			os.Exit(1)
 		}
 		return store
 	default:
-		return chatstate.NewMemoryStore()
+		return projects.NewMemoryStore()
 	}
 }
 
-func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) agentchat.Store {
+func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) chat.Store {
 	switch cfg.Chat.SessionsBackend {
 	case "sqlite":
-		store, err := agentchat.NewSQLiteStore(context.Background(), sqliteClient)
+		store, err := chat.NewSQLiteStore(context.Background(), sqliteClient)
 		if err != nil {
 			logger.Error("agent chat store init failed", slog.Any("error", err))
 			os.Exit(1)
 		}
 		return store
 	default:
-		return agentchat.NewMemoryStore()
+		return chat.NewMemoryStore()
 	}
 }
 
-// buildApprovalStore picks memory or sqlite for the agent-chat
-// approval coordinator. Keyed off the same env var as the agent-chat
-// session/message stores (GATEWAY_CHAT_SESSIONS_BACKEND) so the whole
-// agent-chat state bundle moves together.
+// buildApprovalStore picks memory or sqlite for the approval coordinator.
+// It follows HECATE_BACKEND, like the chat session/message stores, so the
+// whole chat state bundle moves together.
 func buildApprovalStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) agentadapters.ApprovalStore {
 	switch cfg.Chat.SessionsBackend {
 	case "sqlite":
@@ -853,7 +869,7 @@ func retentionHistoryKey(key string) string {
 }
 
 // resolveBootstrapPath returns the location the gateway should read/write
-// the bootstrap secret file from. An explicit GATEWAY_BOOTSTRAP_FILE
+// the bootstrap secret file from. An explicit HECATE_BOOTSTRAP_FILE
 // (carried in `bootstrapFile`) wins; otherwise the file lives at
 // `<dataDir>/hecate.bootstrap.json`, which keeps it under the same
 // volume mount in docker and the same `.data/` directory in local dev.

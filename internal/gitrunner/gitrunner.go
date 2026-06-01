@@ -1,0 +1,203 @@
+package gitrunner
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/hecatehq/hecate/internal/processrunner"
+)
+
+const command = "git"
+
+type Result = processrunner.Result
+
+type Runner interface {
+	Run(ctx context.Context, workspace string, args ...string) (Result, error)
+	CurrentRef(ctx context.Context, workspace string) string
+	IsWorkTree(ctx context.Context, workspace string) bool
+	Diff(ctx context.Context, workspace string, maxBytes int64) (string, string)
+	Restore(ctx context.Context, workspace string, paths []string) (Result, error)
+	Clone(ctx context.Context, sourcePath, workspacePath string) (Result, error)
+}
+
+type LocalRunner struct {
+	Process processrunner.Runner
+	Env     []string
+}
+
+func NewLocalRunner() *LocalRunner {
+	return &LocalRunner{Process: processrunner.NewLocalRunner()}
+}
+
+func (r *LocalRunner) Run(ctx context.Context, workspace string, args ...string) (Result, error) {
+	workspace, err := cleanWorkspace(workspace)
+	if err != nil {
+		return Result{ExitCode: -1}, err
+	}
+	return r.run(ctx, processrunner.Request{
+		Command: command,
+		Args:    args,
+		Dir:     workspace,
+		Env:     r.env(),
+	})
+}
+
+func (r *LocalRunner) CurrentRef(ctx context.Context, workspace string) string {
+	refCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	result, err := r.Run(refCtx, workspace, "branch", "--show-current")
+	if err == nil {
+		if branch := strings.TrimSpace(result.Stdout); branch != "" {
+			return branch
+		}
+	}
+	result, err = r.Run(refCtx, workspace, "rev-parse", "--short", "HEAD")
+	if err != nil {
+		return ""
+	}
+	commit := strings.TrimSpace(result.Stdout)
+	if commit == "" {
+		return ""
+	}
+	return "detached@" + commit
+}
+
+func (r *LocalRunner) IsWorkTree(ctx context.Context, workspace string) bool {
+	result, err := r.Run(ctx, workspace, "rev-parse", "--is-inside-work-tree")
+	return err == nil && strings.TrimSpace(result.Stdout) == "true"
+}
+
+func (r *LocalRunner) Diff(ctx context.Context, workspace string, maxBytes int64) (string, string) {
+	diffCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if !r.IsWorkTree(diffCtx, workspace) {
+		return "", ""
+	}
+	stat, _ := r.RunLimited(diffCtx, workspace, maxBytes, "diff", "--stat")
+	diff, _ := r.RunLimited(diffCtx, workspace, maxBytes, "diff", "--no-ext-diff", "--binary")
+	return strings.TrimSpace(stat.Stdout), strings.TrimSpace(diff.Stdout)
+}
+
+func (r *LocalRunner) Restore(ctx context.Context, workspace string, paths []string) (Result, error) {
+	cleanedPaths := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path != "" {
+			cleanedPaths = append(cleanedPaths, path)
+		}
+	}
+	if len(cleanedPaths) == 0 {
+		return Result{ExitCode: -1}, errors.New("at least one path is required")
+	}
+	args := append([]string{"restore", "--"}, cleanedPaths...)
+	return r.Run(ctx, workspace, args...)
+}
+
+func (r *LocalRunner) Clone(ctx context.Context, sourcePath, workspacePath string) (Result, error) {
+	sourcePath = strings.TrimSpace(sourcePath)
+	workspacePath = strings.TrimSpace(workspacePath)
+	if sourcePath == "" {
+		return Result{ExitCode: -1}, errors.New("git clone source path is required")
+	}
+	if workspacePath == "" {
+		return Result{ExitCode: -1}, errors.New("git clone workspace path is required")
+	}
+	workspacePath = filepath.Clean(workspacePath)
+	if abs, err := filepath.Abs(workspacePath); err == nil {
+		workspacePath = abs
+	}
+	if err := os.MkdirAll(filepath.Dir(workspacePath), 0o755); err != nil {
+		return Result{ExitCode: -1}, err
+	}
+	return r.run(ctx, processrunner.Request{
+		Command: command,
+		Args:    []string{"clone", "--quiet", "--no-hardlinks", "--", sourcePath, workspacePath},
+		Env:     r.env(),
+	})
+}
+
+func (r *LocalRunner) RunLimited(ctx context.Context, workspace string, maxBytes int64, args ...string) (Result, error) {
+	workspace, err := cleanWorkspace(workspace)
+	if err != nil {
+		return Result{ExitCode: -1}, err
+	}
+	return r.run(ctx, processrunner.Request{
+		Command:        command,
+		Args:           args,
+		Dir:            workspace,
+		Env:            r.env(),
+		MaxStdoutBytes: maxBytes,
+		MaxStderrBytes: maxBytes,
+	})
+}
+
+func (r *LocalRunner) run(ctx context.Context, req processrunner.Request) (Result, error) {
+	process := r.Process
+	if process == nil {
+		process = processrunner.NewLocalRunner()
+	}
+	return process.Run(ctx, req)
+}
+
+func (r *LocalRunner) env() []string {
+	if r.Env != nil {
+		return r.Env
+	}
+	return SanitizedEnv(os.Environ())
+}
+
+func cleanWorkspace(workspace string) (string, error) {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return "", errors.New("workspace is required")
+	}
+	workspace = filepath.Clean(workspace)
+	if abs, err := filepath.Abs(workspace); err == nil {
+		workspace = abs
+	}
+	root, err := os.OpenRoot(workspace)
+	if err != nil {
+		return "", fmt.Errorf("workspace %q is not accessible: %w", workspace, err)
+	}
+	defer root.Close()
+	info, err := root.Stat(".")
+	if err != nil {
+		return "", fmt.Errorf("workspace %q is not accessible: %w", workspace, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("workspace %q is not a directory", workspace)
+	}
+	return workspace, nil
+}
+
+func SanitizedEnv(env []string) []string {
+	allowedPrefixes := []string{
+		"PATH=",
+		"HOME=",
+		"TMPDIR=",
+		"TEMP=",
+		"TMP=",
+		"LANG=",
+		"LC_",
+		"TERM=",
+		"USER=",
+		"LOGNAME=",
+		"XDG_",
+		"VOLTA_",
+	}
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		for _, prefix := range allowedPrefixes {
+			if strings.HasPrefix(entry, prefix) {
+				out = append(out, entry)
+				break
+			}
+		}
+	}
+	return out
+}

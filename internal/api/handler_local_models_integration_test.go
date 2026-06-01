@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/controlplane"
-	"github.com/hecate/agent-runtime/internal/llamacpp"
+	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/llamacpp"
 )
 
 // Integration tests for the /hecate/v1/local-models/* surface driven

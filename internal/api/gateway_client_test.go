@@ -29,16 +29,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/catalog"
-	"github.com/hecate/agent-runtime/internal/chatstate"
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/gateway"
-	"github.com/hecate/agent-runtime/internal/governor"
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/internal/router"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/catalog"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/internal/router"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // ---------------------------------------------------------------------------
@@ -963,14 +962,13 @@ func newGatewayServerWithRealProvider(t *testing.T, upstreamURL, providerName, d
 		UsageScope:      "global",
 	}
 	svc := gateway.NewService(gateway.Dependencies{
-		Logger:       logger,
-		Router:       router.NewRuleRouter(defaultModel, providerCatalog),
-		Catalog:      providerCatalog,
-		Governor:     governor.NewStaticGovernor(governorCfg, usageStore, usageStore),
-		Providers:    registry,
-		Tracer:       profiler.NewInMemoryTracer(nil),
-		Metrics:      telemetry.NewMetrics(),
-		ChatSessions: chatstate.NewMemoryStore(),
+		Logger:    logger,
+		Router:    router.NewRuleRouter(defaultModel, providerCatalog),
+		Catalog:   providerCatalog,
+		Governor:  governor.NewStaticGovernor(governorCfg, usageStore, usageStore),
+		Providers: registry,
+		Tracer:    profiler.NewInMemoryTracer(nil),
+		Metrics:   telemetry.NewMetrics(),
 	})
 
 	cfg := config.Config{

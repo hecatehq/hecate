@@ -59,7 +59,7 @@ func NewMetricsWithMeterProvider(provider otmetric.MeterProvider) (*Metrics, err
 		provider = otel.GetMeterProvider()
 	}
 
-	meter := provider.Meter("github.com/hecate/agent-runtime/internal/telemetry")
+	meter := provider.Meter("github.com/hecatehq/hecate/internal/telemetry")
 
 	requestsTotal, err := meter.Int64Counter(
 		"hecate.gateway.requests",
@@ -268,7 +268,7 @@ func NewAgentChatMetricsWithMeterProvider(provider otmetric.MeterProvider) (*Age
 	if provider == nil {
 		provider = otel.GetMeterProvider()
 	}
-	meter := provider.Meter("github.com/hecate/agent-runtime/internal/telemetry")
+	meter := provider.Meter("github.com/hecatehq/hecate/internal/telemetry")
 
 	runsTotal, err := meter.Int64Counter(
 		MetricAgentChatRunsTotal,
@@ -341,7 +341,7 @@ func (m *AgentChatMetrics) RecordRun(ctx context.Context, rec AgentChatRunMetric
 			continue
 		}
 		bucketAttrs := append([]attribute.KeyValue{}, attrs...)
-		bucketAttrs = append(bucketAttrs, attribute.String(AttrHecateAgentChatTimingBucket, bucket.name))
+		bucketAttrs = append(bucketAttrs, attribute.String(AttrHecateChatTimingBucket, bucket.name))
 		m.runTiming.Record(ctx, bucket.ms, otmetric.WithAttributes(bucketAttrs...))
 	}
 }
@@ -376,7 +376,7 @@ func (m *AgentChatMetrics) RecordChatCancelled(ctx context.Context, rec AgentCha
 		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(rec.AdapterID)))
 	}
 	if rec.Reason != "" {
-		attrs = append(attrs, attribute.String(AttrHecateAgentChatCancelReason, NormalizeAgentChatCancelReason(rec.Reason)))
+		attrs = append(attrs, attribute.String(AttrHecateChatCancelReason, NormalizeAgentChatCancelReason(rec.Reason)))
 	}
 	m.cancelledTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
 }
@@ -413,7 +413,7 @@ func NewAgentAdapterMetricsWithMeterProvider(provider otmetric.MeterProvider) (*
 	if provider == nil {
 		provider = otel.GetMeterProvider()
 	}
-	meter := provider.Meter("github.com/hecate/agent-runtime/internal/telemetry")
+	meter := provider.Meter("github.com/hecatehq/hecate/internal/telemetry")
 
 	probeTotal, err := meter.Int64Counter(
 		MetricAgentAdapterProbeTotal,
@@ -485,7 +485,7 @@ func (m *AgentAdapterMetrics) RecordTerminalRPCUnsupported(ctx context.Context, 
 type AgentAdapterApprovalRequestRecord struct {
 	AdapterID string
 	ToolKind  string
-	Mode      string // configured GATEWAY_AGENT_ADAPTER_APPROVAL_MODE
+	Mode      string // configured HECATE_AGENT_ADAPTER_APPROVAL_MODE
 }
 
 // AgentAdapterApprovalResolveRecord labels a resolved approval.
@@ -529,7 +529,7 @@ func NewAgentAdapterApprovalMetricsWithMeterProvider(provider otmetric.MeterProv
 	if provider == nil {
 		provider = otel.GetMeterProvider()
 	}
-	meter := provider.Meter("github.com/hecate/agent-runtime/internal/telemetry")
+	meter := provider.Meter("github.com/hecatehq/hecate/internal/telemetry")
 
 	requestedTotal, err := meter.Int64Counter(
 		MetricAgentAdapterApprovalRequestedTotal,
@@ -761,7 +761,7 @@ func NewOrchestratorMetricsWithMeterProvider(provider otmetric.MeterProvider) (*
 	if provider == nil {
 		provider = otel.GetMeterProvider()
 	}
-	meter := provider.Meter("github.com/hecate/agent-runtime/internal/telemetry")
+	meter := provider.Meter("github.com/hecatehq/hecate/internal/telemetry")
 
 	runsTotal, err := meter.Int64Counter(
 		MetricOrchestratorRunsTotal,

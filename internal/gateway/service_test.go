@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/catalog"
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/governor"
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/catalog"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestServiceHandleChatFallsBackWhenPrimaryFails(t *testing.T) {
@@ -305,6 +305,7 @@ func TestProviderModelReadiness(t *testing.T) {
 		wantStatus          string
 		wantSuggestions     bool
 		rejectSuggestion    string
+		wantActionContains  string
 	}{
 		{
 			name:                "explicit provider reports model",
@@ -347,12 +348,13 @@ func TestProviderModelReadiness(t *testing.T) {
 			wantSuggestions:     true,
 		},
 		{
-			name:         "missing provider",
-			provider:     "missing",
-			model:        "llama3.1:8b",
-			wantProvider: "missing",
-			wantReason:   "provider_missing",
-			wantStatus:   "blocked",
+			name:               "missing provider",
+			provider:           "missing",
+			model:              "llama3.1:8b",
+			wantProvider:       "missing",
+			wantReason:         "provider_missing",
+			wantStatus:         "blocked",
+			wantActionContains: "Connections",
 		},
 		{
 			name:                "auto finds routable provider",
@@ -415,6 +417,9 @@ func TestProviderModelReadiness(t *testing.T) {
 			}
 			if !got.Ready && got.OperatorAction == "" {
 				t.Fatalf("operator_action is empty for blocked readiness: %#v", got)
+			}
+			if tt.wantActionContains != "" && !strings.Contains(got.OperatorAction, tt.wantActionContains) {
+				t.Fatalf("operator_action = %q, want substring %q", got.OperatorAction, tt.wantActionContains)
 			}
 			if got.Ready && len(got.SuggestedModels) > 0 {
 				t.Fatalf("suggested_models = %#v for ready response, want none", got.SuggestedModels)

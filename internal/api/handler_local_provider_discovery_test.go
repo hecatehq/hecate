@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 type localProviderRoundTrip struct {
@@ -180,6 +180,41 @@ func TestDiscoverLocalProvidersChecksCommandPresence(t *testing.T) {
 	}
 	if item.HTTPAvailable {
 		t.Fatal("HTTPAvailable = true, want false")
+	}
+}
+
+func TestDiscoverLocalProvidersFindsLMStudioInNativeAppPath(t *testing.T) {
+	t.Setenv("HOME", "/Users/alice")
+
+	providers := []config.BuiltInProvider{
+		{ID: "lmstudio", Name: "LM Studio", Kind: "local", BaseURL: "http://127.0.0.1:1234/v1"},
+	}
+	rt := &localProviderRoundTrip{
+		err: map[string]error{
+			"http://127.0.0.1:1234/v1/models": errors.New("connection refused"),
+		},
+	}
+	lookPath := func(command string) (string, error) {
+		if command == "/Users/alice/.lmstudio/bin/lms" {
+			return command, nil
+		}
+		return "", errors.New("missing")
+	}
+
+	items := discoverLocalProviders(context.Background(), providers, lookPath, rt)
+
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	item := items[0]
+	if item.Command != "lms" {
+		t.Fatalf("command = %q, want lms", item.Command)
+	}
+	if item.CommandPath != "/Users/alice/.lmstudio/bin/lms" {
+		t.Fatalf("command path = %q, want native LM Studio path", item.CommandPath)
+	}
+	if item.Status != "installed" {
+		t.Fatalf("status = %q, want installed", item.Status)
 	}
 }
 

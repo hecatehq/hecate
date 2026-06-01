@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/llamacpp"
+	"github.com/hecatehq/hecate/internal/llamacpp"
 )
 
 // Response envelopes for /hecate/v1/local-models/*. The shapes follow

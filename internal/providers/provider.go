@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type Kind string
@@ -25,6 +25,12 @@ type Provider interface {
 	Capabilities(ctx context.Context) (Capabilities, error)
 	Chat(ctx context.Context, req types.ChatRequest) (*types.ChatResponse, error)
 	Supports(model string) bool
+}
+
+// CapabilityRefresher is implemented by providers that can bypass their
+// discovery cache for explicit operator refreshes.
+type CapabilityRefresher interface {
+	RefreshCapabilities(ctx context.Context) (Capabilities, error)
 }
 
 // Streamer is an optional interface providers may implement to support SSE streaming.
@@ -56,14 +62,15 @@ type CredentialReporter interface {
 }
 
 type Capabilities struct {
-	Name            string
-	Kind            Kind
-	DefaultModel    string
-	Models          []string
-	Discoverable    bool
-	DiscoverySource string
-	RefreshedAt     time.Time
-	LastError       string
+	Name              string
+	Kind              Kind
+	DefaultModel      string
+	Models            []string
+	ModelCapabilities map[string]types.ModelCapabilities
+	Discoverable      bool
+	DiscoverySource   string
+	RefreshedAt       time.Time
+	LastError         string
 }
 
 // Enabler is an optional interface a Provider may implement to signal that it

@@ -3,7 +3,9 @@
 This guide covers the source-build toolchain, local-build path, UI hot reload,
 website development, the test surface, and the screenshot tooling. For the
 simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the
-desktop app is the recommended on-ramp for personal use; Docker for server use.
+desktop app is the recommended on-ramp for macOS personal use; Docker is the
+more predictable path for server use and for Linux/Windows until those desktop
+bundles are manually tested.
 The Tauri desktop app's local build (`just tauri-dev`) lives in
 [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md).
 
@@ -21,7 +23,7 @@ The Tauri desktop app's local build (`just tauri-dev`) lives in
 
 ## Toolchain
 
-Required for the gateway + embedded UI:
+Required for the main runtime + embedded UI:
 
 - **Go** — pinned via `go.mod`; `just build` runs `go build`.
 - **Bun** — pinned via `ui/package.json` and `website/package.json`
@@ -35,7 +37,7 @@ Required only for the native desktop app:
 
 Optional:
 
-- **Docker** — only required for the docker-smoke test job and container workflows; not needed for the gateway itself.
+- **Docker** — only required for the docker-smoke test job and container workflows; not needed for the local runtime itself.
 - **RTK** — optional local helper used by Hecate Chat's per-chat “compact command output” setting. It is off by default; when the `rtk` command is present in the gateway `PATH`, the UI offers an opt-in hint. Hecate still applies policy validation, env sanitisation, output caps, timeouts, and the OS sandbox wrapper.
 
 Install examples:
@@ -67,15 +69,15 @@ for the UI or website. The committed lockfiles are `ui/bun.lock` and
 `website/bun.lock`, the install command is `bun install`, and all scripts run
 through `bun run ...`.
 
-The `hecate` binary embeds the React UI via `//go:embed ui/dist`. There's no separate UI deployment.
+The `hecate` runtime embeds the React UI via `//go:embed ui/dist`. There's no separate UI deployment.
 
 ## Local build
 
-1. Copy env defaults and configure at least one provider:
+1. Optionally copy env defaults if you want local overrides or secrets:
 
    ```bash
    cp .env.example .env
-   # Edit .env — at minimum set GATEWAY_DEFAULT_MODEL plus a PROVIDER_*_API_KEY
+   # Edit .env for local overrides, or configure providers later in Connections.
    ```
 
 2. Build `hecate` with the UI bundled in:
@@ -84,13 +86,13 @@ The `hecate` binary embeds the React UI via `//go:embed ui/dist`. There's no sep
    just                    # lists available project recipes
    just ui-install         # installs UI dependencies (bun install)
    just build              # ui-build + go build → ./hecate
-   just serve              # run prebuilt ./hecate; sources .env; auto-stops stale :8765
+   just serve              # run prebuilt ./hecate; sources .env if present
    just serve --reset      # same, but wipe .data/ first
    ```
 
 The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `just serve` stops any earlier `./hecate` process still bound to that port before starting, so re-running it is always safe.
 
-For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `just run` is `go run` with quick defaults; `just dev` is the same but sources `.env` so provider keys are available.
+For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `just run` is `go run` with quick defaults; `just dev` is the same but sources `.env` when present so provider keys are available.
 
 ## UI hot reload
 
@@ -106,6 +108,7 @@ Default addresses:
 - Vite dev server (UI hot reload): `http://127.0.0.1:5173`
 
 The Vite dev server proxies every `/hecate/*`, `/v1/*`, and `/healthz` request to `:8765`, so the UI runs hot while the gateway runs as-is.
+`just dev` allows the two default Vite origins (`http://127.0.0.1:5173` and `http://localhost:5173`) through the same-origin guard. If you use a different dev server or port, set `HECATE_ALLOWED_ORIGINS` to that exact origin before starting the gateway.
 
 ## Website
 
@@ -140,45 +143,71 @@ just test              # go test ./...
 just vet               # go vet ./...
 just test-race         # go test -race ./...
 just coverage          # go test -coverprofile + writes coverage.html
+just go-format-check   # Go gofmt -s formatting check
+just go-format         # format Go source with gofmt -s
+just ui-lint           # UI oxlint checks
+just ui-format-check   # UI Oxfmt formatting check
+just ui-format         # format UI source with Oxfmt
 just ui-test           # UI unit tests (vitest)
 just ui-test-e2e       # UI end-to-end tests (Playwright)
+just website-lint      # website oxlint checks
+just website-format-check # website Oxfmt formatting check
+just website-format    # format website source with Oxfmt
+just docs-format-check # Markdown and .mdc Oxfmt formatting check
+just docs-format       # format tracked Markdown and .mdc docs with Oxfmt
+just format-check      # Go + UI + website + docs formatting check
+just format            # auto-format Go + UI + website + docs
 just website-build     # Astro website check + production build
-just test-acp-smoke    # ACP stdio bridge smoke against fake local upstream
 just ui-coverage       # UI coverage report (vitest --coverage)
 just test-docker-smoke # boots the production image and probes /healthz, /v1/models
 just test-tauri-smoke  # macOS native app smoke: build .app, probe /healthz, quit
-just test-tauri-acp-smoke # native app + bundled ACP bridge discovery smoke
 just verify            # full gate: docs/env check, Go, Docker, UI, build
+just verify-desktop    # desktop-specific Rust/Tauri check
 just release vX.Y.Z    # verify, then run the release script
 ```
 
-The race detector is the strongest correctness check (and the slowest); CI runs it on every push. `test-acp-smoke` starts a fake OpenAI-compatible upstream, the real `hecate` gateway, and the real `cmd/hecate-acp` stdio bridge, then verifies model discovery, same-task continuation, SSE updates, and editor approval round-trip behavior. The Go e2e suite also includes binary-level Agent Chat approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits; `test-tauri-acp-smoke` additionally runs the bundled `hecate-acp` without `HECATE_GATEWAY_URL` and verifies native runtime discovery through `hecate.runtime.json`. Both native smokes are opt-in because they open a real GUI window.
+The race detector is the strongest correctness check (and the slowest); CI runs it on every push. The Go e2e suite also includes binary-level External Agent approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. Gateway e2e helpers auto-set `PROVIDER_<NAME>_PRECONFIGURED=1` for providers described with `PROVIDER_<NAME>_*` vars; when a test posts an explicit model that the fake `/v1/models` endpoint does not advertise, seed it with `PROVIDER_<NAME>_MODELS` instead of reintroducing provider default-model env vars. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `verify-desktop` runs the Tauri Rust test suite and requires Rust/Cargo. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits. The native smoke is opt-in because it opens a real GUI window.
 
 Before cutting a public tag, run `just verify` and follow the checklist in [Release](release.md).
+
+TypeScript linting uses Oxc with type-aware checks through `oxlint-tsgolint`.
+`just ui-lint`, `just website-lint`, and `just format-check` are part of
+`just verify` and CI. `just format` is the local auto-format pass for Go, UI,
+website, and docs; use it before pushing when CI reports formatting drift, then
+review the resulting diff like any other code change. The shared
+`.oxlintrc.json` enables React, accessibility, Vitest, import, TypeScript,
+Unicorn, and Oxc rules for both UI surfaces. Markdown and `.mdc` docs use
+Oxfmt for formatting; lychee still validates links and fragments.
 
 ## CI workflow
 
 GitHub Actions is split by surface so small changes do not wake the whole
 project:
 
-| Workflow | Trigger | Purpose |
-|---|---|---|
-| `test.yml` | PRs and pushes to `master` except markdown-only and website-only changes | Main quality gate: Go, UI, e2e, Docker smoke, Tauri Rust tests, and gated desktop bundle validation. |
-| `website.yml` | Website changes and release-manifest updates | Astro check/build and GitHub Pages deploy for [hecate.sh](https://hecate.sh). |
-| `links.yml` | PRs and pushes | Markdown link and Mermaid validation. |
-| `release.yml` | `v*` tags and manual dispatch | Goreleaser artifacts, Docker images, signed desktop bundles, updater manifest, website manifest publish. |
-| `tauri-build.yml` | Manual dispatch only | Explicit desktop bundle rebuild/debug run from the Actions tab. |
+| Workflow          | Trigger                                                                  | Purpose                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `test.yml`        | PRs and pushes to `master` except markdown-only and website-only changes | Main quality gate: Go, UI, e2e, Docker smoke, Tauri Rust tests, and gated desktop bundle validation.     |
+| `website.yml`     | Website changes and release-manifest updates                             | Astro check/build and GitHub Pages deploy for [hecate.sh](https://hecate.sh).                            |
+| `links.yml`       | PRs and pushes                                                           | Markdown formatting, link, fragment, and Mermaid validation.                                             |
+| `release.yml`     | `v*` tags and manual dispatch                                            | Goreleaser artifacts, Docker images, signed desktop bundles, updater manifest, website manifest publish. |
+| `tauri-build.yml` | Manual dispatch only                                                     | Explicit desktop bundle rebuild/debug run from the Actions tab.                                          |
 
 The main `Test` workflow starts with a path filter. Go, TypeScript, Docker,
 and Tauri Rust jobs run only when their inputs changed, while workflow edits
-force the full matrix so CI changes test themselves.
+force the full matrix so CI changes test themselves. The TypeScript job runs
+Oxc lint and Oxfmt format checks before build and Vitest, so mechanical issues
+fail before the slower unit suite.
+
+The Website workflow runs Oxc lint and Oxfmt format checks before Astro /
+TypeScript checks and the production build.
 
 Desktop packaging is intentionally gated inside `test.yml`: the
 `Tauri desktop bundles` matrix waits for the cheaper Go, TypeScript, e2e,
 Docker smoke, and Tauri Rust jobs to pass (or skip by path filter) before
 building macOS, Linux, and Windows bundles. PR bundle validation does **not**
-upload unsigned artifacts; it only proves the bundles build. Release tags still
-upload signed/notarized artifacts through `release.yml`.
+upload unsigned artifacts; it only proves the bundles build. It does not
+manually launch Linux or Windows desktop artifacts. Release tags still upload
+signed/notarized artifacts through `release.yml`.
 
 This shape keeps PR feedback fast for normal code changes and avoids burning
 desktop runner minutes when a cheaper test has already failed. If a desktop
@@ -201,8 +230,7 @@ Recognized markers: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[act
 Top-level entry points:
 
 ```
-cmd/hecate/            # hecate entry point (gateway, embedded UI, `mcp-server` subcommand)
-cmd/hecate-acp/         # ACP stdio bridge for editor agent panels
+cmd/hecate/            # main runtime entry point (gateway service, embedded UI, CLI commands)
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
 website/                # Astro homepage for hecate.sh
 tauri/                  # native desktop app (Tauri 2.x); wraps `hecate` as a sidecar
@@ -215,19 +243,17 @@ pkg/types/              # public types shared with external Go code
 Internal packages (each `internal/<name>/` is a single Go package):
 
 ```
-acp                     # ACP protocol types + dispatcher used by cmd/hecate-acp
-agentadapters           # external coding-agent adapter framework (Codex, Claude Code, Cursor Agent)
-agentchat               # agent chat session storage and replay
+agentadapters           # external coding-agent adapter framework (Codex, Claude Code, Cursor Agent, Grok Build)
 api                     # HTTP handlers — chat, messages, tasks, settings, telemetry
 bootstrap               # first-run secret-key generation and persistence
 catalog                 # provider/model discovery and registration
-chatstate               # chat session storage (memory / sqlite)
+chat                    # chat session storage and replay (memory / sqlite)
 config                  # env-driven config loading
-controlplane            # persisted providers, secrets, policy, and capability overrides
+controlplane            # persisted providers, secrets, and policy settings
 eventprotocol           # typed agent-event envelope + emitter (see docs/event-protocol-v1.md)
 gateway                 # request lifecycle: policy, router, retry/fallback
 governor                # policy rules, route gates, and append-only usage events
-mcp                     # Hecate-as-MCP-server implementation (the `hecate mcp-server` subcommand)
+mcp                     # Hecate-as-MCP-server implementation (the `hecate mcp serve` command)
 models                  # model identity + canonical-name resolution
 orchestrator            # task runtime: queue, runner, executors, sandbox boundary
 policy                  # declarative deny / rewrite policy rules
@@ -248,27 +274,44 @@ version                 # build-time version metadata
 ## External-agent adapter smoke states
 
 External-agent onboarding depends on local tools (`codex-acp`,
-`claude-agent-acp`, `cursor-agent`) that may already be installed on your
-machine. For manual UI smoke tests and Playwright fixtures, you can force the
-discovery result without uninstalling anything:
+`claude-agent-acp`, `cursor-agent`, `grok`) and the underlying agent CLIs/auth that may
+already be installed on your machine. For manual UI smoke tests and Playwright
+fixtures, you can force the visual state without uninstalling anything. These
+fixture env vars are intentionally not listed in `.env.example`; keep them in
+one-off test commands or `just` recipes instead of normal operator config.
 
 ```bash
 just dev-no-agent-adapters
 ```
 
-That starts the gateway with every external adapter reported as missing, which
-is useful for checking first-run onboarding copy.
+That starts the gateway with every external adapter connector reported as
+missing, which is useful for checking first-run onboarding copy.
 
 For finer control, pass a comma-separated override list:
 
 ```bash
-just dev-agent-adapters 'claude_code=missing,codex=available,cursor_agent=missing'
+just dev-agent-adapters 'codex=ready,claude_code=no_auth,cursor_agent=app_missing,grok_build=ready'
 ```
 
-The backing env var is `GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`. It accepts
-`all=missing` or per-adapter entries using `missing` / `available`. This is
-discovery-only: it changes Connections and Chats readiness UI, but it does not
-create fake adapter processes or make a chat send succeed.
+The backing env var is `HECATE_AGENT_ADAPTER_DEV_OVERRIDES`. It accepts
+`all=...` or per-adapter entries using:
+
+- `missing` / `connector_missing` / `acp_missing` — ACP connector unavailable.
+- `app_missing` / `cli_missing` — connector exists, but the underlying agent CLI
+  is missing.
+- `no_auth` / `auth_required` / `unauthenticated` — local CLI auth missing.
+- `ready` / `ok` — startup/auth/ACP session visually ready.
+- `billing` or `error` — billing/usage-limit or generic probe failure.
+
+This is visual-only: it changes Connections and Chats readiness UI and fake
+probe results, but it does not create adapter processes or make a chat send
+succeed.
+
+There is also a narrower discovery-only fixture env var,
+`HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES`, used by backend tests that only
+need catalog states (`all=missing`, `codex=available`). Prefer
+`just dev-agent-adapters` for UI work because it keeps catalog and probe visuals
+aligned.
 
 ## Capturing documentation screenshots
 

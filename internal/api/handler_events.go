@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/eventprotocol"
-	"github.com/hecate/agent-runtime/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/eventprotocol"
+	"github.com/hecatehq/hecate/internal/taskstate"
 )
 
 // HandleEvents serves GET /hecate/v1/events — a paginated cross-run feed of

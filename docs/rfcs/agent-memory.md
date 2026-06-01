@@ -1,436 +1,340 @@
 # Agent Memory
 
-> **Status:** design notes. Not implemented. Captures the proposal
-> for a cross-session, operator-authored memory primitive that
-> persists relevant context across chats with Hecate Agent and
-> across `agent_loop` task runs.
-> **Depends on:** two existing system-prompt mechanisms — the
-> three-layer composition for `agent_loop` task runs
-> (global → workspace `CLAUDE.md`/`AGENTS.md` → per-task) built in
-> `internal/api/system_prompt.go` via `buildSystemPromptResolver` and
-> consumed through the `orchestrator.SystemPromptResolver` interface,
-> and the session-level prompt path for model chats handled by
-> `applySessionSystemPrompt` in `internal/api/handler_chat.go`. The
-> two surfaces inject memory differently; see "Injection mechanics"
-> below.
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Chat sessions](../chat-sessions.md),
+> [Agent runtime](../agent-runtime.md), and
+> [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md)
+> for today's prompt and context behavior.
+> **Next action:** implement context-packet snapshots first, then add a
+> small operator-authored memory store as one source for context assembly.
 
-Operators currently re-establish the same context every chat: their
-role, the codebase paths they care about, conventions they want the
-assistant to follow, the way they want answers shaped. Even within a
-single workspace, every new Hecate Chat or `agent_loop` task run
-starts cold. The system prompt is shared across runs, but it is a
-single global string — operators can't carve it into reusable
-entries scoped to specific situations.
+Operators often repeat the same durable context: coding preferences,
+repository conventions, communication style, recurring paths, and project facts
+that should survive across Hecate Chat sessions, external-agent chats, and
+task-backed runs. Today those facts live either in the global system prompt, in
+workspace docs, in external-agent-specific settings, or in the operator's head.
 
-OpenAI and Anthropic ship vendor-locked memory features. Hecate
-operators can't depend on them and can't take their memory with them
-when they switch providers.
+This RFC defines Hecate memory as **operator-approved durable context**. It is
+not automatic transcript mining, not a vector search system, and not a vendor
+memory feature. Memory entries are visible, scoped, editable, and included in a
+model call only through the context assembly pipeline.
+
+[Projects](projects.md) provide the durable default scope for memory. Agent
+profiles choose which memory sources and scopes a given agent uses. Context
+assembly remains the enforcement layer that decides what enters a specific
+model or adapter call.
+
+## Relationship To Context
+
+Memory is one input to the context pipeline:
+
+```mermaid
+flowchart LR
+    A["Project"] --> B["Agent profile"]
+    B --> C["Memory service"]
+    C --> D["Context assembly"]
+    D --> E["Context window management"]
+    E --> F["Provider or adapter prompt"]
+```
+
+- [Context assembly](context-assembly-and-injection-boundaries.md) decides
+  whether a memory entry is active for a given chat message or task run and
+  labels it as `operator_memory`.
+- [Context window management](llm-context-window-management.md) counts memory
+  tokens and may warn/block if memory plus transcript exceeds the model limit.
+- [Projects](projects.md) provide the default durable scope for memory.
+- Agent profiles select which memory scopes and external memory providers the
+  active agent should use.
+- Memory itself only stores durable entries and scopes. It does not perform
+  retrieval, summarization, or prompt rendering.
 
 ## Goals
 
-In rough priority order:
+1. **Operator-authored persistence.** Entries survive restarts, chats, and task
+   runs.
+2. **Scoped activation.** Entries can apply globally, to a project, to a
+   chat/session, to a runtime surface, or through a named agent profile.
+3. **Full visibility.** Operators can see which memory entries are active before
+   sending and can inspect which entries influenced a completed message/run.
+4. **Provider-neutral behavior.** Memory works the same whether the next call
+   routes to OpenAI, Anthropic, Gemini, a local provider, or another compatible
+   backend.
+5. **Agent-neutral project memory.** Hecate Chat and external-agent chats can
+   both use project memory when their active agent profile opts into it.
+6. **No silent writes.** The model cannot quietly create or edit memory. Any
+   future "remember this" flow must be explicit and operator-approved.
 
-1. **Operator-authored memory entries** survive across chats and
-   across `agent_loop` task runs. An entry written today is in the
-   conversation tomorrow without re-typing it.
-2. **Scoped activation.** An entry can target every chat, only one
-   workspace, only one agent kind (Hecate Agent vs `agent_loop`
-   tasks), or some intersection. Not every entry should fire on
-   every conversation.
-3. **Fully visible.** The operator can see every active memory
-   entry in a Settings tab and per-chat. No "the assistant
-   remembered something but I can't see what" behavior.
-4. **Provider-agnostic.** Same memory entries work across OpenAI,
-   Anthropic, Gemini, etc. No vendor lock-in.
-5. **Encrypted at rest** when `GATEWAY_CONTROL_PLANE_SECRET_KEY`
-   is set, mirroring how persisted provider API keys are protected.
+## Non-goals
 
-## Non-goals (v1)
+- **Automatic extraction from chats.** No "I noticed this, so I remembered it"
+  behavior in v1.
+- **Semantic recall or vector retrieval.** Exact scope matching first. Embedding
+  search can become a later retrieval RFC.
+- **Owning external-agent private memory.** Codex, Claude Code, Cursor, and
+  Grok Build have their own memory/settings layers. Hecate can provide project
+  memory to an external-agent session through supported prompt/config surfaces,
+  but it should not pretend to read, rewrite, or synchronize the agent's private
+  memory.
+- **Cross-user sharing.** Hecate remains local-first and single-operator shaped.
+- **Replacing workspace docs.** Repository guidance belongs in repo files such
+  as `AGENTS.md`; memory is for operator-owned durable preferences and facts.
 
-- **Auto-extraction from past chats.** The "this looks important,
-  I'll remember it" behavior every vendor's memory feature does is
-  the worst kind of memory: surprising, opaque, and easy to abuse.
-  v1 is operator-authored only. Auto-extraction can be a separate
-  RFC after eval scaffolding exists.
-- **Semantic recall.** Vector DB territory. v1 is exact-match
-  scope rules + plain text, prepended verbatim. Semantic retrieval
-  ("memories relevant to *this question*") is a future RFC.
-- **External-agent integration.** Codex, Claude Code, and Cursor
-  Agent each have their own settings layer outside Hecate's
-  control. We can't inject memory into their conversations without
-  ACP standardizing a memory primitive, which it hasn't. v1 covers
-  Hecate-controlled surfaces only: Hecate Chat (tools-off + Hecate
-  Agent) and `agent_loop` task runs.
-- **Cross-tenant sharing.** Hecate is single-user; shared memory
-  across operators isn't a real use case. If multi-user lands, this
-  RFC's scope model maps cleanly onto per-user partitions.
-- **Memory editing by the LLM.** The LLM never writes to memory.
-  Only the operator does. (Future RFC could add an opt-in
-  "remember this" tool that requires explicit operator approval
-  per write, but not v1.)
+## Memory Entry Model
 
-## Constraints
-
-- **Single-user mode.** All memory entries are owned by the local
-  operator. No principal model.
-- **Local-first.** Entries persist in the same SQLite database as
-  the rest of operator state. No cloud sync.
-- **Operator-controlled.** Every byte of memory the LLM sees is
-  something the operator typed. No background extraction, no
-  auto-import from past conversations in v1.
-- **Provider-neutral.** Memory entries are plain text. Providers
-  receive them as part of the system prompt, not via any vendor's
-  memory API.
-
-## Data model
-
-A memory entry is title + body + scope:
+Sketch:
 
 ```go
-// pkg/types/memory.go (new)
 type MemoryEntry struct {
-    ID        string          // mem_<hex>
-    Title     string          // operator-facing label, ~60 chars
-    Body      string          // the content prepended to system prompt
-    Scope     MemoryScope     // global | workspace | agent_kind | composite
-    ScopeKey  string          // e.g. workspace path; "" for global
-    AgentKind string          // "" | "hecate_chat" | "agent_loop"
-    Enabled   bool            // toggle without delete
-    CreatedAt time.Time
-    UpdatedAt time.Time
+    ID            string
+    Title         string
+    Body          string
+    Scope         MemoryScope
+    ProjectID     string
+    ChatSessionID string
+    AgentProfile  string
+    Surface       string // "" | "hecate_chat" | "external_agent" | "task_run"
+    Enabled       bool
+    Source        string // local | external
+    SourceRef     string // provider/key reference for external memory backends
+    CreatedAt     time.Time
+    UpdatedAt     time.Time
 }
 
 type MemoryScope string
 
 const (
     MemoryScopeGlobal       MemoryScope = "global"
-    MemoryScopeWorkspace    MemoryScope = "workspace"
-    MemoryScopeAgentKind    MemoryScope = "agent_kind"
-    MemoryScopeComposite    MemoryScope = "composite" // workspace + agent_kind
+    MemoryScopeProject      MemoryScope = "project"
+    MemoryScopeChat         MemoryScope = "chat"
+    MemoryScopeAgentProfile MemoryScope = "agent_profile"
+    MemoryScopeSurface      MemoryScope = "surface"
+    MemoryScopeComposite    MemoryScope = "composite"
 )
 ```
 
-Scope semantics, evaluated when preparing a chat or task run:
+Scope semantics:
 
-| Entry scope | Activates when |
-|---|---|
-| `global` | Always, every chat / task run |
-| `workspace` (`scope_key=/path`) | Active workspace path matches `/path` |
-| `agent_kind` (`agent_kind="agent_loop"`) | Current surface matches |
-| `composite` | Both `scope_key` and `agent_kind` match |
+| Scope           | Activates when                                                       |
+| --------------- | -------------------------------------------------------------------- |
+| `global`        | Every Hecate-controlled model call.                                  |
+| `project`       | Active `project_id` matches.                                         |
+| `chat`          | Active chat/session ID matches.                                      |
+| `agent_profile` | Active agent profile opts into the entry or backing source.          |
+| `surface`       | Runtime surface matches `surface`, such as Hecate Chat or task runs. |
+| `composite`     | Project, chat, profile, and/or surface constraints all match.        |
 
-`Enabled=false` excludes the entry from injection but preserves it
-for future re-enable. Cheaper than delete-and-recreate when an
-operator wants to A/B with and without a memory.
+Agent profiles can reference a set of memory entries, memory scopes, or
+external memory sources, but they should not become memory themselves. A profile
+is a reusable runtime configuration; memory is durable context. Presets are one
+step earlier: templates that create or update profiles/project defaults. Once a
+preset is applied, the resolved profile settings control memory activation.
+
+## Memory Layers
+
+| Layer                   | Persistence                       | Scope                       | Promotion                                               |
+| ----------------------- | --------------------------------- | --------------------------- | ------------------------------------------------------- |
+| Global memory           | Durable                           | Whole local Hecate instance | Explicit only                                           |
+| Project memory          | Durable                           | One `project_id`            | Explicit save from chat/task                            |
+| Chat/session memory     | Session-local or durable-per-chat | One chat/session            | Never auto-promoted                                     |
+| Profile-selected memory | Durable selection rule            | One agent profile           | References scopes/sources; does not store memory itself |
+| Current context         | Per request                       | One model/agent call        | Not memory                                              |
+
+Project memory should be the default durable scope. Chat/session memory is for
+short-lived continuity and notes inside one conversation. If something learned
+in a chat should persist for the project, the operator should explicitly save
+it to project memory.
+
+## External Memory Providers
+
+External memory providers should integrate behind Hecate's memory service, with
+agent profiles as the user-facing control plane.
+
+Responsibilities:
+
+- **Project** owns the default durable memory scope.
+- **Agent profile** selects which memory scopes and external memory providers an
+  agent should use.
+- **Memory service** normalizes local and external entries into Hecate
+  `MemoryEntry` records or read-only `ContextItem` candidates.
+- **Context assembly** applies trust labels, prompt-injection boundaries,
+  context-window eligibility, and audit snapshots.
+- **Adapters/providers** receive only the rendered context Hecate chose to send.
+
+This keeps Hecate in control of visibility and safety while still allowing
+future integrations with external memory systems.
+
+External memory provider rules:
+
+1. External memory reads are optional per agent profile.
+2. External memory writes require explicit operator approval.
+3. External provider output is not trusted more than local operator memory
+   unless the operator marks that source as trusted.
+4. Failed external memory lookups should degrade gracefully and be visible in
+   the context inspector.
+5. External memory providers cannot bypass Hecate approvals, sandboxing, or
+   workspace validation.
+
+## Hecate And External Agents
+
+Hecate Chat can inject project memory directly into the provider prompt because
+Hecate owns that model call.
+
+External agents are different: Codex, Claude Code, Cursor, and Grok Build own
+their private prompt/history internals. Hecate should still let them use
+project memory, but only through explicit surfaces:
+
+- ACP config/session options when an adapter exposes a suitable field.
+- Hecate-authored session preamble or instruction text when the adapter accepts
+  it.
+- Operator-visible context notes in the chat settings/context inspector when no
+  injection surface exists.
+
+The UI should make this distinction visible: "available to Hecate Chat" versus
+"sent to this external agent" versus "stored as project memory but not injected."
 
 ## Storage
 
-New table in `internal/chatstate/sqlite.go` (or a new
-`internal/memory/` package — see open questions):
+Memory should live in a new `internal/memory/` package with memory and SQLite
+backends, following the storage-tier rule. It is logically related to chats but
+not owned by chat sessions.
+
+SQLite sketch:
 
 ```sql
 CREATE TABLE IF NOT EXISTS memory_entries (
-    id          TEXT PRIMARY KEY,
-    title       TEXT NOT NULL,
-    body        BLOB NOT NULL,        -- AES-GCM ciphertext when settings key set
-    scope       TEXT NOT NULL,        -- global|workspace|agent_kind|composite
-    scope_key   TEXT NOT NULL DEFAULT '',
-    agent_kind  TEXT NOT NULL DEFAULT '',
-    enabled     INTEGER NOT NULL DEFAULT 1,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    title           TEXT NOT NULL,
+    body            BLOB NOT NULL,
+    scope           TEXT NOT NULL,
+    project_id      TEXT NOT NULL DEFAULT '',
+    chat_session_id TEXT NOT NULL DEFAULT '',
+    agent_profile   TEXT NOT NULL DEFAULT '',
+    surface         TEXT NOT NULL DEFAULT '',
+    source          TEXT NOT NULL DEFAULT 'local',
+    source_ref      TEXT NOT NULL DEFAULT '',
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries (scope, scope_key, agent_kind);
+CREATE INDEX IF NOT EXISTS idx_memory_entries_scope
+    ON memory_entries (scope, project_id, chat_session_id, agent_profile, surface, enabled);
 ```
 
-Encryption: `body` is encrypted with the same `secrets.AESGCMCipher`
-used for stored provider API keys, when `GATEWAY_CONTROL_PLANE_SECRET_KEY`
-is configured. When unset, `body` is stored as plain UTF-8 (matching
-the existing pattern for provider keys).
+When `HECATE_CONTROL_PLANE_SECRET_KEY` is set, `body` should be encrypted with
+the same secret-management primitives used for stored provider credentials.
+When the key is unset, store plain UTF-8, matching the current local-dev
+posture.
 
-## API surface
+## API Surface
 
-Five routes on `/hecate/v1/memory`:
-
-```
-GET    /hecate/v1/memory                     # list (paginated)
-POST   /hecate/v1/memory                     # create
-GET    /hecate/v1/memory/{id}                # get one
-PATCH  /hecate/v1/memory/{id}                # update title/body/scope/enabled
-DELETE /hecate/v1/memory/{id}                # delete
-```
-
-Plus one runtime introspection endpoint:
+Hecate-native endpoints:
 
 ```
-GET    /hecate/v1/memory/active?workspace=/path&agent_kind=agent_loop
+GET    /hecate/v1/memory
+POST   /hecate/v1/memory
+GET    /hecate/v1/memory/{id}
+PATCH  /hecate/v1/memory/{id}
+DELETE /hecate/v1/memory/{id}
+GET    /hecate/v1/memory/active?project_id=proj_...&chat_session_id=chat_...&agent_profile=codex&surface=external_agent
 ```
 
-Returns the ordered list of memory entries that *would* be injected
-for a given workspace + agent kind. Used by the per-chat indicator
-in the UI ("3 memory entries active in this chat") so operators
-always know what's in scope.
+`/active` is an introspection endpoint. It returns entries that would become
+`operator_memory` context items for the supplied project, chat, agent profile,
+and surface, but it does not render a prompt and does not apply
+context-window truncation.
 
-Response shape mirrors today's `{object, data}` Hecate-native
-envelope.
+## Context Assembly Integration
 
-## Injection mechanics
+Memory enters a model call through the context packet, not by ad hoc prompt
+string concatenation.
 
-Hecate has two different system-prompt paths today; memory hooks
-into both, but the surrounding layers differ. Stable order in both
-cases: matching entries sorted by `(created_at, id)` ascending —
-deterministic, operator-controllable via timestamps if reordering
-matters.
+For every model-backed chat message, external-agent session, or task run:
 
-Format inside the prompt is consistent across both paths:
+1. Context assembly asks the memory service for scoped active entries and
+   profile-selected external memory candidates.
+2. Each matching entry becomes a `ContextItem` with
+   `trust_level=operator_memory`, `kind=memory`, and `origin=<memory_id>`.
+3. The context packet stores the memory item IDs and snapshots enough title/body
+   content for auditability.
+4. The provider renderer inserts the memory block after system instructions and
+   before workspace guidance.
+5. Context-window management counts the memory tokens with the rest of the
+   packet.
 
-```
-# Memory: <title>
+Recommended rendered block:
+
+```markdown
+## Operator Memory
+
+### <title>
+
 <body>
 ```
 
-Plain markdown headers separate entries. Most providers respect
-markdown structure in system prompts; the rare ones that don't
-still receive readable context.
+This label is intentional. It tells the model that memory is durable operator
+context, while keeping it distinct from Hecate runtime instructions and
+workspace guidance.
 
-### `agent_loop` task runs (three-layer composition)
+## UI Placement
 
-`internal/api/system_prompt.go`'s `buildSystemPromptResolver`
-builds the resolver that `agent_loop` runs through the
-`orchestrator.SystemPromptResolver` interface. Memory entries
-become a new layer between global and workspace:
+Memory should be visible from two places:
 
-```
-[GATEWAY_TASK_AGENT_SYSTEM_PROMPT]                  ← global
-[matching memory entries, in stable order]         ← new
-[workspace CLAUDE.md / AGENTS.md]                  ← workspace
-[per-task system prompt from Task.SystemPrompt]    ← per-task
-```
+- **Management surface:** likely Connections or a dedicated "Memory" view once
+  the feature is real. The operator can create, edit, disable, delete, and
+  scope entries there.
+- **Chat/Run context inspector:** shows active memory entries for the next call
+  and the memory entries that influenced a completed message/run.
 
-Existing layers are unchanged; memory enters as a fourth
-narrowest-but-broader-than-workspace tier. Hecate Chat segments
-that run tools-on (Hecate Agent) flow through the task runtime
-and pick this path automatically.
+Avoid hiding memory only in a generic Settings page. The operator needs memory
+visibility at the point of use.
 
-### Hecate Chat model-chat segments (session-level prompt)
+## Safety Rules
 
-Tools-off model chat (and any other consumer of `/v1/chat/completions`
-the gateway proxies for an operator session) goes through
-`applySessionSystemPrompt` in `internal/api/handler_chat.go`. That
-function prepends the persisted `ChatSessionRecord.SystemPrompt`
-as a single `system` message at the head of the request's
-`Messages`. There is no workspace layer and no per-task layer here.
+1. Memory writes require explicit operator action.
+2. Imported text, tool output, raw adapter output, and generated summaries
+   cannot become memory without review.
+3. Disabled entries are never included in context packets.
+4. Deleted or edited entries do not rewrite historical context packet snapshots.
+5. Memory cannot override Hecate security policy, approvals, sandboxing, or
+   workspace validation.
+6. Memory entries should have size guardrails. Initial proposal: warn at 5,000
+   characters and block at 20,000 characters per entry unless overridden.
 
-Memory injection on this path: the matching entries are concatenated
-(same `# Memory: <title>` headers) and prepended *before* the
-session system prompt, as a single additional `system` message:
+## Implementation Plan
 
-```
-system: [matching memory entries, in stable order]   ← new
-system: [ChatSessionRecord.SystemPrompt]             ← existing
-user/assistant/...                                   ← conversation
-```
+| PR  | Scope                                                                              |
+| --- | ---------------------------------------------------------------------------------- |
+| 1   | `internal/memory/` store interface with memory + SQLite backends and parity tests. |
+| 2   | CRUD and `/active` API endpoints with structured errors and trace IDs.             |
+| 3   | Context assembly integration that emits `operator_memory` context items.           |
+| 4   | Agent profile memory-source selection for Hecate Chat and external agents.         |
+| 5   | UI management surface plus active-memory indicators in Chat and Task Detail.       |
+| 6   | Docs, screenshots, and e2e coverage for scoped memory visibility.                  |
 
-Two `system` messages back-to-back is well-supported by every
-provider Hecate routes to today; the alternative (concatenating
-into one `system` message) is also fine but loses the visual
-boundary in trace inspectors.
+This should land after the first context-packet implementation. Otherwise
+memory will have no durable "what saw this entry?" audit trail.
 
-### Anthropic prompt caching
+## Test Plan
 
-For both paths, when the request goes to Anthropic the memory
-block is wrapped in a `cache_control` marker. Memory changes
-infrequently and is identical across runs that share the same
-scope, so cache hits are high. The marker mechanics for the
-`system` prompt and `tools` catalog already shipped (PR #59) and
-are documented in [`docs/providers.md`](../providers.md#anthropic-prompt-caching);
-this RFC extends them by wrapping the memory block. The
-[LLM context window management RFC](llm-context-window-management.md)'s
-[Cache marker integration](llm-context-window-management.md#cache-marker-integration)
-section anticipates the same hookup.
+- Store parity tests for memory and SQLite.
+- Scope matching unit tests for global, project, chat, agent profile, surface, and composite
+  entries.
+- API tests for CRUD, disabled entries, and `/active`.
+- Context assembly tests proving memory items are labelled `operator_memory`.
+- External memory provider tests proving failures are visible but non-fatal.
+- Prompt-injection regression tests proving untrusted content cannot write or
+  override memory.
+- UI tests for active-memory indicators and management CRUD.
+- E2E test where project-scoped memory appears in one project and not another.
+- E2E test where Hecate Chat and an external-agent chat share the same project
+  memory when their profiles opt in.
 
-When the request goes elsewhere, no markers — the block is just
-text.
+## Open Questions
 
-## UI surface
-
-### Settings / Connections surface — Memory
-
-List all memory entries with:
-
-- Title (inline-editable)
-- Body (multiline editor; markdown preview)
-- Scope picker (global / workspace / agent_kind / composite) with
-  appropriate fields revealed
-- Enabled toggle
-- Last updated timestamp
-- Delete (with confirm)
-- New-entry form
-
-Tests should follow the existing settings/connection CRUD patterns.
-
-### Per-chat indicator
-
-In Hecate Chat header (and external-agent chat header — see future
-work), small badge: **"3 memories active"**. Click expands to a
-panel listing the matching entries, each with title + scope. Each
-entry has a "View in Settings" link. No edit-from-chat in v1 (keeps
-the chat surface focused; Settings is the source of truth).
-
-The indicator queries `GET /hecate/v1/memory/active` with the
-current workspace and agent kind so it always reflects what just
-went into the system prompt.
-
-### Task Detail
-
-Task runs that consumed memory entries record their IDs as a span
-attribute (`hecate.task.memory_entries=mem_a,mem_b,mem_c`) and
-expose them as a row in the task run header. Operator can click to
-see the entries that influenced this run, even if they've since
-been edited or deleted (provenance via the IDs preserved in the
-trace).
-
-## End-to-end scope
-
-| Layer | Files | Lines (rough) |
-|---|---|---|
-| Types | `pkg/types/memory.go`, `internal/api/openai.go` (response types) | ~80 |
-| Storage | new `internal/memory/` package (or table in chatstate), memory store + sqlite | ~400 |
-| API handlers | `internal/api/handler_memory.go` + routes | ~250 |
-| Injection | wiring in handler_chat.go + executor_agent_loop.go's prompt composer | ~150 |
-| UI types | `ui/src/types/runtime.ts` | ~30 |
-| UI Settings tab | `ui/src/features/settings/MemoryTab.tsx` + tests | ~500 |
-| UI per-chat indicator | small component in Hecate Chat header + tests | ~150 |
-| Task Detail provenance row | `ui/src/features/runs/TaskDetail.tsx` change | ~60 |
-| Tests at every layer | provider, storage, handler, injection, UI | ~600 |
-| Docs | new `docs/memory.md`; cross-link from `chat-sessions.md`, `agent-runtime.md`; `known-limitations.md` update | ~150 |
-
-Total: ~2400 lines, ~6 PRs across api/storage/UI.
-
-## Phasing
-
-| PR | Scope | Size |
-|---|---|---|
-| 1 | Types + storage layer (memory store interface, memory/sqlite, no API or UI yet) | ~480 |
-| 2 | API handlers + runtime introspection endpoint | ~280 |
-| 3 | System-prompt injection in Hecate Chat + `agent_loop`; Task Detail provenance trace attribute | ~210 |
-| 4 | UI types + Settings Memory tab CRUD | ~530 |
-| 5 | Per-chat indicator + Task Detail provenance row | ~210 |
-| 6 | Docs + `known-limitations.md` update if applicable | ~150 |
-
-PRs 1–3 give API consumers a working memory primitive without UI.
-PRs 4–5 expose it to the operator. PR 6 documents.
-
-PR 1 is shippable and useful for headless operators / scripted
-workflows even without UI. PR 4 is where most operators see the
-feature.
-
-## Open questions
-
-- **New package or table in chatstate?** Memory is logically a
-  sibling of chats, not a property of them. Probably its own
-  package `internal/memory/` with its own SQLite store, registered
-  in the migration registry alongside the other nine packages.
-  Defaulting to a separate package for separation of concerns.
-- **Scope model: rich enough?** Three predefined scopes
-  (global / workspace / agent_kind) plus composite. Free-form tags
-  on top would let operators do "all backend chats" or "Python
-  projects." Probably v2; v1 covers 80% of the use cases without
-  the freeform-string UX problem.
-- **Memory size limit?** Without a cap, a verbose operator can
-  inflate every system prompt to context-overflow. Initial
-  proposal: soft warn at 5,000 chars per entry, hard cap at
-  20,000. Operator-overridable via a flag. Cross-references
-  context window RFC.
-- **Per-message provenance.** Beyond the trace attribute on task
-  runs, should each chat message record which memory entries
-  influenced it? Useful for "the assistant said something weird,
-  what was in scope?" forensics. Adds a JSON column to message
-  rows; not free. Probably v1.5.
-- **Export / import.** Operators who switch machines want their
-  memory to come along. Plain JSON export of the table is trivial
-  to add; defer until requested.
-- **Memory in external-agent chats.** Codex / Claude Code / Cursor
-  have their own settings/memory layers outside Hecate's control.
-  We can't reach them without an ACP extension that doesn't exist
-  yet. v1 documents this as a known gap; if ACP adds a memory
-  primitive, Hecate's memory entries become a candidate sync
-  source.
-- **Auto-extraction from past chats.** Real product feature with
-  eval requirements (precision/recall on what should be
-  remembered, hallucination guardrails). Out of scope for v1; would
-  be its own RFC after manual memory has shipped and operators
-  have a baseline.
-
-## Risks
-
-1. **Memory inflates context silently.** Adding 5 entries × 2,000
-   chars = 10,000 chars (~2,500 tokens) before the actual
-   conversation starts. Pairs with the context-management RFC: the
-   token estimate there must count memory contributions.
-2. **Operator forgets a memory entry is enabled** and gets
-   surprising answers. Mitigation: per-chat indicator (always-on,
-   click to inspect), and Settings tab is the canonical source of
-   truth. Disable beats delete.
-3. **Memory drift across providers.** Different providers respect
-   markdown structure in system prompts differently. Most major
-   providers handle headers fine; the rare ones still see plain
-   text. Mitigation: keep the format simple (markdown headers +
-   body); avoid relying on any specific structure.
-4. **Encrypted body breaks operator backup tools.** Operators who
-   `cp .data/hecate.db backup.db` get an encrypted body. Without
-   the settings key the body is unrecoverable. Mitigation: same
-   pattern as provider API keys — operators who set the key are
-   responsible for backing it up. Document explicitly.
-5. **Memory + agent_loop interaction.** Memory is in the system
-   prompt at task-run start; mid-run it can't change. If an
-   operator edits a memory entry mid-run, the change applies to
-   the next run, not this one. Document this; otherwise expect
-   "I changed memory but the task didn't pick it up" reports.
-
-## Acceptance criteria
-
-When this RFC is implemented:
-
-- An operator can create, edit, scope, enable, disable, and delete
-  memory entries from a Settings tab.
-- Memory entries scoped to "global" appear in every Hecate Chat
-  conversation and every `agent_loop` task run.
-- Memory entries scoped to a workspace path appear only when the
-  active workspace matches.
-- Memory entries scoped to an `agent_kind` appear only when the
-  current surface matches.
-- The per-chat indicator shows the number of active memory entries
-  and lets the operator inspect them without leaving the chat.
-- Memory bodies are encrypted at rest when
-  `GATEWAY_CONTROL_PLANE_SECRET_KEY` is set; left as plain UTF-8
-  otherwise.
-- Task runs record the IDs of consumed memory entries as a span
-  attribute, surfaced in Task Detail.
-- An operator's memory works identically against OpenAI, Anthropic,
-  and any other configured provider — provider-neutrality verified
-  by integration tests across at least two providers.
-- The known-limitations doc gains an entry for "memory is
-  operator-authored only; no auto-extraction" so the contract is
-  explicit.
-
-## Cross-reference
-
-The companion RFC, [**LLM context window management**](llm-context-window-management.md),
-handles token estimation, soft thresholds, hard caps, and
-truncation. Anthropic prompt-cache markers for the `system`
-prompt and `tools` catalog shipped separately via PR #59 and
-are documented in [`docs/providers.md`](../providers.md#anthropic-prompt-caching).
-Memory entries inflate context, so:
-
-- The token estimator MUST count memory contributions in its
-  pre-flight estimate.
-- The Anthropic adapter SHOULD wrap the memory block in the same
-  `cache_control: {"type":"ephemeral"}` marker when caching is on,
-  since memory changes infrequently relative to conversation turns.
-  The system-prompt and tools wrappers are already in place; the
-  memory-block wrapper lands with this RFC.
-
-These features are designed to compose cleanly. The cache-marker
-plumbing already exists; the context-window RFC and this one each
-gain their hook on top.
+- What is the first external memory provider worth supporting, if any?
+- Should operators be able to export/import memory as JSON? This is useful for
+  backup and migration; keep it out of the first storage/API PR.
+- Should a future "remember this" command exist? Only if it opens a visible
+  approval/edit flow before persisting anything.
+- Which external-agent adapters support a safe project-memory injection surface
+  today, and which should show memory as operator-side notes only?

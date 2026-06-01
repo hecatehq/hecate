@@ -9,14 +9,13 @@ import (
 // Terminal interactively — write to stdin, observe streaming output,
 // kill or wait for exit on demand.
 //
-// ACP's terminal/create RPC maps onto this directly; the LocalWorkspace
-// implementation spawns the command under the existing sandbox policy
-// gates and keeps the process alive until the caller calls Close.
+// LocalWorkspace spawns the command under the existing sandbox policy gates and
+// keeps the process alive until the caller calls Close.
 type TerminalOptions struct {
 	// Command is the program to execute. When empty, an interactive
 	// shell is started (sh -i on unix, cmd.exe on windows). The
-	// shell case is what ACP editors expect when an agent asks for a
-	// terminal pane it can drive.
+	// shell case is what interactive terminal callers expect when an
+	// agent asks for a terminal pane it can drive.
 	Command string
 
 	// Args are additional arguments passed to Command. Ignored when
@@ -28,8 +27,7 @@ type TerminalOptions struct {
 	WorkingDirectory string
 
 	// Policy gates spawn-time decisions (working-directory escape,
-	// network access for commands that hint at it). The editor-owned
-	// ACPWorkspace ignores Policy; the LocalWorkspace honors it.
+	// network access for commands that hint at it).
 	Policy Policy
 
 	// Env is additional environment to merge on top of the sanitized
@@ -75,10 +73,9 @@ type Terminal interface {
 	// exit code plus a bounded snapshot of the stdout / stderr the
 	// implementation retained. Retention is best-effort and capped
 	// per implementation (currently 256 KiB per stream on
-	// LocalWorkspace; ACPWorkspace mirrors the editor's
-	// terminal/output response). Callers who require the full
-	// transcript should consume Output() instead. Safe to call
-	// concurrently with Output() consumers.
+	// LocalWorkspace). Callers who require the full transcript should
+	// consume Output() instead. Safe to call concurrently with Output()
+	// consumers.
 	WaitForExit(ctx context.Context) (Result, error)
 
 	// Kill sends SIGTERM (or the platform equivalent) and returns

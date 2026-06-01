@@ -2,486 +2,1335 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
+	"time"
 
-	"github.com/hecate/agent-runtime/internal/gateway"
-	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/internal/requestscope"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/gitrunner"
+	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/requestscope"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
-func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	if !h.checkRateLimit(w, "") {
-		return
-	}
-	ctx := r.Context()
+const (
+	agentChatTimeout             = 30 * time.Minute
+	agentChatPrepareTimeout      = 10 * time.Second
+	agentChatConfigOptionTimeout = 10 * time.Second
+	agentChatMaxOutputBytes      = 4 * 1024 * 1024
+)
 
-	var wireReq OpenAIChatCompletionRequest
-	if !decodeJSON(w, r, &wireReq) {
-		return
-	}
-
-	internalReq, err := normalizeChatRequest(wireReq, RequestIDFromContext(ctx))
+func (h *Handler) HandleChatSessions(w http.ResponseWriter, r *http.Request) {
+	items, err := h.agentChat.List(r.Context())
 	if err != nil {
-		WriteError(w, http.StatusForbidden, errCodeForbidden, err.Error())
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-
-	// If the request targets a session that has a stored system prompt,
-	// prepend it as a system-role message — but only when the request
-	// doesn't already lead with one. This lets the session prompt act as
-	// the default while still allowing the client to override per-call by
-	// sending its own system message at index 0.
-	h.applySessionSystemPrompt(ctx, &internalReq)
-
-	if internalReq.Stream {
-		h.handleChatCompletionsStream(w, r, ctx, internalReq)
-		return
+	data := make([]ChatSessionSummaryItem, 0, len(items))
+	for _, item := range items {
+		data = append(data, renderChatSessionSummary(item))
 	}
-
-	result, err := h.service.HandleChat(ctx, internalReq)
-	if err != nil {
-		telemetry.Error(h.logger, ctx, "gen_ai.gateway.request.failed",
-			slog.String("event.name", "gen_ai.gateway.request.failed"),
-			slog.String(telemetry.AttrGenAIRequestModel, internalReq.Model),
-			slog.Any("error", err),
-		)
-
-		writeOpenAIGatewayError(w, classifyGatewayError(err), h.gatewayErrorDetails(ctx, internalReq.RequestID))
-		return
-	}
-
-	if internalReq.SessionID != "" {
-		if _, err := h.service.RecordChatExchange(ctx, internalReq.SessionID, internalReq, result); err != nil {
-			telemetry.Warn(h.logger, ctx, "gateway.chat.sessions.record_failed",
-				slog.String("event.name", "gateway.chat.sessions.record_failed"),
-				slog.String("hecate.chat.session_id", internalReq.SessionID),
-				slog.Any("error", err),
-			)
-		}
-	}
-
-	wireResp := renderChatCompletionResponse(result.Response)
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Runtime-Provider", result.Metadata.Provider)
-	w.Header().Set("X-Runtime-Provider-Kind", result.Metadata.ProviderKind)
-	w.Header().Set("X-Runtime-Route-Reason", result.Metadata.RouteReason)
-	w.Header().Set("X-Runtime-Requested-Model", result.Metadata.RequestedModel)
-	w.Header().Set("X-Runtime-Requested-Model-Canonical", result.Metadata.CanonicalRequestedModel)
-	w.Header().Set("X-Runtime-Model", result.Metadata.Model)
-	w.Header().Set("X-Runtime-Model-Canonical", result.Metadata.CanonicalResolvedModel)
-	w.Header().Set("X-Trace-Id", result.Metadata.TraceID)
-	w.Header().Set("X-Span-Id", result.Metadata.SpanID)
-	w.Header().Set("X-Runtime-Attempts", strconv.Itoa(result.Metadata.AttemptCount))
-	w.Header().Set("X-Runtime-Retries", strconv.Itoa(result.Metadata.RetryCount))
-	if result.Metadata.FallbackFromProvider != "" {
-		w.Header().Set("X-Runtime-Fallback-From", result.Metadata.FallbackFromProvider)
-	}
-	w.Header().Set("X-Runtime-Cost-USD", formatUSD(result.Metadata.CostMicrosUSD))
-	WriteJSON(w, http.StatusOK, wireResp)
+	WriteJSON(w, http.StatusOK, ChatSessionsResponse{Object: "chat_sessions", Data: data})
 }
 
-func (h *Handler) handleChatCompletionsStream(w http.ResponseWriter, r *http.Request, ctx context.Context, req types.ChatRequest) {
+func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request) {
+	var req CreateChatSessionRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	agentID := normalizeChatAgentID(req.AgentID)
+	if !h.isValidChatAgentID(agentID) {
+		writeChatAgentIDInvalid(w)
+		return
+	}
+	projectID := strings.TrimSpace(req.ProjectID)
+	if projectID != "" {
+		if _, ok, err := h.projects.Get(r.Context(), projectID); err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		} else if !ok {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+			return
+		}
+	}
+	isExternalAgent := agentID != chat.DefaultAgentID
+	workspace := strings.TrimSpace(req.Workspace)
+	if isExternalAgent {
+		if workspace == "" {
+			writeAgentChatWorkspaceRequired(w, chat.ExecutionModeExternalAgent)
+			return
+		}
+		var err error
+		workspace, err = agentadapters.ValidateWorkspace(workspace)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+	} else if workspace != "" {
+		resolved, err := agentadapters.ValidateWorkspace(workspace)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+		workspace = resolved
+	}
+	workspaceBranch := workspaceGitBranch(workspace)
+	title := strings.TrimSpace(req.Title)
+
+	session := chat.Session{
+		ID:              newChatID("chat"),
+		Title:           title,
+		ProjectID:       projectID,
+		AgentID:         agentID,
+		Workspace:       workspace,
+		WorkspaceBranch: workspaceBranch,
+		RTKEnabled:      req.RTKEnabled,
+	}
+	var err error
+	var externalAdapter agentadapters.Adapter
+	switch {
+	case agentID == chat.DefaultAgentID:
+		provider := strings.TrimSpace(req.Provider)
+		model := strings.TrimSpace(req.Model)
+		var caps types.ModelCapabilities
+		if model != "" {
+			caps, err = h.resolveModelCapabilities(r.Context(), provider, model)
+			if err != nil {
+				writeAgentChatModelResolutionError(w, err)
+				return
+			}
+		}
+		if session.Title == "" {
+			session.Title = "Hecate Chat"
+		}
+		session.Provider = provider
+		session.Model = model
+		session.Capabilities = caps
+	default:
+		adapter, ok := agentadapters.BuiltInByID(agentID)
+		if !ok {
+			writeAgentChatAdapterNotFound(w, agentID)
+			return
+		}
+		if h.agentChatRunner == nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent chat runner is not configured")
+			return
+		}
+		externalAdapter = adapter
+		if session.Title == "" {
+			session.Title = adapter.Name + " chat"
+		}
+		session.DriverKind = agentadapters.DriverKindACP
+		session.ConfigOptions = req.ConfigOptions
+	}
+	session, err = h.agentChat.Create(r.Context(), session)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if isExternalAgent {
+		prepareCtx, cancel := context.WithTimeout(r.Context(), agentChatPrepareTimeout)
+		result, prepareErr := h.agentChatRunner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
+			SessionID:               session.ID,
+			AdapterID:               session.AgentID,
+			Workspace:               session.Workspace,
+			PreviousNativeSessionID: session.NativeSessionID,
+			ConfigOptions:           session.ConfigOptions,
+		})
+		cancel()
+		if prepareErr != nil {
+			_ = h.agentChat.Delete(context.Background(), session.ID)
+			writeAgentChatPrepareError(w, externalAdapter.Name, prepareErr)
+			return
+		}
+		session, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+			item.DriverKind = result.DriverKind
+			item.NativeSessionID = result.NativeSessionID
+			item.ConfigOptions = result.ConfigOptions
+		})
+		if err != nil {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
+			_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
+			cleanupCancel()
+			_ = h.agentChat.Delete(context.Background(), session.ID)
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+	}
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(session, h.agentChatSnapshotConfig())})
+}
+
+func normalizeChatAgentID(agentID string) string {
+	if agentID = strings.TrimSpace(agentID); agentID != "" {
+		return agentID
+	}
+	return chat.DefaultAgentID
+}
+
+func (h *Handler) isValidChatAgentID(agentID string) bool {
+	if agentID == chat.DefaultAgentID {
+		return true
+	}
+	_, ok := agentadapters.BuiltInByID(agentID)
+	return ok
+}
+
+func (h *Handler) HandleChatSession(w http.ResponseWriter, r *http.Request) {
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(session, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) HandleUpdateChatSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("id"))
+	if sessionID == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "session id is required")
+		return
+	}
+	var req UpdateChatSessionRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.Title == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request must include title")
+		return
+	}
+	title := strings.TrimSpace(*req.Title)
+	if title == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "title cannot be set to an empty string")
+		return
+	}
+	if _, ok, err := h.agentChat.Get(r.Context(), sessionID); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	} else if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	updated, err := h.agentChat.UpdateSession(r.Context(), sessionID, func(item *chat.Session) {
+		item.Title = title
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "streaming not supported by server")
 		return
 	}
-
-	// Route first — no bytes written yet, so errors can still be JSON.
-	handle, streamCtx, err := h.service.RouteForStream(ctx, req)
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
-		telemetry.Error(h.logger, ctx, "gen_ai.gateway.stream.route_failed",
-			slog.String("event.name", "gen_ai.gateway.stream.route_failed"),
-			slog.String(telemetry.AttrGenAIRequestModel, req.Model),
-			slog.Any("error", err),
-		)
-		writeOpenAIGatewayError(w, classifyGatewayError(err), h.gatewayErrorDetails(ctx, req.RequestID))
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-
-	// Routing succeeded — now commit to SSE.
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Runtime-Provider", handle.Metadata.Provider)
-	w.Header().Set("X-Runtime-Provider-Kind", handle.Metadata.ProviderKind)
-	w.Header().Set("X-Runtime-Route-Reason", handle.Metadata.RouteReason)
-	w.Header().Set("X-Runtime-Requested-Model", handle.Metadata.RequestedModel)
-	w.Header().Set("X-Runtime-Model", handle.Metadata.Model)
-	w.Header().Set("X-Trace-Id", handle.Metadata.TraceID)
-	w.Header().Set("X-Span-Id", handle.Metadata.SpanID)
-	w.WriteHeader(http.StatusOK)
-
-	captured, err := handle.ExecuteAndCapture(flushWriter{w, flusher})
-	if err != nil {
-		telemetry.Error(h.logger, streamCtx, "gen_ai.gateway.stream.failed",
-			slog.String("event.name", "gen_ai.gateway.stream.failed"),
-			slog.String(telemetry.AttrGenAIRequestModel, req.Model),
-			slog.Any("error", err),
-		)
-		// Headers already sent; write a terminal SSE error event.
-		errMsg := err.Error()
-		var upstreamErr *providers.UpstreamError
-		if errors.As(err, &upstreamErr) {
-			errMsg = upstreamErr.Message
-		}
-		fmt.Fprintf(w, "data: {\"error\":{\"message\":%q}}\n\ndata: [DONE]\n\n", errMsg)
-		flusher.Flush()
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
 		return
 	}
+	updates, unsubscribe := h.agentChatLive.subscribe(session.ID)
+	defer unsubscribe()
 
-	if req.SessionID != "" && captured.Content != "" {
-		resolvedModel := captured.Model
-		if resolvedModel == "" {
-			resolvedModel = handle.Metadata.Model
-		}
-		syntheticResult := &gateway.ChatResult{
-			Response: &types.ChatResponse{
-				ID:    handle.Metadata.RequestID,
-				Model: resolvedModel,
-				Choices: []types.ChatChoice{{
-					Index:        0,
-					Message:      types.Message{Role: "assistant", Content: captured.Content},
-					FinishReason: captured.FinishReason,
-				}},
-			},
-			Metadata: gateway.ResponseMetadata{
-				RequestID:    handle.Metadata.RequestID,
-				Provider:     handle.Metadata.Provider,
-				ProviderKind: handle.Metadata.ProviderKind,
-				RouteReason:  handle.Metadata.RouteReason,
-				Model:        resolvedModel,
-			},
-		}
-		if _, err := h.service.RecordChatExchange(streamCtx, req.SessionID, req, syntheticResult); err != nil {
-			telemetry.Warn(h.logger, streamCtx, "gateway.chat.sessions.stream_record_failed",
-				slog.String("event.name", "gateway.chat.sessions.stream_record_failed"),
-				slog.String("hecate.chat.session_id", req.SessionID),
-				slog.Any("error", err),
-			)
-		}
-	}
-}
+	writeSSEHeaders(w)
+	sendAgentChatSSE(w, flusher, "snapshot", ChatSessionResponse{
+		Object: "chat_session",
+		Data:   renderChatSession(session, h.agentChatSnapshotConfig()),
+	})
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 
-type flushWriter struct {
-	w       http.ResponseWriter
-	flusher http.Flusher
-}
-
-func (fw flushWriter) Write(p []byte) (int, error) { return fw.w.Write(p) }
-func (fw flushWriter) Flush()                      { fw.flusher.Flush() }
-
-// applySessionSystemPrompt looks up the session referenced by req.SessionID
-// (if any) and, if the session has a non-empty SystemPrompt, prepends it as
-// a system-role message. The prepend is skipped when the request already
-// has a system message at index 0 — that lets clients override per-call.
-// Lookup failures are silently ignored: a flaky session store shouldn't
-// kill the chat path; the worst case is the session prompt is missing
-// from this one request.
-func (h *Handler) applySessionSystemPrompt(ctx context.Context, req *types.ChatRequest) {
-	if req == nil || req.SessionID == "" {
-		return
-	}
-	if len(req.Messages) > 0 && strings.EqualFold(req.Messages[0].Role, "system") {
-		return
-	}
-	result, err := h.service.GetChatSession(ctx, req.SessionID)
-	if err != nil || result == nil {
-		return
-	}
-	if result.Session.SystemPrompt == "" {
-		return
-	}
-	prompt := types.Message{Role: "system", Content: result.Session.SystemPrompt}
-	req.Messages = append([]types.Message{prompt}, req.Messages...)
-}
-
-func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string) (types.ChatRequest, error) {
-	messages := make([]types.Message, 0, len(req.Messages))
-	for _, msg := range req.Messages {
-		// Content can be a plain string OR an array of content
-		// blocks (multi-modal: text + image_url). The string form
-		// stays in Message.Content for legacy code paths; the array
-		// form additionally populates ContentBlocks so the outbound
-		// adapter can reconstruct the structured wire shape.
-		m := types.Message{
-			Role:       msg.Role,
-			Content:    msg.Content.AsString(),
-			Name:       msg.Name,
-			ToolCallID: msg.ToolCallID,
-			ToolError:  msg.ToolError,
-		}
-		if len(msg.Content.Blocks) > 0 {
-			m.ContentBlocks = openAIInboundBlocksToContentBlocks(msg.Content.Blocks)
-		}
-		// content_blocks (the Hecate-extension persisted-block shape)
-		// supersedes the OpenAI-spec inline blocks when both are set —
-		// it carries the richer Anthropic-aware data (thinking,
-		// redacted_thinking, tool_use, cache_control). Replay paths
-		// always emit content_blocks; SDK clients hitting the OpenAI
-		// proxy never set it.
-		if len(msg.ContentBlocks) > 0 {
-			m.ContentBlocks = persistedBlocksToContentBlocks(msg.ContentBlocks)
-		}
-		if len(msg.ToolCalls) > 0 {
-			m.ToolCalls = make([]types.ToolCall, 0, len(msg.ToolCalls))
-			for _, tc := range msg.ToolCalls {
-				m.ToolCalls = append(m.ToolCalls, types.ToolCall{
-					ID:   tc.ID,
-					Type: tc.Type,
-					Function: types.ToolCallFunction{
-						Name:      tc.Function.Name,
-						Arguments: tc.Function.Arguments,
-					},
-				})
+	observedRun := session.Status == "running"
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case payload, ok := <-updates:
+			if !ok {
+				return
 			}
-		}
-		messages = append(messages, m)
-	}
-
-	tools := make([]types.Tool, 0, len(req.Tools))
-	for _, t := range req.Tools {
-		tools = append(tools, types.Tool{
-			Type: t.Type,
-			Function: types.ToolFunction{
-				Name:        t.Function.Name,
-				Description: t.Function.Description,
-				Parameters:  t.Function.Parameters,
-				Strict:      t.Function.Strict,
-			},
-		})
-	}
-
-	scope := requestscope.Build(req.Provider)
-
-	return types.ChatRequest{
-		RequestID:         requestID,
-		SessionID:         req.SessionID,
-		SessionTitle:      req.SessionTitle,
-		Model:             req.Model,
-		Messages:          messages,
-		Temperature:       req.Temperature,
-		MaxTokens:         req.MaxTokens,
-		Scope:             scope,
-		Tools:             tools,
-		ToolChoice:        req.ToolChoice,
-		Stream:            req.Stream,
-		ResponseFormat:    req.ResponseFormat,
-		Seed:              req.Seed,
-		PresencePenalty:   req.PresencePenalty,
-		FrequencyPenalty:  req.FrequencyPenalty,
-		Logprobs:          req.Logprobs,
-		TopLogprobs:       req.TopLogprobs,
-		LogitBias:         req.LogitBias,
-		StreamOptions:     req.StreamOptions,
-		ParallelToolCalls: req.ParallelToolCalls,
-	}, nil
-}
-
-func renderChatCompletionResponse(resp *types.ChatResponse) OpenAIChatCompletionResponse {
-	choices := make([]OpenAIChatCompletionChoice, 0, len(resp.Choices))
-	for _, choice := range resp.Choices {
-		msg := OpenAIChatMessage{
-			Role: choice.Message.Role,
-			Name: choice.Message.Name,
-		}
-		if len(choice.Message.ToolCalls) > 0 {
-			// OpenAI requires content: null when tool_calls is set.
-			msg.Content = OpenAIMessageContent{Null: true}
-			msg.ToolCalls = make([]OpenAIToolCall, 0, len(choice.Message.ToolCalls))
-			for _, tc := range choice.Message.ToolCalls {
-				msg.ToolCalls = append(msg.ToolCalls, OpenAIToolCall{
-					ID:   tc.ID,
-					Type: tc.Type,
-					Function: OpenAIToolCallFunction{
-						Name:      tc.Function.Name,
-						Arguments: tc.Function.Arguments,
-					},
-				})
-			}
-		} else {
-			msg.Content = OpenAIMessageContent{Text: choice.Message.Content}
-		}
-		choices = append(choices, OpenAIChatCompletionChoice{
-			Index:        choice.Index,
-			Message:      msg,
-			FinishReason: choice.FinishReason,
-		})
-	}
-
-	usage := OpenAIUsage{
-		PromptTokens:     resp.Usage.PromptTokens,
-		CompletionTokens: resp.Usage.CompletionTokens,
-		TotalTokens:      resp.Usage.TotalTokens,
-	}
-	// Surface cache-read tokens in the OpenAI prompt_tokens_details
-	// shape so /v1/chat/completions clients see the same usage buckets
-	// Hecate records internally. Without this, an Anthropic upstream's
-	// cache hits are invisible on the wire.
-	if resp.Usage.CachedPromptTokens > 0 {
-		usage.PromptTokensDetails = &OpenAIPromptTokensDetails{
-			CachedTokens: resp.Usage.CachedPromptTokens,
-		}
-	}
-	return OpenAIChatCompletionResponse{
-		ID:      resp.ID,
-		Object:  "chat.completion",
-		Created: resp.CreatedAt.Unix(),
-		Model:   resp.Model,
-		Choices: choices,
-		Usage:   usage,
-	}
-}
-
-func messageToWire(msg types.Message) OpenAIChatMessage {
-	wire := OpenAIChatMessage{
-		Role:       msg.Role,
-		Name:       msg.Name,
-		ToolCallID: msg.ToolCallID,
-		ToolError:  msg.ToolError,
-	}
-	if len(msg.ToolCalls) > 0 {
-		wire.ToolCalls = make([]OpenAIToolCall, 0, len(msg.ToolCalls))
-		for _, tc := range msg.ToolCalls {
-			wire.ToolCalls = append(wire.ToolCalls, OpenAIToolCall{
-				ID:   tc.ID,
-				Type: tc.Type,
-				Function: OpenAIToolCallFunction{
-					Name:      tc.Function.Name,
-					Arguments: tc.Function.Arguments,
-				},
-			})
-		}
-		// OpenAI requires assistant + tool_calls messages to carry
-		// content: null on the wire. The marshaller honors the
-		// Null flag.
-		wire.Content = OpenAIMessageContent{Null: true}
-	} else {
-		wire.Content = OpenAIMessageContent{Text: msg.Content}
-	}
-	if len(msg.ContentBlocks) > 0 {
-		wire.ContentBlocks = contentBlocksToPersistedBlocks(msg.ContentBlocks)
-	}
-	return wire
-}
-
-// contentBlocksToPersistedBlocks maps the canonical types.ContentBlock
-// to the persisted Hecate-extension wire shape. Used by session-fetch
-// rendering so Anthropic thinking / redacted_thinking / tool_use blocks
-// survive the round-trip back to a UI client. The OpenAI image-block
-// shape is also emitted here for completeness.
-func contentBlocksToPersistedBlocks(blocks []types.ContentBlock) []OpenAIPersistedContentBlock {
-	out := make([]OpenAIPersistedContentBlock, 0, len(blocks))
-	for _, cb := range blocks {
-		wire := OpenAIPersistedContentBlock{
-			Type:         cb.Type,
-			Text:         cb.Text,
-			ID:           cb.ID,
-			Name:         cb.Name,
-			Input:        cb.Input,
-			ToolUseID:    cb.ToolUseID,
-			CacheControl: cb.CacheControl,
-			Thinking:     cb.Thinking,
-			Signature:    cb.Signature,
-			Data:         cb.Data,
-		}
-		if cb.Image != nil && (cb.Type == "image_url" || cb.Type == "image") {
-			wire.ImageURL = &OpenAIContentImageURL{
-				URL:    cb.Image.URL,
-				Detail: cb.Image.Detail,
-			}
-		}
-		out = append(out, wire)
-	}
-	return out
-}
-
-// persistedBlocksToContentBlocks is the inverse: maps the wire
-// extension shape back to the canonical types.ContentBlock. Used on
-// the inbound side of normalizeChatRequest when the UI replays history
-// containing rich blocks.
-func persistedBlocksToContentBlocks(blocks []OpenAIPersistedContentBlock) []types.ContentBlock {
-	out := make([]types.ContentBlock, 0, len(blocks))
-	for _, b := range blocks {
-		cb := types.ContentBlock{
-			Type:         b.Type,
-			Text:         b.Text,
-			ID:           b.ID,
-			Name:         b.Name,
-			Input:        b.Input,
-			ToolUseID:    b.ToolUseID,
-			CacheControl: b.CacheControl,
-			Thinking:     b.Thinking,
-			Signature:    b.Signature,
-			Data:         b.Data,
-		}
-		if b.ImageURL != nil {
-			cb.Image = &types.ContentImage{
-				URL:    b.ImageURL.URL,
-				Detail: b.ImageURL.Detail,
-			}
-		}
-		out = append(out, cb)
-	}
-	return out
-}
-
-// openAIInboundBlocksToContentBlocks converts the inbound OpenAI
-// content-block array into the internal types.ContentBlock shape.
-// Text blocks land as text; image_url blocks land as Type="image_url"
-// with the URL/Detail packed into ContentImage. Unknown block
-// types pass through with Type set so the outbound adapter can
-// either re-emit or warn-and-drop.
-func openAIInboundBlocksToContentBlocks(blocks []OpenAIContentBlock) []types.ContentBlock {
-	out := make([]types.ContentBlock, 0, len(blocks))
-	for _, b := range blocks {
-		switch b.Type {
-		case "text", "":
-			out = append(out, types.ContentBlock{
-				Type: "text",
-				Text: b.Text,
-			})
-		case "image_url":
-			cb := types.ContentBlock{Type: "image_url"}
-			if b.ImageURL != nil {
-				cb.Image = &types.ContentImage{
-					URL:    b.ImageURL.URL,
-					Detail: b.ImageURL.Detail,
+			switch payload.Type {
+			case AgentChatLiveEventSessionUpdate:
+				if payload.SessionUpdate == nil {
+					continue
 				}
+				sendAgentChatSSE(w, flusher, "snapshot", *payload.SessionUpdate)
+				if payload.SessionUpdate.Data.Status == "running" {
+					observedRun = true
+				}
+				if observedRun && isTerminalAgentChatStatus(payload.SessionUpdate.Data.Status) {
+					sendAgentChatSSE(w, flusher, "done", *payload.SessionUpdate)
+					return
+				}
+			case AgentChatLiveEventApprovalRequested:
+				if payload.ApprovalRequested == nil {
+					continue
+				}
+				sendAgentChatSSE(w, flusher, string(AgentChatLiveEventApprovalRequested), *payload.ApprovalRequested)
+			case AgentChatLiveEventApprovalResolved:
+				if payload.ApprovalResolved == nil {
+					continue
+				}
+				sendAgentChatSSE(w, flusher, string(AgentChatLiveEventApprovalResolved), *payload.ApprovalResolved)
 			}
-			out = append(out, cb)
-		default:
-			// Forward unknown variants so future block types
-			// (audio, file, video) survive the round-trip; the
-			// outbound adapter decides whether to ship them.
-			out = append(out, types.ContentBlock{Type: b.Type})
+		case <-heartbeat.C:
+			fmt.Fprint(w, ": heartbeat\n\n")
+			flusher.Flush()
 		}
 	}
-	return out
 }
 
-func contains(items []string, target string) bool {
-	for _, item := range items {
-		if item == target {
+func (h *Handler) HandleDeleteChatSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("id"))
+	session, ok, err := h.agentChat.Get(r.Context(), sessionID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	stopping, err := h.deleteExistingChatSession(r.Context(), session)
+	if errors.Is(err, errChatSessionDeleteConflict) {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	}
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if stopping {
+		writeChatSessionStopping(w)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+var errChatSessionDeleteConflict = errors.New("chat session delete conflict")
+
+func (h *Handler) deleteExistingChatSession(ctx context.Context, session chat.Session) (bool, error) {
+	sessionID := session.ID
+	if isHecateChatSession(session) {
+		if _, _, err := h.cancelHecateChatTaskRun(ctx, session); err != nil {
+			return false, fmt.Errorf("%w: %v", errChatSessionDeleteConflict, err)
+		}
+	}
+	cancelCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	settled := h.agentChatLive.cancelRunAndWait(cancelCtx, sessionID)
+	cancel()
+	if !settled {
+		return true, nil
+	}
+	if isExternalChatSession(session) && h.agentChatRunner != nil {
+		_ = h.agentChatRunner.CloseSession(ctx, sessionID)
+	}
+	if err := h.agentChat.Delete(ctx, sessionID); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+func (h *Handler) HandleCancelChatSession(w http.ResponseWriter, r *http.Request) {
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	if run, found, err := h.cancelHecateChatTaskRun(r.Context(), session); err != nil {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	} else if found {
+		updated, updateErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+			item.Status = run.Status
+		})
+		if updateErr == nil {
+			h.agentChatLive.publishSession(updated)
+			WriteJSON(w, http.StatusAccepted, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, updateErr.Error())
+		return
+	}
+	if !h.agentChatLive.cancelRun(session.ID) {
+		writeChatSessionNotRunning(w)
+		return
+	}
+	WriteJSON(w, http.StatusAccepted, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(session, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) HandleCloseChatSession(w http.ResponseWriter, r *http.Request) {
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	cancelCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	settled := h.agentChatLive.cancelRunAndWait(cancelCtx, session.ID)
+	cancel()
+	if !settled {
+		writeChatSessionStopping(w)
+		return
+	}
+	if h.agentChatRunner != nil {
+		_ = h.agentChatRunner.CloseSession(r.Context(), session.ID)
+	}
+	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+		item.DriverKind = ""
+		item.NativeSessionID = ""
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("id"))
+	configID := strings.TrimSpace(r.PathValue("config_id"))
+	session, ok, err := h.agentChat.Get(r.Context(), sessionID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	if !isExternalChatSession(session) {
+		WriteError(w, http.StatusConflict, errCodeRuntimeMismatch, "agent chat config options are only available for external-agent sessions")
+		return
+	}
+	var req SetAgentChatConfigOptionRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	setReq, err := agentChatConfigOptionSetRequest(sessionID, configID, req.Value)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if h.agentChatRunner == nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent chat runner is not configured")
+		return
+	}
+	setCtx, cancel := context.WithTimeout(r.Context(), agentChatConfigOptionTimeout)
+	result, err := h.agentChatRunner.SetSessionConfigOption(setCtx, setReq)
+	cancel()
+	if err != nil {
+		allowStoredOption := errors.Is(err, agentadapters.ErrSessionNotActive) ||
+			agentadapters.IsLaunchConfigOption(session.AgentID, setReq.ConfigID)
+		configOptions, updateErr := updateStoredAgentChatConfigOption(
+			seedLaunchConfigOptionForSet(session.ConfigOptions, session.AgentID, setReq),
+			setReq,
+			allowStoredOption,
+		)
+		if updateErr == nil {
+			updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+				item.ConfigOptions = configOptions
+			})
+			if err != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+				return
+			}
+			h.agentChatLive.publishSession(updated)
+			WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+			return
+		}
+		writeAgentChatConfigOptionError(w, session, err)
+		return
+	}
+	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+		item.ConfigOptions = result.ConfigOptions
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func seedLaunchConfigOptionForSet(options []agentcontrols.ConfigOption, agentID string, req agentadapters.SetSessionConfigOptionRequest) []agentcontrols.ConfigOption {
+	if req.BoolValue != nil {
+		return options
+	}
+	seed, ok := agentadapters.LaunchConfigOptionForSet(agentID, req.ConfigID, req.Value)
+	if !ok {
+		return options
+	}
+	out := append([]agentcontrols.ConfigOption(nil), options...)
+	for i := range out {
+		if out[i].ID != req.ConfigID {
+			continue
+		}
+		if out[i].Source == "" {
+			out[i].Source = agentcontrols.ConfigOptionSourceLaunch
+		}
+		if out[i].Type == agentcontrols.ConfigOptionTypeSelect && !storedConfigOptionAllowsValue(out[i], req.Value) {
+			out[i].Options = seed.Options
+		}
+		return out
+	}
+	return append(out, seed)
+}
+
+func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("id"))
+	session, ok, err := h.agentChat.Get(r.Context(), sessionID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	if isExternalChatSession(session) {
+		WriteError(w, http.StatusConflict, errCodeRuntimeMismatch, "Hecate Chat settings are not available for external-agent sessions")
+		return
+	}
+	var req SetAgentChatSettingsRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.RTKEnabled == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "no settings provided")
+		return
+	}
+
+	rtkEnabled := *req.RTKEnabled
+	// Update the task row first, then the session row. The two writes
+	// are NOT atomic — Hecate's controlplane has no cross-table
+	// transactions today and this handler matches that pattern. The
+	// task-first order is deliberate: task.RTKEnabled drives the
+	// executor's sandbox-arg construction for existing continuations.
+	// The reverse order — session first, task fails — would leave the
+	// UI reporting RTK on while the backing task still runs without it.
+	if session.TaskID != "" && h.taskStore != nil {
+		task, found, err := h.taskStore.GetTask(r.Context(), session.TaskID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		if found {
+			task.RTKEnabled = rtkEnabled
+			if _, err := h.taskStore.UpdateTask(r.Context(), task); err != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+				return
+			}
+		}
+	}
+
+	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+		item.RTKEnabled = rtkEnabled
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err error) {
+	if errors.Is(err, agentadapters.ErrLaunchModelRequired) {
+		WriteErrorDetails(w, http.StatusBadRequest, errCodeModelRequired, err.Error(), ErrorDetails{
+			UserMessage:    "Choose a model before starting this external-agent chat.",
+			OperatorAction: "Use the model picker in the composer, then start the chat again.",
+		})
+		return
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		WriteErrorDetails(w, http.StatusGatewayTimeout, errCodeAgentAdapterUnavailable, err.Error(), ErrorDetails{
+			UserMessage:    "The external agent did not respond while starting the session.",
+			OperatorAction: "Try again, or test the adapter from Settings if it keeps hanging.",
+		})
+		return
+	}
+	WriteError(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(adapterName, err))
+}
+
+func writeAgentChatConfigOptionError(w http.ResponseWriter, session chat.Session, err error) {
+	switch {
+	case errors.Is(err, agentadapters.ErrSessionNotActive):
+		WriteErrorDetails(w, http.StatusConflict, errCodeSessionNotRunning, err.Error(), ErrorDetails{
+			UserMessage:    "This external-agent session is not active anymore.",
+			OperatorAction: "Start a new external-agent chat before changing adapter controls.",
+		})
+	case errors.Is(err, context.DeadlineExceeded):
+		WriteErrorDetails(w, http.StatusGatewayTimeout, errCodeAgentAdapterUnavailable, err.Error(), ErrorDetails{
+			UserMessage:    "The external agent did not respond while changing that control.",
+			OperatorAction: "Try again, or restart the adapter if it stays stuck.",
+		})
+	default:
+		WriteErrorDetails(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(agentChatAdapterName(session.AgentID), err), ErrorDetails{
+			UserMessage:    "The external agent could not change that control.",
+			OperatorAction: "Check the adapter status, then retry the control change.",
+		})
+	}
+}
+
+func agentChatAdapterName(adapterID string) string {
+	adapter, ok := agentadapters.BuiltInByID(adapterID)
+	if !ok || adapter.Name == "" {
+		return "Agent adapter"
+	}
+	return adapter.Name
+}
+
+func isExternalChatSession(session chat.Session) bool {
+	return session.AgentID != "" && session.AgentID != chat.DefaultAgentID
+}
+
+func isHecateChatSession(session chat.Session) bool {
+	return !isExternalChatSession(session)
+}
+
+func (h *Handler) cancelHecateChatTaskRun(ctx context.Context, session chat.Session) (types.TaskRun, bool, error) {
+	if !isHecateChatSession(session) || h.taskStore == nil || h.taskRunner == nil || session.TaskID == "" || session.LatestRunID == "" {
+		return types.TaskRun{}, false, nil
+	}
+	task, found, err := h.taskStore.GetTask(ctx, session.TaskID)
+	if err != nil {
+		return types.TaskRun{}, false, err
+	}
+	if !found {
+		return types.TaskRun{}, false, nil
+	}
+	run, err := h.taskRunner.CancelRun(ctx, task, session.LatestRunID, "operator")
+	if err != nil {
+		if strings.Contains(err.Error(), "already terminal") {
+			return types.TaskRun{}, false, nil
+		}
+		return types.TaskRun{}, true, err
+	}
+	return run, true, nil
+}
+
+func agentChatConfigOptionSetRequest(sessionID, configID string, rawValue any) (agentadapters.SetSessionConfigOptionRequest, error) {
+	if sessionID == "" {
+		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("agent chat session id is required")
+	}
+	if configID == "" {
+		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("config option id is required")
+	}
+	switch value := rawValue.(type) {
+	case string:
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("value is required")
+		}
+		return agentadapters.SetSessionConfigOptionRequest{SessionID: sessionID, ConfigID: configID, Value: value}, nil
+	case bool:
+		return agentadapters.SetSessionConfigOptionRequest{SessionID: sessionID, ConfigID: configID, BoolValue: &value}, nil
+	default:
+		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("value must be a string or boolean")
+	}
+}
+
+func updateStoredAgentChatConfigOption(options []agentcontrols.ConfigOption, req agentadapters.SetSessionConfigOptionRequest, allowInactiveAdapterOption bool) ([]agentcontrols.ConfigOption, error) {
+	out := append([]agentcontrols.ConfigOption(nil), options...)
+	for i := range out {
+		if out[i].ID != req.ConfigID {
+			continue
+		}
+		if !allowInactiveAdapterOption && out[i].Source != agentcontrols.ConfigOptionSourceLaunch {
+			return nil, fmt.Errorf("config option %q is not launch-managed", req.ConfigID)
+		}
+		switch {
+		case req.BoolValue != nil:
+			if out[i].Type != agentcontrols.ConfigOptionTypeBoolean {
+				return nil, fmt.Errorf("config option %q is not boolean", req.ConfigID)
+			}
+			value := *req.BoolValue
+			out[i].CurrentBool = &value
+		default:
+			value := strings.TrimSpace(req.Value)
+			if value == "" {
+				return nil, fmt.Errorf("value is required")
+			}
+			if out[i].Type == agentcontrols.ConfigOptionTypeSelect && !storedConfigOptionAllowsValue(out[i], value) {
+				return nil, fmt.Errorf("value %q is not available for %s", value, out[i].Name)
+			}
+			out[i].CurrentValue = value
+		}
+		return out, nil
+	}
+	return nil, fmt.Errorf("config option %q not found", req.ConfigID)
+}
+
+func storedConfigOptionAllowsValue(option agentcontrols.ConfigOption, value string) bool {
+	if len(option.Options) == 0 {
+		return true
+	}
+	for _, candidate := range option.Options {
+		if candidate.Value == value {
 			return true
 		}
 	}
 	return false
 }
 
-func mapUpstreamStatus(statusCode int) int {
-	switch statusCode {
-	case http.StatusBadRequest, http.StatusNotFound, http.StatusUnprocessableEntity, http.StatusTooManyRequests:
-		return statusCode
-	default:
-		return http.StatusBadGateway
+func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request) {
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
 	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	var req CreateChatMessageRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "content is required")
+		return
+	}
+
+	limits := h.agentChatSnapshotConfig()
+	maxTurns := limits.MaxTurnsPerSession
+	if maxTurns > 0 && session.TurnsUsed >= maxTurns {
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeSessionLimitExceeded, fmt.Sprintf("session has reached the %d-turn limit; start a new session to continue", maxTurns), ErrorDetails{
+			Fields: map[string]any{
+				"limit":      maxTurns,
+				"turns_used": session.TurnsUsed,
+			},
+		})
+		return
+	}
+	if limits.MaxSessionDuration > 0 && !session.CreatedAt.IsZero() && time.Since(session.CreatedAt) >= limits.MaxSessionDuration {
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeSessionDurationLimit, fmt.Sprintf("session has reached the %s wall-clock limit; start a new session to continue", limits.MaxSessionDuration), ErrorDetails{
+			Fields: map[string]any{
+				"limit_ms":   limits.MaxSessionDuration.Milliseconds(),
+				"started_at": formatOptionalTime(session.CreatedAt),
+				"turns_used": session.TurnsUsed,
+			},
+		})
+		return
+	}
+	if limits.IdleTimeout > 0 && !session.UpdatedAt.IsZero() && time.Since(session.UpdatedAt) >= limits.IdleTimeout {
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeSessionIdleTimeout, fmt.Sprintf("session was idle for at least %s; start a new session to continue", limits.IdleTimeout), ErrorDetails{
+			Fields: map[string]any{
+				"limit_ms":   limits.IdleTimeout.Milliseconds(),
+				"updated_at": formatOptionalTime(session.UpdatedAt),
+				"turns_used": session.TurnsUsed,
+			},
+		})
+		return
+	}
+	executionMode := normalizeChatExecutionMode(req.ExecutionMode, session)
+	toolsEnabled := true
+	if req.ToolsEnabled != nil {
+		toolsEnabled = *req.ToolsEnabled
+	}
+	// Capability-driven downgrade lets a Hecate turn with tools on fall
+	// back to the direct model path without changing its runtime owner.
+	if toolsEnabled && !isExternalChatSession(session) && h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req) {
+		toolsEnabled = false
+	}
+	switch executionMode {
+	case chat.ExecutionModeHecateTask:
+		// One unified entry point for every Hecate-side turn,
+		// regardless of tools_enabled. handleCreateHecateChatMessage
+		// branches at the top: tools-off delegates to
+		// `handleDirectModelTurn`; tools-on runs the existing
+		// agent_loop task-creation path.
+		if isExternalChatSession(session) {
+			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run Hecate Chat turns")
+			return
+		}
+		h.handleCreateHecateChatMessage(w, r, session, req, toolsEnabled)
+		return
+	case chat.ExecutionModeExternalAgent:
+		if !isExternalChatSession(session) {
+			writeAgentChatRuntimeMismatch(w, "Hecate Chat sessions cannot run external-agent turns")
+			return
+		}
+	default:
+		writeChatExecutionModeInvalid(w)
+		return
+	}
+
+	adapter, ok := agentadapters.BuiltInByID(session.AgentID)
+	if !ok {
+		writeAgentChatAdapterNotFound(w, session.AgentID)
+		return
+	}
+	assistantID := newChatID("msg")
+	runID := newChatID("agent_run")
+	trace, traceCtx := h.startAgentChatTrace(w, r)
+	defer trace.Finalize()
+
+	runCtx, cancel := context.WithTimeout(traceCtx, agentChatTimeout)
+	if !h.agentChatLive.registerRun(session.ID, cancel) {
+		cancel()
+		WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "agent chat session is already running", ErrorDetails{
+			UserMessage:    "This chat is already running.",
+			OperatorAction: "Wait for the active run to finish or stop it before sending another message.",
+		})
+		return
+	}
+	defer h.agentChatLive.clearRun(session.ID)
+	defer cancel()
+
+	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
+		ID:            newChatID("msg"),
+		ExecutionMode: chat.ExecutionModeExternalAgent,
+		Role:          "user",
+		Content:       content,
+		CreatedAt:     time.Now().UTC(),
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+	startedAt := time.Now().UTC()
+	trace.Record(telemetry.EventAgentChatRunStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+		telemetry.AttrHecateRunStatus: "running",
+	}))
+	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
+		ID:            assistantID,
+		ExecutionMode: chat.ExecutionModeExternalAgent,
+		RunID:         runID,
+		RequestID:     RequestIDFromContext(r.Context()),
+		TraceID:       trace.TraceID,
+		SpanID:        trace.RootSpanID(),
+		Role:          "assistant",
+		Content:       "",
+		AgentID:       adapter.ID,
+		AgentName:     adapter.Name,
+		DriverKind:    agentadapters.DriverKindACP,
+		Status:        "running",
+		CostMode:      adapter.CostMode,
+		Workspace:     session.Workspace,
+		Context:       h.externalAgentContextPacket(r.Context(), session, adapter.Name),
+		CreatedAt:     time.Now().UTC(),
+		StartedAt:     startedAt,
+		Activities: []chat.Activity{
+			newChatActivity("running", "running", "Running", "Waiting for ACP output"),
+		},
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+
+	outputSeen := false
+	runner := h.agentChatRunner
+	if runner == nil {
+		// Defensive: the constructor in NewHandler always sets
+		// agentChatRunner. This branch only fires for programmer error
+		// (e.g. a test handler built without it). The fallback runner
+		// has no approval coordinator installed and falls back to
+		// auto-approve. Tighten in a follow-up if the fallback remains
+		// in use.
+		runner = agentadapters.NewSessionManager()
+	}
+	// streamFlush persists a coalesced batch of streamed updates in a
+	// single chat.UpdateMessage and publishes once. Content is
+	// last-write-wins (the full accumulated transcript); activities are
+	// applied in arrival order via the same per-record merge the
+	// adapter callbacks used to do inline.
+	//
+	// It persists under r.Context(), not runCtx: the trailing flush
+	// (from the coalescer's timer or close()) can run as Run is
+	// returning, so on cancel/deadline paths runCtx is already done and
+	// persisting under it would silently drop the final buffered batch.
+	// The terminal finalize below recovers content (it re-sets
+	// message.Content from result.Output) but only appends activity
+	// rows, so a dropped activity batch would be lost for good.
+	// r.Context() matches that finalize and outlives run cancellation.
+	streamFlush := func(display string, haveContent bool, activities []agentadapters.Activity) {
+		updated, updateErr := h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *chat.Message) {
+			if haveContent {
+				message.Content = display
+				if strings.TrimSpace(display) != "" && !outputSeen {
+					message.Activities = append(message.Activities, newChatActivity("output", "running", "ACP output", "Streaming normalized transcript"))
+					trace.Record(telemetry.EventAgentChatOutputStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+						telemetry.AttrHecateRunStatus:        "running",
+						telemetry.AttrHecateAgentOutputBytes: int64(len(display)),
+					}))
+					outputSeen = true
+				}
+			}
+			for _, activity := range activities {
+				message.Activities = mergeChatActivity(message.Activities, agentChatActivityFromAdapter(activity))
+			}
+		})
+		if updateErr == nil {
+			h.agentChatLive.publishSession(updated)
+		}
+	}
+	// Coalesce the per-token OnOutput/OnActivity callbacks into at most
+	// one persist+publish per window. close() after Run flushes the
+	// trailing batch so buffered activities land before the finalize.
+	streamCoalescer := newChatStreamCoalescer(agentChatStreamCoalesceInterval, streamFlush)
+	result, runErr := runner.Run(runCtx, agentadapters.RunRequest{
+		SessionID:               session.ID,
+		AdapterID:               adapter.ID,
+		Workspace:               session.Workspace,
+		PreviousNativeSessionID: session.NativeSessionID,
+		ConfigOptions:           session.ConfigOptions,
+		Prompt:                  content,
+		Timeout:                 agentChatTimeout,
+		MaxOutputBytes:          agentChatMaxOutputBytes,
+		OnOutput: func(display string) {
+			streamCoalescer.output(display)
+		},
+		OnActivity: func(activity agentadapters.Activity) {
+			streamCoalescer.activity(activity)
+		},
+	})
+	streamCoalescer.close()
+	status := "completed"
+	if runErr != nil {
+		status = "failed"
+	}
+	if errors.Is(runCtx.Err(), context.Canceled) {
+		status = "cancelled"
+	}
+	output := strings.TrimSpace(result.Output)
+	displayErr := ""
+	if runErr != nil {
+		displayErr = agentadapters.NormalizeError(adapter.Name, runErr)
+	}
+	if status != "cancelled" && runErr != nil {
+		if output == "" {
+			output = displayErr
+		} else {
+			output = output + "\n\n" + displayErr
+		}
+	}
+	if status != "cancelled" && output == "" {
+		output = "(agent completed without output)"
+	}
+	completedAt := time.Now().UTC()
+	if !result.StartedAt.IsZero() {
+		startedAt = result.StartedAt
+	}
+	if !result.CompletedAt.IsZero() {
+		completedAt = result.CompletedAt
+	}
+	errorText := ""
+	if runErr != nil && status != "cancelled" {
+		errorText = displayErr
+	}
+	if result.DiffStat != "" {
+		trace.Record(telemetry.EventAgentChatFilesChanged, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+			telemetry.AttrHecateRunStatus:         status,
+			telemetry.AttrHecateAgentDiffCaptured: true,
+		}))
+	}
+	durationMS := completedAt.Sub(startedAt).Milliseconds()
+	resultLabel := telemetry.ResultSuccess
+	if runErr != nil || status == "cancelled" {
+		resultLabel = telemetry.ResultError
+	}
+	terminalAttrs := agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+		telemetry.AttrHecateRunStatus:            status,
+		telemetry.AttrHecateRunDurationMS:        durationMS,
+		telemetry.AttrHecateAgentOutputBytes:     int64(len(output)),
+		telemetry.AttrHecateAgentRawOutputBytes:  int64(len(result.RawOutput)),
+		telemetry.AttrHecateAgentDiffCaptured:    result.Diff != "",
+		telemetry.AttrHecateAgentDriverKind:      result.DriverKind,
+		telemetry.AttrHecateAgentNativeSessionID: result.NativeSessionID,
+		"process.exit.code":                      result.ExitCode,
+	})
+	if runErr != nil {
+		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
+		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
+		terminalAttrs[telemetry.AttrErrorType] = "agent_adapter_failed"
+		terminalAttrs[telemetry.AttrErrorMessage] = displayErr
+	}
+	trace.Record(agentChatTerminalEvent(status), terminalAttrs)
+	driverKind := result.DriverKind
+	if driverKind == "" {
+		driverKind = adapter.Kind
+	}
+	h.agentChatMetrics.RecordRun(traceCtx, telemetry.AgentChatRunMetricsRecord{
+		AdapterID:  adapter.ID,
+		DriverKind: driverKind,
+		Status:     status,
+		Result:     resultLabel,
+		DurationMS: durationMS,
+	})
+	if status == "cancelled" {
+		// Reason classification: cancelRun / cancelRunAndWait stamp
+		// "operator" before tripping the cancel func; if nothing was
+		// stamped, the parent r.Context() died first, which we label
+		// "request_cancelled". Shutdown-path cancels fire from
+		// SessionManager.Shutdown directly and don't reach this branch.
+		reason := h.agentChatLive.cancelReasonFor(session.ID)
+		if reason == "" {
+			reason = "request_cancelled"
+		}
+		h.agentChatMetrics.RecordChatCancelled(traceCtx, telemetry.AgentChatCancelledRecord{
+			AdapterID: adapter.ID,
+			Reason:    reason,
+		})
+	}
+
+	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *chat.Message) {
+		if output != "" {
+			message.Content = output
+		}
+		message.RawOutput = result.RawOutput
+		if strings.TrimSpace(message.RawOutput) == "" && runErr != nil {
+			message.RawOutput = runErr.Error()
+		}
+		message.DriverKind = result.DriverKind
+		message.NativeSessionID = result.NativeSessionID
+		message.Status = status
+		message.ExitCode = result.ExitCode
+		message.DiffStat = result.DiffStat
+		message.Diff = result.Diff
+		message.StartedAt = startedAt
+		message.CompletedAt = completedAt
+		message.Error = errorText
+		message.Usage = agentChatUsageFromResult(result.Usage)
+		if result.SessionResumed {
+			message.Activities = append([]chat.Activity{newChatActivity("resumed", "completed", "Resumed external session", adapter.Name+" restored "+result.NativeSessionID)}, message.Activities...)
+		} else if result.SessionStarted {
+			activities := []chat.Activity{newChatActivity("started", "completed", "Starting external agent", adapter.Name+" in "+session.Workspace)}
+			if result.SessionRecovery != "" {
+				activities = append(activities, newChatActivity("recovered", "completed", "Started fresh external session", result.SessionRecovery))
+			}
+			message.Activities = append(activities, message.Activities...)
+		}
+		if result.DiffStat != "" {
+			message.Activities = append(message.Activities, newChatActivity("files_changed", "completed", "Files changed", result.DiffStat))
+		}
+		message.Activities = append(message.Activities, newChatActivity(status, status, finalChatActivityTitle(status), errorText))
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if result.DriverKind != "" || result.NativeSessionID != "" || result.ConfigOptions != nil {
+		updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+			if result.DriverKind != "" {
+				item.DriverKind = result.DriverKind
+			}
+			if result.NativeSessionID != "" {
+				item.NativeSessionID = result.NativeSessionID
+			}
+			if result.ConfigOptions != nil {
+				item.ConfigOptions = result.ConfigOptions
+			}
+		})
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+	}
+	// Increment after every completed round-trip, even when no ceiling is set.
+	// Best-effort: the turn result itself was already committed above.
+	if inc, incErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+		item.TurnsUsed++
+	}); incErr == nil {
+		updated = inc
+	} else {
+		h.logger.WarnContext(r.Context(), "chat.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
+	}
+	h.agentChatLive.publishSession(updated)
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) hecateTaskShouldFallbackToDirectModel(ctx context.Context, session chat.Session, req CreateChatMessageRequest) bool {
+	provider := strings.TrimSpace(req.Provider)
+	if provider == "" {
+		provider = session.Provider
+	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = session.Model
+	}
+	if model == "" {
+		return false
+	}
+	caps, err := h.resolveModelCapabilities(ctx, provider, model)
+	if err != nil {
+		return false
+	}
+	return !modelcaps.ToolCapable(caps)
+}
+
+// normalizeChatExecutionMode resolves the runtime owner for this turn.
+// Tools-on/off is tracked separately via tools_enabled.
+func normalizeChatExecutionMode(mode string, session chat.Session) string {
+	mode = strings.TrimSpace(mode)
+	if mode != "" {
+		return mode
+	}
+	if isExternalChatSession(session) {
+		return chat.ExecutionModeExternalAgent
+	}
+	return chat.ExecutionModeHecateTask
+}
+
+// handleDirectModelTurn runs the tools-off sub-path of
+// handleCreateHecateChatMessage. Called only from inside that
+// handler when toolsEnabled is false (either because the client
+// asked for tools off or because the capability-downgrade flipped
+// it). Not invoked directly by the dispatcher.
+func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest) {
+	if busy, runStatus := h.hecateAgentSessionBusy(r.Context(), session); busy {
+		writeHecateAgentBusy(w, session, runStatus)
+		return
+	}
+
+	provider := strings.TrimSpace(req.Provider)
+	if provider == "" {
+		provider = session.Provider
+	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = session.Model
+	}
+	if model == "" {
+		writeAgentChatModelRequired(w, "model")
+		return
+	}
+	caps, err := h.resolveModelCapabilities(r.Context(), provider, model)
+	if err != nil {
+		writeAgentChatModelResolutionError(w, err)
+		return
+	}
+	content := strings.TrimSpace(req.Content)
+	assistantID := newChatID("msg")
+	runID := newChatID("model_run")
+	startedAt := time.Now().UTC()
+	runCtx, cancel := context.WithTimeout(r.Context(), agentChatTimeout)
+	if !h.agentChatLive.registerRun(session.ID, cancel) {
+		cancel()
+		WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "chat session is already running", ErrorDetails{
+			UserMessage:    "This chat is already running.",
+			OperatorAction: "Wait for the active run to finish or stop it before sending another message.",
+		})
+		return
+	}
+	defer h.agentChatLive.clearRun(session.ID)
+	defer cancel()
+
+	segmentID := modelSegmentID(session, provider, model)
+	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
+		ID:            newChatID("msg"),
+		ExecutionMode: chat.ExecutionModeHecateTask,
+		// The model-chat handler dispatches when the operator submitted
+		// with tools off (or when the runtime downgraded a hecate_task
+		// turn because the model can't run tools). Either way, the
+		// persisted Message records ToolsEnabled=false so a future
+		// read against this row recovers the original intent without
+		// having to parse the execution_mode string.
+		ToolsEnabled: false,
+		SegmentID:    segmentID,
+		Provider:     provider,
+		Model:        model,
+		Capabilities: caps,
+		Role:         "user",
+		Content:      content,
+		CreatedAt:    startedAt,
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+
+	history := agentChatModelHistory(session, strings.TrimSpace(req.SystemPrompt), content)
+	contextPacket := h.directModelContextPacket(r.Context(), session, provider, model, strings.TrimSpace(req.SystemPrompt))
+	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
+		ID:            assistantID,
+		ExecutionMode: chat.ExecutionModeHecateTask,
+		ToolsEnabled:  false,
+		SegmentID:     segmentID,
+		RunID:         runID,
+		RequestID:     RequestIDFromContext(r.Context()),
+		Provider:      provider,
+		Model:         model,
+		Capabilities:  caps,
+		Role:          "assistant",
+		Content:       "",
+		Status:        "running",
+		CostMode:      "hecate",
+		Workspace:     session.Workspace,
+		Context:       contextPacket,
+		CreatedAt:     startedAt,
+		StartedAt:     startedAt,
+		Activities: []chat.Activity{
+			newChatActivity("model_request", "running", "Model request", "Waiting for provider response"),
+		},
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+
+	chatReq := types.ChatRequest{
+		RequestID: RequestIDFromContext(r.Context()),
+		Model:     model,
+		Messages:  history,
+		Scope:     requestscope.Build(provider),
+	}
+	result, runErr := h.service.HandleChat(runCtx, chatReq)
+	completedAt := time.Now().UTC()
+	status := "completed"
+	output := ""
+	errorText := ""
+	if runErr != nil {
+		status = "failed"
+		errorText = runErr.Error()
+		output = errorText
+	}
+	if errors.Is(runCtx.Err(), context.Canceled) {
+		status = "cancelled"
+		errorText = "cancelled"
+		output = "model request cancelled"
+	}
+	if result != nil && result.Response != nil {
+		if len(result.Response.Choices) > 0 {
+			output = strings.TrimSpace(result.Response.Choices[0].Message.Content)
+		}
+		if output == "" {
+			output = "(model completed without output)"
+		}
+	}
+	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *chat.Message) {
+		message.Status = status
+		message.Content = output
+		message.Error = errorText
+		message.StartedAt = startedAt
+		message.CompletedAt = completedAt
+		if result != nil {
+			message.TraceID = result.Metadata.TraceID
+			message.SpanID = result.Metadata.SpanID
+			if result.Metadata.Provider != "" {
+				message.Provider = result.Metadata.Provider
+			}
+			if result.Metadata.Model != "" {
+				message.Model = result.Metadata.Model
+			}
+			message.Usage = chat.Usage{
+				ContextUsed: result.Metadata.TotalTokens,
+			}
+		}
+		message.Activities = append(message.Activities, newChatActivity(status, status, finalChatActivityTitle(status), errorText))
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if inc, incErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
+		item.Provider = provider
+		item.Model = model
+		item.Capabilities = caps
+		item.TurnsUsed++
+	}); incErr == nil {
+		updated = inc
+	}
+	h.agentChatLive.publishSession(updated)
+	if runErr != nil {
+		WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+		return
+	}
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func agentChatModelHistory(session chat.Session, systemPrompt, content string) []types.Message {
+	messages := make([]types.Message, 0, len(session.Messages))
+	if systemPrompt = strings.TrimSpace(systemPrompt); systemPrompt != "" {
+		messages = append(messages, types.Message{Role: "system", Content: systemPrompt})
+	}
+	for _, message := range session.Messages {
+		if message.Role != "user" && message.Role != "assistant" {
+			continue
+		}
+		if message.Role == "assistant" && !isTerminalAgentChatStatus(message.Status) {
+			continue
+		}
+		text := strings.TrimSpace(message.Content)
+		if text == "" {
+			continue
+		}
+		messages = append(messages, types.Message{Role: message.Role, Content: text})
+	}
+	messages = append(messages, types.Message{Role: "user", Content: content})
+	return messages
+}
+
+func modelSegmentID(session chat.Session, provider, model string) string {
+	for i := len(session.Messages) - 1; i >= 0; i-- {
+		message := session.Messages[i]
+		if message.ExecutionMode != chat.ExecutionModeHecateTask || message.ToolsEnabled {
+			break
+		}
+		if message.Provider == provider && message.Model == model && message.SegmentID != "" {
+			return message.SegmentID
+		}
+	}
+	return newChatID("segment")
+}
+
+func isTerminalAgentChatStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func workspaceGitBranch(workspace string) string {
+	workspace = strings.TrimSpace(workspace)
+	if workspace == "" {
+		return ""
+	}
+	return gitrunner.NewLocalRunner().CurrentRef(context.Background(), workspace)
+}
+
+func newChatID(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "id"
+	}
+	buf := make([]byte, 12)
+	if _, err := rand.Read(buf); err != nil {
+		return prefix + "_" + strings.ToLower(fmt.Sprintf("%x", time.Now().UTC().UnixNano()))
+	}
+	return prefix + "_" + hex.EncodeToString(buf)
 }

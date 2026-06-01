@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/controlplane"
-	"github.com/hecate/agent-runtime/internal/llamacpp"
+	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/llamacpp"
 )
 
 // makeHandlerWithLocalModels wires a bare Handler with just the

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/storage"
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 // maxHistoryListLimit caps how many records List can return in one

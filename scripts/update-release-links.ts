@@ -92,31 +92,30 @@ const tarballs = [
   assetURL(/^hecate_.+_darwin_arm64\.tar\.gz$/),
 ].filter((asset): asset is ReleaseAsset => Boolean(asset));
 
-const rows: string[] = [
-  "| Platform | Bundle |",
-  "|---|---|",
-];
+const rows: string[][] = [];
 
 if (macArm) {
-  rows.push(`| macOS (Apple Silicon) | ${link(macArm)} |`);
+  rows.push(["macOS (Apple Silicon)", link(macArm)]);
 }
 
 if (linuxDeb || linuxAppImage) {
   const bundles = [linuxDeb, linuxAppImage].filter((asset): asset is ReleaseAsset => Boolean(asset));
-  rows.push(`| Linux x86_64 | ${bundles.map(link).join(" or ")} |`);
+  rows.push(["Linux x86_64", bundles.map(link).join(" or ")]);
 }
 
 if (windowsMsi) {
-  rows.push(`| Windows x86_64 | ${link(windowsMsi)} |`);
+  rows.push(["Windows x86_64", link(windowsMsi)]);
 }
 
-if (rows.length === 2) {
+if (rows.length === 0) {
   fail(`release ${tag} does not contain any desktop app bundles`);
 }
 
 const generated = [
   startMarker,
-  ...rows,
+  "",
+  ...markdownTable(["Platform", "Bundle"], rows),
+  "",
   endMarker,
 ].join("\n");
 
@@ -158,6 +157,19 @@ function updateFile(path: string, update: (value: string) => string): void {
 
 function relativeDocName(path: string): string {
   return path.replace(root + "/", "");
+}
+
+function markdownTable(headers: [string, string], rows: string[][]): string[] {
+  const widths = headers.map((header, idx) =>
+    Math.max(header.length, ...rows.map((row) => row[idx]?.length ?? 0)),
+  );
+  const formatRow = (cells: string[]): string =>
+    `| ${cells.map((cell, idx) => cell.padEnd(widths[idx])).join(" | ")} |`;
+  return [
+    formatRow(headers),
+    formatRow(widths.map((width) => "-".repeat(width))),
+    ...rows.map(formatRow),
+  ];
 }
 
 function updatePinnedReleaseReferences(value: string): string {

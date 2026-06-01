@@ -1,11 +1,14 @@
 # Migration CLI
 
-> **Status:** design notes. Not implemented. Captures the operator
-> tooling Hecate needs around upgrades, backups, and rollback before
-> alpha can hold a `v0.1.0-beta.N` tag.
-> **Depends on:** the existing per-package SQLite migration pattern
-> in `internal/{agentchat,chatstate,taskstate,...}/sqlite.go`. This
-> RFC builds on it rather than replacing it.
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Deployment](../deployment.md) and
+> [Known limitations](../known-limitations.md) for today's backup/upgrade
+> guidance.
+> **Lives under:** the subcommand-dispatch umbrella defined by
+> [cli-structure.md](cli-structure.md) — `hecate migrate` is one verb in
+> that surface, not a freestanding binary.
+> **Next action:** design `hecate migrate` around the current per-package SQLite
+> migration pattern.
 
 `docs/known-limitations.md` flags two related gaps under "API And
 Schema Stability":
@@ -24,22 +27,21 @@ inventing a parallel migration system.
 
 ## What exists today
 
-Nine SQLite-backed packages, each owning its own schema:
+Eight SQLite-backed packages, each owning its own schema:
 
-| Package | What it stores |
-|---|---|
-| `internal/agentchat/sqlite.go` | External-agent chat sessions and messages |
-| `internal/agentadapters/approvals_sqlite.go` | Adapter approvals + grants |
-| `internal/chatstate/sqlite.go` | Hecate Chat sessions and provider-call rows |
-| `internal/controlplane/store_sqlite.go` | Configured providers, policy rules, secrets, audit events |
-| `internal/governor/usage_sqlite.go` | Usage totals and usage events |
-| `internal/orchestrator/queue_sqlite.go` | Task run queue |
-| `internal/providers/history_sqlite.go` | Provider health-state transitions |
-| `internal/retention/history_sqlite.go` | Retention sweep run records |
-| `internal/taskstate/sqlite.go` | Task runs, steps, artifacts, approvals |
+| Package                                      | What it stores                                            |
+| -------------------------------------------- | --------------------------------------------------------- |
+| `internal/agentadapters/approvals_sqlite.go` | Adapter approvals + grants                                |
+| `internal/chat/sqlite.go`                    | Chat sessions and messages                                |
+| `internal/controlplane/store_sqlite.go`      | Configured providers, policy rules, secrets, audit events |
+| `internal/governor/usage_sqlite.go`          | Usage totals and usage events                             |
+| `internal/orchestrator/queue_sqlite.go`      | Task run queue                                            |
+| `internal/providers/history_sqlite.go`       | Provider health-state transitions                         |
+| `internal/retention/history_sqlite.go`       | Retention sweep run records                               |
+| `internal/taskstate/sqlite.go`               | Task runs, steps, artifacts, approvals                    |
 
-All nine share a single SQLite file (`.data/hecate.db` by default,
-overridable via `GATEWAY_SQLITE_PATH`). Each package's `migrate(ctx)`
+All eight share a single SQLite file (`.data/hecate.db` by default,
+overridable via `HECATE_SQLITE_PATH`). Each package's `migrate(ctx)`
 runs lazily on first store use:
 
 - New tables come from `CREATE TABLE IF NOT EXISTS` — idempotent.
@@ -109,7 +111,7 @@ hecate migrate verify         # sanity-check tables (counts, no orphans)
 
 Reads the live SQLite file (read-only connection, no migrate call)
 and emits a human-readable table plus a `--json` flag for machine
-consumption. For each of the nine packages, shows:
+consumption. For each of the eight packages, shows:
 
 - Table presence (`exists` / `missing`)
 - Row count
@@ -120,13 +122,13 @@ Output something like:
 
 ```text
 package                  table                       rows      schema
-agentchat                chat_sessions               42        ok
-agentchat                chat_messages               318       ok
+chat                     chat_sessions               42        ok
+chat                     chat_messages               318       ok
 controlplane             providers                   3         ok
 controlplane             policy_rules                7         pending: column 'expires_at' not present
 taskstate                task_runs                   124       ok
 ...
-9 packages, 24 tables. 1 pending migration.
+8 packages, 24 tables. 1 pending migration.
 ```
 
 This is the highest-leverage subcommand because it turns "is my
@@ -204,7 +206,7 @@ A new `cmd/hecate/migrate.go` (or a small subpackage under
 `cmd/hecate/`) that:
 
 1. Parses the subcommand from `os.Args`.
-2. Loads `internal/config/config.go` like normal so `GATEWAY_SQLITE_PATH`
+2. Loads `internal/config/config.go` like normal so `HECATE_SQLITE_PATH`
    etc. resolve identically to the gateway.
 3. Constructs the same SQLite client the gateway constructs at boot
    (`internal/storage/sqlite.go`).
@@ -257,7 +259,7 @@ This RFC does NOT propose down-migrations. Rollback in Hecate is:
    `hecate migrate restore <snapshot>`, start the previous binary.
 
 The trade-off is honest. Hecate's additive migrations make
-down-migrations nearly free *to write* but expensive *to maintain*
+down-migrations nearly free _to write_ but expensive _to maintain_
 once they exist. Operators who want a different rollback model will
 find that snapshot/restore covers >95% of real upgrade-rollback
 workflows: by the time they discover the new version is broken,
@@ -275,14 +277,14 @@ they want their data back as it was, not a half-migrated hybrid.
 
 ## Phasing
 
-| PR | Scope | Size |
-|---|---|---|
-| 1 | `internal/storage/migration.go` interfaces + registry; per-package wiring for `Migrate` (re-export). No CLI yet. | small (~200 lines) |
-| 2 | `hecate migrate status` + per-package `StatusReporter` implementations | medium (~500 lines, mostly per-package boilerplate) |
-| 3 | `hecate migrate apply` (with `--dry-run`) | small (~150 lines) |
-| 4 | `hecate migrate snapshot` + `hecate migrate restore` | small-medium (~250 lines, plus integration tests with a real SQLite file) |
-| 5 | `hecate migrate verify` + per-package verifiers | medium (~400 lines) |
-| 6 | Docs: drop the `known-limitations` bullets, add `docs/migrations.md` operator guide | small (~150 lines) |
+| PR  | Scope                                                                                                            | Size                                                                      |
+| --- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 1   | `internal/storage/migration.go` interfaces + registry; per-package wiring for `Migrate` (re-export). No CLI yet. | small (~200 lines)                                                        |
+| 2   | `hecate migrate status` + per-package `StatusReporter` implementations                                           | medium (~500 lines, mostly per-package boilerplate)                       |
+| 3   | `hecate migrate apply` (with `--dry-run`)                                                                        | small (~150 lines)                                                        |
+| 4   | `hecate migrate snapshot` + `hecate migrate restore`                                                             | small-medium (~250 lines, plus integration tests with a real SQLite file) |
+| 5   | `hecate migrate verify` + per-package verifiers                                                                  | medium (~400 lines)                                                       |
+| 6   | Docs: drop the `known-limitations` bullets, add `docs/migrations.md` operator guide                              | small (~150 lines)                                                        |
 
 Total: ~1650 lines, ~6 PRs. PRs 1–4 close the immediate operator
 gap (status + safe backup/restore). PR 5 is polish that catches
@@ -295,7 +297,7 @@ incremental improvements after that.
 
 ## Open questions
 
-- **Should `migrate apply` be the *only* path on boot too?** Today
+- **Should `migrate apply` be the _only_ path on boot too?** Today
   the gateway runs migrate implicitly on first store use, scattered
   across nine packages. Centralizing into one boot-time call (and
   letting `migrate apply` be that call) is cleaner but expands this
@@ -310,7 +312,7 @@ incremental improvements after that.
   scope for the first PR.
 - **Encryption.** Snapshots are byte-identical SQLite files,
   including any settings encrypted via
-  `GATEWAY_CONTROL_PLANE_SECRET_KEY`. Operators who want
+  `HECATE_CONTROL_PLANE_SECRET_KEY`. Operators who want
   off-machine backup should encrypt the snapshot themselves
   (`age`, `gpg`). Building encryption into the CLI is out of scope.
 - **Concurrency.** Multiple `hecate migrate` invocations against

@@ -32,8 +32,8 @@ describe("parseMarkdownBlocks", () => {
     const input = "# One\n## Two\n### Three";
     const blocks = parseMarkdownBlocks(input);
     expect(blocks).toEqual([
-      { type: "heading", text: "One",   level: 1 },
-      { type: "heading", text: "Two",   level: 2 },
+      { type: "heading", text: "One", level: 1 },
+      { type: "heading", text: "Two", level: 2 },
       { type: "heading", text: "Three", level: 3 },
     ]);
   });
@@ -50,30 +50,36 @@ describe("parseMarkdownBlocks", () => {
 
   it("parses task list items", () => {
     const blocks = parseMarkdownBlocks("- [x] done\n- [ ] todo\n* [X] shipped");
-    expect(blocks).toEqual([{
-      type: "task",
-      text: "",
-      tasks: [
-        { checked: true, text: "done" },
-        { checked: false, text: "todo" },
-        { checked: true, text: "shipped" },
-      ],
-    }]);
+    expect(blocks).toEqual([
+      {
+        type: "task",
+        text: "",
+        tasks: [
+          { checked: true, text: "done" },
+          { checked: false, text: "todo" },
+          { checked: true, text: "shipped" },
+        ],
+      },
+    ]);
   });
 
   it("parses pipe tables", () => {
-    const blocks = parseMarkdownBlocks("| File | Status |\n| --- | --- |\n| README.md | updated |\n| docs.md | skipped |");
-    expect(blocks).toEqual([{
-      type: "table",
-      text: "",
-      table: {
-        headers: ["File", "Status"],
-        rows: [
-          ["README.md", "updated"],
-          ["docs.md", "skipped"],
-        ],
+    const blocks = parseMarkdownBlocks(
+      "| File | Status |\n| --- | --- |\n| README.md | updated |\n| docs.md | skipped |",
+    );
+    expect(blocks).toEqual([
+      {
+        type: "table",
+        text: "",
+        table: {
+          headers: ["File", "Status"],
+          rows: [
+            ["README.md", "updated"],
+            ["docs.md", "skipped"],
+          ],
+        },
       },
-    }]);
+    ]);
   });
 
   it("does not treat a bare horizontal rule as a table separator", () => {
@@ -124,7 +130,9 @@ describe("parseMarkdownBlocks", () => {
   });
 
   it("stops paragraph accumulation at a task list and table", () => {
-    const blocks = parseMarkdownBlocks("intro\n- [ ] todo\n\n| A | B |\n| --- | --- |\n| one | two |");
+    const blocks = parseMarkdownBlocks(
+      "intro\n- [ ] todo\n\n| A | B |\n| --- | --- |\n| one | two |",
+    );
     expect(blocks).toHaveLength(3);
     expect(blocks[0]).toEqual({ type: "p", text: "intro" });
     expect(blocks[1].type).toBe("task");
@@ -177,13 +185,13 @@ describe("parseInlineNodes", () => {
   it("handles mixed inline markup", () => {
     const nodes = parseInlineNodes("**bold** and `code` and *em* and [docs](https://example.com)");
     expect(nodes).toEqual([
-      { t: "bold",   v: "bold" },
-      { t: "text",   v: " and " },
-      { t: "code",   v: "code" },
-      { t: "text",   v: " and " },
+      { t: "bold", v: "bold" },
+      { t: "text", v: " and " },
+      { t: "code", v: "code" },
+      { t: "text", v: " and " },
       { t: "italic", v: "em" },
-      { t: "text",   v: " and " },
-      { t: "link",   v: "docs", href: "https://example.com" },
+      { t: "text", v: " and " },
+      { t: "link", v: "docs", href: "https://example.com" },
     ]);
   });
 

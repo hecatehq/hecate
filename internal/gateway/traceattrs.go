@@ -4,9 +4,9 @@ import (
 	"errors"
 	"reflect"
 
-	"github.com/hecate/agent-runtime/internal/policy"
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/policy"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 // errorKind* aliases map gateway-local names to the authoritative exported

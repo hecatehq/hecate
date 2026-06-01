@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/storage"
+	"github.com/hecatehq/hecate/internal/storage"
 )
 
 func newSQLiteTestQueue(t *testing.T, lease time.Duration) *SQLiteRunQueue {
@@ -34,6 +34,22 @@ func TestSQLiteRunQueue_RejectsNilClient(t *testing.T) {
 	t.Parallel()
 	if _, err := NewSQLiteRunQueue(context.Background(), nil, time.Second); err == nil {
 		t.Fatal("expected error for nil client")
+	}
+}
+
+func TestSQLiteRunQueue_TimestampFormatSortsWithinSameSecond(t *testing.T) {
+	t.Parallel()
+
+	early := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	later := early.Add(time.Nanosecond)
+
+	earlyText := formatSQLiteRunQueueTime(early)
+	laterText := formatSQLiteRunQueueTime(later)
+	if earlyText >= laterText {
+		t.Fatalf("fixed-width sqlite timestamp should sort chronologically: %q >= %q", earlyText, laterText)
+	}
+	if earlyText == early.Format(time.RFC3339Nano) {
+		t.Fatalf("timestamp format must keep fractional seconds at exact second boundary: %q", earlyText)
 	}
 }
 

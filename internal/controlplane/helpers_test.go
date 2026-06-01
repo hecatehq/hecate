@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 func TestCanonicalIDLowercasesAndReplacesNonAlphanum(t *testing.T) {
@@ -126,7 +126,7 @@ func TestNewAuditEventPopulatesFieldsAndTimestamp(t *testing.T) {
 	}
 }
 
-func TestPruneAuditEventsByMaxAge(t *testing.T) {
+func TestPruneByMaxAge(t *testing.T) {
 	now := time.Now()
 	state := &State{
 		Events: []AuditEvent{
@@ -150,7 +150,7 @@ func TestPruneAuditEventsByMaxAge(t *testing.T) {
 	}
 }
 
-func TestPruneAuditEventsByMaxCount(t *testing.T) {
+func TestPruneByMaxCount(t *testing.T) {
 	now := time.Now()
 	state := &State{
 		Events: []AuditEvent{
@@ -173,7 +173,7 @@ func TestPruneAuditEventsByMaxCount(t *testing.T) {
 	}
 }
 
-func TestPruneAuditEventsHandlesNilState(t *testing.T) {
+func TestPruneHandlesNilState(t *testing.T) {
 	if got := pruneAuditEvents(nil, time.Hour, 10); got != 0 {
 		t.Errorf("pruneAuditEvents(nil) = %d, want 0", got)
 	}

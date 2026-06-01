@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/controlplane"
-	"github.com/hecate/agent-runtime/internal/policy"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/policy"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestStaticGovernorCheckRoutePolicy(t *testing.T) {

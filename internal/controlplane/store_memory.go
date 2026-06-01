@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 // MemoryStore is an in-memory control plane store. State is lost on restart.
@@ -56,18 +56,6 @@ func (s *MemoryStore) DeleteProvider(ctx context.Context, id string) error {
 	return applyDeleteProvider(ctx, &s.data, id)
 }
 
-func (s *MemoryStore) UpsertAgentAdapterCredential(ctx context.Context, credential AgentAdapterCredential) (AgentAdapterCredential, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return applyUpsertAgentAdapterCredential(ctx, &s.data, credential)
-}
-
-func (s *MemoryStore) DeleteAgentAdapterCredential(ctx context.Context, adapterID, name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return applyDeleteAgentAdapterCredential(ctx, &s.data, adapterID, name)
-}
-
 func (s *MemoryStore) UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error) {
 	rule, err := normalizePolicyRule(rule)
 	if err != nil {
@@ -96,24 +84,6 @@ func (s *MemoryStore) DeletePolicyRule(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *MemoryStore) UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return applyModelCapabilityOverride(ctx, &s.data, record)
-}
-
-func (s *MemoryStore) DeleteModelCapabilityOverride(ctx context.Context, provider, model string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return applyDeleteModelCapabilityOverride(ctx, &s.data, provider, model)
-}
-
-func (s *MemoryStore) UpsertModelCapabilityProbe(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return applyModelCapabilityProbe(ctx, &s.data, record)
-}
-
 func (s *MemoryStore) UpsertInstalledModel(ctx context.Context, model InstalledModel) (InstalledModel, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -126,7 +96,7 @@ func (s *MemoryStore) DeleteInstalledModel(ctx context.Context, id string) error
 	return applyDeleteInstalledModel(ctx, &s.data, id)
 }
 
-func (s *MemoryStore) PruneAuditEvents(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
+func (s *MemoryStore) Prune(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return pruneAuditEvents(&s.data, maxAge, maxCount), nil

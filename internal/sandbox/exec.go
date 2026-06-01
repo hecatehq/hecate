@@ -1,8 +1,6 @@
 package sandbox
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,7 +12,11 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/hecatehq/hecate/internal/processrunner"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 )
 
 // ResourceLimits caps resources consumed by the shell subprocess and the
@@ -25,7 +27,7 @@ import (
 // CPUQuota=, LimitNOFILE=, MemoryMax=, or container --cpus / --memory
 // flags). See docs/sandbox.md for the layer model.
 type ResourceLimits struct {
-	// MaxOutputBytes caps the combined stdout+stderr that drainProcessOutput
+	// MaxOutputBytes caps the combined stdout+stderr that outputCollector
 	// will buffer. When the cap is reached the command is cancelled and
 	// an OutputLimitExceededError is returned. 0 means no cap.
 	MaxOutputBytes int64
@@ -45,7 +47,7 @@ type OutputLimitExceededError struct {
 }
 
 func (e *OutputLimitExceededError) Error() string {
-	return fmt.Sprintf("command output exceeded limit of %d bytes; configure GATEWAY_TASK_MAX_OUTPUT_BYTES to widen", e.Limit)
+	return fmt.Sprintf("command output exceeded limit of %d bytes; configure HECATE_TASK_MAX_OUTPUT_BYTES to widen", e.Limit)
 }
 
 // IsOutputLimitExceeded reports whether err is or wraps an
@@ -152,10 +154,12 @@ func IsPolicyDenied(err error) bool {
 	return errors.As(err, &policyErr)
 }
 
-type LocalExecutor struct{}
+type LocalExecutor struct {
+	processes processrunner.Runner
+}
 
 func NewLocalExecutor() *LocalExecutor {
-	return &LocalExecutor{}
+	return &LocalExecutor{processes: processrunner.NewLocalRunner()}
 }
 
 func (e *LocalExecutor) Run(ctx context.Context, command Command) (Result, error) {
@@ -177,7 +181,7 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 		command.Limits.MaxOutputBytes = defaultLimits().MaxOutputBytes
 	}
 
-	// Always derive a cancel-able context so drainProcessOutput can kill
+	// Always derive a cancel-able context so the output collector can kill
 	// the child process when the output-size cap is hit.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -187,74 +191,34 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 		defer timeoutCancel()
 	}
 
-	cmd := commandExec(runCtx, command)
-	if workingDirectory != "" {
-		cmd.Dir = workingDirectory
-	}
-	// Sanitised environment — gateway secrets stay out of scope. See
-	// sanitisedEnv() for the allowlist and the reasoning.
-	cmd.Env = sanitisedEnv()
-
 	// Layer 2 — wrap the argv with bwrap (Linux) or sandbox-exec (macOS)
 	// when one is available. No-op on Windows / Linux without bwrap.
-	// Must run before cmd.Start().
-	applyWrapper(cmd, workingDirectory, command.Policy.Network)
+	argv := ShellArgv(command)
+	argv = wrappedArgv(argv, workingDirectory, command.Policy.Network)
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return Result{ExitCode: -1}, err
-	}
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return Result{ExitCode: -1}, err
-	}
-	if err := cmd.Start(); err != nil {
-		return Result{ExitCode: -1}, err
-	}
-
-	streamEvents := make(chan outputEvent, 8)
-	go streamPipe(stdoutPipe, "stdout", streamEvents)
-	go streamPipe(stderrPipe, "stderr", streamEvents)
-
-	// Watchdog: close the pipe read-ends whenever runCtx ends so that
-	// streamPipe goroutines unblock even when orphan grandchildren of sh
-	// keep the write-end open. This covers the context-timeout and
-	// external-cancel paths. cancelWithPipes (below) handles the same
-	// problem for the synchronous output-cap path — both may fire; the
-	// second Close() on each pipe is a harmless os.ErrClosed.
-	go func() {
-		<-runCtx.Done()
-		_ = stdoutPipe.Close()
-		_ = stderrPipe.Close()
-	}()
-
-	// cancelWithPipes kills the child process AND closes the pipe read-ends
-	// synchronously so drainProcessOutput can return immediately when the
-	// output-size cap is hit (without waiting for the watchdog to be
-	// scheduled). The watchdog above provides the same guarantee for the
-	// timeout / external-cancel paths.
-	cancelWithPipes := func() {
-		cancel()
-		_ = stdoutPipe.Close()
-		_ = stderrPipe.Close()
+	collector := newOutputCollector(command.Limits.MaxOutputBytes, cancel, onChunk)
+	processResult, err := e.processRunner().RunStreaming(runCtx, processrunner.Request{
+		Command:        argv[0],
+		Args:           argv[1:],
+		Dir:            workingDirectory,
+		MaxStdoutBytes: command.Limits.MaxOutputBytes,
+		MaxStderrBytes: command.Limits.MaxOutputBytes,
+		// Sanitised environment — gateway secrets stay out of scope. See
+		// sanitisedEnv() for the allowlist and the reasoning.
+		Env: sanitisedEnv(),
+	}, collector.handleProcessChunk)
+	if limitErr := collector.err(); limitErr != nil {
+		result := collector.result()
+		result.ExitCode = -1
+		return result, limitErr
 	}
 
-	// drainProcessOutput calls cancelWithPipes() if the output cap is
-	// exceeded so the drain loop always terminates cleanly.
-	readErr := drainProcessOutput(streamEvents, &stdout, &stderr, onChunk, command.Limits.MaxOutputBytes, cancelWithPipes)
-	if readErr != nil {
-		_ = cmd.Wait()
-		return Result{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: -1}, readErr
+	result := collector.result()
+	if result.Stdout == "" && result.Stderr == "" {
+		result.Stdout = processResult.Stdout
+		result.Stderr = processResult.Stderr
 	}
-
-	err = cmd.Wait()
-	result := Result{
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-		ExitCode: 0,
-	}
+	result.ExitCode = processResult.ExitCode
 	if err == nil {
 		return result, nil
 	}
@@ -288,9 +252,11 @@ func ShellArgv(command Command) []string {
 	return argv
 }
 
-func commandExec(ctx context.Context, command Command) *exec.Cmd {
-	args := ShellArgv(command)
-	return exec.CommandContext(ctx, args[0], args[1:]...)
+func (e *LocalExecutor) processRunner() processrunner.Runner {
+	if e != nil && e.processes != nil {
+		return e.processes
+	}
+	return processrunner.NewLocalRunner()
 }
 
 func (e *LocalExecutor) WriteFile(_ context.Context, request FileRequest) (FileResult, error) {
@@ -308,6 +274,32 @@ func writeFile(request FileRequest, appendMode bool) (FileResult, error) {
 	targetPath, err := ResolvePath(request.WorkingDirectory, request.Path, request.Policy)
 	if err != nil {
 		return FileResult{}, err
+	}
+	if allowedRoot := strings.TrimSpace(request.Policy.AllowedRoot); allowedRoot != "" {
+		root, err := filepath.Abs(allowedRoot)
+		if err != nil {
+			return FileResult{}, err
+		}
+		rel, err := filepath.Rel(root, targetPath)
+		if err != nil {
+			return FileResult{}, err
+		}
+		fsys, err := workspacefs.New(root)
+		if err != nil {
+			return FileResult{}, err
+		}
+		if !appendMode {
+			path, err := fsys.WriteFile(rel, []byte(request.Content), 0o644)
+			if err != nil {
+				return FileResult{}, err
+			}
+			return FileResult{Path: path, BytesWritten: len(request.Content)}, nil
+		}
+		path, err := fsys.AppendFile(rel, []byte(request.Content), 0o644)
+		if err != nil {
+			return FileResult{}, err
+		}
+		return FileResult{Path: path, BytesWritten: len(request.Content)}, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return FileResult{}, err
@@ -329,87 +321,77 @@ func writeFile(request FileRequest, appendMode bool) (FileResult, error) {
 	return FileResult{Path: targetPath, BytesWritten: len(request.Content)}, nil
 }
 
-type outputEvent struct {
-	chunk OutputChunk
-	err   error
-	done  bool
+type outputCollector struct {
+	mu       sync.Mutex
+	stdout   strings.Builder
+	stderr   strings.Builder
+	maxBytes int64
+	written  int64
+	limitErr error
+	cancel   context.CancelFunc
+	onChunk  func(OutputChunk)
 }
 
-func streamPipe(pipe io.ReadCloser, streamName string, events chan<- outputEvent) {
-	defer pipe.Close()
+func newOutputCollector(maxBytes int64, cancel context.CancelFunc, onChunk func(OutputChunk)) *outputCollector {
+	return &outputCollector{maxBytes: maxBytes, cancel: cancel, onChunk: onChunk}
+}
 
-	reader := bufio.NewReader(pipe)
-	buffer := make([]byte, 4096)
-	for {
-		n, err := reader.Read(buffer)
-		if n > 0 {
-			events <- outputEvent{
-				chunk: OutputChunk{Stream: streamName, Text: string(buffer[:n])},
-			}
-		}
-		if err == nil {
-			continue
-		}
-		if errors.Is(err, io.EOF) {
-			events <- outputEvent{done: true}
-			return
-		}
-		if errors.Is(err, os.ErrClosed) {
-			events <- outputEvent{done: true}
-			return
-		}
-		events <- outputEvent{done: true, err: err}
+func (c *outputCollector) handleProcessChunk(chunk processrunner.Chunk) {
+	text := chunk.Text
+	if text == "" {
 		return
 	}
-}
 
-// drainProcessOutput reads output events from the streaming goroutines until
-// both stdout and stderr report done. cancelCmd is called when the output cap
-// is exceeded — it cancels the exec.CommandContext that owns the child process,
-// causing the pipes to close and the drain loop to terminate without leaving
-// goroutines blocked.
-func drainProcessOutput(events <-chan outputEvent, stdout, stderr *bytes.Buffer, onChunk func(OutputChunk), maxBytes int64, cancelCmd context.CancelFunc) error {
-	var (
-		readErr          error
-		totalBytes       int64
-		completedStreams int
-	)
-	for completedStreams < 2 {
-		event := <-events
-		if event.done {
-			completedStreams++
-			if event.err != nil && readErr == nil {
-				readErr = event.err
+	cancel := false
+	c.mu.Lock()
+	if c.limitErr != nil {
+		c.mu.Unlock()
+		return
+	}
+	if c.maxBytes > 0 {
+		remaining := c.maxBytes - c.written
+		if remaining <= 0 {
+			c.limitErr = &OutputLimitExceededError{Limit: c.maxBytes}
+			cancel = true
+			c.mu.Unlock()
+			if cancel && c.cancel != nil {
+				c.cancel()
 			}
-			continue
+			return
 		}
-		// If we already have an error (e.g. output cap hit), keep draining
-		// events without accumulating them so the pipe goroutines can finish.
-		if readErr != nil {
-			continue
-		}
-
-		n := int64(len(event.chunk.Text))
-		if maxBytes > 0 {
-			totalBytes += n
-			if totalBytes > maxBytes {
-				readErr = &OutputLimitExceededError{Limit: maxBytes}
-				cancelCmd() // kill the child; pipes close → goroutines send done events
-				continue
-			}
-		}
-
-		switch event.chunk.Stream {
-		case "stdout":
-			stdout.WriteString(event.chunk.Text)
-		case "stderr":
-			stderr.WriteString(event.chunk.Text)
-		}
-		if onChunk != nil {
-			onChunk(event.chunk)
+		if int64(len(text)) > remaining {
+			text = text[:remaining]
+			c.limitErr = &OutputLimitExceededError{Limit: c.maxBytes}
+			cancel = true
 		}
 	}
-	return readErr
+	c.written += int64(len(text))
+	switch chunk.Stream {
+	case "stderr":
+		_, _ = c.stderr.WriteString(text)
+	default:
+		_, _ = c.stdout.WriteString(text)
+	}
+	c.mu.Unlock()
+
+	if c.onChunk != nil && text != "" {
+		c.onChunk(OutputChunk{Stream: chunk.Stream, Text: text})
+	}
+	if cancel && c.cancel != nil {
+		c.cancel()
+	}
+}
+
+func (c *outputCollector) result() Result {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return Result{Stdout: c.stdout.String(), Stderr: c.stderr.String()}
+}
+
+func (c *outputCollector) err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.limitErr
 }
 
 func ResolvePath(workingDirectory, targetPath string, policy Policy) (string, error) {
@@ -436,6 +418,25 @@ func ResolvePath(workingDirectory, targetPath string, policy Policy) (string, er
 		return "", err
 	}
 
+	allowedRoot := strings.TrimSpace(policy.AllowedRoot)
+	if allowedRoot == "" {
+		return resolvedPath, nil
+	}
+	root, err := filepath.Abs(allowedRoot)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, resolvedPath)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", &PolicyError{Reason: fmt.Sprintf("path %q escapes allowed root %q", resolvedPath, root)}
+	}
+	resolvedPath, err = workspacefs.SafeJoin(root, rel)
+	if err != nil {
+		return "", &PolicyError{Reason: err.Error()}
+	}
 	if err := ensureWithinAllowedRoot(resolvedPath, policy); err != nil {
 		return "", err
 	}
@@ -452,6 +453,24 @@ func resolveWorkingDirectory(workingDirectory string, policy Policy) (string, er
 	resolvedDirectory, err := filepath.Abs(workingDirectory)
 	if err != nil {
 		return "", err
+	}
+	allowedRoot := strings.TrimSpace(policy.AllowedRoot)
+	if allowedRoot != "" {
+		root, err := filepath.Abs(allowedRoot)
+		if err != nil {
+			return "", err
+		}
+		rel, err := filepath.Rel(root, resolvedDirectory)
+		if err != nil {
+			return "", err
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", &PolicyError{Reason: fmt.Sprintf("path %q escapes allowed root %q", resolvedDirectory, root)}
+		}
+		resolvedDirectory, err = workspacefs.SafeJoin(root, rel)
+		if err != nil {
+			return "", &PolicyError{Reason: err.Error()}
+		}
 	}
 	if err := ensureWithinAllowedRoot(resolvedDirectory, policy); err != nil {
 		return "", err
@@ -688,12 +707,12 @@ func sanitisedEnv() []string {
 }
 
 // defaultLimits reads sandbox limit configuration from environment
-// variables. Set GATEWAY_TASK_MAX_OUTPUT_BYTES=0 to disable the cap
+// variables. Set HECATE_TASK_MAX_OUTPUT_BYTES=0 to disable the cap
 // entirely. The default of 4 MiB bounds memory growth in the gateway
 // reader goroutines for runaway commands.
 func defaultLimits() ResourceLimits {
 	return ResourceLimits{
-		MaxOutputBytes: envInt64("GATEWAY_TASK_MAX_OUTPUT_BYTES", 4*1024*1024),
+		MaxOutputBytes: envInt64("HECATE_TASK_MAX_OUTPUT_BYTES", 4*1024*1024),
 	}
 }
 

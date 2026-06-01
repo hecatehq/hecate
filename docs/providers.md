@@ -31,13 +31,12 @@ Click **Add provider** to open the modal:
 
 ![Add provider modal — Local preset catalog with detected runtime status](screenshots/connections-add-provider.png)
 
-
 1. Pick **Cloud** or **Local** at the top.
 2. Click a preset (e.g. Anthropic, OpenAI, Ollama) — or click **Custom** to point Hecate at any OpenAI-compatible endpoint.
 3. Fill in the form:
    - **Name** is locked to the preset name; Custom lets you choose.
    - **Endpoint URL** is shown for local and custom providers.
-   - **API Key** is shown for cloud and custom-cloud providers; stored encrypted at rest with `GATEWAY_CONTROL_PLANE_SECRET_KEY`.
+   - **API Key** is shown for cloud and custom-cloud providers; stored encrypted at rest with `HECATE_CONTROL_PLANE_SECRET_KEY`.
 4. Click **Add provider**.
 
 The Local tab also runs a lightweight discovery check before you choose a
@@ -80,43 +79,47 @@ Each row has a trash button. Clicking it confirms via a browser dialog and then 
 
 ## Built-in presets
 
-The gateway ships with thirteen provider presets. None of them are auto-added — operators pick from the catalog when adding a provider.
+The gateway ships with eighteen provider presets. None of them are auto-added — operators pick from the catalog when adding a provider.
 
 ### Cloud presets
 
-| ID | Name | Default base URL |
-|---|---|---|
-| `anthropic` | Anthropic | `https://api.anthropic.com/v1` |
-| `deepseek` | DeepSeek | `https://api.deepseek.com/v1` |
-| `gemini` | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` |
-| `groq` | Groq | `https://api.groq.com/openai/v1` |
-| `mistral` | Mistral | `https://api.mistral.ai/v1` |
-| `openai` | OpenAI | `https://api.openai.com/v1` |
-| `perplexity` | Perplexity | `https://api.perplexity.ai` |
-| `together_ai` | Together AI | `https://api.together.xyz/v1` |
-| `xai` | xAI | `https://api.x.ai/v1` |
+| ID            | Name          | Default base URL                                          |
+| ------------- | ------------- | --------------------------------------------------------- |
+| `anthropic`   | Anthropic     | `https://api.anthropic.com/v1`                            |
+| `cohere`      | Cohere        | `https://api.cohere.ai/compatibility/v1`                  |
+| `deepseek`    | DeepSeek      | `https://api.deepseek.com/v1`                             |
+| `fireworks`   | Fireworks AI  | `https://api.fireworks.ai/inference/v1`                   |
+| `gemini`      | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| `groq`        | Groq          | `https://api.groq.com/openai/v1`                          |
+| `huggingface` | Hugging Face  | `https://router.huggingface.co/v1`                        |
+| `mistral`     | Mistral       | `https://api.mistral.ai/v1`                               |
+| `nvidia`      | NVIDIA        | `https://integrate.api.nvidia.com/v1`                     |
+| `openai`      | OpenAI        | `https://api.openai.com/v1`                               |
+| `perplexity`  | Perplexity    | `https://api.perplexity.ai`                               |
+| `together_ai` | Together AI   | `https://api.together.xyz/v1`                             |
+| `xai`         | xAI           | `https://api.x.ai/v1`                                     |
+| `zai`         | z.ai          | `https://api.z.ai/api/paas/v4`                            |
 
 ### Local presets
 
-| ID | Name | Default base URL |
-|---|---|---|
-| `llamacpp` | llama.cpp | `http://127.0.0.1:8080/v1` |
-| `lmstudio` | LM Studio | `http://127.0.0.1:1234/v1` |
-| `localai` | LocalAI | `http://127.0.0.1:8080/v1` |
-| `ollama` | Ollama | `http://127.0.0.1:11434/v1` |
+| ID         | Name      | Default base URL            |
+| ---------- | --------- | --------------------------- |
+| `llamacpp` | llama.cpp | `http://127.0.0.1:8080/v1`  |
+| `lmstudio` | LM Studio | `http://127.0.0.1:1234/v1`  |
+| `localai`  | LocalAI   | `http://127.0.0.1:8080/v1`  |
+| `ollama`   | Ollama    | `http://127.0.0.1:11434/v1` |
 
 `llamacpp` and `localai` share the same default port (`127.0.0.1:8080`); only one of them can be added to the gateway at a time, since the base URL conflict is rejected at create time. Operators who run both should change the port on one of them via the Custom flow or `PROVIDER_*_BASE_URL`.
 
 ## Env-configured providers
 
-Setting `PROVIDER_<NAME>_API_KEY`, `PROVIDER_<NAME>_BASE_URL`, or `PROVIDER_<NAME>_DEFAULT_MODEL` in the environment seeds the runtime registry so the provider becomes reachable for routing, and is also auto-imported into the persisted Connections view so operators can see and manage it through the UI. On subsequent boots the auto-import skips any provider that already exists in the Connections view, so operator edits made via the UI are never overwritten by environment values.
+Setting `PROVIDER_<NAME>_API_KEY` or `PROVIDER_<NAME>_BASE_URL` in the environment seeds the runtime registry so the provider becomes reachable for routing, and is also auto-imported into the persisted Connections view so operators can see and manage it through the UI. On subsequent boots the auto-import skips any provider that already exists in the Connections view, so operator edits made via the UI are never overwritten by environment values.
 
 Env vars are convenient for first-run bootstrapping in `.env` / Docker compose; the Connections view is the source of truth thereafter.
 
 ```bash
 PROVIDER_ANTHROPIC_API_KEY=sk-ant-...
 PROVIDER_OPENAI_API_KEY=sk-...
-PROVIDER_OPENAI_DEFAULT_MODEL=gpt-4o-mini
 PROVIDER_PERPLEXITY_API_KEY=pplx-...
 ```
 
@@ -168,7 +171,7 @@ Reads show up in the response as non-zero
 `Usage.PromptTokens`; Hecate records the token counts but does not
 try to infer provider-specific cache pricing.
 
-The behavior is controlled by `GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED`
+The behavior is controlled by `HECATE_PROVIDER_ANTHROPIC_CACHE_ENABLED`
 (default `true`). The toggle is global — every Anthropic-protocol
 provider, however it was added (env, Connections view, programmatic),
 inherits the same value. Operators flip it to `false` for cost-tier
@@ -194,7 +197,7 @@ The full surface lives in [`runtime-api.md`](runtime-api.md) and is implemented 
 
 Each provider has a per-process health tracker. After a configurable threshold of consecutive retryable failures the breaker opens — the router skips that provider and falls over to the next eligible one. After a cooldown, a half-open probe lets a single request through; if it succeeds, the breaker closes and normal traffic resumes. Upstream `429 Too Many Requests` responses cool a provider down immediately so later requests stop hammering a rate-limited backend and can fail over cleanly.
 
-When `GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD` is set to a positive duration, successful calls that take at-or-above that latency mark the provider `degraded` with health reason `latency` instead of `healthy`. Degraded providers remain routable, but the router scores them behind healthy peers and route diagnostics surface them as `provider_slow` with the last observed latency.
+When `HECATE_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD` is set to a positive duration, successful calls that take at-or-above that latency mark the provider `degraded` with health reason `latency` instead of `healthy`. Degraded providers remain routable, but the router scores them behind healthy peers and route diagnostics surface them as `provider_slow` with the last observed latency.
 
 Within the same health tier, the router now also prefers the more stable provider: fewer recent retryable failures, fewer rate limits/timeouts/server errors, then lower observed latency. When a healthy candidate loses on that dimension, route diagnostics surface it as `provider_less_stable` instead of silently dropping it from the route report.
 
@@ -220,10 +223,10 @@ Failover rows now also capture:
 - `attempt_count` — retry attempts exhausted before failover when applicable
 - `estimated_micros_usd` — reserved for callers that provide their own preflight estimate; usually `0`
 
-The history store is configurable with:
+Provider history follows the global Hecate storage backend:
 
-- `GATEWAY_PROVIDER_HISTORY_BACKEND` — `memory` or `sqlite`
-- `GATEWAY_PROVIDER_HISTORY_LIMIT` — default page size for `/hecate/v1/providers/history`
+- `HECATE_BACKEND` — `memory` or `sqlite`
+- `HECATE_PROVIDER_HISTORY_LIMIT` — default page size for `/hecate/v1/providers/history`
 
 The Connections view shows the current state on each card:
 
@@ -271,7 +274,7 @@ offer safe first-step actions such as **Add provider**, **Open provider**, or
 **Refresh providers**; deeper edits still happen in the provider detail panel.
 Chats link back to Connections rather than duplicating provider-editing
 controls, except for safe one-click repairs such as accepting a
-backend-suggested model or enabling a model-capability override.
+backend-suggested model or refreshing provider readiness.
 
 The Chats workspace consumes the same readiness model at composition time. A
 provider can be configured and healthy while the selected model is still not
@@ -289,3 +292,6 @@ the empty-chat state: compact readiness copy must still show the
 discovered-model count plus the highest-signal health/block/error diagnostics
 and a short repair path, so operators are not forced to send a doomed prompt or
 inspect raw provider JSON.
+If configured local providers appear in the empty-chat state but no routable
+model is available, treat it as a discovery freshness issue first: start the
+local provider app, pull or load a model there, then refresh Connections.

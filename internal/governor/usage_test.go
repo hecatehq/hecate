@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestMemoryUsageStore_RecordUsageAccumulates(t *testing.T) {
@@ -94,7 +94,7 @@ func TestMemoryUsageStore_AppendAndListEvents(t *testing.T) {
 	}
 }
 
-func TestMemoryUsageStore_PruneEvents(t *testing.T) {
+func TestMemoryUsageStore_Prune(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryUsageStore()
 	ctx := context.Background()
@@ -103,9 +103,9 @@ func TestMemoryUsageStore_PruneEvents(t *testing.T) {
 	fresh := time.Now()
 	_ = store.AppendEvent(ctx, UsageHistoryEvent{Key: "k", OccurredAt: old})
 	_ = store.AppendEvent(ctx, UsageHistoryEvent{Key: "k", OccurredAt: fresh})
-	deleted, err := store.PruneEvents(ctx, 30*time.Minute, 0)
+	deleted, err := store.Prune(ctx, 30*time.Minute, 0)
 	if err != nil {
-		t.Fatalf("PruneEvents by age: %v", err)
+		t.Fatalf("Prune by age: %v", err)
 	}
 	if deleted != 1 {
 		t.Fatalf("age deleted = %d, want 1", deleted)
@@ -114,9 +114,9 @@ func TestMemoryUsageStore_PruneEvents(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		_ = store.AppendEvent(ctx, UsageHistoryEvent{Key: "k", OccurredAt: time.Now().Add(time.Duration(i) * time.Second)})
 	}
-	deleted, err = store.PruneEvents(ctx, 0, 3)
+	deleted, err = store.Prune(ctx, 0, 3)
 	if err != nil {
-		t.Fatalf("PruneEvents by count: %v", err)
+		t.Fatalf("Prune by count: %v", err)
 	}
 	if deleted != 8 {
 		t.Fatalf("count deleted = %d, want 8", deleted)

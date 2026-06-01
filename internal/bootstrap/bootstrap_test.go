@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -20,14 +22,6 @@ func TestResolveGeneratesAndPersistsOnFirstRun(t *testing.T) {
 	// to exactly 32 bytes.
 	if len(b.ControlPlaneSecretKey) != 44 {
 		t.Errorf("ControlPlaneSecretKey length = %d, want 44 (base64 of 32 bytes)", len(b.ControlPlaneSecretKey))
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("file mode = %o, want 0600", info.Mode().Perm())
 	}
 
 	raw, err := os.ReadFile(path)
@@ -69,7 +63,7 @@ func TestResolveEnvOverridesFile(t *testing.T) {
 		t.Fatalf("seed Resolve: %v", err)
 	}
 
-	const overrideSecret = "abcdef0123456789abcdef0123456789abcdef0123456789ab=="
+	overrideSecret := testBootstrapKey(0xab)
 	b, err := Resolve(path, overrideSecret)
 	if err != nil {
 		t.Fatalf("Resolve with env override: %v", err)
@@ -114,5 +108,80 @@ func TestResolveRejectsCorruptFile(t *testing.T) {
 	}
 	if _, err := Resolve(path, ""); err == nil {
 		t.Error("expected error on corrupt JSON, got nil")
+	}
+}
+
+func TestResolveRejectsInvalidEnvSecret(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hecate.bootstrap.json")
+
+	if _, err := Resolve(path, "not-base64"); err == nil {
+		t.Fatal("Resolve() error = nil, want invalid env secret error")
+	}
+}
+
+func TestResolveRejectsWrongLengthEnvSecret(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hecate.bootstrap.json")
+
+	shortKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xab}, 31))
+	if _, err := Resolve(path, shortKey); err == nil {
+		t.Fatal("Resolve() error = nil, want wrong-length env secret error")
+	}
+}
+
+func TestResolveRejectsInvalidPersistedSecret(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hecate.bootstrap.json")
+	b := Bootstrap{
+		ControlPlaneSecretKey: "not-base64",
+	}
+	raw, err := json.Marshal(b)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	if _, err := Resolve(path, ""); err == nil {
+		t.Fatal("Resolve() error = nil, want invalid persisted secret error")
+	}
+}
+
+func TestResolveRejectsWrongLengthPersistedSecret(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hecate.bootstrap.json")
+	b := Bootstrap{
+		ControlPlaneSecretKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0xab}, 31)),
+	}
+	raw, err := json.Marshal(b)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	if _, err := Resolve(path, ""); err == nil {
+		t.Fatal("Resolve() error = nil, want wrong-length persisted secret error")
+	}
+}
+
+func testBootstrapKey(fill byte) string {
+	return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{fill}, 32))
+}
+
+func writeBootstrapFixture(t *testing.T, path, key string, mode os.FileMode) {
+	t.Helper()
+	b := Bootstrap{
+		ControlPlaneSecretKey: key,
+	}
+	raw, err := json.Marshal(b)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	if err := os.WriteFile(path, raw, mode); err != nil {
+		t.Fatalf("write fixture: %v", err)
 	}
 }

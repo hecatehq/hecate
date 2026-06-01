@@ -2,7 +2,7 @@
 
 This directory contains the Astro homepage for [hecate.sh](https://hecate.sh).
 It is separate from the embedded operator UI in `../ui`: `website/` builds the
-public site, while `ui/` is bundled into the `hecate` gateway binary.
+public site, while `ui/` is bundled into the `hecate` runtime binary.
 
 ## Development
 

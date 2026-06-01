@@ -3,57 +3,36 @@ package modelcaps
 import (
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/controlplane"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
-func TestResolvePrecedence(t *testing.T) {
-	streaming := false
-	state := controlplane.State{
-		ModelCapabilityProbeState: []controlplane.ModelCapabilityRecord{{
-			Provider:    "ollama",
-			Model:       "llama3.1",
-			ToolCalling: ToolCallingBasic,
-		}},
-		ModelCapabilityOverrides: []controlplane.ModelCapabilityRecord{{
-			Provider:         "ollama",
-			Model:            "llama3.1",
-			ToolCalling:      ToolCallingNone,
-			Streaming:        &streaming,
-			MaxContextTokens: 8192,
-		}},
-	}
-
-	got := Resolve("ollama", "local", "llama3.1", "provider", state)
+func TestResolveProviderCapabilityBeatsCatalog(t *testing.T) {
+	got := ResolveWithProviderCapability("ollama", "local", "smollm2:135m", "upstream_v1_models", types.ModelCapabilities{
+		ToolCalling:    ToolCallingNone,
+		Streaming:      true,
+		StreamingKnown: true,
+		Source:         SourceProvider,
+	})
 	if got.ToolCalling != ToolCallingNone {
-		t.Fatalf("ToolCalling = %q, want %q", got.ToolCalling, ToolCallingNone)
+		t.Fatalf("ToolCalling = %q, want provider none", got.ToolCalling)
 	}
-	if got.Streaming {
-		t.Fatalf("Streaming = true, want false from override")
-	}
-	if got.MaxContextTokens != 8192 {
-		t.Fatalf("MaxContextTokens = %d, want 8192", got.MaxContextTokens)
-	}
-	if got.Source != SourceOperatorOverride {
-		t.Fatalf("Source = %q, want %q", got.Source, SourceOperatorOverride)
+	if got.Source != SourceProvider {
+		t.Fatalf("Source = %q, want %q", got.Source, SourceProvider)
 	}
 }
 
-func TestResolveProbeBeatsLocalUnknownDefault(t *testing.T) {
-	state := controlplane.State{
-		ModelCapabilityProbeState: []controlplane.ModelCapabilityRecord{{
-			Provider:    "ollama",
-			Model:       "qwen2.5-coder",
-			ToolCalling: ToolCallingBasic,
-		}},
+func TestResolveProviderCapabilityCanDisableStreaming(t *testing.T) {
+	got := ResolveWithProviderCapability("openai", "cloud", "gpt-5.4-mini", "static", types.ModelCapabilities{
+		ToolCalling:    ToolCallingParallel,
+		Streaming:      false,
+		StreamingKnown: true,
+		Source:         SourceProvider,
+	})
+	if got.Streaming {
+		t.Fatal("Streaming = true, want provider-discovered false to override catalog default")
 	}
-
-	got := Resolve("ollama", "local", "qwen2.5-coder", "provider", state)
-	if got.ToolCalling != ToolCallingBasic {
-		t.Fatalf("ToolCalling = %q, want %q", got.ToolCalling, ToolCallingBasic)
-	}
-	if got.Source != SourceProbe {
-		t.Fatalf("Source = %q, want %q", got.Source, SourceProbe)
+	if got.Source != SourceProvider {
+		t.Fatalf("Source = %q, want %q", got.Source, SourceProvider)
 	}
 }
 
@@ -76,7 +55,7 @@ func TestResolveCatalogDefaults(t *testing.T) {
 			if tt.kind == "local" {
 				source = "provider"
 			}
-			got := Resolve(tt.provider, tt.kind, tt.model, source, controlplane.State{})
+			got := Resolve(tt.provider, tt.kind, tt.model, source)
 			if got.ToolCalling != tt.wantTools {
 				t.Fatalf("ToolCalling = %q, want %q", got.ToolCalling, tt.wantTools)
 			}
@@ -87,17 +66,17 @@ func TestResolveCatalogDefaults(t *testing.T) {
 	}
 }
 
-func TestToolCapableDefaultsToAllowedUnlessExplicitlyDisabled(t *testing.T) {
+func TestToolCapableRequiresKnownToolSupport(t *testing.T) {
 	tests := []struct {
 		name string
 		cap  string
 		want bool
 	}{
-		{name: "unknown allowed", cap: ToolCallingUnknown, want: true},
+		{name: "unknown disabled", cap: ToolCallingUnknown, want: false},
 		{name: "basic allowed", cap: ToolCallingBasic, want: true},
 		{name: "parallel allowed", cap: ToolCallingParallel, want: true},
 		{name: "none disabled", cap: ToolCallingNone, want: false},
-		{name: "missing allowed", cap: "", want: true},
+		{name: "missing disabled", cap: "", want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

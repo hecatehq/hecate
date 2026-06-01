@@ -36,6 +36,72 @@ test("clicking a nav button switches the active workspace", async ({ page }) => 
   );
 });
 
+test("workspace navigation keeps the current view visible while the next chunk loads", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+
+  let releaseUsageChunk: (() => void) | null = null;
+  const usageChunkRequested = new Promise<void>((resolve) => {
+    void page.route("**/src/features/usage/UsageView.tsx*", async (route) => {
+      resolve();
+      await new Promise<void>((release) => {
+        releaseUsageChunk = release;
+      });
+      await route.continue();
+    });
+  });
+
+  await page.locator(".hecate-activitybar [aria-label^='Usage']").click();
+  await usageChunkRequested;
+
+  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText("Loading workspace…")).toHaveCount(0);
+
+  releaseUsageChunk?.();
+  await expect(page.getByText("Usage", { exact: true })).toBeVisible();
+});
+
+test("cold workspace loading fallback is centered in the content area", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.workspace", "usage");
+  });
+
+  let releaseUsageChunk: (() => void) | null = null;
+  await page.route("**/src/features/usage/UsageView.tsx*", async (route) => {
+    await new Promise<void>((release) => {
+      releaseUsageChunk = release;
+    });
+    await route.continue();
+  });
+
+  await page.goto("/");
+
+  const content = page.locator(".console-content");
+  const fallback = page.locator(".workspace-fallback");
+  const label = page.locator(".workspace-fallback__label");
+  await expect(label).toHaveText("Loading workspace…");
+  await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
+
+  const contentBox = await content.boundingBox();
+  const labelBox = await label.boundingBox();
+  expect(contentBox).not.toBeNull();
+  expect(labelBox).not.toBeNull();
+
+  const contentCenterX = contentBox!.x + contentBox!.width / 2;
+  const contentCenterY = contentBox!.y + contentBox!.height / 2;
+  const labelCenterX = labelBox!.x + labelBox!.width / 2;
+  const labelCenterY = labelBox!.y + labelBox!.height / 2;
+  expect(Math.abs(labelCenterX - contentCenterX)).toBeLessThan(12);
+  expect(Math.abs(labelCenterY - contentCenterY)).toBeLessThan(12);
+
+  releaseUsageChunk?.();
+  await expect(fallback).toHaveCount(0);
+  await expect(page.getByText("Usage", { exact: true })).toBeVisible();
+});
+
 test("number keys do not switch workspaces while the app is focused", async ({ page }) => {
   await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
   await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute(

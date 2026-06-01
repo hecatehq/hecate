@@ -1,6 +1,6 @@
 // Usage helpers shared by the Usage view and related tests.
 
-import type { UsageSummaryRecord } from "../types/runtime";
+import type { UsageSummaryRecord } from "../types/usage";
 
 export function describeUsageScope(usage?: UsageSummaryRecord | null): string {
   if (!usage) {

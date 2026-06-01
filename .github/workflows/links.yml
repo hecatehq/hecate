@@ -47,6 +47,22 @@ jobs:
       - name: Validate Mermaid diagrams
         run: bun scripts/check-mermaid.ts
 
+  markdown-format:
+    name: Check Markdown formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ui/package.json
+
+      - name: Install formatter dependencies
+        run: cd ui && bun install --frozen-lockfile
+
+      - name: Run Oxfmt on Markdown
+        run: git ls-files -z '*.md' '*.mdc' | xargs -0 ./ui/node_modules/.bin/oxfmt --check
+
   lychee-internal:
     name: Check relative links (hard fail)
     runs-on: ubuntu-latest

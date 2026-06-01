@@ -29,7 +29,7 @@ package llamacpp
 import (
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/controlplane"
 )
 
 // Capabilities is a type alias over controlplane's persisted shape.

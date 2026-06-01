@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PendingAgentApproval } from "../../types/runtime";
+import type { PendingAgentApproval } from "../../types/chat";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 
 function approval(overrides: Partial<PendingAgentApproval> = {}): PendingAgentApproval {
@@ -34,7 +34,7 @@ describe("AgentApprovalAutoModeBanner", () => {
     render(<AgentApprovalAutoModeBanner mode="auto" />);
     const banner = screen.getByTestId("agent-approval-auto-banner");
     expect(banner.textContent).toMatch(/Auto-approval is on/);
-    expect(banner.textContent).toMatch(/GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto/);
+    expect(banner.textContent).toMatch(/HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto/);
   });
 });
 
@@ -49,7 +49,11 @@ describe("AgentApprovalsBanner", () => {
       <AgentApprovalsBanner
         pending={[
           approval({ approval_id: "ap-1", tool_name: "write_file" }),
-          approval({ approval_id: "ap-2", tool_name: "exec_command", created_at: "2026-04-21T10:01:00Z" }),
+          approval({
+            approval_id: "ap-2",
+            tool_name: "exec_command",
+            created_at: "2026-04-21T10:01:00Z",
+          }),
         ]}
         onSelect={vi.fn()}
       />,
@@ -80,7 +84,10 @@ describe("AgentApprovalsBanner", () => {
     const onSelect = vi.fn();
     render(
       <AgentApprovalsBanner
-        pending={[approval({ approval_id: "ap-1" }), approval({ approval_id: "ap-2", created_at: "2026-04-21T10:01:00Z" })]}
+        pending={[
+          approval({ approval_id: "ap-1" }),
+          approval({ approval_id: "ap-2", created_at: "2026-04-21T10:01:00Z" }),
+        ]}
         onSelect={onSelect}
       />,
     );

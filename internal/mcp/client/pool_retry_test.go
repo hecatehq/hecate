@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // startFlakyMCPHTTPFixture spins up an httptest.Server that fails

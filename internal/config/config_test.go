@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -33,22 +34,151 @@ func TestDefaultProviderTimeoutBranchesOnKind(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnvUsesCurrentOpenAIDefaultModel(t *testing.T) {
-	t.Setenv("GATEWAY_DEFAULT_MODEL", "")
+func TestLoadFromEnvBackendFansOutToDurableStores(t *testing.T) {
+	t.Setenv("HECATE_BACKEND", " SQLite ")
 
 	cfg := LoadFromEnv()
-	if cfg.Router.DefaultModel != "gpt-5.4-mini" {
-		t.Fatalf("default model = %q, want gpt-5.4-mini", cfg.Router.DefaultModel)
+	got := []string{
+		cfg.Server.ControlPlaneBackend,
+		cfg.Server.TasksBackend,
+		cfg.Server.TaskQueueBackend,
+		cfg.Provider.HistoryBackend,
+		cfg.Chat.SessionsBackend,
+		cfg.Projects.Backend,
+		cfg.Governor.UsageBackend,
+		cfg.Retention.HistoryBackend,
+	}
+	for _, backend := range got {
+		if backend != "sqlite" {
+			t.Fatalf("backend fanout = %#v, want all sqlite", got)
+		}
 	}
 }
+
+func TestLoadFromEnvTraceBodyModeDefaultsToMetadata(t *testing.T) {
+	cfg := LoadFromEnv()
+	if cfg.Server.TraceBodyMode != "metadata" {
+		t.Fatalf("TraceBodyMode = %q, want metadata", cfg.Server.TraceBodyMode)
+	}
+}
+
+func TestLoadFromEnvNonLoopbackBindAcknowledgement(t *testing.T) {
+	t.Setenv("HECATE_ALLOW_NON_LOOPBACK_BIND", "true")
+
+	cfg := LoadFromEnv()
+	if !cfg.Server.AllowNonLoopbackBind {
+		t.Fatal("AllowNonLoopbackBind = false, want true")
+	}
+}
+
+func TestLoadFromEnvNonLoopbackBindAcknowledgementZeroStaysFalse(t *testing.T) {
+	t.Setenv("HECATE_ALLOW_NON_LOOPBACK_BIND", "0")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.AllowNonLoopbackBind {
+		t.Fatal("AllowNonLoopbackBind = true for HECATE_ALLOW_NON_LOOPBACK_BIND=0, want false")
+	}
+}
+
+func TestLoadFromEnvAllowedOrigins(t *testing.T) {
+	t.Setenv("HECATE_ALLOWED_ORIGINS", "http://127.0.0.1:5173, http://localhost:5173")
+
+	cfg := LoadFromEnv()
+	want := []string{"http://127.0.0.1:5173", "http://localhost:5173"}
+	if !reflect.DeepEqual(cfg.Server.AllowedOrigins, want) {
+		t.Fatalf("AllowedOrigins = %#v, want %#v", cfg.Server.AllowedOrigins, want)
+	}
+}
+
+func TestLoadFromEnvRuntimeToken(t *testing.T) {
+	t.Setenv("HECATE_RUNTIME_TOKEN", "local-runtime-token-123456")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.RuntimeToken != "local-runtime-token-123456" {
+		t.Fatalf("RuntimeToken = %q, want configured token", cfg.Server.RuntimeToken)
+	}
+}
+
+func TestLoadFromEnvInferenceToken(t *testing.T) {
+	t.Setenv("HECATE_INFERENCE_TOKEN", "local-inference-token-123456")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.InferenceToken != "local-inference-token-123456" {
+		t.Fatalf("InferenceToken = %q, want configured token", cfg.Server.InferenceToken)
+	}
+}
+
+func TestListenAddressIsLoopback(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		address string
+		want    bool
+	}{
+		{name: "ipv4 loopback", address: "127.0.0.1:8765", want: true},
+		{name: "ipv6 loopback", address: "[::1]:8765", want: true},
+		{name: "localhost", address: "localhost:8765", want: true},
+		{name: "wildcard ipv4", address: "0.0.0.0:8765", want: false},
+		{name: "wildcard ipv6", address: "[::]:8765", want: false},
+		{name: "empty host", address: ":8765", want: false},
+		{name: "public ip", address: "203.0.113.10:8765", want: false},
+		{name: "host name", address: "hecate.example.com:8765", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ListenAddressIsLoopback(tc.address); got != tc.want {
+				t.Fatalf("ListenAddressIsLoopback(%q) = %v, want %v", tc.address, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestServerConfigValidateNetworkExposure(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		cfg     ServerConfig
+		wantErr bool
+	}{
+		{name: "loopback default", cfg: ServerConfig{Address: "127.0.0.1:8765"}},
+		{name: "empty host without acknowledgement", cfg: ServerConfig{Address: ":8765"}, wantErr: true},
+		{name: "wildcard without acknowledgement", cfg: ServerConfig{Address: "0.0.0.0:8765"}, wantErr: true},
+		{name: "wildcard with acknowledgement", cfg: ServerConfig{Address: "0.0.0.0:8765", AllowNonLoopbackBind: true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := tc.cfg.ValidateNetworkExposure()
+			if tc.wantErr && err == nil {
+				t.Fatal("ValidateNetworkExposure() error = nil, want error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("ValidateNetworkExposure() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestLoadFromEnvTraceBodyModeOverride(t *testing.T) {
+	t.Setenv("HECATE_TRACE_BODY_MODE", "redacted_text")
+
+	cfg := LoadFromEnv()
+	if cfg.Server.TraceBodyMode != "redacted_text" {
+		t.Fatalf("TraceBodyMode = %q, want redacted_text", cfg.Server.TraceBodyMode)
+	}
+}
+
 func TestLoadFromEnvOTelSharedDefaults(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4318")
-	t.Setenv("GATEWAY_OTEL_HEADERS", "x-api-key=secret,tenant=local")
-	t.Setenv("GATEWAY_OTEL_TIMEOUT", "9s")
-	t.Setenv("GATEWAY_OTEL_TRANSPORT", "http")
-	t.Setenv("GATEWAY_OTEL_TRACES_ENABLED", "true")
-	t.Setenv("GATEWAY_OTEL_METRICS_ENABLED", "true")
-	t.Setenv("GATEWAY_OTEL_LOGS_ENABLED", "true")
+	t.Setenv("HECATE_OTEL_ENDPOINT", "http://collector:4318")
+	t.Setenv("HECATE_OTEL_HEADERS", "x-api-key=secret,tenant=local")
+	t.Setenv("HECATE_OTEL_TIMEOUT", "9s")
+	t.Setenv("HECATE_OTEL_TRANSPORT", "http")
+	t.Setenv("HECATE_OTEL_TRACES_ENABLED", "true")
+	t.Setenv("HECATE_OTEL_METRICS_ENABLED", "true")
+	t.Setenv("HECATE_OTEL_LOGS_ENABLED", "true")
 
 	cfg := LoadFromEnv()
 	if cfg.OTel.Endpoint != "http://collector:4318" {
@@ -72,11 +202,11 @@ func TestLoadFromEnvOTelSharedDefaults(t *testing.T) {
 }
 
 func TestLoadFromEnvOTelGRPCSharedEndpoint(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4317")
-	t.Setenv("GATEWAY_OTEL_TRANSPORT", "grpc")
-	t.Setenv("GATEWAY_OTEL_METRICS_ENDPOINT", "https://metrics-collector:4317")
-	t.Setenv("GATEWAY_OTEL_METRICS_TRANSPORT", "grpc")
-	t.Setenv("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", "always_on")
+	t.Setenv("HECATE_OTEL_ENDPOINT", "http://collector:4317")
+	t.Setenv("HECATE_OTEL_TRANSPORT", "grpc")
+	t.Setenv("HECATE_OTEL_METRICS_ENDPOINT", "https://metrics-collector:4317")
+	t.Setenv("HECATE_OTEL_METRICS_TRANSPORT", "grpc")
+	t.Setenv("HECATE_OTEL_METRICS_EXEMPLAR_FILTER", "always_on")
 
 	cfg := LoadFromEnv()
 	if cfg.OTel.Traces.Endpoint != "http://collector:4317" || cfg.OTel.Traces.Transport != "grpc" {
@@ -91,9 +221,9 @@ func TestLoadFromEnvOTelGRPCSharedEndpoint(t *testing.T) {
 }
 
 func TestLoadFromEnvOTelLogsFallbackToTraceSignal(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_TRACES_ENDPOINT", "127.0.0.1:4317")
-	t.Setenv("GATEWAY_OTEL_TRACES_TRANSPORT", "grpc")
-	t.Setenv("GATEWAY_OTEL_TRACES_HEADERS", "trace=true")
+	t.Setenv("HECATE_OTEL_TRACES_ENDPOINT", "127.0.0.1:4317")
+	t.Setenv("HECATE_OTEL_TRACES_TRANSPORT", "grpc")
+	t.Setenv("HECATE_OTEL_TRACES_HEADERS", "trace=true")
 
 	cfg := LoadFromEnv()
 	if cfg.OTel.Logs.Endpoint != "127.0.0.1:4317" {
@@ -116,41 +246,55 @@ func TestValidateAcceptsDefaultConfig(t *testing.T) {
 }
 
 func TestValidateRejectsInvalidOTelTransport(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_TRANSPORT", "smtp")
+	t.Setenv("HECATE_OTEL_TRANSPORT", "smtp")
 	cfg := LoadFromEnv()
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid OTel transport error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_OTEL_TRANSPORT") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_OTEL_TRANSPORT", err)
+	if !strings.Contains(err.Error(), "HECATE_OTEL_TRANSPORT") {
+		t.Fatalf("Validate() error = %q, want HECATE_OTEL_TRANSPORT", err)
 	}
 }
 
 func TestValidateRejectsInvalidOTelMetricsExemplarFilter(t *testing.T) {
-	t.Setenv("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", "sometimes")
+	t.Setenv("HECATE_OTEL_METRICS_EXEMPLAR_FILTER", "sometimes")
 	cfg := LoadFromEnv()
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid OTel metrics exemplar filter error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", err)
+	if !strings.Contains(err.Error(), "HECATE_OTEL_METRICS_EXEMPLAR_FILTER") {
+		t.Fatalf("Validate() error = %q, want HECATE_OTEL_METRICS_EXEMPLAR_FILTER", err)
+	}
+}
+
+func TestValidateRejectsInvalidTraceBodyMode(t *testing.T) {
+	t.Setenv("HECATE_TRACE_BODY_MODE", "raw")
+	cfg := LoadFromEnv()
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid trace body mode error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_TRACE_BODY_MODE") {
+		t.Fatalf("Validate() error = %q, want HECATE_TRACE_BODY_MODE", err)
 	}
 }
 
 func TestValidateRejectsInvalidBackendNames(t *testing.T) {
 	cfg := LoadFromEnv()
 	cfg.Server.ControlPlaneBackend = "redis"
+	cfg.Projects.Backend = "postgres"
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid backend error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_CONTROL_PLANE_BACKEND") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_CONTROL_PLANE_BACKEND", err)
+	if !strings.Contains(err.Error(), "HECATE_BACKEND") {
+		t.Fatalf("Validate() error = %q, want HECATE_BACKEND", err)
 	}
 }
 
@@ -162,21 +306,60 @@ func TestValidateRejectsInvalidPublicURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid public URL error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_PUBLIC_URL") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_PUBLIC_URL", err)
+	if !strings.Contains(err.Error(), "HECATE_PUBLIC_URL") {
+		t.Fatalf("Validate() error = %q, want HECATE_PUBLIC_URL", err)
+	}
+}
+
+func TestValidateRejectsInvalidAllowedOrigin(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.AllowedOrigins = []string{"http://localhost:5173/app"}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid allowed origin error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_ALLOWED_ORIGINS") {
+		t.Fatalf("Validate() error = %q, want HECATE_ALLOWED_ORIGINS", err)
+	}
+}
+
+func TestValidateRejectsShortRuntimeToken(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.RuntimeToken = "short"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid runtime token error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_RUNTIME_TOKEN") {
+		t.Fatalf("Validate() error = %q, want HECATE_RUNTIME_TOKEN", err)
+	}
+}
+
+func TestValidateRejectsShortInferenceToken(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.InferenceToken = "short"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid inference token error")
+	}
+	if !strings.Contains(err.Error(), "HECATE_INFERENCE_TOKEN") {
+		t.Fatalf("Validate() error = %q, want HECATE_INFERENCE_TOKEN", err)
 	}
 }
 
 func TestValidateRejectsInvalidDurationEnvValues(t *testing.T) {
-	t.Setenv("GATEWAY_RETENTION_INTERVAL", "tomorrow-ish")
+	t.Setenv("HECATE_RETENTION_INTERVAL", "tomorrow-ish")
 	cfg := LoadFromEnv()
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid duration error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_RETENTION_INTERVAL") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_RETENTION_INTERVAL", err)
+	if !strings.Contains(err.Error(), "HECATE_RETENTION_INTERVAL") {
+		t.Fatalf("Validate() error = %q, want HECATE_RETENTION_INTERVAL", err)
 	}
 }
 
@@ -192,9 +375,9 @@ func TestValidateRejectsImpossibleRuntimeValues(t *testing.T) {
 	cfg.Provider.HistoryLimit = -1
 	cfg.Server.TaskQueueWorkers = 0
 	cfg.Server.TaskQueueBuffer = -1
-	cfg.Server.AgentChatMaxTurnsPerSession = -1
-	cfg.Server.AgentChatMaxSessionDuration = -time.Second
-	cfg.Server.AgentChatIdleTimeout = -time.Second
+	cfg.Server.ChatMaxTurnsPerSession = -1
+	cfg.Server.ChatMaxSessionDuration = -time.Second
+	cfg.Server.ChatIdleTimeout = -time.Second
 	cfg.Server.RateLimit.Enabled = true
 	cfg.Server.RateLimit.RequestsPerMinute = 0
 	cfg.Server.RateLimit.BurstSize = -1
@@ -204,20 +387,20 @@ func TestValidateRejectsImpossibleRuntimeValues(t *testing.T) {
 		t.Fatal("Validate() error = nil, want aggregate validation error")
 	}
 	for _, want := range []string{
-		"GATEWAY_RETENTION_INTERVAL",
-		"GATEWAY_RETENTION_TRACES_MAX_AGE",
-		"GATEWAY_RETENTION_TRACES_MAX_COUNT",
-		"GATEWAY_PROVIDER_MAX_ATTEMPTS",
-		"GATEWAY_PROVIDER_HEALTH_FAILURE_THRESHOLD",
-		"GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD",
-		"GATEWAY_PROVIDER_HISTORY_LIMIT",
-		"GATEWAY_TASK_QUEUE_WORKERS",
-		"GATEWAY_TASK_QUEUE_BUFFER",
-		"GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION",
-		"GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION",
-		"GATEWAY_AGENT_CHAT_IDLE_TIMEOUT",
-		"GATEWAY_RATE_LIMIT_RPM",
-		"GATEWAY_RATE_LIMIT_BURST",
+		"HECATE_RETENTION_INTERVAL",
+		"HECATE_RETENTION_TRACES_MAX_AGE",
+		"HECATE_RETENTION_TRACES_MAX_COUNT",
+		"HECATE_PROVIDER_MAX_ATTEMPTS",
+		"HECATE_PROVIDER_HEALTH_FAILURE_THRESHOLD",
+		"HECATE_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD",
+		"HECATE_PROVIDER_HISTORY_LIMIT",
+		"HECATE_TASK_QUEUE_WORKERS",
+		"HECATE_TASK_QUEUE_BUFFER",
+		"HECATE_CHAT_MAX_TURNS_PER_SESSION",
+		"HECATE_CHAT_MAX_SESSION_DURATION",
+		"HECATE_CHAT_IDLE_TIMEOUT",
+		"HECATE_RATE_LIMIT_RPM",
+		"HECATE_RATE_LIMIT_BURST",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Validate() error = %q, want %s", err, want)
@@ -280,18 +463,15 @@ func TestLoadProvidersFromEnvUsesGenericProviderPrefixes(t *testing.T) {
 	}
 }
 
-func TestBuiltInProviderCatalogDefaults(t *testing.T) {
+func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 	t.Parallel()
 
 	openai, ok := BuiltInProviderByID("openai")
 	if !ok {
 		t.Fatal("BuiltInProviderByID(openai) = not found")
 	}
-	if openai.DefaultModel != "gpt-5.4-mini" {
-		t.Fatalf("openai built-in default model = %q, want gpt-5.4-mini", openai.DefaultModel)
-	}
-	if got := openai.RuntimeConfig("gpt-5.4").DefaultModel; got != "gpt-5.4" {
-		t.Fatalf("openai runtime default model = %q, want overridden global default", got)
+	if openai.Protocol != "openai" {
+		t.Fatalf("openai protocol = %q, want openai", openai.Protocol)
 	}
 
 	anthropic, ok := BuiltInProviderByID("anthropic")
@@ -300,9 +480,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	}
 	if anthropic.Protocol != "anthropic" {
 		t.Fatalf("anthropic protocol = %q, want anthropic", anthropic.Protocol)
-	}
-	if got := anthropic.RuntimeConfig("ignored").DefaultModel; got != "claude-sonnet-4-6" {
-		t.Fatalf("anthropic default model = %q, want claude-sonnet-4-6", got)
 	}
 
 	deepseek, ok := BuiltInProviderByID("deepseek")
@@ -315,9 +492,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	if deepseek.BaseURL != "https://api.deepseek.com/v1" {
 		t.Fatalf("deepseek base url = %q, want https://api.deepseek.com/v1", deepseek.BaseURL)
 	}
-	if got := deepseek.RuntimeConfig("ignored").DefaultModel; got != "deepseek-chat" {
-		t.Fatalf("deepseek default model = %q, want deepseek-chat", got)
-	}
 
 	gemini, ok := BuiltInProviderByID("gemini")
 	if !ok {
@@ -328,9 +502,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	}
 	if gemini.BaseURL != "https://generativelanguage.googleapis.com/v1beta/openai" {
 		t.Fatalf("gemini base url = %q, want https://generativelanguage.googleapis.com/v1beta/openai", gemini.BaseURL)
-	}
-	if got := gemini.RuntimeConfig("ignored").DefaultModel; got != "gemini-2.5-flash" {
-		t.Fatalf("gemini default model = %q, want gemini-2.5-flash", got)
 	}
 
 	xai, ok := BuiltInProviderByID("xai")
@@ -343,9 +514,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	if xai.BaseURL != "https://api.x.ai/v1" {
 		t.Fatalf("xai base url = %q, want https://api.x.ai/v1", xai.BaseURL)
 	}
-	if got := xai.RuntimeConfig("ignored").DefaultModel; got != "grok-3-mini" {
-		t.Fatalf("xai default model = %q, want grok-3-mini", got)
-	}
 
 	mistral, ok := BuiltInProviderByID("mistral")
 	if !ok {
@@ -356,9 +524,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	}
 	if mistral.BaseURL != "https://api.mistral.ai/v1" {
 		t.Fatalf("mistral base url = %q, want https://api.mistral.ai/v1", mistral.BaseURL)
-	}
-	if got := mistral.RuntimeConfig("ignored").DefaultModel; got != "mistral-small-latest" {
-		t.Fatalf("mistral default model = %q, want mistral-small-latest", got)
 	}
 
 	perplexity, ok := BuiltInProviderByID("perplexity")
@@ -374,9 +539,6 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	if perplexity.ChatPath != "/chat/completions" {
 		t.Fatalf("perplexity chat path = %q, want /chat/completions", perplexity.ChatPath)
 	}
-	if got := perplexity.RuntimeConfig("ignored").DefaultModel; got != "sonar" {
-		t.Fatalf("perplexity default model = %q, want sonar", got)
-	}
 
 	together, ok := BuiltInProviderByID("together_ai")
 	if !ok {
@@ -388,20 +550,66 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 	if together.BaseURL != "https://api.together.xyz/v1" {
 		t.Fatalf("together_ai base url = %q, want https://api.together.xyz/v1", together.BaseURL)
 	}
-	if got := together.RuntimeConfig("ignored").DefaultModel; got != "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" {
-		t.Fatalf("together_ai default model = %q, want meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", got)
+
+	cohere, ok := BuiltInProviderByID("cohere")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(cohere) = not found")
+	}
+	if cohere.Protocol != "openai" {
+		t.Fatalf("cohere protocol = %q, want openai", cohere.Protocol)
+	}
+	if cohere.BaseURL != "https://api.cohere.ai/compatibility/v1" {
+		t.Fatalf("cohere base url = %q, want https://api.cohere.ai/compatibility/v1", cohere.BaseURL)
+	}
+
+	fireworks, ok := BuiltInProviderByID("fireworks")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(fireworks) = not found")
+	}
+	if fireworks.Protocol != "openai" {
+		t.Fatalf("fireworks protocol = %q, want openai", fireworks.Protocol)
+	}
+	if fireworks.BaseURL != "https://api.fireworks.ai/inference/v1" {
+		t.Fatalf("fireworks base url = %q, want https://api.fireworks.ai/inference/v1", fireworks.BaseURL)
+	}
+
+	huggingface, ok := BuiltInProviderByID("huggingface")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(huggingface) = not found")
+	}
+	if huggingface.Protocol != "openai" {
+		t.Fatalf("huggingface protocol = %q, want openai", huggingface.Protocol)
+	}
+	if huggingface.BaseURL != "https://router.huggingface.co/v1" {
+		t.Fatalf("huggingface base url = %q, want https://router.huggingface.co/v1", huggingface.BaseURL)
+	}
+
+	nvidia, ok := BuiltInProviderByID("nvidia")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(nvidia) = not found")
+	}
+	if nvidia.Protocol != "openai" {
+		t.Fatalf("nvidia protocol = %q, want openai", nvidia.Protocol)
+	}
+	if nvidia.BaseURL != "https://integrate.api.nvidia.com/v1" {
+		t.Fatalf("nvidia base url = %q, want https://integrate.api.nvidia.com/v1", nvidia.BaseURL)
+	}
+
+	zai, ok := BuiltInProviderByID("zai")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(zai) = not found")
+	}
+	if zai.Protocol != "openai" {
+		t.Fatalf("zai protocol = %q, want openai", zai.Protocol)
+	}
+	if zai.BaseURL != "https://api.z.ai/api/paas/v4" {
+		t.Fatalf("zai base url = %q, want https://api.z.ai/api/paas/v4", zai.BaseURL)
 	}
 
 	for _, id := range []string{"ollama", "LM Studio", "localai", "llamacpp"} {
-		local, ok := BuiltInProviderByID(id)
+		_, ok := BuiltInProviderByID(id)
 		if !ok {
 			t.Fatalf("BuiltInProviderByID(%s) = not found", id)
-		}
-		if local.DefaultModel != "" {
-			t.Fatalf("%s built-in default model = %q, want empty for discovery", local.ID, local.DefaultModel)
-		}
-		if got := local.RuntimeConfig("ignored").DefaultModel; got != "" {
-			t.Fatalf("%s runtime default model = %q, want empty for discovery", local.ID, got)
 		}
 	}
 }
@@ -410,6 +618,7 @@ func TestLoadProvidersFromEnvIncludesCustomProviderFromCoreEnvKeys(t *testing.T)
 	t.Setenv("PROVIDER_CUSTOM_PRECONFIGURED", "1")
 	t.Setenv("PROVIDER_CUSTOM_BASE_URL", "https://example.com/v1")
 	t.Setenv("PROVIDER_CUSTOM_API_KEY", "custom-secret")
+	t.Setenv("PROVIDER_CUSTOM_MODELS", "custom-fast, custom-large")
 
 	cfg := LoadFromEnv()
 	// Only providers with explicit env vars register — one custom var
@@ -426,6 +635,9 @@ func TestLoadProvidersFromEnvIncludesCustomProviderFromCoreEnvKeys(t *testing.T)
 	}
 	if custom.APIKey != "custom-secret" {
 		t.Fatalf("custom api key = %q, want custom-secret", custom.APIKey)
+	}
+	if len(custom.KnownModels) != 2 || custom.KnownModels[0] != "custom-fast" || custom.KnownModels[1] != "custom-large" {
+		t.Fatalf("custom known models = %#v, want custom-fast/custom-large", custom.KnownModels)
 	}
 }
 
@@ -473,7 +685,7 @@ func testProviderByName(items []OpenAICompatibleProviderConfig, name string) (Op
 }
 
 func TestLoadFromEnvDataDirDefault(t *testing.T) {
-	t.Setenv("GATEWAY_DATA_DIR", "")
+	t.Setenv("HECATE_DATA_DIR", "")
 
 	cfg := LoadFromEnv()
 	if cfg.Server.DataDir != ".data" {
@@ -482,7 +694,7 @@ func TestLoadFromEnvDataDirDefault(t *testing.T) {
 }
 
 func TestLoadFromEnvDataDirOverride(t *testing.T) {
-	t.Setenv("GATEWAY_DATA_DIR", "/var/hecate")
+	t.Setenv("HECATE_DATA_DIR", "/var/hecate")
 
 	cfg := LoadFromEnv()
 	if cfg.Server.DataDir != "/var/hecate" {
@@ -491,7 +703,7 @@ func TestLoadFromEnvDataDirOverride(t *testing.T) {
 }
 
 func TestLoadFromEnvBootstrapFileDefault(t *testing.T) {
-	t.Setenv("GATEWAY_BOOTSTRAP_FILE", "")
+	t.Setenv("HECATE_BOOTSTRAP_FILE", "")
 
 	cfg := LoadFromEnv()
 	if cfg.Server.BootstrapFile != "" {

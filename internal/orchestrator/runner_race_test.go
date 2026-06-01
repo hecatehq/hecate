@@ -8,18 +8,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/taskstate"
+	"github.com/hecatehq/hecate/internal/taskstate"
 )
 
 // newTestRunner builds a minimal Runner suitable for race tests — no workers,
 // no metrics, no executors needed.
 func newTestRunner() *Runner {
-	return &Runner{
+	runner := &Runner{
 		logger:   slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		store:    taskstate.NewMemoryStore(),
 		policies: make(map[string]struct{}),
-		jobs:     make(map[string]context.CancelFunc),
 	}
+	attachTestQueueCoordinator(runner, nil)
+	return runner
 }
 
 // TestRunnerSetQueueRace is a regression test for the data race between

@@ -58,10 +58,10 @@ travel through GitHub Secrets in its encrypted form.
 In the repo: **Settings → Secrets and variables → Actions → New
 repository secret**. Add two:
 
-| Secret | Value | Source |
-|---|---|---|
-| `TAURI_UPDATER_PRIVATE_KEY` | full contents of `~/.tauri/hecate-updater.key` | step 1 |
-| `TAURI_UPDATER_PRIVATE_KEY_PASSWORD` | the password from step 1 | step 1 |
+| Secret                               | Value                                          | Source |
+| ------------------------------------ | ---------------------------------------------- | ------ |
+| `TAURI_UPDATER_PRIVATE_KEY`          | full contents of `~/.tauri/hecate-updater.key` | step 1 |
+| `TAURI_UPDATER_PRIVATE_KEY_PASSWORD` | the password from step 1                       | step 1 |
 
 The release workflow's tauri-action step picks these up and uses
 them to sign the platform bundles (`.app.tar.gz`, `.AppImage`,
@@ -90,6 +90,10 @@ them to sign the platform bundles (`.app.tar.gz`, `.AppImage`,
    fetch and push); the dispatch runs unconditionally so a re-run
    can recover from a stuck Pages deploy even when the manifest
    commit itself is a no-op.
+
+This verifies signed updater artifact production and manifest publication. It
+does not prove the Linux or Windows desktop updater path works on a real
+machine yet; only the macOS desktop update flow is currently exercised.
 
 Both secrets are scoped to `inputs.tagName != ''` in
 `.github/workflows/_tauri-shared.yml`, so PR-validation runs of
@@ -160,7 +164,7 @@ After the next tagged release with both secrets configured and
      "pub_date": "...",
      "platforms": {
        "darwin-aarch64": { "signature": "...", "url": "..." },
-       "linux-x86_64":   { "signature": "...", "url": "..." },
+       "linux-x86_64": { "signature": "...", "url": "..." },
        "windows-x86_64": { "signature": "...", "url": "..." }
      }
    }
@@ -252,3 +256,14 @@ causes, in rough order:
   channel baked in.
 - Network / fetch error against `hecate.sh` (the hook silently
   swallows errors; check the webview console in dev builds).
+
+**Banner reaches `Downloading... 100%` / `Finishing install...` and
+never relaunches.** The updater payload was downloaded, but the app
+did not complete the restart handoff. Confirm the UI watchdog in
+`ui/src/lib/desktop-update.ts` is present, the UI calls
+`@tauri-apps/plugin-process` `relaunch()`, `tauri_plugin_process::init()`
+is registered in the Rust builder, and the default capability includes
+`process:allow-restart`. The app log should include
+`desktop updater install started`, `download finished`, and either
+`install finished; relaunching` or `install did not resolve after
+download; relaunching to finish`.

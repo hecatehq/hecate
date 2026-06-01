@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 func resolveCapabilities(
@@ -15,9 +15,11 @@ func resolveCapabilities(
 	providerName string,
 	kind Kind,
 	apiKey string,
+	refresh bool,
 	mu *sync.Mutex,
 	cachedCaps *Capabilities,
 	capsExpiry *time.Time,
+	inFlight **capabilityDiscoveryCall,
 	discover func(context.Context) (Capabilities, error),
 	staticCaps func(source string) Capabilities,
 ) (Capabilities, error) {
@@ -29,11 +31,21 @@ func resolveCapabilities(
 		mu.Unlock()
 		return cached, nil
 	}
-	if !capsExpiry.IsZero() && time.Now().Before(*capsExpiry) {
+	if !refresh && !capsExpiry.IsZero() && time.Now().Before(*capsExpiry) {
 		cached := *cachedCaps
 		mu.Unlock()
 		return cached, nil
 	}
+	if *inFlight != nil {
+		call := *inFlight
+		mu.Unlock()
+		// Refresh callers join any in-flight discovery for this provider. That
+		// still bypasses completed cache entries, but avoids starting a duplicate
+		// upstream probe when a normal cache miss is already discovering state.
+		return waitForCapabilityDiscovery(ctx, call)
+	}
+	call := &capabilityDiscoveryCall{done: make(chan struct{})}
+	*inFlight = call
 	mu.Unlock()
 
 	discovered, err := discover(ctx)
@@ -53,6 +65,9 @@ func resolveCapabilities(
 		mu.Lock()
 		*cachedCaps = cached
 		*capsExpiry = time.Now().Add(retryAfter)
+		call.caps = cached
+		*inFlight = nil
+		close(call.done)
 		mu.Unlock()
 		return cached, nil
 	}
@@ -60,6 +75,23 @@ func resolveCapabilities(
 	mu.Lock()
 	*cachedCaps = discovered
 	*capsExpiry = time.Now().Add(capabilitiesSuccessTTL)
+	call.caps = discovered
+	*inFlight = nil
+	close(call.done)
 	mu.Unlock()
 	return discovered, nil
+}
+
+type capabilityDiscoveryCall struct {
+	done chan struct{}
+	caps Capabilities
+}
+
+func waitForCapabilityDiscovery(ctx context.Context, call *capabilityDiscoveryCall) (Capabilities, error) {
+	select {
+	case <-ctx.Done():
+		return Capabilities{}, ctx.Err()
+	case <-call.done:
+		return call.caps, nil
+	}
 }

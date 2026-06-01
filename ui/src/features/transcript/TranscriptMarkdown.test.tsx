@@ -15,13 +15,51 @@ describe("TranscriptMarkdown", () => {
     expect(code.tagName).toBe("CODE");
   });
 
+  it("renders inline code inside bold labels", () => {
+    const { container } = render(<TranscriptMarkdown content="**UI (`ui/`)**" />);
+
+    expect(container.textContent).toBe("UI (ui/)");
+    expect(screen.getByText("ui/").tagName).toBe("CODE");
+    expect(screen.getByText("ui/").closest("strong")).not.toBeNull();
+  });
+
+  it("renders inline code inside italic labels", () => {
+    const { container } = render(<TranscriptMarkdown content="*UI (`ui/`)*" />);
+
+    expect(container.textContent).toBe("UI (ui/)");
+    expect(screen.getByText("ui/").tagName).toBe("CODE");
+    expect(screen.getByText("ui/").closest("em")).not.toBeNull();
+  });
+
   it("renders fenced code blocks", () => {
     render(<TranscriptMarkdown content={"```ts\nconst x = 1;\n```"} />);
     expect(screen.getByText(/const x = 1/)).toBeInTheDocument();
   });
 
+  it("renders diff fences with the rich diff viewer", () => {
+    const patch = [
+      "```diff",
+      "diff --git a/README.md b/README.md",
+      "index 1111111..2222222 100644",
+      "--- a/README.md",
+      "+++ b/README.md",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "```",
+    ].join("\n");
+
+    const { container } = render(<TranscriptMarkdown content={patch} />);
+
+    expect(screen.getByTestId("diff-viewer")).toBeInTheDocument();
+    expect(container.querySelector("pre")).toBeNull();
+    expect(container.querySelectorAll("diffs-container.diff-viewer-file")).toHaveLength(1);
+  });
+
   it("renders indented fenced code blocks as code blocks", () => {
-    const { container } = render(<TranscriptMarkdown content={"- Review changes:\n  ```sh\ngit diff\n  ```"} />);
+    const { container } = render(
+      <TranscriptMarkdown content={"- Review changes:\n  ```sh\ngit diff\n  ```"} />,
+    );
     const pre = container.querySelector("pre");
     expect(pre).not.toBeNull();
     expect(pre?.textContent).toContain("git diff");
@@ -69,7 +107,9 @@ describe("TranscriptMarkdown", () => {
 
   it("preserves http(s) and mailto link hrefs", () => {
     render(<TranscriptMarkdown content="see [docs](https://example.com) and [me](mailto:x@y.z)" />);
-    expect((screen.getByText("docs") as HTMLAnchorElement).getAttribute("href")).toBe("https://example.com");
+    expect((screen.getByText("docs") as HTMLAnchorElement).getAttribute("href")).toBe(
+      "https://example.com",
+    );
     expect((screen.getByText("me") as HTMLAnchorElement).getAttribute("href")).toBe("mailto:x@y.z");
   });
 

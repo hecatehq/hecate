@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/secrets"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // newTestCipher builds a real AES-GCM cipher from a deterministic 32-byte

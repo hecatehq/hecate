@@ -32,20 +32,20 @@ After each logical step:
 3. New or updated tests match the local pattern — table-driven where the variant set is obvious, named `TestPackage_Behavior`.
 4. Docs updated in the same change (not as a follow-up):
 
-| Change | Doc |
-|---|---|
-| New env var | `.env.example` AND the relevant `docs/<feature>.md` env-var table |
-| New API field | `docs/runtime-api.md` (or wherever the contract lives) |
-| New event type | Event-protocol taxonomy check + `docs/events.md` with payload shape |
-| New built-in tool | `docs/agent-runtime.md` and/or `docs/mcp.md` |
-| New behavior on the api↔providers boundary | both sides' tests |
-| New isolation / sandbox capability | `docs/sandbox.md` |
+| Change                                     | Doc                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------- |
+| New env var                                | `.env.example` AND the relevant `docs/<feature>.md` env-var table   |
+| New API field                              | `docs/runtime-api.md` (or wherever the contract lives)              |
+| New event type                             | Event-protocol taxonomy check + `docs/events.md` with payload shape |
+| New built-in tool                          | `docs/agent-runtime.md` and/or `docs/mcp.md`                        |
+| New behavior on the api↔providers boundary | both sides' tests                                                   |
+| New isolation / sandbox capability         | `docs/sandbox.md`                                                   |
 
 5. `git diff --stat` reviewed — confirm the change is cohesive, no accidental drift, no unrelated formatting.
 
 ## When to add comments
 
-When the *why* isn't obvious from the code. State the trade-off being accepted, not the mechanic. The reader can see *what* the code does; they can't see what was rejected and why.
+When the _why_ isn't obvious from the code. State the trade-off being accepted, not the mechanic. The reader can see _what_ the code does; they can't see what was rejected and why.
 
 Don't add comments that paraphrase identifiers. `// increment counter` ages into noise. If the function name says it, don't say it again.
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -74,15 +75,32 @@ type SQLiteClient struct {
 //     erroring out.
 //   - foreign_keys ON: SQLite ships with FKs disabled by default, which
 //     is a footgun for persisted relational state.
+//   - _txlock=immediate: every BeginTx issues `BEGIN IMMEDIATE` so the
+//     writer lock is acquired upfront. The default `BEGIN` is DEFERRED:
+//     it starts with a shared read lock and tries to upgrade on the
+//     first write. That upgrade does NOT honor busy_timeout — if another
+//     writer holds the lock at upgrade time, SQLite returns SQLITE_BUSY
+//     immediately (SQLITE_BUSY_SNAPSHOT semantics). The taskstate
+//     terminal-transition path hit this under release-gate load: 2 of 3
+//     verify runs failed with `database is locked (5)` after ~120ms,
+//     well under the 5s busy_timeout. BEGIN IMMEDIATE serializes
+//     writers at BEGIN, which DOES honor busy_timeout, so the second
+//     writer waits instead of erroring. The same fix is applied manually
+//     in `internal/orchestrator/queue_sqlite.go` for the run-queue
+//     claim path; setting _txlock here covers every other tx by default
+//     and makes that workaround redundant (but harmless to leave).
 func NewSQLiteClient(ctx context.Context, cfg SQLiteConfig) (*SQLiteClient, error) {
 	path := strings.TrimSpace(cfg.Path)
 	if path == "" {
 		return nil, fmt.Errorf("sqlite path is required")
 	}
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("create sqlite directory %q: %w", dir, err)
+		if err := ensureSQLiteDirectory(dir); err != nil {
+			return nil, err
 		}
+	}
+	if err := ensurePrivateSQLiteFile(path); err != nil {
+		return nil, err
 	}
 
 	busyMs := int64(5000)
@@ -91,9 +109,11 @@ func NewSQLiteClient(ctx context.Context, cfg SQLiteConfig) (*SQLiteClient, erro
 	}
 
 	// _pragma= URL params are how modernc.org/sqlite accepts pragmas at
-	// connection open time. Applied to every connection in the pool.
+	// connection open time. _txlock= is a driver-specific param that
+	// controls the BEGIN form for every database/sql BeginTx call on
+	// the connection. Both apply to every connection in the pool.
 	dsn := fmt.Sprintf(
-		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)",
+		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)&_txlock=immediate",
 		path, busyMs,
 	)
 
@@ -114,11 +134,44 @@ func NewSQLiteClient(ctx context.Context, cfg SQLiteConfig) (*SQLiteClient, erro
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("secure sqlite file %q: %w", path, err)
+	}
 
 	return &SQLiteClient{
 		db:          db,
 		tablePrefix: sanitizeIdentifier(cfg.TablePrefix, "hecate"),
 	}, nil
+}
+
+func ensureSQLiteDirectory(dir string) error {
+	if _, err := os.Stat(dir); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat sqlite directory %q: %w", dir, err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create sqlite directory %q: %w", dir, err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("secure sqlite directory %q: %w", dir, err)
+	}
+	return nil
+}
+
+func ensurePrivateSQLiteFile(path string) error {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("create sqlite file %q: %w", path, err)
+	}
+	if closeErr := file.Close(); closeErr != nil {
+		return fmt.Errorf("close sqlite file %q: %w", path, closeErr)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("secure sqlite file %q: %w", path, err)
+	}
+	return nil
 }
 
 func (c *SQLiteClient) Close() error {
@@ -148,4 +201,64 @@ func (c *SQLiteClient) TableName(name string) string {
 		return base
 	}
 	return c.tablePrefix + "_" + base
+}
+
+// ClearData deletes rows from every Hecate-prefixed application table while
+// preserving the schema, so a running gateway can start fresh without a
+// relaunch and without rerunning migrations.
+func (c *SQLiteClient) ClearData(ctx context.Context) (int, error) {
+	if c == nil || c.db == nil {
+		return 0, nil
+	}
+	prefix := c.tablePrefix + "_"
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT name
+		FROM sqlite_master
+		WHERE type = 'table' AND name LIKE ?
+	`, prefix+"%")
+	if err != nil {
+		return 0, fmt.Errorf("list sqlite tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return 0, fmt.Errorf("scan sqlite table: %w", err)
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("list sqlite tables: %w", err)
+	}
+	sort.Strings(tables)
+	if len(tables) == 0 {
+		return 0, nil
+	}
+
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin sqlite clear: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	deleted := 0
+	for _, table := range tables {
+		result, err := tx.ExecContext(ctx, `DELETE FROM `+quoteSQLiteIdentifier(table))
+		if err != nil {
+			return deleted, fmt.Errorf("clear sqlite table %q: %w", table, err)
+		}
+		if n, err := result.RowsAffected(); err == nil {
+			deleted += int(n)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return deleted, fmt.Errorf("commit sqlite clear: %w", err)
+	}
+	return deleted, nil
+}
+
+func quoteSQLiteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }

@@ -3,9 +3,8 @@ package modelcaps
 import (
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/controlplane"
-	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 const (
@@ -14,32 +13,35 @@ const (
 	ToolCallingBasic    = "basic"
 	ToolCallingParallel = "parallel"
 
-	SourceUnknown          = "unknown"
-	SourceCatalog          = "catalog"
-	SourceProvider         = "provider"
-	SourceProbe            = "probe"
-	SourceOperatorOverride = "operator_override"
+	SourceUnknown  = "unknown"
+	SourceCatalog  = "catalog"
+	SourceProvider = "provider"
 )
 
 // Resolve applies Hecate's capability precedence for one model:
-// operator override > manual probe > catalog/default inference > unknown.
-func Resolve(provider, providerKind, model, discoverySource string, state controlplane.State) types.ModelCapabilities {
+// provider-discovered capability > catalog/default inference > unknown.
+func Resolve(provider, providerKind, model, discoverySource string) types.ModelCapabilities {
+	return ResolveWithProviderCapability(provider, providerKind, model, discoverySource, types.ModelCapabilities{})
+}
+
+func ResolveWithProviderCapability(provider, providerKind, model, discoverySource string, providerCap types.ModelCapabilities) types.ModelCapabilities {
 	base := staticCapability(provider, providerKind, model, discoverySource)
-	if probe, ok := findRecord(state.ModelCapabilityProbeState, provider, model); ok {
-		base = mergeRecord(base, probe, SourceProbe)
-	}
-	if override, ok := findRecord(state.ModelCapabilityOverrides, provider, model); ok {
-		base = mergeRecord(base, override, SourceOperatorOverride)
+	if hasProviderCapability(providerCap) {
+		base = mergeCapability(base, providerCap, SourceProvider)
 	}
 	return normalize(base)
 }
 
+func hasProviderCapability(cap types.ModelCapabilities) bool {
+	return cap.ToolCalling != "" || cap.StreamingKnown || cap.Streaming || cap.MaxContextTokens > 0 || strings.TrimSpace(cap.Source) != ""
+}
+
 func ToolCapable(cap types.ModelCapabilities) bool {
 	switch cap.ToolCalling {
-	case ToolCallingNone:
-		return false
-	default:
+	case ToolCallingBasic, ToolCallingParallel:
 		return true
+	default:
+		return false
 	}
 }
 
@@ -96,27 +98,21 @@ func staticCapability(provider, providerKind, model, discoverySource string) typ
 	}
 }
 
-func findRecord(records []controlplane.ModelCapabilityRecord, provider, model string) (controlplane.ModelCapabilityRecord, bool) {
-	for _, record := range records {
-		if strings.EqualFold(strings.TrimSpace(record.Provider), strings.TrimSpace(provider)) &&
-			strings.EqualFold(strings.TrimSpace(record.Model), strings.TrimSpace(model)) {
-			return record, true
-		}
+func mergeCapability(base types.ModelCapabilities, cap types.ModelCapabilities, defaultSource string) types.ModelCapabilities {
+	if strings.TrimSpace(cap.ToolCalling) != "" {
+		base.ToolCalling = NormalizeToolCalling(cap.ToolCalling)
 	}
-	return controlplane.ModelCapabilityRecord{}, false
-}
-
-func mergeRecord(base types.ModelCapabilities, record controlplane.ModelCapabilityRecord, source string) types.ModelCapabilities {
-	if value := NormalizeToolCalling(record.ToolCalling); value != ToolCallingUnknown || strings.EqualFold(strings.TrimSpace(record.ToolCalling), ToolCallingUnknown) {
-		base.ToolCalling = value
+	if cap.StreamingKnown || cap.Streaming {
+		base.Streaming = cap.Streaming
 	}
-	if record.Streaming != nil {
-		base.Streaming = *record.Streaming
+	if cap.MaxContextTokens > 0 {
+		base.MaxContextTokens = cap.MaxContextTokens
 	}
-	if record.MaxContextTokens > 0 {
-		base.MaxContextTokens = record.MaxContextTokens
+	if strings.TrimSpace(cap.Source) != "" {
+		base.Source = cap.Source
+	} else {
+		base.Source = defaultSource
 	}
-	base.Source = source
 	return base
 }
 

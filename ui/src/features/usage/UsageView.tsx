@@ -1,12 +1,9 @@
 import type { ReactNode } from "react";
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import type { UsageEventRecord } from "../../types/runtime";
+import { useSettings } from "../../app/state/settings";
+import { useEnsureUsageLoaded, useUsage } from "../../app/state/usage";
+import { formatInteger, formatLocaleTime, formatMicrosUSD } from "../../lib/format";
+import type { UsageEventRecord } from "../../types/usage";
 import { CopyBtn } from "../shared/ui";
-
-type Props = {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
-};
 
 type UsageEntry = UsageEventRecord;
 type UsageTotals = {
@@ -18,10 +15,15 @@ type UsageTotals = {
 
 // Only cross-chat Hecate-controlled provider calls belong here; active-chat
 // adapter usage lives in ChatView where the reported values have context.
-export function UsageView({ state }: Props) {
-  const usageEvents = state.usageEvents ?? [];
-  const providerKindByID = new Map((state.settingsConfig?.providers ?? []).map(provider => [provider.id, provider.kind]));
-  const cloudEvents = usageEvents.filter(entry => usageEventIsCloud(entry, providerKindByID));
+export function UsageView() {
+  useEnsureUsageLoaded();
+  const usage = useUsage();
+  const settings = useSettings();
+  const usageEvents = usage.state.events ?? [];
+  const providerKindByID = new Map(
+    (settings.state.config?.providers ?? []).map((provider) => [provider.id, provider.kind]),
+  );
+  const cloudEvents = usageEvents.filter((entry) => usageEventIsCloud(entry, providerKindByID));
   const cloudTotals = sumUsageEvents(cloudEvents);
   const hasCloudUsage = cloudEvents.length > 0;
 
@@ -30,16 +32,17 @@ export function UsageView({ state }: Props) {
       <div style={{ height: "100%", overflowY: "auto", padding: 16 }}>
         <div style={{ marginBottom: 18 }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)", marginBottom: 3 }}>Usage</div>
+            <div style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)", marginBottom: 3 }}>
+              Usage
+            </div>
             <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-              Cloud-provider token usage measured by Hecate. Local providers are hidden. External-agent reported usage appears in the active chat.
+              Cloud-provider token usage measured by Hecate. Local providers are hidden.
+              External-agent reported usage appears in the active chat.
             </div>
           </div>
         </div>
 
-        {!hasCloudUsage && (
-          <EmptyUsageState />
-        )}
+        {!hasCloudUsage && <EmptyUsageState />}
 
         {hasCloudUsage && (
           <div
@@ -96,13 +99,47 @@ export function UsageView({ state }: Props) {
                 <tbody>
                   {cloudEvents.slice(0, 100).map((entry, index) => (
                     <tr key={entry.request_id || `${entry.timestamp}-${index}`}>
-                      <td className="mono" style={{ color: "var(--t3)" }}>{formatTime(entry.timestamp)}</td>
-                      <td className="mono" style={{ color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.provider || "—"}</td>
-                      <td className="mono" style={{ color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.model || "—"}</td>
+                      <td className="mono" style={{ color: "var(--t3)" }}>
+                        {formatLocaleTime(entry.timestamp)}
+                      </td>
+                      <td
+                        className="mono"
+                        style={{
+                          color: "var(--t1)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {entry.provider || "—"}
+                      </td>
+                      <td
+                        className="mono"
+                        style={{
+                          color: "var(--t1)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {entry.model || "—"}
+                      </td>
                       <td className="mono">{formatInteger(entry.prompt_tokens ?? 0)}</td>
                       <td className="mono">{formatInteger(entry.completion_tokens ?? 0)}</td>
-                      <td className="mono" style={{ color: "var(--t0)", fontWeight: 500 }}>{entry.amount_usd || formatMicrosUSD(entry.amount_micros_usd ?? 0)}</td>
-                      <td className="mono" style={{ color: "var(--t2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.request_id || "—"}</td>
+                      <td className="mono" style={{ color: "var(--t0)", fontWeight: 500 }}>
+                        {entry.amount_usd || formatMicrosUSD(entry.amount_micros_usd ?? 0)}
+                      </td>
+                      <td
+                        className="mono"
+                        style={{
+                          color: "var(--t2)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {entry.request_id || "—"}
+                      </td>
                       <td>{entry.request_id && <CopyBtn text={entry.request_id} />}</td>
                     </tr>
                   ))}
@@ -111,7 +148,6 @@ export function UsageView({ state }: Props) {
             </div>
           </>
         )}
-
       </div>
     </div>
   );
@@ -123,9 +159,18 @@ function EmptyUsageState() {
       <div style={{ fontSize: 14, color: "var(--t0)", fontWeight: 500, marginBottom: 8 }}>
         No cloud usage recorded yet
       </div>
-      <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.55, maxWidth: 620, margin: "0 auto" }}>
-        Send a Hecate-controlled request through a cloud provider to see token usage here.
-        Local models do not spend cloud-provider tokens, and external-agent usage is shown in the chat where it was reported.
+      <div
+        style={{
+          fontSize: 12,
+          color: "var(--t3)",
+          lineHeight: 1.55,
+          maxWidth: 620,
+          margin: "0 auto",
+        }}
+      >
+        Send a Hecate-controlled request through a cloud provider to see token usage here. Local
+        models do not spend cloud-provider tokens, and external-agent usage is shown in the chat
+        where it was reported.
       </div>
     </div>
   );
@@ -134,27 +179,65 @@ function EmptyUsageState() {
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <div className="card" style={{ padding: "13px 14px" }}>
-      <div style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+      <div
+        style={{
+          fontSize: 10,
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          marginBottom: 8,
+        }}
+      >
         {label}
       </div>
-      <div style={{ fontSize: 24, lineHeight: 1, fontWeight: 650, color: "var(--t0)", marginBottom: 8 }}>
+      <div
+        style={{
+          fontSize: 24,
+          lineHeight: 1,
+          fontWeight: 650,
+          color: "var(--t0)",
+          marginBottom: 8,
+        }}
+      >
         {value}
       </div>
-      <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>
-        {detail}
-      </div>
+      <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>{detail}</div>
     </div>
   );
 }
 
-function SubHeader({ title, description, right }: { title: string; description?: string; right?: ReactNode }) {
+function SubHeader({
+  title,
+  description,
+  right,
+}: {
+  title: string;
+  description?: string;
+  right?: ReactNode;
+}) {
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: description ? 3 : 0 }}>{title}</div>
-        {description && <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>{description}</div>}
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--t0)",
+            marginBottom: description ? 3 : 0,
+          }}
+        >
+          {title}
+        </div>
+        {description && (
+          <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>{description}</div>
+        )}
       </div>
-      {right && <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>{right}</div>}
+      {right && (
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          {right}
+        </div>
+      )}
     </div>
   );
 }
@@ -167,29 +250,16 @@ function usageEventIsCloud(entry: UsageEntry, providerKindByID: Map<string, stri
 }
 
 function sumUsageEvents(entries: UsageEntry[]): UsageTotals {
-  return entries.reduce<UsageTotals>((acc, entry) => {
-    const promptTokens = entry.prompt_tokens ?? 0;
-    const completionTokens = entry.completion_tokens ?? 0;
-    acc.promptTokens += promptTokens;
-    acc.completionTokens += completionTokens;
-    acc.totalTokens += entry.total_tokens ?? (promptTokens + completionTokens);
-    acc.costMicrosUSD += entry.amount_micros_usd ?? 0;
-    return acc;
-  }, { promptTokens: 0, completionTokens: 0, totalTokens: 0, costMicrosUSD: 0 });
-}
-
-function formatTime(value?: string): string {
-  if (!value) return "—";
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return "—";
-  return new Date(parsed).toLocaleTimeString();
-}
-
-function formatInteger(value: number): string {
-  return Number.isFinite(value) ? value.toLocaleString() : "—";
-}
-
-function formatMicrosUSD(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0.000";
-  return `$${(value / 1_000_000).toFixed(3)}`;
+  return entries.reduce<UsageTotals>(
+    (acc, entry) => {
+      const promptTokens = entry.prompt_tokens ?? 0;
+      const completionTokens = entry.completion_tokens ?? 0;
+      acc.promptTokens += promptTokens;
+      acc.completionTokens += completionTokens;
+      acc.totalTokens += entry.total_tokens ?? promptTokens + completionTokens;
+      acc.costMicrosUSD += entry.amount_micros_usd ?? 0;
+      return acc;
+    },
+    { promptTokens: 0, completionTokens: 0, totalTokens: 0, costMicrosUSD: 0 },
+  );
 }

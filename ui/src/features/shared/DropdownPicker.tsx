@@ -4,6 +4,7 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
+import { useFloatingMenu } from "./useFloatingMenu";
 
 export type DropdownPickerOption<Value extends string = string> = {
   value: Value;
@@ -58,35 +59,35 @@ export function DropdownPicker<Value extends string = string>({
   buttonStyle?: CSSProperties;
   renderTriggerLabel?: (option: DropdownPickerOption<Value> | undefined) => ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const {
+    open,
+    setOpen,
+    toggle,
+    wrapRef: ref,
+    triggerRef,
+    menuRef,
+  } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
+    // onCloseRef inside useFloatingMenu absorbs closure-identity
+    // churn, so passing a fresh () => setFilter("") each render
+    // doesn't re-bind the document listener — no useCallback needed.
+    onClose: () => setFilter(""),
+  });
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, align, placement);
   const selected = options.find((option) => option.value === value);
   const locked = disabled || options.length === 0;
-  const filteredOptions = searchable && filter.trim()
-    ? options.filter((option) => {
-      const needle = filter.trim().toLowerCase();
-      return option.label.toLowerCase().includes(needle)
-        || option.detail?.toLowerCase().includes(needle)
-        || option.statusLabel?.toLowerCase().includes(needle);
-    })
-    : options;
-
-  useEffect(() => {
-    const handler = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (ref.current?.contains(target)) return;
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-      setFilter("");
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  const filteredOptions =
+    searchable && filter.trim()
+      ? options.filter((option) => {
+          const needle = filter.trim().toLowerCase();
+          return (
+            option.label.toLowerCase().includes(needle) ||
+            option.detail?.toLowerCase().includes(needle) ||
+            option.statusLabel?.toLowerCase().includes(needle)
+          );
+        })
+      : options;
 
   useEffect(() => {
     if (!open) return;
@@ -95,11 +96,10 @@ export function DropdownPicker<Value extends string = string>({
       else focusInitialDropdownItem(menuRef.current);
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, searchable]);
+  }, [open, searchable, menuRef]);
 
   function closeMenu() {
     setOpen(false);
-    setFilter("");
     triggerRef.current?.focus();
   }
 
@@ -109,7 +109,12 @@ export function DropdownPicker<Value extends string = string>({
       closeMenu();
       return;
     }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    if (
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp" ||
+      event.key === "Home" ||
+      event.key === "End"
+    ) {
       event.preventDefault();
       focusDropdownItem(menuRef.current, event.key);
     }
@@ -135,7 +140,6 @@ export function DropdownPicker<Value extends string = string>({
       event.stopPropagation();
       onChange(firstEnabled.value);
       setOpen(false);
-      setFilter("");
     }
   }
 
@@ -149,9 +153,13 @@ export function DropdownPicker<Value extends string = string>({
         className="btn btn-ghost btn-sm"
         disabled={locked}
         onClick={() => {
-          if (!locked) setOpen((current) => !current);
+          if (!locked) toggle();
         }}
-        title={locked ? disabledReason || "No options available" : selected?.title || selected?.label || placeholder}
+        title={
+          locked
+            ? disabledReason || "No options available"
+            : selected?.title || selected?.label || placeholder
+        }
         type="button"
         style={{
           color: locked ? "var(--t3)" : "var(--t1)",
@@ -170,7 +178,14 @@ export function DropdownPicker<Value extends string = string>({
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           {triggerIcon}
           {triggerPrefix && (
-            <span style={{ color: "var(--t3)", fontSize: 10, textTransform: "lowercase", whiteSpace: "nowrap" }}>
+            <span
+              style={{
+                color: "var(--t3)",
+                fontSize: 10,
+                textTransform: "lowercase",
+                whiteSpace: "nowrap",
+              }}
+            >
               {triggerPrefix}
             </span>
           )}
@@ -231,27 +246,39 @@ export function DropdownPicker<Value extends string = string>({
               >
                 {option.icon}
                 <span style={{ display: "grid", flex: 1, minWidth: 0 }}>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <span
+                    style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
                     {option.label}
                   </span>
                   {option.detail && (
-                    <span style={{
-                      color: "var(--t3)",
-                      display: "-webkit-box",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: 10,
-                      lineHeight: 1.35,
-                      overflow: "hidden",
-                      WebkitBoxOrient: "vertical",
-                      WebkitLineClamp: 2,
-                      whiteSpace: "normal",
-                    }}>
+                    <span
+                      style={{
+                        color: "var(--t3)",
+                        display: "-webkit-box",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10,
+                        lineHeight: 1.35,
+                        overflow: "hidden",
+                        WebkitBoxOrient: "vertical",
+                        WebkitLineClamp: 2,
+                        whiteSpace: "normal",
+                      }}
+                    >
                       {option.detail}
                     </span>
                   )}
                 </span>
                 {option.statusLabel && (
-                  <span style={{ color: option.statusColor || "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                  <span
+                    style={{
+                      color: option.statusColor || "var(--t3)",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 9,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                    }}
+                  >
                     · {option.statusLabel}
                   </span>
                 )}

@@ -1,18 +1,24 @@
 # Chat sessions
 
-Hecate has two chat persistence surfaces today. The legacy
-`/hecate/v1/chat/sessions` subsystem stores SDK-style direct model conversations
-against the gateway. It is *not* the agent runtime (see
-[agent-runtime.md](agent-runtime.md) for the `agent_loop` execution kind, which
-uses the word "turn" for a different concept). SDK clients hitting
-`/v1/chat/completions` with a `session_id` use this store; the MCP
-`list_chat_sessions` tool surfaces it.
+All chat persistence in Hecate today goes through chat sessions under
+`/hecate/v1/chat/sessions`. The same store backs two session-owner categories
+in the Chats workspace: Hecate-owned chats and supervised External Agent
+sessions (Codex, Claude Code, Cursor Agent). Hecate-owned chats can contain direct
+model turns and task-backed tools-on turns with a backing `agent_loop` task — see
+[agent-runtime.md](agent-runtime.md) for the runtime.
 
 The Chats workspace has one shell and an agent picker. **Hecate** is always
 first and covers both direct model chat and Hecate-owned agent execution: the
 tools toggle decides whether a prompt stays as a direct provider/model turn or
-enters the native agent task runtime. Codex, Claude Code, and Cursor entries in
+enters the native agent task runtime. Codex, Claude Code, Cursor Agent, and Grok Build entries in
 the same picker create **External Agent** sessions.
+
+Chats may also belong to a **Project**. Projects are optional durable identities
+for a codebase or work area; **No project** remains a valid chat scope. When a
+project is selected in the Chats sidebar, new Hecate and External Agent chat
+sessions are created with that `project_id`, and the chat list shows only chats
+for the active project. Deleting a project also deletes its project-scoped chat
+transcripts. Unprojected chats and chats in other projects stay untouched.
 
 Hecate Chat treats model/provider readiness as part of composition, not a
 send-time surprise. If no configured provider has routable models, the empty
@@ -43,7 +49,7 @@ The chat setup surface has one repair contract shared by the empty state, the
 composer notice, and disabled-send copy. When a prompt cannot be sent, the UI
 should pick one primary operator action: **Go to Connections**, **Choose
 workspace**, **Enable tools**, **Use suggested model**, or **Open setup** for a
-coding-agent adapter. Avoid adding local one-off blockers in the Chat view; put
+coding-agent integration. Avoid adding local one-off blockers in the Chat view; put
 new send blockers behind the shared readiness resolver so the same reason and
 CTA are visible before and after the transcript has messages.
 
@@ -60,14 +66,35 @@ on, the same text becomes the per-task system prompt for the Hecate-owned
 `AGENTS.md` / `CLAUDE.md` prompts. Once a chat has messages the field is locked
 so historical segments keep the instructions they were created with; start a
 new chat to change them. External Agent chats do not use this field because
-Codex, Claude Code, and Cursor own their own prompt/configuration surface.
+Codex, Claude Code, Cursor Agent, and Grok Build own their own
+prompt/configuration surface; external-agent model, reasoning, and mode
+controls appear near the message composer when the agent exposes them.
+Hecate-managed launch controls can appear before the first External Agent chat
+session exists when a local agent requires startup choices; the message input
+itself appears only after the chat session has been created.
 External-agent context and reported cost are intentionally shown in the active
-chat, not the Usage workspace, because those values are adapter-reported and
+chat, not the Usage workspace, because those values are agent-reported and
 only meaningful alongside the session that produced them.
+
+Assistant turns may also expose a collapsed **context** inspector. This is a
+metadata snapshot that answers "what kind of context did this turn use?"
+without storing the prompt body. The packet records execution mode,
+provider/model when Hecate owns routing, workspace path, whether a system
+prompt was included, the visible transcript message count for that turn, and high-level
+sources such as transcript, workspace, task runtime, or native agent session. It
+deliberately does not persist full system prompts, raw transcript text, file
+contents, or agent-private prompt packing. The message count is an
+operator-facing transcript count, not a provider token count or a guarantee
+that every counted message was packed into the provider or agent prompt. Future
+project memory and context assembly should add source IDs/provenance to this
+packet rather than inventing a separate transcript debug surface.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct
-model calls or enter the Hecate task runtime. Compact command output is
+model calls or enter the Hecate task runtime. If tools are on but the selected
+model is known not to support tool-calling, Hecate keeps the chat usable by
+sending the turn as direct model chat and showing that state in the chat header.
+Compact command output is
 per-chat RTK support. It is off by default; if `rtk` is installed in the
 gateway process `PATH`, Hecate suggests enabling it during new-chat onboarding.
 When enabled, future shell/git tool calls in task-backed turns launch as
@@ -80,18 +107,20 @@ actually used RTK. When compact output is enabled, telemetry also carries
 operators can compare the command Hecate validated with the argv that RTK
 wrapped.
 
-The operator UI's **Hecate** agent choice uses **Agent Chat** sessions under
-`/hecate/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on
-Hecate Agent turns. Those records can point at a runtime when tools are enabled,
-but they can also store direct model segments:
+The operator UI's **Hecate** agent choice uses chat sessions under
+`/hecate/v1/chat/sessions` for both tools-off direct model turns and tools-on
+task-backed turns. Session ownership is stable (`agent_id="hecate"`), and
+every Hecate-side message persists as `execution_mode="hecate_task"` —
+the tools-on/off axis is recorded on each message's `tools_enabled` boolean
+instead of split across two execution-mode values:
 
-- **Model** segments call the gateway/router directly and store user/assistant
-  messages with `runtime_kind="model"`. They do not create Tasks.
-- **Hecate Agent** sessions map one chat session to one visible
-  `agent_loop` task-backed segment. The first tool-enabled prompt creates the
-  task; follow-up prompts continue the latest terminal run when the previous
-  segment was also Hecate Agent. If tools are re-enabled after a direct model
-  segment, Hecate creates a new task-backed segment in the same transcript.
+- **Model** segments (`tools_enabled=false`) call the gateway/router directly
+  and store user/assistant messages without creating Tasks.
+- **Task-backed Hecate Chat** segments map a tools-on stretch of a chat to one
+  visible `agent_loop` task. The first tool-enabled prompt creates the task;
+  follow-up prompts continue the latest terminal run when the previous segment
+  was also task-backed. If tools are re-enabled after a direct model segment,
+  Hecate creates a new task-backed segment in the same transcript.
   While a task-backed segment is queued, running, or awaiting approval, the
   whole Hecate Chat session is busy: direct model sends are blocked too, so one
   transcript cannot race a live task loop against a separate model turn. The
@@ -112,14 +141,29 @@ but they can also store direct model segments:
   rehydrates the active Hecate Chat from the persisted session/task snapshot so
   queued, running, and awaiting-approval states stay visible without sending a
   new prompt.
+  Deleting a Hecate Chat cancels any non-terminal backing task run before the
+  transcript is removed; the backing Task record remains in Tasks for audit and
+  artifact history.
   When the backing provider supports streaming, the running assistant message
   updates from the task conversation artifact before the task run completes.
-- **External Agent** sessions map one chat session to one supervised adapter
-  session such as Codex, Claude Code, or Cursor Agent.
+- **External Agent** sessions map one chat session to one supervised ACP
+  session such as Codex, Claude Code, Cursor Agent, or Grok Build. Composer
+  controls may be ACP-owned session options or Hecate-managed launch options;
+  they stay separate from Hecate provider/model routing.
 
-The Agent Chat API shape used by the operator UI is in
-[`runtime-api.md`](runtime-api.md#get-hecatev1agent-chatsessions), and external
-adapter behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
+External Agent sessions persist Hecate's operator-facing shell plus the
+agent-owned native session handle. Listing chat sessions does not start or
+reattach agents. Opening a single External Agent session, or subscribing to
+its stream, attempts to load the stored ACP session handle so Hecate can refresh
+agent controls before the next prompt. If the agent cannot restore that
+native session, the transcript still opens from Hecate's store; the next send or
+agent setup action can start a fresh native session and keep the shell intact.
+Opening a chat never silently replaces the stored native session handle with a
+fresh agent session.
+
+The chat session API shape used by the operator UI is in
+[`runtime-api.md`](runtime-api.md#get-hecatev1chatsessions), and external-agent
+behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
 
 ## Activity rendering
 
@@ -130,7 +174,7 @@ they stay in Chats or open the canonical Task/run view.
 Chat titles are operator metadata and can be renamed from the Chats sidebar.
 Renaming works the same way for Hecate Chat, direct model turns, and External
 Agent sessions: it only changes the visible session title, not the transcript,
-workspace, runtime segment, provider/model snapshot, or adapter-owned native
+workspace, runtime segment, provider/model snapshot, or agent-owned native
 session.
 
 The shared renderer keeps the high-signal path visible:
@@ -138,7 +182,7 @@ The shared renderer keeps the high-signal path visible:
 - model turns / thinking
 - tool calls
 - approval requested / approved / rejected / cancelled
-- files changed
+- workspace changes
 - final answer
 - terminal run state
 
@@ -148,6 +192,15 @@ conversation stays readable; Task Detail opens the activity section by default
 because that view is already a run-inspection surface. Task Detail can also
 show a per-row **Advanced** disclosure with raw activity metadata such as
 step/artifact/approval ids, tool kind, path, timestamp, and summary payload.
+Repetitive command rows are collapsed into a single **Ran N commands** group;
+expanding that group shows the commands and any captured output in one layer so
+operators do not have to click through nested output disclosures. Command and
+read-context rows keep raw output out of the compact row and show normalized
+line breaks inside the output card.
+Workspace changes have one primary surface: the per-turn file badge and the
+workspace changes panel. Transcript activity may mention that workspace changes
+exist, but it should not duplicate raw patches or render a second diff viewer
+when the richer workspace diff surface is available.
 For failed tool rows, Task Detail also previews stdout/stderr artifacts captured
 for the same tool step, including an explicit empty-stream note when stderr was
 captured but contained no bytes. Artifacts from other steps are intentionally
@@ -158,182 +211,3 @@ capped previews of the backing Task's non-empty stdout/stderr artifacts plus an
 **Open task output** escape hatch for the full capture. Empty streams stay
 hidden there; open the Task view when you need to confirm whether stderr was
 captured but empty.
-
-## Mental model
-
-This section covers the legacy `/hecate/v1/chat/sessions` storage model used by
-SDK-style direct model conversations. The operator UI's current Hecate Chat
-target uses Agent Chat sessions as described above.
-
-A chat session has two independent streams:
-
-- **Messages** — the conversation, in order. Every entry is a complete `Message` (role, content, content_blocks, tool_calls, tool_call_id, tool_error). Sequence numbers are monotonic per session and authoritative for ordering.
-- **Provider calls** — observability for upstream chat-completion requests. Each call records routing decision (requested vs. resolved provider/model), token usage, and resolved cost.
-
-Provider and model selection are per request, not fixed on the session. A single chat session can therefore contain provider calls from multiple upstream providers or models; replay uses the message stream, while the provider-call stream explains what each request used.
-
-Messages and provider calls are linked by `produced_by_call_id`: a message's `produced_by_call_id` points at the call that emitted it. Assistant messages always have one; tool messages emitted by a server-side runtime have one; user, system, and client-supplied tool-result messages have an empty `produced_by_call_id`.
-
-```mermaid
-erDiagram
-    chat_sessions ||--o{ chat_session_messages : "messages stream"
-    chat_sessions ||--o{ chat_session_provider_calls : "provider calls stream"
-    chat_session_provider_calls ||--o{ chat_session_messages : "produced_by_call_id"
-
-    chat_sessions {
-        text id PK
-        text title
-        text system_prompt
-        text user_name
-        timestamptz created_at
-        timestamptz updated_at
-    }
-    chat_session_messages {
-        text id PK
-        text session_id FK
-        int sequence
-        text produced_by_call_id FK "nullable"
-        text message_json
-        timestamptz created_at
-    }
-    chat_session_provider_calls {
-        text id PK
-        text session_id FK
-        text request_id
-        text provider
-        text model
-        bigint cost_micros_usd
-        int prompt_tokens
-        int completion_tokens
-        int total_tokens
-        timestamptz created_at
-    }
-```
-
-The `(session_id, sequence)` pair on `chat_session_messages` is unique — the store assigns sequence numbers inside the same transaction as the insert to keep ordering deterministic across concurrent appends. `produced_by_call_id` is `ON DELETE SET NULL` so a deleted call doesn't drag its messages down with it; sessions cascade-delete both children.
-
-## Why two streams instead of one row per exchange
-
-Hecate previously stored a flat `(user_message, assistant_message)` row per upstream call. That worked for plain chat but broke as soon as a tool loop entered the picture: intermediate `assistant(tool_calls)` and `tool` messages had no place to live, so they were dropped on persistence and the next replay failed with an orphaned `tool_call_id`. Mid-conversation provider switches also lost rich content — Anthropic `thinking` blocks and `tool_error` flags couldn't survive a UI round-trip.
-
-The two-stream model splits two concerns that were conflated:
-
-| Concern | Lives in |
-|---|---|
-| Conversation state (what the model receives on the next call) | `chat_session_messages` |
-| Per-request observability (routing, model, cost, tokens) | `chat_session_provider_calls` |
-
-These have different cardinalities — a server-driven tool loop produces *one* user message and *N* provider calls; a single client-driven call may add several tool-result messages and produce *one* assistant message. The flat exchange row couldn't honor both at once.
-
-## Replay
-
-Replay is a one-line transform: read messages in `sequence` order. There's no special case for tool flows, no inferring of "exchanges," no diff against prior state. The UI does this directly; SDK clients re-emit the history on each call and the gateway diffs against persisted count to figure out which entries are new.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant UI as Operator UI
-    participant Gateway as Hecate gateway
-    participant Store as chat session store
-    participant Provider as Upstream provider
-    UI->>Gateway: POST /v1/chat/completions (session_id + history + new user message)
-    Gateway->>Store: GetSession(id)
-    Store-->>Gateway: persisted messages + system_prompt
-    Gateway->>Gateway: applySessionSystemPrompt (prepend if absent)
-    Gateway->>Provider: chat-completion request
-    Provider-->>Gateway: assistant response
-    Gateway->>Store: AppendExchange(new_messages, provider_call)
-    Note over Store: assigns monotonic sequence and writes both streams in one tx
-    Store-->>Gateway: refreshed session
-    Gateway-->>UI: response + headers
-    UI->>Gateway: GET /hecate/v1/chat/sessions/:id
-    Gateway-->>UI: messages + provider_calls
-```
-
-The "new messages this round" calculation in `RecordChatExchange` is:
-
-1. Read current `len(persisted_messages)`.
-2. Skip a leading system message if it matches `session.system_prompt` exactly (this was prepended by `applySessionSystemPrompt`, not authored by the operator).
-3. Take `req.Messages[skip + persistedCount:]` — those are the new client-supplied entries.
-4. Append them with empty `produced_by_call_id`, then append the assistant response with `produced_by_call_id = call.id`.
-
-This handles three flows uniformly: first-turn, multi-turn replay, and tool-loop continuation (where the new entries include tool-result messages).
-
-## Wire shape
-
-`GET /hecate/v1/chat/sessions/{id}` returns:
-
-```json
-{
-  "object": "chat_session",
-  "data": {
-    "id": "chat_…",
-    "title": "…",
-    "system_prompt": "…",
-    "user": "…",
-    "created_at": "…",
-    "updated_at": "…",
-    "messages": [
-      {
-        "id": "msg_…",
-        "sequence": 0,
-        "role": "user",
-        "content": "Say hello.",
-        "created_at": "…"
-      },
-      {
-        "id": "msg_…",
-        "sequence": 1,
-        "produced_by_call_id": "call_…",
-        "role": "assistant",
-        "content": "Hello.",
-        "content_blocks": [
-          { "type": "thinking", "thinking": "…", "signature": "…" },
-          { "type": "text", "text": "Hello." }
-        ],
-        "created_at": "…"
-      }
-    ],
-    "provider_calls": [
-      {
-        "id": "call_…",
-        "request_id": "req_…",
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-…",
-        "cost_micros_usd": 1234,
-        "cost_usd": "0.001234",
-        "prompt_tokens": 12,
-        "completion_tokens": 4,
-        "total_tokens": 16,
-        "created_at": "…"
-      }
-    ]
-  }
-}
-```
-
-The session-list endpoint (`GET /hecate/v1/chat/sessions`) returns a leaner summary per session: `message_count`, `provider_call_count`, and the most-recent call's `last_model` / `last_provider` / `last_cost_usd` / `last_request_id`. It does not include message bodies.
-
-`content_blocks` and `tool_error` are Hecate extensions to the OpenAI-compat `OpenAIChatMessage` shape. They are emitted on session-fetch responses and consumed on inbound chat-completion requests when the UI replays history. SDK clients hitting the public `/v1/chat/completions` proxy don't need to know about them — the fields are `omitempty` on the wire and the canonical `Message` is the lingua franca either way.
-
-## Storage backends
-
-Two implementations, same `Store` interface (`internal/chatstate/store.go`):
-
-| Backend | When | Notes |
-|---|---|---|
-| `memory` | tests, `--memory` mode | In-process, ephemeral; mutex-serialized. |
-| `sqlite` | `--sqlite-path …`, default in the docker image | WAL journal, `foreign_keys = ON`, `BEGIN IMMEDIATE`-style transactions for `AppendExchange`. |
-
-Schema migration on upgrade drops the old `chat_session_turns` table — turn rows are not migrated forward. Session metadata (title, system_prompt, user_name, timestamps) survives the upgrade. Operators with stored conversation history they want to keep should export before upgrading; this is a one-way break.
-
-## Code map
-
-- `pkg/types/chat.go` — `ChatSession`, `ChatSessionMessage`, `ChatProviderCall`, the canonical `Message` type with `ContentBlocks` and `ToolError`.
-- `internal/chatstate/` — `Store` interface plus two implementations (`MemoryStore`, `SQLiteStore`). `AppendExchange` is the canonical write; it assigns sequence numbers and writes both streams in one transaction.
-- `internal/gateway/service.go` — `RecordChatExchange` decides which inbound messages are "new this round" and constructs the `ChatProviderCall` from response metadata.
-- `internal/api/openai.go` — `OpenAIChatMessage` extension fields (`content_blocks`, `tool_error`); `ChatSessionMessageItem` and `ChatProviderCallItem` are the wire shape for session-fetch.
-- `internal/api/handler_sessions.go` — render functions for list / get / create / update / delete.
-- `ui/src/types/runtime.ts` — TS mirrors (`ChatSessionRecord`, `ChatSessionMessageRecord`, `ChatProviderCallRecord`).
-- `ui/src/app/useRuntimeConsole.ts` — `buildMessagesForSubmission` flattens persisted messages for replay; `submitChat` performs the optimistic insert + post-response patch.
-- `ui/src/features/chats/ChatView.tsx` — message-by-message rendering; per-assistant-message cost / token strip looked up via `produced_by_call_id`.

@@ -2,18 +2,23 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { AgentChatActivityRecord } from "../../types/runtime";
-import { TranscriptActivityTimeline, DiffStatList, formatDiffStatSummary } from "./TranscriptActivityTimeline";
+import type { ChatActivityRecord } from "../../types/chat";
+import {
+  TranscriptActivityTimeline,
+  DiffStatList,
+  formatDiffStatSummary,
+} from "./TranscriptActivityTimeline";
 
 describe("formatDiffStatSummary", () => {
   it("returns the 'N files changed' line when present", () => {
-    const stat = "src/foo.ts | 3 +-\nsrc/bar.ts | 2 +-\n2 files changed, 4 insertions(+), 1 deletion(-)";
+    const stat =
+      "src/foo.ts | 3 +-\nsrc/bar.ts | 2 +-\n2 files changed, 4 insertions(+), 1 deletion(-)";
     expect(formatDiffStatSummary(stat)).toMatch(/2 files? changed/);
   });
 
-  it("falls back to the first line when no summary is present", () => {
+  it("falls back to a compact changed-file count when no summary is present", () => {
     const stat = "src/foo.ts | 3 +-";
-    expect(formatDiffStatSummary(stat)).toBe("src/foo.ts | 3 +-");
+    expect(formatDiffStatSummary(stat)).toBe("1 changed file");
   });
 
   it("returns an empty string for empty input", () => {
@@ -23,7 +28,8 @@ describe("formatDiffStatSummary", () => {
 
 describe("DiffStatList", () => {
   it("renders one row per changed file with its change column", () => {
-    const stat = "src/foo.ts | 3 +-\nREADME.md | 1 +\n2 files changed, 3 insertions(+), 1 deletion(-)";
+    const stat =
+      "src/foo.ts | 3 +-\nREADME.md | 1 +\n2 files changed, 3 insertions(+), 1 deletion(-)";
     render(<DiffStatList diffStat={stat} />);
     expect(screen.getByText("src/foo.ts")).toBeInTheDocument();
     expect(screen.getByText("README.md")).toBeInTheDocument();
@@ -51,7 +57,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders the summary with running status when no terminal activity is present", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "running", kind: "fs" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -59,7 +65,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders the summary with running status for in-progress plan-only activity", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "plan", title: "Inspect the branch", status: "in_progress" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -67,7 +73,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders the terminal status in the summary when a completed activity exists", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "completed", title: "Final answer", status: "completed" },
     ];
@@ -76,7 +82,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("preserves operator-expanded completed details across rerenders", async () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "completed", title: "Final answer", status: "completed" },
     ];
@@ -99,14 +105,14 @@ describe("TranscriptActivityTimeline", () => {
     // as `run_result` (the fixture uses title "Run finished" so it
     // bypasses isTerminalRunSummary's `/^run (completed|failed|cancelled)$/`
     // filter, which strips the literal "run completed" titles), and
-    // an explicit `Activity{Type: status, Title: finalAgentChatActivityTitle(status)}`
+    // an explicit `Activity{Type: status, Title: finalChatActivityTitle(status)}`
     // appended by the agent-chat handler at turn end. Without
     // dedupe the operator sees two side-by-side terminal rows for
     // one run; the timeline should keep only one. Earlier
     // rows that match `isTerminalRunSummary` were already dropped,
     // but type-only collisions (e.g. type=completed title="Done")
     // survived prior to the dedupe rule.
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "run_result", title: "Run finished", status: "completed" },
       { type: "completed", title: "Done", status: "completed" },
@@ -130,9 +136,15 @@ describe("TranscriptActivityTimeline", () => {
     // the row before the dedupe-pick step ran. Real diagnostic rows
     // typically carry richer titles like "LLM call failed on turn 3"
     // anyway.
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "shell_exec", status: "failed" },
-      { type: "run_result", title: "LLM call failed on turn 3", status: "failed", terminal: true, detail: "rate limit exceeded" },
+      {
+        type: "run_result",
+        title: "LLM call failed on turn 3",
+        status: "failed",
+        terminal: true,
+        detail: "rate limit exceeded",
+      },
       { type: "failed", title: "Failed", status: "failed" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -140,12 +152,14 @@ describe("TranscriptActivityTimeline", () => {
     // The generic "Failed" row title must NOT appear as a timeline row
     // (the word "failed" still surfaces inside the timeline summary
     // status text, which is fine — that's not a row).
-    const failedAsRowTitle = screen.queryAllByText("Failed").filter(node => !node.closest("summary"));
+    const failedAsRowTitle = screen
+      .queryAllByText("Failed")
+      .filter((node) => !node.closest("summary"));
     expect(failedAsRowTitle).toHaveLength(0);
   });
 
   it("renders plan items with their plan-status indicators", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "plan", title: "Step 1", status: "completed" },
       { type: "plan", title: "Step 2", status: "in_progress" },
       { type: "plan", title: "Step 3", status: "pending" },
@@ -157,8 +171,14 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders Hecate tool calls with operator-facing labels and detail", () => {
-    const activities: AgentChatActivityRecord[] = [
-      { type: "tool_call", title: "read_file", status: "completed", kind: "fs", detail: "src/index.ts" },
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "read_file",
+        status: "completed",
+        kind: "fs",
+        detail: "src/index.ts",
+      },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText("Read file")).toBeInTheDocument();
@@ -167,8 +187,14 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("removes duplicate tool details that repeat title and status", () => {
-    const activities: AgentChatActivityRecord[] = [
-      { type: "tool_call", title: "git_exec", status: "completed", kind: "tool", detail: "git_exec - completed" },
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "git_exec",
+        status: "completed",
+        kind: "tool",
+        detail: "git_exec - completed",
+      },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText("Ran git")).toBeInTheDocument();
@@ -176,8 +202,14 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("humanizes failed tool titles with status suffixes and marks the summary", () => {
-    const activities: AgentChatActivityRecord[] = [
-      { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "git_exec (failed)",
+        status: "failed",
+        kind: "git",
+        detail: "git_exec - failed",
+      },
       { type: "completed", title: "Run completed", status: "completed" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -187,9 +219,21 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("humanizes opaque external-agent tool call ids", () => {
-    const activities: AgentChatActivityRecord[] = [
-      { type: "tool_call", title: "call_YLnXdDBfBhiiQnC46sCy8NzM", status: "completed", kind: "execute", detail: "execute" },
-      { type: "tool_call", title: "call_MGCYNWm0EHPZwWuQ4QmcNgU5", status: "completed", kind: "read", detail: "read" },
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_YLnXdDBfBhiiQnC46sCy8NzM",
+        status: "completed",
+        kind: "execute",
+        detail: "execute",
+      },
+      {
+        type: "tool_call",
+        title: "call_MGCYNWm0EHPZwWuQ4QmcNgU5",
+        status: "completed",
+        kind: "read",
+        detail: "read",
+      },
       { type: "cancelled", title: "Cancelled", status: "cancelled" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -202,43 +246,275 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("prefers adapter-provided command details over opaque tool ids", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       {
         type: "tool_call",
         title: "call_ERrtqCoyxGRidDjwpaR9OZEX",
         status: "failed",
         kind: "execute",
-        detail: "execute · /bin/zsh -lc \"go test ./...\"",
+        detail: 'execute · /bin/zsh -lc "go test ./..."',
       },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText("Ran command")).toBeInTheDocument();
-    expect(screen.getByText("execute · /bin/zsh -lc \"go test ./...\"")).toBeInTheDocument();
+    expect(screen.getByText('execute · /bin/zsh -lc "go test ./..."')).toBeInTheDocument();
     expect(screen.queryByText(/tool ERrtqCoy/)).toBeNull();
   });
 
+  it("uses adapter detail hints for opaque edit tool rows", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "toolu_01X4Kr7tteNtaP6emRf7ULtM",
+        status: "completed",
+        detail: "edit · 1 diff",
+      },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText("Edited file")).toBeInTheDocument();
+    expect(screen.getByText("edit · 1 diff")).toBeInTheDocument();
+    expect(screen.queryByText(/toolu_01X4/)).toBeNull();
+  });
+
+  it("keeps captured read output out of the inline activity row", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "completed",
+        kind: "read",
+        detail:
+          'read · output: 1><h1 align="center">Hecate</h1> 2><img src="docs/assets/logo.png">',
+      },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText("Read context")).toBeInTheDocument();
+    expect(screen.queryByText("read · output captured")).toBeNull();
+    expect(screen.queryByText(/h1 align/)).toBeNull();
+    expect(screen.queryByText(/docs\/assets\/logo/)).toBeNull();
+  });
+
+  it("summarizes noisy generic command activity and reveals command details together", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_1",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: commit abc123 Author: Someone",
+      },
+      {
+        type: "tool_call",
+        title: "call_2",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: 1871",
+      },
+      {
+        type: "tool_call",
+        title: "call_3",
+        status: "completed",
+        kind: "execute",
+        detail: "execute",
+      },
+      {
+        type: "tool_call",
+        title: "call_4",
+        status: "failed",
+        kind: "execute",
+        detail: "execute · output: command failed",
+      },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+
+    render(
+      <TranscriptActivityTimeline
+        activities={activities}
+        renderAdvancedActivity={(activity) =>
+          activity.type === "tool_call" ? <div>Tool output for {activity.title}</div> : undefined
+        }
+      />,
+    );
+
+    expect(screen.getByText(/completed · 1 failed tool/)).toBeInTheDocument();
+    expect(screen.getByText("Ran 4 commands")).toBeInTheDocument();
+    expect(screen.getByText("1 failed · output captured")).toBeInTheDocument();
+    expect(screen.queryByText("Ran command")).toBeNull();
+    expect(screen.queryByText(/commit abc123/)).toBeNull();
+    expect(screen.queryByText(/Tool output for call_1/)).toBeNull();
+
+    await user.click(screen.getByText("Commands"));
+
+    expect(screen.getAllByText("Ran command")).toHaveLength(4);
+    expect(screen.queryByText(/commit abc123/)).toBeNull();
+    expect(screen.getByText("Tool output for call_1")).toBeInTheDocument();
+    expect(screen.getByText("Tool output for call_4")).toBeInTheDocument();
+    expect(screen.queryByText("Output")).toBeNull();
+  });
+
+  it("treats completed commands with fatal output as failed for transcript tone", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_1",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: commit abc123",
+      },
+      {
+        type: "tool_call",
+        title: "call_2",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: fatal: ambiguous argument 'main..HEAD'",
+      },
+      {
+        type: "tool_call",
+        title: "call_3",
+        status: "completed",
+        kind: "execute",
+        detail: "execute",
+      },
+      {
+        type: "tool_call",
+        title: "call_4",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: ok",
+      },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText(/completed · 1 failed tool/)).toBeInTheDocument();
+    expect(screen.getByText("1 failed · output captured")).toBeInTheDocument();
+  });
+
+  it("treats output-captured fatal command details as failed for transcript tone", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_1",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output captured · ok",
+      },
+      {
+        type: "tool_call",
+        title: "call_2",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output captured · fatal: ambiguous argument 'origin/main..HEAD'",
+      },
+      {
+        type: "tool_call",
+        title: "call_3",
+        status: "completed",
+        kind: "execute",
+        detail: "execute",
+      },
+      {
+        type: "tool_call",
+        title: "call_4",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output captured · ok",
+      },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText(/completed · 1 failed tool/)).toBeInTheDocument();
+    expect(screen.getByText("1 failed · output captured")).toBeInTheDocument();
+  });
+
+  it("renders Grok session read failures as adapter context warnings", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "failed",
+        kind: "read",
+        detail:
+          "read · output: Failed to read file: /Users/operator/.grok/sessions/%2FUsers%2Foperator%2Fdev%2Fhecate/session.json",
+      },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText("Could not read context")).toBeInTheDocument();
+    expect(screen.getByText("adapter session file was unavailable")).toBeInTheDocument();
+    expect(screen.queryByText(/\.grok\/sessions/)).toBeNull();
+  });
+
   it("describes failed tools as interrupted when the run is cancelled", () => {
-    const activities: AgentChatActivityRecord[] = [
-      { type: "tool_call", title: "call_one", status: "failed", kind: "execute", detail: "execute" },
-      { type: "tool_call", title: "call_two", status: "failed", kind: "execute", detail: "execute" },
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_one",
+        status: "failed",
+        kind: "execute",
+        detail: "execute",
+      },
+      {
+        type: "tool_call",
+        title: "call_two",
+        status: "failed",
+        kind: "execute",
+        detail: "execute",
+      },
       { type: "cancelled", title: "Cancelled", status: "cancelled" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText(/cancelled · 2 interrupted tools/)).toBeInTheDocument();
   });
 
-  it("includes changed files in the summary and expanded activity list when diffStat is supplied", () => {
-    const activities: AgentChatActivityRecord[] = [
+  it("includes workspace changes in the summary without duplicating a timeline row", () => {
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
     ];
-    render(<TranscriptActivityTimeline activities={activities} diffStat="src/foo.ts | 3 +-\n1 file changed, 2 insertions(+), 1 deletion(-)" />);
-    expect(screen.getByText(/files changed/)).toBeInTheDocument();
-    expect(screen.getByText("Files changed")).toBeInTheDocument();
-    expect(screen.getByText("1 file changed, 2 insertions(+), 1 deletion(-)")).toBeInTheDocument();
+    render(
+      <TranscriptActivityTimeline
+        activities={activities}
+        diffStat="src/foo.ts | 3 +-\n1 file changed, 2 insertions(+), 1 deletion(-)"
+      />,
+    );
+    expect(screen.getByText(/workspace changes/)).toBeInTheDocument();
+    expect(screen.queryByText("Workspace changes")).toBeNull();
+    expect(screen.queryByText("1 file changed, 2 insertions(+), 1 deletion(-)")).toBeNull();
+  });
+
+  it("does not duplicate backend files_changed rows when diffStat is supplied", () => {
+    const activities: ChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec", status: "completed" },
+      {
+        type: "files_changed",
+        title: "Files changed",
+        status: "completed",
+        detail: "2 files changed, 72 insertions(+), 3 deletions(-)",
+      },
+    ];
+    render(
+      <TranscriptActivityTimeline
+        activities={activities}
+        diffStat="ui/src/a.tsx | 54 ++++++++++++++++++\nui/src/b.tsx | 21 +++++++--\n2 files changed, 72 insertions(+), 3 deletions(-)"
+      />,
+    );
+
+    expect(screen.queryByText("Workspace changes")).toBeNull();
+    expect(screen.queryByText("2 files changed, 72 insertions(+), 3 deletions(-)")).toBeNull();
   });
 
   it("hides the 'started' activity when a terminal activity has appeared", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "started", title: "Started" },
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "completed", title: "Final answer" },
@@ -248,10 +524,20 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("groups internal task artifacts under Details", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "completed", kind: "git" },
-      { type: "artifact", title: "git-stdout.txt", status: "ready" },
-      { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_size_bytes: 0 },
+      {
+        type: "artifact",
+        title: "git-stdout.txt",
+        status: "ready",
+        artifact_preview: "stdout",
+      },
+      {
+        type: "artifact",
+        title: "git-stderr.txt",
+        status: "ready",
+        artifact_preview: "stderr",
+      },
       { type: "changed_files", title: "git-changes.json", status: "ready" },
       { type: "final_answer", title: "agent-final-answer.txt", status: "ready" },
     ];
@@ -264,16 +550,26 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("agent-final-answer.txt")).toBeInTheDocument();
   });
 
-  it("renders zero-byte output sizes instead of hiding them", () => {
-    const activities: AgentChatActivityRecord[] = [
+  it("hides output-only rows without a captured preview", () => {
+    const activities: ChatActivityRecord[] = [
       { type: "output", title: "stderr", status: "ready", artifact_size_bytes: 0 },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
-    expect(screen.getByText("stderr · 0b")).toBeInTheDocument();
+    expect(screen.queryByText("stderr · 0b")).toBeNull();
+    expect(screen.queryByText(/Output/)).toBeNull();
+  });
+
+  it("hides output artifacts without captured previews", () => {
+    const activities: ChatActivityRecord[] = [
+      { type: "artifact", title: "ACP output", status: "ready", detail: "stdout · 1 line" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.queryByText("Output and artifacts · 1 item")).toBeNull();
+    expect(screen.queryByText("ACP output")).toBeNull();
   });
 
   it("hides internal agent-loop approval markers from operator-facing rows", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       {
         type: "approval",
         title: "builtin.agent_loop_approval",
@@ -286,12 +582,33 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText(/builtin\.agent_loop/)).toBeNull();
   });
 
-  it("summarizes Hecate Agent task internals without duplicate terminal rows", () => {
-    const activities: AgentChatActivityRecord[] = [
-      { type: "tool_call", title: "git_exec", status: "completed", kind: "git", detail: "git_exec - completed" },
-      { type: "task_run", title: "Backing task", status: "completed", detail: "completed · task_123 · run_456" },
-      { type: "thinking", title: "Agent turn 1", status: "completed", detail: "builtin.agent_loop_llm - completed" },
-      { type: "thinking", title: "Agent turn 2", status: "completed", detail: "builtin.agent_loop_llm - completed" },
+  it("summarizes Hecate Chat task internals without duplicate terminal rows", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "git_exec",
+        status: "completed",
+        kind: "git",
+        detail: "git_exec - completed",
+      },
+      {
+        type: "task_run",
+        title: "Backing task",
+        status: "completed",
+        detail: "completed · task_123 · run_456",
+      },
+      {
+        type: "thinking",
+        title: "Agent turn 1",
+        status: "completed",
+        detail: "builtin.agent_loop_llm - completed",
+      },
+      {
+        type: "thinking",
+        title: "Agent turn 2",
+        status: "completed",
+        detail: "builtin.agent_loop_llm - completed",
+      },
       { type: "run_result", title: "Run completed", status: "completed", detail: "completed" },
       { type: "completed", title: "Final answer", status: "completed" },
     ];
@@ -308,39 +625,92 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders expanded activity rows in chronological order instead of grouping tools first", () => {
-    const activities: AgentChatActivityRecord[] = [
-      { type: "started", title: "Starting Hecate Agent", status: "running" },
-      { type: "task_run", title: "Backing task", status: "running", detail: "running · task_123 · run_456" },
-      { type: "thinking", title: "Agent turn 1", status: "completed", detail: "builtin.agent_loop_llm - completed" },
-      { type: "tool_call", title: "shell_exec", status: "completed", kind: "tool", detail: "shell_exec - completed" },
+    const activities: ChatActivityRecord[] = [
+      { type: "started", title: "Starting Hecate Chat tools", status: "running" },
+      {
+        type: "task_run",
+        title: "Backing task",
+        status: "running",
+        detail: "running · task_123 · run_456",
+      },
+      {
+        type: "thinking",
+        title: "Agent turn 1",
+        status: "completed",
+        detail: "builtin.agent_loop_llm - completed",
+      },
+      {
+        type: "tool_call",
+        title: "shell_exec",
+        status: "completed",
+        kind: "tool",
+        detail: "shell_exec - completed",
+      },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
 
-    const labels = screen.getAllByText(/Starting agent|Backing task|Thinking|Ran shell/)
-      .map(node => node.textContent);
+    const labels = screen
+      .getAllByText(/Starting agent|Backing task|Thinking|Ran shell/)
+      .map((node) => node.textContent);
     expect(labels).toEqual(["Starting agent", "Backing task", "Thinking", "Ran shell"]);
   });
 
   it("uses operator-facing order for Hecate task rows with identical timestamps", () => {
     const at = "2026-05-07T20:00:00Z";
-    const activities: AgentChatActivityRecord[] = [
-      { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed", created_at: at },
-      { type: "thinking", title: "Agent turn 1", status: "completed", detail: "builtin.agent_loop_llm - completed", created_at: at },
-      { type: "task_run", title: "Backing task", status: "failed", detail: "failed", created_at: at },
-      { type: "failed", title: "LLM call failed on turn 2: timeout", status: "failed", terminal: true, created_at: at },
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "git_exec (failed)",
+        status: "failed",
+        kind: "git",
+        detail: "git_exec - failed",
+        created_at: at,
+      },
+      {
+        type: "thinking",
+        title: "Agent turn 1",
+        status: "completed",
+        detail: "builtin.agent_loop_llm - completed",
+        created_at: at,
+      },
+      {
+        type: "task_run",
+        title: "Backing task",
+        status: "failed",
+        detail: "failed",
+        created_at: at,
+      },
+      {
+        type: "failed",
+        title: "LLM call failed on turn 2: timeout",
+        status: "failed",
+        terminal: true,
+        created_at: at,
+      },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
 
-    const labels = screen.getAllByText(/Backing task|Thinking|Ran git|LLM call failed on turn 2/)
-      .map(node => node.textContent);
-    expect(labels).toEqual(["Backing task", "Thinking", "Ran git", "LLM call failed on turn 2: timeout"]);
+    const labels = screen
+      .getAllByText(/Backing task|Thinking|Ran git|LLM call failed on turn 2/)
+      .map((node) => node.textContent);
+    expect(labels).toEqual([
+      "Backing task",
+      "Thinking",
+      "Ran git",
+      "LLM call failed on turn 2: timeout",
+    ]);
   });
 
   it("hides generic terminal summaries but keeps diagnostic failed rows", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "failed", kind: "git" },
       { type: "failed", title: "Run failed", status: "failed", terminal: true },
-      { type: "run_result", title: "LLM call failed on turn 2: timeout", status: "failed", terminal: true },
+      {
+        type: "run_result",
+        title: "LLM call failed on turn 2: timeout",
+        status: "failed",
+        terminal: true,
+      },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
 
@@ -349,7 +719,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("keeps external-agent activity rows chronological too", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "started", title: "Starting external agent", status: "running" },
       { type: "running", title: "Running", status: "running" },
       { type: "plan", title: "Inspect the repository", status: "in_progress" },
@@ -357,8 +727,14 @@ describe("TranscriptActivityTimeline", () => {
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
 
-    const labels = screen.getAllByText(/Starting external agent|Running|Inspect the repository|git status/)
-      .map(node => node.textContent);
-    expect(labels).toEqual(["Starting external agent", "Running", "Inspect the repository", "git status"]);
+    const labels = screen
+      .getAllByText(/Starting external agent|Running|Inspect the repository|git status/)
+      .map((node) => node.textContent);
+    expect(labels).toEqual([
+      "Starting external agent",
+      "Running",
+      "Inspect the repository",
+      "git status",
+    ]);
   });
 });

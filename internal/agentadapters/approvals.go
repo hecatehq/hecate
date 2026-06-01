@@ -19,7 +19,7 @@ import (
 // approvalTracer is the OTel tracer for the approval coordinator. The
 // instrumentation name matches the Go module path so spans are easy
 // to filter in operator dashboards.
-var approvalTracer = otel.Tracer("github.com/hecate/agent-runtime/internal/agentadapters")
+var approvalTracer = otel.Tracer("github.com/hecatehq/hecate/internal/agentadapters")
 
 // ApprovalMode controls what the coordinator does with an incoming
 // RequestPermission. The package default is ModeAuto, which preserves
@@ -37,9 +37,9 @@ const (
 
 	// ModePrompt blocks waiting for an operator decision (or a matching
 	// grant). If no operator resolves the request before
-	// GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT, it resolves to a Cancelled
+	// HECATE_AGENT_ADAPTER_APPROVAL_TIMEOUT, it resolves to a Cancelled
 	// outcome. Operators who need fully unattended adapters can set
-	// GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto.
+	// HECATE_AGENT_ADAPTER_APPROVAL_MODE=auto.
 	ModePrompt ApprovalMode = "prompt"
 
 	// ModeDeny auto-rejects every approval. Audit / compliance
@@ -152,9 +152,8 @@ type GrantFilter struct {
 	ToolKind  string
 }
 
-// ApprovalStore is the persistence interface. Memory and SQLite
-// backends both implement it. Backend selection is wired in
-// cmd/hecate, keyed off GATEWAY_CHAT_SESSIONS_BACKEND.
+// ApprovalStore is the persistence interface. Memory and SQLite backends both
+// implement it. Backend selection follows HECATE_BACKEND in cmd/hecate.
 type ApprovalStore interface {
 	// CreateApproval persists a pending approval and returns the row
 	// with its assigned ID + timestamps filled in.
@@ -216,6 +215,29 @@ type ApprovalRetentionStore interface {
 	// this at startup before serving requests. Returns rows
 	// reconciled.
 	ReconcilePending(ctx context.Context, now time.Time) (int64, error)
+
+	// Prune implements retention.Pruner — one call that runs both
+	// the resolved-approval sweep (subject to maxAge / maxCount)
+	// and the expired-grant sweep (grants honor only ExpiresAt;
+	// maxAge / maxCount don't apply). Returns the sum so operators
+	// see total rows removed by this subsystem in one number.
+	// Captures `now := time.Now().UTC()` internally; the
+	// per-deletion `now`-tolerant methods stay on the interface for
+	// tests and ad-hoc callers.
+	Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
+}
+
+func pruneApprovalsAndGrants(ctx context.Context, store ApprovalRetentionStore, maxAge time.Duration, maxCount int) (int, error) {
+	now := time.Now().UTC()
+	approvals, err := store.PruneApprovals(ctx, now, maxAge, maxCount)
+	if err != nil {
+		return int(approvals), err
+	}
+	grants, err := store.PruneExpiredGrants(ctx, now)
+	if err != nil {
+		return int(approvals + grants), err
+	}
+	return int(approvals + grants), nil
 }
 
 // ErrApprovalNotFound is returned by ApprovalStore.GetApproval and

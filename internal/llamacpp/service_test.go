@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/controlplane"
 )
 
 func makeServiceWithBinary(t *testing.T, store controlplane.Store, dataDir, binaryPath string) *Service {

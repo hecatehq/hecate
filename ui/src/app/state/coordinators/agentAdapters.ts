@@ -1,0 +1,34 @@
+// Agent-adapter coordinator: readiness probes for external agent adapters.
+
+import { useContext } from "react";
+
+import { applyOverride, CoordinatorOverridesContext } from "./overrides";
+import { useProvidersAndModels } from "../providersAndModels";
+import type { AgentAdapterHealthRecord } from "../../../types/agent-adapter";
+import type { SettingsActions } from "./settings";
+
+export type UseAgentAdapterActionsParams = {
+  setNoticeMessage: SettingsActions["setNoticeMessage"];
+};
+
+export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
+  const providersAndModels = useProvidersAndModels();
+
+  // probeAgentAdapter exercises the configured adapter and caches the
+  // typed result keyed by adapter id. Operators trigger this via the
+  // readiness probe in Connections; the result drives
+  // the status chip + the picker dropdown's inline diagnostic. The
+  // loading map is keyed by id so two adapters can be probing
+  // concurrently without confusing the UI.
+  async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterHealthRecord | null> {
+    const result = await providersAndModels.actions.probeAgentAdapter(adapterID);
+    if (!result.ok) {
+      params.setNoticeMessage("error", result.error);
+      return null;
+    }
+    return result.health;
+  }
+
+  const overrides = useContext(CoordinatorOverridesContext);
+  return applyOverride({ probeAgentAdapter }, overrides?.agentAdapters);
+}

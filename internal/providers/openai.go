@@ -9,12 +9,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type OpenAICompatibleProvider struct {
@@ -24,7 +25,15 @@ type OpenAICompatibleProvider struct {
 	mu         sync.Mutex
 	cachedCaps Capabilities
 	capsExpiry time.Time
+	capsFlight *capabilityDiscoveryCall
 }
+
+const (
+	ollamaCapabilityDiscoveryConcurrency = 4
+	ollamaCapabilityDiscoveryMaxModels   = 32
+	ollamaCapabilityDiscoveryMinTimeout  = 500 * time.Millisecond
+	ollamaCapabilityDiscoveryMaxTimeout  = 3 * time.Second
+)
 
 type openAIChatCompletionRequest struct {
 	Model       string              `json:"model"`
@@ -203,6 +212,14 @@ type openAIModel struct {
 	ID string `json:"id"`
 }
 
+type ollamaShowRequest struct {
+	Model string `json:"model"`
+}
+
+type ollamaShowResponse struct {
+	Capabilities []string `json:"capabilities"`
+}
+
 type UpstreamError struct {
 	StatusCode int
 	Message    string
@@ -267,6 +284,14 @@ func (p *OpenAICompatibleProvider) DefaultModel() string {
 }
 
 func (p *OpenAICompatibleProvider) Capabilities(ctx context.Context) (Capabilities, error) {
+	return p.capabilities(ctx, false)
+}
+
+func (p *OpenAICompatibleProvider) RefreshCapabilities(ctx context.Context) (Capabilities, error) {
+	return p.capabilities(ctx, true)
+}
+
+func (p *OpenAICompatibleProvider) capabilities(ctx context.Context, refresh bool) (Capabilities, error) {
 	if p.config.StubMode {
 		return p.staticCapabilities("config"), nil
 	}
@@ -276,9 +301,11 @@ func (p *OpenAICompatibleProvider) Capabilities(ctx context.Context) (Capabiliti
 		p.Name(),
 		p.Kind(),
 		p.config.APIKey,
+		refresh,
 		&p.mu,
 		&p.cachedCaps,
 		&p.capsExpiry,
+		&p.capsFlight,
 		p.discoverCapabilities,
 		p.staticCapabilities,
 	)
@@ -350,8 +377,11 @@ func (p *OpenAICompatibleProvider) Chat(ctx context.Context, req types.ChatReque
 }
 
 func (p *OpenAICompatibleProvider) staticCapabilities(source string) Capabilities {
-	// Prefer the curated KnownModels list (populated from the built-in preset)
-	// so users see the full catalog even when no API key is configured.
+	// KnownModels is an operator-supplied static override (only set via
+	// PROVIDER_<NAME>_MODELS env). When empty — the common case — the picker
+	// stays empty until /v1/models discovery succeeds; the runtime no longer
+	// ships hard-coded model lists per built-in preset because they bit-rot
+	// as upstream catalogs churn.
 	models := append([]string(nil), p.config.KnownModels...)
 	if p.config.DefaultModel != "" && !contains(models, p.config.DefaultModel) {
 		models = append(models, p.config.DefaultModel)
@@ -407,14 +437,134 @@ func (p *OpenAICompatibleProvider) discoverCapabilities(ctx context.Context) (Ca
 	}
 
 	return Capabilities{
-		Name:            p.Name(),
-		Kind:            p.Kind(),
-		DefaultModel:    defaultModel,
-		Models:          models,
-		Discoverable:    true,
-		DiscoverySource: "upstream_v1_models",
-		RefreshedAt:     time.Now().UTC(),
+		Name:              p.Name(),
+		Kind:              p.Kind(),
+		DefaultModel:      defaultModel,
+		Models:            models,
+		ModelCapabilities: p.discoverProviderModelCapabilities(ctx, models),
+		Discoverable:      true,
+		DiscoverySource:   "upstream_v1_models",
+		RefreshedAt:       time.Now().UTC(),
 	}, nil
+}
+
+func (p *OpenAICompatibleProvider) discoverProviderModelCapabilities(ctx context.Context, models []string) map[string]types.ModelCapabilities {
+	if !p.isOllamaProvider() || len(models) == 0 {
+		return nil
+	}
+	baseURL, err := ollamaNativeBaseURL(p.config.BaseURL)
+	if err != nil {
+		return nil
+	}
+
+	probeModels := models
+	if len(probeModels) > ollamaCapabilityDiscoveryMaxModels {
+		probeModels = probeModels[:ollamaCapabilityDiscoveryMaxModels]
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, p.ollamaCapabilityDiscoveryTimeout())
+	defer cancel()
+
+	out := make(map[string]types.ModelCapabilities, len(probeModels))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, ollamaCapabilityDiscoveryConcurrency)
+
+loop:
+	for _, model := range probeModels {
+		select {
+		case <-probeCtx.Done():
+			break loop
+		case sem <- struct{}{}:
+		}
+
+		wg.Add(1)
+		go func(model string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			cap, ok := p.discoverOllamaModelCapability(probeCtx, baseURL, model)
+			if !ok {
+				return
+			}
+			mu.Lock()
+			out[model] = cap
+			mu.Unlock()
+		}(model)
+	}
+	wg.Wait()
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (p *OpenAICompatibleProvider) ollamaCapabilityDiscoveryTimeout() time.Duration {
+	timeout := p.config.Timeout / 20
+	if timeout < ollamaCapabilityDiscoveryMinTimeout {
+		timeout = ollamaCapabilityDiscoveryMinTimeout
+	}
+	if timeout > ollamaCapabilityDiscoveryMaxTimeout {
+		timeout = ollamaCapabilityDiscoveryMaxTimeout
+	}
+	return timeout
+}
+
+func (p *OpenAICompatibleProvider) isOllamaProvider() bool {
+	return strings.EqualFold(strings.TrimSpace(p.config.Name), "ollama")
+}
+
+func ollamaNativeBaseURL(base string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(base))
+	if err != nil {
+		return "", err
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.Path = strings.TrimRight(u.Path, "/")
+	if strings.EqualFold(u.Path, "/v1") {
+		u.Path = ""
+	}
+	return strings.TrimRight(u.String(), "/"), nil
+}
+
+func (p *OpenAICompatibleProvider) discoverOllamaModelCapability(ctx context.Context, baseURL, model string) (types.ModelCapabilities, bool) {
+	body, err := json.Marshal(ollamaShowRequest{Model: model})
+	if err != nil {
+		return types.ModelCapabilities{}, false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/show", bytes.NewReader(body))
+	if err != nil {
+		return types.ModelCapabilities{}, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	injectTraceContext(req)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return types.ModelCapabilities{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return types.ModelCapabilities{}, false
+	}
+
+	var payload ollamaShowResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil || len(payload.Capabilities) == 0 {
+		return types.ModelCapabilities{}, false
+	}
+	toolCalling := "none"
+	for _, capability := range payload.Capabilities {
+		if strings.EqualFold(strings.TrimSpace(capability), "tools") {
+			toolCalling = "basic"
+			break
+		}
+	}
+	return types.ModelCapabilities{
+		ToolCalling:    toolCalling,
+		Streaming:      true,
+		StreamingKnown: true,
+		Source:         "provider",
+	}, true
 }
 
 func (p *OpenAICompatibleProvider) Validate() error {

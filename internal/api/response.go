@@ -11,24 +11,26 @@ const (
 	errCodeInvalidRequest          = "invalid_request"
 	errCodeForbidden               = "forbidden"
 	errCodeGatewayError            = "gateway_error"
+	errCodeInternalError           = "internal_error"
 	errCodeUpstreamError           = "upstream_error"
 	errCodeNotFound                = "not_found"
 	errCodeConflict                = "conflict"
 	errCodeRateLimitExceeded       = "rate_limit_exceeded"
-	errCodeSessionLimitExceeded    = "agent_chat.session_limit_exceeded"
-	errCodeSessionDurationLimit    = "agent_chat.session_duration_limit_exceeded"
-	errCodeSessionIdleTimeout      = "agent_chat.session_idle_timeout"
-	errCodeAgentSessionBusy        = "agent_chat.agent_session_busy"
-	errCodeModelCapability         = "agent_chat.model_capability_required"
+	errCodeSessionLimitExceeded    = "chat.session_limit_exceeded"
+	errCodeSessionDurationLimit    = "chat.session_duration_limit_exceeded"
+	errCodeSessionIdleTimeout      = "chat.session_idle_timeout"
+	errCodeAgentSessionBusy        = "chat.agent_session_busy"
+	errCodeModelCapability         = "chat.model_capability_required"
 	errCodeModelNotConfigured      = "model_not_configured"
-	errCodeWorkspaceRequired       = "agent_chat.workspace_required"
-	errCodeModelRequired           = "agent_chat.model_required"
-	errCodeRuntimeKindInvalid      = "agent_chat.runtime_kind_invalid"
-	errCodeRuntimeMismatch         = "agent_chat.runtime_mismatch"
-	errCodeAgentAdapterNotFound    = "agent_chat.adapter_not_found"
-	errCodeAgentAdapterUnavailable = "agent_chat.adapter_unavailable"
-	errCodeSessionStopping         = "agent_chat.session_stopping"
-	errCodeSessionNotRunning       = "agent_chat.session_not_running"
+	errCodeWorkspaceRequired       = "chat.workspace_required"
+	errCodeModelRequired           = "chat.model_required"
+	errCodeAgentIDInvalid          = "chat.agent_id_invalid"
+	errCodeExecutionModeInvalid    = "chat.execution_mode_invalid"
+	errCodeRuntimeMismatch         = "chat.runtime_mismatch"
+	errCodeAgentAdapterNotFound    = "chat.adapter_not_found"
+	errCodeAgentAdapterUnavailable = "chat.adapter_unavailable"
+	errCodeSessionStopping         = "chat.session_stopping"
+	errCodeSessionNotRunning       = "chat.session_not_running"
 
 	// Local-models surface — Hecate-managed llama.cpp runtime. See
 	// docs/rfcs/local-models-llamacpp.md.
@@ -160,7 +162,7 @@ func defaultErrorUserMessage(code string) string {
 		return "Choose a workspace before starting this chat mode."
 	case errCodeModelRequired:
 		return "Choose a model before sending this message."
-	case errCodeRuntimeKindInvalid:
+	case errCodeAgentIDInvalid, errCodeExecutionModeInvalid:
 		return "This chat mode is not supported by the current API."
 	case errCodeRuntimeMismatch:
 		return "This message belongs to a different chat runtime."
@@ -211,15 +213,15 @@ func defaultErrorAction(code string) string {
 	case errCodeAgentSessionBusy:
 		return "Open the backing task, resolve the pending approval, or stop the run before sending another message."
 	case errCodeModelCapability:
-		return "Turn tools off for direct model chat, test the model, or enable tool support in Connections."
+		return "Send as direct model chat, or choose a model that reports tool-calling support."
 	case errCodeModelNotConfigured:
 		return "Choose a discovered model, refresh provider status, or open Connections to fix model discovery."
 	case errCodeWorkspaceRequired:
-		return "Use the workspace picker in Chats. Hecate Agent and External Agent sessions need a real workspace path."
+		return "Use the workspace picker in Chats. Task-backed Hecate Chat and External Agent sessions need a real workspace path."
 	case errCodeModelRequired:
 		return "Use the model picker in the chat header, or add a provider that reports at least one model."
-	case errCodeRuntimeKindInvalid:
-		return "Use one of: model, agent, or external_agent."
+	case errCodeAgentIDInvalid, errCodeExecutionModeInvalid:
+		return "Use agent_id hecate or a registered external agent id. For execution_mode, use hecate_task or external_agent."
 	case errCodeRuntimeMismatch:
 		return "Start a new chat or switch back to the runtime that created this session."
 	case errCodeAgentAdapterNotFound:

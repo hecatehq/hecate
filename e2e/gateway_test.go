@@ -41,6 +41,8 @@ var (
 	buildOnce    sync.Once
 	builtBinPath string
 	builtBinErr  error
+	e2ePortMu    sync.Mutex
+	e2ePorts     = map[int]struct{}{}
 )
 
 const gatewayStartupTimeout = 30 * time.Second
@@ -129,36 +131,51 @@ func gatewayServer(t *testing.T, extraEnv ...string) string {
 	t.Helper()
 
 	bin := hecateBinary(t)
-	port := freePort(t)
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	baseURL := "http://" + addr
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		port := freePort(t)
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		baseURL := "http://" + addr
 
-	// GATEWAY_DATA_DIR points at a per-test temp dir so any state file the
-	// runtime touches (bootstrap, control plane) lands under the test's
-	// own filesystem and gets cleaned up automatically.
-	env := append(os.Environ(),
-		"GATEWAY_ADDRESS="+addr,
-		"GATEWAY_DATA_DIR="+t.TempDir(),
-	)
-	env = append(env, extraEnv...)
-	env = append(env, autoPreconfiguredEnv(extraEnv)...)
+		// HECATE_DATA_DIR points at a per-test temp dir so any state file the
+		// runtime touches (bootstrap, control plane) lands under the test's
+		// own filesystem and gets cleaned up automatically.
+		env := append(os.Environ(),
+			"HECATE_ADDRESS="+addr,
+			"HECATE_DATA_DIR="+t.TempDir(),
+		)
+		env = append(env, extraEnv...)
+		env = append(env, autoPreconfiguredEnv(extraEnv)...)
 
-	cmd := exec.Command(bin)
-	cmd.Env = env
-	output := newTailBuffer(64 * 1024)
-	cmd.Stdout = output
-	cmd.Stderr = output
+		cmd := exec.Command(bin, "serve")
+		cmd.Env = env
+		output := newTailBuffer(64 * 1024)
+		cmd.Stdout = output
+		cmd.Stderr = output
 
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start gateway: %v", err)
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start gateway: %v", err)
+		}
+		if err := waitHealthyProcessResult(baseURL, gatewayStartupTimeout, cmd, output); err != nil {
+			lastErr = err
+			if gatewayListenAddressInUse(output.String()) {
+				t.Logf("retrying gateway startup after listen-address collision on %s", addr)
+				continue
+			}
+			t.Fatalf("%v\n--- gateway output tail ---\n%s", err, output.String())
+		}
+
+		t.Cleanup(func() {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		})
+		return baseURL
 	}
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	})
-
-	waitHealthyProcess(t, baseURL, gatewayStartupTimeout, cmd, output)
-	return baseURL
+	if lastErr != nil {
+		t.Fatalf("start gateway after listen-address retries: %v", lastErr)
+	}
+	t.Fatal("start gateway after listen-address retries: exhausted attempts")
+	return ""
 }
 
 // autoPreconfiguredEnv scans extraEnv for PROVIDER_<NAME>_<FIELD>
@@ -211,6 +228,15 @@ func waitHealthyProcess(t *testing.T, baseURL string, timeout time.Duration, cmd
 
 func waitHealthyWithDiagnostics(t *testing.T, baseURL string, timeout time.Duration, cmd *exec.Cmd, output *tailBuffer) {
 	t.Helper()
+	if err := waitHealthyProcessResult(baseURL, timeout, cmd, output); err != nil {
+		if output != nil {
+			t.Fatalf("%v\n--- gateway output tail ---\n%s", err, output.String())
+		}
+		t.Fatal(err)
+	}
+}
+
+func waitHealthyProcessResult(baseURL string, timeout time.Duration, cmd *exec.Cmd, output *tailBuffer) error {
 	deadline := time.Now().Add(timeout)
 	lastProbe := "not attempted"
 	client := &http.Client{Timeout: time.Second}
@@ -218,7 +244,7 @@ func waitHealthyWithDiagnostics(t *testing.T, baseURL string, timeout time.Durat
 		resp, err := client.Get(baseURL + "/healthz") //nolint:noctx
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
-			return
+			return nil
 		}
 		if err != nil {
 			lastProbe = err.Error()
@@ -228,6 +254,10 @@ func waitHealthyWithDiagnostics(t *testing.T, baseURL string, timeout time.Durat
 		if resp != nil {
 			resp.Body.Close()
 		}
+		if output != nil && gatewayListenAddressInUse(output.String()) {
+			lastProbe += "; process output: listen address in use"
+			break
+		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	if cmd != nil && cmd.Process != nil {
@@ -236,22 +266,36 @@ func waitHealthyWithDiagnostics(t *testing.T, baseURL string, timeout time.Durat
 			lastProbe += "; process wait: " + err.Error()
 		}
 	}
-	if output != nil {
-		t.Fatalf("gateway at %s never became healthy within %s (last probe: %s)\n--- gateway output tail ---\n%s", baseURL, timeout, lastProbe, output.String())
-	}
-	t.Fatalf("gateway at %s never became healthy within %s (last probe: %s)", baseURL, timeout, lastProbe)
+	return fmt.Errorf("gateway at %s never became healthy within %s (last probe: %s)", baseURL, timeout, lastProbe)
+}
+
+func gatewayListenAddressInUse(output string) bool {
+	return strings.Contains(output, "gateway listen failed") &&
+		strings.Contains(output, "bind: address already in use")
 }
 
 // freePort asks the OS for an available TCP port.
 func freePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("freePort: %v", err)
+	for attempt := 0; attempt < 100; attempt++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("freePort: %v", err)
+		}
+		port := ln.Addr().(*net.TCPAddr).Port
+		e2ePortMu.Lock()
+		_, used := e2ePorts[port]
+		if !used {
+			e2ePorts[port] = struct{}{}
+		}
+		e2ePortMu.Unlock()
+		ln.Close()
+		if !used {
+			return port
+		}
 	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
-	return port
+	t.Fatal("freePort: exhausted reserved port attempts")
+	return 0
 }
 
 // ─── HTTP helpers ────────────────────────────────────────────────────────────
@@ -273,6 +317,89 @@ func postJSON(t *testing.T, url, body string, headers map[string]string) *http.R
 	return resp
 }
 
+func getWithHeaders(t *testing.T, url string, headers map[string]string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	return resp
+}
+
+func getJSON[T any](t *testing.T, url string) T {
+	t.Helper()
+	resp, err := http.Get(url) //nolint:noctx
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: HTTP %d — body: %s", url, resp.StatusCode, readBody(t, resp))
+	}
+	var out T
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode GET %s: %v", url, err)
+	}
+	return out
+}
+
+func postJSONDecode[T any](t *testing.T, url, body string) T {
+	t.Helper()
+	resp := postJSON(t, url, body, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST %s: HTTP %d — body: %s", url, resp.StatusCode, readBody(t, resp))
+	}
+	var out T
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode POST %s: %v", url, err)
+	}
+	return out
+}
+
+type e2eAgentAdapterList struct {
+	Data []e2eAgentAdapter `json:"data"`
+}
+
+type e2eAgentAdapterProbe struct {
+	Data struct {
+		Adapter e2eAgentAdapter       `json:"adapter"`
+		Health  e2eAgentAdapterHealth `json:"health"`
+	} `json:"data"`
+}
+
+type e2eAgentAdapter struct {
+	ID         string `json:"id"`
+	Available  bool   `json:"available"`
+	Path       string `json:"path,omitempty"`
+	AuthStatus string `json:"auth_status,omitempty"`
+	AuthError  string `json:"auth_error,omitempty"`
+}
+
+type e2eAgentAdapterHealth struct {
+	Status string `json:"status"`
+	Path   string `json:"path,omitempty"`
+	Hint   string `json:"hint,omitempty"`
+}
+
+func findE2EAdapter(t *testing.T, adapters []e2eAgentAdapter, id string) e2eAgentAdapter {
+	t.Helper()
+	for _, adapter := range adapters {
+		if adapter.ID == id {
+			return adapter
+		}
+	}
+	t.Fatalf("adapter %q not found in %+v", id, adapters)
+	return e2eAgentAdapter{}
+}
+
 func readBody(t *testing.T, resp *http.Response) string {
 	t.Helper()
 	defer resp.Body.Close()
@@ -284,19 +411,43 @@ func readBody(t *testing.T, resp *http.Response) string {
 }
 
 type sseEvent struct {
-	Data string
+	ID    string
+	Event string
+	Data  string
 }
 
 func readSSE(t *testing.T, resp *http.Response) []sseEvent {
 	t.Helper()
 	defer resp.Body.Close()
 	var events []sseEvent
+	var current sseEvent
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "data: ") {
-			events = append(events, sseEvent{Data: strings.TrimPrefix(line, "data: ")})
+		if line == "" {
+			if current.ID != "" || current.Event != "" || current.Data != "" {
+				events = append(events, current)
+				current = sseEvent{}
+			}
+			continue
 		}
+		if strings.HasPrefix(line, "id: ") {
+			current.ID = strings.TrimPrefix(line, "id: ")
+			continue
+		}
+		if strings.HasPrefix(line, "event: ") {
+			current.Event = strings.TrimPrefix(line, "event: ")
+			continue
+		}
+		if strings.HasPrefix(line, "data: ") {
+			if current.Data != "" {
+				current.Data += "\n"
+			}
+			current.Data += strings.TrimPrefix(line, "data: ")
+		}
+	}
+	if current.ID != "" || current.Event != "" || current.Data != "" {
+		events = append(events, current)
 	}
 	return events
 }
@@ -340,6 +491,186 @@ func TestGatewayNoProviderConfiguredReturns502(t *testing.T) {
 	}
 }
 
+func TestGatewayRuntimeAndInferenceTokensProtectExposedSurfaces(t *testing.T) {
+	t.Parallel()
+
+	const (
+		runtimeToken   = "local-runtime-token-123456"
+		inferenceToken = "local-inference-token-123456"
+	)
+	fakeResp := `{"id":"chatcmpl-auth-e2e","object":"chat.completion","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":"auth ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`
+	upstream := fakeOpenAIServer(t, "/v1/chat/completions", fakeResp, false)
+
+	base := gatewayServer(t,
+		"HECATE_RUNTIME_TOKEN="+runtimeToken,
+		"HECATE_INFERENCE_TOKEN="+inferenceToken,
+		"PROVIDER_FAKE_API_KEY=dummy",
+		"PROVIDER_FAKE_BASE_URL="+upstream,
+		"PROVIDER_FAKE_KIND=local",
+	)
+
+	resp := getWithHeaders(t, base+"/healthz", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /healthz status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = getWithHeaders(t, base+"/hecate/v1/whoami", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /hecate/v1/whoami without runtime token status = %d, want 401", resp.StatusCode)
+	}
+	_ = readBody(t, resp)
+
+	resp = getWithHeaders(t, base+"/hecate/v1/whoami", map[string]string{
+		"X-Hecate-Runtime-Token": runtimeToken,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /hecate/v1/whoami with runtime token status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	resp = getWithHeaders(t, base+"/v1/models", nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("GET /v1/models without inference token status = %d, want 401", resp.StatusCode)
+	}
+	_ = readBody(t, resp)
+
+	resp = getWithHeaders(t, base+"/v1/models", map[string]string{
+		"x-api-key": inferenceToken,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/models with inference token status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
+	resp = postJSON(t, base+"/v1/chat/completions", body, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("POST /v1/chat/completions without inference token status = %d, want 401", resp.StatusCode)
+	}
+	_ = readBody(t, resp)
+
+	resp = postJSON(t, base+"/v1/chat/completions", body, map[string]string{
+		"Authorization": "Bearer " + inferenceToken,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /v1/chat/completions with inference token status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+
+	messagesBody := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"messages":[{"role":"user","content":"hello"}]}`
+	resp = postJSON(t, base+"/v1/messages", messagesBody, map[string]string{
+		"anthropic-version": "2023-06-01",
+	})
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("POST /v1/messages without inference token status = %d, want 401", resp.StatusCode)
+	}
+	_ = readBody(t, resp)
+
+	resp = postJSON(t, base+"/v1/messages", messagesBody, map[string]string{
+		"anthropic-version": "2023-06-01",
+		"x-api-key":         inferenceToken,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /v1/messages with inference token status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
+}
+
+func TestEnvExampleDoesNotExposeAgentAdapterFixtureOverrides(t *testing.T) {
+	t.Parallel()
+
+	content, err := os.ReadFile(filepath.Join(moduleRootDir(), ".env.example"))
+	if err != nil {
+		t.Fatalf("read .env.example: %v", err)
+	}
+	text := string(content)
+	for _, name := range []string{
+		"HECATE_AGENT_ADAPTER_DISCOVERY_OVERRIDES",
+		"HECATE_AGENT_ADAPTER_DEV_OVERRIDES",
+	} {
+		if strings.Contains(text, name) {
+			t.Fatalf(".env.example exposes %s; fixture-only adapter overrides must stay out of operator env templates", name)
+		}
+	}
+}
+
+func TestAgentAdapterDevOverridesDriveCatalogAndProbeOnly(t *testing.T) {
+	t.Parallel()
+
+	base := gatewayServer(t,
+		"HECATE_AGENT_ADAPTER_DEV_OVERRIDES=codex=ready,claude_code=no_auth,cursor_agent=app_missing",
+	)
+
+	adapters := getJSON[e2eAgentAdapterList](t, base+"/hecate/v1/agent-adapters")
+	codex := findE2EAdapter(t, adapters.Data, "codex")
+	if !codex.Available || codex.AuthStatus != "ok" || !strings.HasPrefix(codex.Path, "dev-override://") {
+		t.Fatalf("codex catalog = %+v, want forced ready with dev override path", codex)
+	}
+	claude := findE2EAdapter(t, adapters.Data, "claude_code")
+	if !claude.Available || claude.AuthStatus != "unauthenticated" || !strings.Contains(claude.AuthError, "claude /login") {
+		t.Fatalf("claude catalog = %+v, want forced missing-auth guidance", claude)
+	}
+	cursor := findE2EAdapter(t, adapters.Data, "cursor_agent")
+	if !cursor.Available || !strings.HasPrefix(cursor.Path, "dev-override://") {
+		t.Fatalf("cursor catalog = %+v, want forced app-missing fixture path", cursor)
+	}
+
+	codexProbe := postJSONDecode[e2eAgentAdapterProbe](t, base+"/hecate/v1/agent-adapters/codex/probe", "")
+	if codexProbe.Data.Health.Status != "ready" {
+		t.Fatalf("codex probe status = %q, want ready", codexProbe.Data.Health.Status)
+	}
+	claudeProbe := postJSONDecode[e2eAgentAdapterProbe](t, base+"/hecate/v1/agent-adapters/claude_code/probe", "")
+	if claudeProbe.Data.Health.Status != "auth_required" || !strings.Contains(claudeProbe.Data.Health.Hint, "claude /login") {
+		t.Fatalf("claude probe = %+v, want auth_required with login hint", claudeProbe.Data.Health)
+	}
+	cursorProbe := postJSONDecode[e2eAgentAdapterProbe](t, base+"/hecate/v1/agent-adapters/cursor_agent/probe", "")
+	if cursorProbe.Data.Health.Status != "error" || !strings.Contains(cursorProbe.Data.Health.Hint, "Install Cursor") {
+		t.Fatalf("cursor probe = %+v, want visual app-missing setup hint", cursorProbe.Data.Health)
+	}
+	if strings.Contains(cursorProbe.Data.Health.Path, "cursor-agent") && !strings.HasPrefix(cursorProbe.Data.Health.Path, "dev-override://") {
+		t.Fatalf("cursor probe path = %q, fixture should not resolve a real adapter process", cursorProbe.Data.Health.Path)
+	}
+}
+
+func TestAgentAdapterDevOverridesDoNotBypassRealAdapterStartup(t *testing.T) {
+	t.Parallel()
+
+	base := gatewayServer(t,
+		"HOME="+t.TempDir(),
+		"PATH="+t.TempDir(),
+		"HECATE_AGENT_ADAPTER_DEV_OVERRIDES=cursor_agent=ready",
+	)
+
+	probe := postJSONDecode[e2eAgentAdapterProbe](t, base+"/hecate/v1/agent-adapters/cursor_agent/probe", "")
+	if probe.Data.Health.Status != "ready" || !strings.HasPrefix(probe.Data.Health.Path, "dev-override://") {
+		t.Fatalf("probe = %+v, want forced ready dev override", probe.Data.Health)
+	}
+
+	body := fmt.Sprintf(`{"agent_id":"cursor_agent","workspace":%q}`, t.TempDir())
+	resp := postJSON(t, base+"/hecate/v1/chat/sessions", body, nil)
+	if resp.StatusCode != http.StatusOK {
+		_ = readBody(t, resp)
+		return
+	}
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		resp.Body.Close()
+		t.Fatalf("decode forced-ready chat session: %v", err)
+	}
+	resp.Body.Close()
+
+	msgResp := postJSON(t, base+"/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`, nil)
+	if msgResp.StatusCode == http.StatusOK {
+		t.Fatalf("forced-ready fixture made a real chat send succeed; dev overrides must remain visual-only")
+	}
+	_ = readBody(t, msgResp)
+}
+
 // TestGatewayFakeUpstreamNonStreamingCodex starts the gateway pointing at a
 // local fake OpenAI-compatible HTTP server and verifies a complete non-streaming
 // Codex request round-trip.
@@ -353,9 +684,7 @@ func TestGatewayFakeUpstreamNonStreamingCodex(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
@@ -381,6 +710,33 @@ func TestGatewayFakeUpstreamNonStreamingCodex(t *testing.T) {
 	}
 }
 
+func TestGatewayFakeUpstreamKnownModelIsRoutable(t *testing.T) {
+	t.Parallel()
+
+	fakeResp := `{"id":"chatcmpl-known-model","object":"chat.completion","created":1700000000,"model":"fake-e2e-model","choices":[{"index":0,"message":{"role":"assistant","content":"known model ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5}}`
+	upstream := fakeOpenAIServerNoModels(t, "/v1/chat/completions", fakeResp, false)
+
+	base := gatewayServer(t,
+		"PROVIDER_FAKE_API_KEY=dummy",
+		"PROVIDER_FAKE_BASE_URL="+upstream,
+		"PROVIDER_FAKE_MODELS=fake-e2e-model",
+		"PROVIDER_FAKE_KIND=local",
+	)
+
+	body := `{"model":"fake-e2e-model","messages":[{"role":"user","content":"hello"}]}`
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		modelsResp, err := http.Get(base + "/v1/models") //nolint:noctx
+		if err != nil {
+			t.Fatalf("expected known model to route, got %d — body: %s; GET /v1/models: %v", resp.StatusCode, readBody(t, resp), err)
+		}
+		defer modelsResp.Body.Close()
+		t.Fatalf("expected known model to route, got %d — body: %s; models: %s", resp.StatusCode, readBody(t, resp), readBody(t, modelsResp))
+	}
+}
+
 // TestGatewayFakeUpstreamExportsOTLPTracesAndMetrics verifies that the
 // standard e2e path exports both traces and metrics to an OTLP/HTTP receiver
 // without requiring a real model runtime such as Ollama.
@@ -396,14 +752,12 @@ func TestGatewayFakeUpstreamExportsOTLPTracesAndMetrics(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
-		"GATEWAY_OTEL_TRACES_ENABLED=true",
-		"GATEWAY_OTEL_TRACES_ENDPOINT=http://"+sink.addr(),
-		"GATEWAY_OTEL_METRICS_ENABLED=true",
-		"GATEWAY_OTEL_METRICS_ENDPOINT=http://"+sink.addr(),
-		"GATEWAY_OTEL_METRICS_INTERVAL=200ms",
+		"HECATE_OTEL_TRACES_ENABLED=true",
+		"HECATE_OTEL_TRACES_ENDPOINT=http://"+sink.addr(),
+		"HECATE_OTEL_METRICS_ENABLED=true",
+		"HECATE_OTEL_METRICS_ENDPOINT=http://"+sink.addr(),
+		"HECATE_OTEL_METRICS_INTERVAL=200ms",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
@@ -432,9 +786,7 @@ func TestGatewayFakeUpstreamStreamingCodex(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"hello"}]}`
@@ -472,9 +824,7 @@ func TestGatewayFakeUpstreamClaudeCode(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=claude-sonnet-4-20250514",
 	)
 
 	body := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"messages":[{"role":"user","content":"hello"}]}`
@@ -528,9 +878,7 @@ func TestGatewayMultimodalCodexImageURLPassthrough(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o",
 	)
 
 	body := `{
@@ -595,8 +943,7 @@ func TestGatewayMultimodalAnthropicImageURLTranslation(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
-		"PROVIDER_ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-6",
-		"GATEWAY_DEFAULT_MODEL=claude-sonnet-4-6",
+		"PROVIDER_ANTHROPIC_MODELS=claude-sonnet-4-6",
 	)
 
 	// Caller posts the OpenAI shape — this is the cross-provider
@@ -656,8 +1003,7 @@ func TestGatewayMultimodalAnthropicDataURITranslation(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
-		"PROVIDER_ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-6",
-		"GATEWAY_DEFAULT_MODEL=claude-sonnet-4-6",
+		"PROVIDER_ANTHROPIC_MODELS=claude-sonnet-4-6",
 	)
 
 	// `data:image/jpeg;base64,...` — the shape an OpenAI client
@@ -706,9 +1052,7 @@ func TestGatewayRuntimeProviderHeader(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
@@ -737,7 +1081,6 @@ func TestRealAnthropicClaudeCode(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY="+apiKey,
-		"GATEWAY_DEFAULT_MODEL=claude-haiku-4-5-20251001",
 	)
 
 	body := `{"model":"claude-haiku-4-5-20251001","max_tokens":64,"messages":[{"role":"user","content":"Reply with exactly the word: pong"}]}`
@@ -774,7 +1117,6 @@ func TestRealAnthropicClaudeCodeStreaming(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY="+apiKey,
-		"GATEWAY_DEFAULT_MODEL=claude-haiku-4-5-20251001",
 	)
 
 	body := `{"model":"claude-haiku-4-5-20251001","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"Say hi"}]}`
@@ -818,7 +1160,6 @@ func TestRealOpenAICodex(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_OPENAI_API_KEY="+apiKey,
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Reply with exactly the word: pong"}]}`
@@ -850,7 +1191,6 @@ func TestRealOpenAICodexStreaming(t *testing.T) {
 
 	base := gatewayServer(t,
 		"PROVIDER_OPENAI_API_KEY="+apiKey,
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
 	)
 
 	body := `{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"Say hi"}]}`
@@ -1071,11 +1411,9 @@ func TestGatewayRateLimitHeaders(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
-		"GATEWAY_RATE_LIMIT_ENABLED=true",
-		"GATEWAY_RATE_LIMIT_RPM=120",
+		"HECATE_RATE_LIMIT_ENABLED=true",
+		"HECATE_RATE_LIMIT_RPM=120",
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
@@ -1107,9 +1445,7 @@ func TestGatewayFakeUpstreamStreamingClaudeCode(t *testing.T) {
 	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
-		"PROVIDER_FAKE_DEFAULT_MODEL=claude-sonnet-4-20250514",
 		"PROVIDER_FAKE_KIND=local",
-		"GATEWAY_DEFAULT_MODEL=claude-sonnet-4-20250514",
 	)
 
 	body := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hello"}]}`
@@ -1179,6 +1515,7 @@ func fakeUpstreamCapturing(t *testing.T, path, response string) (string, *captur
 	t.Helper()
 	captured := &capturedRequests{}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/models", fakeModelsHandler)
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		// Decode best-effort; non-JSON bodies still record an
@@ -1202,7 +1539,20 @@ func fakeUpstreamCapturing(t *testing.T, path, response string) (string, *captur
 
 func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 	t.Helper()
+	return fakeOpenAIServerWithModels(t, path, body, streaming, true)
+}
+
+func fakeOpenAIServerNoModels(t *testing.T, path, body string, streaming bool) string {
+	t.Helper()
+	return fakeOpenAIServerWithModels(t, path, body, streaming, false)
+}
+
+func fakeOpenAIServerWithModels(t *testing.T, path, body string, streaming bool, exposeModels bool) string {
+	t.Helper()
 	mux := http.NewServeMux()
+	if exposeModels {
+		mux.HandleFunc("/v1/models", fakeModelsHandler)
+	}
 	mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		if streaming {
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -1239,8 +1589,13 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 	return "http://" + ln.Addr().String()
 }
 
+func fakeModelsHandler(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, `{"object":"list","data":[{"id":"gpt-4o-mini","object":"model"},{"id":"gpt-4o","object":"model"},{"id":"claude-sonnet-4-20250514","object":"model"},{"id":"claude-sonnet-4-6","object":"model"}]}`)
+}
+
 // TestBootstrapAutoGenerationDefaultPath proves the no-env-overrides
-// first-run path: with no GATEWAY_DATA_DIR override, the gateway must
+// first-run path: with no HECATE_DATA_DIR override, the gateway must
 //   - create `.data/hecate.bootstrap.json` (the default location)
 //     under its working directory, mode 0600,
 //   - persist a base64 control-plane secret in there,
@@ -1248,7 +1603,7 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 //   - reuse the same file on a second start so the persisted secret
 //     survives restarts.
 //
-// The standard gatewayServer() helper pins GATEWAY_DATA_DIR, so this is
+// The standard gatewayServer() helper pins HECATE_DATA_DIR, so this is
 // the only test that exercises the auto-generation default-path code in
 // the binary-only suite. The Docker smoke covers the same contract
 // through the `/data` volume; this is the cheap counterpart.
@@ -1261,12 +1616,12 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	// First start: no token / no data dir env. Cwd-rooted defaults apply,
 	// so the bootstrap file should land at <workDir>/.data/...
 	addr1 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd1 := exec.Command(bin)
+	cmd1 := exec.Command(bin, "serve")
 	cmd1.Dir = workDir
 	cmd1.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + workDir, // isolate any HOME-relative defaults
-		"GATEWAY_ADDRESS=" + addr1,
+		"HECATE_ADDRESS=" + addr1,
 	}
 	cmd1.Stdout = io.Discard
 	cmd1.Stderr = io.Discard
@@ -1324,12 +1679,12 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	// reused, not regenerated, so the persisted control-plane secret
 	// survives restart.
 	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
-	cmd2 := exec.Command(bin)
+	cmd2 := exec.Command(bin, "serve")
 	cmd2.Dir = workDir
 	cmd2.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + workDir,
-		"GATEWAY_ADDRESS=" + addr2,
+		"HECATE_ADDRESS=" + addr2,
 	}
 	cmd2.Stdout = io.Discard
 	cmd2.Stderr = io.Discard

@@ -10,6 +10,7 @@ import {
   ChipInput,
   CodeBlock,
   ConfirmModal,
+  CopyableID,
   CopyBtn,
   Dot,
   Icon,
@@ -21,7 +22,8 @@ import {
   SlideOver,
   Toggle,
 } from "./ui";
-import type { AgentAdapterRecord, ModelRecord } from "../../types/runtime";
+import type { AgentAdapterRecord } from "../../types/agent-adapter";
+import type { ModelRecord } from "../../types/model";
 
 describe("Toggle", () => {
   it("renders with role=switch and aria-checked", () => {
@@ -132,7 +134,9 @@ describe("BrandAvatar", () => {
   });
 
   it("keeps unknown unboxed brand fallbacks aligned", () => {
-    render(<BrandAvatar brand="unknown-provider" fallback="Unknown provider" boxed={false} size={32} />);
+    render(
+      <BrandAvatar brand="unknown-provider" fallback="Unknown provider" boxed={false} size={32} />,
+    );
     const fallback = screen.getByText("U").parentElement;
     expect(fallback).toHaveStyle({ height: "32px", width: "32px" });
   });
@@ -141,6 +145,7 @@ describe("BrandAvatar", () => {
     const { container } = render(<BrandAvatar brand="hecate" fallback="Hecate" />);
     expect(container.querySelector("img")?.getAttribute("src")).toContain("hecate-mark");
     expect(container.querySelector("img")?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector("img")).toHaveStyle({ filter: "var(--mono-icon-filter)" });
   });
 
   it("uses the Meta icon for llama.cpp providers", () => {
@@ -171,6 +176,52 @@ describe("CopyBtn", () => {
     render(<CopyBtn text="hello" />);
     fireEvent.click(screen.getByRole("button"));
     expect(writeText).toHaveBeenCalledWith("hello");
+  });
+});
+
+describe("CopyableID", () => {
+  it("renders a compact label while copying the full id", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<CopyableID text="run_full_identifier_123" compact />);
+    expect(screen.getByText("run_full_i…er_123")).toBeTruthy();
+    const button = screen.getByRole("button", { name: /copy run_full_identifier_123/i });
+    fireEvent.click(button);
+    expect(writeText).toHaveBeenCalledWith("run_full_identifier_123");
+    await waitFor(() => expect(button).toHaveStyle({ color: "var(--green)" }));
+  });
+
+  it("keeps short ids unmodified", () => {
+    render(<CopyableID text="run_123" compact />);
+    expect(screen.getByText("run_123")).toBeTruthy();
+  });
+
+  it("does not mark copied when the clipboard write fails", async () => {
+    const writeText = vi.fn(() => Promise.reject(new Error("clipboard denied")));
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<CopyableID text="run_full_identifier_123" compact />);
+    const button = screen.getByRole("button", { name: /copy run_full_identifier_123/i });
+    expect(button).toHaveStyle({ color: "var(--teal)" });
+    fireEvent.click(button);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("run_full_identifier_123"));
+    expect(button).toHaveStyle({ color: "var(--teal)" });
+  });
+
+  it("does not mark copied when clipboard access is unavailable", () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: undefined,
+      configurable: true,
+    });
+    render(<CopyableID text="run_full_identifier_123" compact />);
+    const button = screen.getByRole("button", { name: /copy run_full_identifier_123/i });
+    expect(() => fireEvent.click(button)).not.toThrow();
+    expect(button).toHaveStyle({ color: "var(--teal)" });
   });
 });
 
@@ -309,11 +360,24 @@ describe("ConfirmModal", () => {
 
   it("uses btn-primary by default and btn-danger when danger=true", () => {
     const { rerender } = render(
-      <ConfirmModal title="t" message="m" confirmLabel="OK" onConfirm={() => {}} onClose={() => {}} />,
+      <ConfirmModal
+        title="t"
+        message="m"
+        confirmLabel="OK"
+        onConfirm={() => {}}
+        onClose={() => {}}
+      />,
     );
     expect(screen.getByRole("button", { name: "OK" }).className).toContain("btn-primary");
     rerender(
-      <ConfirmModal title="t" message="m" confirmLabel="OK" danger onConfirm={() => {}} onClose={() => {}} />,
+      <ConfirmModal
+        title="t"
+        message="m"
+        confirmLabel="OK"
+        danger
+        onConfirm={() => {}}
+        onClose={() => {}}
+      />,
     );
     expect(screen.getByRole("button", { name: "OK" }).className).toContain("btn-danger");
   });
@@ -323,9 +387,21 @@ describe("ConfirmModal", () => {
 
 describe("ModelPicker", () => {
   const models: ModelRecord[] = [
-    { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } },
-    { id: "gpt-4o", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: false } },
-    { id: "claude-sonnet-4-6", owned_by: "anthropic", metadata: { provider: "anthropic", provider_kind: "cloud", default: false } },
+    {
+      id: "gpt-4o-mini",
+      owned_by: "openai",
+      metadata: { provider: "openai", provider_kind: "cloud", default: true },
+    },
+    {
+      id: "gpt-4o",
+      owned_by: "openai",
+      metadata: { provider: "openai", provider_kind: "cloud", default: false },
+    },
+    {
+      id: "claude-sonnet-4-6",
+      owned_by: "anthropic",
+      metadata: { provider: "anthropic", provider_kind: "cloud", default: false },
+    },
   ];
 
   it("opens on trigger click and lists models flat (no section headers)", async () => {
@@ -375,6 +451,17 @@ describe("ModelPicker", () => {
     expect(selected).toHaveFocus();
     await user.keyboard("{ArrowDown}{Enter}");
     expect(onChange).toHaveBeenCalledWith("gpt-4o");
+  });
+
+  it("selects the first enabled model when Enter is pressed with an empty filter", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<ModelPicker value="claude-sonnet-4-6" onChange={onChange} models={models} />);
+    await user.click(screen.getByRole("button"));
+    await user.keyboard("{Enter}");
+
+    expect(onChange).toHaveBeenCalledWith("gpt-4o-mini");
+    expect(onChange).not.toHaveBeenCalledWith("");
   });
 
   it("disables the trigger when the model list is empty", async () => {
@@ -435,12 +522,7 @@ describe("ModelPicker", () => {
       ["anthropic", "Add an API key for Anthropic in Connections"],
     ]);
     render(
-      <ModelPicker
-        value=""
-        onChange={onChange}
-        models={models}
-        disabledProviders={disabled}
-      />,
+      <ModelPicker value="" onChange={onChange} models={models} disabledProviders={disabled} />,
     );
     await user.click(screen.getByRole("button"));
     const menu = document.querySelector(".dropdown-menu")!;
@@ -520,7 +602,14 @@ describe("ProviderPicker", () => {
     // The previous fallback chain was `selected?.name ?? value ?? emptyLabel`.
     // `??` treats "" as defined, so an empty value rendered a blank trigger.
     // Pin emptyLabel as the fallback so the trigger never goes blank.
-    render(<ProviderPicker value="" onChange={() => {}} options={options} emptyLabel="select provider" />);
+    render(
+      <ProviderPicker
+        value=""
+        onChange={() => {}}
+        options={options}
+        emptyLabel="select provider"
+      />,
+    );
     expect(screen.getByRole("button").textContent).toContain("select provider");
   });
 
@@ -534,14 +623,28 @@ describe("ProviderPicker", () => {
     // no longer exists in the current options list. Showing the raw
     // stale id ("stale-anthropic-id") looks like a bug; emptyLabel is
     // the honest state — pick again.
-    render(<ProviderPicker value="stale-anthropic-id" onChange={() => {}} options={options} emptyLabel="pick one" />);
+    render(
+      <ProviderPicker
+        value="stale-anthropic-id"
+        onChange={() => {}}
+        options={options}
+        emptyLabel="pick one"
+      />,
+    );
     const trigger = screen.getByRole("button").textContent || "";
     expect(trigger).toContain("pick one");
     expect(trigger).not.toContain("stale-anthropic-id");
   });
 
   it("renders emptyLabel when options is empty", () => {
-    render(<ProviderPicker value="" onChange={() => {}} options={[]} emptyLabel="no providers configured" />);
+    render(
+      <ProviderPicker
+        value=""
+        onChange={() => {}}
+        options={[]}
+        emptyLabel="no providers configured"
+      />,
+    );
     expect(screen.getByRole("button").textContent).toContain("no providers configured");
   });
 
@@ -607,7 +710,7 @@ describe("AgentAdapterPicker", () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(<AgentAdapterPicker value="" onChange={onChange} adapters={adapters} />);
-    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    await user.click(screen.getByRole("button", { name: "External agent" }));
     const menu = document.querySelector(".dropdown-menu") as HTMLElement;
     const codex = within(menu).getByText("Codex").closest("button");
     const claude = within(menu).getByText("Claude Code").closest("button");
@@ -617,6 +720,129 @@ describe("AgentAdapterPicker", () => {
     expect(claude).toHaveFocus();
     await user.keyboard("{Enter}");
     expect(onChange).toHaveBeenCalledWith("claude_code");
+  });
+
+  it("shows unverified auth as a non-blocking check state", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={onChange}
+        adapters={[
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "unknown",
+            auth_error: "Claude Code config is present on disk.",
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const claude = within(menu).getByText("Claude Code").closest("button") as HTMLElement;
+    expect(within(claude).getByText("check")).toBeTruthy();
+    expect(within(claude).queryByText("auth")).toBeNull();
+    expect(claude).not.toHaveAttribute("aria-disabled");
+
+    await user.click(claude);
+    expect(onChange).toHaveBeenCalledWith("claude_code");
+  });
+
+  it("shows missing adapters as setup instead of errors", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={() => {}}
+        adapters={[
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "unknown",
+          },
+        ]}
+        healthByID={
+          new Map([
+            [
+              "cursor_agent",
+              {
+                adapter_id: "cursor_agent",
+                status: "error",
+                stage: "ready",
+                error: "forced app CLI missing by HECATE_AGENT_ADAPTER_DEV_OVERRIDES",
+                hint: "Install Cursor with Agent support, then sign in with Cursor Agent.",
+                duration_ms: 0,
+              },
+            ],
+          ])
+        }
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
+    expect(within(cursor).getByText("setup")).toBeTruthy();
+    expect(within(cursor).queryByText("error")).toBeNull();
+    expect(cursor.title).toContain("Install Cursor with Agent support");
+    expect(cursor).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("uses useful ready tooltips instead of showing only the executable path", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentAdapterPicker
+        value=""
+        onChange={() => {}}
+        adapters={[
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            path: "/Users/test/.local/bin/cursor-agent",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "ok",
+          },
+        ]}
+        healthByID={
+          new Map([
+            [
+              "cursor_agent",
+              {
+                adapter_id: "cursor_agent",
+                status: "ready",
+                stage: "ready",
+                path: "/Users/test/.local/bin/cursor-agent",
+                duration_ms: 80,
+              },
+            ],
+          ])
+        }
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "External agent" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const cursor = within(menu).getByText("Cursor Agent").closest("button") as HTMLElement;
+    expect(cursor.title).toContain("Cursor Agent is ready");
+    expect(cursor.title).toContain("verified agent startup, auth, and ACP session creation");
+    expect(cursor.title).toContain("/Users/test/.local/bin/cursor-agent");
   });
 });
 
@@ -705,12 +931,7 @@ describe("ChipInput", () => {
   it("excludes already-chipped values from the suggestion list", async () => {
     const user = userEvent.setup();
     render(
-      <ChipInput
-        values={["openai"]}
-        onChange={() => {}}
-        options={options}
-        ariaLabel="providers"
-      />,
+      <ChipInput values={["openai"]} onChange={() => {}} options={options} ariaLabel="providers" />,
     );
     const input = screen.getByLabelText("providers");
     await user.click(input);
@@ -726,13 +947,7 @@ describe("ChipInput", () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(
-      <ChipInput
-        values={[]}
-        onChange={onChange}
-        options={options}
-        freeText
-        ariaLabel="reasons"
-      />,
+      <ChipInput values={[]} onChange={onChange} options={options} freeText ariaLabel="reasons" />,
     );
     const input = screen.getByLabelText("reasons");
     await user.click(input);
@@ -753,6 +968,18 @@ describe("CodeBlock", () => {
     // text is the raw lowercase. Match either via case-insensitive text.
     expect(screen.getByText(/bash/i)).toBeTruthy();
     expect(screen.getByText(/hecate --help/)).toBeTruthy();
+  });
+
+  it("highlights diff lines by semantic type", () => {
+    render(
+      <CodeBlock lang="diff" code={"diff --git a/a b/a\n@@ -1 +1 @@\n-old\n+new\n context"} />,
+    );
+
+    expect(screen.getByText("diff --git a/a b/a")).toHaveClass("diff-line-meta");
+    expect(screen.getByText("@@ -1 +1 @@")).toHaveClass("diff-line-hunk");
+    expect(screen.getByText("-old")).toHaveClass("diff-line-remove");
+    expect(screen.getByText("+new")).toHaveClass("diff-line-add");
+    expect(document.querySelector(".diff-line-context")).toHaveTextContent("context");
   });
 
   it("Copy button copies the code to the clipboard", () => {

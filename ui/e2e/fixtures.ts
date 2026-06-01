@@ -1,26 +1,136 @@
 import { test as base, type Page } from "@playwright/test";
+import type { ProjectRecord } from "../src/types/project";
 
 // ── Mock data ─────────────────────────────────────────────────────────────────
 
 export const MOCK_PROVIDERS = [
-  { name: "anthropic", kind: "cloud", healthy: true,  status: "healthy", default_model: "claude-sonnet-4-6", models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-opus-4-6"] },
-  { name: "openai",    kind: "cloud", healthy: true,  status: "healthy", default_model: "gpt-4o",            models: ["gpt-4o", "gpt-4o-mini"] },
-  { name: "ollama",    kind: "local", healthy: false, status: "open",    default_model: "llama3.1:8b",       models: [] },
-  { name: "llamacpp",  kind: "local", healthy: false, status: "open",    default_model: "llama-3.2",         models: [] },
+  {
+    name: "anthropic",
+    kind: "cloud",
+    healthy: true,
+    status: "healthy",
+    default_model: "claude-sonnet-4-6",
+    models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-opus-4-6"],
+  },
+  {
+    name: "openai",
+    kind: "cloud",
+    healthy: true,
+    status: "healthy",
+    default_model: "gpt-4o",
+    models: ["gpt-4o", "gpt-4o-mini"],
+  },
+  {
+    name: "ollama",
+    kind: "local",
+    healthy: false,
+    status: "open",
+    default_model: "llama3.1:8b",
+    models: [],
+  },
+  {
+    name: "llamacpp",
+    kind: "local",
+    healthy: false,
+    status: "open",
+    default_model: "llama-3.2",
+    models: [],
+  },
 ];
 
 export const MOCK_PRESETS = [
-  { id: "anthropic", name: "Anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com/v1",  description: "Anthropic's Claude models." },
-  { id: "openai",    name: "OpenAI",    kind: "cloud", protocol: "openai",    base_url: "https://api.openai.com/v1",     description: "OpenAI's GPT models." },
-  { id: "ollama",    name: "Ollama",    kind: "local", protocol: "openai",    base_url: "http://127.0.0.1:11434/v1",     description: "Local inference via Ollama." },
-  { id: "llamacpp",  name: "llama.cpp", kind: "local", protocol: "openai",    base_url: "http://127.0.0.1:8080/v1",      description: "Local inference via llama.cpp." },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    kind: "cloud",
+    protocol: "anthropic",
+    base_url: "https://api.anthropic.com/v1",
+    description: "Anthropic's Claude models.",
+  },
+  {
+    id: "openai",
+    name: "OpenAI",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.openai.com/v1",
+    description: "OpenAI's GPT models.",
+  },
+  {
+    id: "ollama",
+    name: "Ollama",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:11434/v1",
+    description: "Local inference via Ollama.",
+  },
+  {
+    id: "llamacpp",
+    name: "llama.cpp",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:8080/v1",
+    description: "Local inference via llama.cpp.",
+  },
+];
+
+export const MOCK_PROJECTS: ProjectRecord[] = [
+  {
+    id: "proj_e2e",
+    name: "E2E workspace",
+    roots: [
+      {
+        id: "root_e2e",
+        path: "/tmp/hecate-e2e",
+        kind: "workspace",
+        active: true,
+        created_at: "2026-05-14T12:00:00Z",
+        updated_at: "2026-05-14T12:00:00Z",
+      },
+    ],
+    default_root_id: "root_e2e",
+    created_at: "2026-05-14T12:00:00Z",
+    updated_at: "2026-05-14T12:00:00Z",
+  },
+  {
+    id: "proj_e2e_workspace",
+    name: "E2E workspace alternate",
+    roots: [
+      {
+        id: "root_e2e_workspace",
+        path: "/tmp/hecate-e2e-workspace",
+        kind: "workspace",
+        active: true,
+        created_at: "2026-05-14T12:00:00Z",
+        updated_at: "2026-05-14T12:00:00Z",
+      },
+    ],
+    default_root_id: "root_e2e_workspace",
+    created_at: "2026-05-14T12:00:00Z",
+    updated_at: "2026-05-14T12:00:00Z",
+  },
 ];
 
 export const MOCK_MODELS = [
-  { id: "claude-opus-4-7",  owned_by: "anthropic", metadata: { provider: "anthropic", provider_kind: "cloud", default: false } },
-  { id: "claude-sonnet-4-6", owned_by: "anthropic", metadata: { provider: "anthropic", provider_kind: "cloud", default: true } },
-  { id: "gpt-4o",           owned_by: "openai",    metadata: { provider: "openai",    provider_kind: "cloud", default: true } },
-  { id: "gpt-4o-mini",      owned_by: "openai",    metadata: { provider: "openai",    provider_kind: "cloud", default: false } },
+  {
+    id: "claude-opus-4-7",
+    owned_by: "anthropic",
+    metadata: { provider: "anthropic", provider_kind: "cloud", default: false },
+  },
+  {
+    id: "claude-sonnet-4-6",
+    owned_by: "anthropic",
+    metadata: { provider: "anthropic", provider_kind: "cloud", default: true },
+  },
+  {
+    id: "gpt-4o",
+    owned_by: "openai",
+    metadata: { provider: "openai", provider_kind: "cloud", default: true },
+  },
+  {
+    id: "gpt-4o-mini",
+    owned_by: "openai",
+    metadata: { provider: "openai", provider_kind: "cloud", default: false },
+  },
 ];
 
 export const MOCK_AGENT_ADAPTERS = [
@@ -34,7 +144,8 @@ export const MOCK_AGENT_ADAPTERS = [
     available: false,
     status: "missing",
     error: "no local package runner found for @zed-industries/codex-acp",
-    description: "Run Codex through its ACP adapter as a long-lived external coding-agent session supervised by Hecate.",
+    description:
+      "Run Codex through its ACP adapter as a long-lived external coding-agent session supervised by Hecate.",
     cost_mode: "external",
     docs_url: "https://github.com/zed-industries/codex-acp",
   },
@@ -48,7 +159,8 @@ export const MOCK_AGENT_ADAPTERS = [
     available: false,
     status: "missing",
     error: "no local package runner found for @agentclientprotocol/claude-agent-acp",
-    description: "Run Claude Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
+    description:
+      "Run Claude Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
     cost_mode: "external",
     docs_url: "https://github.com/agentclientprotocol/claude-agent-acp",
   },
@@ -60,9 +172,24 @@ export const MOCK_AGENT_ADAPTERS = [
     available: false,
     status: "missing",
     error: "cursor-agent executable not found in PATH",
-    description: "Run Cursor Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
+    description:
+      "Run Cursor Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
     cost_mode: "external",
     docs_url: "https://cursor.com/cli",
+  },
+  {
+    id: "grok_build",
+    name: "Grok Build",
+    kind: "acp",
+    command: "grok",
+    args: ["agent", "stdio"],
+    available: false,
+    status: "missing",
+    error: "grok executable not found in PATH",
+    description:
+      "Run Grok Build through its ACP mode as a long-lived external coding-agent session supervised by Hecate.",
+    cost_mode: "external",
+    docs_url: "https://docs.x.ai/build/cli/headless-scripting#acp",
   },
 ];
 
@@ -70,6 +197,7 @@ export const MOCK_AGENT_ADAPTERS = [
 // until the operator adds at least one via POST /hecate/v1/settings/providers.
 // Tests that need an existing provider opt into MOCK_SETTINGS_CONFIG_WITH_PROVIDERS.
 export const MOCK_SETTINGS_CONFIG = {
+  backend: "memory",
   providers: [] as Array<{
     id: string;
     name: string;
@@ -94,10 +222,40 @@ export const MOCK_SETTINGS_CONFIG = {
 // Name field (preset names are fixed) and the operator reaches for
 // custom_name to disambiguate.
 export const MOCK_SETTINGS_CONFIG_WITH_PROVIDERS = {
+  backend: "memory",
   providers: [
-    { id: "anthropic", name: "Anthropic", preset_id: "anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com/v1", enabled: true, credential_configured: true,  credential_source: "vault" },
-    { id: "openai",    name: "OpenAI",    preset_id: "openai",    kind: "cloud", protocol: "openai",    base_url: "https://api.openai.com/v1",    enabled: true, credential_configured: true,  credential_source: "vault" },
-    { id: "ollama",    name: "Ollama",    preset_id: "ollama",    kind: "local", protocol: "openai",    base_url: "http://127.0.0.1:11434/v1",    enabled: true, credential_configured: false },
+    {
+      id: "anthropic",
+      name: "Anthropic",
+      preset_id: "anthropic",
+      kind: "cloud",
+      protocol: "anthropic",
+      base_url: "https://api.anthropic.com/v1",
+      enabled: true,
+      credential_configured: true,
+      credential_source: "vault",
+    },
+    {
+      id: "openai",
+      name: "OpenAI",
+      preset_id: "openai",
+      kind: "cloud",
+      protocol: "openai",
+      base_url: "https://api.openai.com/v1",
+      enabled: true,
+      credential_configured: true,
+      credential_source: "vault",
+    },
+    {
+      id: "ollama",
+      name: "Ollama",
+      preset_id: "ollama",
+      kind: "local",
+      protocol: "openai",
+      base_url: "http://127.0.0.1:11434/v1",
+      enabled: true,
+      credential_configured: false,
+    },
   ],
   tenants: [],
   api_keys: [],
@@ -106,21 +264,120 @@ export const MOCK_SETTINGS_CONFIG_WITH_PROVIDERS = {
 
 export const MOCK_FULL_PRESETS = [
   ...MOCK_PRESETS,
-  { id: "deepseek",  name: "DeepSeek",  kind: "cloud", protocol: "openai", base_url: "https://api.deepseek.com/v1",   description: "DeepSeek hosted models." },
-  { id: "gemini",    name: "Google Gemini", kind: "cloud", protocol: "openai", base_url: "https://generativelanguage.googleapis.com/v1beta/openai", description: "Google Gemini." },
-  { id: "groq",      name: "Groq",      kind: "cloud", protocol: "openai", base_url: "https://api.groq.com/openai/v1", description: "Groq inference." },
-  { id: "mistral",   name: "Mistral",   kind: "cloud", protocol: "openai", base_url: "https://api.mistral.ai/v1",     description: "Mistral hosted models." },
-  { id: "together_ai", name: "Together AI", kind: "cloud", protocol: "openai", base_url: "https://api.together.xyz/v1", description: "Together AI hosted models." },
-  { id: "xai",       name: "xAI",       kind: "cloud", protocol: "openai", base_url: "https://api.x.ai/v1",           description: "xAI Grok models." },
-  { id: "lmstudio",  name: "LM Studio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1",      description: "Local inference via LM Studio." },
-  { id: "localai",   name: "LocalAI",   kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1",      description: "Local inference via LocalAI." },
+  {
+    id: "cohere",
+    name: "Cohere",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.cohere.ai/compatibility/v1",
+    description: "Cohere hosted models.",
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.deepseek.com/v1",
+    description: "DeepSeek hosted models.",
+  },
+  {
+    id: "gemini",
+    name: "Google Gemini",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+    description: "Google Gemini.",
+  },
+  {
+    id: "fireworks",
+    name: "Fireworks AI",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.fireworks.ai/inference/v1",
+    description: "Fireworks AI serverless inference.",
+  },
+  {
+    id: "groq",
+    name: "Groq",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.groq.com/openai/v1",
+    description: "Groq inference.",
+  },
+  {
+    id: "huggingface",
+    name: "Hugging Face",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://router.huggingface.co/v1",
+    description: "Hugging Face Inference Providers.",
+  },
+  {
+    id: "mistral",
+    name: "Mistral",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.mistral.ai/v1",
+    description: "Mistral hosted models.",
+  },
+  {
+    id: "nvidia",
+    name: "NVIDIA",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://integrate.api.nvidia.com/v1",
+    description: "NVIDIA NIM inference.",
+  },
+  {
+    id: "together_ai",
+    name: "Together AI",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.together.xyz/v1",
+    description: "Together AI hosted models.",
+  },
+  {
+    id: "xai",
+    name: "xAI",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.x.ai/v1",
+    description: "xAI Grok models.",
+  },
+  {
+    id: "zai",
+    name: "z.ai",
+    kind: "cloud",
+    protocol: "openai",
+    base_url: "https://api.z.ai/api/paas/v4",
+    description: "Zhipu z.ai GLM models.",
+  },
+  {
+    id: "lmstudio",
+    name: "LM Studio",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:1234/v1",
+    description: "Local inference via LM Studio.",
+  },
+  {
+    id: "localai",
+    name: "LocalAI",
+    kind: "local",
+    protocol: "openai",
+    base_url: "http://127.0.0.1:8080/v1",
+    description: "Local inference via LocalAI.",
+  },
 ];
 
 // slugify mirrors the backend's slugify in handler_settings.go: lowercase,
 // non-alphanumeric → "-", strip leading/trailing "-". Used to derive provider
 // IDs at fixture-mock time so the in-memory list mirrors real backend state.
 function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 // ── Route mocking ─────────────────────────────────────────────────────────────
@@ -132,6 +389,7 @@ export type GatewayMockOptions = {
   // empty list — tests that need a populated table pass
   // MOCK_SETTINGS_CONFIG_WITH_PROVIDERS (or any custom shape).
   settingsConfig?: SettingsConfig;
+  projects?: ProjectRecord[];
 };
 
 export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {}) {
@@ -143,73 +401,91 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
 
   // Stateful clone — POST/DELETE/PATCH mutate this in place so a single
   // test can add → list → delete in one flow without re-mocking.
-  const state: SettingsConfig = JSON.parse(JSON.stringify(opts.settingsConfig ?? MOCK_SETTINGS_CONFIG));
-  const agentChatSessions: any[] = [];
-  let agentChatSequence = 1;
+  const state: SettingsConfig = JSON.parse(
+    JSON.stringify(opts.settingsConfig ?? MOCK_SETTINGS_CONFIG),
+  );
+  const projects: ProjectRecord[] = JSON.parse(JSON.stringify(opts.projects ?? MOCK_PROJECTS));
+  const chatSessions: any[] = [];
+  let chatSequence = 1;
 
-  await page.route("/healthz", r => r.fulfill(ok({ status: "ok", time: "2026-04-25T00:00:00Z" })));
+  await page.route("/healthz", (r) =>
+    r.fulfill(ok({ status: "ok", time: "2026-04-25T00:00:00Z" })),
+  );
 
   // Loopback handshake: stub a 403 by default so TokenGate-driven tests
   // see the manual-paste flow. Tests that specifically exercise the
   // auto-skip path can override this route with a 200 of their own.
-  await page.route("/hecate/v1/whoami", r =>
-    r.fulfill(ok({
-      object: "session",
-      data: { role: "operator" },
-    })),
+  await page.route("/hecate/v1/whoami", (r) =>
+    r.fulfill(
+      ok({
+        object: "session",
+        data: { role: "operator" },
+      }),
+    ),
   );
 
-  await page.route("/v1/models*", r =>
-    r.fulfill(ok({ object: "list", data: MOCK_MODELS })),
-  );
+  await page.route("/v1/models*", (r) => r.fulfill(ok({ object: "list", data: MOCK_MODELS })));
 
-  await page.route("/hecate/v1/providers/status*", r =>
+  await page.route("/hecate/v1/providers/status*", (r) =>
     r.fulfill(ok({ object: "list", data: MOCK_PROVIDERS })),
   );
 
-  await page.route("/hecate/v1/providers/presets*", r =>
+  await page.route("/hecate/v1/providers/presets*", (r) =>
     r.fulfill(ok({ object: "list", data: MOCK_FULL_PRESETS })),
   );
 
-  await page.route("/hecate/v1/agent-adapters*", r =>
+  await page.route("/hecate/v1/projects*", (r) =>
+    r.fulfill(ok({ object: "projects", data: projects })),
+  );
+
+  await page.route("/hecate/v1/agent-adapters*", (r) =>
     r.fulfill(ok({ object: "agent_adapters", data: MOCK_AGENT_ADAPTERS })),
   );
 
-  await page.route("/hecate/v1/agent-chat/sessions*", async route => {
+  await page.route(/\/hecate\/v1\/chat\/sessions(?:\/.*)?(?:\?.*)?$/, async (route) => {
     const request = route.request();
     const method = request.method();
     const url = new URL(request.url());
-    const suffix = url.pathname.replace("/hecate/v1/agent-chat/sessions", "").replace(/^\/+/, "");
-    const parts = suffix ? suffix.split("/").map(part => decodeURIComponent(part)) : [];
+    const suffix = url.pathname.replace("/hecate/v1/chat/sessions", "").replace(/^\/+/, "");
+    const parts = suffix ? suffix.split("/").map((part) => decodeURIComponent(part)) : [];
     const id = parts[0];
     const now = () => new Date("2026-05-14T12:00:00Z").toISOString();
-    const findSession = () => agentChatSessions.find(session => session.id === id);
+    const findSession = () => chatSessions.find((session) => session.id === id);
     const sessionSummary = (session: any) => {
-      const { messages: _messages, config_options: _configOptions, segments: _segments, ...summary } = session;
+      const {
+        messages: _messages,
+        config_options: _configOptions,
+        segments: _segments,
+        ...summary
+      } = session;
       return summary;
     };
 
     if (!id) {
       if (method === "GET") {
-        await route.fulfill(ok({ object: "agent_chat_sessions", data: agentChatSessions.map(sessionSummary) }));
+        await route.fulfill(
+          ok({ object: "chat_sessions", data: chatSessions.map(sessionSummary) }),
+        );
         return;
       }
       if (method === "POST") {
         const body = JSON.parse(request.postData() || "{}");
-        const runtimeKind = body.runtime_kind || (body.adapter_id ? "external_agent" : "agent");
-        const adapter = MOCK_AGENT_ADAPTERS.find(item => item.id === body.adapter_id);
-        const isExternal = runtimeKind === "external_agent";
+        const isExternalAgentID = Boolean(body.agent_id && body.agent_id !== "hecate");
+        const adapter = MOCK_AGENT_ADAPTERS.find((item) => item.id === body.agent_id);
+        const isExternal = isExternalAgentID;
         const session = {
-          id: `agent-chat-e2e-${agentChatSequence++}`,
-          title: body.title || (isExternal ? `${adapter?.name || "External agent"} chat` : "Hecate chat"),
-          runtime_kind: runtimeKind,
-          adapter_id: body.adapter_id || "",
-          adapter_name: adapter?.name || "",
+          id: `chat-e2e-${chatSequence++}`,
+          title:
+            body.title ||
+            (isExternal ? `${adapter?.name || "External agent"} chat` : "Hecate chat"),
+          agent_id: body.agent_id || "hecate",
+          agent_name: adapter?.name || "",
           driver_kind: isExternal ? "acp" : "",
-          native_session_id: isExternal ? `native-${agentChatSequence}` : "",
+          native_session_id: isExternal ? `native-${chatSequence}` : "",
           provider: body.provider || "auto",
-          model: body.model || MOCK_MODELS[0]?.id || "",
-          capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          model: body.model || "",
+          project_id: body.project_id || "",
+          capabilities: { tool_calling: "basic", streaming: true, source: "provider" },
           rtk_enabled: Boolean(body.rtk_enabled),
           workspace: body.workspace || "/tmp/hecate-e2e",
           workspace_branch: "",
@@ -217,12 +493,12 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           message_count: 0,
           created_at: now(),
           updated_at: now(),
-          config_options: isExternal ? [] : undefined,
+          config_options: isExternal ? (body.config_options ?? []) : undefined,
           segments: [],
           messages: [],
         };
-        agentChatSessions.unshift(session);
-        await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+        chatSessions.unshift(session);
+        await route.fulfill(ok({ object: "chat_session", data: session }));
         return;
       }
     }
@@ -236,14 +512,16 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       await route.fulfill({
         status: 404,
         contentType: "application/json",
-        body: JSON.stringify({ error: { type: "not_found", message: "agent chat session not found" } }),
+        body: JSON.stringify({
+          error: { type: "not_found", message: "agent chat session not found" },
+        }),
       });
       return;
     }
 
     if (parts.length === 1) {
       if (method === "GET") {
-        await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+        await route.fulfill(ok({ object: "chat_session", data: session }));
         return;
       }
       if (method === "PATCH") {
@@ -252,12 +530,12 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           session.title = body.title;
           session.updated_at = now();
         }
-        await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+        await route.fulfill(ok({ object: "chat_session", data: session }));
         return;
       }
       if (method === "DELETE") {
-        const idx = agentChatSessions.indexOf(session);
-        if (idx >= 0) agentChatSessions.splice(idx, 1);
+        const idx = chatSessions.indexOf(session);
+        if (idx >= 0) chatSessions.splice(idx, 1);
         await route.fulfill(ok({ object: "deleted", data: { id } }));
         return;
       }
@@ -268,11 +546,55 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       return;
     }
 
+    if (parts[1] === "cancel" && method === "POST") {
+      const activeSegment = [...(session.segments ?? [])]
+        .reverse()
+        .find((segment: any) =>
+          ["running", "in_progress", "awaiting_approval", "pending"].includes(
+            String(segment.status || ""),
+          ),
+        );
+      const assistant = [...(session.messages ?? [])]
+        .reverse()
+        .find((message: any) => message.role === "assistant");
+
+      session.status = "cancelled";
+      session.updated_at = now();
+      if (activeSegment) {
+        activeSegment.status = "cancelled";
+        activeSegment.updated_at = now();
+      }
+      if (assistant) {
+        assistant.status = "cancelled";
+        assistant.error = assistant.error || "Stopped by operator.";
+        assistant.completed_at = now();
+        assistant.activities = [
+          ...(assistant.activities ?? []).map((activity: any) =>
+            ["running", "in_progress", "pending", "awaiting_approval"].includes(
+              String(activity.status || ""),
+            )
+              ? { ...activity, status: "cancelled" }
+              : activity,
+          ),
+          {
+            id: `cancelled-${chatSequence}`,
+            type: "cancelled",
+            title: "Run cancelled",
+            status: "cancelled",
+            terminal: true,
+            created_at: now(),
+          },
+        ];
+      }
+      await route.fulfill(ok({ object: "chat_session", data: session }));
+      return;
+    }
+
     if (parts[1] === "settings" && method === "PATCH") {
       const body = JSON.parse(request.postData() || "{}");
       if (typeof body.rtk_enabled === "boolean") session.rtk_enabled = body.rtk_enabled;
       session.updated_at = now();
-      await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+      await route.fulfill(ok({ object: "chat_session", data: session }));
       return;
     }
 
@@ -285,94 +607,178 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
         return { ...option, current_value: String(body.value ?? "") };
       });
       session.updated_at = now();
-      await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+      await route.fulfill(ok({ object: "chat_session", data: session }));
       return;
     }
 
     if (parts[1] === "messages" && method === "POST" && parts.length === 2) {
       const body = JSON.parse(request.postData() || "{}");
       const content = String(body.content || "");
-      const runtimeKind = body.runtime_kind || session.runtime_kind || "agent";
+      const executionMode =
+        body.execution_mode ||
+        (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "hecate_task");
+      const toolsEnabled =
+        executionMode === "external_agent" ? undefined : body.tools_enabled !== false;
+      const sequence = chatSequence;
+      const segmentID = `segment-${sequence}`;
+      const isExternal = executionMode === "external_agent";
+      const keepRunning = isExternal && content.includes("[[keep-running]]");
+      if (isExternal) {
+        session.segments = [
+          ...(session.segments ?? []),
+          {
+            id: segmentID,
+            execution_mode: executionMode,
+            workspace: session.workspace,
+            status: keepRunning ? "running" : "completed",
+            message_count: 2,
+            started_at: now(),
+            updated_at: now(),
+          },
+        ];
+      }
       session.messages.push(
         {
-          id: `agent-msg-user-${agentChatSequence}`,
-          runtime_kind: runtimeKind,
+          id: `agent-msg-user-${sequence}`,
+          execution_mode: executionMode,
+          segment_id: isExternal ? segmentID : undefined,
           role: "user",
           content,
+          tools_enabled: toolsEnabled,
           created_at: now(),
         },
         {
-          id: `agent-msg-assistant-${agentChatSequence}`,
-          runtime_kind: runtimeKind,
+          id: `agent-msg-assistant-${sequence}`,
+          execution_mode: executionMode,
+          segment_id: isExternal ? segmentID : undefined,
           role: "assistant",
-          content: runtimeKind === "model" ? `Direct response to: ${content}` : `Agent response to: ${content}`,
-          status: "completed",
+          content:
+            executionMode === "hecate_task" && toolsEnabled === false
+              ? `Direct response to: ${content}`
+              : keepRunning
+                ? "I'll inspect that now."
+                : `Agent response to: ${content}`,
+          status: keepRunning ? "running" : "completed",
+          raw_output: isExternal
+            ? [
+                `{"type":"agent_message_chunk","text":"${keepRunning ? "I'll inspect that now." : `Agent response to: ${content}`}"}`,
+                `{"type":"session_update","status":"${keepRunning ? "running" : "completed"}"}`,
+              ].join("\n")
+            : undefined,
+          activities: isExternal
+            ? [
+                {
+                  id: `started-${sequence}`,
+                  type: "started",
+                  title: `${session.agent_name || "External agent"} started`,
+                  status: "completed",
+                  created_at: now(),
+                },
+                {
+                  id: `thinking-${sequence}`,
+                  type: "thinking",
+                  title: "Thinking",
+                  detail: "Read the prompt and planned the response.",
+                  status: keepRunning ? "running" : "completed",
+                  created_at: now(),
+                },
+                {
+                  id: `stdout-${sequence}`,
+                  type: "artifact",
+                  title: "agent-stdout.txt",
+                  status: "ready",
+                  kind: "stdout",
+                  artifact_id: `stdout-${sequence}`,
+                  artifact_size_bytes: 32,
+                  artifact_preview: "fake adapter wrote a transcript event",
+                  created_at: now(),
+                },
+                ...(keepRunning
+                  ? []
+                  : [
+                      {
+                        id: `completed-${sequence}`,
+                        type: "completed",
+                        title: "Run completed",
+                        status: "completed",
+                        terminal: true,
+                        created_at: now(),
+                      },
+                    ]),
+              ]
+            : undefined,
           provider: body.provider || session.provider,
           model: body.model || session.model,
           workspace: session.workspace,
-          run_id: runtimeKind === "model" ? `model_run_${agentChatSequence}` : `run_${agentChatSequence}`,
-          request_id: `req_${agentChatSequence}`,
-          trace_id: `trace_${agentChatSequence}`,
-          cost_mode: runtimeKind === "external_agent" ? "external" : "hecate",
+          tools_enabled: toolsEnabled,
+          run_id:
+            executionMode === "hecate_task" && toolsEnabled === false
+              ? `model_run_${sequence}`
+              : `run_${sequence}`,
+          request_id: `req_${sequence}`,
+          trace_id: `trace_${sequence}`,
+          cost_mode: executionMode === "external_agent" ? "external" : "hecate",
           created_at: now(),
         },
       );
-      agentChatSequence += 1;
-      session.runtime_kind = runtimeKind;
+      chatSequence += 1;
       session.provider = body.provider || session.provider;
       session.model = body.model || session.model;
-      session.status = "completed";
+      session.status = keepRunning ? "running" : "completed";
       session.message_count = session.messages.length;
       session.updated_at = now();
-      await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+      await route.fulfill(ok({ object: "chat_session", data: session }));
       return;
     }
 
     await route.fulfill({
       status: 404,
       contentType: "application/json",
-      body: JSON.stringify({ error: { type: "not_found", message: "agent chat session route not found" } }),
+      body: JSON.stringify({
+        error: { type: "not_found", message: "agent chat session route not found" },
+      }),
     });
   });
 
-  await page.route("/hecate/v1/agent-chat/sessions/*/approvals*", async route => {
-    await route.fulfill(ok({ object: "agent_chat_approvals", data: [] }));
+  await page.route("/hecate/v1/chat/sessions/*/approvals*", async (route) => {
+    await route.fulfill(ok({ object: "chat_approvals", data: [] }));
   });
 
-  await page.route("/hecate/v1/costs/budget*", r =>
-    r.fulfill(ok({
-      object: "budget_status",
-      data: {
-        key: "global", scope: "global", backend: "memory",
-        balance_source: "config",
-        debited_micros_usd: 0, debited_usd: "0.000000",
-        credited_micros_usd: 1_000_000, credited_usd: "1.000000",
-        balance_micros_usd: 1_000_000, balance_usd: "1.000000",
-        available_micros_usd: 1_000_000, available_usd: "1.000000",
-        enforced: false,
-      },
-    })),
-  );
-
-  await page.route("/hecate/v1/costs/summary*", r =>
-    r.fulfill(ok({ object: "account_summary", data: null })),
-  );
-
-  await page.route("/hecate/v1/chat/sessions*", r =>
-    r.fulfill(ok({ object: "list", data: [], has_more: false })),
-  );
-
-  await page.route("/hecate/v1/observability/requests*", r =>
+  await page.route("/hecate/v1/observability/requests*", (r) =>
     r.fulfill(ok({ object: "list", data: [] })),
+  );
+
+  // Usage workspace: read-only cloud-token accounting. Default to empty so
+  // the empty-state copy is what specs assert against; specs that need
+  // populated data can re-register the route.
+  await page.route("/hecate/v1/usage/events*", (r) =>
+    r.fulfill(ok({ object: "usage_events", data: [] })),
+  );
+  await page.route("/hecate/v1/usage/summary*", (r) =>
+    r.fulfill(
+      ok({
+        object: "usage_summary",
+        data: {
+          key: "global",
+          scope: "global",
+          backend: "memory",
+          used_micros_usd: 0,
+          used_usd: "$0.000000",
+        },
+      }),
+    ),
   );
 
   // Bare /hecate/v1/settings (status) — register FIRST so the more-specific
   // /hecate/v1/settings/providers routes registered below win. Playwright
   // matches routes in REVERSE registration order (most recent first), so
   // specifics-last is the right ordering.
-  await page.route("/hecate/v1/settings*", async route => {
-    await route.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({ object: "settings", data: state }) });
+  await page.route("/hecate/v1/settings*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "settings", data: state }),
+    });
   });
 
   // POST /hecate/v1/settings/providers → create. Slugifies the name to id,
@@ -381,7 +787,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   // DELETE /hecate/v1/settings/providers/{id} → drops the row.
   // PATCH /hecate/v1/settings/providers/{id} → applies name/base_url.
   // PUT  /hecate/v1/settings/providers/{id}/api-key → flips credential_configured.
-  await page.route("/hecate/v1/settings/providers", async route => {
+  await page.route("/hecate/v1/settings/providers", async (route) => {
     if (route.request().method() === "POST") {
       const body = JSON.parse(route.request().postData() ?? "{}") as {
         name?: string;
@@ -394,21 +800,39 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       };
       const id = slugify([body.name, body.custom_name].filter(Boolean).join(" "));
       if (!id) {
-        await route.fulfill({ status: 400, contentType: "application/json",
-          body: JSON.stringify({ error: { type: "invalid_request", message: "provider name is required" } }) });
+        await route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: { type: "invalid_request", message: "provider name is required" },
+          }),
+        });
         return;
       }
-      if (state.providers.some(p => p.id === id)) {
-        await route.fulfill({ status: 409, contentType: "application/json",
-          body: JSON.stringify({ error: { type: "invalid_request", message: `provider with id "${id}" already exists` } }) });
+      if (state.providers.some((p) => p.id === id)) {
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: { type: "invalid_request", message: `provider with id "${id}" already exists` },
+          }),
+        });
         return;
       }
       const trimmedURL = (body.base_url ?? "").trim();
       if (trimmedURL) {
-        const dup = state.providers.find(p => (p.base_url ?? "").trim() === trimmedURL);
+        const dup = state.providers.find((p) => (p.base_url ?? "").trim() === trimmedURL);
         if (dup) {
-          await route.fulfill({ status: 409, contentType: "application/json",
-            body: JSON.stringify({ error: { type: "invalid_request", message: `base URL already used by provider "${dup.name || dup.id}"` } }) });
+          await route.fulfill({
+            status: 409,
+            contentType: "application/json",
+            body: JSON.stringify({
+              error: {
+                type: "invalid_request",
+                message: `base URL already used by provider "${dup.name || dup.id}"`,
+              },
+            }),
+          });
           return;
         }
       }
@@ -425,14 +849,17 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
         credential_source: body.api_key ? "vault" : undefined,
       };
       state.providers.push(record);
-      await route.fulfill({ status: 201, contentType: "application/json",
-        body: JSON.stringify({ object: "settings_provider", data: record }) });
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "settings_provider", data: record }),
+      });
       return;
     }
     await route.continue();
   });
 
-  await page.route("/hecate/v1/settings/providers/*", async route => {
+  await page.route("/hecate/v1/settings/providers/*", async (route) => {
     const url = route.request().url();
     const method = route.request().method();
     const tail = url.split("/hecate/v1/settings/providers/")[1] ?? "";
@@ -441,7 +868,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
 
     if (sub === "api-key" && method === "PUT") {
       const body = JSON.parse(route.request().postData() ?? "{}") as { key?: string };
-      const target = state.providers.find(p => p.id === id);
+      const target = state.providers.find((p) => p.id === id);
       if (target) {
         if (body.key) {
           target.credential_configured = true;
@@ -451,28 +878,45 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           target.credential_source = undefined;
         }
       }
-      await route.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ object: "settings_provider_api_key", data: { id, status: body.key ? "set" : "cleared" } }) });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          object: "settings_provider_api_key",
+          data: { id, status: body.key ? "set" : "cleared" },
+        }),
+      });
       return;
     }
 
     if (!sub && method === "DELETE") {
-      const idx = state.providers.findIndex(p => p.id === id);
+      const idx = state.providers.findIndex((p) => p.id === id);
       if (idx >= 0) state.providers.splice(idx, 1);
-      await route.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ object: "settings_provider", id, deleted: true }) });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "settings_provider", id, deleted: true }),
+      });
       return;
     }
 
     if (!sub && method === "PATCH") {
-      const body = JSON.parse(route.request().postData() ?? "{}") as { name?: string; base_url?: string };
-      const target = state.providers.find(p => p.id === id);
+      const body = JSON.parse(route.request().postData() ?? "{}") as {
+        name?: string;
+        base_url?: string;
+      };
+      const target = state.providers.find((p) => p.id === id);
       if (target) {
-        if (typeof body.name === "string" && body.name.trim() !== "") target.name = body.name.trim();
-        if (typeof body.base_url === "string" && body.base_url.trim() !== "") target.base_url = body.base_url.trim();
+        if (typeof body.name === "string" && body.name.trim() !== "")
+          target.name = body.name.trim();
+        if (typeof body.base_url === "string" && body.base_url.trim() !== "")
+          target.base_url = body.base_url.trim();
       }
-      await route.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ object: "settings_provider", data: target ?? null }) });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "settings_provider", data: target ?? null }),
+      });
       return;
     }
 
@@ -481,38 +925,40 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
 
   // Register after the provider wildcard above: Playwright resolves routes in
   // reverse order, and /providers/* would otherwise shadow this exact probe.
-  await page.route("/hecate/v1/settings/providers/local-discovery", async route => {
-    await route.fulfill(ok({
-      object: "local_provider_discovery",
-      data: [
-        {
-          preset_id: "ollama",
-          name: "Ollama",
-          base_url: "http://127.0.0.1:11434/v1",
-          probe_url: "http://127.0.0.1:11434/api/tags",
-          status: "installed",
-          command: "ollama",
-          command_available: true,
-          command_path: "/usr/local/bin/ollama",
-          http_available: false,
-          model_count: 0,
-          models: [],
-        },
-        {
-          preset_id: "lmstudio",
-          name: "LM Studio",
-          base_url: "http://127.0.0.1:1234/v1",
-          probe_url: "http://127.0.0.1:1234/v1/models",
-          status: "running",
-          command: "lms",
-          command_available: true,
-          command_path: "/Users/alice/.lmstudio/bin/lms",
-          http_available: true,
-          model_count: 1,
-          models: ["qwen2.5"],
-        },
-      ],
-    }));
+  await page.route("/hecate/v1/settings/providers/local-discovery", async (route) => {
+    await route.fulfill(
+      ok({
+        object: "local_provider_discovery",
+        data: [
+          {
+            preset_id: "ollama",
+            name: "Ollama",
+            base_url: "http://127.0.0.1:11434/v1",
+            probe_url: "http://127.0.0.1:11434/api/tags",
+            status: "installed",
+            command: "ollama",
+            command_available: true,
+            command_path: "/usr/local/bin/ollama",
+            http_available: false,
+            model_count: 0,
+            models: [],
+          },
+          {
+            preset_id: "lmstudio",
+            name: "LM Studio",
+            base_url: "http://127.0.0.1:1234/v1",
+            probe_url: "http://127.0.0.1:1234/v1/models",
+            status: "running",
+            command: "lms",
+            command_available: true,
+            command_path: "/Users/alice/.lmstudio/bin/lms",
+            http_available: true,
+            model_count: 1,
+            models: ["qwen2.5"],
+          },
+        ],
+      }),
+    );
   });
 
   const emptyPricebookImportDiff = {
@@ -525,46 +971,74 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     failed: [],
   };
 
-  await page.route("/hecate/v1/settings/pricebook/import/preview", async route => {
+  await page.route("/hecate/v1/settings/pricebook/import/preview", async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue();
       return;
     }
-    await route.fulfill(ok({
-      object: "settings_pricebook_import_diff",
-      data: emptyPricebookImportDiff,
-    }));
+    await route.fulfill(
+      ok({
+        object: "settings_pricebook_import_diff",
+        data: emptyPricebookImportDiff,
+      }),
+    );
   });
 
-  await page.route("/hecate/v1/settings/pricebook/import/apply", async route => {
+  await page.route("/hecate/v1/settings/pricebook/import/apply", async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue();
       return;
     }
-    await route.fulfill(ok({
-      object: "settings_pricebook_import_diff",
-      data: emptyPricebookImportDiff,
-    }));
+    await route.fulfill(
+      ok({
+        object: "settings_pricebook_import_diff",
+        data: emptyPricebookImportDiff,
+      }),
+    );
   });
 
-  await page.route("/hecate/v1/system/retention/runs*", r =>
+  await page.route("/hecate/v1/system/retention/runs*", (r) =>
     r.fulfill(ok({ object: "list", data: [] })),
   );
 
-  await page.route("/hecate/v1/system/stats*", r =>
+  await page.route("/hecate/v1/system/reset-data", async (route) => {
+    if (route.request().method() === "POST") {
+      state.providers = [];
+      state.policy_rules = [];
+      chatSessions.splice(0, chatSessions.length);
+      await route.fulfill(
+        ok({
+          object: "system_reset",
+          data: {
+            projects_deleted: 0,
+            chat_sessions_deleted: 0,
+            tasks_deleted: 0,
+            providers_deleted: 0,
+            policy_rules_deleted: 0,
+            agent_approval_grants_deleted: 0,
+            database_rows_deleted: state.backend === "sqlite" ? 2 : 0,
+          },
+        }),
+      );
+      return;
+    }
+    await route.fallback();
+  });
+
+  await page.route("/hecate/v1/system/stats*", (r) =>
     r.fulfill(ok({ object: "runtime_stats", data: {} })),
   );
 
-  await page.route("/hecate/v1/system/mcp/cache*", r =>
-    r.fulfill(ok({
-      object: "mcp_cache_stats",
-      data: { entries: 0, in_use: 0, idle: 0, max_entries: 0 },
-    })),
+  await page.route("/hecate/v1/system/mcp/cache*", (r) =>
+    r.fulfill(
+      ok({
+        object: "mcp_cache_stats",
+        data: { entries: 0, in_use: 0, idle: 0, max_entries: 0 },
+      }),
+    ),
   );
 
-  await page.route("/hecate/v1/traces*", r =>
-    r.fulfill(ok({ object: "list", data: [] })),
-  );
+  await page.route("/hecate/v1/traces*", (r) => r.fulfill(ok({ object: "list", data: [] })));
 }
 
 // ── Extended test fixture ─────────────────────────────────────────────────────

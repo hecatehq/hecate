@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Cancel in-progress runs for the same branch / PR when a new commit is pushed.
 concurrency:
@@ -55,6 +56,7 @@ jobs:
             workflow:
               - '.github/workflows/*.yml'
               - 'Justfile'
+              - 'just/**'
             docker:
               - 'Dockerfile'
               - '.dockerignore'
@@ -85,11 +87,10 @@ jobs:
               - 'scripts/stamp-version.ts'
               - 'scripts/tauri-smoke.ts'
               - 'Justfile'
+              - 'just/**'
               - 'go.mod'
               - 'go.sum'
               - 'cmd/hecate/**'
-              - 'cmd/hecate-acp/**'
-              - 'ui/**'
               - 'embed.go'
               - '.goreleaser.yaml'
               - 'Dockerfile.release'
@@ -140,10 +141,8 @@ jobs:
           # resolver and gateway detect at runtime so the dev/Linux
           # build doesn't accidentally advertise local-models as
           # available.
-          for name in hecate hecate-acp; do
-            printf '#!/bin/sh\nexit 0\n' > "tauri/src-tauri/binaries/${name}-x86_64-unknown-linux-gnu"
-            chmod +x "tauri/src-tauri/binaries/${name}-x86_64-unknown-linux-gnu"
-          done
+          printf '#!/bin/sh\nexit 0\n' > "tauri/src-tauri/binaries/hecate-x86_64-unknown-linux-gnu"
+          chmod +x "tauri/src-tauri/binaries/hecate-x86_64-unknown-linux-gnu"
           printf '#!/bin/sh\n# hecate-llama-server-placeholder\n# This file exists to satisfy Tauri externalBin resolution\n# at build time. It is NOT a real llama-server.\nexit 0\n' > "tauri/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu"
           chmod +x "tauri/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu"
 
@@ -177,8 +176,8 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-  test-go:
-    name: Go tests
+  test-go-linux-race:
+    name: Go tests (Linux race)
     needs: changes
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
@@ -192,6 +191,38 @@ jobs:
 
       - name: Test
         run: go test -race -timeout 10m ./...
+
+  test-go-windows-bootstrap:
+    name: Go tests (Windows bootstrap)
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./internal/bootstrap
+
+  test-go-macos-bootstrap:
+    name: Go tests (macOS bootstrap)
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test ./internal/bootstrap
 
   build-hecate:
     name: Build hecate
@@ -245,6 +276,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up just
+        uses: extractions/setup-just@v4
+
       - name: Download hecate binary
         uses: actions/download-artifact@v8
         with:
@@ -254,7 +288,7 @@ jobs:
       - name: Run e2e tests
         run: |
           chmod +x /tmp/hecate
-          go test -tags e2e -count=1 -timeout 3m ./e2e/...
+          just test-e2e
         env:
           E2E_HECATE_BIN: /tmp/hecate
 
@@ -270,6 +304,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Set up just
+        uses: extractions/setup-just@v4
 
       - name: Download hecate binary
         uses: actions/download-artifact@v8
@@ -320,7 +357,7 @@ jobs:
         # by the e2e job running in parallel.
         run: |
           chmod +x /tmp/hecate
-          go test -tags 'e2e ollama' -count=1 -run TestOllama -timeout 10m ./e2e/...
+          just test-e2e-ollama
         env:
           E2E_HECATE_BIN: /tmp/hecate
           OLLAMA_HOST: http://127.0.0.1:11434
@@ -346,13 +383,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up just
+        uses: extractions/setup-just@v4
+
       # Buildx + GHA cache means cold image builds (~30-60s) drop to a
       # few seconds when the source layers haven't changed. Without it
       # the smoke job would rebuild the full UI + Go binary every run.
       - uses: docker/setup-buildx-action@v4
 
       - name: Run docker smoke test
-        run: go test -tags 'e2e docker' -count=1 -timeout 5m ./e2e/...
+        run: just test-docker-smoke
 
   typescript:
     name: TypeScript tests
@@ -373,6 +413,12 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Format check
+        run: bun run format:check
 
       # Build first so typecheck failures fail-fast (the build script is
       # `tsgo -b && vite build` — no point running tests on a TS-broken
@@ -439,24 +485,31 @@ jobs:
       - changes
       - test-tauri-rust
       - lint-go
-      - test-go
+      - test-go-linux-race
+      - test-go-windows-bootstrap
+      - test-go-macos-bootstrap
       - build-hecate
       - e2e
       - e2e-ollama
       - docker-smoke
       - typescript
       - typescript-e2e
+    # Native desktop bundles are expensive, so keep this gate scoped to
+    # actual desktop/package inputs. UI-only PRs are still covered by the
+    # TypeScript jobs and by `build-hecate`, which rebuilds the embedded UI.
     if: |
       always() &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.draft == false &&
       (
-        needs.changes.outputs.desktop == 'true' ||
-        needs.changes.outputs.workflow == 'true'
+        needs.changes.outputs.workflow == 'true' ||
+        needs.changes.outputs.desktop == 'true'
       ) &&
       contains(fromJSON('["success","skipped"]'), needs.test-tauri-rust.result) &&
       contains(fromJSON('["success","skipped"]'), needs.lint-go.result) &&
-      contains(fromJSON('["success","skipped"]'), needs.test-go.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-go-linux-race.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-go-windows-bootstrap.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-go-macos-bootstrap.result) &&
       contains(fromJSON('["success","skipped"]'), needs.build-hecate.result) &&
       contains(fromJSON('["success","skipped"]'), needs.e2e.result) &&
       contains(fromJSON('["success","skipped"]'), needs.e2e-ollama.result) &&

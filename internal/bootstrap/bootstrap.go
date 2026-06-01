@@ -56,11 +56,16 @@ func Resolve(path, envSecret string) (Bootstrap, error) {
 		b.ControlPlaneSecretKey = key
 		dirty = true
 	}
+	if err := validateControlPlaneSecretKey(b.ControlPlaneSecretKey); err != nil {
+		return Bootstrap{}, err
+	}
 
 	if dirty || envSecret != "" {
 		if err := save(path, b); err != nil {
 			return Bootstrap{}, fmt.Errorf("persist bootstrap file %q: %w", path, err)
 		}
+	} else if err := secureExistingFile(path); err != nil {
+		return Bootstrap{}, fmt.Errorf("secure bootstrap file %q: %w", path, err)
 	}
 
 	return b, nil
@@ -78,6 +83,17 @@ func load(path string) (Bootstrap, error) {
 	return b, nil
 }
 
+func validateControlPlaneSecretKey(key string) error {
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(key))
+	if err != nil {
+		return fmt.Errorf("control-plane secret key must be base64: %w", err)
+	}
+	if len(decoded) != 32 {
+		return fmt.Errorf("control-plane secret key must decode to 32 bytes")
+	}
+	return nil
+}
+
 func save(path string, b Bootstrap) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -86,9 +102,60 @@ func save(path string, b Bootstrap) error {
 	if err != nil {
 		return err
 	}
-	// 0o600 because the file holds the encryption key. Anything more
-	// permissive lets a co-located service decrypt provider credentials.
-	return os.WriteFile(path, data, 0o600)
+	return replaceBootstrapFile(path, data)
+}
+
+func secureExistingFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !bootstrapFileNeedsModeRepair(info.Mode().Perm()) {
+		return nil
+	}
+	return chmodBootstrapFile(path)
+}
+
+func replaceBootstrapFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	keepTemp := false
+	defer func() {
+		if !keepTemp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	// CreateTemp starts with 0600 on POSIX filesystems, but keep the write
+	// path explicit so a future refactor cannot write key material before
+	// setting the intended mode bits.
+	if err := chmodBootstrapFile(tmpPath); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := replaceFile(tmpPath, path); err != nil {
+		return err
+	}
+	keepTemp = true
+	return chmodBootstrapFile(path)
+}
+
+func chmodBootstrapFile(path string) error {
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("set bootstrap file permissions to 0600: %w", err)
+	}
+	return nil
 }
 
 func randomBase64(n int) (string, error) {

@@ -2,20 +2,10 @@
 .DS_Store
 .env
 
-# Claude Code local state
-#
-# .claude/ holds Claude Code config + session state. Keep most of it
-# user-local (per-machine session history, local overrides), but track shared
-# team artifacts: slash commands, settings.json, and the skill discovery
-# symlinks that point Claude at canonical SKILL.md files under docs-ai/.
-#
-# Pattern note: ignore immediate children via `*`, not the directory itself, so
-# negations can re-include specific subpaths. Ignoring `.claude/` would make
-# `!.claude/commands/` unreachable under gitignore semantics.
-.claude/*
-!.claude/commands/
-!.claude/skills/
-!.claude/settings.json
+# Local agent/editor state. Repository guidance lives in AGENTS.md and docs-ai/;
+# provider-specific local state must not become a tracked instruction surface.
+.claude/
+.cursor/
 
 # Runtime state and local Go caches
 #
@@ -23,6 +13,7 @@
 # generated bootstrap/control-plane key and sqlite databases, so it must stay
 # local. The Go cache dirs are opt-in repo-local caches used by local scripts.
 .data/
+.maintenance/
 .gocache/
 .gomodcache/
 .gopath/

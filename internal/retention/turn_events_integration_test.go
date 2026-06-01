@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/taskstate"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // TestManagerSweepsRealTurnEventsButSparesOtherTypes wires a real
@@ -136,7 +136,7 @@ func TestManagerSweepsRealTurnEventsButSparesOtherTypes(t *testing.T) {
 // TestManagerCountCapDoesNotAffectNonTurnEvents pins down the
 // count-cap branch's scope: even when MaxCount is exceeded by
 // non-turn events present in the same store, only turn events
-// should be pruned. The PruneTurnEvents implementations take the
+// should be pruned. The Prune implementations take the
 // count over turn.completed rows specifically — but a
 // regression that counted across all event types would silently
 // delete operator-visible run.* events, which is the worst kind

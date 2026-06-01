@@ -24,6 +24,10 @@
 # but the URL is real and intentionally referenced in agent-instruction docs.
 ^https://spec\.modelcontextprotocol\.io
 
+# Cosmetic README badge images. The backing CDN can return transient 5xx/525s
+# from CI; the meaningful badge targets remain checked separately.
+^https://img\.shields\.io/
+
 # Documentation example placeholders, not real endpoints.
 ^https://api\.example\.com
 ^https://example\.com

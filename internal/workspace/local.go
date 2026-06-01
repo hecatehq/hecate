@@ -3,13 +3,12 @@ package workspace
 import (
 	"context"
 
-	"github.com/hecate/agent-runtime/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/sandbox"
 )
 
 // LocalWorkspace is the on-host implementation. Every method delegates
 // to sandbox.LocalExecutor today; the wrapper exists so the call
-// graph already routes through the workspace abstraction and the
-// later swap to ACPWorkspace is a one-line wire-up.
+// graph already routes through the workspace abstraction.
 //
 // Stateless: LocalExecutor itself holds no state per call, and any
 // future per-workspace state (caches, telemetry context) belongs on

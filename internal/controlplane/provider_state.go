@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 func applyProviderUpsert(ctx context.Context, state *State, provider Provider, secret *ProviderSecret) (Provider, error) {

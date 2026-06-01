@@ -4,6 +4,7 @@
 // Usage:
 //   bun scripts/release.ts <version>                 # e.g. v0.1.0-alpha.9
 //   bun scripts/release.ts v0.2.0 --skip-snapshot    # skip goreleaser dry-run
+//   bun scripts/release.ts v0.2.0 --preflight-only   # validate local release deps
 //
 // The script runs pre-flight checks, fires a goreleaser snapshot dry-run so
 // you can inspect the changelog before anything is published, stamps the Tauri
@@ -46,6 +47,15 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
+function commandErrorOutput(error: unknown): string {
+  const maybeError = error as { stderr?: { toString(): string }; stdout?: { toString(): string }; message?: string };
+  const stderr = maybeError.stderr?.toString().trim();
+  if (stderr) return stderr;
+  const stdout = maybeError.stdout?.toString().trim();
+  if (stdout) return stdout;
+  return maybeError.message ?? String(error);
+}
+
 function sep(label: string) {
   console.log(`\n── ${label} ${"─".repeat(Math.max(0, 72 - label.length - 4))}`);
 }
@@ -55,11 +65,18 @@ function sep(label: string) {
 const args = process.argv.slice(2);
 const version = args.find(a => !a.startsWith("--")) ?? "";
 const skipSnapshot = args.includes("--skip-snapshot");
+const preflightOnly = args.includes("--preflight-only");
 
 if (!version) {
-  console.error("usage: bun scripts/release.ts <version> [--skip-snapshot]");
+  console.error("usage: bun scripts/release.ts <version> [--skip-snapshot] [--preflight-only]");
   console.error("       version: vX.Y.Z  or  vX.Y.Z-pre.N  (e.g. v0.1.0-alpha.9)");
   process.exit(1);
+}
+
+const allowedFlags = new Set(["--skip-snapshot", "--preflight-only"]);
+const unknownFlags = args.filter(a => a.startsWith("--") && !allowedFlags.has(a));
+if (unknownFlags.length > 0) {
+  fail(`unknown option${unknownFlags.length === 1 ? "" : "s"}: ${unknownFlags.join(", ")}`);
 }
 
 // ── Validate version format ───────────────────────────────────────────────────
@@ -91,6 +108,7 @@ if (branch !== "master" && branch !== "main") {
 }
 console.log(`  branch    : ${branch}`);
 console.log(`  commit    : ${run("git rev-parse --short HEAD", { silent: true })}`);
+const preStampHead = run("git rev-parse HEAD", { silent: true });
 
 // 3. Tag must not already exist.
 try {
@@ -129,6 +147,33 @@ try {
   fail("bun not found — required for Tauri version stamping.");
 }
 
+// 6. Docker must be reachable when the local snapshot will build images.
+// `just release` runs this preflight before `just verify`, so a stopped
+// Docker Desktop fails in seconds instead of after the full release gate.
+if (!skipSnapshot) {
+  try {
+    const dockerVersion = execFileSync("docker", ["info", "--format", "{{.ServerVersion}}"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    console.log(`  docker    : ${dockerVersion}`);
+  } catch (error) {
+    fail(
+      "Docker is required for the Goreleaser snapshot dry-run, but the Docker daemon is not reachable.\n" +
+      "  Start Docker Desktop and retry, or pass --skip-snapshot only after just verify has already passed.\n" +
+      `  Docker said: ${commandErrorOutput(error)}`,
+    );
+  }
+} else {
+  console.log("  docker    : skipped (--skip-snapshot)");
+}
+
+if (preflightOnly) {
+  console.log("\nRelease preflight passed.");
+  process.exit(0);
+}
+
 // ── Goreleaser snapshot dry-run ───────────────────────────────────────────────
 
 if (!skipSnapshot) {
@@ -157,6 +202,7 @@ if (!confirm("\nTag, stamp Tauri version, and push?")) abort("cancelled by user"
 
 sep("Tauri version stamp");
 const stampScript = resolve(root, "scripts/stamp-version.ts");
+let stampCommitCreated = false;
 if (existsSync(stampScript)) {
   // execFileSync (no shell) so that paths/args with spaces or special
   // characters can't be interpreted as shell metacharacters. CodeQL also
@@ -177,6 +223,7 @@ if (existsSync(stampScript)) {
       cwd: root,
       stdio: "inherit",
     });
+    stampCommitCreated = true;
     console.log("  committed Tauri version stamp");
   } else {
     console.log("  Tauri files already at correct version — no commit needed");
@@ -193,13 +240,26 @@ console.log(`Tagged ${version}`);
 
 execFileSync("git", ["push", "origin", version], { cwd: root, stdio: "inherit" });
 
+// Keep the local release branch on the pre-tag commit. The version stamp
+// commit is intentionally reachable through the annotated tag only; leaving the
+// branch there makes local master diverge as soon as CI publishes manifest/docs
+// commits back to origin/master.
+if (stampCommitCreated) {
+  sep("Restore release branch");
+  execFileSync("git", ["reset", "--hard", preStampHead], { cwd: root, stdio: "inherit" });
+  console.log(`  ${branch} restored to ${preStampHead.slice(0, 12)}`);
+  console.log(`  ${version} still points at the Tauri version stamp commit`);
+}
+
 // ── Done ──────────────────────────────────────────────────────────────────────
 
 sep("Done");
 console.log("CI is building the release. Track it at:");
 console.log("  https://github.com/hecatehq/hecate/actions");
+console.log("\nWhen CI finishes, sync the manifest/docs commits back locally:");
+console.log("  git pull --ff-only origin master");
 console.log(`\nWhen CI completes (~5-10 min), verify the published image:`);
 console.log(`  docker pull ghcr.io/hecatehq/hecate:${semver}`);
-console.log(`  docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:${semver}`);
+console.log(`  docker run --rm -p 127.0.0.1:8765:8765 ghcr.io/hecatehq/hecate:${semver}`);
 console.log(`\nTo recover if CI fails:`);
 console.log(`  git push --delete origin ${version} && git tag -d ${version}`);

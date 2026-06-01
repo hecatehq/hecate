@@ -2,7 +2,11 @@ import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DESKTOP_UPDATE_POLL_INTERVAL_MS, useDesktopUpdate } from "./desktop-update";
+import {
+  DESKTOP_UPDATE_INSTALL_STALL_MS,
+  DESKTOP_UPDATE_POLL_INTERVAL_MS,
+  useDesktopUpdate,
+} from "./desktop-update";
 
 // The hook dynamically imports @tauri-apps/plugin-updater inside
 // the Tauri runtime check. We mock the module so the tests don't
@@ -33,6 +37,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args?: unknown) => invokeMock(cmd, args),
 }));
 
+const relaunchMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: () => relaunchMock(),
+}));
+
 function enterTauriRuntime() {
   // Stamp the marker isTauriRuntime() looks for. cleanup in afterEach.
   (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
@@ -47,6 +56,8 @@ beforeEach(() => {
   logWarnMock.mockReset();
   invokeMock.mockReset();
   invokeMock.mockResolvedValue(undefined);
+  relaunchMock.mockReset();
+  relaunchMock.mockResolvedValue(undefined);
   sessionStorage.clear();
   exitTauriRuntime();
 });
@@ -122,11 +133,14 @@ describe("useDesktopUpdate", () => {
     expect(result.current.update).toBeNull();
   });
 
-  it("installAndRestart() toggles installing and calls downloadAndInstall", async () => {
+  it("installAndRestart() downloads the update and then relaunches the app", async () => {
     enterTauriRuntime();
     let resolveDownload: (() => void) | null = null;
     const downloadAndInstall = vi.fn(
-      () => new Promise<void>((resolve) => { resolveDownload = resolve; }),
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDownload = resolve;
+        }),
     );
     checkMock.mockResolvedValue({
       version: "0.1.0-alpha.24",
@@ -134,13 +148,17 @@ describe("useDesktopUpdate", () => {
     });
     const { result } = renderHook(() => useDesktopUpdate());
     await waitFor(() => expect(result.current.update).not.toBeNull());
-    act(() => { void result.current.installAndRestart(); });
+    act(() => {
+      void result.current.installAndRestart();
+    });
     await waitFor(() => expect(result.current.installing).toBe(true));
+    expect(result.current.installPhase).toBe("downloading");
     expect(downloadAndInstall).toHaveBeenCalledTimes(1);
-    // Resolve the download — installing flips back only on error;
-    // on success the plugin relaunches and the renderer terminates.
-    // We simulate the success path by resolving without exception.
-    act(() => { resolveDownload?.(); });
+    await act(async () => {
+      resolveDownload?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(relaunchMock).toHaveBeenCalledTimes(1));
   });
 
   it("only calls check() once under React StrictMode (no double-fire on dev remount)", async () => {
@@ -159,7 +177,9 @@ describe("useDesktopUpdate", () => {
     let onEventCb: ((e: unknown) => void) | null = null;
     const downloadAndInstall = vi.fn((cb?: (e: unknown) => void) => {
       onEventCb = cb ?? null;
-      return new Promise<void>(() => { /* never resolves */ });
+      return new Promise<void>(() => {
+        /* never resolves */
+      });
     });
     checkMock.mockResolvedValue({
       version: "0.1.0-alpha.24",
@@ -167,15 +187,85 @@ describe("useDesktopUpdate", () => {
     });
     const { result } = renderHook(() => useDesktopUpdate());
     await waitFor(() => expect(result.current.update).not.toBeNull());
-    act(() => { void result.current.installAndRestart(); });
+    act(() => {
+      void result.current.installAndRestart();
+    });
     await waitFor(() => expect(onEventCb).not.toBeNull());
 
     // Started fires the total length; Progress events accumulate.
-    act(() => { onEventCb?.({ event: "Started", data: { contentLength: 1000 } }); });
-    act(() => { onEventCb?.({ event: "Progress", data: { chunkLength: 250 } }); });
+    act(() => {
+      onEventCb?.({ event: "Started", data: { contentLength: 1000 } });
+    });
+    act(() => {
+      onEventCb?.({ event: "Progress", data: { chunkLength: 250 } });
+    });
     await waitFor(() => expect(result.current.progress).toBe(0.25));
-    act(() => { onEventCb?.({ event: "Progress", data: { chunkLength: 500 } }); });
+    act(() => {
+      onEventCb?.({ event: "Progress", data: { chunkLength: 500 } });
+    });
     await waitFor(() => expect(result.current.progress).toBe(0.75));
+    act(() => {
+      onEventCb?.({ event: "Finished" });
+    });
+    await waitFor(() => expect(result.current.progress).toBe(1));
+    expect(result.current.installPhase).toBe("finishing");
+  });
+
+  it("relaunches when install stalls after the download completes", async () => {
+    vi.useFakeTimers();
+    enterTauriRuntime();
+    let onEventCb: ((e: unknown) => void) | null = null;
+    const downloadAndInstall = vi.fn((cb?: (e: unknown) => void) => {
+      onEventCb = cb ?? null;
+      return new Promise<void>(() => {
+        /* never resolves */
+      });
+    });
+    checkMock.mockResolvedValue({
+      version: "0.1.0-alpha.24",
+      downloadAndInstall,
+    });
+    const { result } = renderHook(() => useDesktopUpdate());
+    await vi.waitFor(() => expect(result.current.update).not.toBeNull());
+
+    act(() => {
+      void result.current.installAndRestart();
+    });
+    await vi.waitFor(() => expect(onEventCb).not.toBeNull());
+
+    act(() => {
+      onEventCb?.({ event: "Started", data: { contentLength: 1000 } });
+      onEventCb?.({ event: "Progress", data: { chunkLength: 1000 } });
+    });
+    expect(result.current.installPhase).toBe("finishing");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DESKTOP_UPDATE_INSTALL_STALL_MS);
+    });
+    await vi.waitFor(() => expect(relaunchMock).toHaveBeenCalledTimes(1));
+    expect(result.current.installPhase).toBe("restarting");
+  });
+
+  it("clears installing state when relaunch fails", async () => {
+    enterTauriRuntime();
+    relaunchMock.mockRejectedValueOnce(new Error("restart denied"));
+    const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+    checkMock.mockResolvedValue({
+      version: "0.1.0-alpha.24",
+      downloadAndInstall,
+    });
+    const { result } = renderHook(() => useDesktopUpdate());
+    await waitFor(() => expect(result.current.update).not.toBeNull());
+
+    await act(async () => {
+      await result.current.installAndRestart();
+    });
+
+    expect(downloadAndInstall).toHaveBeenCalledTimes(1);
+    expect(relaunchMock).toHaveBeenCalledTimes(1);
+    expect(result.current.installing).toBe(false);
+    expect(result.current.installPhase).toBe("idle");
+    expect(logWarnMock).toHaveBeenCalled();
   });
 
   it("re-runs check() on the steady-state interval", async () => {
@@ -255,7 +345,9 @@ describe("useDesktopUpdate", () => {
     await waitFor(() => expect(checkMock).toHaveBeenCalled());
 
     // Manual trigger while the automatic check is still pending.
-    act(() => { void result.current.checkNow(); });
+    act(() => {
+      void result.current.checkNow();
+    });
     // Auto check should still be the only network call.
     expect(checkMock).toHaveBeenCalledTimes(1);
 

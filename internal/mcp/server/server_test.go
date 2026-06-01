@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // rwPipe wires an io.Pipe with a closer hook so we can simulate stdin
@@ -121,6 +121,34 @@ func TestServer_Initialize(t *testing.T) {
 	}
 }
 
+func TestServer_Initialize_AdvertisesResourcesAndPromptsWhenRegistered(t *testing.T) {
+	register := func(s *Server) {
+		s.RegisterResource(mcp.Resource{URI: "hecate://tasks/recent", Name: "recent_tasks"},
+			func(ctx context.Context, uri string) (mcp.ReadResourceResult, error) {
+				return mcp.ReadResourceResult{}, nil
+			})
+		s.RegisterPrompt(mcp.Prompt{Name: "operator_briefing"},
+			func(ctx context.Context, args map[string]string) (mcp.GetPromptResult, error) {
+				return mcp.GetPromptResult{}, nil
+			})
+	}
+	resp := runServer(t, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","clientInfo":{"name":"test","version":"1"}}}`,
+	}, register)
+	var r mcp.Response
+	_ = json.Unmarshal([]byte(resp[0]), &r)
+	var result mcp.InitializeResult
+	if err := json.Unmarshal(r.Result, &result); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if result.Capabilities.Resources == nil {
+		t.Fatalf("Capabilities.Resources is nil, want advertised")
+	}
+	if result.Capabilities.Prompts == nil {
+		t.Fatalf("Capabilities.Prompts is nil, want advertised")
+	}
+}
+
 func TestServer_NotificationGetsNoResponse(t *testing.T) {
 	// notifications/initialized is a notification (no id) — server
 	// must process it but stay silent on the wire.
@@ -205,6 +233,117 @@ func TestServer_ListTools(t *testing.T) {
 		result.Tools[0].Annotations.ReadOnlyHint == nil ||
 		*result.Tools[0].Annotations.ReadOnlyHint != true {
 		t.Errorf("Annotations.ReadOnlyHint not propagated: %+v", result.Tools[0].Annotations)
+	}
+}
+
+func TestServer_ListAndReadResources(t *testing.T) {
+	register := func(s *Server) {
+		s.RegisterResource(mcp.Resource{
+			URI:      "hecate://tasks/recent",
+			Name:     "recent_tasks",
+			Title:    "Recent tasks",
+			MIMEType: "application/json",
+		}, func(ctx context.Context, uri string) (mcp.ReadResourceResult, error) {
+			return mcp.ReadResourceResult{Contents: []mcp.ResourceContents{{
+				URI:      uri,
+				MIMEType: "application/json",
+				Text:     `{"ok":true}`,
+			}}}, nil
+		})
+	}
+
+	listResp := runServer(t, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"resources/list"}`,
+	}, register)
+	var listRPC mcp.Response
+	_ = json.Unmarshal([]byte(listResp[0]), &listRPC)
+	var listResult mcp.ListResourcesResult
+	if err := json.Unmarshal(listRPC.Result, &listResult); err != nil {
+		t.Fatalf("decode resources/list: %v", err)
+	}
+	if len(listResult.Resources) != 1 || listResult.Resources[0].URI != "hecate://tasks/recent" {
+		t.Fatalf("resources = %+v, want recent tasks", listResult.Resources)
+	}
+
+	readResp := runServer(t, []string{
+		`{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"hecate://tasks/recent"}}`,
+	}, register)
+	var readRPC mcp.Response
+	_ = json.Unmarshal([]byte(readResp[0]), &readRPC)
+	var readResult mcp.ReadResourceResult
+	if err := json.Unmarshal(readRPC.Result, &readResult); err != nil {
+		t.Fatalf("decode resources/read: %v", err)
+	}
+	if len(readResult.Contents) != 1 || readResult.Contents[0].Text != `{"ok":true}` {
+		t.Fatalf("contents = %+v, want JSON text", readResult.Contents)
+	}
+}
+
+func TestServer_ListResourceTemplates(t *testing.T) {
+	register := func(s *Server) {
+		s.RegisterResourceTemplate(mcp.ResourceTemplate{
+			URITemplate: "hecate://tasks/{task_id}",
+			Name:        "task_detail",
+		}, func(ctx context.Context, uri string) (mcp.ReadResourceResult, error) {
+			return mcp.ReadResourceResult{}, errResourceNoMatch
+		})
+	}
+	resp := runServer(t, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"resources/templates/list"}`,
+	}, register)
+	var r mcp.Response
+	_ = json.Unmarshal([]byte(resp[0]), &r)
+	var result mcp.ListResourceTemplatesResult
+	if err := json.Unmarshal(r.Result, &result); err != nil {
+		t.Fatalf("decode templates/list: %v", err)
+	}
+	if len(result.ResourceTemplates) != 1 || result.ResourceTemplates[0].URITemplate != "hecate://tasks/{task_id}" {
+		t.Fatalf("templates = %+v, want task template", result.ResourceTemplates)
+	}
+}
+
+func TestServer_ListAndGetPrompts(t *testing.T) {
+	register := func(s *Server) {
+		s.RegisterPrompt(mcp.Prompt{
+			Name:        "investigate_task",
+			Title:       "Investigate task",
+			Description: "Inspect a task",
+			Arguments:   []mcp.PromptArgument{{Name: "task_id", Required: true}},
+		}, func(ctx context.Context, args map[string]string) (mcp.GetPromptResult, error) {
+			return mcp.GetPromptResult{
+				Description: "Investigate",
+				Messages: []mcp.PromptMessage{{
+					Role:    "user",
+					Content: mcp.ContentBlock{Type: "text", Text: "Inspect " + args["task_id"]},
+				}},
+			}, nil
+		})
+	}
+
+	listResp := runServer(t, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"prompts/list"}`,
+	}, register)
+	var listRPC mcp.Response
+	_ = json.Unmarshal([]byte(listResp[0]), &listRPC)
+	var listResult mcp.ListPromptsResult
+	if err := json.Unmarshal(listRPC.Result, &listResult); err != nil {
+		t.Fatalf("decode prompts/list: %v", err)
+	}
+	if len(listResult.Prompts) != 1 || listResult.Prompts[0].Name != "investigate_task" {
+		t.Fatalf("prompts = %+v, want investigate_task", listResult.Prompts)
+	}
+
+	getResp := runServer(t, []string{
+		`{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{"name":"investigate_task","arguments":{"task_id":"task-1"}}}`,
+	}, register)
+	var getRPC mcp.Response
+	_ = json.Unmarshal([]byte(getResp[0]), &getRPC)
+	var getResult mcp.GetPromptResult
+	if err := json.Unmarshal(getRPC.Result, &getResult); err != nil {
+		t.Fatalf("decode prompts/get: %v", err)
+	}
+	if len(getResult.Messages) != 1 || getResult.Messages[0].Content.Text != "Inspect task-1" {
+		t.Fatalf("messages = %+v, want rendered prompt", getResult.Messages)
 	}
 }
 

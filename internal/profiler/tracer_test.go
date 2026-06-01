@@ -3,7 +3,7 @@ package profiler
 import (
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
 func TestTraceRecordCreatesEvent(t *testing.T) {

@@ -1,55 +1,21 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  AgentChatApprovalRecord,
-  AgentChatSessionRecord,
-  ChatProviderCallRecord,
-  ChatSessionMessageRecord,
-  ChatSessionRecord,
-  ModelRecord,
-  ProviderPresetRecord,
-  ProviderRecord,
-  RuntimeHeaders,
-} from "../types/runtime";
+import type { RuntimeHeaders } from "../types/runtime";
+import type { ModelRecord } from "../types/model";
+import type { ProviderRecord } from "../types/provider";
+import type { ChatApprovalRecord, ChatSessionRecord } from "../types/chat";
 import {
   approvalRecordToPending,
   buildAssistantToolCallMessage,
-  buildMessagesForSubmission,
   buildSyntheticChatResult,
   defaultModelForProvider,
   defaultProviderForChat,
   deriveChatSessionTitle,
   humanizeChatError,
   isModelValidForProvider,
-  renderAgentChatSessionSummary,
+  providerHasChatRouteEvidence,
   renderChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
-
-let seq = 0;
-function persistedMessage(overrides: Partial<ChatSessionMessageRecord> = {}): ChatSessionMessageRecord {
-  return {
-    id: `m${++seq}`,
-    sequence: seq,
-    role: "user",
-    content: "",
-    ...overrides,
-  };
-}
-
-function providerCall(overrides: Partial<ChatProviderCallRecord> = {}): ChatProviderCallRecord {
-  return {
-    id: "c1",
-    request_id: "r1",
-    provider: "openai",
-    model: "gpt-4o",
-    cost_micros_usd: 0,
-    cost_usd: "0",
-    prompt_tokens: 0,
-    completion_tokens: 0,
-    total_tokens: 0,
-    ...overrides,
-  };
-}
 
 function emptyRuntimeHeaders(overrides: Partial<RuntimeHeaders> = {}): RuntimeHeaders {
   return {
@@ -89,33 +55,47 @@ function provider(overrides: Partial<ProviderRecord> = {}): ProviderRecord {
 
 describe("humanizeChatError", () => {
   it("rewrites the missing-API-key gateway error into operator-actionable copy", () => {
-    expect(humanizeChatError("api key is required for cloud provider openai when stub mode is disabled"))
-      .toBe("openai has no API key. Open Connections and add one.");
+    expect(
+      humanizeChatError("api key is required for cloud provider openai when stub mode is disabled"),
+    ).toBe("openai has no API key. Open Connections and add one.");
   });
 
   it("rewrites common chat runtime failures into operator-actionable copy", () => {
-    expect(humanizeChatError("Hecate Agent is already running for this chat session."))
-      .toBe("Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.");
-    expect(humanizeChatError("workspace is required"))
-      .toBe("Choose a workspace before using Hecate Chat tools or External Agent.");
-    expect(humanizeChatError("model does not support tools"))
-      .toBe("This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.");
-    expect(humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'))
-      .toBe("No configured provider can route to gpt-5.4-mini. Choose another model or open Connections to repair provider readiness.");
-    expect(humanizeChatError("no routable model for selected provider"))
-      .toBe("No routable model is available. Choose another model or open Connections to add a provider, discover models, or check provider health.");
-    expect(humanizeChatError("Authentication required. Please run 'agent login' first."))
-      .toBe("The selected runtime is not signed in. Open Connections to repair or test readiness.");
-    expect(humanizeChatError("Internal error: Credit balance is too low"))
-      .toBe("The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.");
-    expect(humanizeChatError("connect: connection refused"))
-      .toBe("The selected provider is not reachable. Start the local provider app or check its endpoint URL.");
-    expect(humanizeChatError("upstream returned 401"))
-      .toBe("The selected provider rejected the request with HTTP 401. Check credentials and account access.");
-    expect(humanizeChatError("upstream returned 502"))
-      .toBe("The selected provider returned HTTP 502. Check that the provider is running and reachable.");
-    expect(humanizeChatError("upstream timeout"))
-      .toBe("The selected provider did not respond before the timeout. Check that it is running, reachable, and not overloaded.");
+    expect(humanizeChatError("Hecate Chat is already running for this chat session.")).toBe(
+      "Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.",
+    );
+    expect(humanizeChatError("workspace is required")).toBe(
+      "Choose a workspace before using Hecate Chat tools or External Agent.",
+    );
+    expect(humanizeChatError("model does not support tools")).toBe(
+      "This model is not marked as tool-capable. Hecate will send directly; choose a tool-capable model for task-backed turns.",
+    );
+    expect(
+      humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'),
+    ).toBe(
+      "No configured provider can route to gpt-5.4-mini. Choose another model or open Connections to repair provider readiness.",
+    );
+    expect(humanizeChatError("no routable model for selected provider")).toBe(
+      "No routable model is available. Choose another model or open Connections to add a provider, discover models, or check provider health.",
+    );
+    expect(humanizeChatError("Authentication required. Please run 'agent login' first.")).toBe(
+      "The selected runtime is not signed in. Open Connections to repair or test readiness.",
+    );
+    expect(humanizeChatError("Internal error: Credit balance is too low")).toBe(
+      "The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.",
+    );
+    expect(humanizeChatError("connect: connection refused")).toBe(
+      "The selected provider is not reachable. Start the local provider app or check its endpoint URL.",
+    );
+    expect(humanizeChatError("upstream returned 401")).toBe(
+      "The selected provider rejected the request with HTTP 401. Check credentials and account access.",
+    );
+    expect(humanizeChatError("upstream returned 502")).toBe(
+      "The selected provider returned HTTP 502. Check that the provider is running and reachable.",
+    );
+    expect(humanizeChatError("upstream timeout")).toBe(
+      "The selected provider did not respond before the timeout. Check that it is running, reachable, and not overloaded.",
+    );
   });
 
   it("returns unrelated errors verbatim", () => {
@@ -141,32 +121,6 @@ describe("deriveChatSessionTitle", () => {
   });
 });
 
-describe("buildMessagesForSubmission", () => {
-  it("prepends the system prompt and appends the new user message", () => {
-    const out = buildMessagesForSubmission(null, "ping", "be terse");
-    expect(out).toEqual([
-      { role: "system", content: "be terse" },
-      { role: "user", content: "ping" },
-    ]);
-  });
-
-  it("includes prior session messages and skips pending placeholders", () => {
-    const session: ChatSessionRecord = {
-      id: "s1",
-      title: "t",
-      messages: [
-        persistedMessage({ id: "m1", role: "user", content: "earlier" }),
-        persistedMessage({ id: "pending-9", role: "assistant", content: "incomplete draft" }),
-        persistedMessage({ id: "m2", role: "assistant", content: "earlier reply" }),
-      ],
-    };
-    const out = buildMessagesForSubmission(session, "follow up");
-    expect(out.map((m) => m.content)).toEqual(["earlier", "earlier reply", "follow up"]);
-    // No system prompt prepended when none was supplied.
-    expect(out[0].role).toBe("user");
-  });
-});
-
 describe("buildAssistantToolCallMessage", () => {
   it("packs tool calls into the OpenAI-shaped function call array", () => {
     const out = buildAssistantToolCallMessage("partial", [
@@ -182,7 +136,7 @@ describe("buildAssistantToolCallMessage", () => {
     ]);
   });
 
-  it("uses null content when no draft exists", () => {
+  it("uses null content when no assistant content exists", () => {
     const out = buildAssistantToolCallMessage("", []);
     expect(out.content).toBeNull();
   });
@@ -199,12 +153,12 @@ describe("buildSyntheticChatResult", () => {
 
 describe("defaultModelForProvider", () => {
   it("returns an empty string for the auto router", () => {
-    expect(defaultModelForProvider("auto", [], [], [])).toBe("");
+    expect(defaultModelForProvider("auto", [], [])).toBe("");
   });
 
   it("prefers the provider's declared default_model when set", () => {
     const providers = [provider({ name: "openai", default_model: "gpt-4o-mini" })];
-    expect(defaultModelForProvider("openai", [], providers, [])).toBe("gpt-4o-mini");
+    expect(defaultModelForProvider("openai", [], providers)).toBe("gpt-4o-mini");
   });
 
   it("falls back to the metadata-tagged default model in the model list", () => {
@@ -213,14 +167,25 @@ describe("defaultModelForProvider", () => {
       model({ id: "gpt-4o-mini", metadata: { provider: "openai", default: true } }),
     ];
     const providers = [provider({ name: "openai" })];
-    expect(defaultModelForProvider("openai", models, providers, [])).toBe("gpt-4o-mini");
+    expect(defaultModelForProvider("openai", models, providers)).toBe("gpt-4o-mini");
   });
 
-  it("falls back to the preset default when no provider record is configured", () => {
-    const presets: ProviderPresetRecord[] = [
-      { id: "anthropic", name: "Anthropic", kind: "anthropic", protocol: "anthropic", base_url: "", default_model: "claude-3-5-sonnet" },
+  it("does not treat catalog preset defaults as routable models", () => {
+    expect(defaultModelForProvider("anthropic", [], [])).toBe("");
+  });
+
+  it("falls back to the first reported model when no provider default is reported", () => {
+    const models: ModelRecord[] = [
+      model({ id: "model-a", metadata: { provider: "openai" } }),
+      model({ id: "model-b", metadata: { provider: "openai" } }),
     ];
-    expect(defaultModelForProvider("anthropic", [], [], presets)).toBe("claude-3-5-sonnet");
+    const providers = [provider({ name: "openai", models: ["model-a", "model-b"] })];
+    expect(defaultModelForProvider("openai", models, providers)).toBe("model-a");
+  });
+
+  it("falls back to the provider status model list when catalog models are not loaded", () => {
+    const providers = [provider({ name: "ollama", models: ["llama3.1:8b"] })];
+    expect(defaultModelForProvider("ollama", [], providers)).toBe("llama3.1:8b");
   });
 });
 
@@ -228,11 +193,29 @@ describe("defaultProviderForChat", () => {
   it("prefers a configured provider with a discovered default model", () => {
     const models: ModelRecord[] = [
       model({ id: "smollm2", owned_by: "ollama", metadata: { provider: "ollama" } }),
-      model({ id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", default: true } }),
+      model({
+        id: "gpt-4o-mini",
+        owned_by: "openai",
+        metadata: { provider: "openai", default: true },
+      }),
     ];
     const configured = [
-      { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "", credential_configured: true },
-      { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "", credential_configured: true },
+      {
+        id: "ollama",
+        name: "Ollama",
+        kind: "local",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
+      {
+        id: "openai",
+        name: "OpenAI",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
     ];
 
     expect(defaultProviderForChat(models, configured, [])).toBe("openai");
@@ -240,12 +223,30 @@ describe("defaultProviderForChat", () => {
 
   it("ignores cloud providers without credentials when picking a default", () => {
     const models: ModelRecord[] = [
-      model({ id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", default: true } }),
+      model({
+        id: "gpt-4o-mini",
+        owned_by: "openai",
+        metadata: { provider: "openai", default: true },
+      }),
       model({ id: "llama3", owned_by: "ollama", metadata: { provider: "ollama" } }),
     ];
     const configured = [
-      { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "", credential_configured: false },
-      { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "", credential_configured: true },
+      {
+        id: "openai",
+        name: "OpenAI",
+        kind: "cloud",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: false,
+      },
+      {
+        id: "ollama",
+        name: "Ollama",
+        kind: "local",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
     ];
 
     expect(defaultProviderForChat(models, configured, [])).toBe("ollama");
@@ -253,7 +254,14 @@ describe("defaultProviderForChat", () => {
 
   it("falls back to the configured provider when no model has been discovered yet", () => {
     const configured = [
-      { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "", credential_configured: true },
+      {
+        id: "lmstudio",
+        name: "LM Studio",
+        kind: "local",
+        protocol: "openai",
+        base_url: "",
+        credential_configured: true,
+      },
     ];
 
     expect(defaultProviderForChat([], configured, [])).toBe("lmstudio");
@@ -262,50 +270,69 @@ describe("defaultProviderForChat", () => {
 
 describe("isModelValidForProvider", () => {
   it("returns true for any model under the auto router", () => {
-    expect(isModelValidForProvider("anything", "auto", [], [], [])).toBe(true);
+    expect(isModelValidForProvider("anything", "auto", [], [])).toBe(true);
   });
 
   it("matches when the model carries the provider in its metadata", () => {
     const models: ModelRecord[] = [model({ id: "gpt-4o", metadata: { provider: "openai" } })];
-    expect(isModelValidForProvider("gpt-4o", "openai", models, [], [])).toBe(true);
+    expect(isModelValidForProvider("gpt-4o", "openai", models, [])).toBe(true);
   });
 
   it("matches when the provider record explicitly lists the model", () => {
     const providers = [provider({ name: "openai", models: ["gpt-4o"] })];
-    expect(isModelValidForProvider("gpt-4o", "openai", [], providers, [])).toBe(true);
+    expect(isModelValidForProvider("gpt-4o", "openai", [], providers)).toBe(true);
   });
 
   it("rejects models not listed by a provider record", () => {
     const providers = [provider({ name: "openai", default_model: "gpt-4o", models: ["gpt-4o"] })];
-    expect(isModelValidForProvider("gpt-3.5", "openai", [], providers, [])).toBe(false);
+    expect(isModelValidForProvider("gpt-3.5", "openai", [], providers)).toBe(false);
+  });
+});
+
+describe("providerHasChatRouteEvidence", () => {
+  it("does not count catalog presets as live provider evidence", () => {
+    expect(providerHasChatRouteEvidence("ollama", [], [], [])).toBe(false);
+  });
+
+  it("accepts configured providers, discovered models, and provider status rows", () => {
+    expect(
+      providerHasChatRouteEvidence(
+        "ollama",
+        [],
+        [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: false,
+          },
+        ],
+        [],
+      ),
+    ).toBe(true);
+    expect(
+      providerHasChatRouteEvidence(
+        "ollama",
+        [model({ id: "llama3.1:8b", metadata: { provider: "ollama" } })],
+        [],
+        [],
+      ),
+    ).toBe(true);
+    expect(providerHasChatRouteEvidence("ollama", [], [], [provider({ name: "ollama" })])).toBe(
+      true,
+    );
   });
 });
 
 describe("renderChatSessionSummary", () => {
-  it("derives counts and the last provider-call metadata", () => {
-    const session: ChatSessionRecord = {
-      id: "s1",
-      title: "t",
-      messages: [persistedMessage({ id: "m1", role: "user", content: "hi" })],
-      provider_calls: [
-        providerCall({ id: "c1", model: "old", request_id: "r1", cost_usd: "0.001" }),
-        providerCall({ id: "c2", model: "gpt-4o", request_id: "r2", cost_usd: "0.002" }),
-      ],
-    };
-    const out = renderChatSessionSummary(session);
-    expect(out.message_count).toBe(1);
-    expect(out.provider_call_count).toBe(2);
-    expect(out.last_model).toBe("gpt-4o");
-    expect(out.last_cost_usd).toBe("0.002");
-  });
-});
-
-describe("renderAgentChatSessionSummary", () => {
   it("counts messages and forwards adapter/workspace metadata", () => {
-    const session: AgentChatSessionRecord = {
+    const session: ChatSessionRecord = {
       id: "ac1",
       title: "agent t",
-      adapter_id: "codex",
+      agent_id: "codex",
+      project_id: "proj_1",
       driver_kind: "acp",
       native_session_id: "n1",
       workspace: "/repo",
@@ -316,9 +343,10 @@ describe("renderAgentChatSessionSummary", () => {
         { id: "m2", role: "assistant", content: "done" },
       ],
     };
-    const out = renderAgentChatSessionSummary(session);
+    const out = renderChatSessionSummary(session);
     expect(out.message_count).toBe(2);
-    expect(out.adapter_id).toBe("codex");
+    expect(out.agent_id).toBe("codex");
+    expect(out.project_id).toBe("proj_1");
     expect(out.workspace_branch).toBe("main");
     expect(out.status).toBe("running");
   });
@@ -326,7 +354,7 @@ describe("renderAgentChatSessionSummary", () => {
 
 describe("approvalRecordToPending", () => {
   it("projects an approval row into the pending banner shape", () => {
-    const approval: AgentChatApprovalRecord = {
+    const approval: ChatApprovalRecord = {
       id: "ap_1",
       session_id: "s1",
       adapter_id: "codex",

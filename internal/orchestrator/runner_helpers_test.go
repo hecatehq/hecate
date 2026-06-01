@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestFirstNonEmptyTrimsAndPicksFirst(t *testing.T) {
@@ -243,17 +243,17 @@ func TestAgentLoopGatedTools(t *testing.T) {
 		{
 			name:     "all_tools short-circuits to full set",
 			policies: []string{"all_tools"},
-			want:     []string{"file_edit", "file_write", "git_exec", "http_request", "list_dir", "read_file", "shell_exec"},
+			want:     []string{"apply_patch", "artifact_read", "file_edit", "file_write", "git_diff", "git_exec", "git_status", "glob", "grep", "http_request", "list_dir", "read_file", "shell_exec"},
 		},
 		{
 			name:     "file_write gates write and exact edit tools",
 			policies: []string{"file_write"},
-			want:     []string{"file_edit", "file_write"},
+			want:     []string{"apply_patch", "file_edit", "file_write"},
 		},
 		{
-			name:     "read_file adds read_file tool",
+			name:     "read_file gates read and search tools",
 			policies: []string{"read_file"},
-			want:     []string{"read_file"},
+			want:     []string{"artifact_read", "glob", "grep", "read_file"},
 		},
 		{
 			name:     "network_egress maps to http_request",
@@ -263,7 +263,7 @@ func TestAgentLoopGatedTools(t *testing.T) {
 		{
 			name:     "shell_exec and git_exec pass through",
 			policies: []string{"shell_exec", "git_exec"},
-			want:     []string{"git_exec", "shell_exec"},
+			want:     []string{"git_diff", "git_exec", "git_status", "shell_exec"},
 		},
 		{
 			name:     "unknown policy produces no tools",

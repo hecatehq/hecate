@@ -13,10 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/sandbox"
-	"github.com/hecate/agent-runtime/internal/telemetry"
-	"github.com/hecate/agent-runtime/internal/workspace"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/sandbox"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/internal/workspace"
+	"github.com/hecatehq/hecate/internal/workspacefs"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type Executor interface {
@@ -36,6 +37,7 @@ type ExecutionSpec struct {
 	NewID            func(prefix string) string
 	UpsertStep       func(step types.TaskStep) error
 	UpsertArtifact   func(artifact types.TaskArtifact) error
+	GetArtifact      func(taskID, artifactID string) (types.TaskArtifact, bool, error)
 	// EmitRunEvent appends an event to the run's event stream. Used
 	// by executors that want to emit telemetry beyond steps and
 	// artifacts — currently the agent loop's MCP dispatcher, which
@@ -124,6 +126,14 @@ type ExecutionResult struct {
 	LastError         string
 	OtelStatusCode    string
 	OtelStatusMessage string
+	// Provider/ProviderKind/Model capture the route that actually
+	// served the agent-loop LLM turn. The run starts with the
+	// operator's requested provider hint ("auto" is common), but the
+	// UI and resume path need the resolved provider once routing has
+	// happened.
+	Provider     string
+	ProviderKind string
+	Model        string
 	// PendingApprovals are approval records the executor produced
 	// during this run that the runner should persist. The agent loop
 	// emits these mid-loop when it pauses on a gated tool call —
@@ -305,7 +315,7 @@ func (e *FileExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*Execut
 	if err != nil {
 		return fileFailure(spec, operation, spec.Task.FilePath, err.Error(), fileErrorKind(err)), nil
 	}
-	afterContent, err := os.ReadFile(fileResult.Path)
+	afterContent, err := readFileWithWorkspacePolicy(request, fileResult.Path)
 	if err != nil {
 		return fileFailure(spec, operation, spec.Task.FilePath, err.Error(), fileErrorKind(err)), nil
 	}
@@ -704,7 +714,7 @@ func fileContentBeforeWrite(request sandbox.FileRequest) (content string, exists
 	if err != nil {
 		return "", false, "", err
 	}
-	raw, err := os.ReadFile(resolvedPath)
+	raw, err := readFileWithWorkspacePolicy(request, resolvedPath)
 	if err == nil {
 		return string(raw), true, resolvedPath, nil
 	}
@@ -712,6 +722,27 @@ func fileContentBeforeWrite(request sandbox.FileRequest) (content string, exists
 		return "", false, resolvedPath, nil
 	}
 	return "", false, resolvedPath, err
+}
+
+func readFileWithWorkspacePolicy(request sandbox.FileRequest, path string) ([]byte, error) {
+	allowedRoot := strings.TrimSpace(request.Policy.AllowedRoot)
+	if allowedRoot == "" {
+		return os.ReadFile(path)
+	}
+	root, err := filepath.Abs(allowedRoot)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return nil, err
+	}
+	fsys, err := workspacefs.New(root)
+	if err != nil {
+		return nil, err
+	}
+	raw, _, err := fsys.ReadFile(rel)
+	return raw, err
 }
 
 func newPatchArtifact(spec ExecutionSpec, stepID, operation, displayPath, artifactPath, before, after string, beforeExists bool, createdAt time.Time) types.TaskArtifact {

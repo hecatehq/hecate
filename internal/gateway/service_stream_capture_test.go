@@ -2,9 +2,19 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/internal/telemetry"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestStreamHandleExecuteAndCaptureDeltasCapturesContentAndToolCalls(t *testing.T) {
@@ -53,4 +63,58 @@ func TestStreamHandleExecuteAndCaptureDeltasCapturesContentAndToolCalls(t *testi
 	if !strings.Contains(forwarded.String(), "Hello ") || !strings.Contains(forwarded.String(), "[DONE]") {
 		t.Fatalf("forwarded stream missing original chunks:\n%s", forwarded.String())
 	}
+}
+
+func TestServiceHandleChatStreamCaptureIncludesRouteMetadata(t *testing.T) {
+	t.Parallel()
+
+	provider := &streamingSequenceProvider{
+		sequenceProvider: sequenceProvider{name: "fake", kind: providers.KindLocal},
+	}
+	registry := providers.NewRegistry(provider)
+	store := governor.NewMemoryUsageStore()
+	service := NewService(Dependencies{
+		Logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Router: staticFallbackRouter{
+			route: types.RouteDecision{Provider: "fake", Model: "model-b", Reason: "test-route"},
+		},
+		Governor:   governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
+		Providers:  registry,
+		Tracer:     profiler.NewInMemoryTracer(nil),
+		Metrics:    telemetry.NewMetrics(),
+		Resilience: ResilienceOptions{MaxAttempts: 1, RetryBackoff: time.Millisecond},
+	})
+
+	resp, err := service.HandleChatStreamCapture(context.Background(), types.ChatRequest{
+		RequestID: "req-stream-route",
+		Model:     "operator-model",
+		Messages:  []types.Message{{Role: "user", Content: "hello"}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("HandleChatStreamCapture: %v", err)
+	}
+	if resp.Route.Provider != "fake" || resp.Route.ProviderKind != "local" || resp.Route.Model != "model-b" || resp.Route.Reason != "test-route" {
+		t.Fatalf("route = %+v, want fake/local/model-b/test-route", resp.Route)
+	}
+	if resp.Model != "model-b" {
+		t.Fatalf("model = %q, want streamed model-b", resp.Model)
+	}
+}
+
+type streamingSequenceProvider struct {
+	sequenceProvider
+}
+
+func (p *streamingSequenceProvider) ChatStream(_ context.Context, _ types.ChatRequest, w io.Writer) error {
+	chunks := []string{
+		`data: {"id":"chatcmpl-stream-route","model":"model-b","choices":[{"delta":{"content":"hello"},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"chatcmpl-stream-route","model":"model-b","choices":[{"delta":{},"finish_reason":"stop"}]}` + "\n\n",
+		"data: [DONE]\n\n",
+	}
+	for _, chunk := range chunks {
+		if _, err := io.WriteString(w, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
 }

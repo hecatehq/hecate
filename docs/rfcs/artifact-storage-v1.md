@@ -1,8 +1,11 @@
 # Artifact Storage — v1 Candidate (RFC)
 
-> **Status:** draft / RFC. Not implemented. Not stable. Not yet a frontend contract.
-> **Depends on:** [`event-protocol-v1.md`](event-protocol-v1.md) — artifacts are referenced by `artifact_id` from event payloads.
-> **Owner:** see [`AGENTS.md`](../../AGENTS.md).
+> **Status:** candidate; partially superseded by shipped task artifacts and chat
+> diff inspect/revert.
+> **Current source of truth:** [Agent runtime](../agent-runtime.md),
+> [Runtime API](../runtime-api.md), and [Chat sessions](../chat-sessions.md).
+> **Next action:** rewrite before exposing a standalone artifact API; this RFC is
+> broader than the current alpha implementation.
 
 This document proposes how the agent runtime stores, fetches, and prunes the
 persisted byte blobs the [event protocol](event-protocol-v1.md) calls
@@ -46,7 +49,7 @@ Without artifacts, the protocol is a stream of pointers to nowhere. With them, i
 A two-tier body layout behind Hecate's current storage-backend model:
 **metadata and small bodies live in the configured artifact backend; large
 bodies spill to object-like blob storage**. For the local path, that
-blob storage is the filesystem under `GATEWAY_DATA_DIR`. Consumers never see
+blob storage is the filesystem under `HECATE_DATA_DIR`. Consumers never see
 the split.
 
 ```
@@ -79,13 +82,13 @@ Why this shape:
 
 Backend expectations:
 
-| Backend | Candidate behavior |
-|---|---|
-| `memory` | Metadata + bodies in process memory. Test/dev only. |
+| Backend  | Candidate behavior                                                   |
+| -------- | -------------------------------------------------------------------- |
+| `memory` | Metadata + bodies in process memory. Test/dev only.                  |
 | `sqlite` | Metadata + small bodies in SQLite; large bodies on local filesystem. |
 
-Default: `memory`, matching every other Hecate subsystem. Set
-`GATEWAY_ARTIFACTS_BACKEND=sqlite` for durable local state.
+Default storage follows the global `HECATE_BACKEND` selector. Set
+`HECATE_BACKEND=sqlite` for durable local state.
 
 Distributed storage is intentionally out of scope for this candidate. If Hecate
 reintroduces a networked durable backend later, artifact bodies should move to a
@@ -313,13 +316,13 @@ Transitions are persisted as `artifact.updated` events (see event protocol). The
 
 Three caps, all configurable. Defaults chosen to keep a typical workstation under 1 GiB after a week of active use.
 
-| Cap | Env | Default | Behavior on hit |
-|---|---|---|---|
-| Per-artifact bytes | `GATEWAY_ARTIFACTS_MAX_BYTES` | `10485760` (10 MiB) | Body truncated to limit; producing tool event carries `truncated: true` and `original_size_bytes`. |
-| Per-task aggregate | `GATEWAY_ARTIFACTS_MAX_PER_TASK_BYTES` | `104857600` (100 MiB) | New artifact creation rejected with `429 quota_exceeded`; `gap.artifact_capped` event emitted. |
-| Per-data-dir aggregate | `GATEWAY_ARTIFACTS_MAX_TOTAL_BYTES` | `5368709120` (5 GiB) | Retention worker prunes oldest unpinned artifacts ahead of schedule. |
+| Cap                    | Env                                   | Default               | Behavior on hit                                                                                    |
+| ---------------------- | ------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------- |
+| Per-artifact bytes     | `HECATE_ARTIFACTS_MAX_BYTES`          | `10485760` (10 MiB)   | Body truncated to limit; producing tool event carries `truncated: true` and `original_size_bytes`. |
+| Per-task aggregate     | `HECATE_ARTIFACTS_MAX_PER_TASK_BYTES` | `104857600` (100 MiB) | New artifact creation rejected with `429 quota_exceeded`; `gap.artifact_capped` event emitted.     |
+| Per-data-dir aggregate | `HECATE_ARTIFACTS_MAX_TOTAL_BYTES`    | `5368709120` (5 GiB)  | Retention worker prunes oldest unpinned artifacts ahead of schedule.                               |
 
-The per-artifact cap is the most user-visible: long shell commands get their output snipped. The truncation strategy is "head-keep" (preserve the start, drop the tail), since the start usually has the command and early output a model needs to interpret what happened. Reversible via a `GATEWAY_ARTIFACTS_TRUNCATE_STRATEGY=tail|head|both` knob (head = keep head, default).
+The per-artifact cap is the most user-visible: long shell commands get their output snipped. The truncation strategy is "head-keep" (preserve the start, drop the tail), since the start usually has the command and early output a model needs to interpret what happened. Reversible via a `HECATE_ARTIFACTS_TRUNCATE_STRATEGY=tail|head|both` knob (head = keep head, default).
 
 ## Compression and encoding
 
@@ -511,13 +514,13 @@ Neither dedupe attempts cross-run sharing in v1 — a patch produced by run A is
 
 ## Retention
 
-Artifacts inherit the project's existing retention worker pattern. New subsystem name: `artifacts`. New env-var prefix: `GATEWAY_RETENTION_ARTIFACTS_*`.
+Artifacts inherit the project's existing retention worker pattern. New subsystem name: `artifacts`. New env-var prefix: `HECATE_RETENTION_ARTIFACTS_*`.
 
-| Env | Default | Effect |
-|---|---|---|
-| `GATEWAY_RETENTION_ARTIFACTS_MAX_AGE` | `168h` (7 days) | Unpinned artifacts older than this are marked `deleted_at`. |
-| `GATEWAY_RETENTION_ARTIFACTS_MAX_COUNT` | `100000` | When unpinned count exceeds, oldest are pruned first. |
-| `GATEWAY_RETENTION_ARTIFACTS_MAX_TOTAL_BYTES` | `5368709120` (5 GiB) | When sum of `size_bytes` exceeds, oldest unpinned pruned until under. |
+| Env                                          | Default              | Effect                                                                |
+| -------------------------------------------- | -------------------- | --------------------------------------------------------------------- |
+| `HECATE_RETENTION_ARTIFACTS_MAX_AGE`         | `168h` (7 days)      | Unpinned artifacts older than this are marked `deleted_at`.           |
+| `HECATE_RETENTION_ARTIFACTS_MAX_COUNT`       | `100000`             | When unpinned count exceeds, oldest are pruned first.                 |
+| `HECATE_RETENTION_ARTIFACTS_MAX_TOTAL_BYTES` | `5368709120` (5 GiB) | When sum of `size_bytes` exceeds, oldest unpinned pruned until under. |
 
 Pruning order on each pass:
 
@@ -557,16 +560,16 @@ Candidate rules:
 
 New metrics (all under `hecate.artifacts.*`):
 
-| Instrument | Type | Labels | Meaning |
-|---|---|---|---|
-| `hecate.artifacts.created_total` | counter | `kind` | Artifact create calls. |
-| `hecate.artifacts.bytes_stored_total` | counter | `kind`, `encoding` | Raw bytes added to storage. |
-| `hecate.artifacts.pruned_total` | counter | `kind`, `reason` | Reasons: `age`, `count_cap`, `bytes_cap`, `parent_run_pruned`, `manual_delete`. |
-| `hecate.artifacts.bytes_freed_total` | counter | `kind`, `reason` | Bytes released by prune. |
-| `hecate.artifacts.storage_bytes` | gauge | `location` | Current bytes in `inline` and `filesystem`. Sampled by retention worker. |
-| `hecate.artifacts.count` | gauge | `kind`, `status` | Current count by kind and status. |
-| `hecate.artifacts.size_bytes` | histogram | `kind` | Size distribution of created artifacts. Buckets: `[256, 1k, 4k, 16k, 64k, 256k, 1m, 4m, 16m]`. |
-| `hecate.artifacts.fetch_duration_ms` | histogram | `path` (`metadata` / `raw`), `cache_hit` | Latency of GET endpoints. |
+| Instrument                            | Type      | Labels                                   | Meaning                                                                                        |
+| ------------------------------------- | --------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `hecate.artifacts.created_total`      | counter   | `kind`                                   | Artifact create calls.                                                                         |
+| `hecate.artifacts.bytes_stored_total` | counter   | `kind`, `encoding`                       | Raw bytes added to storage.                                                                    |
+| `hecate.artifacts.pruned_total`       | counter   | `kind`, `reason`                         | Reasons: `age`, `count_cap`, `bytes_cap`, `parent_run_pruned`, `manual_delete`.                |
+| `hecate.artifacts.bytes_freed_total`  | counter   | `kind`, `reason`                         | Bytes released by prune.                                                                       |
+| `hecate.artifacts.storage_bytes`      | gauge     | `location`                               | Current bytes in `inline` and `filesystem`. Sampled by retention worker.                       |
+| `hecate.artifacts.count`              | gauge     | `kind`, `status`                         | Current count by kind and status.                                                              |
+| `hecate.artifacts.size_bytes`         | histogram | `kind`                                   | Size distribution of created artifacts. Buckets: `[256, 1k, 4k, 16k, 64k, 256k, 1m, 4m, 16m]`. |
+| `hecate.artifacts.fetch_duration_ms`  | histogram | `path` (`metadata` / `raw`), `cache_hit` | Latency of GET endpoints.                                                                      |
 
 Spans:
 
@@ -586,7 +589,7 @@ But there is **existing tool-emitted state** that needs a one-shot migration to 
 - No backfill: rather than rewriting old run events, the migration is forward-only. Old events keep working with their inline data; new ones reference artifacts. Frontends handle both for at least one minor release.
 
 This avoids a heavy migration script and lets the cutover land behind a flag
-(`GATEWAY_ARTIFACTS_ENABLED=true`) while the schema is still experimental.
+(`HECATE_ARTIFACTS_ENABLED=true`) while the schema is still experimental.
 
 ## Open questions
 
@@ -597,7 +600,7 @@ gates don't drift.
 1. **stdout vs stderr separation.** Today's plan stores them interleaved with byte counts in metadata. Should `command_output` be two artifacts (one per stream) instead? Pro: clean separation, easier filtering. Con: doubles the artifact count for every shell call, breaks the "tool call → one output blob" mental model.
    - Status: open
 
-2. **HTTP header value capture.** `request_header_keys` and `response_header_keys` store key names only (values may contain secrets). Should we have an opt-in `GATEWAY_ARTIFACTS_CAPTURE_HEADER_VALUES=true` for debugging environments? With redaction of well-known auth keys (`Authorization`, `Cookie`, `X-Api-Key`, etc.)?
+2. **HTTP header value capture.** `request_header_keys` and `response_header_keys` store key names only (values may contain secrets). Should we have an opt-in `HECATE_ARTIFACTS_CAPTURE_HEADER_VALUES=true` for debugging environments? With redaction of well-known auth keys (`Authorization`, `Cookie`, `X-Api-Key`, etc.)?
    - Status: open
 
 3. **`command_output` short-TTL.** The "1-hour post-finished prune for command_output" idea trades disk for replayability. Off by default seems right, but is the knob worth shipping at all if no one will tune it?
@@ -621,7 +624,7 @@ gates don't drift.
 
 1. **Land this doc** as a draft RFC alongside the event-protocol RFC. Solicit feedback on the open questions, especially #1 (stream separation) and #5 (patch-review endpoint shape).
 2. **Implement the schema + service in a feature branch.** Single-package Go module under `internal/artifacts/`, with memory and SQLite backends behind the existing storage abstractions.
-3. **Wire `tool.shell.*` to produce `command_output` artifacts** — the smallest end-to-end slice that exercises create, fetch, list, retain. Behind `GATEWAY_ARTIFACTS_ENABLED`.
+3. **Wire `tool.shell.*` to produce `command_output` artifacts** — the smallest end-to-end slice that exercises create, fetch, list, retain. Behind `HECATE_ARTIFACTS_ENABLED`.
 4. **Add the retention subsystem.** Mark + free phases, OTel metrics, env vars in `.env.example`.
 5. **Migrate one tool family at a time** — shell first, then file_read, then patch (which unblocks Edit/MultiEdit). Each migration is one PR.
 6. **Cut over the web UI** for that family; verify both old and new code paths in parallel for a release.

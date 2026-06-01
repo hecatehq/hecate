@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/controlplane"
 )
 
 // Service is the top-level facade for the local-models subsystem.

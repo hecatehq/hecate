@@ -31,7 +31,8 @@ function DialogChrome({
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const focusable = focusableDialogElements(dialogRef.current);
     (focusable[0] ?? dialogRef.current)?.focus();
     return () => {
@@ -57,8 +58,18 @@ function DialogChrome({
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--scrim)", backdropFilter: "blur(2px)" }}
-      onClick={onClose}>
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--scrim)",
+        backdropFilter: "blur(2px)",
+      }}
+      onClick={onClose}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -66,27 +77,50 @@ function DialogChrome({
         aria-label={ariaLabel ?? title}
         tabIndex={-1}
         style={surface}
-        onClick={e => e.stopPropagation()}>
-        <div style={{ padding: "11px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8, background: "var(--bg2)" }}>
-          <span style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 11,
-            fontWeight: 500,
-            color: "var(--teal)",
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-          }}>{title}</span>
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            padding: "11px 16px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "var(--bg2)",
+          }}
+        >
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--teal)",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+            }}
+          >
+            {title}
+          </span>
           <button
             className="btn btn-ghost btn-sm"
             style={{ marginLeft: "auto", padding: "3px 6px" }}
             onClick={onClose}
             aria-label="Close"
-            title="Close (Esc)">
+            title="Close (Esc)"
+          >
             <Icon d={Icons.x} size={14} />
           </button>
         </div>
         <div style={{ padding: 16, flex: 1, overflowY: "auto" }}>{children}</div>
-        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>{footer}</div>
+        <div
+          style={{
+            padding: "12px 16px",
+            borderTop: "1px solid var(--border)",
+            background: "var(--bg2)",
+          }}
+        >
+          {footer}
+        </div>
       </div>
     </div>
   );
@@ -94,9 +128,11 @@ function DialogChrome({
 
 function focusableDialogElements(root: HTMLElement | null): HTMLElement[] {
   if (!root) return [];
-  return Array.from(root.querySelectorAll<HTMLElement>(
-    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )).filter((el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true");
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true");
 }
 
 function trapDialogFocus(event: KeyboardEvent, root: HTMLElement | null) {
@@ -130,7 +166,13 @@ function trapDialogFocus(event: KeyboardEvent, root: HTMLElement | null) {
 // forms. The backdrop closes on click, Escape closes, and the close
 // button in the header carries the same affordance — so footers
 // don't need a redundant Cancel button.
-export function SlideOver({ title, children, footer, onClose, width = 420 }: {
+export function SlideOver({
+  title,
+  children,
+  footer,
+  onClose,
+  width = 420,
+}: {
   title: string;
   children: React.ReactNode;
   footer: React.ReactNode;
@@ -150,7 +192,8 @@ export function SlideOver({ title, children, footer, onClose, width = 420 }: {
         display: "flex",
         flexDirection: "column",
         height: "100%",
-      }}>
+      }}
+    >
       {children}
     </DialogChrome>
   );
@@ -160,7 +203,14 @@ export function SlideOver({ title, children, footer, onClose, width = 420 }: {
 // floats in the middle of the viewport — use for confirmations and
 // content that interrupts to ask a question (vs SlideOver which feels
 // like an inspector slot attached to the page).
-export function Modal({ title, ariaLabel, children, footer, onClose, width = 560 }: {
+export function Modal({
+  title,
+  ariaLabel,
+  children,
+  footer,
+  onClose,
+  width = 560,
+}: {
   title: string;
   ariaLabel?: string;
   children: React.ReactNode;
@@ -182,8 +232,10 @@ export function Modal({ title, ariaLabel, children, footer, onClose, width = 560
         borderRadius: "var(--radius)",
         display: "flex",
         flexDirection: "column",
+        overflow: "hidden",
         boxShadow: "var(--shadow-modal)",
-      }}>
+      }}
+    >
       {children}
     </DialogChrome>
   );
@@ -208,6 +260,7 @@ export function ConfirmModal({
   confirmLabel,
   danger = false,
   pending = false,
+  confirmDisabled = false,
   onConfirm,
   onClose,
 }: {
@@ -216,6 +269,7 @@ export function ConfirmModal({
   confirmLabel: string;
   danger?: boolean;
   pending?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void | Promise<void>;
   onClose: () => void;
 }) {
@@ -228,11 +282,13 @@ export function ConfirmModal({
         <button
           className={`btn ${danger ? "btn-danger" : "btn-primary"}`}
           style={{ width: "100%", justifyContent: "center" }}
-          disabled={pending}
-          onClick={() => void onConfirm()}>
+          disabled={pending || confirmDisabled}
+          onClick={() => void onConfirm()}
+        >
           {pending ? "Working…" : confirmLabel}
         </button>
-      }>
+      }
+    >
       <div style={{ fontSize: 13, color: "var(--t1)", lineHeight: 1.5 }}>{message}</div>
     </Modal>
   );

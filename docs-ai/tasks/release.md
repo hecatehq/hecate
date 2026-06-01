@@ -16,12 +16,14 @@ Before running the release script, verify:
 
 1. **`just verify` exits 0** — full gate: `docs-env-check`, race suite, docker-smoke, UI unit + e2e. See [`../core/verification.md`](../core/verification.md). Mandatory; calling out a skip in release notes is acceptable only when the risk is named.
 2. **`goreleaser` is installed.** `which goreleaser`. Install via `go install github.com/goreleaser/goreleaser/v2@latest` if missing.
+3. **Docker is reachable unless `--skip-snapshot` is intentional.** `just release` runs this check before the expensive verify gate because the Goreleaser snapshot builds local Docker images.
 
 ## Cut the release
 
-Use the release recipe. It runs `just verify`, then delegates to the
-release script, which checks clean worktree, tag uniqueness, goreleaser on
-PATH, fires a snapshot dry-run, then prompts before tagging:
+Use the release recipe. It runs the release script in preflight-only mode,
+then `just verify`, then the full release script. The script checks clean
+worktree, tag uniqueness, goreleaser on PATH, Docker availability for the
+snapshot, fires a snapshot dry-run, then prompts before tagging:
 
 ```bash
 just release vX.Y.Z
@@ -49,7 +51,7 @@ The native desktop app (`tauri/`) **is built and uploaded by CI** as part of the
 
 `.github/workflows/release.yml` runs two jobs on a `v*` tag push:
 
-1. `goreleaser` — Linux/macOS binary tarballs containing `hecate` and `hecate-acp`, multi-arch Docker images on GHCR, GitHub Release entry.
+1. `goreleaser` — Linux/macOS binary tarballs containing `hecate`, multi-arch Docker images on GHCR, GitHub Release entry.
 2. `tauri` (`needs: goreleaser`) — three-platform matrix (macOS arm64, Linux x86_64, Windows x86_64) calls the reusable `_tauri-shared.yml` workflow with `tagName: ${{ github.ref_name }}`. Each leg builds the hecate sidecar, the Tauri bundle, and uploads platform-native artifacts (`.dmg` / `.deb` + `.AppImage` / `.msi`) to the existing release.
 
 End state of a successful tag: the GitHub Release page has goreleaser tarballs + Docker images + four desktop bundles, all attached.
@@ -58,7 +60,7 @@ End state of a successful tag: the GitHub Release page has goreleaser tarballs +
 
 `just release` / `bun scripts/release.ts` handles the stamp automatically: after confirmation it calls `scripts/stamp-version.ts` with `TAURI_VERSION=<semver>`, commits the changed files (`Cargo.toml`, `package.json`, `tauri.conf.json`), then creates the annotated tag on that commit. CI re-runs the stamp from the tag name as a belt-and-suspenders measure (`stamp-version.ts` is idempotent).
 
-**The stamp commit lives only on the tag, not on master.** The script pushes the tag, not the branch. Meanwhile the release CI's `publish updater manifest` + `docs: update release references` jobs push their own commits to `master` on top of the pre-tag commit. So local `master` is left ahead of `origin/master` (carrying the orphan stamp commit) and behind it (missing the CI's post-tag commits). Run `git pull --ff-only origin master` once CI completes — it'll fast-forward over the orphan onto `origin/master`. Otherwise any branch cut from local master will inherit the orphan stamp and show a phantom version bump in its diff.
+**The stamp commit lives only on the tag, not on master.** The script pushes the tag, not the branch, then resets the local release branch back to the pre-stamp commit. Meanwhile the release CI's `publish updater manifest` + `docs: update release references` jobs push their own commits to `master` on top of that same pre-tag commit. Once CI completes, run `git pull --ff-only origin master` to pick up those post-release commits. Branches cut after that should not inherit a phantom Tauri version bump.
 
 The Tauri matrix doesn't need any local action — pushing the tag fires the workflow.
 
@@ -66,12 +68,15 @@ The Tauri matrix doesn't need any local action — pushing the tag fires the wor
 
 The main `.github/workflows/test.yml` workflow owns PR-time desktop validation.
 It path-filters desktop-impacting changes (`tauri/**`, `cmd/hecate/**`,
-`cmd/hecate-acp/**`, `ui/**`, `Justfile`, Tauri version scripts, release
+`Justfile`, `just/**`, Tauri version scripts, release
 packaging files, and the workflows themselves), then starts the
 `Tauri desktop bundles` matrix only after the cheaper Go, TypeScript, e2e,
 Docker smoke, and Tauri Rust jobs pass or skip. The PR matrix proves the
 macOS, Linux, and Windows bundles build, but does not upload unsigned bundle
-artifacts.
+artifacts. Treat that as packaging validation only: macOS is the only desktop
+bundle maintainers currently launch-test, and release notes must not imply the
+Linux `.deb` / `.AppImage` or Windows `.msi` have been manually tested until
+that smoke run happens on real machines.
 
 If the change set touches the desktop pipeline, prefer landing it via PR so the
 matrix runs before the tag — it's the only way to find out a Windows-only or
@@ -98,7 +103,8 @@ Outputs land in `tauri/src-tauri/target/release/bundle/`. Use this for iterating
   - **Called-side (defense in depth):** the env block in `_tauri-shared.yml` gates each Apple secret on `matrix.os == 'macos-latest' && inputs.tagName != ''`. Belt-and-suspenders against future misconfiguration where some new caller might inherit secrets unintentionally.
   - The shared workflow uses `${{ github.token }}` instead of `${{ secrets.GITHUB_TOKEN }}` so it works in both modes — `github.token` is the per-job-run token, available in every workflow run without needing secrets-inherit.
 
-  With the secrets configured on the repo, a release-workflow `.dmg` is signed with Developer ID Application and notarized — first launch on a clean Mac shows no Gatekeeper warning. Notarization adds ~5–15 minutes to the macOS leg per release (longer if Apple's notary service is backed up). PR builds always produce unsigned bundles (intentional — they're throwaway artifacts for "does the build still produce a `.dmg`?" verification, not for distribution). Operator setup checklist for the secrets is in [`../../docs/macos-signing.md`](../../docs/macos-signing.md). Windows code signing (Authenticode + EV cert) is not yet configured at all; first launch still triggers SmartScreen regardless of secret state — document in release notes until it lands.
+  With the secrets configured on the repo, a release-workflow `.dmg` is signed with Developer ID Application and notarized — first launch on a clean Mac shows no Gatekeeper warning. Notarization adds ~5–15 minutes to the macOS leg per release (longer if Apple's notary service is backed up). PR builds always produce unsigned bundles (intentional — they're throwaway artifacts for "does the build still produce a `.dmg`?" verification, not for distribution). Operator setup checklist for the secrets is in [`../../docs/macos-signing.md`](../../docs/macos-signing.md). Windows code signing (Authenticode + EV cert) is not yet configured at all, and Linux/Windows desktop bundles are still CI-built-only; document that they are untested and likely buggy until real-machine smoke coverage lands.
+
 - **Auto-update emits `latest.json` per release.** Three-step pipeline in `_tauri-shared.yml`. (1) Per matrix leg: tauri-action receives `TAURI_UPDATER_PRIVATE_KEY` + `TAURI_UPDATER_PRIVATE_KEY_PASSWORD` (gated on `inputs.tagName != ''` — same caller-side / called-side protection model as the Apple secrets) and signs the platform bundles; a follow-up `Upload updater payloads to release` step uploads the `.sig` files and macOS `Hecate.app.tar.gz` to the release (tauri-action only uploads the platform installers, not the updater payloads alongside them). (2) Post-matrix: the `publish-updater-manifest` job downloads every `.sig`, stitches them into `latest.json`, and uploads the manifest to the GitHub Release. tauri-action can't do this itself in matrix mode because each leg only sees its own signature. (3) Post-manifest: the `publish-updater-website` job drops `latest.json` into `website/public/releases/alpha/`, commits to master with a non-FF retry loop, then explicitly dispatches `website.yml` via `workflow_dispatch` (pushes made with `github.token` deliberately don't trigger downstream workflows on push events; `workflow_dispatch` IS allowed for `github.token`, which is the documented workaround). `website.yml` rebuilds Astro and deploys to Pages. The job's final step polls `https://hecate.sh/releases/alpha/latest.json` and only exits green once the new version is live (10-min cap). The dispatch runs unconditionally so a re-run can recover from a stuck Pages deploy. This second publish target exists because every release stays a GitHub pre-release until v1.0.0 — see `Pre-release policy` below — and GitHub's `/releases/latest/` shortcut refuses to resolve to pre-releases, so the bundled updater endpoint points at the website channel instead. Existing installs check `latest.json` on launch and surface a banner when a newer version is published. Maintainer-side keypair custody and rotation: [`../../docs/desktop-updater-signing.md`](../../docs/desktop-updater-signing.md). Two prerequisites — `bundle.createUpdaterArtifacts: "v1Compatible"` in `tauri.conf.json` (without it the bundler produces no updater artifacts to sign) and the two `TAURI_UPDATER_*` secrets. If either is missing, the stitch job fails loudly on `missing updater signature(s)` rather than shipping a half-broken manifest.
 - **Pre-release policy.** Every release is a GitHub pre-release until v1.0.0; see [`../../docs/release.md#pre-release-policy`](../../docs/release.md#pre-release-policy). Consequence: do **not** run `gh release edit <tag> --prerelease=false --latest` on a regular release — `release.yml` and the `publish-updater-website` job route auto-update through `hecate.sh` independent of GitHub's "latest" semantics, so the flag has no effect on auto-update routing.
 - **Historical auto-update channel switch.** Alpha.28 moved the bundled updater endpoint from `https://github.com/.../releases/latest/download/latest.json` to `https://hecate.sh/releases/alpha/latest.json`. Because Hecate had no real installed alpha cohort to migrate, alpha.28 is now a pre-release like the rest of the alpha line. Old alpha.21–27 installs are expected to reinstall manually from the current alpha; alpha.28+ installs update through `hecate.sh`.
@@ -120,7 +126,7 @@ Acceptance:
 
 - Both workflow jobs are green.
 - GitHub Releases page has the entry, marked **Pre-release** for `-alpha.N` tags.
-- Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums. Each binary tarball contains `hecate` and `hecate-acp`.
+- Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums. Each binary tarball contains `hecate`.
 - Tauri-side artifacts attached: one `.dmg`, one `.deb`, one `.AppImage`, one `.msi`. If any is missing, the matrix leg silently skipped upload — open the run, find the leg, see what failed.
 - `latest.json` is attached as a release asset (the auto-updater manifest, GitHub Release copy). Missing means the `publish-updater-manifest` job failed — most likely on its `missing updater signature(s)` check. Look there first; common causes are `bundle.createUpdaterArtifacts` being unset in `tauri.conf.json` (bundler produced no sigs) or the `TAURI_UPDATER_*` secrets having been removed from repo settings.
 - `https://hecate.sh/releases/alpha/latest.json` serves the new version's manifest. This is the URL bundles actually read; the GitHub Release copy is a backup. If `publish-updater-website` succeeded, this is automatic — the job blocks until propagation completes. If `publish-updater-website` failed at "Verify manifest is live at hecate.sh", check the website workflow run for the master commit `publish updater manifest for vX.Y.Z`.
@@ -132,7 +138,7 @@ Acceptance:
 ## Footguns
 
 - **`{{ .Version }}` strips the `v` prefix.** Docker tags are `0.1.0-alpha.1`, **not** `v0.1.0-alpha.1`. The git tag itself keeps the `v`. Same applies to tarball names. The `/healthz` `version` field also reports the bare semver.
-- **`.env_file` in compose overrides Dockerfile `ENV`.** If your local `.env` has `GATEWAY_DATA_DIR=.data` (relative), it'll override the Dockerfile's absolute `/data` and break `docker compose cp /data/...`. The current `.env.example` comments these out specifically; old developer-machine `.env` copies may still have the override and will fail `just test-docker-smoke` locally even though CI passes.
+- **`.env_file` in compose overrides Dockerfile `ENV`.** The compose stack pins `HECATE_DATA_DIR=/data` and `HECATE_SQLITE_PATH=/data/hecate.db` in the service `environment:` block — which wins over `env_file:` — so a developer's relative `.data` source-dev path can't be carried into the container and break `docker compose cp /data/...`. Any new Dockerfile `ENV` that conflicts with a source-dev default in `.env.example` needs the same treatment in `docker-compose.yml`, or this footgun recurs.
 - **First-tag changelog is all-history.** Goreleaser builds the auto-changelog from git log between previous and current tags; if there's no previous tag, it includes every commit since the initial commit. Inspect the snapshot output before tagging.
 - **Don't run snapshot from a clean checkout, then `git add -A`.** The snapshot writes ~50 MB of binaries into `./dist`; a sweeping `git add` will pick them up if `dist/` isn't gitignored.
 - **`ui/dist/.gitkeep` must be tracked.** The `//go:embed all:ui/dist` directive in `embed.go` fails at compile time if `ui/dist` is completely absent from the tree. `.gitignore` keeps `ui/dist/*` but un-ignores `.gitkeep` via negation — the negation only works if `/dist/` (not `dist/`) is the rule anchoring the goreleaser output directory. If `go build` fails with `pattern all:ui/dist: no matching files found`, check that `ui/dist/.gitkeep` is tracked (`git ls-files ui/dist/`) and that `.gitignore` anchors the root dist rule with a leading `/`.

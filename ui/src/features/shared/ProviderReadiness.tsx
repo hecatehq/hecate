@@ -1,50 +1,68 @@
-import type { ProviderReadinessCheckRecord, ProviderReadinessSummaryRecord } from "../../types/runtime";
+import type {
+  ProviderReadinessCheckRecord,
+  ProviderReadinessSummaryRecord,
+} from "../../types/provider";
 import { readinessRecommendation } from "../../lib/provider-readiness";
 
-export function ProviderReadinessSummary({ readiness }: { readiness?: ProviderReadinessSummaryRecord }) {
-  if (!readiness || (!readiness.message && !readiness.operator_action && !readiness.reason)) return null;
+export function ProviderReadinessSummary({
+  readiness,
+}: {
+  readiness?: ProviderReadinessSummaryRecord;
+}) {
+  if (!readiness || (!readiness.message && !readiness.operator_action && !readiness.reason))
+    return null;
 
   return (
-    <div style={{
-      border: "1px solid var(--border)",
-      borderRadius: "var(--radius-sm)",
-      background: readinessSummaryBackground(readiness.status),
-      padding: "10px 12px",
-    }}>
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: readinessSummaryBackground(readiness.status),
+        padding: "10px 12px",
+      }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-        <span style={{
-          width: 8,
-          height: 8,
-          borderRadius: 999,
-          background: readinessColor(readiness.status),
-          boxShadow: readiness.status === "ok" ? "0 0 10px rgba(96, 199, 112, 0.35)" : undefined,
-          flexShrink: 0,
-        }} />
-        <span style={{
-          fontSize: 10,
-          color: "var(--t3)",
-          fontFamily: "var(--font-mono)",
-          textTransform: "uppercase",
-          letterSpacing: "0.04em",
-        }}>
-          Readiness summary
-        </span>
-        {readiness.reason && (
-          <span style={{
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: 999,
+            background: readinessColor(readiness.status),
+            boxShadow: readiness.status === "ok" ? "0 0 10px rgba(96, 199, 112, 0.35)" : undefined,
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
             fontSize: 10,
             color: "var(--t3)",
             fontFamily: "var(--font-mono)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            minWidth: 0,
-          }}>
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+          }}
+        >
+          Readiness summary
+        </span>
+        {readiness.reason && (
+          <span
+            style={{
+              fontSize: 10,
+              color: "var(--t3)",
+              fontFamily: "var(--font-mono)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
+            }}
+          >
             {readiness.reason}
           </span>
         )}
       </div>
       {readiness.message && (
-        <div style={{ fontSize: 12, color: readinessTextColor(readiness.status), lineHeight: 1.45 }}>
+        <div
+          style={{ fontSize: 12, color: readinessTextColor(readiness.status), lineHeight: 1.45 }}
+        >
           {readiness.message}
         </div>
       )}
@@ -61,17 +79,25 @@ export function ProviderReadinessChecklist({ checks }: { checks: ProviderReadine
   if (checks.length === 0) return null;
 
   return (
-    <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
-      <div style={{
-        padding: "7px 10px",
-        borderBottom: "1px solid var(--border)",
-        background: "var(--bg2)",
-        fontSize: 10,
-        color: "var(--t3)",
-        fontFamily: "var(--font-mono)",
-        textTransform: "uppercase",
-        letterSpacing: "0.04em",
-      }}>
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          padding: "7px 10px",
+          borderBottom: "1px solid var(--border)",
+          background: "var(--bg2)",
+          fontSize: 10,
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}
+      >
         Readiness
       </div>
       <div style={{ display: "flex", flexDirection: "column" }}>
@@ -87,45 +113,55 @@ export function ProviderReadinessChecklist({ checks }: { checks: ProviderReadine
                 padding: "8px 10px",
                 borderBottom: index === checks.length - 1 ? undefined : "1px solid var(--border)",
                 alignItems: "start",
-              }}>
+              }}
+            >
               <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-                <span style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: 999,
-                  background: readinessColor(check.status),
-                  boxShadow: check.status === "ok" ? "0 0 10px rgba(96, 199, 112, 0.35)" : undefined,
-                  flexShrink: 0,
-                }} />
-                <span style={{
-                  fontSize: 11,
-                  color: "var(--t1)",
-                  fontFamily: "var(--font-mono)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}>
-                  {titleizeReadinessName(check.name)}
-                </span>
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{
-                  fontSize: 11,
-                  color: readinessTextColor(check.status),
-                  lineHeight: 1.45,
-                }}>
-                  {check.message || describeReadinessStatus(check.status)}
-                </div>
-                {check.reason && (
-                  <div style={{
-                    marginTop: 2,
-                    fontSize: 10,
-                    color: "var(--t3)",
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: 999,
+                    background: readinessColor(check.status),
+                    boxShadow:
+                      check.status === "ok" ? "0 0 10px rgba(96, 199, 112, 0.35)" : undefined,
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "var(--t1)",
                     fontFamily: "var(--font-mono)",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
-                  }}>
+                  }}
+                >
+                  {titleizeReadinessName(check.name)}
+                </span>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: readinessTextColor(check.status),
+                    lineHeight: 1.45,
+                  }}
+                >
+                  {check.message || describeReadinessStatus(check.status)}
+                </div>
+                {check.reason && (
+                  <div
+                    style={{
+                      marginTop: 2,
+                      fontSize: 10,
+                      color: "var(--t3)",
+                      fontFamily: "var(--font-mono)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
                     {check.reason}
                   </div>
                 )}
@@ -143,41 +179,83 @@ export function ProviderReadinessChecklist({ checks }: { checks: ProviderReadine
   );
 }
 
-export function CompactProviderReadinessChecks({ checks }: { checks: ProviderReadinessCheckRecord[] }) {
+export function CompactProviderReadinessChecks({
+  checks,
+}: {
+  checks: ProviderReadinessCheckRecord[];
+}) {
   if (checks.length === 0) return null;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8, marginTop: 10 }}>
-      {checks.map(check => {
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+        gap: 8,
+        marginTop: 10,
+      }}
+    >
+      {checks.map((check) => {
         const recommendation = readinessRecommendation(check);
         return (
           <div
             key={check.name}
-            title={[check.message, recommendation ? `Next: ${recommendation}` : ""].filter(Boolean).join("\n")}
+            title={[check.message, recommendation ? `Next: ${recommendation}` : ""]
+              .filter(Boolean)
+              .join("\n")}
             style={{
               border: "1px solid var(--border)",
               borderRadius: "var(--radius-sm)",
               background: "var(--bg3)",
               padding: "7px 8px",
               minWidth: 0,
-            }}>
+            }}
+          >
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{
-                width: 7,
-                height: 7,
-                borderRadius: 999,
-                background: readinessColor(check.status),
-                flexShrink: 0,
-              }} />
-              <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: 999,
+                  background: readinessColor(check.status),
+                  flexShrink: 0,
+                }}
+              />
+              <span
+                style={{
+                  fontSize: 10,
+                  color: "var(--t3)",
+                  fontFamily: "var(--font-mono)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
                 {titleizeReadinessName(check.name)}
               </span>
             </div>
-            <div style={{ marginTop: 4, fontSize: 11, color: readinessTextColor(check.status), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: 11,
+                color: readinessTextColor(check.status),
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               {check.message || check.reason || check.status}
             </div>
             {recommendation && (
-              <div style={{ marginTop: 3, fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <div
+                style={{
+                  marginTop: 3,
+                  fontSize: 10,
+                  color: "var(--t3)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 Next: {recommendation}
               </div>
             )}
@@ -242,6 +320,6 @@ function titleizeReadinessName(value: string): string {
   return value
     .split("_")
     .filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSpanWaterfall, buildTraceTimeline, findModelInTrace, findProviderInTrace, parseISOWithSubMs } from "./runtime-trace";
-import type { TraceSpanRecord } from "../types/runtime";
+import {
+  buildSpanWaterfall,
+  buildTraceTimeline,
+  findModelInTrace,
+  findProviderInTrace,
+  parseISOWithSubMs,
+} from "./runtime-trace";
+import type { TraceSpanRecord } from "../types/trace";
 
 // Helpers for the synthetic-trace fixtures. `at(ms)` returns an ISO
 // string `ms` after the trace anchor; `span(...)` builds a minimal
@@ -13,7 +19,9 @@ import type { TraceSpanRecord } from "../types/runtime";
 const T0 = "2026-04-21T10:00:00.000Z";
 const at = (ms: number) => new Date(Date.parse(T0) + ms).toISOString();
 
-function span(p: Partial<TraceSpanRecord> & Pick<TraceSpanRecord, "span_id" | "name">): TraceSpanRecord {
+function span(
+  p: Partial<TraceSpanRecord> & Pick<TraceSpanRecord, "span_id" | "name">,
+): TraceSpanRecord {
   return {
     trace_id: "t",
     span_id: p.span_id,
@@ -45,9 +53,27 @@ describe("buildSpanWaterfall", () => {
     // Expected order: root, A, A1, B
     const spans: TraceSpanRecord[] = [
       span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(400) }),
-      span({ span_id: "B", name: "gateway.usage", parent_span_id: "root", start_time: at(220), end_time: at(380) }),
-      span({ span_id: "A", name: "provider.openai", parent_span_id: "root", start_time: at(10), end_time: at(200) }),
-      span({ span_id: "A1", name: "provider.openai.parse", parent_span_id: "A", start_time: at(50), end_time: at(150) }),
+      span({
+        span_id: "B",
+        name: "gateway.usage",
+        parent_span_id: "root",
+        start_time: at(220),
+        end_time: at(380),
+      }),
+      span({
+        span_id: "A",
+        name: "provider.openai",
+        parent_span_id: "root",
+        start_time: at(10),
+        end_time: at(200),
+      }),
+      span({
+        span_id: "A1",
+        name: "provider.openai.parse",
+        parent_span_id: "A",
+        start_time: at(50),
+        end_time: at(150),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     expect(wf.spans.map((s) => s.span.span_id)).toEqual(["root", "A", "A1", "B"]);
@@ -65,10 +91,33 @@ describe("buildSpanWaterfall", () => {
     // doesn't dominate the assertions; child offsets are 0.043 /
     // 0.926 / 2.442 ms — all sub-1ms-truncation territory pre-fix.
     const spans: TraceSpanRecord[] = [
-      span({ span_id: "root", name: "gateway.request", start_time: "2026-05-11T06:14:05.428427Z", end_time: "2026-05-11T06:14:05.432755Z" }),
-      span({ span_id: "parse", name: "gateway.request.parse", parent_span_id: "root", start_time: "2026-05-11T06:14:05.428470Z", end_time: "2026-05-11T06:14:05.428470Z" }),
-      span({ span_id: "gov", name: "gateway.governor", parent_span_id: "root", start_time: "2026-05-11T06:14:05.429353Z", end_time: "2026-05-11T06:14:05.432755Z" }),
-      span({ span_id: "rtr", name: "gateway.router", parent_span_id: "root", start_time: "2026-05-11T06:14:05.430869Z", end_time: "2026-05-11T06:14:05.430908Z" }),
+      span({
+        span_id: "root",
+        name: "gateway.request",
+        start_time: "2026-05-11T06:14:05.428427Z",
+        end_time: "2026-05-11T06:14:05.432755Z",
+      }),
+      span({
+        span_id: "parse",
+        name: "gateway.request.parse",
+        parent_span_id: "root",
+        start_time: "2026-05-11T06:14:05.428470Z",
+        end_time: "2026-05-11T06:14:05.428470Z",
+      }),
+      span({
+        span_id: "gov",
+        name: "gateway.governor",
+        parent_span_id: "root",
+        start_time: "2026-05-11T06:14:05.429353Z",
+        end_time: "2026-05-11T06:14:05.432755Z",
+      }),
+      span({
+        span_id: "rtr",
+        name: "gateway.router",
+        parent_span_id: "root",
+        start_time: "2026-05-11T06:14:05.430869Z",
+        end_time: "2026-05-11T06:14:05.430908Z",
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     const byID = Object.fromEntries(wf.spans.map((s) => [s.span.span_id, s]));
@@ -92,8 +141,9 @@ describe("buildSpanWaterfall", () => {
     // Unparseable input falls through to Date.parse's NaN.
     expect(Number.isNaN(parseISOWithSubMs("not-a-timestamp"))).toBe(true);
     // Plain ms-precision input still works, same as Date.parse.
-    expect(parseISOWithSubMs("2026-05-11T06:14:05.428Z"))
-      .toBe(Date.parse("2026-05-11T06:14:05.428Z"));
+    expect(parseISOWithSubMs("2026-05-11T06:14:05.428Z")).toBe(
+      Date.parse("2026-05-11T06:14:05.428Z"),
+    );
   });
 
   it("uses sub-ms event timestamps when choosing the latest inferred provider and model", () => {
@@ -155,9 +205,27 @@ describe("buildSpanWaterfall", () => {
     // outline-vs-filled bar style in SpanWaterfall.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(912) }),
-      span({ span_id: "parse", name: "gateway.request.parse", parent_span_id: "root", start_time: at(43), end_time: at(43) }),
-      span({ span_id: "gov", name: "gateway.governor", parent_span_id: "root", start_time: at(126), end_time: at(912) }),
-      span({ span_id: "rtr", name: "gateway.router", parent_span_id: "root", start_time: at(442), end_time: at(481) }),
+      span({
+        span_id: "parse",
+        name: "gateway.request.parse",
+        parent_span_id: "root",
+        start_time: at(43),
+        end_time: at(43),
+      }),
+      span({
+        span_id: "gov",
+        name: "gateway.governor",
+        parent_span_id: "root",
+        start_time: at(126),
+        end_time: at(912),
+      }),
+      span({
+        span_id: "rtr",
+        name: "gateway.router",
+        parent_span_id: "root",
+        start_time: at(442),
+        end_time: at(481),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     const byID = Object.fromEntries(wf.spans.map((s) => [s.span.span_id, s]));
@@ -173,7 +241,13 @@ describe("buildSpanWaterfall", () => {
     // The previous (startMs, depth) sort orphaned A above its parent.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(400) }),
-      span({ span_id: "A", name: "provider.openai", parent_span_id: "root", start_time: at(-50), end_time: at(380) }),
+      span({
+        span_id: "A",
+        name: "provider.openai",
+        parent_span_id: "root",
+        start_time: at(-50),
+        end_time: at(380),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     expect(wf.spans.map((s) => s.span.span_id)).toEqual(["root", "A"]);
@@ -185,8 +259,20 @@ describe("buildSpanWaterfall", () => {
     // ~1.7e12 — sub-pixel everywhere except the bad span's own row.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(400) }),
-      span({ span_id: "good", name: "provider.openai", parent_span_id: "root", start_time: at(50), end_time: at(380) }),
-      span({ span_id: "bad", name: "tool.shell", parent_span_id: "root", start_time: "not-a-date", end_time: "also-not" }),
+      span({
+        span_id: "good",
+        name: "provider.openai",
+        parent_span_id: "root",
+        start_time: at(50),
+        end_time: at(380),
+      }),
+      span({
+        span_id: "bad",
+        name: "tool.shell",
+        parent_span_id: "root",
+        start_time: "not-a-date",
+        end_time: "also-not",
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     expect(wf.totalMs).toBe(400);
@@ -209,7 +295,13 @@ describe("buildSpanWaterfall", () => {
     // start with an unknown width.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(400) }),
-      span({ span_id: "halfBad", name: "tool.shell", parent_span_id: "root", start_time: at(50), end_time: "garbage" }),
+      span({
+        span_id: "halfBad",
+        name: "tool.shell",
+        parent_span_id: "root",
+        start_time: at(50),
+        end_time: "garbage",
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     const halfBad = wf.spans.find((s) => s.span.span_id === "halfBad")!;
@@ -226,7 +318,13 @@ describe("buildSpanWaterfall", () => {
     // the renderer always has a valid range for any span's position.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(150) }),
-      span({ span_id: "skewLate", name: "tool.shell", parent_span_id: "root", start_time: at(200), end_time: at(150) }),
+      span({
+        span_id: "skewLate",
+        name: "tool.shell",
+        parent_span_id: "root",
+        start_time: at(200),
+        end_time: at(150),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     expect(wf.totalMs).toBe(200);
@@ -241,7 +339,13 @@ describe("buildSpanWaterfall", () => {
     // 1ms tick visually indistinguishable from a real one.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(400) }),
-      span({ span_id: "skewed", name: "tool.shell", parent_span_id: "root", start_time: at(100), end_time: at(50) }),
+      span({
+        span_id: "skewed",
+        name: "tool.shell",
+        parent_span_id: "root",
+        start_time: at(100),
+        end_time: at(50),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     const skewed = wf.spans.find((s) => s.span.span_id === "skewed")!;
@@ -260,13 +364,40 @@ describe("buildSpanWaterfall", () => {
     // (260 > 80). The critical chain runs through that branch.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(400) }),
-      span({ span_id: "short_with_long_chain", name: "router.select", parent_span_id: "root", start_time: at(0), end_time: at(60) }),
-      span({ span_id: "deep1", name: "provider.openai", parent_span_id: "short_with_long_chain", start_time: at(10), end_time: at(200) }),
-      span({ span_id: "deep2", name: "provider.openai.parse", parent_span_id: "deep1", start_time: at(20), end_time: at(190) }),
-      span({ span_id: "long_alone", name: "gateway.usage", parent_span_id: "root", start_time: at(60), end_time: at(140) }),
+      span({
+        span_id: "short_with_long_chain",
+        name: "router.select",
+        parent_span_id: "root",
+        start_time: at(0),
+        end_time: at(60),
+      }),
+      span({
+        span_id: "deep1",
+        name: "provider.openai",
+        parent_span_id: "short_with_long_chain",
+        start_time: at(10),
+        end_time: at(200),
+      }),
+      span({
+        span_id: "deep2",
+        name: "provider.openai.parse",
+        parent_span_id: "deep1",
+        start_time: at(20),
+        end_time: at(190),
+      }),
+      span({
+        span_id: "long_alone",
+        name: "gateway.usage",
+        parent_span_id: "root",
+        start_time: at(60),
+        end_time: at(140),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
-    const critIDs = wf.spans.filter((s) => s.critical).map((s) => s.span.span_id).sort();
+    const critIDs = wf.spans
+      .filter((s) => s.critical)
+      .map((s) => s.span.span_id)
+      .sort();
     expect(critIDs).toEqual(["deep1", "deep2", "root", "short_with_long_chain"].sort());
   });
 
@@ -276,9 +407,21 @@ describe("buildSpanWaterfall", () => {
     // first root's.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "rootA", name: "gateway.request", start_time: at(0), end_time: at(400) }),
-      span({ span_id: "A1", name: "provider.openai", parent_span_id: "rootA", start_time: at(10), end_time: at(380) }),
+      span({
+        span_id: "A1",
+        name: "provider.openai",
+        parent_span_id: "rootA",
+        start_time: at(10),
+        end_time: at(380),
+      }),
       span({ span_id: "rootB", name: "gateway.request", start_time: at(500), end_time: at(900) }),
-      span({ span_id: "B1", name: "provider.anthropic", parent_span_id: "rootB", start_time: at(510), end_time: at(880) }),
+      span({
+        span_id: "B1",
+        name: "provider.anthropic",
+        parent_span_id: "rootB",
+        start_time: at(510),
+        end_time: at(880),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     const critIDs = new Set(wf.spans.filter((s) => s.critical).map((s) => s.span.span_id));
@@ -292,7 +435,13 @@ describe("buildSpanWaterfall", () => {
     // The parent span was pruned by retention or never sampled. Its
     // children should still render rather than disappear.
     const spans: TraceSpanRecord[] = [
-      span({ span_id: "orphan", name: "provider.openai", parent_span_id: "missing", start_time: at(10), end_time: at(380) }),
+      span({
+        span_id: "orphan",
+        name: "provider.openai",
+        parent_span_id: "missing",
+        start_time: at(10),
+        end_time: at(380),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     expect(wf.spans).toHaveLength(1);
@@ -305,8 +454,20 @@ describe("buildSpanWaterfall", () => {
     // The cycle guards in depthOf and descent should clamp gracefully
     // and let buildSpanWaterfall return.
     const spans: TraceSpanRecord[] = [
-      span({ span_id: "A", name: "spanA", parent_span_id: "B", start_time: at(0), end_time: at(100) }),
-      span({ span_id: "B", name: "spanB", parent_span_id: "A", start_time: at(0), end_time: at(100) }),
+      span({
+        span_id: "A",
+        name: "spanA",
+        parent_span_id: "B",
+        start_time: at(0),
+        end_time: at(100),
+      }),
+      span({
+        span_id: "B",
+        name: "spanB",
+        parent_span_id: "A",
+        start_time: at(0),
+        end_time: at(100),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     expect(wf.spans).toHaveLength(2);
@@ -323,7 +484,13 @@ describe("buildSpanWaterfall", () => {
     // waterfall that at least lists the spans.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "A", name: "spanA", start_time: "garbage", end_time: "garbage" }),
-      span({ span_id: "B", name: "spanB", parent_span_id: "A", start_time: "garbage", end_time: "garbage" }),
+      span({
+        span_id: "B",
+        name: "spanB",
+        parent_span_id: "A",
+        start_time: "garbage",
+        end_time: "garbage",
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     expect(wf.totalMs).toBe(1);
@@ -340,8 +507,20 @@ describe("buildSpanWaterfall", () => {
     // call, only the long one is critical.
     const spans: TraceSpanRecord[] = [
       span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(400) }),
-      span({ span_id: "long", name: "provider.openai", parent_span_id: "root", start_time: at(50), end_time: at(380) }),
-      span({ span_id: "short", name: "gateway.usage", parent_span_id: "root", start_time: at(385), end_time: at(395) }),
+      span({
+        span_id: "long",
+        name: "provider.openai",
+        parent_span_id: "root",
+        start_time: at(50),
+        end_time: at(380),
+      }),
+      span({
+        span_id: "short",
+        name: "gateway.usage",
+        parent_span_id: "root",
+        start_time: at(385),
+        end_time: at(395),
+      }),
     ];
     const wf = buildSpanWaterfall(spans);
     const long = wf.spans.find((s) => s.span.span_id === "long")!;
@@ -352,27 +531,75 @@ describe("buildSpanWaterfall", () => {
 });
 
 describe("buildTraceTimeline", () => {
+  it("dedupes root-span mirror events in the operator event flow", () => {
+    const timeline = buildTraceTimeline(
+      [
+        span({
+          span_id: "root",
+          name: "gateway.request",
+          start_time: "2026-05-11T06:14:05.428427Z",
+          events: [
+            {
+              name: "chat.run.started",
+              timestamp: "2026-05-11T06:14:05.428427Z",
+              attributes: {
+                "hecate.agent_adapter.id": "grok_build",
+                "hecate.agent_adapter.name": "Grok Build",
+              },
+            },
+          ],
+        }),
+        span({
+          span_id: "chat",
+          parent_span_id: "root",
+          name: "agent_chat.run",
+          events: [
+            {
+              name: "chat.run.started",
+              timestamp: "2026-05-11T06:14:05.428427Z",
+              attributes: {
+                "hecate.agent_adapter.name": "Grok Build",
+                "hecate.agent_adapter.id": "grok_build",
+              },
+            },
+          ],
+        }),
+      ],
+      "2026-05-11T06:14:05.428427Z",
+    );
+
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      name: "chat.run.started",
+      spanName: "agent_chat.run",
+      phase: "chat",
+    });
+  });
+
   it("uses sub-ms event offsets instead of collapsing them to 0 ms", () => {
-    const timeline = buildTraceTimeline([
-      span({
-        span_id: "root",
-        name: "gateway.request",
-        events: [
-          {
-            name: "request.received",
-            timestamp: "2026-05-11T06:14:05.428427Z",
-          },
-          {
-            name: "governor.allowed",
-            timestamp: "2026-05-11T06:14:05.428912Z",
-          },
-          {
-            name: "router.selected",
-            timestamp: "2026-05-11T06:14:05.430869Z",
-          },
-        ],
-      }),
-    ], "2026-05-11T06:14:05.428427Z");
+    const timeline = buildTraceTimeline(
+      [
+        span({
+          span_id: "root",
+          name: "gateway.request",
+          events: [
+            {
+              name: "request.received",
+              timestamp: "2026-05-11T06:14:05.428427Z",
+            },
+            {
+              name: "governor.allowed",
+              timestamp: "2026-05-11T06:14:05.428912Z",
+            },
+            {
+              name: "router.selected",
+              timestamp: "2026-05-11T06:14:05.430869Z",
+            },
+          ],
+        }),
+      ],
+      "2026-05-11T06:14:05.428427Z",
+    );
 
     expect(timeline.map((event) => event.offsetLabel)).toEqual(["0 ms", "0.485 ms", "2.44 ms"]);
   });

@@ -4,19 +4,16 @@ import "context"
 
 // PermissionRequest is the dynamic-gate input the agent asks the
 // workspace about before taking a potentially risky action. Today's
-// LocalWorkspace evaluates these against the static Policy; the
-// future ACPWorkspace forwards them to session/request_permission on
-// the connected editor and blocks on the operator's answer.
+// LocalWorkspace evaluates these against the static Policy.
 //
 // The structure is intentionally narrow: Tool + Action + a small
 // Details map. Adding fields requires touching every implementation
 // and every caller, so the shape is kept minimal and the structured
 // payload rides in Details.
 type PermissionRequest struct {
-	// Tool is the action class. Stable string vocabulary so the
-	// ACP editor side can route to consistent UI: "shell",
-	// "file_write", "file_delete", "terminal_create",
-	// "network_fetch", and so on.
+	// Tool is the action class. Stable string vocabulary keeps UI and
+	// policy routing consistent: "shell", "file_write", "file_delete",
+	// "terminal_create", "network_fetch", and so on.
 	Tool string
 
 	// Action is the human-readable summary the editor renders. Free
@@ -26,8 +23,7 @@ type PermissionRequest struct {
 
 	// Details carries structured arguments — the path being written,
 	// the command being run, the URL being fetched. LocalWorkspace
-	// reads specific keys ("path", "command", "url"); ACPWorkspace
-	// forwards the whole map verbatim.
+	// reads specific keys ("path", "command", "url").
 	Details map[string]any
 
 	// RiskLevel hints to the editor UI how prominently to render the
@@ -48,8 +44,7 @@ type PermissionDecision struct {
 
 	// Reason is the human-readable explanation. For grants, it's
 	// usually empty or "auto-approved by policy"; for denials, it's
-	// the operator's typed-in reason (ACPWorkspace) or the policy
-	// rule name (LocalWorkspace).
+	// the policy rule name.
 	Reason string
 }
 
@@ -57,8 +52,7 @@ type PermissionDecision struct {
 // implementations that don't enforce dynamic permissions (or that
 // rely entirely on Policy evaluated up front) can omit this
 // interface; callers use a type assertion. Today LocalWorkspace
-// implements Permitter as a thin wrapper around Policy, and
-// ACPWorkspace will implement it by forwarding to the editor.
+// implements Permitter as a thin wrapper around Policy.
 //
 // The interface is split from Workspace so the broader Workspace
 // surface stays stable when permission semantics evolve.

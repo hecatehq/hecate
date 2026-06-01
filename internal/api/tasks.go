@@ -1,6 +1,6 @@
 package api
 
-import "github.com/hecate/agent-runtime/internal/eventprotocol"
+import "github.com/hecatehq/hecate/internal/eventprotocol"
 
 type CreateTaskRequest struct {
 	Title  string `json:"title"`

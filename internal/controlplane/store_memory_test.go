@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecatehq/hecate/internal/config"
 )
 
 func TestMemoryStore_PolicyRuleLifecycle(t *testing.T) {
@@ -59,17 +59,12 @@ func TestMemoryStore_ProviderUpsertAndDelete(t *testing.T) {
 	}
 }
 
-func TestMemoryStore_ModelCapabilityLifecycle(t *testing.T) {
-	t.Parallel()
-	runStoreModelCapabilityLifecycle(t, NewMemoryStore())
-}
-
 func TestMemoryStore_InstalledModelLifecycle(t *testing.T) {
 	t.Parallel()
 	runStoreInstalledModelLifecycle(t, NewMemoryStore())
 }
 
-func TestMemoryStore_PruneAuditEvents(t *testing.T) {
+func TestMemoryStore_Prune(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryStore()
 	ctx := context.Background()
@@ -88,7 +83,7 @@ func TestMemoryStore_PruneAuditEvents(t *testing.T) {
 	}
 
 	// Prune to keep only most recent 1.
-	deleted, err := store.PruneAuditEvents(ctx, 0, 1)
+	deleted, err := store.Prune(ctx, 0, 1)
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}

@@ -8,12 +8,12 @@ checkable before implementation starts.
 
 ## Layout
 
-| Path | Meaning |
-|---|---|
+| Path          | Meaning                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------- |
 | `core/*.json` | Candidate-core v1 event examples that frontend, CLI, and ACP prototypes may use as golden inputs. |
 
 Experimental event ideas from
-[`docs/rfcs/event-protocol-experimental.md`](../../../rfcs/event-protocol-experimental.md)
+[`docs/rfcs/event-protocol-extensions.md`](../../../rfcs/event-protocol-extensions.md)
 and artifact-dependent events from
 [`docs/rfcs/artifact-storage-v1.md`](../../../rfcs/artifact-storage-v1.md) intentionally
 do not live in `core/`.

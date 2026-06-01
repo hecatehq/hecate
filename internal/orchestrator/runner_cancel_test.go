@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/taskstate"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestCancelRunWithMessageAlignsStartedTraceID(t *testing.T) {
@@ -23,7 +23,6 @@ func TestCancelRunWithMessageAlignsStartedTraceID(t *testing.T) {
 		store:    store,
 		tracer:   tracer,
 		policies: make(map[string]struct{}),
-		jobs:     make(map[string]context.CancelFunc),
 	}
 
 	now := time.Now().UTC()
@@ -94,7 +93,6 @@ func TestCancelRunWithMessageAlignsExistingTraceID(t *testing.T) {
 		store:    store,
 		tracer:   tracer,
 		policies: make(map[string]struct{}),
-		jobs:     make(map[string]context.CancelFunc),
 	}
 
 	now := time.Now().UTC()

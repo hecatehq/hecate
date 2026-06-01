@@ -13,7 +13,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
-	"github.com/hecate/agent-runtime/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 )
 
 func TestFakeACPAgentProcess(t *testing.T) {
@@ -128,6 +128,189 @@ func TestACPSessionConfigOptionsSnapshotPreservesNilAndEmpty(t *testing.T) {
 	if got := session.configOptionsSnapshot(); got != nil {
 		t.Fatalf("nil snapshot = %#v, want nil", got)
 	}
+}
+
+func TestSessionManagerUsesACPModelStateForBuiltInACPAdapters(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
+
+	tests := []struct {
+		adapterID string
+		command   string
+	}{
+		{adapterID: "codex", command: "codex-acp"},
+		{adapterID: "claude_code", command: "claude-agent-acp"},
+		{adapterID: "cursor_agent", command: "cursor-agent"},
+		{adapterID: "grok_build", command: "grok"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.adapterID, func(t *testing.T) {
+			installFakeACPExecutable(t, tt.command)
+			manager := NewSessionManager()
+
+			prepared, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+				SessionID: "chat_" + tt.adapterID + "_model",
+				AdapterID: tt.adapterID,
+				Workspace: t.TempDir(),
+			})
+			if err != nil {
+				t.Fatalf("PrepareSession: %v", err)
+			}
+			if prepared.NativeSessionID == "" {
+				t.Fatal("native session id is empty")
+			}
+			model := findConfigOption(prepared.ConfigOptions, "model")
+			if model == nil {
+				t.Fatalf("config options = %#v, want ACP model option", prepared.ConfigOptions)
+			}
+			if model.Source != agentcontrols.ConfigOptionSourceACPModel || model.CurrentValue != "model-a" {
+				t.Fatalf("model option = %#v, want ACP model-a", *model)
+			}
+		})
+	}
+}
+
+func TestSessionManagerChangesACPModelWithoutRestartingSession(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
+	installFakeACPExecutable(t, "grok")
+	workspace := t.TempDir()
+	manager := NewSessionManager()
+
+	prepared, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_grok_model",
+		AdapterID: "grok_build",
+		Workspace: workspace,
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+
+	updated, err := manager.SetSessionConfigOption(context.Background(), SetSessionConfigOptionRequest{
+		SessionID: "chat_grok_model",
+		ConfigID:  "model",
+		Value:     "model-b",
+	})
+	if err != nil {
+		t.Fatalf("SetSessionConfigOption(model): %v", err)
+	}
+	model := findConfigOption(updated.ConfigOptions, "model")
+	if model == nil || model.CurrentValue != "model-b" || model.Source != agentcontrols.ConfigOptionSourceACPModel {
+		t.Fatalf("updated options = %#v, want ACP model-b", updated.ConfigOptions)
+	}
+
+	run, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      "chat_grok_model",
+		AdapterID:      "grok_build",
+		Workspace:      workspace,
+		Prompt:         "after model switch",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+		ConfigOptions:  updated.ConfigOptions,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if run.NativeSessionID != prepared.NativeSessionID {
+		t.Fatalf("native session id = %q, want unchanged %q", run.NativeSessionID, prepared.NativeSessionID)
+	}
+}
+
+func TestSessionManagerWrapsACPModelSetErrors(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
+	t.Setenv("HECATE_FAKE_ACP_SET_MODEL_ERROR", "adapter rejected model switch")
+	installFakeACPExecutable(t, "grok")
+	manager := NewSessionManager()
+
+	_, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_grok_model_error",
+		AdapterID: "grok_build",
+		Workspace: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+
+	_, err = manager.SetSessionConfigOption(context.Background(), SetSessionConfigOptionRequest{
+		SessionID: "chat_grok_model_error",
+		ConfigID:  "model",
+		Value:     "model-b",
+	})
+	if err == nil {
+		t.Fatal("SetSessionConfigOption(model) succeeded, want wrapped ACP model error")
+	}
+	errText := err.Error()
+	if !strings.Contains(errText, `select ACP model for "grok_build":`) || !strings.Contains(errText, "adapter rejected model switch") {
+		t.Fatalf("error = %q, want wrapped ACP model selection context", errText)
+	}
+}
+
+func TestSessionManagerPreservesACPModelWhenAdapterConfigOptionsChange(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
+	t.Setenv("HECATE_FAKE_ACP_CONFIG_OPTIONS", "1")
+	installFakeACPExecutable(t, "cursor-agent")
+
+	manager := NewSessionManager()
+	prepared, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_cursor_config",
+		AdapterID: "cursor_agent",
+		Workspace: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+	if model := findConfigOption(prepared.ConfigOptions, "model"); model == nil || model.Source != agentcontrols.ConfigOptionSourceACPModel {
+		t.Fatalf("prepared config options = %#v, want ACP model option", prepared.ConfigOptions)
+	}
+	if mode := findConfigOption(prepared.ConfigOptions, "mode"); mode == nil || mode.CurrentValue != "ask" {
+		t.Fatalf("prepared config options = %#v, want mode=ask", prepared.ConfigOptions)
+	}
+
+	updated, err := manager.SetSessionConfigOption(context.Background(), SetSessionConfigOptionRequest{
+		SessionID: "chat_cursor_config",
+		ConfigID:  "mode",
+		Value:     "auto",
+	})
+	if err != nil {
+		t.Fatalf("SetSessionConfigOption(mode): %v", err)
+	}
+	if model := findConfigOption(updated.ConfigOptions, "model"); model == nil || model.Source != agentcontrols.ConfigOptionSourceACPModel || model.CurrentValue != "model-a" {
+		t.Fatalf("updated config options = %#v, want preserved ACP model option", updated.ConfigOptions)
+	}
+	if mode := findConfigOption(updated.ConfigOptions, "mode"); mode == nil || mode.CurrentValue != "auto" {
+		t.Fatalf("updated config options = %#v, want mode=auto", updated.ConfigOptions)
+	}
+}
+
+func TestSessionManagerAppliesSelectedACPModelDuringPrepare(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
+	installFakeACPExecutable(t, "grok")
+
+	manager := NewSessionManager()
+	prepared, err := manager.PrepareSession(context.Background(), PrepareSessionRequest{
+		SessionID: "chat_grok_preselected_model",
+		AdapterID: "grok_build",
+		Workspace: t.TempDir(),
+		ConfigOptions: []agentcontrols.ConfigOption{{
+			ID:           "model",
+			CurrentValue: "model-b",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareSession: %v", err)
+	}
+	model := findConfigOption(prepared.ConfigOptions, "model")
+	if model == nil || model.CurrentValue != "model-b" || model.Source != agentcontrols.ConfigOptionSourceACPModel {
+		t.Fatalf("config options = %#v, want preselected ACP model-b", prepared.ConfigOptions)
+	}
+}
+
+func findConfigOption(options []agentcontrols.ConfigOption, id string) *agentcontrols.ConfigOption {
+	for i := range options {
+		if options[i].ID == id {
+			return &options[i]
+		}
+	}
+	return nil
 }
 
 func TestTrimToolSummaryPreservesUTF8(t *testing.T) {
@@ -538,7 +721,7 @@ func TestACPTurnAgentThoughtChunkBlockBoundaries(t *testing.T) {
 		},
 		{
 			// Regression: distinct fallback episodes within one turn
-			// MUST get distinct Activity.IDs. mergeAgentChatActivity
+			// MUST get distinct Activity.IDs. mergeChatActivity
 			// dedupes by id and replaces Detail wholesale on collision,
 			// so a shared id would let episode 2's text overwrite
 			// episode 1's row in the persisted activities array.
@@ -658,7 +841,7 @@ func TestACPTurnFallbackDetectionResistsAdapterSpoofingTheFallbackPrefix(t *test
 
 // TestACPTurnCapsThinkingActivityDetailToProtectActivityRowSize
 // pins the per-block accumulator cap. Each chunk re-emits the
-// full accumulated Detail (mergeAgentChatActivity replaces the
+// full accumulated Detail (mergeChatActivity replaces the
 // row's Detail wholesale by Activity.ID), so an unbounded
 // accumulator would inflate the persisted activities JSON and
 // websocket payload with every chunk. The cap holds the
@@ -720,7 +903,7 @@ func TestACPTurnCapsThinkingActivityDetailToProtectActivityRowSize(t *testing.T)
 
 // TestACPTurnTruncatesThinkingDetailOnUTF8RuneBoundary protects
 // against slicing a multi-byte rune mid-sequence; the resulting
-// Activity.Detail is JSON-serialized into the agentchat row, and
+// Activity.Detail is JSON-serialized into the chat row, and
 // stray UTF-8 continuation bytes would corrupt the payload (or be
 // replaced with U+FFFD by lenient decoders, losing data).
 func TestACPTurnTruncatesThinkingDetailOnUTF8RuneBoundary(t *testing.T) {
@@ -897,7 +1080,7 @@ func TestACPTurnEmitsFileChangeActivitiesForMutatingToolCallsOnCompletion(t *tes
 // entries for the same file (e.g. several edited line ranges in
 // one call). Without aggregation, each entry would emit an activity
 // with the same `file_change:<toolCallID>:<path>` Activity.ID and
-// downstream mergeAgentChatActivity would let later emissions
+// downstream mergeChatActivity would let later emissions
 // overwrite earlier ones — the operator would see the last range
 // only, with the others silently lost. We collapse same-path
 // entries into one row, summarizing the line numbers in the title.
@@ -942,7 +1125,7 @@ func TestACPTurnAggregatesFileChangeLocationsBySharedPath(t *testing.T) {
 	if fileChanges[1].Title != "docs/example.md" {
 		t.Fatalf("second row title = %q, want plain path (no line info on the source location)", fileChanges[1].Title)
 	}
-	// Activity.IDs must be unique per path so mergeAgentChatActivity
+	// Activity.IDs must be unique per path so mergeChatActivity
 	// keeps both rows; the per-path collapse must NOT extend across
 	// distinct files.
 	if fileChanges[0].ID == fileChanges[1].ID {
@@ -1016,8 +1199,8 @@ func TestACPTurnRetainsToolKindAcrossUpdatesThatOmitIt(t *testing.T) {
 }
 
 // TestACPTurnRecordToolCallUpdateDefaultsTitleToToolCallId pins the
-// fix for an mergeAgentChatActivity-drop edge case. ACP's
-// SessionToolCallUpdate.Title is optional. mergeAgentChatActivity
+// fix for an mergeChatActivity-drop edge case. ACP's
+// SessionToolCallUpdate.Title is optional. mergeChatActivity
 // silently discards an emission whose Title is empty when there is
 // no prior row with a matching Activity.ID to merge into — and a
 // ToolCallUpdate without a preceding ToolCall is rare but legal
@@ -1047,7 +1230,7 @@ func TestACPTurnRecordToolCallUpdateDefaultsTitleToToolCallId(t *testing.T) {
 		t.Fatalf("tool_call count = %d, want 1 (the activity must survive merge with no preceding ToolCall)", len(toolCalls))
 	}
 	if toolCalls[0].Title != "call_orphan" {
-		t.Fatalf("tool_call Title = %q, want %q (defaulted to ToolCallId so mergeAgentChatActivity does not drop the row)", toolCalls[0].Title, "call_orphan")
+		t.Fatalf("tool_call Title = %q, want %q (defaulted to ToolCallId so mergeChatActivity does not drop the row)", toolCalls[0].Title, "call_orphan")
 	}
 }
 
@@ -1365,6 +1548,42 @@ func TestACPTurnSurfacesToolContentPreview(t *testing.T) {
 	if got := activities[0].Detail; got != "execute · output: ok PASS ./internal/agentadapters" {
 		t.Fatalf("activity detail = %q", got)
 	}
+	if got := activities[0].ArtifactPreview; got != "ok\nPASS ./internal/agentadapters" {
+		t.Fatalf("artifact preview = %q", got)
+	}
+}
+
+func TestACPTurnKeepsFullToolOutputPreview(t *testing.T) {
+	var activities []Activity
+	turn := newACPTurn(64*1024, nil)
+	turn.setActivityCallback(func(activity Activity) {
+		activities = append(activities, activity)
+	})
+	status := acp.ToolCallStatusCompleted
+	longOutput := "line one\n" + strings.Repeat("x", 180) + "\nline three"
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			ToolCallUpdate: &acp.SessionToolCallUpdate{
+				ToolCallId: acp.ToolCallId("call_shell"),
+				Status:     &status,
+				Kind:       acp.Ptr(acp.ToolKindExecute),
+				Content: []acp.ToolCallContent{
+					acp.ToolContent(acp.TextBlock(longOutput)),
+				},
+			},
+		},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("activities = %#v, want 1", activities)
+	}
+	if strings.Contains(activities[0].Detail, "line three") {
+		t.Fatalf("activity detail should stay summarized, got %q", activities[0].Detail)
+	}
+	if got := activities[0].ArtifactPreview; got != longOutput {
+		t.Fatalf("artifact preview = %q, want full output", got)
+	}
 }
 
 func installFakeACPExecutable(t *testing.T, name string) {
@@ -1375,9 +1594,12 @@ func installFakeACPExecutable(t *testing.T, name string) {
 	}
 	exe := filepath.Join(bin, name)
 	script := fmt.Sprintf(
-		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q HECATE_FAKE_ACP_MODELS=%q HECATE_FAKE_ACP_CONFIG_OPTIONS=%q HECATE_FAKE_ACP_SET_MODEL_ERROR=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
 		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
 		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
+		os.Getenv("HECATE_FAKE_ACP_MODELS"),
+		os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS"),
+		os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR"),
 		os.Args[0],
 	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
@@ -1396,6 +1618,7 @@ type fakeACPAgent struct {
 type fakeACPSession struct {
 	turns  int
 	cancel context.CancelFunc
+	model  string
 }
 
 func newFakeACPAgent() *fakeACPAgent {
@@ -1422,9 +1645,13 @@ func (a *fakeACPAgent) NewSession(context.Context, acp.NewSessionRequest) (acp.N
 	}
 	id := fmt.Sprintf("fake_session_%d", time.Now().UnixNano())
 	a.mu.Lock()
-	a.sessions[id] = &fakeACPSession{}
+	a.sessions[id] = &fakeACPSession{model: "model-a"}
 	a.mu.Unlock()
-	return acp.NewSessionResponse{SessionId: acp.SessionId(id)}, nil
+	return acp.NewSessionResponse{
+		SessionId:     acp.SessionId(id),
+		ConfigOptions: fakeACPConfigOptions("ask"),
+		Models:        fakeACPModelState("model-a"),
+	}, nil
 }
 
 func (a *fakeACPAgent) LoadSession(_ context.Context, params acp.LoadSessionRequest) (acp.LoadSessionResponse, error) {
@@ -1432,9 +1659,12 @@ func (a *fakeACPAgent) LoadSession(_ context.Context, params acp.LoadSessionRequ
 		return acp.LoadSessionResponse{}, fmt.Errorf("fake persisted session %s not found", params.SessionId)
 	}
 	a.mu.Lock()
-	a.sessions[string(params.SessionId)] = &fakeACPSession{}
+	a.sessions[string(params.SessionId)] = &fakeACPSession{model: "model-a"}
 	a.mu.Unlock()
-	return acp.LoadSessionResponse{}, nil
+	return acp.LoadSessionResponse{
+		ConfigOptions: fakeACPConfigOptions("ask"),
+		Models:        fakeACPModelState("model-a"),
+	}, nil
 }
 
 func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.PromptResponse, error) {
@@ -1512,8 +1742,38 @@ func (a *fakeACPAgent) ResumeSession(context.Context, acp.ResumeSessionRequest) 
 	return acp.ResumeSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionResume)
 }
 
-func (a *fakeACPAgent) SetSessionConfigOption(context.Context, acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
-	return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetConfigOption)
+func (a *fakeACPAgent) SetSessionConfigOption(_ context.Context, params acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
+	if os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS") != "1" {
+		return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetConfigOption)
+	}
+	if params.ValueId == nil || string(params.ValueId.ConfigId) != "mode" {
+		return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("unexpected config option request: %#v", params)
+	}
+	value := string(params.ValueId.Value)
+	if value != "ask" && value != "auto" {
+		return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("mode %q not available", value)
+	}
+	return acp.SetSessionConfigOptionResponse{
+		ConfigOptions: fakeACPConfigOptions(value),
+	}, nil
+}
+
+func (a *fakeACPAgent) UnstableSetSessionModel(_ context.Context, params acp.UnstableSetSessionModelRequest) (acp.UnstableSetSessionModelResponse, error) {
+	if errMessage := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR")); errMessage != "" {
+		return acp.UnstableSetSessionModelResponse{}, fmt.Errorf("%s", errMessage)
+	}
+	session, err := a.session(params.SessionId)
+	if err != nil {
+		return acp.UnstableSetSessionModelResponse{}, err
+	}
+	model := string(params.ModelId)
+	if model != "model-a" && model != "model-b" {
+		return acp.UnstableSetSessionModelResponse{}, fmt.Errorf("model %q not available", model)
+	}
+	a.mu.Lock()
+	session.model = model
+	a.mu.Unlock()
+	return acp.UnstableSetSessionModelResponse{}, nil
 }
 
 func (a *fakeACPAgent) SetSessionMode(context.Context, acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
@@ -1528,6 +1788,37 @@ func (a *fakeACPAgent) session(id acp.SessionId) (*fakeACPSession, error) {
 		return nil, fmt.Errorf("session %q not found", id)
 	}
 	return session, nil
+}
+
+func fakeACPModelState(current string) *acp.SessionModelState {
+	if os.Getenv("HECATE_FAKE_ACP_MODELS") != "1" {
+		return nil
+	}
+	return &acp.SessionModelState{
+		CurrentModelId: acp.ModelId(current),
+		AvailableModels: []acp.ModelInfo{
+			{ModelId: acp.ModelId("model-a"), Name: "Model A"},
+			{ModelId: acp.ModelId("model-b"), Name: "Model B"},
+		},
+	}
+}
+
+func fakeACPConfigOptions(current string) []acp.SessionConfigOption {
+	if os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS") != "1" {
+		return nil
+	}
+	options := acp.SessionConfigSelectOptionsUngrouped{
+		{Value: acp.SessionConfigValueId("ask"), Name: "Ask"},
+		{Value: acp.SessionConfigValueId("auto"), Name: "Auto"},
+	}
+	return []acp.SessionConfigOption{
+		{Select: &acp.SessionConfigOptionSelect{
+			Id:           acp.SessionConfigId("mode"),
+			Name:         "Mode",
+			CurrentValue: acp.SessionConfigValueId(current),
+			Options:      acp.SessionConfigSelectOptions{Ungrouped: &options},
+		}},
+	}
 }
 
 func promptText(blocks []acp.ContentBlock) string {

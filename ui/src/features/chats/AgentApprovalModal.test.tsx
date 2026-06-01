@@ -2,10 +2,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentChatApprovalRecord } from "../../types/runtime";
+import type { ChatApprovalRecord } from "../../types/chat";
 import { AgentApprovalModal } from "./AgentApprovalModal";
 
-function approvalRecord(overrides: Partial<AgentChatApprovalRecord> = {}): AgentChatApprovalRecord {
+function approvalRecord(overrides: Partial<ChatApprovalRecord> = {}): ChatApprovalRecord {
   return {
     id: "ap-1",
     session_id: "s",
@@ -25,7 +25,7 @@ function approvalRecord(overrides: Partial<AgentChatApprovalRecord> = {}): Agent
 }
 
 function setup(
-  fetchResult: AgentChatApprovalRecord | null = approvalRecord(),
+  fetchResult: ChatApprovalRecord | null = approvalRecord(),
   resolveResult = true,
   cancelResult = true,
 ) {
@@ -38,10 +38,10 @@ function setup(
 
 describe("AgentApprovalModal", () => {
   it("shows a loading state until the full row resolves, then renders adapter / tool identity", async () => {
-    let resolveFetch!: (row: AgentChatApprovalRecord | null) => void;
+    let resolveFetch!: (row: ChatApprovalRecord | null) => void;
     const fetchApproval = vi.fn(
       () =>
-        new Promise<AgentChatApprovalRecord | null>((resolve) => {
+        new Promise<ChatApprovalRecord | null>((resolve) => {
           resolveFetch = resolve;
         }),
     );
@@ -88,7 +88,7 @@ describe("AgentApprovalModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("requires a confirm step when adapter_tool scope is picked — first click arms, second click submits", async () => {
+  it("requires a confirm step when the broad agent-tool scope is picked", async () => {
     const { fetchApproval, onResolve, onCancel, onClose } = setup();
     render(
       <AgentApprovalModal
@@ -106,6 +106,8 @@ describe("AgentApprovalModal", () => {
     // Pick the broad scope.
     await user.click(await screen.findByTestId("agent-approval-modal-scope-adapter_tool"));
     expect(screen.getByTestId("agent-approval-modal-broad-warning")).toBeTruthy();
+    expect(screen.getByText("agent tool")).toBeTruthy();
+    expect(screen.queryByText("adapter_tool")).toBeNull();
 
     // First submit click only arms — must not have called onResolve yet.
     await user.click(screen.getByTestId("agent-approval-modal-submit"));
@@ -153,16 +155,18 @@ describe("AgentApprovalModal", () => {
       />,
     );
     await waitFor(() => expect(fetchApproval).toHaveBeenCalled());
-    expect(screen.getByText(/Could not load this approval/)).toBeTruthy();
+    expect(await screen.findByText(/Could not load this approval/)).toBeTruthy();
   });
 
   it("flips the decision to deny and selects a reject option when available", async () => {
-    const { fetchApproval, onResolve, onCancel, onClose } = setup(approvalRecord({
-      acp_options: [
-        { option_id: "approve_once", kind: "allow_once", name: "Approve once" },
-        { option_id: "reject_once", kind: "reject_once", name: "Reject once" },
-      ],
-    }));
+    const { fetchApproval, onResolve, onCancel, onClose } = setup(
+      approvalRecord({
+        acp_options: [
+          { option_id: "approve_once", kind: "allow_once", name: "Approve once" },
+          { option_id: "reject_once", kind: "reject_once", name: "Reject once" },
+        ],
+      }),
+    );
     render(
       <AgentApprovalModal
         sessionID="s"
@@ -180,13 +184,19 @@ describe("AgentApprovalModal", () => {
     // when fetchApproval's call is observed but its promise
     // microtask hasn't flushed yet (CI flake).
     await user.click(await screen.findByTestId("agent-approval-modal-decision-deny"));
-    expect(screen.getByTestId("agent-approval-modal-option-approve_once").querySelector("input")).toBeDisabled();
+    expect(
+      screen.getByTestId("agent-approval-modal-option-approve_once").querySelector("input"),
+    ).toBeDisabled();
     await user.click(screen.getByTestId("agent-approval-modal-submit"));
     await waitFor(() =>
-      expect(onResolve).toHaveBeenCalledWith("s", "ap-1", expect.objectContaining({
-        decision: "deny",
-        selected_option: "reject_once",
-      })),
+      expect(onResolve).toHaveBeenCalledWith(
+        "s",
+        "ap-1",
+        expect.objectContaining({
+          decision: "deny",
+          selected_option: "reject_once",
+        }),
+      ),
     );
   });
 

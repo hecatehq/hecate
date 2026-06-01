@@ -2,14 +2,18 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { UsageView } from "./UsageView";
-import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../../test/runtime-console-render";
 
 const localSession = { label: "Local" };
 
 function setup(stateOverrides: Record<string, unknown> = {}) {
   const state = createRuntimeConsoleFixture({ session: localSession, ...stateOverrides });
   const actions = createRuntimeConsoleActions();
-  render(<UsageView state={state} actions={actions} />);
+  render(withRuntimeConsole(<UsageView />, { state, actions }));
 }
 
 describe("UsageView", () => {
@@ -19,13 +23,15 @@ describe("UsageView", () => {
     expect(screen.getByText("Usage")).toBeInTheDocument();
     expect(screen.getByText(/Cloud-provider token usage measured by Hecate/i)).toBeInTheDocument();
     expect(screen.getByText(/No cloud usage recorded yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/Local models do not spend cloud-provider tokens/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Local models do not spend cloud-provider tokens/i),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Budget guardrail/i)).toBeNull();
     expect(screen.queryByText(/balance/i)).toBeNull();
     expect(screen.queryByText(/top up/i)).toBeNull();
     expect(screen.queryByText(/reset/i)).toBeNull();
     expect(screen.queryByText(/External agent context/i)).toBeNull();
-    expect(screen.queryByText(/No adapter-reported usage/i)).toBeNull();
+    expect(screen.queryByText(/No agent-reported usage/i)).toBeNull();
   });
 
   it("aggregates cloud-provider tokens and hides local-provider usage rows", () => {
@@ -83,9 +89,7 @@ describe("UsageView", () => {
         backend: "memory",
         policy_rules: [],
         events: [],
-        providers: [
-          { id: "anthropic", name: "Anthropic", kind: "anthropic", enabled: true },
-        ],
+        providers: [{ id: "anthropic", name: "Anthropic", kind: "anthropic", enabled: true }],
       },
       usageEvents: [
         {
@@ -111,14 +115,19 @@ describe("UsageView", () => {
 
   it("keeps active external-agent usage out of the global usage page", () => {
     setup({
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSession: {
+        id: "chat_1",
         title: "Codex work",
         adapter_id: "codex",
         workspace: "/tmp/project",
         status: "completed",
         messages: [
-          { id: "old", role: "assistant", content: "old", usage: { context_used: 100, context_size: 10_000 } },
+          {
+            id: "old",
+            role: "assistant",
+            content: "old",
+            usage: { context_used: 100, context_size: 10_000 },
+          },
           {
             id: "latest",
             role: "assistant",

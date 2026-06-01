@@ -1,19 +1,10 @@
 # Import External Chat History
 
-> **Status:** design notes. Not implemented. Captures the proposal for
-> ingesting historical Claude Code and Codex CLI session transcripts
-> into Hecate's agent-chat store as read-only, searchable, attributable
-> records.
-> **Depends on:** the existing agent-chat store
-> (`internal/agentchat/store.go` — `Session`, `Message`, `Activity`,
-> `Usage`, `Timing`), the SQLite backend
-> (`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` —
-> `internal/agentchat/sqlite.go`), and the
-> [external-agent-adapters](external-agent-adapters.md) shape that
-> already separates Agent Chat from Model Chat.
-> **Related:** [agent-memory](agent-memory.md) (imported transcripts
-> are a candidate corpus for future auto-extracted memory entries —
-> explicitly out of scope here).
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Chat sessions](../chat-sessions.md) and
+> [External agent adapters](../external-agent-adapters.md) for today's session
+> store and transcript model.
+> **Next action:** keep as-is until import work starts.
 
 Operators run Claude Code and Codex CLI outside Hecate and accumulate
 weeks of transcripts that already contain the searchable substance:
@@ -24,8 +15,8 @@ JSONL session files on disk (`~/.claude/projects/<slug>/<uuid>.jsonl`,
 way to read them.
 
 The result: an operator who's already adopted Hecate as the
-supervision surface for *new* agent work has to flip back to `grep
--r ~/.claude/projects` to look up *old* work. Two surfaces, two
+supervision surface for _new_ agent work has to flip back to `grep
+-r ~/.claude/projects` to look up _old_ work. Two surfaces, two
 mental models, two sets of paste-into-issue ergonomics.
 
 This RFC scopes a one-shot import (not live mirroring), the schema
@@ -37,7 +28,7 @@ useful without confusing them with live sessions.
 In rough priority order:
 
 1. **One-shot import** of Claude Code and Codex JSONL transcripts
-   into the agent-chat store. An imported session shows up in the
+   into the chat store. An imported session shows up in the
    Chats list, opens in the same transcript view, and is searchable
    alongside live sessions.
 2. **Read-only by construction.** An imported session can never
@@ -63,7 +54,7 @@ In rough priority order:
 - **Live mirroring or watch-mode.** v1 is one-shot. A future RFC
   could add an inotify/FSEvents watcher that ingests new sessions
   as they finish, but the cost/value isn't there yet — operators
-  who *want* live supervision should run the agent through
+  who _want_ live supervision should run the agent through
   Hecate's external-agent-adapter path, which already does this
   properly.
 - **Editing imported transcripts.** No "edit this past message"
@@ -72,7 +63,7 @@ In rough priority order:
 - **Resuming an imported session.** "Continue this Codex chat in
   Hecate" sounds attractive but reopens a hard problem: the
   external CLI's tool loop, sandbox, approval policy, and provider
-  credentials are *not* Hecate's. Forking imported transcripts
+  credentials are _not_ Hecate's. Forking imported transcripts
   into a live session is a separate feature, possibly a separate
   RFC, possibly never.
 - **Cross-tool merging.** A Claude Code session and a Codex session
@@ -105,11 +96,11 @@ In rough priority order:
   on-disk file hasn't changed (size + mtime check); replaces the
   Hecate record if it has.
 - **No schema fork.** Imported sessions live in the same
-  `agent_chat_sessions` and `agent_chat_messages` tables as live
+  `chat_sessions` and `chat_messages` tables as live
   sessions. Activities are kept on the message row in the existing
   `activities` JSON column — no separate activities table exists
   today and this RFC does not add one. A small set of columns gets
-  added to `agent_chat_sessions`; no parallel schema.
+  added to `chat_sessions`; no parallel schema.
 
 ## Source formats
 
@@ -121,15 +112,15 @@ replaced by `-` (e.g. `-Users-chicoxyzzy-dev-hecate`).
 
 One JSON record per line. Top-level `type` discriminates:
 
-| `type` | Shape | Maps to |
-|---|---|---|
-| `user` | `{message: {role: "user", content: <string|blocks>}}` | new `Message{Role:"user"}` |
-| `assistant` | `{message: {role: "assistant", content: [<blocks>]}}` | new `Message{Role:"assistant"}`, blocks → `Activity` rows |
-| `system` | `{content: <string>}` | first message in the session with `Role: "system"`. The `Session` struct has no `SystemPrompt` field today; storing as a leading message keeps the import additive — no schema or struct change required. |
-| `attachment` | `{path, mime_type, ...}` | `Activity{Type:"attachment"}` on the next user message |
-| `queue-operation` | enqueue/dequeue marker | ignored |
-| `ai-title` | session title set by Claude Code itself | `Session.Title` |
-| `last-prompt` | bookkeeping | ignored |
+| `type`            | Shape                                                 | Maps to                                                                                                                                                                                                   |
+| ----------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `user`            | `{message: {role: "user", content: <string            | blocks>}}`                                                                                                                                                                                                | new `Message{Role:"user"}` |
+| `assistant`       | `{message: {role: "assistant", content: [<blocks>]}}` | new `Message{Role:"assistant"}`, blocks → `Activity` rows                                                                                                                                                 |
+| `system`          | `{content: <string>}`                                 | first message in the session with `Role: "system"`. The `Session` struct has no `SystemPrompt` field today; storing as a leading message keeps the import additive — no schema or struct change required. |
+| `attachment`      | `{path, mime_type, ...}`                              | `Activity{Type:"attachment"}` on the next user message                                                                                                                                                    |
+| `queue-operation` | enqueue/dequeue marker                                | ignored                                                                                                                                                                                                   |
+| `ai-title`        | session title set by Claude Code itself               | `Session.Title`                                                                                                                                                                                           |
+| `last-prompt`     | bookkeeping                                           | ignored                                                                                                                                                                                                   |
 
 Assistant content blocks include `text`, `tool_use`, and
 `tool_result` shapes. `tool_use` becomes `Activity{Type:"tool_call",
@@ -142,14 +133,14 @@ Title:<tool_name>, Detail:<input_json>}`; `tool_result` attaches as
 Path: `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. One record per
 line. Top-level `type` discriminates:
 
-| `type` | Shape | Maps to |
-|---|---|---|
-| `session_meta` | `{payload: {id, timestamp, cwd, originator, cli_version, model_provider, base_instructions, git: {commit_hash, branch, repository_url}}}` | `Session{NativeSessionID, Workspace, Provider, ...}`. `base_instructions.text` becomes the leading `Role: "system"` message (same treatment as Claude Code's `system` record above). |
-| `event_msg` | `{payload: {type: "task_started"|"task_complete"|...}}` | timing fields on `Session.Timing` |
-| `response_item` | `{payload: {type: "message", role, content: [{type, text}]}}` | `Message` |
-| `response_item` (function_call) | `{payload: {type: "function_call", name, arguments}}` | `Activity{Type:"tool_call"}` |
-| `response_item` (function_call_output) | matching call output | `ArtifactPreview` on the prior tool_call activity |
-| `response_item` (reasoning) | `{payload: {type: "reasoning", summary: [...]}}` | `Activity{Type:"thinking"}` (omit body in v1; just the summary) |
+| `type`                                 | Shape                                                                                                                                     | Maps to                                                                                                                                                                              |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | --------------------------------- |
+| `session_meta`                         | `{payload: {id, timestamp, cwd, originator, cli_version, model_provider, base_instructions, git: {commit_hash, branch, repository_url}}}` | `Session{NativeSessionID, Workspace, Provider, ...}`. `base_instructions.text` becomes the leading `Role: "system"` message (same treatment as Claude Code's `system` record above). |
+| `event_msg`                            | `{payload: {type: "task_started"                                                                                                          | "task_complete"                                                                                                                                                                      | ...}}` | timing fields on `Session.Timing` |
+| `response_item`                        | `{payload: {type: "message", role, content: [{type, text}]}}`                                                                             | `Message`                                                                                                                                                                            |
+| `response_item` (function_call)        | `{payload: {type: "function_call", name, arguments}}`                                                                                     | `Activity{Type:"tool_call"}`                                                                                                                                                         |
+| `response_item` (function_call_output) | matching call output                                                                                                                      | `ArtifactPreview` on the prior tool_call activity                                                                                                                                    |
+| `response_item` (reasoning)            | `{payload: {type: "reasoning", summary: [...]}}`                                                                                          | `Activity{Type:"thinking"}` (omit body in v1; just the summary)                                                                                                                      |
 
 Codex's session id is a UUIDv7 from `session_meta.payload.id`. The
 filename also encodes it but we read the meta record to be safe.
@@ -199,8 +190,8 @@ The mapping is lossy in two known places:
 
 ## Data model
 
-Five new columns on `agent_chat_sessions`, added through the
-existing additive-migration pattern in `internal/agentchat/sqlite.go`
+Five new columns on `chat_sessions`, added through the
+existing additive-migration pattern in `internal/chat/sqlite.go`
 (repeated `ensureSessionColumn` calls — Hecate has no standalone
 SQL migration files; see [migration-cli](migration-cli.md) for the
 convention):
@@ -218,7 +209,7 @@ alongside the existing `messagesIndex` / `sessionsIndex` block.
 Its name is derived from the (possibly prefixed) `sessionsTable`
 the same way the existing indexes derive theirs — `tablePrefix`
 flows through `SQLiteClient.TableName`, so a hard-coded literal
-`agent_chat_sessions` would collide or mismatch in test / multi-
+`chat_sessions` would collide or mismatch in test / multi-
 instance setups:
 
 ```go
@@ -233,7 +224,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "<sessionsSourceIndex>"
 
 Why a partial index: live sessions leave `source_tool=''`, so the
 new uniqueness constraint only covers rows written by the import
-path. `agent_chat_sessions` does not currently have a unique
+path. `chat_sessions` does not currently have a unique
 constraint on `(adapter_id, native_session_id)` for live sessions,
 and this RFC does not propose adding one — live sessions can
 plausibly share that pair across reconnects, while imported rows
@@ -258,16 +249,17 @@ and refuses with a structured error. Single chokepoint, single test.
 
 ## API surface
 
-Two new endpoints under `/hecate/v1/agent-chat/imports/`:
+Two new endpoints under `/hecate/v1/chat/imports/`:
 
-### `POST /hecate/v1/agent-chat/imports/scan`
+### `POST /hecate/v1/chat/imports/scan`
 
 Body:
+
 ```json
 {
   "sources": [
-    {"tool": "claude_code", "root": "~/.claude/projects"},
-    {"tool": "codex",       "root": "~/.codex/sessions"}
+    { "tool": "claude_code", "root": "~/.claude/projects" },
+    { "tool": "codex", "root": "~/.codex/sessions" }
   ],
   "since": "2026-01-01T00:00:00Z"
 }
@@ -277,6 +269,7 @@ Body:
 `since` filters by file mtime; defaults to "30 days ago".
 
 Response:
+
 ```json
 {
   "candidates": [
@@ -297,48 +290,46 @@ Response:
 
 Pure read; no writes. Lets the UI render a picker before committing.
 
-### `POST /hecate/v1/agent-chat/imports/apply`
+### `POST /hecate/v1/chat/imports/apply`
 
 Body:
+
 ```json
 {
   "items": [
-    {"tool": "claude_code", "path": "/abs/path/to.jsonl"},
-    {"tool": "codex",       "path": "/abs/path/to/rollout-*.jsonl"}
+    { "tool": "claude_code", "path": "/abs/path/to.jsonl" },
+    { "tool": "codex", "path": "/abs/path/to/rollout-*.jsonl" }
   ]
 }
 ```
 
 Response:
+
 ```json
 {
   "imported": [
-    {"session_id": "agc_…", "native_session_id": "f2ea6177-…", "messages": 24, "warnings": 0}
+    { "session_id": "chat_…", "native_session_id": "f2ea6177-…", "messages": 24, "warnings": 0 }
   ],
-  "skipped": [
-    {"path": "…", "reason": "already imported, source unchanged"}
-  ],
-  "failed": [
-    {"path": "…", "error": "parse error at line 178: unexpected token"}
-  ]
+  "skipped": [{ "path": "…", "reason": "already imported, source unchanged" }],
+  "failed": [{ "path": "…", "error": "parse error at line 178: unexpected token" }]
 }
 ```
 
-Streaming progress over `/hecate/v1/agent-chat/imports/stream` (SSE)
+Streaming progress over `/hecate/v1/chat/imports/stream` (SSE)
 for the bulk case where the operator might be importing 200+
 sessions. Same envelope as existing chat streams.
 
 ### Read path
 
 Imported sessions surface through the existing
-`GET /hecate/v1/agent-chat/sessions[/:id]` with the new fields
+`GET /hecate/v1/chat/sessions[/:id]` with the new fields
 included. A query filter `?source_tool=claude_code|codex|live`
 lets the UI partition the list. Default is "all".
 
 ## UI surface
 
-One new entry point: **Settings → Chats → Import history**. Opens a
-modal:
+One new entry point: **Chats → Import history** from the chat list or
+empty-state actions. Opens a modal:
 
 1. Tool list with detected file counts ("`~/.claude/projects/`:
    142 sessions" / "`~/.codex/sessions/`: 38 sessions").
@@ -361,13 +352,13 @@ sessions use.
 
 ## Phasing
 
-| Phase | Scope | Done when |
-|---|---|---|
-| 1 | Storage shape + Claude Code parser + scan endpoint | A scan against `~/.claude/projects/` returns candidates without writing. |
-| 2 | Apply endpoint + idempotency + read path | Imported Claude Code sessions render in the existing transcript view, read-only. |
-| 3 | Codex parser | Same flow works for `~/.codex/sessions/`. |
-| 4 | UI modal | Operator path is end-to-end. |
-| 5 | Bulk progress over SSE | 100+ session import doesn't lock the UI. |
+| Phase | Scope                                              | Done when                                                                        |
+| ----- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 1     | Storage shape + Claude Code parser + scan endpoint | A scan against `~/.claude/projects/` returns candidates without writing.         |
+| 2     | Apply endpoint + idempotency + read path           | Imported Claude Code sessions render in the existing transcript view, read-only. |
+| 3     | Codex parser                                       | Same flow works for `~/.codex/sessions/`.                                        |
+| 4     | UI modal                                           | Operator path is end-to-end.                                                     |
+| 5     | Bulk progress over SSE                             | 100+ session import doesn't lock the UI.                                         |
 
 Phases 1–2 are the meaningful unit; 3–5 are mechanical follow-ups.
 
@@ -410,14 +401,14 @@ Phases 1–2 are the meaningful unit; 3–5 are mechanical follow-ups.
   injected this." Acceptable for v1; a `MessageChannel` enum is a
   follow-up.
 - **CLI vs UI entry point.** A `hecate import-history --tool=codex
-  --root=…` command is a one-day add and useful for batch / cron
+--root=…` command is a one-day add and useful for batch / cron
   imports. Defer to v2 unless an operator asks; UI covers the
   expected case.
 
 ## Migration / rollback
 
 - Forward: additive only — five new columns + one partial unique
-  index on `agent_chat_sessions`, applied through the existing
+  index on `chat_sessions`, applied through the existing
   `ensureSessionColumn` pattern. No data rewrite. Old code reads
   the new columns and ignores them (default-empty); new code reads
   them and treats `source_tool != ""` rows as imported.

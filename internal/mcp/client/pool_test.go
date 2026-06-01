@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // poolHarness wires N memTransport-backed Clients into a pool without
@@ -235,6 +235,89 @@ func TestPool_UnknownToolReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unknown tool") {
 		t.Errorf("err = %v, want 'unknown tool'", err)
+	}
+}
+
+func TestSanitizedStdioEnvKeepsRuntimeEssentialsOnly(t *testing.T) {
+	t.Parallel()
+
+	env := sanitizedStdioEnv([]string{
+		"PATH=/bin",
+		"HOME=/Users/alice",
+		"TMPDIR=/tmp",
+		"LANG=en_US.UTF-8",
+		"XDG_CONFIG_HOME=/Users/alice/.config",
+		"VOLTA_HOME=/Users/alice/.volta",
+		"APPDATA=C:\\Users\\alice\\AppData\\Roaming",
+		"LOCALAPPDATA=C:\\Users\\alice\\AppData\\Local",
+		"SSL_CERT_FILE=/etc/ssl/corp.pem",
+		"SSL_CERT_DIR=/etc/ssl/certs",
+		"NODE_EXTRA_CA_CERTS=/etc/ssl/node-corp.pem",
+		"HTTPS_PROXY=http://proxy.local:8080",
+		"HECATE_CONTROL_PLANE_SECRET_KEY=secret",
+		"PROVIDER_OPENAI_API_KEY=provider-secret",
+		"OPENAI_API_KEY=openai-secret",
+		"ANTHROPIC_API_KEY=anthropic-secret",
+		"OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer secret",
+	})
+
+	got := map[string]bool{}
+	for _, item := range env {
+		got[item] = true
+	}
+	for _, want := range []string{
+		"PATH=/bin",
+		"HOME=/Users/alice",
+		"TMPDIR=/tmp",
+		"LANG=en_US.UTF-8",
+		"XDG_CONFIG_HOME=/Users/alice/.config",
+		"VOLTA_HOME=/Users/alice/.volta",
+		"APPDATA=C:\\Users\\alice\\AppData\\Roaming",
+		"LOCALAPPDATA=C:\\Users\\alice\\AppData\\Local",
+		"SSL_CERT_FILE=/etc/ssl/corp.pem",
+		"SSL_CERT_DIR=/etc/ssl/certs",
+		"NODE_EXTRA_CA_CERTS=/etc/ssl/node-corp.pem",
+	} {
+		if !got[want] {
+			t.Fatalf("missing runtime env %q in %#v", want, env)
+		}
+	}
+	for _, leaked := range []string{
+		"HECATE_CONTROL_PLANE_SECRET_KEY=secret",
+		"PROVIDER_OPENAI_API_KEY=provider-secret",
+		"OPENAI_API_KEY=openai-secret",
+		"ANTHROPIC_API_KEY=anthropic-secret",
+		"OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer secret",
+		"HTTPS_PROXY=http://proxy.local:8080",
+	} {
+		if got[leaked] {
+			t.Fatalf("secret env %q leaked into MCP stdio env: %#v", leaked, env)
+		}
+	}
+}
+
+func TestMergeEnvPreservesExplicitMCPSecrets(t *testing.T) {
+	t.Parallel()
+
+	env := mergeEnv(sanitizedStdioEnv([]string{
+		"PATH=/bin",
+		"PROVIDER_OPENAI_API_KEY=provider-secret",
+	}), map[string]string{
+		"OPENAI_API_KEY": "explicit-secret",
+	})
+
+	got := map[string]bool{}
+	for _, item := range env {
+		got[item] = true
+	}
+	if !got["PATH=/bin"] {
+		t.Fatalf("missing PATH in %#v", env)
+	}
+	if !got["OPENAI_API_KEY=explicit-secret"] {
+		t.Fatalf("missing explicit MCP env override in %#v", env)
+	}
+	if got["PROVIDER_OPENAI_API_KEY=provider-secret"] {
+		t.Fatalf("provider-scoped gateway secret leaked into MCP stdio env: %#v", env)
 	}
 }
 

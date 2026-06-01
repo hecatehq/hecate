@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/taskstate"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 // newEventsTestHandler builds the smallest possible Handler that can

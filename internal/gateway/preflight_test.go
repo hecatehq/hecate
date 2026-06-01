@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/governor"
-	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/pkg/types"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/governor"
+	"github.com/hecatehq/hecate/internal/providers"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestDefaultRoutePreflightEvaluateReturnsResult(t *testing.T) {

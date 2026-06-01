@@ -6,7 +6,7 @@
 import type { CSSProperties } from "react";
 
 import type { TraceTimelineItem } from "../../../lib/runtime-trace";
-import type { TraceSpanRecord } from "../../../types/runtime";
+import type { TraceSpanRecord } from "../../../types/trace";
 
 // 900px chosen because at narrower widths the inline split between
 // table and drawer feels too cramped — the table only has so many
@@ -17,19 +17,19 @@ export const DRAWER_BREAKPOINT_PX = 900;
 export type StatusFilter = "all" | "healthy" | "error";
 
 export const PROVIDER_COLORS: Record<string, string> = {
-  anthropic:   "var(--brand-anthropic)",
-  openai:      "var(--brand-openai)",
-  gemini:      "var(--brand-gemini)",
-  mistral:     "var(--brand-mistral)",
-  groq:        "var(--brand-groq)",
-  deepseek:    "var(--teal)",
-  perplexity:  "var(--teal)",
+  anthropic: "var(--brand-anthropic)",
+  openai: "var(--brand-openai)",
+  gemini: "var(--brand-gemini)",
+  mistral: "var(--brand-mistral)",
+  groq: "var(--brand-groq)",
+  deepseek: "var(--teal)",
+  perplexity: "var(--teal)",
   together_ai: "var(--t2)",
-  xai:         "var(--t0)",
-  ollama:      "var(--teal)",
-  lmstudio:    "var(--t2)",
-  llamacpp:    "var(--t2)",
-  localai:     "var(--t2)",
+  xai: "var(--t0)",
+  ollama: "var(--teal)",
+  lmstudio: "var(--t2)",
+  llamacpp: "var(--t2)",
+  localai: "var(--t2)",
 };
 
 // phaseColor maps the phase classification to an existing token. The
@@ -46,29 +46,52 @@ export function phaseColor(phase: TraceTimelineItem["phase"], span?: TraceSpanRe
     return "var(--brand-anthropic)";
   }
   switch (phase) {
-    case "request":  return "var(--teal)";
-    case "routing":  return "var(--amber)";
-    case "governor": return "var(--brand-mistral)";
-    case "cost":     return "var(--t2)";
-    case "usage":    return "var(--t2)";
-    case "queue":    return "var(--amber)";
-    case "orchestration": return "var(--t2)";
-    case "tool":     return "var(--brand-openai)";
-    case "approval": return "var(--brand-anthropic)";
-    case "artifact": return "var(--green)";
-    case "retention": return "var(--t3)";
-    case "agent_chat": return "var(--brand-openai)";
-    case "response": return "var(--teal)";
-    default:         return "var(--t3)";
+    case "request":
+      return "var(--teal)";
+    case "routing":
+      return "var(--amber)";
+    case "governor":
+      return "var(--brand-mistral)";
+    case "cost":
+      return "var(--t2)";
+    case "usage":
+      return "var(--t2)";
+    case "queue":
+      return "var(--amber)";
+    case "orchestration":
+      return "var(--t2)";
+    case "tool":
+      return "var(--brand-openai)";
+    case "approval":
+      return "var(--brand-anthropic)";
+    case "artifact":
+      return "var(--green)";
+    case "retention":
+      return "var(--t3)";
+    case "chat":
+      return "var(--brand-openai)";
+    case "response":
+      return "var(--teal)";
+    default:
+      return "var(--t3)";
   }
 }
 
 export const PHASE_LABEL: Record<TraceTimelineItem["phase"], string> = {
-  request: "request", routing: "routing",
-  provider: "provider", governor: "governor", usage: "usage",
-  cost: "cost", response: "response", queue: "queue",
-  orchestration: "orchestration", tool: "tool", approval: "approval",
-  artifact: "artifact", retention: "retention", agent_chat: "agent chat",
+  request: "request",
+  routing: "routing",
+  provider: "provider",
+  governor: "governor",
+  usage: "usage",
+  cost: "cost",
+  response: "response",
+  queue: "queue",
+  orchestration: "orchestration",
+  tool: "tool",
+  approval: "approval",
+  artifact: "artifact",
+  retention: "retention",
+  chat: "chat",
   other: "other",
 };
 
@@ -77,12 +100,19 @@ export const PHASE_LABEL: Record<TraceTimelineItem["phase"], string> = {
 // `<details>` block. The set was tuned over time to match what an
 // operator typically looks at first when a span is selected.
 export const ATTR_PRIORITY_KEYS = [
-  "provider", "gen_ai.provider.name",
-  "model", "gen_ai.request.model", "gen_ai.response.model",
-  "status_code", "error",
-  "usage.input_tokens", "gen_ai.usage.input_tokens",
-  "usage.output_tokens", "gen_ai.usage.output_tokens",
-  "route.skip_reason", "route.fallback_from",
+  "provider",
+  "gen_ai.provider.name",
+  "model",
+  "gen_ai.request.model",
+  "gen_ai.response.model",
+  "status_code",
+  "error",
+  "usage.input_tokens",
+  "gen_ai.usage.input_tokens",
+  "usage.output_tokens",
+  "gen_ai.usage.output_tokens",
+  "route.skip_reason",
+  "route.fallback_from",
 ];
 
 // thStyle mirrors the Connections table header — uppercase 11px t2 with

@@ -1,0 +1,65 @@
+name: Nightly Maintenance
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    name: Maintenance report
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ui/package.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache maintenance binaries
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin/just
+            ~/.cargo/bin/lychee
+          key: maintenance-tools-${{ runner.os }}-just-1.50.0-lychee-0.24.2
+
+      - name: Install maintenance tools
+        run: |
+          command -v just >/dev/null 2>&1 || cargo install just --locked --version 1.50.0
+          command -v lychee >/dev/null 2>&1 || cargo install lychee --locked --version 0.24.2
+
+      - name: Install UI dependencies
+        run: bun install --frozen-lockfile
+        working-directory: ui
+
+      - name: Install website dependencies
+        run: bun install --frozen-lockfile
+        working-directory: website
+
+      - name: Run nightly maintenance
+        run: just maintenance-nightly
+
+      - name: Upload maintenance report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: maintenance-report
+          path: .maintenance/
+          retention-days: 14
+          if-no-files-found: error

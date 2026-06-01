@@ -34,6 +34,12 @@ func samplePermissionRequest(toolKind acp.ToolKind, title string) acp.RequestPer
 
 // ─── Memory store ────────────────────────────────────────────────────────────
 
+func TestMemoryStoreConformance(t *testing.T) {
+	RunConformanceTests(t, "MemoryStore", func(t *testing.T) ApprovalRetentionStore {
+		return NewMemoryApprovalStore()
+	})
+}
+
 func TestMemoryStoreCreateAndGet(t *testing.T) {
 	t.Parallel()
 	s := NewMemoryApprovalStore()

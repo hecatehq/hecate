@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/ratelimit"
+	"github.com/hecatehq/hecate/internal/ratelimit"
 )
 
 var (

@@ -7,8 +7,6 @@ import (
 
 type ChatRequest struct {
 	RequestID     string
-	SessionID     string
-	SessionTitle  string
 	Model         string
 	Messages      []Message
 	MaxTokens     int
@@ -220,8 +218,12 @@ type ModelInfo struct {
 // to decide whether a model can back Hecate Agent sessions. The source tells
 // callers where the currently effective value came from.
 type ModelCapabilities struct {
-	ToolCalling      string `json:"tool_calling,omitempty"`
-	Streaming        bool   `json:"streaming,omitempty"`
+	ToolCalling string `json:"tool_calling,omitempty"`
+	Streaming   bool   `json:"streaming"`
+	// StreamingKnown is internal merge metadata: provider discovery can
+	// intentionally override catalog defaults to streaming=false without
+	// exposing another API field.
+	StreamingKnown   bool   `json:"-"`
 	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
 	Source           string `json:"source,omitempty"`
 }
@@ -343,76 +345,6 @@ type UsageEventEntry struct {
 	CompletionTokens int
 	TotalTokens      int
 	Timestamp        time.Time
-}
-
-// ChatSession is a stored conversation. The conversation itself lives
-// in Messages — a flat, append-only sequence ordered by Sequence.
-// ProviderCalls is parallel observability: one record per upstream
-// chat-completion request, with its routing decision and cost. A
-// message produced by the assistant or a tool result message points
-// back at the call that produced it via Message.ProducedByCallID;
-// user and system messages have an empty ProducedByCallID.
-//
-// This separation lets the same conversation span multiple providers
-// and models (each switch records a new ProviderCall) and lets a
-// single user prompt fan out into many calls when the agent runtime
-// drives a server-side tool loop. Replay = walk Messages in Sequence
-// order. Cost / routing analytics = walk ProviderCalls.
-type ChatSession struct {
-	ID    string
-	Title string
-	// SystemPrompt is prepended as a system-role message to chat
-	// completions made against this session, unless the incoming request
-	// already starts with a system message. Empty means no per-session
-	// system prompt — clients fall back to whatever they send inline.
-	SystemPrompt  string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Messages      []ChatSessionMessage
-	ProviderCalls []ChatProviderCall
-}
-
-// ChatSessionMessage is one persisted entry in a chat session's
-// conversation. The Message field carries the canonical content
-// (role, content, content_blocks, tool_calls, tool_call_id, tool_error);
-// the surrounding fields are storage metadata.
-//
-// Sequence is monotonic per session and is the authoritative ordering
-// (CreatedAt is informational — sub-second ties are possible).
-//
-// ProducedByCallID points at the ChatProviderCall.ID that emitted this
-// message. Empty for messages the operator/client supplied directly
-// (user, system) and for tool results inserted by the client between
-// calls. Set for assistant messages (the model produced them) and for
-// tool messages the runtime emitted as part of a server-driven loop.
-type ChatSessionMessage struct {
-	ID               string
-	Sequence         int
-	ProducedByCallID string
-	Message          Message
-	CreatedAt        time.Time
-}
-
-// ChatProviderCall captures one upstream chat-completion request: the
-// routing decision, the model/provider that ran, token usage, and the
-// resolved cost. It is parallel to the message stream — multiple calls
-// can share a session, and a single call can produce multiple messages
-// (an assistant tool_call message + the tool results it triggered, when
-// the runtime drives the loop). RequestID lets operators correlate
-// against gateway request logs and OTel spans.
-type ChatProviderCall struct {
-	ID                string
-	RequestID         string
-	RequestedProvider string
-	Provider          string
-	ProviderKind      string
-	RequestedModel    string
-	Model             string
-	CostMicrosUSD     int64
-	PromptTokens      int
-	CompletionTokens  int
-	TotalTokens       int
-	CreatedAt         time.Time
 }
 
 type UsageModelEstimate struct {

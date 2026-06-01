@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/mcp"
+	"github.com/hecatehq/hecate/internal/mcp"
 )
 
 // ServerConfig is one external MCP server the pool should bring up.
@@ -341,7 +341,7 @@ func buildTransport(ctx context.Context, cfg ServerConfig, httpClient *http.Clie
 		return t, nil
 	}
 	cmd := exec.CommandContext(ctx, strings.TrimSpace(cfg.Command), cfg.Args...)
-	cmd.Env = mergeEnv(os.Environ(), cfg.Env)
+	cmd.Env = mergeEnv(sanitizedStdioEnv(os.Environ()), cfg.Env)
 	t, err := NewStdioTransport(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("spawn: %w", err)
@@ -490,13 +490,53 @@ func flattenContent(blocks []mcp.ContentBlock) string {
 	return b.String()
 }
 
-// mergeEnv layers the per-server Env map onto the parent process's
-// environment. We inherit the parent env (so PATH, HOME, etc. work
-// without per-task config) and then apply the overrides last — explicit
-// wins. Returns a new slice; doesn't mutate the input.
+func sanitizedStdioEnv(env []string) []string {
+	allowedPrefixes := []string{
+		"PATH=",
+		"Path=",
+		"HOME=",
+		"USERPROFILE=",
+		"HOMEDRIVE=",
+		"HOMEPATH=",
+		"TMPDIR=",
+		"TEMP=",
+		"TMP=",
+		"LANG=",
+		"LC_",
+		"TERM=",
+		"USER=",
+		"USERNAME=",
+		"LOGNAME=",
+		"APPDATA=",
+		"LOCALAPPDATA=",
+		"XDG_",
+		"VOLTA_",
+		"SSL_CERT_FILE=",
+		"SSL_CERT_DIR=",
+		"NODE_EXTRA_CA_CERTS=",
+		"SystemRoot=",
+		"WINDIR=",
+		"ComSpec=",
+	}
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		for _, prefix := range allowedPrefixes {
+			if strings.HasPrefix(entry, prefix) {
+				out = append(out, entry)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// mergeEnv layers the per-server Env map onto the sanitized process
+// environment. Runtime essentials come from the parent process, while
+// credentials must be supplied explicitly in the MCP server config.
+// Explicit values win. Returns a new slice; doesn't mutate the input.
 func mergeEnv(parent []string, overrides map[string]string) []string {
 	if len(overrides) == 0 {
-		return parent
+		return append([]string(nil), parent...)
 	}
 	// Index parent by key for O(1) override.
 	idx := make(map[string]int, len(parent))

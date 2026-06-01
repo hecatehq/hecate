@@ -26,87 +26,99 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 
 ## Quick reference
 
-| Event type | Group | When |
-|---|---|---|
-| `run.created` | Run lifecycle | A run record is persisted (status `queued` or `awaiting_approval`) |
-| `run.queued` | Run lifecycle | Run is enqueued for execution (also re-emitted on resume) |
-| `run.awaiting_approval` | Run lifecycle | A pre-execution approval gate exists; the run is parked |
-| `run.started` | Run lifecycle | Worker claimed and started executing |
-| `run.finished` | Run lifecycle | Execution finished successfully |
-| `run.failed` | Run lifecycle | Execution failed |
-| `run.cancelled` | Run lifecycle | Run was cancelled (operator or system) |
-| `run.resumed_from_event` | Run lifecycle | Run is a continuation of a prior run |
-| `gap.run_disconnected` | Gap / recovery | Runtime continuity was broken and Hecate recovered by re-queueing or starting fresh |
-| `turn.started` | Agent loop | An `agent_loop` LLM turn is about to call the model |
-| `assistant.text_complete` | Agent loop | Assistant text content for a turn is available |
-| `assistant.tool_call_proposed` | Agent loop | Assistant proposed a tool call before runtime dispatch |
-| `assistant.final_answer` | Agent loop | Assistant ended the loop without more tool calls |
-| `approval.requested` | Approvals | An approval gate was created (pre-execution or mid-loop) |
-| `approval.resolved` | Approvals | Operator or system resolved an approval gate |
-| `turn.completed` | Agent loop | One LLM round-trip in an `agent_loop` run finished |
-| `tool.invoked` | Typed shell tool events | Shell executor accepted a tool call or direct shell task |
-| `tool.started` | Typed shell tool events | Shell execution is about to start |
-| `tool.shell.command` | Typed shell tool events | Shell command, cwd, timeout, and sandbox layer selected |
-| `tool.shell.output_chunk` | Typed shell tool events | Incremental stdout/stderr chunk from the shell process |
-| `tool.shell.exited` | Typed shell tool events | Shell process reported exit metadata |
-| `tool.file.patch` | Typed file tool events | A file-writing tool produced an inspectable unified diff artifact |
-| `tool.file.applied` | Typed file tool events | A proposed patch artifact was applied by an operator |
-| `tool.file.reverted` | Typed file tool events | A previously applied patch artifact was reverted by an operator |
-| `tool.completed` | Tool events | Shell execution or MCP tool call completed |
-| `tool.failed` | Tool events | Shell execution or MCP tool call failed |
-| `tool.cancelled` | Typed shell tool events | Shell execution was cancelled |
-| `tool.timed_out` | Typed shell tool events | Shell execution exceeded its timeout |
-| `policy.tool_blocked` | Policy | A tool call was blocked before execution |
-| `task.updated` | Housekeeping | Task metadata changed (e.g. cancellation flushed) |
-| `snapshot` | Housekeeping | Internal per-run state-sync frame |
-| `external.event` | Caller-driven | Default type for events posted via `POST /hecate/v1/tasks/{id}/runs/{run_id}/events` |
+| Event type                     | Group                   | When                                                                                 |
+| ------------------------------ | ----------------------- | ------------------------------------------------------------------------------------ |
+| `run.created`                  | Run lifecycle           | A run record is persisted (status `queued` or `awaiting_approval`)                   |
+| `run.queued`                   | Run lifecycle           | Run is enqueued for execution (also re-emitted on resume)                            |
+| `run.awaiting_approval`        | Run lifecycle           | A pre-execution approval gate exists; the run is parked                              |
+| `run.started`                  | Run lifecycle           | Worker claimed and started executing                                                 |
+| `run.finished`                 | Run lifecycle           | Execution finished successfully                                                      |
+| `run.failed`                   | Run lifecycle           | Execution failed                                                                     |
+| `run.cancelled`                | Run lifecycle           | Run was cancelled (operator or system)                                               |
+| `run.resumed_from_event`       | Run lifecycle           | Run is a continuation of a prior run                                                 |
+| `gap.run_disconnected`         | Gap / recovery          | Runtime continuity was broken and Hecate recovered by re-queueing or starting fresh  |
+| `turn.started`                 | Agent loop              | An `agent_loop` LLM turn is about to call the model                                  |
+| `assistant.text_complete`      | Agent loop              | Assistant text content for a turn is available                                       |
+| `assistant.tool_call_proposed` | Agent loop              | Assistant proposed a tool call before runtime dispatch                               |
+| `assistant.final_answer`       | Agent loop              | Assistant ended the loop without more tool calls                                     |
+| `approval.requested`           | Approvals               | An approval gate was created (pre-execution or mid-loop)                             |
+| `approval.resolved`            | Approvals               | Operator or system resolved an approval gate                                         |
+| `turn.completed`               | Agent loop              | One LLM round-trip in an `agent_loop` run finished                                   |
+| `tool.invoked`                 | Typed shell tool events | Shell executor accepted a tool call or direct shell task                             |
+| `tool.started`                 | Typed shell tool events | Shell execution is about to start                                                    |
+| `tool.shell.command`           | Typed shell tool events | Shell command, cwd, timeout, and sandbox layer selected                              |
+| `tool.shell.output_chunk`      | Typed shell tool events | Incremental stdout/stderr chunk from the shell process                               |
+| `tool.shell.exited`            | Typed shell tool events | Shell process reported exit metadata                                                 |
+| `tool.file.patch`              | Typed file tool events  | A file-writing tool produced an inspectable unified diff artifact                    |
+| `tool.file.applied`            | Typed file tool events  | A proposed patch artifact was applied by an operator                                 |
+| `tool.file.reverted`           | Typed file tool events  | A previously applied patch artifact was reverted by an operator                      |
+| `tool.completed`               | Tool events             | Shell execution or MCP tool call completed                                           |
+| `tool.failed`                  | Tool events             | Shell execution or MCP tool call failed                                              |
+| `tool.cancelled`               | Typed shell tool events | Shell execution was cancelled                                                        |
+| `tool.timed_out`               | Typed shell tool events | Shell execution exceeded its timeout                                                 |
+| `policy.tool_blocked`          | Policy                  | A tool call was blocked before execution                                             |
+| `task.updated`                 | Housekeeping            | Task metadata changed (e.g. cancellation flushed)                                    |
+| `snapshot`                     | Housekeeping            | Internal per-run state-sync frame                                                    |
+| `external.event`               | Caller-driven           | Default type for events posted via `POST /hecate/v1/tasks/{id}/runs/{run_id}/events` |
 
 ## Wire envelope
 
 JSON list and cross-run SSE endpoints return the agent event protocol v1
 envelope:
 
-| Field | Notes |
-|---|---|
-| `schema_version` | Currently `"1"` |
-| `event_id` | Stable opaque event id; generated from timestamp + persisted event identity |
-| `task_id`, `run_id` | Task/run correlation |
-| `sequence` | Persisted cursor; pass back as `after_sequence` |
-| `occurred_at` | RFC3339Nano UTC |
-| `type` | One of the event strings in this catalog |
-| `data` | Event-specific JSON object |
+| Field               | Notes                                                                       |
+| ------------------- | --------------------------------------------------------------------------- |
+| `schema_version`    | Currently `"1"`                                                             |
+| `event_id`          | Stable opaque event id; generated from timestamp + persisted event identity |
+| `task_id`, `run_id` | Task/run correlation                                                        |
+| `sequence`          | Persisted cursor; pass back as `after_sequence`                             |
+| `occurred_at`       | RFC3339Nano UTC                                                             |
+| `type`              | One of the event strings in this catalog                                    |
+| `data`              | Event-specific JSON object                                                  |
 
 Per-run state SSE (`/hecate/v1/tasks/{id}/runs/{run_id}/stream`) emits
 `TaskRunStreamEventData` snapshots optimized for the operator UI. Its
 `event_type` field mirrors the persisted event that produced the snapshot.
+The stream is a projection over the append-only event log plus current run
+storage. Persisted snapshot payloads carry the current stream shape when they
+are written; older alpha rows replay as they were stored rather than being
+normalized or migrated.
+The stream endpoint itself is read-only: live projection frames are not appended
+to `run_events`.
 
 ## Runtime snapshot payloads
 
-Every event written by the orchestrator (`emitRunEvent`) automatically merges three keys into its `data` map:
+Most events written through the runner event helper (`emitRunEvent`) automatically merge three keys into the persisted `data` map:
 
-| Key | Type | Notes |
-|---|---|---|
-| `run` | `TaskRun` | Full run record at emit time — id, status, model, costs, timestamps |
-| `steps` | `[]TaskStep` | Every step recorded for this run so far |
-| `artifacts` | `[]TaskArtifact` | Every artifact recorded for this run so far |
+| Key         | Type             | Notes                                                               |
+| ----------- | ---------------- | ------------------------------------------------------------------- |
+| `run`       | `TaskRun`        | Full run record at emit time — id, status, model, costs, timestamps |
+| `steps`     | `[]TaskStep`     | Every step recorded for this run so far                             |
+| `artifacts` | `[]TaskArtifact` | Every artifact recorded for this run so far                         |
 
-The per-run state SSE decoder uses those keys to reconstruct complete operator
-snapshots without a separate fetch. Public event-list and cross-run-feed
+The per-run state SSE decoder can use those keys to reconstruct complete
+operator snapshots without a separate fetch. Public event-list and cross-run-feed
 responses intentionally strip these runtime snapshot keys and return compact,
 protocol-shaped `data` payloads instead.
 
-Caller-driven events (`POST /hecate/v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The decoder in the per-run SSE handler honors both shapes; public event envelopes strip `snapshot` for the same reason they strip `run` / `steps` / `artifacts`.
+Store-level terminal transitions (`run.finished`, `run.failed`,
+`run.cancelled`, `approval.resolved`, and `task.updated` events emitted while
+atomically terminalizing a run) persist only their event-specific keys. The
+per-run stream projector rebuilds the final run/step/artifact/approval snapshot
+from storage after reading those terminal events.
+
+Caller-driven events (`POST /hecate/v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The per-run stream projector honors both shapes; public event envelopes strip `snapshot` for the same reason they strip `run` / `steps` / `artifacts`.
 
 The internal persisted row is compact and is mapped to the public envelope on
 read:
 
-| Column | Notes |
-|---|---|
-| `sequence` | Monotonic cursor; pass back as `after_sequence` |
-| `task_id`, `run_id` | Both required |
-| `event_type` | One of the strings in this catalog |
-| `event_data` | JSON map of keys above |
-| `created_at` | RFC3339Nano UTC |
+| Column              | Notes                                           |
+| ------------------- | ----------------------------------------------- |
+| `sequence`          | Monotonic cursor; pass back as `after_sequence` |
+| `task_id`, `run_id` | Both required                                   |
+| `event_type`        | One of the strings in this catalog              |
+| `event_data`        | JSON map of keys above                          |
+| `created_at`        | RFC3339Nano UTC                                 |
 
 ## Run lifecycle
 
@@ -118,15 +130,15 @@ reported by `run.resumed_from_event`, not this event.
 
 ### `run.resumed_from_event`
 
-The resume marker on the *new* run, emitted after `run.created`.
+The resume marker on the _new_ run, emitted after `run.created`.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `from_run_id` | `string` | Source run id |
-| `from_sequence` | `int64` | Source event sequence when known |
-| `reason` | `string` | Operator-supplied rationale |
-| `retry_from_turn` | `int` | Present on retry-from-turn-N |
-| `prior_cost_micros_usd` | `int64` | Cost carried into the new run from prior runs |
+| Extra key               | Type     | Notes                                         |
+| ----------------------- | -------- | --------------------------------------------- |
+| `from_run_id`           | `string` | Source run id                                 |
+| `from_sequence`         | `int64`  | Source event sequence when known              |
+| `reason`                | `string` | Operator-supplied rationale                   |
+| `retry_from_turn`       | `int`    | Present on retry-from-turn-N                  |
+| `prior_cost_micros_usd` | `int64`  | Cost carried into the new run from prior runs |
 
 ### `run.awaiting_approval`
 
@@ -136,38 +148,39 @@ A pre-execution approval gate is required (the task config has an approval polic
 
 The run is on the queue. Emitted immediately after `run.created` for a fresh run, and again after a paused run is resumed.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `resume` | `bool` | Present and `true` on the resume re-queue path; absent on the initial queue |
+| Extra key | Type   | Notes                                                                       |
+| --------- | ------ | --------------------------------------------------------------------------- |
+| `resume`  | `bool` | Present and `true` on the resume re-queue path; absent on the initial queue |
 
 ### `run.started`
 
 A worker claimed the run and started executing. For resumed runs the payload carries hydration cursors.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `resume_from_run_id` | `string` | Source run id (resume only) |
-| `resume_from_step_id` | `string` | Step the resume picks up after (resume only) |
-| `resume_from_event_sequence` | `int64` | Event sequence at resume cutover (resume only) |
+| Extra key                    | Type     | Notes                                          |
+| ---------------------------- | -------- | ---------------------------------------------- |
+| `resume_from_run_id`         | `string` | Source run id (resume only)                    |
+| `resume_from_step_id`        | `string` | Step the resume picks up after (resume only)   |
+| `resume_from_event_sequence` | `int64`  | Event sequence at resume cutover (resume only) |
 
 ### `run.finished` / `run.failed`
 
 Terminal status emit. Successful runs emit `run.finished`; failed runs emit
-`run.failed`. Read `data.run.status` or the `status` extra for the persisted
-run status.
+`run.failed`. Public event envelopes expose `data.final_status="completed"` for
+`run.finished`; raw persisted terminal payloads carry the `status` / `error`
+extras below.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `status` | `string` | `completed` for `run.finished`; `failed` for `run.failed` |
-| `error` | `string` | Empty for `run.finished`; populated for `run.failed` |
+| Extra key | Type     | Notes                                                     |
+| --------- | -------- | --------------------------------------------------------- |
+| `status`  | `string` | `completed` for `run.finished`; `failed` for `run.failed` |
+| `error`   | `string` | Empty for `run.finished`; populated for `run.failed`      |
 
 ### `run.cancelled`
 
 The run was cancelled before it could complete. May arrive while the run is still queued (cancellation skipped execution) or while running (cooperative cancel).
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `reason` | `string` | Cancellation reason (operator note or system message) |
+| Extra key | Type     | Notes                                                 |
+| --------- | -------- | ----------------------------------------------------- |
+| `reason`  | `string` | Cancellation reason (operator note or system message) |
 
 ### `gap.run_disconnected`
 
@@ -177,15 +190,15 @@ Runtime continuity was broken and Hecate recovered the run automatically. This f
 - During periodic background reconciliation, when a run is stuck in `running` longer than 3x the queue lease duration and Hecate re-queues it.
 - During resume, when checkpoint hydration fails and Hecate starts fresh instead of silently pretending the checkpoint was used.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `reason` | `string` | `boot_reconcile`, `worker_lease_expired`, or `resume_checkpoint_unavailable` |
-| `action` | `string` | `requeued` or `start_fresh` |
-| `message` | `string` | Diagnostic message, present for checkpoint hydration failures |
-| `prior_status` | `string` | Status before reconciliation (e.g. `running`) |
-| `recovered_status` | `string` | Status after reconciliation (typically `queued`) |
-| `recovery_strategy` | `string` | `"requeue"` — boot-time scan; `"periodic_requeue"` — periodic background reconciler fired |
-| `stale_threshold_ms` | `int64` | Periodic reconciliation threshold, present for `worker_lease_expired` |
+| Extra key            | Type     | Notes                                                                                     |
+| -------------------- | -------- | ----------------------------------------------------------------------------------------- |
+| `reason`             | `string` | `boot_reconcile`, `worker_lease_expired`, or `resume_checkpoint_unavailable`              |
+| `action`             | `string` | `requeued` or `start_fresh`                                                               |
+| `message`            | `string` | Diagnostic message, present for checkpoint hydration failures                             |
+| `prior_status`       | `string` | Status before reconciliation (e.g. `running`)                                             |
+| `recovered_status`   | `string` | Status after reconciliation (typically `queued`)                                          |
+| `recovery_strategy`  | `string` | `"requeue"` — boot-time scan; `"periodic_requeue"` — periodic background reconciler fired |
+| `stale_threshold_ms` | `int64`  | Periodic reconciliation threshold, present for `worker_lease_expired`                     |
 
 ## Approvals
 
@@ -194,36 +207,45 @@ Runtime continuity was broken and Hecate recovered the run automatically. This f
 Two emit sites:
 
 - **Pre-execution gate** — task policy matched before the run started; the run is parked in `awaiting_approval`.
-- **Mid-loop gate** — the agent loop tried a tool call (`shell_exec`, `git_exec`, etc.) gated by `GATEWAY_TASK_APPROVAL_POLICIES` and paused.
+- **Mid-loop gate** — the agent loop tried a tool call (`shell_exec`, `git_exec`, etc.) gated by `HECATE_TASK_APPROVAL_POLICIES` and paused.
 
 Both shapes share these fields.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `approval_id` | `string` | The new approval record id |
-| `kind` | `string` | Approval type. One of `shell_command`, `git_exec`, `file_write`, `network_egress` (pre-execution gates), or `agent_loop_tool_call` (mid-loop gate). See [`runtime-api.md#approval-kinds`](runtime-api.md#approval-kinds). |
-| `status` | `string` | `pending` at creation |
-| `policy_reason` | `string` | Human-readable policy reason that caused the gate |
-| `requested_by` | `string` | Principal that created the approval, when known |
-| `step_id` | `string` | Present for step-scoped approvals |
+| Extra key       | Type     | Notes                                                                                                                                                                                                                     |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `approval_id`   | `string` | The new approval record id                                                                                                                                                                                                |
+| `kind`          | `string` | Approval type. One of `shell_command`, `git_exec`, `file_write`, `network_egress` (pre-execution gates), or `agent_loop_tool_call` (mid-loop gate). See [`runtime-api.md#approval-kinds`](runtime-api.md#approval-kinds). |
+| `status`        | `string` | `pending` at creation                                                                                                                                                                                                     |
+| `policy_reason` | `string` | Human-readable policy reason that caused the gate                                                                                                                                                                         |
+| `requested_by`  | `string` | Principal that created the approval, when known                                                                                                                                                                           |
+| `step_id`       | `string` | Present for step-scoped approvals                                                                                                                                                                                         |
 
 ### `approval.resolved`
 
 The gate reached a terminal decision. After approve, the run re-queues; after
-reject, the run terminates `failed`; after cancellation, the run terminates
+reject, the run and task terminate `cancelled` with
+`last_error="approval rejected"`; after cancellation, the run terminates
 `cancelled` and the approval record is no longer actionable.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `approval_id` | `string` | Resolved approval id |
-| `decision` | `string` | `approved`, `rejected`, or `cancelled` |
-| `by` | `string` | Principal or subsystem that resolved the approval |
-| `comment` | `string` | Operator- or system-supplied resolution note |
-| `scope` | `string` | Currently `once`; persistent always-allow is separate policy work |
-| `kind` | `string` | Approval type |
-| `status` | `string` | Mirrors `decision` for compatibility with approval records |
+| Extra key     | Type     | Notes                                                             |
+| ------------- | -------- | ----------------------------------------------------------------- |
+| `approval_id` | `string` | Resolved approval id                                              |
+| `decision`    | `string` | `approved`, `rejected`, or `cancelled`                            |
+| `by`          | `string` | Principal or subsystem that resolved the approval                 |
+| `comment`     | `string` | Operator- or system-supplied resolution note                      |
+| `scope`       | `string` | Currently `once`; persistent always-allow is separate policy work |
+| `kind`        | `string` | Approval type                                                     |
+| `status`      | `string` | Mirrors `decision` for compatibility with approval records        |
 
 ## Agent loop
+
+Fresh LLM turns follow this persisted-event shape: `turn.started`, zero or more
+`assistant.text_complete` / `assistant.tool_call_proposed` events,
+optionally `assistant.final_answer`, then one `turn.completed` emitted from the
+turn-cost record. Resume-after-approval dispatches do not call the model again,
+so they do not emit a new `turn.started` or `turn.completed`; the approved tool
+calls continue from the assistant message already saved in the conversation
+artifact.
 
 ### `turn.started`
 
@@ -231,12 +253,12 @@ Emitted immediately before an `agent_loop` LLM request. Resume-after-approval
 turns that only dispatch already-approved tool calls do not emit this event
 because no model call is made.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `turn_index` | `int` | 1-indexed turn number within this run |
-| `model` | `string` | Requested model for this run |
-| `provider` | `string` | Provider hint when pinned by the task |
-| `input_tokens_estimate` | `int` | Cheap local estimate for operator/debug rendering; provider usage remains authoritative after completion |
+| Extra key               | Type     | Notes                                                                                                    |
+| ----------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `turn_index`            | `int`    | 1-indexed turn number within this run                                                                    |
+| `model`                 | `string` | Requested model for this run                                                                             |
+| `provider`              | `string` | Provider hint when pinned by the task                                                                    |
+| `input_tokens_estimate` | `int`    | Cheap local estimate for operator/debug rendering; provider usage remains authoritative after completion |
 
 ### `assistant.text_complete`
 
@@ -244,11 +266,11 @@ Emitted when the assistant response carries text content. Hecate does not yet
 stream internal agent-loop text deltas into the persisted event stream, so this
 is the full text block for the turn.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `turn_index` | `int` | 1-indexed turn number within this run |
-| `block_index` | `int` | Currently `0`; reserved for multi-block rendering |
-| `text` | `string` | Assistant text |
+| Extra key     | Type     | Notes                                             |
+| ------------- | -------- | ------------------------------------------------- |
+| `turn_index`  | `int`    | 1-indexed turn number within this run             |
+| `block_index` | `int`    | Currently `0`; reserved for multi-block rendering |
+| `text`        | `string` | Assistant text                                    |
 
 ### `assistant.tool_call_proposed`
 
@@ -256,39 +278,39 @@ Emitted once per assistant tool call before policy gates or runtime dispatch.
 The later `approval.*`, `tool.*`, and `policy.*` events describe what Hecate
 did with that proposal.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `turn_index` | `int` | 1-indexed turn number within this run |
-| `tool_call_id` | `string` | Provider tool-call id |
-| `tool_name` | `string` | Requested tool name |
-| `input` | `object` | Parsed tool arguments when valid JSON, otherwise `{ "raw": "..." }` |
+| Extra key      | Type     | Notes                                                               |
+| -------------- | -------- | ------------------------------------------------------------------- |
+| `turn_index`   | `int`    | 1-indexed turn number within this run                               |
+| `tool_call_id` | `string` | Provider tool-call id                                               |
+| `tool_name`    | `string` | Requested tool name                                                 |
+| `input`        | `object` | Parsed tool arguments when valid JSON, otherwise `{ "raw": "..." }` |
 
 ### `assistant.final_answer`
 
 Emitted when the assistant response contains no tool calls and the agent loop
 can finish.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `turn_index` | `int` | 1-indexed turn number within this run |
-| `summary` | `string` | Final assistant text |
+| Extra key    | Type     | Notes                                 |
+| ------------ | -------- | ------------------------------------- |
+| `turn_index` | `int`    | 1-indexed turn number within this run |
+| `summary`    | `string` | Final assistant text                  |
 
 ### `turn.completed`
 
 Emitted once per LLM round-trip in an `agent_loop` run. The richest cost-tracking payload in the catalog.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `turn_index` | `int` | 1-indexed turn number within this run |
-| `step_id` | `string` | The assistant model step produced this turn |
-| `cost_micros_usd` | `int64` | This turn's LLM spend in micro-USD |
-| `run_cumulative_cost_micros_usd` | `int64` | Running total across this run only |
-| `task_cumulative_cost_micros_usd` | `int64` | Running total across the entire resume chain (this run + every prior run via `PriorCostMicrosUSD`) |
-| `tool_calls` | `int` | Tool calls the assistant emitted on this turn |
+| Extra key                         | Type     | Notes                                                                                              |
+| --------------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `turn_index`                      | `int`    | 1-indexed turn number within this run                                                              |
+| `step_id`                         | `string` | The assistant model step produced this turn                                                        |
+| `cost_micros_usd`                 | `int64`  | This turn's LLM spend in micro-USD                                                                 |
+| `run_cumulative_cost_micros_usd`  | `int64`  | Running total across this run only                                                                 |
+| `task_cumulative_cost_micros_usd` | `int64`  | Running total across the entire resume chain (this run + every prior run via `PriorCostMicrosUSD`) |
+| `tool_calls`                      | `int`    | Tool calls the assistant emitted on this turn                                                      |
 
 The per-turn figure is also stamped on the matching model step's `OutputSummary.cost_micros_usd` so the run-replay UI surfaces it without subscribing here. See [agent-runtime.md](agent-runtime.md#cost-tracking) for the full cost model.
 
-These rows are the only event type pruned by the retention worker (`turn_events` subsystem) — they accumulate fast on long agent runs. Other event types are kept indefinitely. See `GATEWAY_RETENTION_TURN_EVENTS_*` in `.env.example`.
+These rows are the only event type pruned by the retention worker (`turn_events` subsystem) — they accumulate fast on long agent runs. Other event types are kept indefinitely. See `HECATE_RETENTION_TURN_EVENTS_*` in `.env.example`.
 
 ## Typed shell tool events
 
@@ -304,82 +326,82 @@ auto-merged snapshots on each emitted event.
 
 Generic shell tool lifecycle markers.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `tool_call_id` | `string` | Model tool-call id for `agent_loop`; direct shell tasks fall back to the shell step id |
-| `tool_name` | `string` | Usually `shell_exec` for agent-loop tool calls or `shell` for direct shell tasks |
-| `kind` | `string` | Always `shell` for these shell-tool events |
-| `hecate.sandbox.wrapper.kind` | `string` | Detected OS isolation wrapper |
-| `hecate.sandbox.network.enabled` | `bool` | Whether this task allowed sandbox network access |
-| `hecate.sandbox.read_only` | `bool` | Whether the sandbox policy is read-only |
-| `hecate.sandbox.output_limit.bytes` | `int64` | Effective combined stdout/stderr output cap |
+| Extra key                           | Type     | Notes                                                                                  |
+| ----------------------------------- | -------- | -------------------------------------------------------------------------------------- |
+| `tool_call_id`                      | `string` | Model tool-call id for `agent_loop`; direct shell tasks fall back to the shell step id |
+| `tool_name`                         | `string` | Usually `shell_exec` for agent-loop tool calls or `shell` for direct shell tasks       |
+| `kind`                              | `string` | Always `shell` for these shell-tool events                                             |
+| `hecate.sandbox.wrapper.kind`       | `string` | Detected OS isolation wrapper                                                          |
+| `hecate.sandbox.network.enabled`    | `bool`   | Whether this task allowed sandbox network access                                       |
+| `hecate.sandbox.read_only`          | `bool`   | Whether the sandbox policy is read-only                                                |
+| `hecate.sandbox.output_limit.bytes` | `int64`  | Effective combined stdout/stderr output cap                                            |
 
 ### `tool.shell.command`
 
 The normalized command execution plan.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `tool_call_id` | `string` | Correlates with the generic lifecycle events |
-| `argv` | `[]string` | Effective shell invocation shape, currently `["sh", "-lc", <command>]` |
-| `cwd` | `string` | Resolved working directory passed to the sandbox executor |
-| `env_keys` | `[]string` | Sanitized environment keys the event intentionally exposes |
-| `sandbox_layer` | `string` | Detected OS isolation wrapper: `bwrap`, `sandbox-exec`, or `none` |
-| `timeout_ms` | `int` | Wall-clock timeout for the command |
-| `command_string` | `string` | Human-readable shell command string |
-| `hecate.tool.working_directory` | `string` | Working directory as an OTel-shaped event attribute; not promoted to span attrs |
-| `hecate.tool.timeout_ms` | `int` | Timeout as an OTel-shaped event/span attribute |
+| Extra key                       | Type       | Notes                                                                           |
+| ------------------------------- | ---------- | ------------------------------------------------------------------------------- |
+| `tool_call_id`                  | `string`   | Correlates with the generic lifecycle events                                    |
+| `argv`                          | `[]string` | Effective shell invocation shape, currently `["sh", "-lc", <command>]`          |
+| `cwd`                           | `string`   | Resolved working directory passed to the sandbox executor                       |
+| `env_keys`                      | `[]string` | Sanitized environment keys the event intentionally exposes                      |
+| `sandbox_layer`                 | `string`   | Detected OS isolation wrapper: `bwrap`, `sandbox-exec`, or `none`               |
+| `timeout_ms`                    | `int`      | Wall-clock timeout for the command                                              |
+| `command_string`                | `string`   | Human-readable shell command string                                             |
+| `hecate.tool.working_directory` | `string`   | Working directory as an OTel-shaped event attribute; not promoted to span attrs |
+| `hecate.tool.timeout_ms`        | `int`      | Timeout as an OTel-shaped event/span attribute                                  |
 
 ### `tool.shell.output_chunk`
 
 Incremental process output.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `tool_call_id` | `string` | Correlates with the command event |
-| `stream` | `string` | `stdout` or `stderr` |
-| `data` | `string` | Raw chunk text |
-| `byte_offset` | `int` | Offset within that stream before this chunk |
+| Extra key      | Type     | Notes                                       |
+| -------------- | -------- | ------------------------------------------- |
+| `tool_call_id` | `string` | Correlates with the command event           |
+| `stream`       | `string` | `stdout` or `stderr`                        |
+| `data`         | `string` | Raw chunk text                              |
+| `byte_offset`  | `int`    | Offset within that stream before this chunk |
 
 ### `tool.shell.exited`
 
 Process exit metadata. This event is skipped when sandbox policy denies the
 command before a child process starts.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `tool_call_id` | `string` | Correlates with the command event |
-| `exit_code` | `int` | Process exit code, or `-1` when the process did not produce a normal exit code |
-| `signal` | `string \| null` | Reserved for future signal reporting; currently `null` |
-| `stdout_bytes` | `int` | Final stdout byte count |
-| `stderr_bytes` | `int` | Final stderr byte count |
-| `truncated` | `bool` | True when the sandbox output cap stopped the command |
-| `hecate.tool.exit_code` | `int` | Exit code as an OTel-shaped event/span attribute |
-| `hecate.tool.stdout.bytes` | `int` | Stdout byte count as an OTel-shaped event/span attribute |
-| `hecate.tool.stderr.bytes` | `int` | Stderr byte count as an OTel-shaped event/span attribute |
-| `hecate.tool.timed_out` | `bool` | True when the command hit its wall-clock timeout |
-| `hecate.tool.cancelled` | `bool` | True when execution was cancelled by context |
-| `hecate.tool.output_truncated` | `bool` | True when the sandbox output cap stopped the command |
+| Extra key                      | Type             | Notes                                                                          |
+| ------------------------------ | ---------------- | ------------------------------------------------------------------------------ |
+| `tool_call_id`                 | `string`         | Correlates with the command event                                              |
+| `exit_code`                    | `int`            | Process exit code, or `-1` when the process did not produce a normal exit code |
+| `signal`                       | `string \| null` | Reserved for future signal reporting; currently `null`                         |
+| `stdout_bytes`                 | `int`            | Final stdout byte count                                                        |
+| `stderr_bytes`                 | `int`            | Final stderr byte count                                                        |
+| `truncated`                    | `bool`           | True when the sandbox output cap stopped the command                           |
+| `hecate.tool.exit_code`        | `int`            | Exit code as an OTel-shaped event/span attribute                               |
+| `hecate.tool.stdout.bytes`     | `int`            | Stdout byte count as an OTel-shaped event/span attribute                       |
+| `hecate.tool.stderr.bytes`     | `int`            | Stderr byte count as an OTel-shaped event/span attribute                       |
+| `hecate.tool.timed_out`        | `bool`           | True when the command hit its wall-clock timeout                               |
+| `hecate.tool.cancelled`        | `bool`           | True when execution was cancelled by context                                   |
+| `hecate.tool.output_truncated` | `bool`           | True when the sandbox output cap stopped the command                           |
 
 ### `tool.completed` / `tool.failed` / `tool.cancelled` / `tool.timed_out`
 
 Terminal shell lifecycle marker.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `tool_call_id` | `string` | Correlates with prior shell events |
-| `tool_name` | `string` | Same value as `tool.invoked` |
-| `kind` | `string` | Always `shell` |
-| `duration_ms` | `int64` | Wall-clock duration from shell step start to terminal result |
-| `summary` | `string` | Human-readable terminal summary |
-| `error` | `string` | Present on failed/cancelled/timed-out shell executions |
-| `after_ms` | `int` | Present on `tool.timed_out` |
-| `hecate.tool.exit_code` | `int` | Exit code as an OTel-shaped event/span attribute |
-| `hecate.tool.stdout.bytes` | `int` | Stdout byte count as an OTel-shaped event/span attribute |
-| `hecate.tool.stderr.bytes` | `int` | Stderr byte count as an OTel-shaped event/span attribute |
-| `hecate.tool.timed_out` | `bool` | True when the command hit its wall-clock timeout |
-| `hecate.tool.cancelled` | `bool` | True when execution was cancelled by context |
-| `hecate.tool.output_truncated` | `bool` | True when the sandbox output cap stopped the command |
+| Extra key                      | Type     | Notes                                                        |
+| ------------------------------ | -------- | ------------------------------------------------------------ |
+| `tool_call_id`                 | `string` | Correlates with prior shell events                           |
+| `tool_name`                    | `string` | Same value as `tool.invoked`                                 |
+| `kind`                         | `string` | Always `shell`                                               |
+| `duration_ms`                  | `int64`  | Wall-clock duration from shell step start to terminal result |
+| `summary`                      | `string` | Human-readable terminal summary                              |
+| `error`                        | `string` | Present on failed/cancelled/timed-out shell executions       |
+| `after_ms`                     | `int`    | Present on `tool.timed_out`                                  |
+| `hecate.tool.exit_code`        | `int`    | Exit code as an OTel-shaped event/span attribute             |
+| `hecate.tool.stdout.bytes`     | `int`    | Stdout byte count as an OTel-shaped event/span attribute     |
+| `hecate.tool.stderr.bytes`     | `int`    | Stderr byte count as an OTel-shaped event/span attribute     |
+| `hecate.tool.timed_out`        | `bool`   | True when the command hit its wall-clock timeout             |
+| `hecate.tool.cancelled`        | `bool`   | True when execution was cancelled by context                 |
+| `hecate.tool.output_truncated` | `bool`   | True when the sandbox output cap stopped the command         |
 
 ## MCP
 
@@ -387,17 +409,17 @@ Generic `tool.*` and `policy.*` events form the audit trail for external MCP too
 
 MCP events carry the same shared payload shape:
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `tool_call_id` | `string` | Correlates with the assistant tool call |
-| `tool_name` | `string` | Full OpenAI-compatible tool name, e.g. `mcp__filesystem__read_file` |
-| `kind` | `string` | Always `mcp` for MCP-dispatched tools |
-| `mcp_server` | `string` | Operator-chosen alias from the task's `mcp_servers` config (the `<server>` segment of `mcp__<server>__<tool>`) |
-| `mcp_tool` | `string` | Un-namespaced upstream tool name |
-| `result` | `string` | One of `dispatched`, `tool_error`, `failed`, `blocked` — finer-grained than the event-type split |
-| `duration_ms` | `int64` | Wall-clock from dispatch start to result-in-hand |
-| `error` | `string` | Present on `tool.failed`, `policy.tool_blocked`, and when applicable on `tool.completed` with `result=tool_error` |
-| `reason` | `string` | Present on `policy.tool_blocked` |
+| Extra key      | Type     | Notes                                                                                                             |
+| -------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `tool_call_id` | `string` | Correlates with the assistant tool call                                                                           |
+| `tool_name`    | `string` | Full OpenAI-compatible tool name, e.g. `mcp__filesystem__read_file`                                               |
+| `kind`         | `string` | Always `mcp` for MCP-dispatched tools                                                                             |
+| `mcp_server`   | `string` | Operator-chosen alias from the task's `mcp_servers` config (the `<server>` segment of `mcp__<server>__<tool>`)    |
+| `mcp_tool`     | `string` | Un-namespaced upstream tool name                                                                                  |
+| `result`       | `string` | One of `dispatched`, `tool_error`, `failed`, `blocked` — finer-grained than the event-type split                  |
+| `duration_ms`  | `int64`  | Wall-clock from dispatch start to result-in-hand                                                                  |
+| `error`        | `string` | Present on `tool.failed`, `policy.tool_blocked`, and when applicable on `tool.completed` with `result=tool_error` |
+| `reason`       | `string` | Present on `policy.tool_blocked`                                                                                  |
 
 ### `tool.completed` for MCP
 
@@ -415,46 +437,48 @@ The task's `approval_policy=block` short-circuited the call. The upstream was ne
 
 ### `tool.file.patch`
 
-Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_write` / `file_edit`) writes or proposes a file change. Hecate stores an inline `patch` artifact containing a unified diff of the before/after file contents, then emits this event so operator UIs, CLIs, and future ACP bridges can render the edit without re-running `git diff` against a moving workspace.
+Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_write` / `file_edit` / `apply_patch`) writes or proposes a file change. Hecate stores an inline `patch` artifact containing a unified diff of the before/after file contents, then emits this event so operator UIs and CLIs can render the edit without re-running `git diff` against a moving workspace.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `tool_call_id` | `string` | Assistant tool call id, or the file step id for direct file tasks |
-| `tool_name` | `string` | `file_write` / `file_edit` for agent tools; `file` for direct file tasks |
-| `kind` | `string` | Always `file` |
-| `operation` | `string` | `write`, `append`, or `propose` |
-| `path` | `string` | Resolved path written by the sandbox |
-| `artifact_id` | `string` | Patch artifact id |
-| `bytes_written` | `int` | Bytes written by the file operation |
-| `diff_bytes` | `int64` | Patch body size |
-| `before_existed` | `bool` | Whether the file existed before the write |
-| `artifact_status` | `string` | `applied`, `proposed`, or `reverted` |
-| `hecate.tool.file.operation` | `string` | File operation as an OTel-shaped event/span attribute |
-| `hecate.tool.file.bytes_written` | `int` | Bytes written as an OTel-shaped event/span attribute |
-| `hecate.tool.file.diff_bytes` | `int64` | Patch size as an OTel-shaped event/span attribute |
-| `hecate.tool.file.before_existed` | `bool` | Pre-write existence as an OTel-shaped event/span attribute |
-| `hecate.tool.file.artifact_status` | `string` | Patch artifact status as an OTel-shaped event/span attribute |
+| Extra key                          | Type     | Notes                                                                                    |
+| ---------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
+| `tool_call_id`                     | `string` | Assistant tool call id, or the file step id for direct file tasks                        |
+| `tool_name`                        | `string` | `file_write` / `file_edit` / `apply_patch` for agent tools; `file` for direct file tasks |
+| `kind`                             | `string` | Always `file`                                                                            |
+| `operation`                        | `string` | `write`, `append`, `propose`, or `apply_patch` section kind (`add`, `update`, `delete`)  |
+| `path`                             | `string` | Resolved path written by the sandbox                                                     |
+| `artifact_id`                      | `string` | Patch artifact id                                                                        |
+| `bytes_written`                    | `int`    | Bytes written by the file operation                                                      |
+| `diff_bytes`                       | `int64`  | Patch body size                                                                          |
+| `before_existed`                   | `bool`   | Whether the file existed before the write                                                |
+| `artifact_status`                  | `string` | `applied`, `proposed`, or `reverted`                                                     |
+| `hecate.tool.file.operation`       | `string` | File operation as an OTel-shaped event/span attribute                                    |
+| `hecate.tool.file.bytes_written`   | `int`    | Bytes written as an OTel-shaped event/span attribute                                     |
+| `hecate.tool.file.diff_bytes`      | `int64`  | Patch size as an OTel-shaped event/span attribute                                        |
+| `hecate.tool.file.before_existed`  | `bool`   | Pre-write existence as an OTel-shaped event/span attribute                               |
+| `hecate.tool.file.artifact_status` | `string` | Patch artifact status as an OTel-shaped event/span attribute                             |
 
 ### `tool.file.applied`
 
 Emitted when an operator calls the patch apply endpoint for a proposed patch artifact. The file is written from Hecate's own patch artifact and the artifact status changes from `proposed` to `applied`. Apply is conflict-checked: if the target file no longer matches the captured before-content, the endpoint returns `409` and does not write.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `artifact_id` | `string` | Patch artifact id |
-| `path` | `string` | Workspace path written |
-| `artifact_status` | `string` | `applied` |
+| Extra key         | Type     | Notes                  |
+| ----------------- | -------- | ---------------------- |
+| `artifact_id`     | `string` | Patch artifact id      |
+| `path`            | `string` | Workspace path written |
+| `artifact_status` | `string` | `applied`              |
 
 ### `tool.file.reverted`
 
-Emitted when an operator calls the patch revert endpoint. The file is restored from Hecate's own patch artifact and the artifact status changes from `applied` to `reverted`.
+Emitted when an operator calls the patch revert endpoint. The file is restored from Hecate's own patch artifact and the artifact status changes from `applied` to `reverted`. The revert endpoint first verifies that the current file still matches the patch artifact's captured after-content; if the file drifted, the request returns `409 conflict` and no revert event is emitted.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `artifact_id` | `string` | Patch artifact id |
-| `path` | `string` | Workspace path restored or removed |
-| `artifact_status` | `string` | `reverted` |
-| `before_existed` | `bool` | Whether revert restored old content (`true`) or removed a file created by the patch (`false`) |
+If the current workspace file no longer matches the patch artifact's expected after-content (or the file exists when reverting a patch that created a new file), the revert endpoint returns `409 Conflict`, leaves the workspace unchanged, and does not emit `tool.file.reverted`.
+
+| Extra key         | Type     | Notes                                                                                         |
+| ----------------- | -------- | --------------------------------------------------------------------------------------------- |
+| `artifact_id`     | `string` | Patch artifact id                                                                             |
+| `path`            | `string` | Workspace path restored or removed                                                            |
+| `artifact_status` | `string` | `reverted`                                                                                    |
+| `before_existed`  | `bool`   | Whether revert restored old content (`true`) or removed a file created by the patch (`false`) |
 
 ## Housekeeping
 
@@ -464,21 +488,21 @@ Emitted when task-scoped metadata changed in a way that affects the run's view (
 
 ### `snapshot`
 
-The per-run SSE handler writes one of these every time it detects a state change between heartbeats. Subscribers reconnecting via `Last-Event-ID` rely on these to backfill state. Distinguishable from real lifecycle events by `type=snapshot` in JSON event lists and `event_type=snapshot` in per-run state SSE; the `data.snapshot` key holds the rebuilt `TaskRunStreamEventData` JSON.
+Legacy alpha builds wrote one of these when the per-run stream detected a state change between heartbeats. Current builds keep the stream endpoint read-only, so new live projection frames are not persisted as `snapshot` events. Existing rows remain distinguishable from real lifecycle events by `type=snapshot` in JSON event lists and `event_type=snapshot` in per-run state SSE; the `data.snapshot` key holds the rebuilt `TaskRunStreamEventData` JSON.
 
-| Extra key | Type | Notes |
-|---|---|---|
+| Extra key  | Type     | Notes                                                            |
+| ---------- | -------- | ---------------------------------------------------------------- |
 | `snapshot` | `object` | Full `TaskRunStreamEventData` — run, steps, artifacts, approvals |
 
 ### `external.event`
 
 The default event type when a caller posts to `POST /hecate/v1/tasks/{id}/runs/{run_id}/events` without specifying `type`. Use this to integrate human-in-the-loop signals or external systems into the run timeline without inventing new event-type strings.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `step_id` | `string` | Optional caller-supplied step correlation |
-| `status` | `string` | Optional caller-supplied status hint |
-| `note` | `string` | Optional caller-supplied note |
+| Extra key  | Type     | Notes                                              |
+| ---------- | -------- | -------------------------------------------------- |
+| `step_id`  | `string` | Optional caller-supplied step correlation          |
+| `status`   | `string` | Optional caller-supplied status hint               |
+| `note`     | `string` | Optional caller-supplied note                      |
 | `snapshot` | `object` | Auto-injected stream state at the moment of append |
 
 Callers can also pass an arbitrary `data` map alongside; those keys are merged into the event's `data` field at the same level as the auto-injected ones.

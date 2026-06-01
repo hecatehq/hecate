@@ -29,9 +29,7 @@ type AnthropicMessagesRequest struct {
 
 	// Gateway-specific extensions (optional; ignored by Anthropic SDK but
 	// useful when calling Hecate directly).
-	Provider     string `json:"provider,omitempty"`
-	SessionID    string `json:"session_id,omitempty"`
-	SessionTitle string `json:"session_title,omitempty"`
+	Provider string `json:"provider,omitempty"`
 }
 
 type AnthropicInboundMetadata struct {
