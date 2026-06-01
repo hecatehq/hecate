@@ -373,6 +373,14 @@ function toolActivityTitle(activity: ChatActivityRecord): string {
   if (normalizedKind === "read" || /^read(?:\s|·|$)/.test(toolHint)) {
     return "Read context";
   }
+  if (
+    normalizedKind === "edit" ||
+    normalizedKind === "write" ||
+    /^edit(?:\s|·|$)/.test(toolHint) ||
+    /^write(?:\s|·|$)/.test(toolHint)
+  ) {
+    return "Edited file";
+  }
 
   return raw;
 }
@@ -474,7 +482,7 @@ function simpleToolOutputPrefix(prefix: string): boolean {
 }
 
 function parseToolOutputDetail(detail: string): { prefix: string; output: string } | undefined {
-  const match = detail.match(/^(.+?)\s*·\s*output(?:\s+captured)?\s*(?::|·)\s*(.*)$/is);
+  const match = detail.match(/^(.+?)\s*·\s*output(?:\s+captured)?(?:\s*(?::|·)\s*|\s+)(.+)$/is);
   if (!match) return undefined;
   return {
     prefix: match[1].trim(),

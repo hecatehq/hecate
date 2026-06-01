@@ -334,6 +334,22 @@ describe("activityDisplay", () => {
     expect(capturedToolOutput(command)).toBe("total 88064 drwxr-xr-x@ 45 chicoxyzzy staff");
   });
 
+  it("keeps output-captured command details out of the compact row without a separator", () => {
+    const command = activity({
+      type: "tool_call",
+      title: "call_shell",
+      status: "completed",
+      kind: "execute",
+      detail: "execute · output captured total 88064 drwxr-xr-x@ 45 chicoxyzzy staff",
+    });
+
+    expect(activityDisplay(command)).toEqual({
+      title: "Ran command",
+      detail: undefined,
+    });
+    expect(capturedToolOutput(command)).toBe("total 88064 drwxr-xr-x@ 45 chicoxyzzy staff");
+  });
+
   it("uses adapter detail hints to humanize opaque external-agent tool ids", () => {
     expect(
       activityDisplay(
@@ -346,6 +362,21 @@ describe("activityDisplay", () => {
     ).toEqual({
       title: "Edited file",
       detail: "edit · 1 diff",
+    });
+  });
+
+  it("humanizes edit-like tool kinds even when the title is opaque", () => {
+    expect(
+      activityDisplay(
+        activity({
+          type: "tool_call",
+          title: "toolu_01BZs1wuiXD65ZLAfKxhCebd",
+          kind: "write",
+        }),
+      ),
+    ).toEqual({
+      title: "Edited file",
+      detail: "edit · tool 01BZs1wu",
     });
   });
 

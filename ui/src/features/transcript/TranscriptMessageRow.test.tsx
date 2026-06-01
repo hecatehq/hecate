@@ -685,6 +685,27 @@ describe("TranscriptMessageRow", () => {
     expect(output).not.toHaveTextContent(/\d+\s*\|/);
   });
 
+  it("strips right-aligned line gutters from read-context output", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "completed",
+        kind: "read",
+        detail: "read · output:   41 | function run() {\n  42 |   return true;\n  43 | }",
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    await user.click(screen.getByText("Output"));
+
+    const output = screen.getByText(/function run/);
+    expect(output.textContent).toContain("function run() {\nreturn true;\n}");
+    expect(output).not.toHaveTextContent(/\d+\s*\|/);
+  });
+
   it("does not duplicate captured diffs when the workspace-changes chip is available", () => {
     const diff = [
       "diff --git a/README.md b/README.md",
@@ -708,6 +729,30 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByRole("button", { name: "Open 1 file" })).toBeInTheDocument();
     expect(screen.queryByText(/workspace changes · 1 file changed/)).toBeNull();
     expect(screen.queryByTestId("diff-viewer")).toBeNull();
+  });
+
+  it("hides backend changed-files activity rows when the workspace-changes chip is available", () => {
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "files_changed",
+        title: "Workspace changes",
+        status: "completed",
+        detail: "README.md | 1 +\n1 file changed, 1 insertion(+)",
+      },
+    ];
+
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        activities={activities}
+        diffStat="README.md | 1 +\n1 file changed, 1 insertion(+)"
+        changedFilesLink={{ label: "1 file", onClick: vi.fn() }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Open 1 file" })).toBeInTheDocument();
+    expect(screen.queryByText("Workspace changes")).toBeNull();
+    expect(screen.queryByText("Files")).toBeNull();
   });
 
   it("shows the rich diff viewer for file-change activity when a patch is captured", async () => {
@@ -740,9 +785,9 @@ describe("TranscriptMessageRow", () => {
       />,
     );
 
-    const filesSummary = screen.getByText("Files");
-    expect(filesSummary.tagName).toBe("SUMMARY");
-    await user.click(filesSummary);
+    const changesSummary = screen.getByText(/^workspace changes/);
+    expect(changesSummary.tagName).toBe("SUMMARY");
+    await user.click(changesSummary);
 
     expect(screen.getByTestId("diff-viewer")).toBeInTheDocument();
   });
