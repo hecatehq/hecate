@@ -16,7 +16,6 @@ import type { VisibleChatMessage } from "./ChatTranscript";
 
 const EMPTY_CHANGED_FILES: ChatChangedFileRecord[] = [];
 const EMPTY_WORKSPACE_FILES: ChatWorkspaceFileRecord[] = [];
-const INITIAL_DIFF_LOOKAHEAD = 256;
 const TEXT_DIFF_EXTENSIONS = new Set([
   "c",
   "cc",
@@ -752,7 +751,11 @@ function WorkspaceReviewView({
         />
         {files.length === 0 ? (
           <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5, padding: 12 }}>
-            {query ? "No changed files match that search." : "No changed files found."}
+            {loading
+              ? "Loading changed files..."
+              : query
+                ? "No changed files match that search."
+                : "No changed files found."}
           </div>
         ) : (
           <div
@@ -1139,7 +1142,6 @@ function WorkspaceFilesView({
         </div>
       ) : (
         <div
-          role="tree"
           aria-label="Workspace file tree"
           style={{
             boxSizing: "border-box",
@@ -1250,7 +1252,6 @@ function WorkspaceFileTreeRow({
 
   return (
     <div
-      role="treeitem"
       title={node.file.path}
       style={{
         alignItems: "center",
@@ -1678,33 +1679,7 @@ async function findInitialDiffFile(
     }
   }
 
-  let firstLoadedDiffFile: ChatChangedFileRecord | undefined;
-  let loadFailed = false;
-  const textCandidates = candidates.filter((file) => isTextDiffCandidatePath(file.path));
-  const probeCandidates = textCandidates.length > 0 ? textCandidates : candidates;
-
-  for (const file of probeCandidates.slice(0, INITIAL_DIFF_LOOKAHEAD)) {
-    let fileDiff = "";
-    try {
-      fileDiff = await loadDiff(file);
-    } catch {
-      loadFailed = true;
-      continue;
-    }
-    if (fileDiff.trim() && !firstLoadedDiffFile) firstLoadedDiffFile = file;
-    if (hasTextDiffHunks(fileDiff)) return { file, loadFailed };
-  }
-
-  return {
-    file:
-      firstLoadedDiffFile ??
-      candidates.find(
-        (file) => isTextDiffCandidatePath(file.path) && changedFileHasLineDelta(file),
-      ) ??
-      candidates.find((file) => isTextDiffCandidatePath(file.path)) ??
-      candidates[0],
-    loadFailed,
-  };
+  return { loadFailed: false };
 }
 
 function prioritizeDiffCandidates(
