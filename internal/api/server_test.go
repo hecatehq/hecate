@@ -1823,6 +1823,103 @@ func TestChatWorkspaceDiffRejectsInvalidWorkspaces(t *testing.T) {
 	}
 }
 
+func TestChatWorkspaceFilesReturnsTreeWithGitStatus(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "src", "app.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write src/app.go: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(workspace, "node_modules", "pkg"), 0o755); err != nil {
+		t.Fatalf("mkdir node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "node_modules", "pkg", "index.js"), []byte("ignored\n"), 0o644); err != nil {
+		t.Fatalf("write ignored node module: %v", err)
+	}
+	runTestGit(t, workspace, "add", ".")
+	runTestGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatalf("modify README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "src", "new.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write src/new.go: %v", err)
+	}
+
+	store := chat.NewMemoryStore()
+	sessionID := "chat_workspace_files"
+	if _, err := store.Create(context.Background(), chat.Session{
+		ID:        sessionID,
+		Title:     "Files",
+		AgentID:   "codex",
+		Workspace: workspace,
+		Status:    "completed",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	resp := mustRequestJSON[ChatWorkspaceFilesResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-files", "")
+	if resp.Object != "chat_workspace_files" {
+		t.Fatalf("object = %q, want chat_workspace_files", resp.Object)
+	}
+	if resp.Data.Workspace != workspace {
+		t.Fatalf("workspace = %q, want %q", resp.Data.Workspace, workspace)
+	}
+	if resp.Data.Truncated {
+		t.Fatalf("truncated = true, want false")
+	}
+	if file := chatWorkspaceFileByPath(resp.Data.Files, "README.md"); file == nil || file.Kind != "file" || file.Status != "modified" {
+		t.Fatalf("README file = %#v, want modified file", file)
+	}
+	if file := chatWorkspaceFileByPath(resp.Data.Files, "src"); file == nil || file.Kind != "directory" {
+		t.Fatalf("src file = %#v, want directory", file)
+	}
+	if file := chatWorkspaceFileByPath(resp.Data.Files, "src/new.go"); file == nil || file.Status != "untracked" {
+		t.Fatalf("src/new.go file = %#v, want untracked status", file)
+	}
+	if file := chatWorkspaceFileByPath(resp.Data.Files, "node_modules/pkg/index.js"); file != nil {
+		t.Fatalf("node_modules file = %#v, want skipped", file)
+	}
+}
+
+func TestChatWorkspaceFilesReturnsEmptyWithoutWorkspace(t *testing.T) {
+	store := chat.NewMemoryStore()
+	sessionID := "chat_workspace_files_empty"
+	if _, err := store.Create(context.Background(), chat.Session{
+		ID:      sessionID,
+		Title:   "Files",
+		AgentID: "codex",
+		Status:  "completed",
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	resp := mustRequestJSON[ChatWorkspaceFilesResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+sessionID+"/workspace-files", "")
+	if resp.Object != "chat_workspace_files" {
+		t.Fatalf("object = %q, want chat_workspace_files", resp.Object)
+	}
+	if resp.Data.Workspace != "" {
+		t.Fatalf("workspace = %q, want empty", resp.Data.Workspace)
+	}
+	if len(resp.Data.Files) != 0 {
+		t.Fatalf("files = %#v, want empty", resp.Data.Files)
+	}
+}
+
 func chatChangedFilesContain(files []ChatChangedFileItem, path string) bool {
 	for _, file := range files {
 		if file.Path == path {
@@ -1830,6 +1927,15 @@ func chatChangedFilesContain(files []ChatChangedFileItem, path string) bool {
 		}
 	}
 	return false
+}
+
+func chatWorkspaceFileByPath(files []ChatWorkspaceFileItem, path string) *ChatWorkspaceFileItem {
+	for i := range files {
+		if files[i].Path == path {
+			return &files[i]
+		}
+	}
+	return nil
 }
 
 func TestRevertChatWorkspaceFilesRestoresSelectedCurrentPaths(t *testing.T) {

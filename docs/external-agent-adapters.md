@@ -261,9 +261,10 @@ environment that starts Hecate.
    - per-file `file_change` rows for each completed mutating tool call (kind =
      edit / delete / move) in addition to the end-of-turn diff-stat aggregate
    - context usage in the shell status bar when the agent reports it
-   - captured workspace diff under the inline diff disclosure when files changed
-   - the header workspace-changes button opens the current Git diff for the
-     workspace, separate from captured turn snapshots in the transcript
+   - a file-count badge when the turn reports workspace changes
+   - the header workspace-changes button opens the current workspace panel:
+     **Review** shows changed files with collapsible rich diffs, while **Files**
+     shows the full workspace tree separately
    - raw ACP diagnostics under the inline diagnostic disclosure when they differ from the normalized transcript
 
 ## Runtime behavior
@@ -391,7 +392,7 @@ External agents are stable enough for alpha use when the operator
 accepts the trusted-subprocess model: Codex, Claude Code, Cursor Agent, and Grok Build run as
 their own runtimes in the selected workspace while Hecate supervises lifecycle,
 approvals, output capture, diagnostics, observability, guardrails, captured
-turn diffs, and current workspace diff inspection.
+turn diffs, current workspace diff review, and full workspace file browsing.
 
 ## Future enhancements
 

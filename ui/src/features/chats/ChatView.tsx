@@ -998,6 +998,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                   sessionID={activeSessionID}
                   workspace={activeWorkspacePath}
                   onGetWorkspaceDiff={chatActions.getChatWorkspaceDiff}
+                  onGetWorkspaceFiles={chatActions.getChatWorkspaceFiles}
                   onGetWorkspaceFileDiff={chatActions.getChatWorkspaceFileDiff}
                   onRevertWorkspaceFiles={chatActions.revertChatWorkspaceFiles}
                 />

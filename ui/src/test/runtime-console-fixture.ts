@@ -242,6 +242,7 @@ export type RuntimeConsoleFixtureActions = {
   getChatApproval: (sessionID: string, approvalID: string) => Promise<unknown>;
   listChatMessageFiles: (sessionID: string, messageID: string) => Promise<unknown[]>;
   getChatWorkspaceDiff: (sessionID: string) => Promise<unknown>;
+  getChatWorkspaceFiles: (sessionID: string) => Promise<unknown>;
   getChatWorkspaceFileDiff: (sessionID: string, path: string) => Promise<unknown>;
   revertChatWorkspaceFiles: (sessionID: string, paths: string[]) => Promise<unknown>;
   getChatMessageFileDiff: (sessionID: string, messageID: string, path: string) => Promise<unknown>;
@@ -320,6 +321,10 @@ export function createRuntimeConsoleActions(): RuntimeConsoleFixtureActions {
       diff_stat: "",
       diff: "",
       has_changes: false,
+      files: [],
+    }),
+    getChatWorkspaceFiles: async () => ({
+      workspace: "",
       files: [],
     }),
     getChatWorkspaceFileDiff: async () => null,

@@ -36,9 +36,11 @@ export function ChatRightPanel({
         display: "flex",
         flexDirection: "column",
         flexShrink: 0,
+        height: "100%",
         maxWidth: resizeLimit(),
         minHeight: 0,
         minWidth: MIN_WIDTH,
+        overflow: "hidden",
         position: "relative",
         width,
       }}

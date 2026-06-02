@@ -231,6 +231,25 @@ export type ChatWorkspaceDiffResponse = {
   data: ChatWorkspaceDiffRecord;
 };
 
+export type ChatWorkspaceFileRecord = {
+  path: string;
+  name: string;
+  kind: "file" | "directory";
+  status?: string;
+  size_bytes?: number;
+};
+
+export type ChatWorkspaceFilesRecord = {
+  workspace?: string;
+  files: ChatWorkspaceFileRecord[];
+  truncated?: boolean;
+};
+
+export type ChatWorkspaceFilesResponse = {
+  object: string;
+  data: ChatWorkspaceFilesRecord;
+};
+
 export type ChatChangedFileDiffRecord = ChatChangedFileRecord & {
   diff: string;
 };

@@ -11,6 +11,7 @@ import {
   getChatMessageFileDiff,
   getChatWorkspaceDiff,
   getChatWorkspaceFileDiff,
+  getChatWorkspaceFiles,
   getChatApproval,
   getUsageEvents,
   getUsageSummary,
@@ -852,6 +853,35 @@ describe("api client", () => {
         expect.anything(),
       );
       expect(result.data.files[0]?.path).toBe("README.md");
+    });
+
+    it("fetches the current workspace file tree for a chat session", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "chat_workspace_files",
+          data: {
+            workspace: "/tmp/hecate",
+            files: [
+              { path: "src", name: "src", kind: "directory" },
+              {
+                path: "src/app.go",
+                name: "app.go",
+                kind: "file",
+                status: "modified",
+                size_bytes: 42,
+              },
+            ],
+          },
+        }),
+      );
+
+      const result = await getChatWorkspaceFiles("s 1");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/chat/sessions/s%201/workspace-files",
+        expect.anything(),
+      );
+      expect(result.data.files[1]?.path).toBe("src/app.go");
     });
 
     it("fetches a single current workspace file diff", async () => {

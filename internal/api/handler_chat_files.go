@@ -6,12 +6,17 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/gitrunner"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 )
+
+const chatWorkspaceFilesMaxEntries = 5000
 
 func (h *Handler) HandleChatMessageFiles(w http.ResponseWriter, r *http.Request) {
 	_, message, ok := h.loadChatMessage(r.Context(), w, r)
@@ -63,6 +68,21 @@ func (h *Handler) HandleChatWorkspaceDiff(w http.ResponseWriter, r *http.Request
 	}
 	WriteJSON(w, http.StatusOK, ChatWorkspaceDiffResponse{
 		Object: "chat_workspace_diff",
+		Data:   item,
+	})
+}
+
+func (h *Handler) HandleChatWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
+	session, ok := h.loadChatSession(r.Context(), w, r)
+	if !ok {
+		return
+	}
+	item, ok := h.currentChatWorkspaceFiles(r.Context(), w, session)
+	if !ok {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ChatWorkspaceFilesResponse{
+		Object: "chat_workspace_files",
 		Data:   item,
 	})
 }
@@ -198,6 +218,128 @@ func (h *Handler) currentChatWorkspaceDiff(ctx context.Context, w http.ResponseW
 		HasChanges: strings.TrimSpace(diffStat) != "" || strings.TrimSpace(diff) != "",
 		Files:      items,
 	}, true
+}
+
+func (h *Handler) currentChatWorkspaceFiles(ctx context.Context, w http.ResponseWriter, session chat.Session) (ChatWorkspaceFilesItem, bool) {
+	workspace := strings.TrimSpace(session.Workspace)
+	if workspace == "" {
+		return ChatWorkspaceFilesItem{Workspace: workspace, Files: []ChatWorkspaceFileItem{}}, true
+	}
+	fsys, err := workspacefs.New(workspace)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return ChatWorkspaceFilesItem{}, false
+	}
+
+	statuses := workspaceGitStatus(ctx, workspace)
+	files := make([]ChatWorkspaceFileItem, 0, 256)
+	truncated := false
+	err = fsys.WalkDir(".", func(_ string, relPath string, entry workspacefs.DirEntry) error {
+		path := filepath.ToSlash(strings.TrimSpace(relPath))
+		if path == "" || path == "." {
+			return nil
+		}
+		if entry.IsDir && shouldSkipWorkspaceTreeDir(entry.Name) {
+			return filepath.SkipDir
+		}
+		if len(files) >= chatWorkspaceFilesMaxEntries {
+			truncated = true
+			if entry.IsDir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		kind := "file"
+		if entry.IsDir {
+			kind = "directory"
+		}
+		files = append(files, ChatWorkspaceFileItem{
+			Path:      path,
+			Name:      entry.Name,
+			Kind:      kind,
+			Status:    statuses[path],
+			SizeBytes: entry.Size,
+		})
+		return nil
+	})
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return ChatWorkspaceFilesItem{}, false
+	}
+	sort.Slice(files, func(i, j int) bool {
+		leftDir := files[i].Kind == "directory"
+		rightDir := files[j].Kind == "directory"
+		if leftDir != rightDir {
+			return leftDir
+		}
+		return files[i].Path < files[j].Path
+	})
+	return ChatWorkspaceFilesItem{
+		Workspace: workspace,
+		Files:     files,
+		Truncated: truncated,
+	}, true
+}
+
+func shouldSkipWorkspaceTreeDir(name string) bool {
+	switch name {
+	case ".git", ".gocache", ".hecate", ".turbo", ".vite", "dist", "node_modules", "target":
+		return true
+	default:
+		return false
+	}
+}
+
+func workspaceGitStatus(ctx context.Context, workspace string) map[string]string {
+	runner := gitrunner.NewLocalRunner()
+	if !runner.IsWorkTree(ctx, workspace) {
+		return nil
+	}
+	result, err := runner.Run(ctx, workspace, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	if err != nil {
+		return nil
+	}
+	return parseWorkspaceGitStatus(result.Stdout)
+}
+
+func parseWorkspaceGitStatus(out string) map[string]string {
+	statuses := map[string]string{}
+	parts := strings.Split(out, "\x00")
+	for i := 0; i < len(parts); i++ {
+		record := parts[i]
+		if len(record) < 4 {
+			continue
+		}
+		code := strings.TrimSpace(record[:2])
+		path := strings.TrimSpace(record[3:])
+		if path == "" {
+			continue
+		}
+		statuses[filepath.ToSlash(path)] = workspaceStatusLabel(code)
+		if strings.ContainsAny(code, "RC") && i+1 < len(parts) {
+			i++
+		}
+	}
+	return statuses
+}
+
+func workspaceStatusLabel(code string) string {
+	switch {
+	case code == "??":
+		return "untracked"
+	case strings.Contains(code, "A"):
+		return "added"
+	case strings.Contains(code, "D"):
+		return "deleted"
+	case strings.Contains(code, "R"):
+		return "renamed"
+	case strings.Contains(code, "C"):
+		return "copied"
+	case strings.Contains(code, "M"):
+		return "modified"
+	default:
+		return "changed"
+	}
 }
 
 func (h *Handler) HandleRevertChatMessageFiles(w http.ResponseWriter, r *http.Request) {

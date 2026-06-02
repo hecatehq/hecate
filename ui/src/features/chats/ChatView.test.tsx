@@ -3937,32 +3937,35 @@ describe("ChatView external-agent target", () => {
     await user.click(screen.getByRole("button", { name: "Workspace changes" }));
 
     expect(getChatWorkspaceDiff).toHaveBeenCalledWith("a1");
-    expect(await screen.findByText("Live workspace diff")).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "Workspace review" })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "Diff README.md" })).toBeTruthy();
     expect(screen.getByTitle("/tmp/hecate")).toBeTruthy();
     expect((await screen.findAllByText("2 files changed, 2 insertions(+)")).length).toBeGreaterThan(
       0,
     );
     const workspacePanel = screen.getByLabelText("Workspace changes panel");
-    expect(screen.getByRole("button", { name: "Collapse folder docs" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Collapse folder docs" }));
-    expect(screen.queryByRole("button", { name: "Show diff docs/guide.md" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Expand diff docs/guide.md" })).toBeTruthy();
     const diffCallsBeforeRefresh = getChatWorkspaceDiff.mock.calls.length;
     await user.click(within(workspacePanel).getByRole("button", { name: "Refresh" }));
     await waitFor(() =>
       expect(getChatWorkspaceDiff.mock.calls.length).toBeGreaterThan(diffCallsBeforeRefresh),
     );
-    expect(screen.queryByRole("button", { name: "Show diff docs/guide.md" })).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Expand folder docs" }));
+    expect(screen.getByRole("button", { name: "Expand diff docs/guide.md" })).toBeTruthy();
     expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
     const readmePreview = await screen.findByTestId("workspace-file-diff-preview");
-    expect(readmePreview).toHaveStyle({ overflow: "visible" });
+    expect(readmePreview).toHaveStyle({ overflow: "hidden" });
     expect(readmePreview).not.toHaveStyle({ height: "min(42vh, 480px)" });
     expect(readmePreview).not.toHaveAttribute("data-preview-height");
     expect(readmePreview.style.contain).toBe("");
     expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
     await user.type(screen.getByLabelText("Search changed files"), "guide");
-    expect(within(workspacePanel).queryByText("README.md")).toBeNull();
-    expect(within(workspacePanel).getByText("guide.md")).toBeTruthy();
+    const changedFilesList = within(workspacePanel).getByLabelText("Changed files");
+    expect(within(changedFilesList).queryByText("README.md")).toBeNull();
+    expect(
+      within(changedFilesList).getByRole("button", {
+        name: "Expand diff docs/guide.md",
+      }),
+    ).toBeTruthy();
     await user.clear(screen.getByLabelText("Search changed files"));
     await user.click(screen.getByRole("button", { name: "Copy complete workspace patch" }));
     await waitFor(() =>
@@ -3972,22 +3975,261 @@ describe("ChatView external-agent target", () => {
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(expect.stringContaining("+current file line")),
     );
-    expect(screen.getByRole("button", { name: "Hide diff README.md" })).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Hide diff README.md" }));
-    expect(screen.queryByTestId("workspace-file-diff-preview")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Show diff docs/guide.md" }));
-    expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "docs/guide.md");
-    expect(await screen.findByTestId("workspace-file-diff-preview")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Expand diff docs/guide.md" }));
+    expect(getChatWorkspaceFileDiff).not.toHaveBeenCalledWith("a1", "docs/guide.md");
+    expect((await screen.findAllByTestId("workspace-file-diff-preview")).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Diff docs/guide.md")).toBeTruthy();
     expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("Workspace changes panel").textContent).not.toContain(
       "captured line",
     );
 
-    await user.click(screen.getByRole("button", { name: "Discard README.md" }));
+    await user.click(screen.getByRole("button", { name: "Discard docs/guide.md" }));
     expect(revertChatWorkspaceFiles).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Confirm discard README.md" }));
-    expect(revertChatWorkspaceFiles).toHaveBeenCalledWith("a1", ["README.md"]);
+    await user.click(screen.getByRole("button", { name: "Confirm discard docs/guide.md" }));
+    expect(revertChatWorkspaceFiles).toHaveBeenCalledWith("a1", ["docs/guide.md"]);
     expect(await screen.findByText("The current workspace is clean.")).toBeTruthy();
+  });
+
+  it("shows an explicit empty diff preview when a selected file has no text patch", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      diff_stat: "docs/screenshots/chat.png | Bin 100 -> 120 bytes\n1 file changed",
+      diff: "",
+      has_changes: true,
+      files: [
+        {
+          path: "docs/screenshots/chat.png",
+          additions: 0,
+          deletions: 0,
+          status: "modified",
+        },
+      ],
+    }));
+    const getChatWorkspaceFileDiff = vi.fn(async () => ({
+      path: "docs/screenshots/chat.png",
+      additions: 0,
+      deletions: 0,
+      status: "modified",
+      diff: "",
+    }));
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review binary file",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff, getChatWorkspaceFileDiff },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+
+    expect(
+      await screen.findByRole("region", { name: "Diff docs/screenshots/chat.png" }),
+    ).toBeTruthy();
+    expect(await screen.findByText(/No text diff was captured for this file/)).toBeTruthy();
+  });
+
+  it("selects the first changed file that can show a text diff", async () => {
+    const binaryFiles = Array.from({ length: 18 }, (_, index) => ({
+      path: `docs/screenshots/chat-${index}.png`,
+      additions: 0,
+      deletions: 0,
+      status: "modified",
+    }));
+    const readmeDiff = [
+      "diff --git a/README.md b/README.md",
+      "index 1111111..2222222 100644",
+      "--- a/README.md",
+      "+++ b/README.md",
+      "@@ -1 +1 @@",
+      "-old readme",
+      "+readme text diff",
+    ].join("\n");
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      diff_stat:
+        "docs/screenshots/chat.png | Bin 100 -> 120 bytes\nREADME.md | 1 +\n2 files changed, 1 insertion(+)",
+      diff: "",
+      has_changes: true,
+      files: [
+        ...binaryFiles,
+        {
+          path: "README.md",
+          additions: 0,
+          deletions: 0,
+          status: "modified",
+        },
+      ],
+    }));
+    const getChatWorkspaceFileDiff = vi.fn(async (_sessionID: string, path: string) => ({
+      path,
+      additions: 0,
+      deletions: 0,
+      status: "modified",
+      diff: path === "README.md" ? readmeDiff : "",
+    }));
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review mixed files",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff, getChatWorkspaceFileDiff },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+
+    expect(await screen.findByRole("region", { name: "Diff README.md" })).toBeTruthy();
+    expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith("a1", "README.md");
+    expect(getChatWorkspaceFileDiff).not.toHaveBeenCalledWith("a1", "docs/screenshots/chat-0.png");
+    expect(screen.getByTestId("workspace-file-diff-preview")).toBeTruthy();
+    expect(document.querySelectorAll("diffs-container.diff-viewer-file").length).toBeGreaterThan(0);
+  });
+
+  it("shows the full workspace file tree separately from the review diff list", async () => {
+    const getChatWorkspaceDiff = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      diff_stat:
+        "ui/src/features/chats/ChatView.tsx | 1 +\nui/src/features/chats/ChatView.test.tsx | 1 +\n2 files changed, 2 insertions(+)",
+      diff: "",
+      has_changes: true,
+      files: [
+        {
+          path: "ui/src/features/chats/ChatView.tsx",
+          additions: 1,
+          deletions: 0,
+          status: "modified",
+        },
+        {
+          path: "ui/src/features/chats/ChatView.test.tsx",
+          additions: 1,
+          deletions: 0,
+          status: "modified",
+        },
+      ],
+    }));
+    const getChatWorkspaceFileDiff = vi.fn(async (_sessionID: string, path: string) => ({
+      path,
+      additions: 1,
+      deletions: 0,
+      status: "modified",
+      diff: [
+        `diff --git a/${path} b/${path}`,
+        "index 1111111..2222222 100644",
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        "@@ -1 +1 @@",
+        "-old line",
+        "+new line",
+      ].join("\n"),
+    }));
+    const getChatWorkspaceFiles = vi.fn(async () => ({
+      workspace: "/tmp/hecate",
+      files: [
+        { path: "ui", name: "ui", kind: "directory" },
+        { path: "ui/src", name: "src", kind: "directory" },
+        { path: "ui/src/features", name: "features", kind: "directory" },
+        { path: "ui/src/features/chats", name: "chats", kind: "directory" },
+        {
+          path: "ui/src/features/chats/ChatView.tsx",
+          name: "ChatView.tsx",
+          kind: "file",
+          status: "modified",
+          size_bytes: 1234,
+        },
+        {
+          path: "ui/src/features/chats/ChatView.test.tsx",
+          name: "ChatView.test.tsx",
+          kind: "file",
+          status: "modified",
+          size_bytes: 2345,
+        },
+        {
+          path: "docs/development.md",
+          name: "development.md",
+          kind: "file",
+          status: "untracked",
+          size_bytes: 3456,
+        },
+      ],
+    }));
+    const { state, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        agentWorkspace: "/tmp/hecate",
+        activeChatSessionID: "a1",
+        activeChatSession: {
+          id: "a1",
+          title: "Review nested files",
+          agent_id: "codex",
+          workspace: "/tmp/hecate",
+          status: "completed",
+          messages: [],
+        } as any,
+      },
+      { getChatWorkspaceDiff, getChatWorkspaceFileDiff, getChatWorkspaceFiles },
+    );
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Workspace changes" }));
+
+    const review = within(await screen.findByLabelText("Workspace review"));
+    expect(
+      review.getByRole("button", {
+        name: "Collapse diff ui/src/features/chats/ChatView.tsx",
+      }),
+    ).toBeTruthy();
+    expect(
+      review.queryByRole("button", { name: "Collapse folder ui/src/features/chats" }),
+    ).toBeNull();
+    expect(getChatWorkspaceFileDiff).toHaveBeenCalledWith(
+      "a1",
+      "ui/src/features/chats/ChatView.tsx",
+    );
+
+    await user.click(screen.getByRole("tab", { name: "Files" }));
+    expect(getChatWorkspaceFiles).toHaveBeenCalledWith("a1");
+    const fileTreeElement = await screen.findByRole("tree", { name: "Workspace file tree" });
+    expect(fileTreeElement).toHaveStyle({ overflowY: "auto" });
+    const fileTree = within(fileTreeElement);
+    expect(
+      fileTree.getByRole("button", { name: "Expand folder ui/src/features/chats" }),
+    ).toBeTruthy();
+    expect(fileTree.queryByRole("button", { name: "Collapse folder ui" })).toBeNull();
+    expect(fileTree.queryByText("ChatView.tsx")).toBeNull();
+
+    await user.click(fileTree.getByRole("button", { name: "Expand folder ui/src/features/chats" }));
+    expect(
+      fileTree.getByRole("button", { name: "Collapse folder ui/src/features/chats" }),
+    ).toBeTruthy();
+    expect(fileTree.getByText("ChatView.tsx")).toBeTruthy();
+    expect(fileTree.getByText("ChatView.test.tsx")).toBeTruthy();
+
+    await user.type(screen.getByLabelText("Search workspace files"), "development");
+    expect(fileTree.queryByText("ChatView.tsx")).toBeNull();
+    expect(fileTree.getByText("development.md")).toBeTruthy();
   });
 
   it("shows a clean current-diff state even when the transcript has no captured changes", async () => {
@@ -4178,9 +4420,9 @@ describe("ChatView external-agent target", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Workspace changes" }));
 
-    expect(await screen.findByText("Could not load that current file diff.")).toBeTruthy();
-    expect(screen.queryByText("Loading current diff...")).toBeNull();
-    expect(screen.getByRole("button", { name: "Show diff README.md" })).toBeTruthy();
+    expect(await screen.findByText("Could not load that file diff.")).toBeTruthy();
+    expect(screen.queryByText("Loading diff...")).toBeNull();
+    expect(screen.getByRole("button", { name: "Collapse diff README.md" })).toBeTruthy();
   });
 
   it("clears workspace discard state when revert rejects", async () => {

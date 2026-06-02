@@ -1792,6 +1792,9 @@ workspaces return `400 invalid_request` with a human-readable limitation.
 
 Returns the current Git diff for the chat session's selected workspace. This is
 live working-tree state, not the captured diff from any assistant message.
+The operator UI renders this as a Review tab: a changed-file list where each
+file expands to its own rich diff, plus copy/discard actions for the full patch
+or a single file.
 
 ```json
 GET /hecate/v1/chat/sessions/chat_.../workspace-diff
@@ -1840,6 +1843,46 @@ GET /hecate/v1/chat/sessions/chat_.../workspace-diff/files/README.md
 
 The path must appear in the current workspace diff; Hecate rejects arbitrary
 paths.
+
+### `GET /hecate/v1/chat/sessions/{id}/workspace-files`
+
+Returns the current file tree for the chat session's selected workspace. This
+surface is intentionally separate from `workspace-diff`: clients can browse and
+search the full workspace without mixing unchanged files into the changed-file
+review flow.
+
+The operator UI renders this as a **Files** tab. The tree is collapsed by
+default, while search expands matching directories.
+
+```json
+GET /hecate/v1/chat/sessions/chat_.../workspace-files
+→ 200
+{
+  "object": "chat_workspace_files",
+  "data": {
+    "workspace": "/Users/alice/project",
+    "files": [
+      {
+        "path": "docs",
+        "name": "docs",
+        "kind": "directory"
+      },
+      {
+        "path": "README.md",
+        "name": "README.md",
+        "kind": "file",
+        "status": "modified",
+        "size_bytes": 2048
+      }
+    ],
+    "truncated": false
+  }
+}
+```
+
+Sessions without a workspace return an empty file list. The response may set
+`truncated: true` when the workspace has more entries than the UI should render
+eagerly.
 
 ### `POST /hecate/v1/chat/sessions/{id}/workspace-diff/revert`
 

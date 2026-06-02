@@ -137,6 +137,11 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   message already has a workspace-changes badge or the side-panel diff viewer.
   Group repetitive command rows into a single expandable summary that reveals
   commands and captured output together.
+- Keep workspace review and workspace browsing as separate UI surfaces. The
+  workspace changes panel's Review tab owns changed-file diffs, copy, and
+  discard actions; the Files tab owns the full workspace tree. Keep the full
+  tree collapsed by default and expand matching directories only when the
+  operator searches or opens them.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.

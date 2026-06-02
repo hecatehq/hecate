@@ -29,6 +29,7 @@ import type {
   ChatSessionsResponse,
   ChatStreamEvent,
   ChatWorkspaceDiffResponse,
+  ChatWorkspaceFilesResponse,
   WorkspaceDialogResponse,
 } from "../types/chat";
 import type {
@@ -397,6 +398,14 @@ export async function listChatMessageFiles(
 export async function getChatWorkspaceDiff(sessionID: string): Promise<ChatWorkspaceDiffResponse> {
   return fetchJSON<ChatWorkspaceDiffResponse>(
     `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/workspace-diff`,
+  );
+}
+
+export async function getChatWorkspaceFiles(
+  sessionID: string,
+): Promise<ChatWorkspaceFilesResponse> {
+  return fetchJSON<ChatWorkspaceFilesResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/workspace-files`,
   );
 }
 
