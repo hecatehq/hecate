@@ -2991,7 +2991,7 @@ test("workspace changes review inspects and discards a current file", async ({ p
     workspaceChangesPanel.getByText("2 files changed, 6 insertions(+), 1 deletion(-)").first(),
   ).toBeVisible();
 
-  await expect(page.getByRole("button", { name: "Hide diff README.md" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Collapse diff README.md" })).toBeVisible();
   await expect.poll(() => readmeFileDiffRequests).toBeGreaterThan(0);
   const readmeDiffPreview = workspaceChangesPanel.getByTestId("workspace-file-diff-preview");
   await expect(readmeDiffPreview).toBeVisible();
