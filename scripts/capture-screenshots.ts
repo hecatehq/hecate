@@ -233,9 +233,9 @@ const docsWorkspaceDiffByPath: Record<string, string> = {
     " function FileActions() {\n" +
     "-  return <button>Discard</button>;\n" +
     "+  return (\n" +
-    "+    <div className=\"workspace-file-actions\">\n" +
-    "+      <button aria-label=\"Copy file patch\">Copy</button>\n" +
-    "+      <button aria-label=\"Discard file changes\">Revert</button>\n" +
+    '+    <div className="workspace-file-actions">\n' +
+    '+      <button aria-label="Copy file patch">Copy</button>\n' +
+    '+      <button aria-label="Discard file changes">Revert</button>\n' +
     "+    </div>\n" +
     "+  );\n" +
     " }\n",
@@ -628,7 +628,8 @@ function docsHecateToolsFallbackSession() {
       {
         id: "hecate-tools-fallback-user-1",
         runtime_kind: "model",
-        execution_mode: "hecate_task", tools_enabled: false,
+        execution_mode: "hecate_task",
+        tools_enabled: false,
         segment_id: "model:smollm-joke",
         role: "user",
         content: "tell a short terminal joke",
@@ -639,7 +640,8 @@ function docsHecateToolsFallbackSession() {
       {
         id: "hecate-tools-fallback-assistant-1",
         runtime_kind: "model",
-        execution_mode: "hecate_task", tools_enabled: false,
+        execution_mode: "hecate_task",
+        tools_enabled: false,
         segment_id: "model:smollm-joke",
         role: "assistant",
         content:
@@ -1831,15 +1833,13 @@ async function main() {
   console.log("→ chat-workspace-diff (workspace changes panel)");
   await routeWorkspaceDiffDocsFixture(page, docsHecateChatSessionID);
   await page.getByRole("button", { name: "Workspace changes" }).click();
-  await page.waitForSelector("text=Live workspace diff", { timeout: 5_000 });
+  await page.getByRole("region", { name: "Workspace review" }).waitFor({ timeout: 5_000 });
   await page.getByLabel("Search changed files").fill("runtime");
-  await page.getByRole("tree", { name: "Changed files" }).waitFor({ timeout: 5_000 });
+  await page.getByLabel("Changed files").waitFor({ timeout: 5_000 });
   await page.getByRole("button", { name: "Copy complete workspace patch" }).waitFor({
     timeout: 5_000,
   });
-  await page
-    .getByRole("region", { name: "Selected diff docs/runtime-api.md" })
-    .waitFor({ timeout: 5_000 });
+  await page.getByRole("region", { name: "Diff docs/runtime-api.md" }).waitFor({ timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "chat-workspace-diff");
   await unrouteWorkspaceDiffDocsFixture(page, docsHecateChatSessionID);

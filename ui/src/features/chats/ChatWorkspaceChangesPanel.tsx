@@ -316,11 +316,13 @@ export function ChatWorkspaceChangesPanel({
   }
 
   function toggleFileDiff(file: ChatChangedFileRecord) {
+    const isExpanding = !expandedDiffPaths.includes(file.path);
     setExpandedDiffPaths((current) =>
       current.includes(file.path)
         ? current.filter((path) => path !== file.path)
         : [...current, file.path],
     );
+    if (!isExpanding) return;
     const hasWorkspacePatch = Boolean(extractFilePatchFromWorkspaceDiff(diff, file.path).trim());
     if (!hasWorkspacePatch && !failedFileDiffPathsRef.current.has(file.path)) {
       void ensureFileDiff(file);
