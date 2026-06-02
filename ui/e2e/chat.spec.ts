@@ -2941,6 +2941,29 @@ test("workspace changes review inspects and discards a current file", async ({ p
     });
   });
 
+  await page.route("/hecate/v1/chat/sessions/a-diff-1/workspace-files", (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "chat_workspace_files",
+        data: {
+          workspace: "/tmp/e2e",
+          files: [
+            { path: "README.md", name: "README.md", kind: "file", status: "modified" },
+            { path: "docs", name: "docs", kind: "directory" },
+            {
+              path: "docs/runtime-api.md",
+              name: "runtime-api.md",
+              kind: "file",
+              status: "added",
+            },
+          ],
+        },
+      }),
+    });
+  });
+
   let readmeFileDiffRequests = 0;
   await page.route("/hecate/v1/chat/sessions/a-diff-1/workspace-diff/files/README.md", (route) => {
     readmeFileDiffRequests += 1;
@@ -3004,6 +3027,13 @@ test("workspace changes review inspects and discards a current file", async ({ p
   await expect(
     workspaceChangesPanel.getByText("1 file changed, 4 insertions(+)").first(),
   ).toBeVisible();
+
+  await page.getByRole("tab", { name: "Files" }).click();
+  const workspaceFileList = page.getByLabel("Workspace file tree");
+  await expect(workspaceFileList).toBeVisible();
+  await expect(page.getByRole("tree", { name: "Workspace file tree" })).toHaveCount(0);
+  await expect(page.getByRole("treeitem")).toHaveCount(0);
+  await expect(workspaceFileList.getByRole("button", { name: "Expand folder docs" })).toBeVisible();
 });
 
 type ClaudeAdapterFixture = {
