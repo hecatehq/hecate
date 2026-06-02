@@ -36,12 +36,14 @@ repo guidance.
 
 ## Current Adapters
 
-| Surface                        | Role                                                                       |
-| ------------------------------ | -------------------------------------------------------------------------- |
-| `AGENTS.md`                    | Root orientation and codebase map for agents that auto-load AGENTS files.  |
-| `ui/AGENTS.md`                 | UI directory map; points to `docs-ai/skills/ui/SKILL.md`.                  |
-| `internal/providers/AGENTS.md` | Provider package map; points to `docs-ai/skills/providers/SKILL.md`.       |
-| `CLAUDE.md`                    | Claude Code compatibility shim importing `AGENTS.md`; no standalone rules. |
+| Surface                                  | Role                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------------- |
+| `AGENTS.md`                              | Root orientation and codebase map for agents that auto-load AGENTS files.  |
+| `ui/AGENTS.md`                           | UI directory map; points to `docs-ai/skills/ui/SKILL.md`.                  |
+| `internal/providers/AGENTS.md`           | Provider package map; points to `docs-ai/skills/providers/SKILL.md`.       |
+| `CLAUDE.md`                              | Claude Code compatibility shim importing `AGENTS.md`; no standalone rules. |
+| `.github/copilot-instructions.md`        | GitHub Copilot repo-wide shim pointing back to `AGENTS.md` and `docs-ai/`. |
+| `.github/instructions/*.instructions.md` | GitHub Copilot path shims pointing to canonical `docs-ai/` skills.         |
 
 Local tool state files under directories such as `.claude/` or `.cursor/` may
 exist for per-machine permissions, sessions, or editor state. They are ignored
@@ -56,7 +58,9 @@ When adding or changing agent guidance:
 3. If a skill is added, moved, or removed, update
    [`../skills/README.md`](../skills/README.md) in the same change.
 4. Do not add tracked `.claude/` or `.cursor/` files.
-5. Run `just agent-docs-check` for adapter consistency.
-6. Run `just docs-format-check`; run `just check-links` when links changed.
+5. Keep GitHub Copilot shims short and path-scoped; they should point to
+   `docs-ai/`, not duplicate canonical skills.
+6. Run `just agent-docs-check` for adapter consistency.
+7. Run `just docs-format-check`; run `just check-links` when links changed.
 
 Agent-doc-only changes use the `chore(agent):` commit scope.
