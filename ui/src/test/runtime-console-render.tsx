@@ -218,6 +218,7 @@ function buildOverrides(actions: RuntimeConsoleFixtureActions): CoordinatorOverr
       deleteChatGrant: actions.deleteChatGrant,
       listChatMessageFiles: actions.listChatMessageFiles,
       getChatWorkspaceDiff: actions.getChatWorkspaceDiff,
+      getChatWorkspaceFiles: actions.getChatWorkspaceFiles,
       getChatWorkspaceFileDiff: actions.getChatWorkspaceFileDiff,
       revertChatWorkspaceFiles: actions.revertChatWorkspaceFiles,
       getChatMessageFileDiff: actions.getChatMessageFileDiff,

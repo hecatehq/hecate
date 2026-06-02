@@ -774,6 +774,25 @@ type ChatWorkspaceDiffResponse struct {
 	Data   ChatWorkspaceDiffItem `json:"data"`
 }
 
+type ChatWorkspaceFileItem struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Status    string `json:"status,omitempty"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+}
+
+type ChatWorkspaceFilesItem struct {
+	Workspace string                  `json:"workspace,omitempty"`
+	Files     []ChatWorkspaceFileItem `json:"files"`
+	Truncated bool                    `json:"truncated,omitempty"`
+}
+
+type ChatWorkspaceFilesResponse struct {
+	Object string                 `json:"object"`
+	Data   ChatWorkspaceFilesItem `json:"data"`
+}
+
 type ChatChangedFileDiffItem struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`

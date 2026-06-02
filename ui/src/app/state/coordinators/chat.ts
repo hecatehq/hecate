@@ -27,6 +27,7 @@ import {
   getChatMessageFileDiff as getChatMessageFileDiffRequest,
   getChatWorkspaceDiff as getChatWorkspaceDiffRequest,
   getChatWorkspaceFileDiff as getChatWorkspaceFileDiffRequest,
+  getChatWorkspaceFiles as getChatWorkspaceFilesRequest,
   getChatSession,
   getUsageEvents,
   getUsageSummary,
@@ -72,6 +73,7 @@ import type {
   ChatChangedFileDiffRecord,
   ChatChangedFileRecord,
   ChatWorkspaceDiffRecord,
+  ChatWorkspaceFilesRecord,
   ChatResponse,
   ChatSessionRecord,
 } from "../../../types/chat";
@@ -221,6 +223,7 @@ type ChatActionsReturn = {
   deleteChatGrant: (grantID: string) => Promise<boolean>;
   listChatMessageFiles: (sessionID: string, messageID: string) => Promise<ChatChangedFileRecord[]>;
   getChatWorkspaceDiff: (sessionID: string) => Promise<ChatWorkspaceDiffRecord | null>;
+  getChatWorkspaceFiles: (sessionID: string) => Promise<ChatWorkspaceFilesRecord | null>;
   getChatWorkspaceFileDiff: (
     sessionID: string,
     path: string,
@@ -1188,6 +1191,21 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     }
   }
 
+  async function getChatWorkspaceFiles(
+    sessionID: string,
+  ): Promise<ChatWorkspaceFilesRecord | null> {
+    try {
+      const payload = await getChatWorkspaceFilesRequest(sessionID);
+      return payload.data;
+    } catch (error) {
+      params.setNoticeMessage(
+        "error",
+        error instanceof Error ? error.message : "Failed to load workspace files.",
+      );
+      return null;
+    }
+  }
+
   async function getChatWorkspaceFileDiff(
     sessionID: string,
     path: string,
@@ -1385,6 +1403,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     deleteChatGrant,
     listChatMessageFiles,
     getChatWorkspaceDiff,
+    getChatWorkspaceFiles,
     getChatWorkspaceFileDiff,
     revertChatWorkspaceFiles,
     getChatMessageFileDiff,

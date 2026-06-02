@@ -198,9 +198,12 @@ operators do not have to click through nested output disclosures. Command and
 read-context rows keep raw output out of the compact row and show normalized
 line breaks inside the output card.
 Workspace changes have one primary surface: the per-turn file badge and the
-workspace changes panel. Transcript activity may mention that workspace changes
-exist, but it should not duplicate raw patches or render a second diff viewer
-when the richer workspace diff surface is available.
+workspace changes panel. The panel has two jobs: **Review** shows the current
+changed-file list with collapsible rich diffs under each file, while **Files**
+shows the full workspace tree separately and keeps folders collapsed until the
+operator expands or searches. Transcript activity may mention that workspace
+changes exist, but it should not duplicate raw patches or render a second diff
+viewer when the richer workspace diff surface is available.
 For failed tool rows, Task Detail also previews stdout/stderr artifacts captured
 for the same tool step, including an explicit empty-stream note when stderr was
 captured but contained no bytes. Artifacts from other steps are intentionally

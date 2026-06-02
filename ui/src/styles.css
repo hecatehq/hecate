@@ -673,9 +673,11 @@ diffs-container.diff-viewer-file {
   --diffs-separator-bg: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  display: block;
   max-width: 100%;
   min-width: 0;
   overflow: hidden;
+  width: 100%;
 }
 .diff-viewer-compact diffs-container.diff-viewer-file {
   --diffs-font-size: 10.5px;
