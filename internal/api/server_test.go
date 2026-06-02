@@ -1921,6 +1921,8 @@ func TestChatWorkspaceFilesReturnsEmptyWithoutWorkspace(t *testing.T) {
 }
 
 func TestParseWorkspaceGitStatusSkipsRenameAndCopySources(t *testing.T) {
+	// In porcelain v1 -z output Git reverses rename/copy paths:
+	// status + destination, then a NUL-separated source path.
 	statuses := parseWorkspaceGitStatus(strings.Join([]string{
 		"R  src/new.go",
 		"src/old.go",
