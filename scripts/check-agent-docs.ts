@@ -26,10 +26,20 @@ if (forbidden.length > 0) {
   fail(`tracked provider-specific adapter files are not allowed:\n${forbidden.join("\n")}`);
 }
 
+const copilotInstructionFiles = [
+  ".github/instructions/agent-docs.instructions.md",
+  ".github/instructions/backend.instructions.md",
+  ".github/instructions/providers.instructions.md",
+  ".github/instructions/tauri.instructions.md",
+  ".github/instructions/ui.instructions.md",
+];
+
 const entrypoints = [
   "AGENTS.md",
   "ui/AGENTS.md",
   "internal/providers/AGENTS.md",
+  ".github/copilot-instructions.md",
+  ...copilotInstructionFiles,
   "docs-ai/README.md",
   "docs-ai/skills/README.md",
   "docs-ai/core/agent-guidance.md",
@@ -46,6 +56,19 @@ for (const file of entrypoints) {
 const claude = read("CLAUDE.md").trim();
 if (claude !== "@AGENTS.md") {
   fail("CLAUDE.md must be exactly @AGENTS.md");
+}
+
+const copilot = read(".github/copilot-instructions.md");
+if (copilot.includes("@AGENTS.md")) {
+  fail(".github/copilot-instructions.md must point to AGENTS.md in prose, not use @AGENTS.md import syntax");
+}
+
+for (const file of copilotInstructionFiles) {
+  const content = read(file);
+  const frontmatter = content.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!frontmatter || !/^applyTo:\s*.+$/m.test(frontmatter[1])) {
+    fail(`${file} must declare applyTo frontmatter`);
+  }
 }
 
 const agentGuidance = read("docs-ai/core/agent-guidance.md");
@@ -65,5 +88,5 @@ for (const name of skillDirs) {
 }
 
 console.log(
-  `agent-docs-check: ${entrypoints.length} entrypoints and ${skillDirs.length} skills OK; no tracked .claude/.cursor adapters`,
+  `agent-docs-check: ${entrypoints.length} entrypoints, ${copilotInstructionFiles.length} Copilot path adapters, and ${skillDirs.length} skills OK; no tracked .claude/.cursor adapters`,
 );

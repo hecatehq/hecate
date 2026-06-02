@@ -16,14 +16,15 @@ guidance live in [`docs-ai/`](docs-ai/README.md).
 
 ## Where guidance lives
 
-| Surface                                                               | What it carries                                                                                                                      |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| [`docs-ai/`](docs-ai/README.md)                                       | Canonical provider-neutral agent guidance — project context, conventions, workflow, verification, task shapes, area + posture skills |
-| `AGENTS.md` (this) and `ui/AGENTS.md`, `internal/providers/AGENTS.md` | Codebase map per area                                                                                                                |
-| [`CLAUDE.md`](CLAUDE.md)                                              | Claude Code compatibility shim importing `AGENTS.md`; no standalone rules                                                            |
-| [`docs-ai/skills/README.md`](docs-ai/skills/README.md)                | Canonical skill set used by every agent                                                                                              |
-| [`docs-ai/core/agent-guidance.md`](docs-ai/core/agent-guidance.md)    | Source-of-truth policy for keeping agent guidance provider-neutral                                                                   |
-| [`docs/`](docs/)                                                      | Long-form references (architecture, runtime API, events, telemetry)                                                                  |
+| Surface                                                                                                           | What it carries                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| [`docs-ai/`](docs-ai/README.md)                                                                                   | Canonical provider-neutral agent guidance — project context, conventions, workflow, verification, task shapes, area + posture skills |
+| `AGENTS.md` (this) and `ui/AGENTS.md`, `internal/providers/AGENTS.md`                                             | Codebase map per area                                                                                                                |
+| [`CLAUDE.md`](CLAUDE.md)                                                                                          | Claude Code compatibility shim importing `AGENTS.md`; no standalone rules                                                            |
+| [`.github/copilot-instructions.md`](.github/copilot-instructions.md) and `.github/instructions/*.instructions.md` | GitHub Copilot compatibility shims pointing back to `AGENTS.md` and `docs-ai/`                                                       |
+| [`docs-ai/skills/README.md`](docs-ai/skills/README.md)                                                            | Canonical skill set used by every agent                                                                                              |
+| [`docs-ai/core/agent-guidance.md`](docs-ai/core/agent-guidance.md)                                                | Source-of-truth policy for keeping agent guidance provider-neutral                                                                   |
+| [`docs/`](docs/)                                                                                                  | Long-form references (architecture, runtime API, events, telemetry)                                                                  |
 
 When in doubt: read [`docs-ai/core/project-context.md`](docs-ai/core/project-context.md) and [`docs-ai/core/workflow.md`](docs-ai/core/workflow.md).
 
