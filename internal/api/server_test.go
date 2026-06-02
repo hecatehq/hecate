@@ -1920,6 +1920,39 @@ func TestChatWorkspaceFilesReturnsEmptyWithoutWorkspace(t *testing.T) {
 	}
 }
 
+func TestParseWorkspaceGitStatusSkipsRenameAndCopySources(t *testing.T) {
+	statuses := parseWorkspaceGitStatus(strings.Join([]string{
+		"R  src/new.go",
+		"src/old.go",
+		"C  docs/copy.md",
+		"docs/source.md",
+		" M README.md",
+		"?? scratch.txt",
+		"",
+	}, "\x00"))
+
+	expected := map[string]string{
+		"src/new.go":   "renamed",
+		"docs/copy.md": "copied",
+		"README.md":    "modified",
+		"scratch.txt":  "untracked",
+	}
+	for path, want := range expected {
+		if got := statuses[path]; got != want {
+			t.Fatalf("status[%q] = %q, want %q; all statuses = %#v", path, got, want, statuses)
+		}
+	}
+	if len(statuses) != len(expected) {
+		t.Fatalf("statuses = %#v, want exactly %#v", statuses, expected)
+	}
+	if _, ok := statuses["src/old.go"]; ok {
+		t.Fatalf("old rename path was parsed as a status: %#v", statuses)
+	}
+	if _, ok := statuses["docs/source.md"]; ok {
+		t.Fatalf("copy source path was parsed as a status: %#v", statuses)
+	}
+}
+
 func chatChangedFilesContain(files []ChatChangedFileItem, path string) bool {
 	for _, file := range files {
 		if file.Path == path {
