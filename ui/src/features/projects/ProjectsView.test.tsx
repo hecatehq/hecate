@@ -241,6 +241,7 @@ describe("ProjectsView index", () => {
       createProjectFromFolder: vi.fn(async () => project),
       renameProject: vi.fn(async () => undefined),
       deleteProject: vi.fn(async () => true),
+      selectProject: vi.fn(async () => undefined),
     };
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -252,7 +253,11 @@ describe("ProjectsView index", () => {
     expect(actions.createProjectFromFolder).toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Rename project Hecate" }));
-    fireEvent.change(screen.getByLabelText("Rename Hecate"), {
+    const renameInput = screen.getByLabelText("Rename Hecate");
+    await user.type(renameInput, " workspace");
+    expect(renameInput).toHaveValue("Hecate workspace");
+    expect(actions.selectProject).not.toHaveBeenCalled();
+    fireEvent.change(renameInput, {
       target: { value: "Hecate console" },
     });
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -284,6 +289,52 @@ describe("ProjectsView cockpit", () => {
     });
     expect(actions.selectProject).toHaveBeenCalledWith(project.id);
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
+  });
+
+  it("surfaces partial assignment summary load failures", async () => {
+    resetProjectWorkMocks();
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      title: "Write project docs",
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [workItem, secondWorkItem],
+    });
+    vi.mocked(getProjectAssignments)
+      .mockRejectedValueOnce(new Error("assignment request failed"))
+      .mockResolvedValueOnce({
+        object: "project_assignments",
+        data: [{ ...hecateAssignment, work_item_id: secondWorkItem.id }],
+      })
+      .mockResolvedValueOnce({
+        object: "project_assignments",
+        data: [],
+      });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(
+      await screen.findByText(
+        "Some assignment summaries failed to load. Refresh project work to retry.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Write project docs")).toBeTruthy();
+    expect(
+      within(screen.getByRole("button", { name: "Open work item Build cockpit UI" })).queryByText(
+        "1 assignment",
+      ),
+    ).toBeNull();
+    expect(
+      within(screen.getByRole("button", { name: "Open work item Write project docs" })).getByText(
+        "1 assignment",
+      ),
+    ).toBeTruthy();
   });
 
   it("shows selected work item assignments and projected execution state", async () => {

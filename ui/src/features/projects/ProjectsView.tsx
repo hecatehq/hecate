@@ -254,16 +254,24 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       const nextItems = workRes.data ?? [];
       setRoles(nextRoles);
       setWorkItems(nextItems);
-      const assignmentLists = await Promise.all(
-        nextItems.map((item) =>
-          getProjectAssignments(projectID, item.id)
-            .then((res) => [item.id, res.data ?? []] as const)
-            .catch(() => [item.id, [] as ProjectAssignmentRecord[]] as const),
-        ),
+      const assignmentResults = await Promise.allSettled(
+        nextItems.map(async (item) => {
+          const res = await getProjectAssignments(projectID, item.id);
+          return [item.id, res.data ?? []] as const;
+        }),
       );
       setWorkItemSummaries(
-        Object.fromEntries(assignmentLists.map(([id, list]) => [id, summarizeAssignments(list)])),
+        Object.fromEntries(
+          assignmentResults.flatMap((result) =>
+            result.status === "fulfilled"
+              ? [[result.value[0], summarizeAssignments(result.value[1])] as const]
+              : [],
+          ),
+        ),
       );
+      if (assignmentResults.some((result) => result.status === "rejected")) {
+        setWorkError("Some assignment summaries failed to load. Refresh project work to retry.");
+      }
       const nextSelectedID = nextItems[0]?.id || "";
       setSelectedWorkItemID(nextSelectedID);
       setWorkLoadState("loaded");
@@ -825,6 +833,7 @@ function ProjectIndexRow({
       aria-label={`Open project ${project.name}`}
       onClick={onOpen}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         onOpen();
