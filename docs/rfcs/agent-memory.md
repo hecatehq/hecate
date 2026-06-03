@@ -144,7 +144,10 @@ preset is applied, the resolved profile settings control memory activation.
 Project memory should be the default durable scope. Chat/session memory is for
 short-lived continuity and notes inside one conversation. If something learned
 in a chat should persist for the project, the operator should explicitly save
-it to project memory.
+it to project memory. In UI language, "project memory notes" are structured
+`MemoryEntry` records scoped to a project. Their `body` can contain
+Markdown-compatible text, but Markdown files are not the default storage format
+or source of truth.
 
 ## External Memory Providers
 
@@ -225,7 +228,10 @@ CREATE INDEX IF NOT EXISTS idx_memory_entries_scope
 When `HECATE_CONTROL_PLANE_SECRET_KEY` is set, `body` should be encrypted with
 the same secret-management primitives used for stored provider credentials.
 When the key is unset, store plain UTF-8, matching the current local-dev
-posture.
+posture. The `body` text may use Markdown-style formatting because it renders
+well for operators and agents, but the durable object is still a structured
+memory entry in the memory store. Filesystem-backed Markdown notes can be an
+import/export or context-source integration later, not the v1 default.
 
 ## API Surface
 

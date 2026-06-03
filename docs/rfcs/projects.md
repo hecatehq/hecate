@@ -170,7 +170,9 @@ example, a Hecate Chat profile can inject project memory into the provider
 prompt, while a Claude Code profile can send the same project memory only if the
 ACP adapter exposes a safe instruction/config surface. If no such surface
 exists, Hecate can still show the project memory in the context inspector as
-operator-side notes.
+operator-side notes. Those notes are structured project-scoped memory entries
+with Markdown-compatible bodies, not Markdown files as the default durable
+storage format.
 
 External memory providers should plug in behind the Hecate memory service and
 be selected by agent profile. Projects define the durable scope; profiles define
