@@ -353,6 +353,11 @@ describe("ProjectsView cockpit", () => {
       id: "work_2",
       title: "Write project docs",
     };
+    const emptyWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_3",
+      title: "Plan empty lane",
+    };
     vi.mocked(getProjectWorkItems).mockResolvedValue({
       object: "project_work_items",
       data: [
@@ -361,6 +366,7 @@ describe("ProjectsView cockpit", () => {
           ...secondWorkItem,
           assignments: [{ ...hecateAssignment, id: "asgn_2", work_item_id: secondWorkItem.id }],
         },
+        emptyWorkItem,
       ],
     });
     window.localStorage.setItem("hecate.project", project.id);
@@ -376,8 +382,12 @@ describe("ProjectsView cockpit", () => {
     const secondRow = await screen.findByRole("button", {
       name: "Open work item Write project docs",
     });
+    const emptyRow = await screen.findByRole("button", {
+      name: "Open work item Plan empty lane",
+    });
     expect(within(firstRow).queryByText("1 assignment")).toBeTruthy();
     expect(within(secondRow).getByText("1 assignment")).toBeTruthy();
+    expect(within(emptyRow).queryByText(/assignment/)).toBeNull();
     await waitFor(() => {
       expect(getProjectAssignments).toHaveBeenCalledTimes(1);
     });

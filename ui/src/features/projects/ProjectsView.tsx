@@ -258,9 +258,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       setWorkItems(nextItems);
       setWorkItemSummaries(
         Object.fromEntries(
-          nextItems.flatMap((item) =>
-            item.assignments ? [[item.id, summarizeAssignments(item.assignments)] as const] : [],
-          ),
+          nextItems.map((item) => [item.id, summarizeAssignments(item.assignments ?? [])] as const),
         ),
       );
       const nextSelectedID = nextItems.some((item) => item.id === preferredWorkItemID)
