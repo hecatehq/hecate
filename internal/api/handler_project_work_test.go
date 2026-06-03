@@ -3,9 +3,11 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/config"
@@ -276,6 +278,38 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentAllowsChunkedEmptyBody(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", io.NopCloser(strings.NewReader("")))
+	req.ContentLength = -1
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment with empty chunked body status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentRejectsMalformedBody(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", strings.NewReader(`{`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("start assignment malformed body status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentRejectsMissingWorkspaceRoot(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -363,6 +397,44 @@ func TestProjectWorkAPI_StartAssignmentRepeatedReturnsCurrentAssignment(t *testi
 	}
 	if second.Data.TaskID != first.Data.TaskID || second.Data.RunID != first.Data.RunID {
 		t.Fatalf("second assignment links = %q/%q, want existing %q/%q", second.Data.TaskID, second.Data.RunID, first.Data.TaskID, first.Data.RunID)
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("task count = %d, want 1", len(tasks))
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentConcurrentRequestsCreateOneTask(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	var wg sync.WaitGroup
+	statuses := make(chan int, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+			statuses <- rec.Code
+		}()
+	}
+	wg.Wait()
+	close(statuses)
+
+	counts := map[int]int{}
+	for status := range statuses {
+		counts[status]++
+	}
+	if counts[http.StatusOK] != 1 || counts[http.StatusConflict] != 1 {
+		t.Fatalf("concurrent start statuses = %+v, want one 200 and one 409", counts)
 	}
 	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
 	if err != nil {

@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -499,11 +501,9 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
 		return
 	}
-	var req startProjectWorkAssignmentRequest
-	if r.Body != http.NoBody && r.ContentLength != 0 {
-		if !decodeJSON(w, r, &req) {
-			return
-		}
+	req, ok := decodeOptionalProjectWorkAssignmentStartRequest(w, r)
+	if !ok {
+		return
 	}
 
 	project, ok, err := h.projects.Get(ctx, projectID)
@@ -575,13 +575,14 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	task, err := h.createProjectAssignmentTask(ctx, project, workItem, assignment, role, workingDirectory, workspaceMode, requestedModel)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
+	taskID := newTaskID()
+	claimRejected := false
 	assignment, err = h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
-		item.TaskID = task.ID
+		if item.TaskID != "" || item.RunID != "" || projectWorkAssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverHecateTask {
+			claimRejected = true
+			return
+		}
+		item.TaskID = taskID
 		item.Status = projectwork.AssignmentStatusQueued
 		if item.StartedAt.IsZero() {
 			item.StartedAt = time.Now().UTC()
@@ -589,6 +590,26 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if claimRejected {
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+		return
+	}
+
+	task, err := h.createProjectAssignmentTask(ctx, taskID, project, workItem, assignment, role, workingDirectory, workspaceMode, requestedModel)
+	if err != nil {
+		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
+			if item.TaskID == taskID && item.RunID == "" {
+				item.Status = projectwork.AssignmentStatusFailed
+				item.CompletedAt = time.Now().UTC()
+			}
+		})
+		if updateErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("%s; assignment status update failed: %v", err.Error(), updateErr))
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task %s could not be created for assignment: %s", assignment.TaskID, err.Error()))
 		return
 	}
 
@@ -629,6 +650,22 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+}
+
+func decodeOptionalProjectWorkAssignmentStartRequest(w http.ResponseWriter, r *http.Request) (startProjectWorkAssignmentRequest, bool) {
+	var req startProjectWorkAssignmentRequest
+	if r.Body == nil || r.Body == http.NoBody {
+		return req, true
+	}
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&req); err != nil {
+		if errors.Is(err, io.EOF) {
+			return req, true
+		}
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request body must be valid JSON")
+		return startProjectWorkAssignmentRequest{}, false
+	}
+	return req, true
 }
 
 func (h *Handler) loadProjectWorkAssignment(ctx context.Context, projectID, workItemID, assignmentID string) (projectwork.Assignment, bool, error) {
@@ -735,10 +772,10 @@ func selectProjectAssignmentRoot(project projects.Project) (projects.Root, bool)
 	return projects.Root{}, false
 }
 
-func (h *Handler) createProjectAssignmentTask(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, workspaceMode, requestedModel string) (types.Task, error) {
+func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, workspaceMode, requestedModel string) (types.Task, error) {
 	now := time.Now().UTC()
 	task := types.Task{
-		ID:                 newTaskID(),
+		ID:                 taskID,
 		Title:              projectAssignmentTaskTitle(workItem, role),
 		Prompt:             projectAssignmentPrompt(project, workItem, assignment, role),
 		SystemPrompt:       projectAssignmentSystemPrompt(project, role),
