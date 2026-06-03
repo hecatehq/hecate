@@ -77,17 +77,23 @@ chat, not the Usage workspace, because those values are agent-reported and
 only meaningful alongside the session that produced them.
 
 Assistant turns may also expose a collapsed **context** inspector. This is a
-metadata snapshot that answers "what kind of context did this turn use?"
-without storing the prompt body. The packet records execution mode,
-provider/model when Hecate owns routing, workspace path, whether a system
-prompt was included, the visible transcript message count for that turn, and high-level
-sources such as transcript, workspace, task runtime, or native agent session. It
-deliberately does not persist full system prompts, raw transcript text, file
-contents, or agent-private prompt packing. The message count is an
-operator-facing transcript count, not a provider token count or a guarantee
-that every counted message was packed into the provider or agent prompt. Future
-project memory and context assembly should add source IDs/provenance to this
-packet rather than inventing a separate transcript debug surface.
+metadata snapshot that answers "what kind of context did this turn use?" without
+storing the prompt body. The packet records execution mode, provider/model when
+Hecate owns routing, workspace path, whether a system prompt was included, the
+visible transcript message count for that turn, the legacy high-level
+`sources`, and itemized `items` with `kind`, `trust_level`, `origin`, `title`,
+optional `body` / `body_ref`, `included`, and `inclusion_reason`. Current items
+cover visible metadata only: system prompt presence, transcript count, enabled
+project context-source metadata, workspace path metadata, Hecate task-runtime
+state, and external-agent session metadata. It deliberately does not persist
+full system prompts, raw transcript text, file contents, or agent-private prompt
+packing. External Agent packets explicitly note that Hecate can show adapter
+metadata and transcript rows it receives but cannot inspect the agent's private
+prompt or packed model context. The message count is an operator-facing
+transcript count, not a provider token count or a guarantee that every counted
+message was packed into the provider or agent prompt. Context packets are
+snapshots on assistant messages; changing project context sources later does
+not rewrite old message packets.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct

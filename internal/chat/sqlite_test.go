@@ -82,6 +82,16 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 					Trust: "adapter",
 				},
 			},
+			Items: []ContextItem{
+				{
+					Kind:       "external_agent_session",
+					TrustLevel: "runtime_state",
+					Origin:     "adapter:Cursor Agent",
+					Title:      "Cursor Agent ACP session",
+					Body:       "Hecate cannot inspect the external agent private prompt.",
+					Included:   true,
+				},
+			},
 		},
 	}); err != nil {
 		t.Fatalf("AppendMessage assistant: %v", err)
@@ -109,7 +119,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	if got.ProjectID != "proj_sqlite" || got.AgentID != "cursor_agent" || got.WorkspaceBranch != "feature/sqlite" || got.Messages[0].Content != "hello" {
 		t.Fatalf("reopened session mismatch: %+v", got)
 	}
-	if len(got.Messages) != 2 || got.Messages[1].Context.Version != "chat.context.v1" || got.Messages[1].Context.Sources[0].Label != "Cursor Agent ACP session" {
+	if len(got.Messages) != 2 || got.Messages[1].Context.Version != "chat.context.v1" || got.Messages[1].Context.Sources[0].Label != "Cursor Agent ACP session" || got.Messages[1].Context.Items[0].Kind != "external_agent_session" {
 		t.Fatalf("reopened context packet mismatch: %+v", got.Messages)
 	}
 }

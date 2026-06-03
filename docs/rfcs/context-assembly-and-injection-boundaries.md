@@ -134,9 +134,10 @@ evidence, not as a system message.
 
 The assembly output is a `ContextPacket`: a durable, inspectable description of
 what was prepared for a model or adapter call. The current implementation stores
-a lightweight packet on assistant chat messages, including execution mode,
-provider/model or adapter identity, workspace, transcript count, and enabled
-project context-source metadata. It does not store source bodies yet.
+a packet on assistant chat messages, including execution mode, provider/model or
+adapter identity, workspace, system prompt presence, transcript count, legacy
+source metadata, and itemized visible metadata with trust labels, origins, and
+inclusion reasons. It does not store full source bodies yet.
 
 Sketch:
 
@@ -173,9 +174,11 @@ type ContextItem struct {
 }
 ```
 
-Storage can start as a JSON column on chat messages and task runs, then move to
-`internal/context/` if the shape grows. The important part is that in-memory
-and SQLite storage backends expose the same packet data.
+Storage starts as a JSON column on chat messages. Task-run context lookup
+currently resolves the linked Hecate Chat assistant message packet when the run
+belongs to a task-backed chat segment; standalone task runs return no packet.
+The important part is that in-memory and SQLite chat storage backends expose the
+same packet data.
 
 ### 4. Window Management
 
@@ -236,7 +239,7 @@ disabled.
 Hecate-native endpoints remain under `/hecate/v1`.
 
 ```
-GET /hecate/v1/chats/{session_id}/messages/{message_id}/context
+GET /hecate/v1/chat/sessions/{session_id}/messages/{message_id}/context
 GET /hecate/v1/tasks/{task_id}/runs/{run_id}/context
 ```
 
@@ -274,23 +277,24 @@ packets are audit snapshots owned by their parent message/run.
 
 ## Implementation Plan
 
-| PR  | Scope                                                                                                                                   |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Add `internal/context/` packet types, in-memory assembly for Hecate Chat direct-model and tools-on messages, and context inspector API. |
-| 2   | Persist context packet snapshots in memory and SQLite chat/task stores.                                                                 |
-| 3   | Add UI context inspector for chat messages and task runs.                                                                               |
-| 4   | Wire token estimates from the context-window RFC against packet items.                                                                  |
-| 5   | Add agent-memory selection as a packet source after the memory store exists.                                                            |
+| PR  | Scope                                                                                                                                     |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Landed: enrich chat-message packet types, assembly for direct-model, tools-on, and external-agent turns, plus context inspector API.      |
+| 2   | Landed for chat messages: persist itemized snapshots through memory and SQLite chat stores. Task-run lookup resolves linked chat packets. |
+| 3   | Landed for chat messages: UI context inspector groups itemized packet data by trust level.                                                |
+| 4   | Wire token estimates from the context-window RFC against packet items.                                                                    |
+| 5   | Add agent-memory selection as a packet source after the memory store exists.                                                              |
 
 The first PR is intentionally small: no memory, no summarization, no vector
 retrieval. Just create the audit boundary.
 
 ## Test Plan
 
-- Unit tests for trust classification and rendering order.
-- API tests for chat-message and task-run context packet retrieval.
-- SQLite/memory parity tests for packet persistence.
-- UI tests for context inspector grouping and large-item references.
+- Unit tests for trust classification, renderer mapping, and source/item ordering.
+- API tests for chat-message and linked task-run context packet retrieval,
+  including missing standalone task-run packets.
+- SQLite/memory parity tests for packet persistence and itemized packet cloning.
+- UI tests for context inspector grouping, with legacy source fallback.
 - Prompt-injection tests where untrusted text tries to override system
   instructions and remains labelled evidence.
 - Regression test that context-window truncation cannot move

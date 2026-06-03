@@ -861,6 +861,7 @@ function AgentUsage({ usage }: { usage: ChatUsageRecord }) {
 function ContextInspector({ packet }: { packet: ChatContextPacketRecord }) {
   const modelLabel = [packet.provider, packet.model].filter(Boolean).join(" · ");
   const sources = packet.sources ?? [];
+  const itemGroups = groupContextItemsByTrust(packet.items ?? []);
   const summaryParts = [
     "what the agent saw",
     packet.message_count
@@ -896,7 +897,14 @@ function ContextInspector({ packet }: { packet: ChatContextPacketRecord }) {
           <ContextRow label="mode" value={humanExecutionMode(packet.execution_mode)} />
         )}
         {packet.workspace && <ContextRow label="workspace" value={packet.workspace} />}
-        {sources.length > 0 && (
+        {itemGroups.length > 0 && (
+          <div style={{ display: "grid", gap: 7 }}>
+            {itemGroups.map((group) => (
+              <ContextItemGroup key={group.trustLevel} group={group} />
+            ))}
+          </div>
+        )}
+        {itemGroups.length === 0 && sources.length > 0 && (
           <div style={{ display: "grid", gap: 5 }}>
             {sources.map((source, index) => (
               <ContextSourceRow key={`${source.kind}-${source.label}-${index}`} source={source} />
@@ -905,6 +913,78 @@ function ContextInspector({ packet }: { packet: ChatContextPacketRecord }) {
         )}
       </div>
     </details>
+  );
+}
+
+type ContextItemGroupRecord = {
+  trustLevel: string;
+  items: NonNullable<ChatContextPacketRecord["items"]>;
+};
+
+function ContextItemGroup({ group }: { group: ContextItemGroupRecord }) {
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--border)",
+        display: "grid",
+        gap: 5,
+        paddingTop: 6,
+      }}
+    >
+      <div
+        style={{
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          textTransform: "uppercase",
+        }}
+      >
+        {humanTrustLevel(group.trustLevel)}
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
+        {group.items.map((item, index) => (
+          <ContextItemRow key={`${item.kind}-${item.origin}-${index}`} item={item} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ContextItemRow({ item }: { item: NonNullable<ChatContextPacketRecord["items"]>[number] }) {
+  const detail = [item.origin, item.included ? "" : "excluded"].filter(Boolean).join(" · ");
+  const body = item.body?.trim() || item.inclusion_reason?.trim() || item.body_ref?.trim();
+  return (
+    <div style={{ display: "grid", gap: 2 }}>
+      <div style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+        {item.title || item.kind}
+      </div>
+      {detail && (
+        <div
+          style={{
+            color: "var(--t3)",
+            fontSize: 10,
+            lineHeight: 1.5,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={detail}
+        >
+          {detail}
+        </div>
+      )}
+      {body && (
+        <div
+          style={{
+            color: "var(--t2)",
+            fontSize: 10,
+            lineHeight: 1.5,
+          }}
+        >
+          {body}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1029,8 +1109,25 @@ function contextPacketEmpty(packet: ChatContextPacketRecord): boolean {
     !packet.workspace &&
     !packet.system_prompt_included &&
     !packet.message_count &&
-    (packet.sources ?? []).length === 0
+    (packet.sources ?? []).length === 0 &&
+    (packet.items ?? []).length === 0
   );
+}
+
+function groupContextItemsByTrust(
+  items: NonNullable<ChatContextPacketRecord["items"]>,
+): ContextItemGroupRecord[] {
+  const groups = new Map<string, NonNullable<ChatContextPacketRecord["items"]>>();
+  for (const item of items) {
+    const trustLevel = item.trust_level || "runtime_state";
+    const group = groups.get(trustLevel) ?? [];
+    group.push(item);
+    groups.set(trustLevel, group);
+  }
+  return Array.from(groups.entries()).map(([trustLevel, groupItems]) => ({
+    trustLevel,
+    items: groupItems,
+  }));
 }
 
 function humanExecutionMode(mode: string): string {
@@ -1041,6 +1138,27 @@ function humanExecutionMode(mode: string): string {
       return "Hecate task runtime";
     default:
       return mode;
+  }
+}
+
+function humanTrustLevel(level: string): string {
+  switch (level) {
+    case "system_instruction":
+      return "System instruction";
+    case "operator_memory":
+      return "Operator memory";
+    case "workspace_guidance":
+      return "Workspace guidance";
+    case "runtime_state":
+      return "Runtime state";
+    case "tool_output":
+      return "Tool output";
+    case "generated_summary":
+      return "Generated summary";
+    case "external_untrusted":
+      return "External untrusted";
+    default:
+      return level.replaceAll("_", " ");
   }
 }
 

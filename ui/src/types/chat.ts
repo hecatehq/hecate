@@ -87,6 +87,7 @@ export type ChatContextPacketRecord = {
   system_prompt_included?: boolean;
   message_count?: number;
   sources?: ChatContextSourceRecord[];
+  items?: ChatContextItemRecord[];
 };
 
 export type ChatContextSourceRecord = {
@@ -94,6 +95,17 @@ export type ChatContextSourceRecord = {
   label: string;
   detail?: string;
   trust?: string;
+};
+
+export type ChatContextItemRecord = {
+  kind: string;
+  trust_level: string;
+  origin: string;
+  title: string;
+  body?: string;
+  body_ref?: string;
+  included: boolean;
+  inclusion_reason?: string;
 };
 
 export type ChatSegmentRecord = {

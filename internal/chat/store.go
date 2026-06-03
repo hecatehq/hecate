@@ -113,6 +113,7 @@ type ContextPacket struct {
 	SystemPromptIncluded bool            `json:"system_prompt_included,omitempty"`
 	MessageCount         int             `json:"message_count,omitempty"`
 	Sources              []ContextSource `json:"sources,omitempty"`
+	Items                []ContextItem   `json:"items,omitempty"`
 }
 
 type ContextSource struct {
@@ -120,6 +121,17 @@ type ContextSource struct {
 	Label  string `json:"label"`
 	Detail string `json:"detail,omitempty"`
 	Trust  string `json:"trust,omitempty"`
+}
+
+type ContextItem struct {
+	Kind            string `json:"kind"`
+	TrustLevel      string `json:"trust_level"`
+	Origin          string `json:"origin"`
+	Title           string `json:"title"`
+	Body            string `json:"body,omitempty"`
+	BodyRef         string `json:"body_ref,omitempty"`
+	Included        bool   `json:"included"`
+	InclusionReason string `json:"inclusion_reason,omitempty"`
 }
 
 func (packet ContextPacket) Empty() bool {
@@ -130,7 +142,8 @@ func (packet ContextPacket) Empty() bool {
 		packet.Workspace == "" &&
 		!packet.SystemPromptIncluded &&
 		packet.MessageCount == 0 &&
-		len(packet.Sources) == 0
+		len(packet.Sources) == 0 &&
+		len(packet.Items) == 0
 }
 
 type Usage struct {
@@ -391,6 +404,7 @@ func cloneSession(session Session) Session {
 	for i := range session.Messages {
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
 		session.Messages[i].Context.Sources = append([]ContextSource(nil), session.Messages[i].Context.Sources...)
+		session.Messages[i].Context.Items = append([]ContextItem(nil), session.Messages[i].Context.Items...)
 	}
 	return session
 }

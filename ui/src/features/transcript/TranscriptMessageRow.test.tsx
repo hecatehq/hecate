@@ -485,6 +485,26 @@ describe("TranscriptMessageRow", () => {
           trust: "system",
         },
       ],
+      items: [
+        {
+          kind: "system_prompt",
+          trust_level: "system_instruction",
+          origin: "task.system_prompt",
+          title: "System prompt",
+          body_ref: "task_system_prompt",
+          included: true,
+          inclusion_reason: "Configured for this turn",
+        },
+        {
+          kind: "workspace",
+          trust_level: "workspace_guidance",
+          origin: "/tmp/hecate",
+          title: "Workspace",
+          body_ref: "/tmp/hecate",
+          included: true,
+          inclusion_reason: "Workspace path selected",
+        },
+      ],
     };
 
     render(<TranscriptMessageRow {...baseProps} contextPacket={contextPacket} />);
@@ -494,9 +514,37 @@ describe("TranscriptMessageRow", () => {
     await user.click(summary);
 
     expect(screen.getByText("Hecate task runtime")).toBeInTheDocument();
-    expect(screen.getByText("/tmp/hecate")).toBeInTheDocument();
+    expect(screen.getAllByText("/tmp/hecate")).toHaveLength(2);
+    expect(screen.getByText("System instruction")).toBeInTheDocument();
+    expect(screen.getByText("Workspace guidance")).toBeInTheDocument();
     expect(screen.getByText("System prompt")).toBeInTheDocument();
     expect(screen.getByText("Configured for this turn")).toBeInTheDocument();
+  });
+
+  it("renders legacy context sources when itemized packet data is absent", async () => {
+    const user = userEvent.setup();
+    const contextPacket: ChatContextPacketRecord = {
+      execution_mode: "external_agent",
+      workspace: "/tmp/hecate",
+      message_count: 2,
+      sources: [
+        {
+          kind: "adapter_session",
+          label: "Cursor Agent ACP session",
+          detail: "The adapter owns model packing inside its native session",
+          trust: "adapter",
+        },
+      ],
+    };
+
+    render(<TranscriptMessageRow {...baseProps} contextPacket={contextPacket} />);
+    const summary = screen.getByText(/what the agent saw · 2 messages/);
+    await user.click(summary);
+
+    expect(screen.getByText("Cursor Agent ACP session")).toBeInTheDocument();
+    expect(
+      screen.getByText("The adapter owns model packing inside its native session"),
+    ).toBeInTheDocument();
   });
 
   it("links failed tools to related stdout and stderr artifacts", async () => {
