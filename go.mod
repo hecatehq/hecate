@@ -3,7 +3,7 @@ module github.com/hecatehq/hecate
 go 1.26.2
 
 require (
-	github.com/coder/acp-go-sdk v0.13.0
+	github.com/coder/acp-go-sdk v0.13.5
 	github.com/ncruces/zenity v0.10.14
 	github.com/spf13/cobra v1.10.2
 	go.opentelemetry.io/otel v1.44.0
