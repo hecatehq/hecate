@@ -462,7 +462,9 @@ function ToolOutputPreview({ title, output }: { title: string; output: string })
           <button
             aria-label={copyLabel}
             className="btn btn-ghost btn-sm"
-            onClick={() => navigator.clipboard?.writeText(preview).catch(() => {})}
+            onClick={() => {
+              void navigator.clipboard?.writeText(preview)?.catch(() => {});
+            }}
             style={{ fontSize: 10, padding: "1px 6px" }}
             type="button"
           >
@@ -515,7 +517,7 @@ function normalizeToolOutputPreview(output: string): string {
 }
 
 function normalizeRawToolOutput(output: string): string {
-  return stripAnsi(output).replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  return stripAnsi(output).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 function stripLineNumberGutters(output: string): string {

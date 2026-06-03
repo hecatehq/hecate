@@ -400,11 +400,12 @@ function toolActivityDetail(
 
 export function capturedToolOutput(activity: ChatActivityRecord): string | undefined {
   if (activity.type !== "tool_call") return undefined;
-  const preview = activity.artifact_preview?.trimEnd();
+  const preview = activity.artifact_preview;
+  const hasPreview = typeof preview === "string" && preview.trim().length > 0;
   const detail = activity.detail?.trim();
   const parsed = detail ? parseToolOutputDetail(detail)?.output : undefined;
-  if (preview && parsed) return parsed.length > preview.length ? parsed : preview;
-  return preview || parsed;
+  if (hasPreview && parsed) return parsed.length > preview.length ? parsed : preview;
+  return hasPreview ? preview : parsed;
 }
 
 function isThinkingToolActivity(activity: ChatActivityRecord): boolean {
