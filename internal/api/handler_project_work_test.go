@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -401,6 +402,44 @@ func TestProjectWorkAPI_StartAssignmentTerminalReturnsCurrentAssignment(t *testi
 	}
 	if len(tasks) != 0 {
 		t.Fatalf("tasks = %+v, want none created", tasks)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentPreservesTaskLinkWhenStartFails(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	failingRunner := orchestrator.NewRunner(quietLogger(), nil, nil, orchestrator.Config{})
+	t.Cleanup(func() { _ = failingRunner.Shutdown(t.Context()) })
+	handler.taskRunner = failingRunner
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("start failure status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: "proj_start", WorkItemID: "work_start"})
+	if err != nil {
+		t.Fatalf("ListAssignments: %v", err)
+	}
+	if len(assignments) != 1 {
+		t.Fatalf("assignments = %+v, want one assignment", assignments)
+	}
+	assignment := assignments[0]
+	if assignment.TaskID == "" {
+		t.Fatalf("assignment task_id is empty, want preserved task link")
+	}
+	if assignment.Status != projectwork.AssignmentStatusFailed {
+		t.Fatalf("assignment status = %q, want failed", assignment.Status)
+	}
+	if assignment.CompletedAt.IsZero() {
+		t.Fatalf("assignment completed_at is zero, want failure timestamp")
+	}
+	if _, found, err := handler.taskStore.GetTask(t.Context(), assignment.TaskID); err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want preserved task", assignment.TaskID, found, err)
 	}
 }
 
