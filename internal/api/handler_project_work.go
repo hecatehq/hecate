@@ -601,15 +601,17 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	if err != nil {
 		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
 			if item.TaskID == taskID && item.RunID == "" {
-				item.Status = projectwork.AssignmentStatusFailed
-				item.CompletedAt = time.Now().UTC()
+				item.TaskID = ""
+				item.Status = projectwork.AssignmentStatusQueued
+				item.StartedAt = time.Time{}
+				item.CompletedAt = time.Time{}
 			}
 		})
 		if updateErr != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("%s; assignment status update failed: %v", err.Error(), updateErr))
 			return
 		}
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task %s could not be created for assignment: %s", assignment.TaskID, err.Error()))
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task could not be created for assignment %s: %s", assignment.ID, err.Error()))
 		return
 	}
 

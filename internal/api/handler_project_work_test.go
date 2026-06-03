@@ -2,7 +2,9 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +17,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func newProjectWorkTestServer() (*Handler, http.Handler) {
@@ -513,6 +516,47 @@ func TestProjectWorkAPI_StartAssignmentPreservesTaskLinkWhenStartFails(t *testin
 	if _, found, err := handler.taskStore.GetTask(t.Context(), assignment.TaskID); err != nil || !found {
 		t.Fatalf("GetTask(%q) found=%v err=%v, want preserved task", assignment.TaskID, found, err)
 	}
+}
+
+func TestProjectWorkAPI_StartAssignmentClearsClaimWhenTaskCreateFails(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	handler.taskStore = failingCreateTaskStore{Store: handler.taskStore}
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("task create failure status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: "proj_start", WorkItemID: "work_start"})
+	if err != nil {
+		t.Fatalf("ListAssignments: %v", err)
+	}
+	if len(assignments) != 1 {
+		t.Fatalf("assignments = %+v, want one assignment", assignments)
+	}
+	assignment := assignments[0]
+	if assignment.TaskID != "" || assignment.RunID != "" {
+		t.Fatalf("assignment links = %q/%q, want cleared task/run links", assignment.TaskID, assignment.RunID)
+	}
+	if assignment.Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("assignment status = %q, want queued for retry", assignment.Status)
+	}
+	if !assignment.StartedAt.IsZero() || !assignment.CompletedAt.IsZero() {
+		t.Fatalf("assignment timestamps = started %v completed %v, want cleared", assignment.StartedAt, assignment.CompletedAt)
+	}
+}
+
+type failingCreateTaskStore struct {
+	taskstate.Store
+}
+
+func (s failingCreateTaskStore) CreateTask(context.Context, types.Task) (types.Task, error) {
+	return types.Task{}, errors.New("create task failed")
 }
 
 type projectWorkAssignmentStartSeed struct {
