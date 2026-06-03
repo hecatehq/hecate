@@ -318,8 +318,66 @@ describe("TranscriptMessageRow", () => {
     const onCopy = vi.fn();
     const user = userEvent.setup();
     render(<TranscriptMessageRow {...baseProps} onCopy={onCopy} />);
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("button", { name: "Copy message" }));
     expect(onCopy).toHaveBeenCalledWith("m1", "hello");
+  });
+
+  it("copies a quiet turn debug bundle for assistant messages", async () => {
+    const onCopy = vi.fn();
+    const user = userEvent.setup();
+    const contextPacket: ChatContextPacketRecord = {
+      execution_mode: "external_agent",
+      provider: "grok",
+      model: "grok-build",
+      workspace: "/tmp/hecate",
+      message_count: 2,
+      sources: [
+        {
+          kind: "workspace",
+          label: "Workspace",
+          detail: "/tmp/hecate",
+          trust: "local",
+        },
+      ],
+    };
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_shell",
+        status: "completed",
+        kind: "execute",
+        detail: "execute",
+      },
+    ];
+
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        activities={activities}
+        badge="completed"
+        contextPacket={contextPacket}
+        onCopy={onCopy}
+        runtimeMeta="Run run_123 · 2.0s"
+        runtimeMetaTitle="Run run_123 · Native session native_123"
+        taskLink={{ label: "Task task_123", onClick: vi.fn() }}
+        traceLink={{ label: "Trace req_1234", title: "request req_1234", onClick: vi.fn() }}
+        turnPrompt="What changed?"
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Copy turn debug bundle" }));
+
+    expect(onCopy).toHaveBeenCalledWith(
+      "m1:debug",
+      expect.stringContaining("Prompt\nWhat changed?"),
+    );
+    const bundle = onCopy.mock.calls[0][1] as string;
+    expect(bundle).toContain("Response\nhello");
+    expect(bundle).toContain("trace: Trace req_1234 (request req_1234)");
+    expect(bundle).toContain("task: Task task_123");
+    expect(bundle).toContain("Activity\n[completed] tool_call Ran command");
+    expect(bundle).toContain("Context packet\n");
+    expect(bundle).toContain('"workspace": "/tmp/hecate"');
   });
 
   it("renders task and trace header links as compact debug actions", async () => {
@@ -430,7 +488,7 @@ describe("TranscriptMessageRow", () => {
     };
 
     render(<TranscriptMessageRow {...baseProps} contextPacket={contextPacket} />);
-    const summary = screen.getByText(/context · 3 messages · ollama · llama3\.1:8b/);
+    const summary = screen.getByText(/what the agent saw · 3 messages · ollama · llama3\.1:8b/);
     expect(summary).toBeInTheDocument();
 
     await user.click(summary);
@@ -479,9 +537,14 @@ describe("TranscriptMessageRow", () => {
       />,
     );
 
+    await user.click(screen.getByRole("button", { name: "Open Task task_123" }));
+    expect(onOpenTask).toHaveBeenCalledTimes(1);
+
     await user.click(screen.getByText(/1 failed tool/));
-    await user.click(screen.getByText("Advanced"));
-    expect(screen.getByText(/Preview the related run output/)).toBeInTheDocument();
+    await user.click(screen.getByText(/Output and artifacts · 2 items/));
+    for (const summary of screen.getAllByText("Output")) {
+      await user.click(summary);
+    }
     expect(
       [...container.querySelectorAll("pre")].some((node) =>
         node.textContent?.startsWith("  diff --git"),
@@ -489,8 +552,6 @@ describe("TranscriptMessageRow", () => {
     ).toBe(true);
     expect(screen.getByText(/\+hello/)).toBeInTheDocument();
     expect(screen.getByText("fatal: not a git repository")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Open task output" }));
-    expect(onOpenTask).toHaveBeenCalledTimes(1);
   });
 
   it("does not link empty stderr artifacts from failed tools", async () => {
@@ -529,7 +590,8 @@ describe("TranscriptMessageRow", () => {
     );
 
     await user.click(screen.getByText(/1 failed tool/));
-    await user.click(screen.getByText("Advanced"));
+    await user.click(screen.getByText(/Output and artifacts · 1 item/));
+    await user.click(screen.getByText("Output"));
     expect(screen.getByText("stdout details")).toBeInTheDocument();
     expect(screen.queryByText("Preview unavailable in this snapshot.")).toBeNull();
   });
@@ -706,6 +768,27 @@ describe("TranscriptMessageRow", () => {
     expect(output).not.toHaveTextContent(/\d+\s*\|/);
   });
 
+  it("strips box-drawing line gutters from read-context output", async () => {
+    const user = userEvent.setup();
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_read",
+        status: "completed",
+        kind: "read",
+        detail: 'read · output: 1 │ <h1 align="center">\n2 │ <img src="docs/assets/brand.png">',
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    await user.click(screen.getByText("Output"));
+
+    const output = screen.getByText(/<h1 align="center">/);
+    expect(output.textContent).toContain('<h1 align="center">\n<img src="docs/assets/brand.png">');
+    expect(output).not.toHaveTextContent(/\d+\s*│/);
+  });
+
   it("does not duplicate captured diffs when the workspace-changes chip is available", () => {
     const diff = [
       "diff --git a/README.md b/README.md",
@@ -785,7 +868,7 @@ describe("TranscriptMessageRow", () => {
       />,
     );
 
-    const changesSummary = screen.getByText(/^workspace changes/);
+    const changesSummary = screen.getByText(/^workspace diff snapshot/);
     expect(changesSummary.tagName).toBe("SUMMARY");
     await user.click(changesSummary);
 

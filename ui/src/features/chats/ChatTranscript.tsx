@@ -207,26 +207,36 @@ export function ChatTranscript({
         onScroll={handleScroll}
         style={{ height: "100%", overflowY: "auto", padding: "16px 0" }}
       >
-        {transcriptItems.map((item) => {
-          if (item.type === "segment") {
-            return <ChatSegmentDivider key={item.key} segment={item.segment} />;
-          }
-          const m = item.message;
-          return (
-            <ChatTranscriptRow
-              key={item.key}
-              message={m}
-              isHecateAgentChat={isHecateAgentChat}
-              activeModel={activeChatSession?.model}
-              copied={copiedMsgId === m.id}
-              onCopy={handleCopy}
-              onOpenTask={handleOpenTask}
-              onOpenTrace={handleOpenTrace}
-              onOpenWorkspaceChanges={workspaceChangesHandler}
-              openExternalAgentSetup={handleOpenSetup}
-            />
-          );
-        })}
+        {(() => {
+          let latestUserPrompt = "";
+          return transcriptItems.map((item) => {
+            if (item.type === "segment") {
+              return <ChatSegmentDivider key={item.key} segment={item.segment} />;
+            }
+            const m = item.message;
+            const role = m.role === "assistant" ? "assistant" : "user";
+            const turnPrompt = role === "assistant" ? latestUserPrompt : undefined;
+            if (role === "user") {
+              latestUserPrompt = visibleMessageContent(m);
+            }
+            return (
+              <ChatTranscriptRow
+                key={item.key}
+                message={m}
+                isHecateAgentChat={isHecateAgentChat}
+                activeModel={activeChatSession?.model}
+                copied={copiedMsgId === m.id}
+                copiedDebug={copiedMsgId === `${m.id}:debug`}
+                turnPrompt={turnPrompt}
+                onCopy={handleCopy}
+                onOpenTask={handleOpenTask}
+                onOpenTrace={handleOpenTrace}
+                onOpenWorkspaceChanges={workspaceChangesHandler}
+                openExternalAgentSetup={handleOpenSetup}
+              />
+            );
+          });
+        })()}
 
         {/* Pending tool calls */}
         {pendingToolCalls.length > 0 && (
@@ -342,6 +352,8 @@ type ChatTranscriptRowProps = {
   isHecateAgentChat: boolean;
   activeModel?: string;
   copied: boolean;
+  copiedDebug: boolean;
+  turnPrompt?: string;
   onCopy: (id: string, text: string) => void;
   onOpenTask: (taskID: string, runID?: string) => void;
   onOpenTrace: (requestID: string) => void;
@@ -359,6 +371,8 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
   isHecateAgentChat,
   activeModel,
   copied,
+  copiedDebug,
+  turnPrompt,
   onCopy,
   onOpenTask,
   onOpenTrace,
@@ -366,8 +380,7 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
   openExternalAgentSetup,
 }: ChatTranscriptRowProps) {
   const role = m.role === "assistant" ? "assistant" : "user";
-  const content =
-    typeof m.content === "string" ? m.content : m.content === null ? "" : JSON.stringify(m.content);
+  const content = visibleMessageContent(m);
   const time = m.created_at
     ? new Date(m.created_at).toLocaleTimeString("en-US", {
         hour: "2-digit",
@@ -445,9 +458,17 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
       setupAction={externalAgentSetupAction(role, m, openExternalAgentSetup)}
       onCopy={onCopy}
       copied={copied}
+      copiedDebug={copiedDebug}
+      turnPrompt={turnPrompt}
     />
   );
 });
+
+function visibleMessageContent(message: VisibleChatMessage): string {
+  if (typeof message.content === "string") return message.content;
+  if (message.content === null) return "";
+  return JSON.stringify(message.content);
+}
 
 export function buildTranscriptItems(
   messages: VisibleChatMessage[],

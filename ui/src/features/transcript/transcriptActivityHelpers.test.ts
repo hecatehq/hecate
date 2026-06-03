@@ -350,6 +350,23 @@ describe("activityDisplay", () => {
     expect(capturedToolOutput(command)).toBe("total 88064 drwxr-xr-x@ 45 chicoxyzzy staff");
   });
 
+  it("keeps the command label while moving captured output into the preview", () => {
+    const command = activity({
+      type: "tool_call",
+      title: "call_shell",
+      status: "completed",
+      kind: "execute",
+      detail:
+        'execute · /bin/zsh -lc "ls -la" · output captured · total 88064 drwxr-xr-x@ 45 chicoxyzzy staff',
+    });
+
+    expect(activityDisplay(command)).toEqual({
+      title: "Ran command",
+      detail: '/bin/zsh -lc "ls -la"',
+    });
+    expect(capturedToolOutput(command)).toBe("total 88064 drwxr-xr-x@ 45 chicoxyzzy staff");
+  });
+
   it("uses adapter detail hints to humanize opaque external-agent tool ids", () => {
     expect(
       activityDisplay(
@@ -421,7 +438,7 @@ describe("activityDisplay", () => {
         activity({ type: "files_changed", title: "Files changed", detail: "2 files changed" }),
       ),
     ).toEqual({
-      title: "Workspace changes",
+      title: "Workspace diff snapshot",
       detail: "2 files changed",
     });
   });
