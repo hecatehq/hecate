@@ -153,10 +153,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		if loadErr == nil {
 			nativeID = previousNativeSessionID
 			resumed = true
-			configOptions = mergeACPSessionConfigOptions(
-				agentcontrols.FromACPOptions(loaded.ConfigOptions),
-				loaded.Models,
-			)
+			configOptions = agentcontrols.FromACPOptions(loaded.ConfigOptions)
 			configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
 			configOptions, loadErr = applySelectedACPModel(loadCtx, conn, nativeID, adapter, configOptions, selectedOptions)
 			if loadErr != nil {
@@ -207,10 +204,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			return nil, false, "", fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 		}
 		nativeID = string(created.SessionId)
-		configOptions = mergeACPSessionConfigOptions(
-			agentcontrols.FromACPOptions(created.ConfigOptions),
-			created.Models,
-		)
+		configOptions = agentcontrols.FromACPOptions(created.ConfigOptions)
 		configOptions, managedConfig = appendLaunchConfigOptions(ctx, command, adapter, configOptions, selectedOptions)
 		configOptions, err = applySelectedACPModel(newCtx, conn, nativeID, adapter, configOptions, selectedOptions)
 		cancel()
@@ -421,16 +415,28 @@ func (s *acpSession) SetACPModel(ctx context.Context, req SetSessionConfigOption
 	}
 	s.configMu.Unlock()
 
-	if _, err := s.conn.UnstableSetSessionModel(ctx, acp.UnstableSetSessionModelRequest{
-		SessionId: acp.SessionId(s.nativeID),
-		ModelId:   acp.UnstableModelId(value),
-	}); err != nil {
+	acpReq, err := agentcontrols.BuildACPSetRequest(agentcontrols.SetConfigOptionRequest{
+		SessionID: s.nativeID,
+		ConfigID:  req.ConfigID,
+		Value:     value,
+	})
+	if err != nil {
+		return SetSessionConfigOptionResult{}, err
+	}
+	resp, err := s.conn.SetSessionConfigOption(ctx, acpReq)
+	if err != nil {
 		return SetSessionConfigOptionResult{}, fmt.Errorf("select ACP model for %q: %w", s.adapter.ID, err)
 	}
 
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	options = cloneConfigOptions(s.configOptions)
+	updated := agentcontrols.FromACPOptions(resp.ConfigOptions)
+	if resp.ConfigOptions != nil {
+		updated = preserveACPModelConfigOption(updated, options)
+		s.configOptions = updated
+		return SetSessionConfigOptionResult{ConfigOptions: cloneConfigOptions(updated)}, nil
+	}
 	for i := range options {
 		if options[i].ID == req.ConfigID && options[i].Source == agentcontrols.ConfigOptionSourceACPModel {
 			options[i].CurrentValue = value
@@ -500,16 +506,6 @@ func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.Co
 	return out
 }
 
-func mergeACPSessionConfigOptions(options []agentcontrols.ConfigOption, models *acp.SessionModelState) []agentcontrols.ConfigOption {
-	modelOption, ok := agentcontrols.FromACPModelState(models)
-	if !ok || hasModelConfigOption(options) {
-		return options
-	}
-	// Surfacing ACP model state as a writable control relies on the adapter
-	// also supporting the matching unstable set-model RPC.
-	return append(options, modelOption)
-}
-
 func preserveACPModelConfigOption(options, previous []agentcontrols.ConfigOption) []agentcontrols.ConfigOption {
 	if hasModelConfigOption(options) {
 		return options
@@ -538,11 +534,21 @@ func applySelectedACPModel(ctx context.Context, conn *acp.ClientSideConnection, 
 		if !configOptionAllowsValue(out[i], value) {
 			return nil, fmt.Errorf("value %q is not available for %s %s", value, adapter.Name, out[i].Name)
 		}
-		if _, err := conn.UnstableSetSessionModel(ctx, acp.UnstableSetSessionModelRequest{
-			SessionId: acp.SessionId(nativeID),
-			ModelId:   acp.UnstableModelId(value),
-		}); err != nil {
+		acpReq, err := agentcontrols.BuildACPSetRequest(agentcontrols.SetConfigOptionRequest{
+			SessionID: nativeID,
+			ConfigID:  out[i].ID,
+			Value:     value,
+		})
+		if err != nil {
 			return nil, err
+		}
+		resp, err := conn.SetSessionConfigOption(ctx, acpReq)
+		if err != nil {
+			return nil, err
+		}
+		updated := agentcontrols.FromACPOptions(resp.ConfigOptions)
+		if resp.ConfigOptions != nil {
+			return preserveACPModelConfigOption(updated, out), nil
 		}
 		out[i].CurrentValue = value
 		return out, nil

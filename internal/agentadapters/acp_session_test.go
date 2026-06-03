@@ -1619,6 +1619,7 @@ type fakeACPSession struct {
 	turns  int
 	cancel context.CancelFunc
 	model  string
+	mode   string
 }
 
 func newFakeACPAgent() *fakeACPAgent {
@@ -1627,6 +1628,10 @@ func newFakeACPAgent() *fakeACPAgent {
 
 func (a *fakeACPAgent) Authenticate(context.Context, acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
 	return acp.AuthenticateResponse{}, nil
+}
+
+func (a *fakeACPAgent) Logout(context.Context, acp.LogoutRequest) (acp.LogoutResponse, error) {
+	return acp.LogoutResponse{}, nil
 }
 
 func (a *fakeACPAgent) Initialize(context.Context, acp.InitializeRequest) (acp.InitializeResponse, error) {
@@ -1645,12 +1650,11 @@ func (a *fakeACPAgent) NewSession(context.Context, acp.NewSessionRequest) (acp.N
 	}
 	id := fmt.Sprintf("fake_session_%d", time.Now().UnixNano())
 	a.mu.Lock()
-	a.sessions[id] = &fakeACPSession{model: "model-a"}
+	a.sessions[id] = &fakeACPSession{model: "model-a", mode: "ask"}
 	a.mu.Unlock()
 	return acp.NewSessionResponse{
 		SessionId:     acp.SessionId(id),
-		ConfigOptions: fakeACPConfigOptions("ask"),
-		Models:        fakeACPModelState("model-a"),
+		ConfigOptions: fakeACPConfigOptions("ask", "model-a"),
 	}, nil
 }
 
@@ -1659,11 +1663,10 @@ func (a *fakeACPAgent) LoadSession(_ context.Context, params acp.LoadSessionRequ
 		return acp.LoadSessionResponse{}, fmt.Errorf("fake persisted session %s not found", params.SessionId)
 	}
 	a.mu.Lock()
-	a.sessions[string(params.SessionId)] = &fakeACPSession{model: "model-a"}
+	a.sessions[string(params.SessionId)] = &fakeACPSession{model: "model-a", mode: "ask"}
 	a.mu.Unlock()
 	return acp.LoadSessionResponse{
-		ConfigOptions: fakeACPConfigOptions("ask"),
-		Models:        fakeACPModelState("model-a"),
+		ConfigOptions: fakeACPConfigOptions("ask", "model-a"),
 	}, nil
 }
 
@@ -1743,37 +1746,49 @@ func (a *fakeACPAgent) ResumeSession(context.Context, acp.ResumeSessionRequest) 
 }
 
 func (a *fakeACPAgent) SetSessionConfigOption(_ context.Context, params acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
-	if os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS") != "1" {
-		return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetConfigOption)
-	}
-	if params.ValueId == nil || string(params.ValueId.ConfigId) != "mode" {
+	if params.ValueId == nil {
 		return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("unexpected config option request: %#v", params)
 	}
-	value := string(params.ValueId.Value)
-	if value != "ask" && value != "auto" {
-		return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("mode %q not available", value)
-	}
-	return acp.SetSessionConfigOptionResponse{
-		ConfigOptions: fakeACPConfigOptions(value),
-	}, nil
-}
-
-func (a *fakeACPAgent) UnstableSetSessionModel(_ context.Context, params acp.UnstableSetSessionModelRequest) (acp.UnstableSetSessionModelResponse, error) {
-	if errMessage := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR")); errMessage != "" {
-		return acp.UnstableSetSessionModelResponse{}, fmt.Errorf("%s", errMessage)
-	}
-	session, err := a.session(params.SessionId)
+	session, err := a.session(params.ValueId.SessionId)
 	if err != nil {
-		return acp.UnstableSetSessionModelResponse{}, err
+		return acp.SetSessionConfigOptionResponse{}, err
 	}
-	model := string(params.ModelId)
-	if model != "model-a" && model != "model-b" {
-		return acp.UnstableSetSessionModelResponse{}, fmt.Errorf("model %q not available", model)
+	configID := string(params.ValueId.ConfigId)
+	value := string(params.ValueId.Value)
+	switch configID {
+	case "mode":
+		if os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS") != "1" {
+			return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetConfigOption)
+		}
+		if value != "ask" && value != "auto" {
+			return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("mode %q not available", value)
+		}
+		a.mu.Lock()
+		session.mode = value
+		a.mu.Unlock()
+	case "model":
+		if os.Getenv("HECATE_FAKE_ACP_MODELS") != "1" {
+			return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetConfigOption)
+		}
+		if errMessage := strings.TrimSpace(os.Getenv("HECATE_FAKE_ACP_SET_MODEL_ERROR")); errMessage != "" {
+			return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("%s", errMessage)
+		}
+		if value != "model-a" && value != "model-b" {
+			return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("model %q not available", value)
+		}
+		a.mu.Lock()
+		session.model = value
+		a.mu.Unlock()
+	default:
+		return acp.SetSessionConfigOptionResponse{}, fmt.Errorf("unexpected config option request: %#v", params)
 	}
 	a.mu.Lock()
-	session.model = model
+	mode := session.mode
+	model := session.model
 	a.mu.Unlock()
-	return acp.UnstableSetSessionModelResponse{}, nil
+	return acp.SetSessionConfigOptionResponse{
+		ConfigOptions: fakeACPConfigOptions(mode, model),
+	}, nil
 }
 
 func (a *fakeACPAgent) SetSessionMode(context.Context, acp.SetSessionModeRequest) (acp.SetSessionModeResponse, error) {
@@ -1790,35 +1805,39 @@ func (a *fakeACPAgent) session(id acp.SessionId) (*fakeACPSession, error) {
 	return session, nil
 }
 
-func fakeACPModelState(current string) *acp.SessionModelState {
-	if os.Getenv("HECATE_FAKE_ACP_MODELS") != "1" {
-		return nil
-	}
-	return &acp.SessionModelState{
-		CurrentModelId: acp.ModelId(current),
-		AvailableModels: []acp.ModelInfo{
-			{ModelId: acp.ModelId("model-a"), Name: "Model A"},
-			{ModelId: acp.ModelId("model-b"), Name: "Model B"},
-		},
-	}
-}
-
-func fakeACPConfigOptions(current string) []acp.SessionConfigOption {
-	if os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS") != "1" {
-		return nil
-	}
-	options := acp.SessionConfigSelectOptionsUngrouped{
-		{Value: acp.SessionConfigValueId("ask"), Name: "Ask"},
-		{Value: acp.SessionConfigValueId("auto"), Name: "Auto"},
-	}
-	return []acp.SessionConfigOption{
-		{Select: &acp.SessionConfigOptionSelect{
+func fakeACPConfigOptions(mode, model string) []acp.SessionConfigOption {
+	var out []acp.SessionConfigOption
+	if os.Getenv("HECATE_FAKE_ACP_CONFIG_OPTIONS") == "1" {
+		options := acp.SessionConfigSelectOptionsUngrouped{
+			{Value: acp.SessionConfigValueId("ask"), Name: "Ask"},
+			{Value: acp.SessionConfigValueId("auto"), Name: "Auto"},
+		}
+		out = append(out, acp.SessionConfigOption{Select: &acp.SessionConfigOptionSelect{
 			Id:           acp.SessionConfigId("mode"),
 			Name:         "Mode",
-			CurrentValue: acp.SessionConfigValueId(current),
+			CurrentValue: acp.SessionConfigValueId(mode),
 			Options:      acp.SessionConfigSelectOptions{Ungrouped: &options},
-		}},
+		}})
 	}
+	if os.Getenv("HECATE_FAKE_ACP_MODELS") == "1" {
+		category := acp.SessionConfigOptionCategoryModel
+		options := acp.SessionConfigSelectOptionsUngrouped{
+			{Value: acp.SessionConfigValueId("model-a"), Name: "Model A"},
+			{Value: acp.SessionConfigValueId("model-b"), Name: "Model B"},
+		}
+		out = append(out, acp.SessionConfigOption{Select: &acp.SessionConfigOptionSelect{
+			Id:           acp.SessionConfigId("model"),
+			Name:         "Model",
+			Description:  acp.Ptr("Model selected through the agent's ACP session."),
+			Category:     &category,
+			CurrentValue: acp.SessionConfigValueId(model),
+			Options:      acp.SessionConfigSelectOptions{Ungrouped: &options},
+		}})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func promptText(blocks []acp.ContentBlock) string {

@@ -67,51 +67,6 @@ func FromACPOptions(options []acp.SessionConfigOption) []ConfigOption {
 	return out
 }
 
-// FromACPModelState converts ACP's model-specific state into the same stable
-// option projection the UI already uses for model pickers.
-func FromACPModelState(models *acp.SessionModelState) (ConfigOption, bool) {
-	if models == nil {
-		return ConfigOption{}, false
-	}
-	current := string(models.CurrentModelId)
-	options := make([]ConfigSelectOption, 0, len(models.AvailableModels))
-	foundCurrent := current == ""
-	for _, model := range models.AvailableModels {
-		value := string(model.ModelId)
-		if value == "" {
-			continue
-		}
-		name := model.Name
-		if name == "" {
-			name = value
-		}
-		if value == current {
-			foundCurrent = true
-		}
-		options = append(options, ConfigSelectOption{
-			Value:       value,
-			Name:        name,
-			Description: derefString(model.Description),
-		})
-	}
-	if !foundCurrent {
-		options = append([]ConfigSelectOption{{
-			Value: current,
-			Name:  current,
-		}}, options...)
-	}
-	return ConfigOption{
-		ID:           "model",
-		Name:         "Model",
-		Description:  "Model selected through the agent's ACP session.",
-		Category:     "model",
-		Source:       ConfigOptionSourceACPModel,
-		Type:         ConfigOptionTypeSelect,
-		CurrentValue: current,
-		Options:      options,
-	}, true
-}
-
 // BuildACPSetRequest converts a SetConfigOptionRequest to the ACP wire shape.
 // Exactly one of BoolValue (for boolean options) or Value (for select options)
 // must be set; supplying both is an error.
@@ -157,11 +112,13 @@ func unknownACPOption(index int) ConfigOption {
 }
 
 func fromACPSelect(option acp.SessionConfigOptionSelect) ConfigOption {
+	category := categoryString(option.Category)
 	return ConfigOption{
 		ID:           string(option.Id),
 		Name:         option.Name,
 		Description:  derefString(option.Description),
-		Category:     categoryString(option.Category),
+		Category:     category,
+		Source:       acpSelectSource(category),
 		Type:         ConfigOptionTypeSelect,
 		CurrentValue: string(option.CurrentValue),
 		Options:      flattenACPSelectOptions(option.Options),
@@ -215,6 +172,13 @@ func categoryString(category *acp.SessionConfigOptionCategory) string {
 		return ""
 	}
 	return string(*category)
+}
+
+func acpSelectSource(category string) string {
+	if category == string(acp.SessionConfigOptionCategoryModel) {
+		return ConfigOptionSourceACPModel
+	}
+	return ""
 }
 
 func derefString(value *string) string {
