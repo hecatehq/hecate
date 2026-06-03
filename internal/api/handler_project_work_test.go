@@ -81,6 +81,15 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
+		"id":"work_backend",
+		"title":"Duplicate backend substrate"
+	}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate work item status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend", bytes.NewReader([]byte(`{"status":"ready","reviewer_role_ids":["reviewer_qa"]}`))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch work item status = %d body=%s, want 200", rec.Code, rec.Body.String())

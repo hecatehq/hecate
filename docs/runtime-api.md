@@ -1189,6 +1189,8 @@ orchestration. It records project-scoped agent roles, work items, assignment
 metadata, and collaboration artifacts. It does not add a new execution runtime:
 existing Tasks and Chats remain the execution surfaces, and V1 assignment
 creation only records intended or already-linked execution metadata.
+Create requests that supply an existing project-scoped ID return `409 conflict`
+instead of overwriting the existing record.
 
 Role list responses merge built-in roles with project custom roles. Built-ins
 are listable but immutable and are not seeded as duplicate project rows. The

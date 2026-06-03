@@ -37,6 +37,7 @@ var (
 	ErrInvalid       = errors.New("invalid project work record")
 	ErrBuiltInRole   = errors.New("built-in role cannot be mutated")
 	ErrDuplicateRole = errors.New("project role already exists")
+	ErrDuplicate     = errors.New("project work record already exists")
 )
 
 type AgentRoleProfile struct {
@@ -281,7 +282,11 @@ func (s *MemoryStore) CreateWorkItem(_ context.Context, item WorkItem) (WorkItem
 	if err := validateWorkItem(item); err != nil {
 		return WorkItem{}, err
 	}
-	s.workItems[workItemKey(item.ProjectID, item.ID)] = cloneWorkItem(item)
+	key := workItemKey(item.ProjectID, item.ID)
+	if _, exists := s.workItems[key]; exists {
+		return WorkItem{}, ErrDuplicate
+	}
+	s.workItems[key] = cloneWorkItem(item)
 	return cloneWorkItem(item), nil
 }
 
@@ -377,7 +382,11 @@ func (s *MemoryStore) CreateAssignment(_ context.Context, assignment Assignment)
 	if _, ok := s.workItems[workItemKey(assignment.ProjectID, assignment.WorkItemID)]; !ok {
 		return Assignment{}, fmt.Errorf("%w: work item not found", ErrNotFound)
 	}
-	s.assignments[assignmentKey(assignment.ProjectID, assignment.ID)] = cloneAssignment(assignment)
+	key := assignmentKey(assignment.ProjectID, assignment.ID)
+	if _, exists := s.assignments[key]; exists {
+		return Assignment{}, ErrDuplicate
+	}
+	s.assignments[key] = cloneAssignment(assignment)
 	return cloneAssignment(assignment), nil
 }
 
@@ -454,7 +463,11 @@ func (s *MemoryStore) CreateArtifact(_ context.Context, artifact CollaborationAr
 			return CollaborationArtifact{}, fmt.Errorf("%w: assignment not found", ErrNotFound)
 		}
 	}
-	s.artifacts[artifactKey(artifact.ProjectID, artifact.ID)] = cloneArtifact(artifact)
+	key := artifactKey(artifact.ProjectID, artifact.ID)
+	if _, exists := s.artifacts[key]; exists {
+		return CollaborationArtifact{}, ErrDuplicate
+	}
+	s.artifacts[key] = cloneArtifact(artifact)
 	return cloneArtifact(artifact), nil
 }
 

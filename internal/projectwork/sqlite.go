@@ -438,6 +438,9 @@ INSERT INTO %s (
 		formatTime(assignment.UpdatedAt), formatTime(assignment.StartedAt), formatTime(assignment.CompletedAt),
 	)
 	if err != nil {
+		if isSQLiteConstraint(err) {
+			return Assignment{}, ErrDuplicate
+		}
 		return Assignment{}, err
 	}
 	return s.getRequiredAssignment(ctx, assignment.ProjectID, assignment.ID)
@@ -536,8 +539,11 @@ func (s *SQLiteStore) CreateArtifact(ctx context.Context, artifact Collaboration
 	}
 	if artifact.AssignmentID != "" {
 		assignment, err := s.getRequiredAssignment(ctx, artifact.ProjectID, artifact.AssignmentID)
-		if err != nil {
+		if errors.Is(err, ErrNotFound) {
 			return CollaborationArtifact{}, fmt.Errorf("%w: assignment not found", err)
+		}
+		if err != nil {
+			return CollaborationArtifact{}, err
 		}
 		if assignment.WorkItemID != artifact.WorkItemID {
 			return CollaborationArtifact{}, fmt.Errorf("%w: assignment not found", ErrNotFound)
@@ -552,6 +558,9 @@ INSERT INTO %s (
 		formatTime(artifact.CreatedAt), formatTime(artifact.UpdatedAt),
 	)
 	if err != nil {
+		if isSQLiteConstraint(err) {
+			return CollaborationArtifact{}, ErrDuplicate
+		}
 		return CollaborationArtifact{}, err
 	}
 	return s.getRequiredArtifact(ctx, artifact.ProjectID, artifact.ID)
@@ -622,6 +631,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.workItemsTbl),
 		item.ID, item.ProjectID, item.Title, item.Brief, item.Status, item.Priority,
 		item.OwnerRoleID, formatTime(item.CreatedAt), formatTime(item.UpdatedAt),
 	); err != nil {
+		if isSQLiteConstraint(err) {
+			return ErrDuplicate
+		}
 		return err
 	}
 	return s.replaceReviewers(ctx, tx, item)

@@ -568,7 +568,7 @@ func writeProjectWorkError(w http.ResponseWriter, err error) bool {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, err.Error())
 	case errors.Is(err, projectwork.ErrInvalid):
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	case errors.Is(err, projectwork.ErrBuiltInRole), errors.Is(err, projectwork.ErrDuplicateRole):
+	case errors.Is(err, projectwork.ErrBuiltInRole), errors.Is(err, projectwork.ErrDuplicateRole), errors.Is(err, projectwork.ErrDuplicate):
 		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
 	default:
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())

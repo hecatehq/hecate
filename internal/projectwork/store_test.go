@@ -137,6 +137,16 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 				t.Fatalf("artifact = %+v, want brief artifact", artifact)
 			}
 
+			if _, err := store.CreateWorkItem(ctx, WorkItem{ID: "work_api", ProjectID: "proj_alpha", Title: "Duplicate"}); !errors.Is(err, ErrDuplicate) {
+				t.Fatalf("duplicate CreateWorkItem error = %v, want ErrDuplicate", err)
+			}
+			if _, err := store.CreateAssignment(ctx, Assignment{ID: "asgn_impl", ProjectID: "proj_alpha", WorkItemID: "work_api", RoleID: "software_developer"}); !errors.Is(err, ErrDuplicate) {
+				t.Fatalf("duplicate CreateAssignment error = %v, want ErrDuplicate", err)
+			}
+			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_brief", ProjectID: "proj_alpha", WorkItemID: "work_api", Kind: ArtifactKindBrief, Body: "Duplicate"}); !errors.Is(err, ErrDuplicate) {
+				t.Fatalf("duplicate CreateArtifact error = %v, want ErrDuplicate", err)
+			}
+
 			assignments, err := store.ListAssignments(ctx, AssignmentFilter{ProjectID: "proj_alpha", WorkItemID: "work_api"})
 			if err != nil {
 				t.Fatalf("ListAssignments: %v", err)
