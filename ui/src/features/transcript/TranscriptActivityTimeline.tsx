@@ -141,7 +141,7 @@ export function TranscriptActivityTimeline({
           ? `${failedTools} failed tool${failedTools === 1 ? "" : "s"}`
           : `${tools.length} tool${tools.length === 1 ? "" : "s"}`
       : "",
-    diffStat ? "workspace changes" : "",
+    diffStat ? "workspace diff snapshot" : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -223,6 +223,8 @@ function TimelineActivityLine({
 }) {
   const children = activity.children ?? [];
   const advancedContent = renderAdvancedActivity?.(activity);
+  const shouldAutoOpenAdvanced =
+    activity.type !== "tool_group" && activityEffectiveStatus(activity) === "failed";
   const line =
     activity.type === "plan" ? (
       <PlanActivityLine activity={activity} />
@@ -230,7 +232,10 @@ function TimelineActivityLine({
       <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />
     );
   const hasAdvanced = children.length > 0 || Boolean(advancedContent);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(shouldAutoOpenAdvanced);
+  useEffect(() => {
+    if (shouldAutoOpenAdvanced) setAdvancedOpen(true);
+  }, [shouldAutoOpenAdvanced]);
   if (!hasAdvanced) return line;
 
   return (
@@ -238,6 +243,7 @@ function TimelineActivityLine({
       {line}
       <details
         onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+        open={advancedOpen}
         style={{ marginLeft: 15 }}
       >
         <summary
@@ -320,7 +326,8 @@ function CommandGroupActivities({
 
 function advancedSummaryLabel(activity: ChatActivityRecord): string {
   if (activity.type === "tool_group" && (activity.children?.length ?? 0) > 0) return "Commands";
-  if (activity.type === "changed_files" || activity.type === "files_changed") return "Files";
+  if (activity.type === "changed_files" || activity.type === "files_changed")
+    return "Workspace diff";
   if (activity.type === "output") return "Output";
   if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Output";
   if (

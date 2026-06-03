@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import type {
   ChatActivityRecord,
@@ -13,7 +13,11 @@ import { DiffViewer } from "../shared/DiffViewer";
 import { Icon, Icons } from "../shared/Icons";
 import { DiffStatList, TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
-import { capturedToolOutput } from "./transcriptActivityHelpers";
+import {
+  activityDisplay,
+  activityEffectiveStatus,
+  capturedToolOutput,
+} from "./transcriptActivityHelpers";
 
 const ANSI_ESCAPE_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
@@ -44,6 +48,8 @@ export function TranscriptMessageRow({
   setupAction,
   onCopy,
   copied,
+  turnPrompt,
+  copiedDebug,
 }: {
   id: string;
   role: "user" | "assistant";
@@ -77,6 +83,8 @@ export function TranscriptMessageRow({
   setupAction?: { label: string; title?: string; onClick: () => void };
   onCopy: (id: string, text: string) => void;
   copied: boolean;
+  turnPrompt?: string;
+  copiedDebug?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const isAssistant = role === "assistant";
@@ -115,7 +123,7 @@ export function TranscriptMessageRow({
   const renderActivityAdvanced =
     isAssistant && visibleActivities?.length
       ? (activity: ChatActivityRecord) =>
-          renderAgentActivityAdvanced(activity, visibleActivities, {
+          renderAgentActivityAdvanced(activity, {
             taskLink,
             diffStat,
             diff,
@@ -210,10 +218,45 @@ export function TranscriptMessageRow({
                 transition: "opacity 0.15s",
               }}
             >
+              {isAssistant && (
+                <button
+                  aria-label="Copy turn debug bundle"
+                  className="btn btn-ghost btn-sm"
+                  title="Copy prompt, response, activity summary, trace, and context packet"
+                  style={{ padding: "2px 6px", gap: 4 }}
+                  onClick={() =>
+                    onCopy(
+                      `${id}:debug`,
+                      buildTurnDebugBundle({
+                        id,
+                        model,
+                        badge,
+                        content,
+                        turnPrompt,
+                        traceLabel: traceLink?.label,
+                        traceTitle: traceLink?.title,
+                        taskLabel: taskLink?.label,
+                        runtimeMeta,
+                        runtimeMetaTitle,
+                        diffStat,
+                        activities: visibleActivities,
+                        contextPacket,
+                        error,
+                      }),
+                    )
+                  }
+                  type="button"
+                >
+                  <Icon d={copiedDebug ? Icons.check : Icons.copy} size={12} />
+                  <span style={{ fontSize: 10 }}>debug</span>
+                </button>
+              )}
               <button
+                aria-label="Copy message"
                 className="btn btn-ghost btn-sm"
                 style={{ padding: "2px 6px", gap: 4 }}
                 onClick={() => onCopy(id, content)}
+                type="button"
               >
                 <Icon d={copied ? Icons.check : Icons.copy} size={12} />
               </button>
@@ -304,7 +347,6 @@ export function TranscriptMessageRow({
 
 function renderAgentActivityAdvanced(
   activity: ChatActivityRecord,
-  activities: ChatActivityRecord[],
   options: {
     taskLink?: { label: string; title?: string; onClick: () => void };
     diffStat?: string;
@@ -335,34 +377,24 @@ function renderAgentActivityAdvanced(
   }
 
   if (activity.type !== "tool_call" || activity.status !== "failed") return null;
-
-  const outputArtifacts = relatedOutputArtifacts(activities);
-  if (outputArtifacts.length === 0) return null;
+  if (!options.taskLink) return null;
 
   return (
     <div style={{ display: "grid", gap: 7 }}>
       <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.5 }}>
-        This tool failed. Preview the related run output here, or open the backing task for the full
-        capture.
+        This tool failed. Open the backing task for the full run output and approval history.
       </div>
-      <div style={{ display: "grid", gap: 7 }}>
-        {outputArtifacts.map((artifact) => (
-          <OutputArtifactPreview key={artifact.artifact_id || artifact.title} artifact={artifact} />
-        ))}
+      <div>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={options.taskLink.onClick}
+          title={`Open ${options.taskLink.label} output`}
+          style={{ fontSize: 10, padding: "2px 7px" }}
+        >
+          Open task output
+        </button>
       </div>
-      {options.taskLink && (
-        <div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={options.taskLink.onClick}
-            title={`Open ${options.taskLink.label} output`}
-            style={{ fontSize: 10, padding: "2px 7px" }}
-          >
-            Open task output
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -398,7 +430,12 @@ function ActivityFilesPreview({
 }
 
 function ToolOutputPreview({ title, output }: { title: string; output: string }) {
-  const preview = normalizeToolOutputPreview(output);
+  const [showRaw, setShowRaw] = useState(false);
+  const [wrap, setWrap] = useState(true);
+  const prettyPreview = useMemo(() => normalizeToolOutputPreview(output), [output]);
+  const rawPreview = useMemo(() => normalizeRawToolOutput(output), [output]);
+  const preview = showRaw ? rawPreview : prettyPreview;
+  const copyLabel = `Copy ${title}`;
   return (
     <div
       style={{
@@ -410,14 +447,46 @@ function ToolOutputPreview({ title, output }: { title: string; output: string })
     >
       <div
         style={{
+          alignItems: "center",
           borderBottom: "1px solid var(--border)",
           color: "var(--t1)",
+          display: "flex",
+          gap: 8,
           fontFamily: "var(--font-mono)",
           fontSize: 10,
           padding: "4px 7px",
         }}
       >
-        {title}
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{title}</span>
+        <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+          <button
+            aria-label={copyLabel}
+            className="btn btn-ghost btn-sm"
+            onClick={() => navigator.clipboard?.writeText(preview).catch(() => {})}
+            style={{ fontSize: 10, padding: "1px 6px" }}
+            type="button"
+          >
+            Copy
+          </button>
+          <button
+            aria-label={showRaw ? `Show cleaned ${title}` : `Show raw ${title}`}
+            className="btn btn-ghost btn-sm"
+            onClick={() => setShowRaw((current) => !current)}
+            style={{ fontSize: 10, padding: "1px 6px" }}
+            type="button"
+          >
+            {showRaw ? "Clean" : "Raw"}
+          </button>
+          <button
+            aria-label={wrap ? `Disable wrapping for ${title}` : `Wrap ${title}`}
+            className="btn btn-ghost btn-sm"
+            onClick={() => setWrap((current) => !current)}
+            style={{ fontSize: 10, padding: "1px 6px" }}
+            type="button"
+          >
+            {wrap ? "No wrap" : "Wrap"}
+          </button>
+        </div>
       </div>
       <pre
         style={{
@@ -429,7 +498,7 @@ function ToolOutputPreview({ title, output }: { title: string; output: string })
           maxHeight: 180,
           overflow: "auto",
           padding: "7px",
-          whiteSpace: "pre-wrap",
+          whiteSpace: wrap ? "pre-wrap" : "pre",
         }}
       >
         {preview}
@@ -439,24 +508,26 @@ function ToolOutputPreview({ title, output }: { title: string; output: string })
 }
 
 function normalizeToolOutputPreview(output: string): string {
-  const withoutAnsi = stripAnsi(output).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-  return stripLineNumberGutters(withoutAnsi)
+  return stripLineNumberGutters(normalizeRawToolOutput(output))
     .replace(/^\n+/, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
+function normalizeRawToolOutput(output: string): string {
+  return stripAnsi(output).replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+}
+
 function stripLineNumberGutters(output: string): string {
   if (!looksLikeLineNumberGutter(output)) return output;
   return output
-    .replace(/(^|\n)[ \t]*\d{1,6}\s*(?:>|→|\|)\s*/g, "$1")
-    .replace(/[ \t]+\d{1,6}\s*(?:>|→|\|)\s*/g, "\n");
+    .replace(/(^|\n)[ \t]*\d{1,6}\s*(?:>|→|\||│)\s*/g, "$1")
+    .replace(/[ \t]+\d{1,6}\s*(?:>|→|\||│)\s*/g, "\n");
 }
 
 function looksLikeLineNumberGutter(output: string): boolean {
-  const matches = output.match(/(?:^|[ \t\n])\d{1,6}\s*(?:>|→|\|)\s*/g) ?? [];
-  return matches.length > 1 || /^[ \t]*\d{1,6}\s*(?:>|→|\|)\s*/.test(output);
+  const matches = output.match(/(?:^|[ \t\n])\d{1,6}\s*(?:>|→|\||│)\s*/g) ?? [];
+  return matches.length > 1 || /^[ \t]*\d{1,6}\s*(?:>|→|\||│)\s*/.test(output);
 }
 
 function stripAnsi(value: string): string {
@@ -477,7 +548,7 @@ function CapturedDiffDetails({ diffStat, diff }: { diffStat?: string; diff?: str
           fontSize: 11,
         }}
       >
-        workspace changes{summary ? ` · ${summary}` : ""}
+        workspace diff snapshot{summary ? ` · ${summary}` : ""}
       </summary>
       <div style={{ display: "grid", gap: 7, marginTop: 6 }}>
         {stat && <DiffStatList diffStat={stat} />}
@@ -554,22 +625,6 @@ function OutputArtifactPreview({ artifact }: { artifact: ChatActivityRecord }) {
       )}
     </div>
   );
-}
-
-function relatedOutputArtifacts(activities: ChatActivityRecord[]): ChatActivityRecord[] {
-  const seen = new Set<string>();
-  const out: ChatActivityRecord[] = [];
-  for (const activity of activities) {
-    if (activity.type !== "artifact") continue;
-    if ((activity.artifact_size_bytes ?? 0) <= 0) continue;
-    const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
-    if (!/\b(std(out|err)|git-std(out|err))\b/.test(label)) continue;
-    const key = activity.artifact_id || activity.title;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(activity);
-  }
-  return out;
 }
 
 function isOutputArtifactActivity(activity: ChatActivityRecord): boolean {
@@ -805,7 +860,7 @@ function ContextInspector({ packet }: { packet: ChatContextPacketRecord }) {
   const modelLabel = [packet.provider, packet.model].filter(Boolean).join(" · ");
   const sources = packet.sources ?? [];
   const summaryParts = [
-    "context",
+    "what the agent saw",
     packet.message_count
       ? `${packet.message_count} message${packet.message_count === 1 ? "" : "s"}`
       : "",
@@ -1033,4 +1088,68 @@ function formatLineCount(value: string): string {
   if (!trimmed) return "0 lines";
   const count = trimmed.split(/\r?\n/).length;
   return `${count} line${count === 1 ? "" : "s"}`;
+}
+
+function buildTurnDebugBundle(input: {
+  id: string;
+  model?: string;
+  badge?: string;
+  content: string;
+  turnPrompt?: string;
+  traceLabel?: string;
+  traceTitle?: string;
+  taskLabel?: string;
+  runtimeMeta?: string;
+  runtimeMetaTitle?: string;
+  diffStat?: string;
+  activities?: ChatActivityRecord[];
+  contextPacket?: ChatContextPacketRecord;
+  error?: string;
+}): string {
+  const sections: string[] = [];
+  const meta = [
+    `message: ${input.id}`,
+    input.model ? `model: ${input.model}` : "",
+    input.badge ? `status: ${input.badge}` : "",
+    input.taskLabel ? `task: ${input.taskLabel}` : "",
+    input.traceLabel
+      ? `trace: ${input.traceLabel}${input.traceTitle ? ` (${input.traceTitle})` : ""}`
+      : "",
+    input.runtimeMeta
+      ? `runtime: ${input.runtimeMeta}${input.runtimeMetaTitle ? ` (${input.runtimeMetaTitle})` : ""}`
+      : "",
+  ].filter(Boolean);
+  sections.push(["Turn", ...meta].join("\n"));
+  if (input.turnPrompt?.trim()) {
+    sections.push(`Prompt\n${input.turnPrompt.trim()}`);
+  }
+  if (input.content.trim()) {
+    sections.push(`Response\n${input.content.trim()}`);
+  }
+  if (input.error?.trim()) {
+    sections.push(`Error\n${input.error.trim()}`);
+  }
+  if (input.diffStat?.trim()) {
+    sections.push(`Workspace diff\n${input.diffStat.trim()}`);
+  }
+  if (input.activities?.length) {
+    sections.push(`Activity\n${input.activities.map(formatDebugActivity).join("\n")}`);
+  }
+  if (input.contextPacket && !contextPacketEmpty(input.contextPacket)) {
+    sections.push(`Context packet\n${JSON.stringify(input.contextPacket, null, 2)}`);
+  }
+  return `${sections.join("\n\n")}\n`;
+}
+
+function formatDebugActivity(activity: ChatActivityRecord): string {
+  const display = activityDisplay(activity);
+  const status = activityEffectiveStatus(activity);
+  return [
+    status ? `[${status}]` : "",
+    activity.type,
+    display.title,
+    display.detail ? `— ${display.detail}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }

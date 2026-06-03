@@ -294,7 +294,7 @@ describe("TaskDetail runtime activity and patches", () => {
 
     expect(screen.getByText("Ran git")).toBeTruthy();
     expect(screen.getByText("Artifacts · 2 items")).toBeTruthy();
-    expect(screen.getAllByText("Workspace changes").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Workspace diff snapshot").length).toBeGreaterThan(0);
     expect(screen.getAllByText("git-changes.json").length).toBeGreaterThan(0);
     expect(screen.getByText("Final answer artifact")).toBeTruthy();
     expect(screen.getAllByText("agent-final-answer.txt").length).toBeGreaterThan(0);
@@ -348,8 +348,8 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText(/builtin\.agent_loop/)).toBeVisible();
   });
 
-  it("previews related stdout and stderr on failed tool advanced details", async () => {
-    const { render, user } = setup({
+  it("previews related stdout and stderr on failed tool advanced details", () => {
+    const { render } = setup({
       activity: [
         makeActivity({
           id: "activity-tool",
@@ -392,8 +392,6 @@ describe("TaskDetail runtime activity and patches", () => {
     render();
 
     expect(screen.getByText("Artifacts · 2 items")).toBeTruthy();
-    await user.click(screen.getAllByText("Advanced")[0]);
-
     expect(screen.getByText(/This tool failed/)).toBeTruthy();
     expect(screen.getByText("command")).toBeTruthy();
     expect(screen.getByText("git status")).toBeTruthy();
@@ -437,8 +435,8 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText(/nothing to commit/)).toBeTruthy();
   });
 
-  it("keeps empty stderr discoverable for failed tool diagnostics", async () => {
-    const { render, user } = setup({
+  it("keeps empty stderr discoverable for failed tool diagnostics", () => {
+    const { render } = setup({
       activity: [
         makeActivity({
           id: "activity-tool",
@@ -478,15 +476,13 @@ describe("TaskDetail runtime activity and patches", () => {
     });
     render();
 
-    await user.click(screen.getAllByText("Advanced")[0]);
-
     expect(screen.getByText("stdout notes")).toBeTruthy();
     expect(screen.getByText("shell-stderr.txt")).toBeTruthy();
     expect(screen.getByText("No bytes captured for this stream.")).toBeTruthy();
   });
 
-  it("shows missing output streams for failed tool diagnostics", async () => {
-    const { render, user } = setup({
+  it("shows missing output streams for failed tool diagnostics", () => {
+    const { render } = setup({
       activity: [
         makeActivity({
           id: "activity-tool",
@@ -502,8 +498,6 @@ describe("TaskDetail runtime activity and patches", () => {
     });
     render();
 
-    await user.click(screen.getAllByText("Advanced")[0]);
-
     expect(screen.getByText("git status")).toBeTruthy();
     expect(screen.getByText("128")).toBeTruthy();
     expect(
@@ -511,8 +505,8 @@ describe("TaskDetail runtime activity and patches", () => {
     ).toBeTruthy();
   });
 
-  it("does not show output from another step when a failed tool has no matching artifacts", async () => {
-    const { render, user } = setup({
+  it("does not show output from another step when a failed tool has no matching artifacts", () => {
+    const { render } = setup({
       activity: [
         makeActivity({
           id: "activity-tool",
@@ -541,16 +535,14 @@ describe("TaskDetail runtime activity and patches", () => {
     });
     render();
 
-    await user.click(screen.getAllByText("Advanced")[0]);
-
     expect(
       screen.getByText("No stdout or stderr artifacts were captured for this tool."),
     ).toBeTruthy();
     expect(screen.queryByText("unrelated output")).toBeNull();
   });
 
-  it("shows when a failed tool has stdout but no stderr artifact", async () => {
-    const { render, user } = setup({
+  it("shows when a failed tool has stdout but no stderr artifact", () => {
+    const { render } = setup({
       activity: [
         makeActivity({
           id: "activity-tool",
@@ -578,8 +570,6 @@ describe("TaskDetail runtime activity and patches", () => {
       ],
     });
     render();
-
-    await user.click(screen.getAllByText("Advanced")[0]);
 
     expect(screen.getByText("stdout only")).toBeTruthy();
     expect(screen.getByText("stderr artifact was not captured for this tool.")).toBeTruthy();

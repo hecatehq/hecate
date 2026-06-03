@@ -267,7 +267,7 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
     return { title: "Thinking", detail: activity.detail };
   }
   if (activity.type === "files_changed") {
-    return { title: "Workspace changes", detail: activity.detail };
+    return { title: "Workspace diff snapshot", detail: activity.detail };
   }
   if (activity.type === "artifact") {
     return { title: "Artifact", detail: cleanActivityDetail(activity) || activity.title };
@@ -277,7 +277,7 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
   }
   if (activity.type === "changed_files") {
     return {
-      title: "Workspace changes",
+      title: "Workspace diff snapshot",
       detail: formatDiffStatSummary(cleanActivityDetail(activity) || activity.title),
     };
   }
@@ -452,10 +452,7 @@ function isAdapterContextReadFailure(activity: ChatActivityRecord): boolean {
 }
 
 function toolDetailHasOutput(activity: ChatActivityRecord): boolean {
-  return (
-    Boolean(capturedToolOutput(activity)) ||
-    /\boutput(?:\s+captured)?\s*(?::|·)/i.test(activity.detail ?? "")
-  );
+  return Boolean(capturedToolOutput(activity));
 }
 
 function hasFailureLikeToolOutput(activity: ChatActivityRecord): boolean {
@@ -474,19 +471,36 @@ function compactToolOutputDetail(detail: string): string | undefined {
   const { prefix, output } = parsed;
   if (/^failed to read file:/i.test(output)) return `${prefix} · read failed`;
   if (/^cannot read binary file:/i.test(output)) return `${prefix} · binary file skipped`;
-  return simpleToolOutputPrefix(prefix) ? undefined : prefix;
+  const compactPrefix = compactToolOutputPrefix(prefix);
+  return compactPrefix || undefined;
 }
 
 function simpleToolOutputPrefix(prefix: string): boolean {
   return /^(execute|read|write|edit|command|shell)$/i.test(prefix.trim());
 }
 
+function compactToolOutputPrefix(prefix: string): string | undefined {
+  const parts = prefix
+    .split(/\s*·\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return undefined;
+  if (parts.length === 1 && simpleToolOutputPrefix(parts[0])) return undefined;
+  if (parts.length > 1 && simpleToolOutputPrefix(parts[0])) {
+    return parts.slice(1).join(" · ") || undefined;
+  }
+  return parts.join(" · ");
+}
+
 function parseToolOutputDetail(detail: string): { prefix: string; output: string } | undefined {
-  const match = detail.match(/^(.+?)\s*·\s*output(?:\s+captured)?(?:\s*(?::|·)\s*|\s+)(.+)$/is);
-  if (!match) return undefined;
+  const marker = detail.match(/\s*·\s*output(?:\s+captured)?(?:\s*(?::|·)\s*|\s+)/i);
+  if (!marker || marker.index === undefined) return undefined;
+  const prefix = detail.slice(0, marker.index).trim();
+  const output = detail.slice(marker.index + marker[0].length).trim();
+  if (!prefix || !output) return undefined;
   return {
-    prefix: match[1].trim(),
-    output: match[2].trim(),
+    prefix,
+    output,
   };
 }
 

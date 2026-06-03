@@ -477,7 +477,7 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText(/cancelled · 2 interrupted tools/)).toBeInTheDocument();
   });
 
-  it("includes workspace changes in the summary without duplicating a timeline row", () => {
+  it("includes workspace diff snapshots in the summary without duplicating a timeline row", () => {
     const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
     ];
@@ -487,8 +487,8 @@ describe("TranscriptActivityTimeline", () => {
         diffStat="src/foo.ts | 3 +-\n1 file changed, 2 insertions(+), 1 deletion(-)"
       />,
     );
-    expect(screen.getByText(/workspace changes/)).toBeInTheDocument();
-    expect(screen.queryByText("Workspace changes")).toBeNull();
+    expect(screen.getByText(/workspace diff snapshot/)).toBeInTheDocument();
+    expect(screen.queryByText("Workspace diff snapshot")).toBeNull();
     expect(screen.queryByText("1 file changed, 2 insertions(+), 1 deletion(-)")).toBeNull();
   });
 
@@ -509,7 +509,7 @@ describe("TranscriptActivityTimeline", () => {
       />,
     );
 
-    expect(screen.queryByText("Workspace changes")).toBeNull();
+    expect(screen.queryByText("Workspace diff snapshot")).toBeNull();
     expect(screen.queryByText("2 files changed, 72 insertions(+), 3 deletions(-)")).toBeNull();
   });
 
