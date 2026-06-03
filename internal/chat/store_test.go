@@ -13,6 +13,22 @@ func TestMemoryStoreConformance(t *testing.T) {
 	RunConformanceTests(t, "MemoryStore", func(*testing.T) Store { return NewMemoryStore() })
 }
 
+func TestContextPacketEmptyConsidersItems(t *testing.T) {
+	packet := ContextPacket{
+		Items: []ContextItem{{
+			Kind:       "transcript",
+			TrustLevel: "runtime_state",
+			Origin:     "chat.transcript",
+			Title:      "Chat transcript",
+			Included:   true,
+		}},
+	}
+
+	if packet.Empty() {
+		t.Fatal("ContextPacket.Empty() = true for itemized packet, want false")
+	}
+}
+
 func runStoreLifecycle(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -104,6 +120,26 @@ func runStoreLifecycle(t *testing.T, store Store) {
 					Trust:  "runtime",
 				},
 			},
+			Items: []ContextItem{
+				{
+					Kind:            "workspace",
+					TrustLevel:      "workspace_guidance",
+					Origin:          "/tmp/hecate",
+					Title:           "Workspace",
+					BodyRef:         "/tmp/hecate",
+					Included:        true,
+					InclusionReason: "Workspace path selected for this task-backed turn",
+				},
+				{
+					Kind:            "task_runtime",
+					TrustLevel:      "runtime_state",
+					Origin:          "hecate.task_runtime",
+					Title:           "Hecate task runtime",
+					Body:            "Continuing the existing task-backed agent loop",
+					Included:        true,
+					InclusionReason: "Task-backed Hecate Chat turn",
+				},
+			},
 		},
 	}); err != nil {
 		t.Fatalf("AppendMessage(assistant): %v", err)
@@ -189,16 +225,20 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.Messages[1].Provider != "openai" || got.Messages[1].Model != "gpt-4o-mini" || got.Messages[1].Capabilities.ToolCalling != "basic" {
 		t.Fatalf("persisted message model snapshot = provider %q model %q caps %+v", got.Messages[1].Provider, got.Messages[1].Model, got.Messages[1].Capabilities)
 	}
-	if got.Messages[1].Context.Version != "chat.context.v1" || got.Messages[1].Context.MessageCount != 2 || len(got.Messages[1].Context.Sources) != 2 {
-		t.Fatalf("persisted context packet = %+v, want version/count/sources", got.Messages[1].Context)
+	if got.Messages[1].Context.Version != "chat.context.v1" || got.Messages[1].Context.MessageCount != 2 || len(got.Messages[1].Context.Sources) != 2 || len(got.Messages[1].Context.Items) != 2 {
+		t.Fatalf("persisted context packet = %+v, want version/count/sources/items", got.Messages[1].Context)
 	}
 	got.Messages[1].Context.Sources[0].Detail = "mutated"
+	got.Messages[1].Context.Items[0].Origin = "mutated"
 	got, ok, err = store.Get(ctx, created.ID)
 	if err != nil || !ok {
 		t.Fatalf("Get after context mutation: ok=%v err=%v", ok, err)
 	}
 	if got.Messages[1].Context.Sources[0].Detail != "/tmp/hecate" {
 		t.Fatalf("context packet source mutated through get snapshot: %+v", got.Messages[1].Context.Sources[0])
+	}
+	if got.Messages[1].Context.Items[0].Origin != "/tmp/hecate" {
+		t.Fatalf("context packet item mutated through get snapshot: %+v", got.Messages[1].Context.Items[0])
 	}
 
 	list, err := store.List(ctx)

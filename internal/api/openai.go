@@ -740,6 +740,7 @@ type ChatContextPacketItem struct {
 	SystemPromptIncluded bool                    `json:"system_prompt_included,omitempty"`
 	MessageCount         int                     `json:"message_count,omitempty"`
 	Sources              []ChatContextSourceItem `json:"sources,omitempty"`
+	Items                []ChatContextItem       `json:"items,omitempty"`
 }
 
 type ChatContextSourceItem struct {
@@ -747,6 +748,22 @@ type ChatContextSourceItem struct {
 	Label  string `json:"label"`
 	Detail string `json:"detail,omitempty"`
 	Trust  string `json:"trust,omitempty"`
+}
+
+type ChatContextItem struct {
+	Kind            string `json:"kind"`
+	TrustLevel      string `json:"trust_level"`
+	Origin          string `json:"origin"`
+	Title           string `json:"title"`
+	Body            string `json:"body,omitempty"`
+	BodyRef         string `json:"body_ref,omitempty"`
+	Included        bool   `json:"included"`
+	InclusionReason string `json:"inclusion_reason,omitempty"`
+}
+
+type ChatContextPacketResponse struct {
+	Object string                `json:"object"`
+	Data   ChatContextPacketItem `json:"data"`
 }
 
 type ChatChangedFileItem struct {

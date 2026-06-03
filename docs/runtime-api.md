@@ -214,6 +214,7 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 
 - `GET /hecate/v1/tasks/{id}/runs`
 - `GET /hecate/v1/tasks/{id}/runs/{run_id}`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/context`
 - `GET /hecate/v1/tasks/{id}/runs/{run_id}/steps`
 - `GET /hecate/v1/tasks/{id}/runs/{run_id}/steps/{step_id}`
 - `GET /hecate/v1/tasks/{id}/runs/{run_id}/artifacts`
@@ -231,6 +232,12 @@ that the current file still matches the patch artifact's captured after-content.
 If the operator or another agent changed or removed the file after the patch was
 applied, revert returns `409 conflict`, leaves the workspace unchanged, and keeps
 the patch artifact in `applied`.
+
+`GET /hecate/v1/tasks/{id}/runs/{run_id}/context` returns the context packet
+snapshot for a task run when the run is linked to a Hecate Chat assistant
+message. Today task runs do not own a separate context-packet store; the
+endpoint resolves the already persisted chat message packet for task-backed
+Hecate Chat runs and returns `404 not_found` when no linked packet exists.
 
 ## Approval endpoints
 
@@ -1024,10 +1031,10 @@ This first implementation is intentionally lightweight:
 `HECATE_BACKEND=sqlite` persists them. Chat sessions can carry an optional
 `project_id` so the operator UI can group history by project. Projects can
 also remember context-source metadata (`path`, `kind`, `title`, and whether the
-source is enabled). Chat message context packets include enabled source
-metadata for inspection, but Hecate does not inject those files into prompts
-yet. Tasks, memory, profiles, presets, and source-content injection are not
-linked to `project_id` yet.
+source is enabled). Chat message context packets include enabled sources as
+itemized `workspace_guidance` metadata for inspection, but Hecate does not
+inject those files into prompts yet. Tasks, memory, profiles, presets, and
+source-content injection are not linked to `project_id` yet.
 
 ### `GET /hecate/v1/projects`
 
@@ -1699,6 +1706,52 @@ Chat execution errors:
 Client note: browser/operator clients may queue a prompt locally when they
 receive or predict `chat.agent_session_busy`, but the server still
 accepts only one active task-backed turn per Hecate Chat session.
+
+### `GET /hecate/v1/chat/sessions/{id}/messages/{message_id}/context`
+
+Returns the persisted context packet snapshot for an assistant message:
+
+```json
+GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../context
+→ 200
+{
+  "object": "context_packet",
+  "data": {
+    "version": "chat.context.v1",
+    "execution_mode": "hecate_task",
+    "provider": "ollama",
+    "model": "llama3.1:8b",
+    "workspace": "/workspace/hecate",
+    "system_prompt_included": true,
+    "message_count": 3,
+    "sources": [
+      {
+        "kind": "transcript",
+        "label": "Chat transcript",
+        "detail": "3 chat messages including this turn",
+        "trust": "operator"
+      }
+    ],
+    "items": [
+      {
+        "kind": "transcript",
+        "trust_level": "runtime_state",
+        "origin": "chat.transcript",
+        "title": "Chat transcript",
+        "body": "3 chat messages including this turn",
+        "included": true,
+        "inclusion_reason": "Visible terminal transcript count for this turn"
+      }
+    ]
+  }
+}
+```
+
+Existing top-level fields and `sources` remain for older clients. Newer clients
+should prefer `items` for trust-labelled, provenance-aware inspection. Current
+packets intentionally snapshot visible metadata only; they do not store full
+system prompts, raw transcript text, file contents, or external-agent private
+prompt packing.
 
 ### `GET /hecate/v1/chat/sessions/{id}/messages/{message_id}/files`
 

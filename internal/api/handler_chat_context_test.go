@@ -2,12 +2,20 @@ package api
 
 import (
 	"context"
+	"io"
+	"log/slog"
+	"net/http"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/storage"
+	"github.com/hecatehq/hecate/internal/taskstate"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func TestChatContextPacketsUseVisibleTranscriptCount(t *testing.T) {
@@ -46,6 +54,7 @@ func TestChatContextPacketsUseVisibleTranscriptCount(t *testing.T) {
 			if tc.packet.MessageCount != 3 {
 				t.Fatalf("MessageCount = %d, want 3 visible terminal messages including current user turn", tc.packet.MessageCount)
 			}
+			assertContextItem(t, tc.packet, "transcript", contextTrustRuntimeState, "chat.transcript")
 		})
 	}
 }
@@ -87,18 +96,300 @@ func TestChatContextPacketsIncludeEnabledProjectSources(t *testing.T) {
 				Detail: "README.md",
 				Trust:  "project",
 			})
+			assertContextItem(t, tc.packet, "workspace_doc", contextTrustWorkspaceGuidance, "README.md")
 			assertContextSource(t, tc.packet, chat.ContextSource{
 				Kind:   "project_notes",
 				Label:  "docs/notes.md",
 				Detail: "docs/notes.md",
 				Trust:  "project",
 			})
+			assertContextItem(t, tc.packet, "project_notes", contextTrustWorkspaceGuidance, "docs/notes.md")
 			for _, source := range tc.packet.Sources {
 				if source.Detail == "private.md" {
 					t.Fatalf("disabled project context source was included: %+v", source)
 				}
 			}
+			for _, item := range tc.packet.Items {
+				if item.Origin == "private.md" {
+					t.Fatalf("disabled project context item was included: %+v", item)
+				}
+			}
 		})
+	}
+}
+
+func TestChatContextPacketsItemizeVisibleRuntimeMetadata(t *testing.T) {
+	session := chat.Session{
+		ID:        "chat_1",
+		Workspace: "/tmp/hecate",
+		Messages:  []chat.Message{{ID: "u1", Role: "user", Content: "first"}},
+	}
+	packet := (&Handler{}).hecateTaskContextPacket(context.Background(), session, "ollama", "llama3.1:8b", "system", true)
+
+	assertContextItem(t, packet, "system_prompt", contextTrustSystemInstruction, "task.system_prompt")
+	assertContextItem(t, packet, "workspace", contextTrustWorkspaceGuidance, "/tmp/hecate")
+	assertContextItem(t, packet, "task_runtime", contextTrustRuntimeState, "hecate.task_runtime")
+	for _, item := range packet.Items {
+		if !item.Included {
+			t.Fatalf("context item %q Included = false, want true", item.Kind)
+		}
+	}
+}
+
+func TestExternalAgentContextPacketNotesPrivatePromptBoundary(t *testing.T) {
+	session := chat.Session{
+		ID:        "chat_1",
+		Workspace: "/tmp/hecate",
+		Messages:  []chat.Message{{ID: "u1", Role: "user", Content: "first"}},
+	}
+	packet := (&Handler{}).externalAgentContextPacket(context.Background(), session, "Cursor Agent")
+	item := findContextItem(packet, "external_agent_session")
+	if item == nil {
+		t.Fatalf("external_agent_session context item not found: %+v", packet.Items)
+	}
+	if item.TrustLevel != contextTrustRuntimeState {
+		t.Fatalf("external agent item trust level = %q, want %q", item.TrustLevel, contextTrustRuntimeState)
+	}
+	if !strings.Contains(item.Body, "cannot inspect the external agent's private prompt") {
+		t.Fatalf("external agent item body = %q, want private prompt boundary note", item.Body)
+	}
+}
+
+func TestChatMessageContextEndpointReturnsPacket(t *testing.T) {
+	ctx := context.Background()
+	chatStore := chat.NewMemoryStore()
+	if _, err := chatStore.Create(ctx, chat.Session{ID: "chat_1", Title: "Context test"}); err != nil {
+		t.Fatalf("Create chat session: %v", err)
+	}
+	packet := chat.ContextPacket{
+		Version:       chatContextPacketVersion,
+		ExecutionMode: chat.ExecutionModeHecateTask,
+		MessageCount:  1,
+		Items: []chat.ContextItem{{
+			Kind:            "transcript",
+			TrustLevel:      contextTrustRuntimeState,
+			Origin:          "chat.transcript",
+			Title:           "Chat transcript",
+			Included:        true,
+			InclusionReason: "test",
+		}},
+	}
+	if _, err := chatStore.AppendMessage(ctx, "chat_1", chat.Message{
+		ID:      "msg_1",
+		Role:    "assistant",
+		Content: "done",
+		Context: packet,
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	handler := &Handler{agentChat: chatStore}
+	server := NewServer(slog.New(slog.NewJSONHandler(io.Discard, nil)), handler)
+	client := newAPITestClient(t, server)
+
+	resp := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/chat_1/messages/msg_1/context", "")
+
+	if resp.Object != "context_packet" {
+		t.Fatalf("Object = %q, want context_packet", resp.Object)
+	}
+	if len(resp.Data.Items) != 1 || resp.Data.Items[0].Kind != "transcript" {
+		t.Fatalf("context packet items = %+v, want transcript item", resp.Data.Items)
+	}
+}
+
+func TestChatMessageContextEndpointReturnsHistoricalSnapshotAfterProjectSourcesChange(t *testing.T) {
+	ctx := context.Background()
+	projectStore := newContextPacketProjectStore(t, ctx)
+	handler := &Handler{projects: projectStore, agentChat: chat.NewMemoryStore()}
+	session := chat.Session{
+		ID:        "chat_1",
+		ProjectID: "proj_1",
+		Workspace: "/tmp/hecate",
+		Messages:  []chat.Message{{ID: "u1", Role: "user", Content: "first"}},
+	}
+	if _, err := handler.agentChat.Create(ctx, session); err != nil {
+		t.Fatalf("Create chat session: %v", err)
+	}
+	packet := handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", "")
+	if _, err := handler.agentChat.AppendMessage(ctx, session.ID, chat.Message{
+		ID:      "msg_1",
+		Role:    "assistant",
+		Content: "done",
+		Context: packet,
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if _, err := projectStore.Update(ctx, "proj_1", func(project *projects.Project) {
+		project.ContextSources[0].Title = "README changed later"
+		project.ContextSources[0].Enabled = false
+	}); err != nil {
+		t.Fatalf("Update project context sources: %v", err)
+	}
+	server := NewServer(slog.New(slog.NewJSONHandler(io.Discard, nil)), handler)
+	client := newAPITestClient(t, server)
+
+	resp := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/chat_1/messages/msg_1/context", "")
+
+	assertRenderedContextItem(t, resp.Data, "workspace_doc", contextTrustWorkspaceGuidance, "README.md")
+	for _, item := range resp.Data.Items {
+		if item.Title == "README changed later" {
+			t.Fatalf("historical context packet was rewritten after project change: %+v", resp.Data.Items)
+		}
+	}
+}
+
+func TestTaskRunContextEndpointReturnsLinkedChatMessagePacket(t *testing.T) {
+	ctx := context.Background()
+	chatStore := chat.NewMemoryStore()
+	taskStore := taskstate.NewMemoryStore()
+	task := types.Task{ID: "task_1", OriginKind: "chat", OriginID: "chat_1", Status: "running"}
+	run := types.TaskRun{ID: "run_1", TaskID: "task_1", Number: 1, Status: "running"}
+	if _, err := taskStore.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := taskStore.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := chatStore.Create(ctx, chat.Session{ID: "chat_1", TaskID: "task_1", LatestRunID: "run_1"}); err != nil {
+		t.Fatalf("Create chat session: %v", err)
+	}
+	if _, err := chatStore.AppendMessage(ctx, "chat_1", chat.Message{
+		ID:      "msg_1",
+		Role:    "assistant",
+		TaskID:  "task_1",
+		RunID:   "run_1",
+		Content: "done",
+		Context: chat.ContextPacket{
+			Version:       chatContextPacketVersion,
+			ExecutionMode: chat.ExecutionModeHecateTask,
+			MessageCount:  1,
+			Items: []chat.ContextItem{{
+				Kind:       "task_runtime",
+				TrustLevel: contextTrustRuntimeState,
+				Origin:     "hecate.task_runtime",
+				Title:      "Hecate task runtime",
+				Included:   true,
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	handler := &Handler{agentChat: chatStore, taskStore: taskStore}
+	server := NewServer(slog.New(slog.NewJSONHandler(io.Discard, nil)), handler)
+	client := newAPITestClient(t, server)
+
+	resp := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/tasks/task_1/runs/run_1/context", "")
+
+	if resp.Object != "context_packet" {
+		t.Fatalf("Object = %q, want context_packet", resp.Object)
+	}
+	if len(resp.Data.Items) != 1 || resp.Data.Items[0].Kind != "task_runtime" {
+		t.Fatalf("context packet items = %+v, want task_runtime item", resp.Data.Items)
+	}
+}
+
+func TestTaskRunContextEndpointFallbackHydratesSQLiteChatMessages(t *testing.T) {
+	ctx := context.Background()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "hecate.db"),
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	chatStore, err := chat.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(chat): %v", err)
+	}
+	taskStore := taskstate.NewMemoryStore()
+	task := types.Task{ID: "task_1", Status: "running"}
+	run := types.TaskRun{ID: "run_1", TaskID: "task_1", Number: 1, Status: "running"}
+	if _, err := taskStore.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := taskStore.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := chatStore.Create(ctx, chat.Session{ID: "chat_1"}); err != nil {
+		t.Fatalf("Create chat session: %v", err)
+	}
+	if _, err := chatStore.AppendMessage(ctx, "chat_1", chat.Message{
+		ID:      "msg_1",
+		Role:    "assistant",
+		TaskID:  "task_1",
+		RunID:   "run_1",
+		Content: "done",
+		Context: chat.ContextPacket{
+			Version:       chatContextPacketVersion,
+			ExecutionMode: chat.ExecutionModeHecateTask,
+			MessageCount:  1,
+			Items: []chat.ContextItem{{
+				Kind:       "task_runtime",
+				TrustLevel: contextTrustRuntimeState,
+				Origin:     "hecate.task_runtime",
+				Title:      "Hecate task runtime",
+				Included:   true,
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	handler := &Handler{agentChat: chatStore, taskStore: taskStore}
+	server := NewServer(slog.New(slog.NewJSONHandler(io.Discard, nil)), handler)
+	clientHTTP := newAPITestClient(t, server)
+
+	resp := mustRequestJSON[ChatContextPacketResponse](clientHTTP, http.MethodGet, "/hecate/v1/tasks/task_1/runs/run_1/context", "")
+
+	if len(resp.Data.Items) != 1 || resp.Data.Items[0].Kind != "task_runtime" {
+		t.Fatalf("context packet items = %+v, want task_runtime item", resp.Data.Items)
+	}
+}
+
+func TestTaskRunContextEndpointReturnsNotFoundForStandaloneRun(t *testing.T) {
+	ctx := context.Background()
+	chatStore := chat.NewMemoryStore()
+	taskStore := taskstate.NewMemoryStore()
+	task := types.Task{ID: "task_1", Status: "running"}
+	run := types.TaskRun{ID: "run_1", TaskID: "task_1", Number: 1, Status: "running"}
+	if _, err := taskStore.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := taskStore.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	handler := &Handler{agentChat: chatStore, taskStore: taskStore}
+	server := NewServer(slog.New(slog.NewJSONHandler(io.Discard, nil)), handler)
+	client := newAPITestClient(t, server)
+
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/tasks/task_1/runs/run_1/context", "")
+}
+
+func TestRenderChatContextPacketIncludesItems(t *testing.T) {
+	packet := chat.ContextPacket{
+		Version:       chatContextPacketVersion,
+		ExecutionMode: chat.ExecutionModeExternalAgent,
+		Workspace:     "/tmp/hecate",
+		MessageCount:  2,
+		Items: []chat.ContextItem{{
+			Kind:            "external_agent_session",
+			TrustLevel:      contextTrustRuntimeState,
+			Origin:          "adapter:Cursor Agent",
+			Title:           "Cursor Agent ACP session",
+			Body:            "Hecate cannot inspect private prompt packing.",
+			BodyRef:         "adapter_session",
+			Included:        true,
+			InclusionReason: "Visible external-agent metadata",
+		}},
+	}
+
+	rendered := renderChatContextPacket(packet)
+
+	if rendered == nil {
+		t.Fatal("renderChatContextPacket returned nil, want packet")
+	}
+	assertRenderedContextItem(t, *rendered, "external_agent_session", contextTrustRuntimeState, "adapter:Cursor Agent")
+	if rendered.Items[0].BodyRef != "adapter_session" || rendered.Items[0].InclusionReason != "Visible external-agent metadata" {
+		t.Fatalf("rendered context item missing fields: %+v", rendered.Items[0])
 	}
 }
 
@@ -120,7 +411,7 @@ func TestChatContextPacketSourceOrdering(t *testing.T) {
 		{
 			name: "direct model",
 			got:  sourceKinds(handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", "system")),
-			want: []string{"system_prompt", "workspace_doc", "project_notes", "transcript"},
+			want: []string{"system_prompt", "workspace", "workspace_doc", "project_notes", "transcript"},
 		},
 		{
 			name: "hecate task",
@@ -194,6 +485,45 @@ func assertContextSource(t *testing.T, packet chat.ContextPacket, want chat.Cont
 		}
 	}
 	t.Fatalf("context source %+v not found in packet sources: %+v", want, packet.Sources)
+}
+
+func assertContextItem(t *testing.T, packet chat.ContextPacket, kind, trustLevel, origin string) {
+	t.Helper()
+	item := findContextItem(packet, kind)
+	if item == nil {
+		t.Fatalf("context item kind %q not found in packet items: %+v", kind, packet.Items)
+	}
+	if item.TrustLevel != trustLevel {
+		t.Fatalf("context item %q trust level = %q, want %q", kind, item.TrustLevel, trustLevel)
+	}
+	if item.Origin != origin {
+		t.Fatalf("context item %q origin = %q, want %q", kind, item.Origin, origin)
+	}
+}
+
+func assertRenderedContextItem(t *testing.T, packet ChatContextPacketItem, kind, trustLevel, origin string) {
+	t.Helper()
+	for _, item := range packet.Items {
+		if item.Kind == kind {
+			if item.TrustLevel != trustLevel {
+				t.Fatalf("rendered context item %q trust level = %q, want %q", kind, item.TrustLevel, trustLevel)
+			}
+			if item.Origin != origin {
+				t.Fatalf("rendered context item %q origin = %q, want %q", kind, item.Origin, origin)
+			}
+			return
+		}
+	}
+	t.Fatalf("rendered context item kind %q not found in packet items: %+v", kind, packet.Items)
+}
+
+func findContextItem(packet chat.ContextPacket, kind string) *chat.ContextItem {
+	for i := range packet.Items {
+		if packet.Items[i].Kind == kind {
+			return &packet.Items[i]
+		}
+	}
+	return nil
 }
 
 func sourceKinds(packet chat.ContextPacket) []string {

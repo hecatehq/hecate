@@ -135,6 +135,19 @@ func renderChatContextPacket(packet chat.ContextPacket) *ChatContextPacketItem {
 			Trust:  source.Trust,
 		})
 	}
+	items := make([]ChatContextItem, 0, len(packet.Items))
+	for _, item := range packet.Items {
+		items = append(items, ChatContextItem{
+			Kind:            item.Kind,
+			TrustLevel:      item.TrustLevel,
+			Origin:          item.Origin,
+			Title:           item.Title,
+			Body:            item.Body,
+			BodyRef:         item.BodyRef,
+			Included:        item.Included,
+			InclusionReason: item.InclusionReason,
+		})
+	}
 	return &ChatContextPacketItem{
 		Version:              packet.Version,
 		ExecutionMode:        packet.ExecutionMode,
@@ -144,6 +157,7 @@ func renderChatContextPacket(packet chat.ContextPacket) *ChatContextPacketItem {
 		SystemPromptIncluded: packet.SystemPromptIncluded,
 		MessageCount:         packet.MessageCount,
 		Sources:              sources,
+		Items:                items,
 	}
 }
 
