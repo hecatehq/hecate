@@ -21,6 +21,7 @@ import (
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/ratelimit"
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/secrets"
@@ -41,6 +42,7 @@ type Handler struct {
 	tracer                   profiler.Tracer
 	agentChat                chat.Store
 	projects                 projects.Store
+	projectWork              projectwork.Store
 	agentChatRunner          agentadapters.Runner
 	agentChatLive            *agentChatLive
 	agentChatIdleSweepCancel context.CancelFunc
@@ -307,6 +309,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		rateLimiter:         rl,
 		agentChat:           chat.NewMemoryStore(),
 		projects:            projects.NewMemoryStore(),
+		projectWork:         projectwork.NewMemoryStore(),
 		agentChatRunner:     agentChatRunner,
 		agentChatLive:       agentChatLive,
 		orchestratorMetrics: orchestratorMetrics,
@@ -377,6 +380,13 @@ func (h *Handler) SetProjectStore(store projects.Store) {
 		return
 	}
 	h.projects = store
+}
+
+func (h *Handler) SetProjectWorkStore(store projectwork.Store) {
+	if store == nil {
+		return
+	}
+	h.projectWork = store
 }
 
 func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {

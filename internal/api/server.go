@@ -73,6 +73,20 @@ func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/projects/{id}", handler.HandleProject)
 	mux.HandleFunc("PATCH /hecate/v1/projects/{id}", handler.HandleUpdateProject)
 	mux.HandleFunc("DELETE /hecate/v1/projects/{id}", handler.HandleDeleteProject)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}/roles", handler.HandleProjectWorkRoles)
+	mux.HandleFunc("POST /hecate/v1/projects/{id}/roles", handler.HandleCreateProjectWorkRole)
+	mux.HandleFunc("PATCH /hecate/v1/projects/{id}/roles/{role_id}", handler.HandleUpdateProjectWorkRole)
+	mux.HandleFunc("DELETE /hecate/v1/projects/{id}/roles/{role_id}", handler.HandleDeleteProjectWorkRole)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items", handler.HandleProjectWorkItems)
+	mux.HandleFunc("POST /hecate/v1/projects/{id}/work-items", handler.HandleCreateProjectWorkItem)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items/{work_item_id}", handler.HandleProjectWorkItem)
+	mux.HandleFunc("PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}", handler.HandleUpdateProjectWorkItem)
+	mux.HandleFunc("DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}", handler.HandleDeleteProjectWorkItem)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments", handler.HandleProjectWorkAssignments)
+	mux.HandleFunc("POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments", handler.HandleCreateProjectWorkAssignment)
+	mux.HandleFunc("PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}", handler.HandleUpdateProjectWorkAssignment)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts", handler.HandleProjectWorkArtifacts)
+	mux.HandleFunc("POST /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts", handler.HandleCreateProjectWorkArtifact)
 }
 
 func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {

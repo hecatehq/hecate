@@ -1013,6 +1013,7 @@ type SystemResetDataResponse struct {
 
 type SystemResetDataResponseItem struct {
 	ProjectsDeleted            int `json:"projects_deleted"`
+	ProjectWorkRowsDeleted     int `json:"project_work_rows_deleted"`
 	ChatSessionsDeleted        int `json:"chat_sessions_deleted"`
 	TasksDeleted               int `json:"tasks_deleted"`
 	ProvidersDeleted           int `json:"providers_deleted"`

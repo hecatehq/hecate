@@ -12,6 +12,7 @@ import (
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -60,6 +61,21 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}); err != nil {
 		t.Fatalf("create project-free chat: %v", err)
 	}
+	if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_reset",
+		ProjectID: project.Data.ID,
+		Title:     "Reset work",
+	}); err != nil {
+		t.Fatalf("create project work item: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:         "asgn_reset",
+		ProjectID:  project.Data.ID,
+		WorkItemID: "work_reset",
+		RoleID:     "software_developer",
+	}); err != nil {
+		t.Fatalf("create project assignment: %v", err)
+	}
 	if _, err := handler.taskStore.CreateTask(ctx, types.Task{ID: "task_reset", Title: "Reset me", Status: "queued"}); err != nil {
 		t.Fatalf("create task: %v", err)
 	}
@@ -93,8 +109,8 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if err := json.Unmarshal(rec.Body.Bytes(), &reset); err != nil {
 		t.Fatalf("decode reset response: %v", err)
 	}
-	if reset.Data.ProjectsDeleted != 1 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
-		t.Fatalf("reset stats = %+v, want one project, task, provider, rule and two chats", reset.Data)
+	if reset.Data.ProjectsDeleted != 1 || reset.Data.ProjectWorkRowsDeleted != 2 || reset.Data.ChatSessionsDeleted != 2 || reset.Data.TasksDeleted != 1 || reset.Data.ProvidersDeleted != 1 || reset.Data.PolicyRulesDeleted != 1 {
+		t.Fatalf("reset stats = %+v, want one project, two project-work rows, one task, provider, rule and two chats", reset.Data)
 	}
 	if len(runner.closedSessions) != 2 {
 		t.Fatalf("closed sessions = %#v, want two external chats closed", runner.closedSessions)
@@ -113,6 +129,13 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}
 	if len(projectList) != 0 {
 		t.Fatalf("projects after reset = %#v, want none", projectList)
+	}
+	workItems, err := handler.projectWork.ListWorkItems(ctx, project.Data.ID)
+	if err != nil {
+		t.Fatalf("list project work: %v", err)
+	}
+	if len(workItems) != 0 {
+		t.Fatalf("project work after reset = %#v, want none", workItems)
 	}
 	tasks, err := handler.taskStore.ListTasks(ctx, taskstate.TaskFilter{})
 	if err != nil {
@@ -173,6 +196,10 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteStore(projects): %v", err)
 	}
+	projectWorkStore, err := projectwork.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(projectwork): %v", err)
+	}
 	taskStore, err := taskstate.NewSQLiteStore(ctx, client)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore(taskstate): %v", err)
@@ -189,6 +216,7 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	handler := NewHandler(config.Config{}, logger, nil, cpStore, taskStore, nil, runtime)
 	handler.SetAgentChatStore(chatStore)
 	handler.SetProjectStore(projectStore)
+	handler.SetProjectWorkStore(projectWorkStore)
 	handler.SetStateCleaner(client)
 	runner := &fakeAgentChatRunner{}
 	handler.SetAgentChatRunner(runner)
@@ -207,6 +235,13 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 		NativeSessionID: "native_sqlite_external",
 	}); err != nil {
 		t.Fatalf("create chat: %v", err)
+	}
+	if _, err := projectWorkStore.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_sqlite_reset",
+		ProjectID: project.ID,
+		Title:     "SQLite work",
+	}); err != nil {
+		t.Fatalf("create project work: %v", err)
 	}
 	if _, err := taskStore.CreateTask(ctx, types.Task{ID: "task_sqlite_reset", Title: "SQLite task", Status: "queued"}); err != nil {
 		t.Fatalf("create task: %v", err)
@@ -235,6 +270,9 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	}
 	if reset.Data.DatabaseRowsDeleted == 0 {
 		t.Fatalf("database rows deleted = 0, want remaining sqlite rows cleared; stats=%+v", reset.Data)
+	}
+	if reset.Data.ProjectWorkRowsDeleted != 1 {
+		t.Fatalf("project work rows deleted = %d, want 1", reset.Data.ProjectWorkRowsDeleted)
 	}
 	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != "chat_sqlite_external" {
 		t.Fatalf("closed sessions = %#v, want sqlite external chat closed", runner.closedSessions)

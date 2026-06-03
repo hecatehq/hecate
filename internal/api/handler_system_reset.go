@@ -47,6 +47,12 @@ func (h *Handler) resetSystemData(ctx context.Context) (SystemResetDataResponseI
 	}
 	stats.ProjectsDeleted = projectsDeleted
 
+	projectWorkRowsDeleted, err := h.resetProjectWork(ctx)
+	if err != nil {
+		return stats, err
+	}
+	stats.ProjectWorkRowsDeleted = projectWorkRowsDeleted
+
 	tasksDeleted, err := h.resetTasks(ctx)
 	if err != nil {
 		return stats, err
@@ -116,6 +122,13 @@ func (h *Handler) resetProjects(ctx context.Context) (int, error) {
 		deleted++
 	}
 	return deleted, nil
+}
+
+func (h *Handler) resetProjectWork(ctx context.Context) (int, error) {
+	if h.projectWork == nil {
+		return 0, nil
+	}
+	return h.projectWork.Clear(ctx)
 }
 
 func (h *Handler) resetTasks(ctx context.Context) (int, error) {

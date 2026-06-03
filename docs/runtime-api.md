@@ -432,7 +432,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project work-coordination rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -440,6 +440,7 @@ Tool names come back un-namespaced — the operator wants to see what the upstre
   "object": "system_reset",
   "data": {
     "projects_deleted": 1,
+    "project_work_rows_deleted": 3,
     "chat_sessions_deleted": 2,
     "tasks_deleted": 1,
     "providers_deleted": 1,
@@ -1026,15 +1027,19 @@ can remember one or more concrete workspace roots and future defaults such as
 provider, model, agent profile, tools posture, workspace mode, system prompt,
 compact command-output preference, and trusted context-source metadata.
 
-This first implementation is intentionally lightweight:
+The project catalog implementation is intentionally lightweight:
 `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects` work, and
 `HECATE_BACKEND=sqlite` persists them. Chat sessions can carry an optional
 `project_id` so the operator UI can group history by project. Projects can
 also remember context-source metadata (`path`, `kind`, `title`, and whether the
 source is enabled). Chat message context packets include enabled sources as
 itemized `workspace_guidance` metadata for inspection, but Hecate does not
-inject those files into prompts yet. Tasks, memory, profiles, presets, and
-source-content injection are not linked to `project_id` yet.
+inject those files into prompts yet. Project work-coordination endpoints can
+persist roles, work items, assignments, and collaboration artifacts under a
+project. Assignments may record links to existing task runs or chat messages,
+but creating an assignment does not start a task, open a chat, inject context,
+or dispatch any agent. Durable memory, profiles, presets, and source-content
+injection are not linked to `project_id` yet.
 
 ### `GET /hecate/v1/projects`
 
@@ -1171,8 +1176,214 @@ PATCH /hecate/v1/projects/proj_...
 ### `DELETE /hecate/v1/projects/{id}`
 
 Deletes the project catalog entry, its roots, and chat sessions scoped to that
-project. This does not delete workspace files. Unprojected chats and chats
-scoped to other projects stay untouched. Tasks are not linked to projects yet.
+project. It also deletes project work-coordination rows for that project. This
+does not delete workspace files. Unprojected chats and chats scoped to other
+projects stay untouched. Assignment links to task/chat IDs are metadata only;
+the linked tasks or unprojected chat sessions are not deleted through assignment
+cleanup.
+
+### Project Work Coordination
+
+Project work coordination is the durable substrate for future project-team
+orchestration. It records project-scoped agent roles, work items, assignment
+metadata, and collaboration artifacts. It does not add a new execution runtime:
+existing Tasks and Chats remain the execution surfaces, and V1 assignment
+creation only records intended or already-linked execution metadata.
+Create requests that supply an existing project-scoped ID return `409 conflict`
+instead of overwriting the existing record.
+
+Role list responses merge built-in roles with project custom roles. Built-ins
+are listable but immutable and are not seeded as duplicate project rows. The
+built-in IDs are:
+
+```text
+product_manager
+architect
+software_developer
+frontend_engineer
+designer
+sre
+tech_writer
+reviewer_qa
+```
+
+Supported work-item statuses are `backlog`, `ready`, `running`, `review`,
+`blocked`, `done`, and `cancelled`. Supported assignment statuses are `queued`,
+`running`, `awaiting_approval`, `completed`, `failed`, and `cancelled`.
+Supported collaboration artifact kinds are `brief`, `handoff`, `review`, and
+`decision_note`.
+
+#### `GET /hecate/v1/projects/{id}/roles`
+
+Lists built-in roles plus custom roles for the project.
+
+```json
+{
+  "object": "project_roles",
+  "data": [
+    {
+      "id": "architect",
+      "project_id": "proj_...",
+      "name": "Architect",
+      "description": "Owns technical direction, boundaries, and system trade-offs.",
+      "built_in": true
+    },
+    {
+      "id": "role_...",
+      "project_id": "proj_...",
+      "name": "Release captain",
+      "description": "Coordinates release work.",
+      "instructions": "Keep release notes current.",
+      "built_in": false,
+      "created_at": "2026-06-03T12:00:00Z",
+      "updated_at": "2026-06-03T12:00:00Z"
+    }
+  ]
+}
+```
+
+#### `POST /hecate/v1/projects/{id}/roles`
+
+Creates a custom role. `name` is required. `id` is optional; Hecate generates a
+`role_...` ID when omitted. Built-in role IDs cannot be created, updated, or
+deleted as custom roles.
+
+```json
+{
+  "name": "Release captain",
+  "description": "Coordinates release work.",
+  "instructions": "Keep release notes current."
+}
+```
+
+Returns `{ "object": "project_role", "data": { ... } }`.
+
+#### `PATCH /hecate/v1/projects/{id}/roles/{role_id}`
+
+Updates a custom role's `name`, `description`, or `instructions`. Built-in
+roles return `409 conflict`.
+
+#### `DELETE /hecate/v1/projects/{id}/roles/{role_id}`
+
+Deletes a custom role. Built-in roles return `409 conflict`.
+
+#### `GET /hecate/v1/projects/{id}/work-items`
+
+Lists work items for the project.
+
+#### `POST /hecate/v1/projects/{id}/work-items`
+
+Creates a project-scoped work item. `title` is required. `status` defaults to
+`backlog`; `priority` defaults to `normal` and accepts `low`, `normal`, `high`,
+or `urgent`.
+
+```json
+{
+  "title": "Backend substrate",
+  "brief": "Persist coordination metadata only.",
+  "status": "ready",
+  "priority": "high",
+  "owner_role_id": "software_developer",
+  "reviewer_role_ids": ["architect", "reviewer_qa"]
+}
+```
+
+Returns:
+
+```json
+{
+  "object": "project_work_item",
+  "data": {
+    "id": "work_...",
+    "project_id": "proj_...",
+    "title": "Backend substrate",
+    "brief": "Persist coordination metadata only.",
+    "status": "ready",
+    "priority": "high",
+    "owner_role_id": "software_developer",
+    "reviewer_role_ids": ["architect", "reviewer_qa"],
+    "created_at": "2026-06-03T12:00:00Z",
+    "updated_at": "2026-06-03T12:00:00Z"
+  }
+}
+```
+
+#### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}`
+
+Returns one work item or `404 not_found`.
+
+#### `PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}`
+
+Updates `title`, `brief`, `status`, `priority`, `owner_role_id`, or
+`reviewer_role_ids`.
+
+#### `DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}`
+
+Deletes the work item and its assignments and collaboration artifacts.
+
+#### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`
+
+Lists assignment metadata for a work item.
+
+#### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`
+
+Creates an assignment metadata record. `role_id` is required. Optional link
+fields (`task_id`, `run_id`, `chat_session_id`, `message_id`,
+`context_snapshot_id`) are stored as references only.
+
+```json
+{
+  "role_id": "software_developer",
+  "task_id": "task_...",
+  "run_id": "run_...",
+  "context_snapshot_id": "ctx_..."
+}
+```
+
+Returns:
+
+```json
+{
+  "object": "project_assignment",
+  "data": {
+    "id": "asgn_...",
+    "project_id": "proj_...",
+    "work_item_id": "work_...",
+    "role_id": "software_developer",
+    "status": "queued",
+    "task_id": "task_...",
+    "run_id": "run_...",
+    "context_snapshot_id": "ctx_...",
+    "created_at": "2026-06-03T12:00:00Z",
+    "updated_at": "2026-06-03T12:00:00Z"
+  }
+}
+```
+
+#### `PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}`
+
+Updates assignment status, role, link fields, `started_at`, or `completed_at`.
+It does not mutate or start the linked Task or Chat.
+
+#### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts`
+
+Lists collaboration artifacts attached to a work item.
+
+#### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts`
+
+Creates a collaboration artifact. `kind` and `body` are required.
+`assignment_id` is optional; when supplied it must refer to an assignment on
+the same work item.
+
+```json
+{
+  "kind": "handoff",
+  "assignment_id": "asgn_...",
+  "title": "Backend handoff",
+  "body": "Store and API are ready for UI wiring.",
+  "author_role_id": "software_developer"
+}
+```
 
 ## Chat session endpoints
 
