@@ -1304,7 +1304,11 @@ Deletes a custom role. Built-in roles return `409 conflict`.
 
 #### `GET /hecate/v1/projects/{id}/work-items`
 
-Lists work items for the project.
+Lists work items for the project. Each item includes projected assignment
+summaries in `assignments` when assignments exist, so callers can render list
+status/count signals without issuing one assignment request per work item.
+The nested assignment objects use the same shape as
+`GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`.
 
 #### `POST /hecate/v1/projects/{id}/work-items`
 
@@ -1409,6 +1413,12 @@ Returns:
 
 Updates assignment status, role, link fields, `started_at`, or `completed_at`.
 It does not mutate or start the linked Task or Chat.
+
+#### `DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}`
+
+Deletes the assignment metadata record and collaboration artifacts attached to
+that assignment. It does not delete or cancel a linked Task, Run, Chat session,
+or external-agent execution.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/start`
 

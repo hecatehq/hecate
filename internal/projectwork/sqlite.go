@@ -535,6 +535,43 @@ WHERE project_id = ? AND id = ?`, s.assignmentsTbl),
 	return s.getRequiredAssignment(ctx, projectID, id)
 }
 
+func (s *SQLiteStore) DeleteAssignment(ctx context.Context, projectID, workItemID, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	projectID = strings.TrimSpace(projectID)
+	workItemID = strings.TrimSpace(workItemID)
+	id = strings.TrimSpace(id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND assignment_id = ?`, s.artifactsTbl),
+		projectID,
+		id,
+	); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	res, err := tx.ExecContext(
+		ctx,
+		fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND work_item_id = ? AND id = ?`, s.assignmentsTbl),
+		projectID,
+		workItemID,
+		id,
+	)
+	if err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := requireAffected(res); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *SQLiteStore) ListArtifacts(ctx context.Context, filter ArtifactFilter) ([]CollaborationArtifact, error) {
 	filter.ProjectID = strings.TrimSpace(filter.ProjectID)
 	filter.WorkItemID = strings.TrimSpace(filter.WorkItemID)

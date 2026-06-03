@@ -179,6 +179,13 @@ function modelAvailableForProviderFilter(
 
 export { chatSessionIsExternal, chatSessionIsBusy };
 
+export type CreateChatSessionOptions = {
+  agentID?: string;
+  projectID?: string;
+  provider?: string;
+  model?: string;
+};
+
 type ChatActionsReturn = {
   applyChatSession: (session: ChatSessionRecord) => void;
   syncHecateSelectionFromSession: (session: ChatSessionRecord | null) => void;
@@ -191,7 +198,7 @@ type ChatActionsReturn = {
   cancelAgentChat: () => Promise<void>;
   updateToolResult: (index: number, result: string) => void;
   submitToolResults: () => Promise<void>;
-  createChatSession: (options?: { agentID?: string; projectID?: string }) => Promise<void>;
+  createChatSession: (options?: CreateChatSessionOptions) => Promise<void>;
   selectChatSession: (id: string) => Promise<void>;
   startNewChat: () => void;
   deleteChatSession: (id: string) => Promise<void>;
@@ -801,10 +808,15 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     };
   }
 
-  async function createChatSession(options?: { agentID?: string; projectID?: string }) {
+  async function createChatSession(options?: CreateChatSessionOptions) {
     const requestedAgentID = options?.agentID?.trim();
     const createProjectID =
       options && "projectID" in options ? options.projectID?.trim() || "" : activeProjectID;
+    const requestedProviderFilter = (
+      options && "provider" in options ? options.provider?.trim() || "auto" : providerFilter
+    ) as ProviderFilter;
+    const requestedSelectionModel =
+      options && "model" in options ? options.model?.trim() || "" : model;
     const createExternalAgent =
       requestedAgentID && requestedAgentID !== "hecate"
         ? true
@@ -849,8 +861,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const toolsEnabled = effectiveHecateToolsEnabled({
       requested: requestedExecutionMode,
       models,
-      providerFilter,
-      model,
+      providerFilter: requestedProviderFilter,
+      model: requestedSelectionModel,
       // No active session yet — fall back to the user default. The
       // composer hasn't had a chance to call setChatToolsEnabled
       // against the new session ID, so the per-session map can't
@@ -862,9 +874,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     // a routable default. Tools-off chat is still a Hecate-owned session,
     // but it dispatches directly to the selected model.
     const requestedModel =
-      toolsEnabled && model && !modelAvailableForProviderFilter(models, providerFilter, model)
+      toolsEnabled &&
+      requestedSelectionModel &&
+      !modelAvailableForProviderFilter(models, requestedProviderFilter, requestedSelectionModel)
         ? ""
-        : model;
+        : requestedSelectionModel;
     const workspace = workspaceForNewChat(createProjectID);
     if (toolsEnabled && !workspace) {
       setChatErrorState(chatWorkspaceRequiredError());
@@ -878,7 +892,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       const created = await createChatSessionRequest({
         ...(createProjectID ? { project_id: createProjectID } : {}),
         agent_id: "hecate",
-        provider: providerFilter === "auto" ? "" : providerFilter,
+        provider: requestedProviderFilter === "auto" ? "" : requestedProviderFilter,
         model: requestedModel,
         ...(toolsEnabled && workspace ? { workspace } : {}),
         ...(toolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),

@@ -132,6 +132,19 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list work items with assignment summaries status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var listedWork ProjectWorkItemsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &listedWork); err != nil {
+		t.Fatalf("decode listed work items: %v", err)
+	}
+	if len(listedWork.Data) != 1 || len(listedWork.Data[0].Assignments) != 1 || listedWork.Data[0].Assignments[0].ID != "asgn_backend" {
+		t.Fatalf("listed work assignments = %+v, want projected assignment summary", listedWork.Data)
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments/asgn_backend", bytes.NewReader([]byte(`{"status":"completed","chat_session_id":"chat_123","message_id":"msg_123"}`))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
@@ -174,6 +187,61 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 	if len(assignments.Data) != 1 || assignments.Data[0].ID != "asgn_backend" {
 		t.Fatalf("assignments = %+v, want created assignment", assignments.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
+		"id":"work_other",
+		"title":"Other work"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create other work item status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_other/assignments/asgn_backend", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("delete assignment with wrong work item status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments/asgn_backend", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete assignment status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list assignments after delete status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignments); err != nil {
+		t.Fatalf("decode assignments after delete: %v", err)
+	}
+	if len(assignments.Data) != 0 {
+		t.Fatalf("assignments after delete = %+v, want none", assignments.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments", bytes.NewReader([]byte(`{
+		"id":"asgn_backend",
+		"role_id":"software_developer"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("recreate assignment status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/artifacts", bytes.NewReader([]byte(`{
+		"id":"art_handoff",
+		"assignment_id":"asgn_backend",
+		"kind":"handoff",
+		"title":"Backend handoff",
+		"body":"Store and API are ready for UI wiring.",
+		"author_role_id":"software_developer"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("recreate artifact status = %d body=%s, want 201", rec.Code, rec.Body.String())
 	}
 
 	rec = httptest.NewRecorder()

@@ -123,6 +123,7 @@ type Store interface {
 	ListAssignments(ctx context.Context, filter AssignmentFilter) ([]Assignment, error)
 	CreateAssignment(ctx context.Context, assignment Assignment) (Assignment, error)
 	UpdateAssignment(ctx context.Context, projectID, id string, update func(*Assignment)) (Assignment, error)
+	DeleteAssignment(ctx context.Context, projectID, workItemID, id string) error
 	ListArtifacts(ctx context.Context, filter ArtifactFilter) ([]CollaborationArtifact, error)
 	CreateArtifact(ctx context.Context, artifact CollaborationArtifact) (CollaborationArtifact, error)
 	DeleteProject(ctx context.Context, projectID string) (int, error)
@@ -426,6 +427,26 @@ func (s *MemoryStore) UpdateAssignment(_ context.Context, projectID, id string, 
 	}
 	s.assignments[key] = cloneAssignment(item)
 	return cloneAssignment(item), nil
+}
+
+func (s *MemoryStore) DeleteAssignment(_ context.Context, projectID, workItemID, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	projectID = strings.TrimSpace(projectID)
+	workItemID = strings.TrimSpace(workItemID)
+	id = strings.TrimSpace(id)
+	key := assignmentKey(projectID, id)
+	assignment, ok := s.assignments[key]
+	if !ok || assignment.WorkItemID != workItemID {
+		return ErrNotFound
+	}
+	delete(s.assignments, key)
+	for key, artifact := range s.artifacts {
+		if artifact.ProjectID == projectID && artifact.AssignmentID == id {
+			delete(s.artifacts, key)
+		}
+	}
+	return nil
 }
 
 func (s *MemoryStore) ListArtifacts(_ context.Context, filter ArtifactFilter) ([]CollaborationArtifact, error) {

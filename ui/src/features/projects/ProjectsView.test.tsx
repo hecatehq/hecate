@@ -1,0 +1,768 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { type ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
+import { ProjectsProvider } from "../../app/state/projects";
+import {
+  createProjectAssignment,
+  createProjectWorkItem,
+  deleteProjectAssignment,
+  deleteProjectWorkItem,
+  getProjectAssignments,
+  getProjectCollaborationArtifacts,
+  getProjectWorkItem,
+  getProjectWorkItems,
+  getProjectWorkRoles,
+  startProjectAssignment,
+  updateProject,
+  updateProjectAssignment,
+  updateProjectWorkItem,
+} from "../../lib/api";
+import {
+  createRuntimeConsoleActions,
+  createRuntimeConsoleFixture,
+} from "../../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../../test/runtime-console-render";
+import type {
+  ProjectAssignmentRecord,
+  ProjectRecord,
+  ProjectWorkItemRecord,
+  ProjectWorkRoleRecord,
+} from "../../types/project";
+import { ProjectsView } from "./ProjectsView";
+
+vi.mock("../../lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/api")>();
+  return {
+    ...actual,
+    getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
+    getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
+    getProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
+    getProjectAssignments: vi.fn(async () => ({ object: "project_assignments", data: [] })),
+    getProjectCollaborationArtifacts: vi.fn(async () => ({
+      object: "project_collaboration_artifacts",
+      data: [],
+    })),
+    startProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
+    createProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
+    createProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
+    updateProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
+    deleteProjectWorkItem: vi.fn(async () => undefined),
+    updateProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
+    deleteProjectAssignment: vi.fn(async () => undefined),
+    updateProject: vi.fn(async () => ({ object: "project", data: null })),
+  };
+});
+
+const project: ProjectRecord = {
+  id: "proj_1",
+  name: "Hecate",
+  roots: [
+    {
+      id: "root_1",
+      path: "/Users/alice/dev/hecate",
+      kind: "git",
+      git_branch: "main",
+      active: true,
+      created_at: "2026-06-01T10:00:00Z",
+      updated_at: "2026-06-01T10:00:00Z",
+    },
+  ],
+  default_provider: "ollama",
+  default_model: "qwen2.5-coder",
+  created_at: "2026-06-01T10:00:00Z",
+  updated_at: "2026-06-01T11:00:00Z",
+};
+
+const role: ProjectWorkRoleRecord = {
+  id: "software_developer",
+  project_id: "proj_1",
+  name: "Software developer",
+  built_in: true,
+};
+
+const workItem: ProjectWorkItemRecord = {
+  id: "work_1",
+  project_id: "proj_1",
+  title: "Build cockpit UI",
+  brief: "Expose project work and native starts.",
+  status: "ready",
+  priority: "high",
+  owner_role_id: "software_developer",
+  reviewer_role_ids: ["reviewer_qa"],
+  created_at: "2026-06-02T10:00:00Z",
+  updated_at: "2026-06-02T11:00:00Z",
+};
+
+const hecateAssignment: ProjectAssignmentRecord = {
+  id: "asgn_1",
+  project_id: "proj_1",
+  work_item_id: "work_1",
+  role_id: "software_developer",
+  driver_kind: "hecate_task",
+  status: "queued",
+  task_id: "task_1",
+  run_id: "run_1",
+  execution: {
+    task_id: "task_1",
+    run_id: "run_1",
+    status: "awaiting_approval",
+    task_status: "running",
+    run_status: "awaiting_approval",
+    pending_approval_count: 2,
+    step_count: 4,
+    artifact_count: 1,
+    provider: "ollama",
+    model: "qwen2.5-coder",
+  },
+  created_at: "2026-06-02T10:00:00Z",
+  updated_at: "2026-06-02T11:00:00Z",
+  started_at: "2026-06-02T10:30:00Z",
+};
+
+function resetProjectWorkMocks() {
+  vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [role] });
+  vi.mocked(getProjectWorkItems).mockResolvedValue({
+    object: "project_work_items",
+    data: [{ ...workItem, assignments: [hecateAssignment] }],
+  });
+  vi.mocked(getProjectWorkItem).mockResolvedValue({
+    object: "project_work_item",
+    data: workItem,
+  });
+  vi.mocked(getProjectAssignments).mockResolvedValue({
+    object: "project_assignments",
+    data: [hecateAssignment],
+  });
+  vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
+    object: "project_collaboration_artifacts",
+    data: [],
+  });
+  vi.mocked(startProjectAssignment).mockResolvedValue({
+    object: "project_assignment",
+    data: { ...hecateAssignment, status: "running" },
+  });
+  vi.mocked(createProjectWorkItem).mockResolvedValue({
+    object: "project_work_item",
+    data: { ...workItem, id: "work_new", title: "New cockpit work" },
+  });
+  vi.mocked(createProjectAssignment).mockResolvedValue({
+    object: "project_assignment",
+    data: { ...hecateAssignment, id: "asgn_new", status: "queued", execution: undefined },
+  });
+  vi.mocked(updateProjectWorkItem).mockResolvedValue({
+    object: "project_work_item",
+    data: { ...workItem, title: "Edited cockpit UI", status: "review", priority: "urgent" },
+  });
+  vi.mocked(deleteProjectWorkItem).mockResolvedValue(undefined);
+  vi.mocked(updateProjectAssignment).mockResolvedValue({
+    object: "project_assignment",
+    data: { ...hecateAssignment, role_id: "software_developer", status: "running" },
+  });
+  vi.mocked(deleteProjectAssignment).mockResolvedValue(undefined);
+  vi.mocked(updateProject).mockResolvedValue({
+    object: "project",
+    data: {
+      ...project,
+      default_provider: "ollama",
+      default_model: "ministral-3:latest",
+      default_workspace_mode: "in_place",
+    },
+  });
+}
+
+function directWrapper(initialState: Parameters<typeof ProjectsProvider>[0]["initialState"]) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <ProvidersAndModelsProvider>
+        <ProjectsProvider initialState={initialState}>{children}</ProjectsProvider>
+      </ProvidersAndModelsProvider>
+    );
+  };
+}
+
+afterEach(() => {
+  window.localStorage.clear();
+  vi.mocked(getProjectWorkRoles).mockReset();
+  vi.mocked(getProjectWorkItems).mockReset();
+  vi.mocked(getProjectWorkItem).mockReset();
+  vi.mocked(getProjectAssignments).mockReset();
+  vi.mocked(getProjectCollaborationArtifacts).mockReset();
+  vi.mocked(startProjectAssignment).mockReset();
+  vi.mocked(createProjectWorkItem).mockReset();
+  vi.mocked(createProjectAssignment).mockReset();
+  vi.mocked(updateProjectWorkItem).mockReset();
+  vi.mocked(deleteProjectWorkItem).mockReset();
+  vi.mocked(updateProjectAssignment).mockReset();
+  vi.mocked(deleteProjectAssignment).mockReset();
+  vi.mocked(updateProject).mockReset();
+});
+
+describe("ProjectsView index", () => {
+  it("renders project rows with roots and defaults", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project] }),
+    });
+
+    expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
+    expect(screen.getByText("/Users/alice/dev/hecate")).toBeTruthy();
+    expect(screen.getByText("ollama / qwen2.5-coder")).toBeTruthy();
+    expect(await screen.findByText("Build cockpit UI")).toBeTruthy();
+  });
+
+  it("renders empty, loading, and error states for the project index", () => {
+    const empty = render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [] }),
+    });
+    expect(screen.getByText("No projects yet")).toBeTruthy();
+    empty.unmount();
+
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [], loading: true }),
+    });
+    expect(screen.getByText("Loading projects…")).toBeTruthy();
+    cleanup();
+
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [], error: "project list failed" }),
+    });
+    expect(screen.getByText("project list failed")).toBeTruthy();
+  });
+
+  it("uses existing project actions for create, rename, and delete", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      createProjectFromFolder: vi.fn(async () => project),
+      renameProject: vi.fn(async () => undefined),
+      deleteProject: vi.fn(async () => true),
+      selectProject: vi.fn(async () => undefined),
+    };
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions }));
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(actions.createProjectFromFolder).toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Rename project Hecate" }));
+    const renameInput = screen.getByLabelText("Rename Hecate");
+    await user.type(renameInput, " workspace");
+    expect(renameInput).toHaveValue("Hecate workspace");
+    expect(actions.selectProject).not.toHaveBeenCalled();
+    fireEvent.change(renameInput, {
+      target: { value: "Hecate console" },
+    });
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(actions.renameProject).toHaveBeenCalledWith(project.id, "Hecate console");
+
+    await user.click(screen.getByRole("button", { name: "Delete project Hecate" }));
+    expect(
+      screen.getByText(/Workspace files and the git repository are not deleted/i),
+    ).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Delete project record" }));
+    expect(actions.deleteProject).toHaveBeenCalledWith(project.id);
+  });
+});
+
+describe("ProjectsView cockpit", () => {
+  it("loads work items after selecting a project", async () => {
+    resetProjectWorkMocks();
+    const state = createRuntimeConsoleFixture({ projects: [project] });
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      selectProject: vi.fn(async () => undefined),
+    };
+    render(withRuntimeConsole(<ProjectsView />, { state, actions }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Open project Hecate" }));
+
+    await waitFor(() => {
+      expect(getProjectWorkItems).toHaveBeenCalledWith(project.id);
+    });
+    expect(actions.selectProject).toHaveBeenCalledWith(project.id);
+    expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
+  });
+
+  it("clears stale work item selection before switching projects", async () => {
+    resetProjectWorkMocks();
+    const secondProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+      roots: [
+        {
+          ...project.roots[0],
+          id: "root_2",
+          path: "/Users/alice/dev/apollo",
+        },
+      ],
+    };
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      project_id: "proj_2",
+      title: "Build Apollo cockpit",
+      brief: "Show Apollo project work.",
+    };
+    vi.mocked(getProjectWorkItems).mockImplementation(async (projectID) => ({
+      object: "project_work_items",
+      data:
+        projectID === secondProject.id
+          ? [{ ...secondWorkItem, assignments: [] }]
+          : [{ ...workItem, assignments: [hecateAssignment] }],
+    }));
+    vi.mocked(getProjectWorkItem).mockImplementation(async (projectID, workItemID) => ({
+      object: "project_work_item",
+      data:
+        projectID === secondProject.id && workItemID === secondWorkItem.id
+          ? secondWorkItem
+          : workItem,
+    }));
+    vi.mocked(getProjectAssignments).mockImplementation(async (projectID) => ({
+      object: "project_assignments",
+      data: projectID === secondProject.id ? [] : [hecateAssignment],
+    }));
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project, secondProject],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open project Apollo" }));
+
+    expect(await screen.findByText("Show Apollo project work.")).toBeTruthy();
+    expect(getProjectWorkItem).toHaveBeenCalledWith(secondProject.id, secondWorkItem.id);
+    expect(getProjectWorkItem).not.toHaveBeenCalledWith(secondProject.id, workItem.id);
+  });
+
+  it("uses projected work-item assignments for list summaries without per-item requests", async () => {
+    resetProjectWorkMocks();
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      title: "Write project docs",
+    };
+    const emptyWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_3",
+      title: "Plan empty lane",
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [
+        { ...workItem, assignments: [hecateAssignment] },
+        {
+          ...secondWorkItem,
+          assignments: [{ ...hecateAssignment, id: "asgn_2", work_item_id: secondWorkItem.id }],
+        },
+        emptyWorkItem,
+      ],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const firstRow = await screen.findByRole("button", {
+      name: "Open work item Build cockpit UI",
+    });
+    const secondRow = await screen.findByRole("button", {
+      name: "Open work item Write project docs",
+    });
+    const emptyRow = await screen.findByRole("button", {
+      name: "Open work item Plan empty lane",
+    });
+    expect(within(firstRow).queryByText("1 assignment")).toBeTruthy();
+    expect(within(secondRow).getByText("1 assignment")).toBeTruthy();
+    expect(within(emptyRow).queryByText(/assignment/)).toBeNull();
+    await waitFor(() => {
+      expect(getProjectAssignments).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("preserves the selected work item when refreshing project work", async () => {
+    resetProjectWorkMocks();
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      title: "Write project docs",
+      brief: "Document the project workflow.",
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [
+        { ...workItem, assignments: [hecateAssignment] },
+        { ...secondWorkItem, assignments: [] },
+      ],
+    });
+    vi.mocked(getProjectWorkItem).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_work_item",
+      data: workItemID === secondWorkItem.id ? secondWorkItem : workItem,
+    }));
+    vi.mocked(getProjectAssignments).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_assignments",
+      data: workItemID === secondWorkItem.id ? [] : [hecateAssignment],
+    }));
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const secondRow = await screen.findByRole("button", {
+      name: "Open work item Write project docs",
+    });
+    await userEvent.click(secondRow);
+    expect(await screen.findByText("Document the project workflow.")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh project work" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Open work item Write project docs" }),
+      ).toHaveAttribute("aria-current", "true");
+    });
+    expect(await screen.findByText("Document the project workflow.")).toBeTruthy();
+  });
+
+  it("shows selected work item assignments and projected execution state", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
+    const detail = screen.getByLabelText("Selected work item");
+    expect(within(detail).getByText("Software developer")).toBeTruthy();
+    expect(within(detail).getByText("approval")).toBeTruthy();
+    expect(within(detail).getByText("2 approval pending")).toBeTruthy();
+    expect(within(detail).getByText("4 steps")).toBeTruthy();
+    expect(within(detail).getByText("ollama / qwen2.5-coder")).toBeTruthy();
+  });
+
+  it("opens chat from an assignment using the projected model", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const onOpenChat = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<ProjectsView onOpenChat={onOpenChat} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+
+    expect(onOpenChat).toHaveBeenCalledWith({
+      projectID: project.id,
+      provider: "ollama",
+      model: "qwen2.5-coder",
+    });
+  });
+
+  it("creates work items from the Projects cockpit", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Work" }));
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "New cockpit work" },
+    });
+    fireEvent.change(screen.getByLabelText("Brief"), {
+      target: { value: "Make project work creatable in the UI." },
+    });
+    fireEvent.change(screen.getByLabelText("Priority"), {
+      target: { value: "urgent" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Create work item" }));
+
+    expect(createProjectWorkItem).toHaveBeenCalledWith(project.id, {
+      title: "New cockpit work",
+      brief: "Make project work creatable in the UI.",
+      status: "ready",
+      priority: "urgent",
+      owner_role_id: "software_developer",
+    });
+  });
+
+  it("edits and deletes work items from the selected detail", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const detail = screen.getByLabelText("Selected work item");
+    expect(await within(detail).findByText("Expose project work and native starts.")).toBeTruthy();
+
+    await userEvent.click(within(detail).getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Edited cockpit UI" },
+    });
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "review" },
+    });
+    fireEvent.change(screen.getByLabelText("Priority"), {
+      target: { value: "urgent" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Save work item" }));
+
+    expect(updateProjectWorkItem).toHaveBeenCalledWith(project.id, workItem.id, {
+      title: "Edited cockpit UI",
+      brief: "Expose project work and native starts.",
+      status: "review",
+      priority: "urgent",
+      owner_role_id: "software_developer",
+      reviewer_role_ids: ["reviewer_qa"],
+    });
+
+    await userEvent.click(within(detail).getByRole("button", { name: "Delete" }));
+    expect(
+      screen.getByText(/Linked tasks, runs, chats, workspace files, and git history/i),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Delete work item" }));
+
+    expect(deleteProjectWorkItem).toHaveBeenCalledWith(project.id, workItem.id);
+  });
+
+  it("adds assignments from the selected work item", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Assignment" }));
+    fireEvent.change(screen.getByLabelText("Driver"), {
+      target: { value: "external_agent" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
+
+    expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
+      role_id: "software_developer",
+      driver_kind: "external_agent",
+    });
+  });
+
+  it("edits and deletes assignments from the selected work item", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit assignment asgn_1" }));
+    fireEvent.change(screen.getByLabelText("Status"), {
+      target: { value: "running" },
+    });
+    fireEvent.change(screen.getByLabelText("Driver"), {
+      target: { value: "external_agent" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Save assignment" }));
+
+    expect(updateProjectAssignment).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      hecateAssignment.id,
+      {
+        role_id: "software_developer",
+        driver_kind: "external_agent",
+        status: "running",
+        task_id: "task_1",
+        run_id: "run_1",
+        chat_session_id: "",
+        message_id: "",
+        context_snapshot_id: "",
+      },
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Delete assignment asgn_1" }));
+    expect(
+      screen.getByText(/Linked tasks, runs, chats, and external-agent executions/i),
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Delete assignment" }));
+
+    expect(deleteProjectAssignment).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      hecateAssignment.id,
+    );
+  });
+
+  it("updates project defaults needed by native starts", async () => {
+    resetProjectWorkMocks();
+    const projectWithUpdatedDefaults = {
+      ...project,
+      default_model: "ministral-3:latest",
+    };
+    window.localStorage.setItem("hecate.project", projectWithUpdatedDefaults.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [projectWithUpdatedDefaults],
+      activeProjectID: projectWithUpdatedDefaults.id,
+      providers: [
+        {
+          name: "ollama",
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          credential_state: "not_required",
+        },
+      ],
+      providerPresets: [
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+        },
+      ],
+      models: [
+        {
+          id: "qwen2.5-coder",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local" },
+        },
+        {
+          id: "ministral-3:latest",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local" },
+        },
+      ],
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Defaults" }));
+    expect(screen.getByRole("button", { name: /Ollama/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Model picker: ministral-3:latest/i })).toBeTruthy();
+    expect(screen.queryByLabelText("Provider ID")).toBeNull();
+    expect(screen.queryByLabelText("Model")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /Model picker/i }));
+    await userEvent.click(await screen.findByText("qwen2.5-coder"));
+    expect(screen.getByRole("dialog", { name: "Project defaults" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+
+    expect(updateProject).toHaveBeenCalledWith(projectWithUpdatedDefaults.id, {
+      default_provider: "ollama",
+      default_model: "qwen2.5-coder",
+      default_workspace_mode: "in_place",
+    });
+  });
+
+  it("starts native Hecate assignments and refreshes detail state", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const queuedAssignment = {
+      ...hecateAssignment,
+      status: "running",
+      execution: { ...hecateAssignment.execution, status: "queued" },
+    };
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [queuedAssignment],
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+
+    expect(startProjectAssignment).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      queuedAssignment.id,
+    );
+    await waitFor(() => {
+      expect(getProjectWorkItem).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("renders finished-only assignment timestamps without a blank started label", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [
+        {
+          ...hecateAssignment,
+          status: "completed",
+          started_at: undefined,
+          completed_at: "2026-06-02T12:00:00Z",
+          execution: {
+            ...hecateAssignment.execution,
+            status: "completed",
+            started_at: undefined,
+            finished_at: "2026-06-02T12:00:00Z",
+          },
+        },
+      ],
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText(/^Finished /)).toBeTruthy();
+    expect(screen.queryByText(/^Started\s*$/)).toBeNull();
+  });
+
+  it("does not expose native start for external-agent assignments", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [
+        {
+          ...hecateAssignment,
+          id: "asgn_external",
+          driver_kind: "external_agent",
+          status: "queued",
+          execution: undefined,
+        },
+      ],
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Start in Chats")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  });
+});

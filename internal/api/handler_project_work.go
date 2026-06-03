@@ -122,16 +122,17 @@ type ProjectWorkItemEnvelope struct {
 }
 
 type ProjectWorkItemResponse struct {
-	ID              string   `json:"id"`
-	ProjectID       string   `json:"project_id"`
-	Title           string   `json:"title"`
-	Brief           string   `json:"brief,omitempty"`
-	Status          string   `json:"status"`
-	Priority        string   `json:"priority"`
-	OwnerRoleID     string   `json:"owner_role_id,omitempty"`
-	ReviewerRoleIDs []string `json:"reviewer_role_ids,omitempty"`
-	CreatedAt       string   `json:"created_at"`
-	UpdatedAt       string   `json:"updated_at"`
+	ID              string                          `json:"id"`
+	ProjectID       string                          `json:"project_id"`
+	Title           string                          `json:"title"`
+	Brief           string                          `json:"brief,omitempty"`
+	Status          string                          `json:"status"`
+	Priority        string                          `json:"priority"`
+	OwnerRoleID     string                          `json:"owner_role_id,omitempty"`
+	ReviewerRoleIDs []string                        `json:"reviewer_role_ids,omitempty"`
+	Assignments     []ProjectWorkAssignmentResponse `json:"assignments,omitempty"`
+	CreatedAt       string                          `json:"created_at"`
+	UpdatedAt       string                          `json:"updated_at"`
 }
 
 type ProjectWorkAssignmentExecutionResponse struct {
@@ -543,6 +544,19 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+}
+
+func (h *Handler) HandleDeleteProjectWorkAssignment(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	assignmentID := r.PathValue("assignment_id")
+	if !h.requireProjectAssignment(w, r, projectID, workItemID, assignmentID) {
+		return
+	}
+	if err := h.projectWork.DeleteAssignment(r.Context(), projectID, workItemID, assignmentID); !writeProjectWorkError(w, err) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *http.Request) {
@@ -1137,6 +1151,7 @@ func (h *Handler) renderProjectedProjectWorkItemWithAssignments(ctx context.Cont
 		}
 		projected = append(projected, projectedAssignment)
 	}
+	response.Assignments = projected
 	response.Status = projectWorkItemStatusFromAssignments(item.Status, projected)
 	return response, nil
 }

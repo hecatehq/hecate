@@ -4,8 +4,12 @@ import {
   buildRequestOptions,
   cancelChatApproval,
   chatCompletions,
+  createProjectAssignment,
+  createProjectWorkItem,
   deleteChatGrant,
   deletePolicyRule,
+  deleteProjectAssignment,
+  deleteProjectWorkItem,
   discoverLocalProviders,
   dispatchChatStreamEvent,
   getChatMessageFileDiff,
@@ -13,6 +17,11 @@ import {
   getChatWorkspaceFileDiff,
   getChatWorkspaceFiles,
   getChatApproval,
+  getProjectAssignments,
+  getProjectCollaborationArtifacts,
+  getProjectWorkItem,
+  getProjectWorkItems,
+  getProjectWorkRoles,
   getUsageEvents,
   getUsageSummary,
   getSession,
@@ -29,9 +38,13 @@ import {
   setChatSettings,
   setProviderAPIKey,
   setProviderBaseURL,
+  startProjectAssignment,
   streamChatSession,
   upsertPolicyRule,
   updateChatSession,
+  updateProject,
+  updateProjectAssignment,
+  updateProjectWorkItem,
   type ApiError,
 } from "./api";
 
@@ -238,6 +251,189 @@ describe("api client", () => {
     expect(result.data.request_id).toBe("req-123");
     expect(result.data.spans).toHaveLength(1);
     expect(result.data.spans?.[0]?.events).toHaveLength(2);
+  });
+
+  it("builds project work coordination requests", async () => {
+    fetchMock.mockClear();
+    for (let i = 0; i < 5; i += 1) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ object: "ok", data: [] }));
+    }
+
+    await getProjectWorkRoles("proj/1");
+    await getProjectWorkItems("proj/1");
+    await getProjectWorkItem("proj/1", "work/1");
+    await getProjectAssignments("proj/1", "work/1");
+    await getProjectCollaborationArtifacts("proj/1", "work/1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/hecate/v1/projects/proj%2F1/roles",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/hecate/v1/projects/proj%2F1/work-items",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/artifacts",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("starts native project assignments with the hecate driver kind", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ object: "project_assignment", data: { id: "asgn_1" } }),
+    );
+
+    await startProjectAssignment("proj_1", "work_1", "asgn_1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/proj_1/work-items/work_1/assignments/asgn_1/start",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ driver_kind: "hecate_task" }),
+      }),
+    );
+  });
+
+  it("creates project work items and assignments", async () => {
+    fetchMock.mockClear();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ object: "project_work_item", data: { id: "work_1" } }))
+      .mockResolvedValueOnce(
+        jsonResponse({ object: "project_assignment", data: { id: "asgn_1" } }),
+      );
+
+    await createProjectWorkItem("proj_1", {
+      title: "Project cockpit",
+      brief: "Create records from the UI.",
+      status: "ready",
+      priority: "high",
+      owner_role_id: "software_developer",
+    });
+    await createProjectAssignment("proj_1", "work_1", {
+      role_id: "software_developer",
+      driver_kind: "hecate_task",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/hecate/v1/projects/proj_1/work-items",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "Project cockpit",
+          brief: "Create records from the UI.",
+          status: "ready",
+          priority: "high",
+          owner_role_id: "software_developer",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/hecate/v1/projects/proj_1/work-items/work_1/assignments",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          role_id: "software_developer",
+          driver_kind: "hecate_task",
+        }),
+      }),
+    );
+  });
+
+  it("updates and deletes project work items and assignments", async () => {
+    fetchMock.mockClear();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ object: "project_work_item", data: { id: "work/1" } }))
+      .mockResolvedValueOnce(jsonResponse(null))
+      .mockResolvedValueOnce(jsonResponse({ object: "project_assignment", data: { id: "asgn/1" } }))
+      .mockResolvedValueOnce(jsonResponse(null));
+
+    await updateProjectWorkItem("proj/1", "work/1", {
+      title: "Edited work",
+      status: "ready",
+      priority: "urgent",
+      owner_role_id: "frontend_engineer",
+    });
+    await deleteProjectWorkItem("proj/1", "work/1");
+    await updateProjectAssignment("proj/1", "work/1", "asgn/1", {
+      role_id: "frontend_engineer",
+      driver_kind: "external_agent",
+      status: "running",
+    });
+    await deleteProjectAssignment("proj/1", "work/1", "asgn/1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          title: "Edited work",
+          status: "ready",
+          priority: "urgent",
+          owner_role_id: "frontend_engineer",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments/asgn%2F1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          role_id: "frontend_engineer",
+          driver_kind: "external_agent",
+          status: "running",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments/asgn%2F1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("updates project execution defaults", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ object: "project", data: { id: "proj_1" } }));
+
+    await updateProject("proj_1", {
+      default_provider: "ollama",
+      default_model: "ministral-3:latest",
+      default_workspace_mode: "in_place",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/proj_1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          default_provider: "ollama",
+          default_model: "ministral-3:latest",
+          default_workspace_mode: "in_place",
+        }),
+      }),
+    );
   });
 
   describe("provider REST API", () => {

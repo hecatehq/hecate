@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 
 import { useChat, type ChatState } from "./state/chat";
 import { useProvidersAndModels } from "./state/providersAndModels";
+import { useProjects } from "./state/projects";
 import { useRuntime } from "./state/runtime";
 import { useSettings } from "./state/settings";
 import { useChatTarget } from "./state/derived";
@@ -12,6 +13,7 @@ import type { ChatUsageRecord } from "../types/chat";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriOnMacOS } from "../lib/tauri";
+import type { ProviderFilter } from "../types/provider";
 
 // Each workspace view is its own dynamic chunk so the initial
 // page load only ships the shell + active workspace, not all six.
@@ -38,6 +40,9 @@ const ChatView = lazy(() =>
 const ProvidersView = lazy(() =>
   import("../features/providers/ProvidersView").then((m) => ({ default: m.ProvidersView })),
 );
+const ProjectsView = lazy(() =>
+  import("../features/projects/ProjectsView").then((m) => ({ default: m.ProjectsView })),
+);
 const TasksView = lazy(() =>
   import("../features/runs/TasksView").then((m) => ({ default: m.TasksView })),
 );
@@ -48,6 +53,7 @@ const TasksView = lazy(() =>
 // adding a workspace updates both surfaces in one place.
 export const WORKSPACE_IDS = [
   "overview",
+  "projects",
   "runs",
   "chats",
   "connections",
@@ -64,6 +70,7 @@ type WorkspaceDefinition = {
 
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
 type TraceFocusRequest = { requestID: string; nonce: number };
+type ProjectChatRequest = { projectID: string; provider?: string; model?: string };
 
 // Icon paths match the design handoff
 const IC = {
@@ -74,6 +81,11 @@ const IC = {
   chat: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
   tasks:
     "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
+  projects: [
+    "M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z",
+    "M8 12h8",
+    "M8 16h5",
+  ],
   connections: [
     "M9.75 7.5v3.75m4.5-3.75v3.75",
     "M7.5 11.25h9v2.25a4.5 4.5 0 01-9 0v-2.25z",
@@ -184,6 +196,7 @@ const MoonIcon = <SvgIcon d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" />;
 type WorkspaceLineupEntry = WorkspaceDefinition;
 const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
   chats: { id: "chats", label: "Chats", icon: <SvgIcon d={IC.chat} /> },
+  projects: { id: "projects", label: "Projects", icon: <SvgIcon d={IC.projects} /> },
   connections: { id: "connections", label: "Connections", icon: <SvgIcon d={IC.connections} /> },
   runs: { id: "runs", label: "Tasks", icon: <SvgIcon d={IC.tasks} /> },
   overview: { id: "overview", label: "Observability", icon: <SvgIcon d={IC.observe} /> },
@@ -191,10 +204,10 @@ const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
   settings: { id: "settings", label: "Settings", icon: <SvgIcon d={IC.settings} /> },
 };
 
-const BARE_WORKSPACES: WorkspaceID[] = ["chats", "runs"];
+const BARE_WORKSPACES: WorkspaceID[] = ["chats", "projects", "runs"];
 
 export function getAvailableWorkspaces(): WorkspaceDefinition[] {
-  return [WS.chats, WS.runs, WS.connections, WS.overview, WS.usage, WS.settings];
+  return [WS.chats, WS.projects, WS.runs, WS.connections, WS.overview, WS.usage, WS.settings];
 }
 
 export function ConsoleShell({
@@ -266,6 +279,7 @@ function AuthenticatedShell({
 }) {
   const runtime = useRuntime();
   const chat = useChat();
+  const projects = useProjects();
   const providersAndModels = useProvidersAndModels();
   const settings = useSettings();
   const chatTarget = useChatTarget();
@@ -283,6 +297,30 @@ function AuthenticatedShell({
   function openTaskFromChat(taskID: string, runID?: string) {
     setTaskFocusRequest({ taskID, runID, nonce: Date.now() });
     onSelectWorkspace("runs");
+  }
+
+  function openTaskFromProject(taskID: string, runID?: string) {
+    setTaskFocusRequest({ taskID, runID, nonce: Date.now() });
+    onSelectWorkspace("runs");
+  }
+
+  function openChatFromProject(request: ProjectChatRequest) {
+    if (request.projectID) {
+      void projects.actions.selectProject(request.projectID);
+    }
+    if (request.provider) {
+      chatActions.selectProviderRoute(request.provider as ProviderFilter);
+    }
+    if (request.model) {
+      chat.actions.setModel(request.model);
+    }
+    void chatActions.createChatSession({
+      agentID: "hecate",
+      projectID: request.projectID,
+      provider: request.provider,
+      model: request.model,
+    });
+    onSelectWorkspace("chats");
   }
 
   function openChatFromTask(sessionID: string) {
@@ -381,6 +419,9 @@ function AuthenticatedShell({
                   onOpenChat={openChatFromTask}
                   onOpenTrace={openTraceFromChat}
                 />
+              )}
+              {activeWorkspace === "projects" && (
+                <ProjectsView onOpenChat={openChatFromProject} onOpenTask={openTaskFromProject} />
               )}
               {activeWorkspace === "connections" && <ProvidersView />}
               {activeWorkspace === "usage" && <UsageView />}

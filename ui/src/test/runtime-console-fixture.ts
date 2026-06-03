@@ -200,7 +200,12 @@ export type RuntimeConsoleFixtureActions = {
   copyCommand: (command: string) => Promise<void>;
   cancelAgentChat: () => Promise<void>;
   chooseAgentWorkspace: () => Promise<boolean>;
-  createChatSession: (options?: { agentID?: string; projectID?: string }) => Promise<void>;
+  createChatSession: (options?: {
+    agentID?: string;
+    projectID?: string;
+    provider?: string;
+    model?: string;
+  }) => Promise<void>;
   deleteChatSession: (id: string) => Promise<void>;
   deletePolicyRule: (id: string) => Promise<void>;
   loadDashboard: () => Promise<void>;
