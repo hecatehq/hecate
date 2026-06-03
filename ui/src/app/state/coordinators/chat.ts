@@ -812,7 +812,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const requestedAgentID = options?.agentID?.trim();
     const createProjectID =
       options && "projectID" in options ? options.projectID?.trim() || "" : activeProjectID;
-    const requestedProviderFilter = (options?.provider?.trim() || providerFilter) as ProviderFilter;
+    const requestedProviderFilter = (
+      options && "provider" in options ? options.provider?.trim() || "auto" : providerFilter
+    ) as ProviderFilter;
     const requestedSelectionModel =
       options && "model" in options ? options.model?.trim() || "" : model;
     const createExternalAgent =
@@ -895,8 +897,6 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ...(toolsEnabled && workspace ? { workspace } : {}),
         ...(toolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
       });
-      setProviderFilter(requestedProviderFilter);
-      setModel(requestedModel);
       setActiveChatSessionID(created.data.id);
       // Same per-session pinning as the submit path: chatTarget stays
       // "agent" and the tools-on/off intent for this session is recorded

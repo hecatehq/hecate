@@ -177,6 +177,21 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
+		"id":"work_other",
+		"title":"Other work"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create other work item status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_other/assignments/asgn_backend", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("delete assignment with wrong work item status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments/asgn_backend", nil))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete assignment status = %d body=%s, want 204", rec.Code, rec.Body.String())
