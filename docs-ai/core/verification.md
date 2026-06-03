@@ -4,8 +4,9 @@ How "done" is determined. Treat the floors as floors, not nice-to-haves.
 
 ## Pre-PR rule
 
-Do not file a PR until the verification for every touched implementation
-surface has passed locally:
+Do not create a PR, push an update to an existing PR, mark a PR ready for
+review, or ask for merge until the verification for every touched
+implementation surface has passed locally:
 
 - Touch `ui/`, `website/`, `.ts`, `.tsx`, `.js`, `.jsx`, CSS, Vitest, or
   Playwright files: run the UI checks listed below.
@@ -16,11 +17,22 @@ surface has passed locally:
 Docs-only and agent-guidance-only changes do not require TypeScript or Go
 tests, but still need the relevant docs checks when formatting, links, or
 screenshots are affected. If a required check cannot run, say why before
-filing the PR and call out the residual risk.
+creating or updating the PR and call out the residual risk.
 
 Agent-guidance changes (`AGENTS.md`, `CLAUDE.md`, `docs-ai/**`, or scoped
 `AGENTS.md` files) should also run `just agent-docs-check`. `just docs-check`
 includes it.
+
+Before changing PR state, explicitly identify the related tests for the diff:
+neighboring unit tests, integration tests for crossed seams, UI view tests, and
+e2e tests for real-binary behavior. Run the relevant set locally first; if a
+test cannot be run, say which one and why in the PR/update summary.
+
+Written production code needs automated coverage in the same change. New
+behavior gets a new test, bug fixes get a regression test, and refactors keep
+the existing behavior tests passing before and after the reshape. If automated
+coverage is genuinely impractical, document the reason and the manual smoke
+that covers the risk.
 
 ## Backend verification ladder
 

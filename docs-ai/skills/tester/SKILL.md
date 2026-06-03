@@ -11,7 +11,11 @@ Test-strategy responses. Push for evidence, not assumptions.
 
 Every change that adds or modifies behavior. Also:
 
+- Before creating a PR, pushing new commits to a PR, marking it ready, or
+  asking for merge — identify and run the related tests first.
 - Bug fix — a regression test pinning the fix is required.
+- Production-code change — automated coverage in the same change is required
+  unless the PR/update summary explains why automation cannot reach the risk.
 - Coverage audit — what's tested, what isn't, what's risky.
 - Refactor with risky surface — pin behavior before reshaping.
 - SSE / streaming behavior — partial output, mid-stream cancel, reconnect.
@@ -33,7 +37,7 @@ Verification ladders, race-suite floor, and the `bun run test` ≠ `bun test` wa
 
 - **New behavior** → new test.
 - **Bug fix** → new regression test pinning the fix. Don't just modify an existing test — that hides the regression in the diff and makes future bisecting harder.
-- **Refactor with no behavior change** → tests stay the same. If they need rewriting to keep passing, the refactor changed behavior. Stop and reframe.
+- **Refactor with no behavior change** → tests stay the same. If they need rewriting to keep passing, the refactor changed behavior. Stop and reframe. If the behavior being preserved is not covered, add the smallest focused test before reshaping.
 
 ## Edge-case checklist
 

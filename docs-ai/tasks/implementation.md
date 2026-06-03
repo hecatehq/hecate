@@ -29,8 +29,11 @@ After each logical step:
 
 1. `go build ./...` still passes.
 2. If platform-specific files changed, cross-compile: `GOOS=linux go build ./...` and `GOOS=darwin go build ./...`.
-3. New or updated tests match the local pattern — table-driven where the variant set is obvious, named `TestPackage_Behavior`.
-4. Docs updated in the same change (not as a follow-up):
+3. Production-code changes have related tests in the same change. New behavior
+   gets a new test, bug fixes get a regression test, and refactors keep
+   behavior tests passing before and after.
+4. New or updated tests match the local pattern — table-driven where the variant set is obvious, named `TestPackage_Behavior`.
+5. Docs updated in the same change (not as a follow-up):
 
 | Change                                     | Doc                                                                 |
 | ------------------------------------------ | ------------------------------------------------------------------- |
@@ -41,7 +44,9 @@ After each logical step:
 | New behavior on the api↔providers boundary | both sides' tests                                                   |
 | New isolation / sandbox capability         | `docs/sandbox.md`                                                   |
 
-5. `git diff --stat` reviewed — confirm the change is cohesive, no accidental drift, no unrelated formatting.
+6. The related verification ladder has been run before creating or updating a
+   PR. If a required command cannot run, the PR/update summary says why.
+7. `git diff --stat` reviewed — confirm the change is cohesive, no accidental drift, no unrelated formatting.
 
 ## When to add comments
 

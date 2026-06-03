@@ -213,7 +213,8 @@ For errors that should surface before a run is created (bad config, missing requ
 ## Done criteria
 
 See [`../../core/verification.md`](../../core/verification.md). Before filing a
-PR that touches Go/backend files, run the relevant Go checks: targeted or broad
-`go vet`, affected `go test` packages, and the race suite for runtime paths. If
-UI/TypeScript files changed too, run the UI ladder as well. Race suite is the
-floor for runtime/backend work, not a nice-to-have.
+PR or pushing an update to one that touches Go/backend files, run the relevant
+Go checks: targeted or broad `go vet`, affected `go test` packages, and the
+race suite for runtime paths. Add or update tests for production-code changes
+in the same PR update. If UI/TypeScript files changed too, run the UI ladder as
+well. Race suite is the floor for runtime/backend work, not a nice-to-have.

@@ -48,9 +48,10 @@ Before adding or changing UI, find the closest existing precedent and reuse it u
 - If a screen already has an empty, loading, repair, or onboarding precedent, extend that component/copy path instead of adding a second parallel state.
 - When making Hecate Chat and External Agent behavior more similar, preserve their real runtime differences: Hecate owns task-backed tools; external agents own ACP-native sessions.
 - Add role/name-based tests for shared controls and view-level tests for every state that previously regressed. E2E should cover cross-view navigation, onboarding, and setup/repair flows when a bug came from app composition.
-- Before filing a PR that touches UI/TypeScript, run the UI verification ladder:
-  `cd ui && bun run typecheck`, `bun run lint`, `bun run format:check`, and
-  `bun run test`. Add targeted Playwright coverage when the change is a
+- Before filing a PR or pushing a PR update that touches UI/TypeScript, run the
+  UI verification ladder: `cd ui && bun run typecheck`, `bun run lint`,
+  `bun run format:check`, and `bun run test`. Add same-change tests for
+  production UI code, and targeted Playwright coverage when the change is a
   workflow, routing, onboarding, or regression fix. If Go files changed too,
   run the backend ladder as well.
 

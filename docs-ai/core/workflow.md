@@ -17,7 +17,12 @@ The default operating loop, when to stop and plan, and how to propose commits.
 3. **Plan before non-trivial changes.** See "When to stop and propose a plan first" below. Substantial backend changes (new wire fields, cross-package ripple, new endpoints) and substantial UI changes (new persistent surfaces, new interaction patterns) require a written plan first. Format: [`../tasks/planning.md`](../tasks/planning.md).
 4. **Implement in coherent steps.** Minimal, scoped changes. Avoid drive-by edits that bloat the diff.
 5. **Update docs and diagrams.** For every `.md` file touched (or whose subject matter changed), check whether any Mermaid diagrams in that file — and in directly related docs (e.g. `architecture.md` when changing the task runtime) — still accurately reflect the change. Update stale diagrams in the same commit as the code change, not as a follow-up.
-6. **Verify.** Run the relevant ladder from [`verification.md`](verification.md). Before filing a PR, this is mandatory by touched surface: TypeScript/UI changes require the UI checks and Go changes require the Go checks. If a PR touches both, run both. State exactly what was run.
+6. **Verify before PR updates.** Run the relevant ladder from
+   [`verification.md`](verification.md). Before creating a PR, pushing new
+   commits to a PR, marking it ready, or asking for merge, this is mandatory by
+   touched surface: TypeScript/UI changes require the UI checks and Go changes
+   require the Go checks. If a PR touches both, run both. State exactly what
+   was run.
 7. **Summarize.** What changed, what risks remain, what the operator should know — including manual smoke steps if any.
 
 ## When to ask clarifying questions
@@ -37,6 +42,25 @@ Ask once, concisely, and proceed. Do not stall on questions that can be answered
 - The area being changed has no test coverage to pin behavior across the refactor.
 
 If a refactor is the right move, split it into its own change first and rebuild the feature on top.
+
+## Test coverage rule
+
+Every production-code change needs related tests in the same change. Read the
+neighboring tests before editing, then add or update the right layer:
+
+- New behavior: add a new test.
+- Bug fix: add a regression test that fails without the fix.
+- Refactor: keep behavior tests passing before and after; if coverage is
+  missing for the behavior being preserved, add the smallest focused test before
+  reshaping.
+- UI code: cover risky state, submit payloads, conditional rendering, and
+  accessibility-sensitive behavior with role/name-oriented tests.
+- Backend/runtime code: cover wire shape, store parity, event ordering,
+  approval/queue state, race-prone seams, and e2e paths when behavior depends
+  on the real binary.
+
+If automation cannot cover the risk, document why and list the manual smoke
+steps in the PR/update summary.
 
 ## When to stop and propose a plan first
 
