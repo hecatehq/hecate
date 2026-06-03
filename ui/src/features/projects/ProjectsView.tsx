@@ -230,19 +230,21 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     );
   }, [projects.activeProjectID, projects.state.projects]);
 
-  const loadWorkForProject = useCallback(async (projectID: string) => {
+  const loadWorkForProject = useCallback(async (projectID: string, preferredWorkItemID = "") => {
     setWorkError("");
     setDetailError("");
     setAssignmentErrors({});
     setWorkItems([]);
     setWorkItemSummaries({});
-    setSelectedWorkItemID("");
-    setSelectedWorkItem(null);
-    setAssignments([]);
-    setArtifacts([]);
+    if (!preferredWorkItemID) {
+      setSelectedWorkItemID("");
+      setSelectedWorkItem(null);
+      setAssignments([]);
+      setArtifacts([]);
+    }
     if (!projectID) {
       setWorkLoadState("idle");
-      return;
+      return "";
     }
     setWorkLoadState("loading");
     try {
@@ -261,12 +263,16 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           ),
         ),
       );
-      const nextSelectedID = nextItems[0]?.id || "";
+      const nextSelectedID = nextItems.some((item) => item.id === preferredWorkItemID)
+        ? preferredWorkItemID
+        : nextItems[0]?.id || "";
       setSelectedWorkItemID(nextSelectedID);
       setWorkLoadState("loaded");
+      return nextSelectedID;
     } catch (error) {
       setWorkLoadState("error");
       setWorkError(errorMessage(error, "Failed to load project work."));
+      return "";
     }
   }, []);
 
@@ -312,6 +318,9 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   }, [loadWorkItemDetail, selectedProjectID, selectedWorkItemID]);
 
   function openProject(projectID: string) {
+    if (projectID !== selectedProjectID) {
+      setSelectedWorkItemID("");
+    }
     setSelectedProjectID(projectID);
     void projects.actions.selectProject(projectID);
   }
@@ -505,9 +514,9 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
 
   async function refreshSelectedWorkItem() {
     if (!selectedProjectID) return;
-    await loadWorkForProject(selectedProjectID);
-    if (selectedWorkItemID) {
-      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
+    const refreshedWorkItemID = await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+    if (refreshedWorkItemID) {
+      await loadWorkItemDetail(selectedProjectID, refreshedWorkItemID);
     }
   }
 
@@ -589,7 +598,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       <section style={workListStyle} aria-label="Project work items">
         <ProjectHeader
           project={selectedProject}
-          onRefresh={() => void loadWorkForProject(selectedProjectID)}
+          onRefresh={refreshSelectedWorkItem}
           onEditDefaults={() => {
             setDefaultsError("");
             setDefaultsModalOpen(true);

@@ -291,6 +291,61 @@ describe("ProjectsView cockpit", () => {
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
   });
 
+  it("clears stale work item selection before switching projects", async () => {
+    resetProjectWorkMocks();
+    const secondProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+      roots: [
+        {
+          ...project.roots[0],
+          id: "root_2",
+          path: "/Users/alice/dev/apollo",
+        },
+      ],
+    };
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      project_id: "proj_2",
+      title: "Build Apollo cockpit",
+      brief: "Show Apollo project work.",
+    };
+    vi.mocked(getProjectWorkItems).mockImplementation(async (projectID) => ({
+      object: "project_work_items",
+      data:
+        projectID === secondProject.id
+          ? [{ ...secondWorkItem, assignments: [] }]
+          : [{ ...workItem, assignments: [hecateAssignment] }],
+    }));
+    vi.mocked(getProjectWorkItem).mockImplementation(async (projectID, workItemID) => ({
+      object: "project_work_item",
+      data:
+        projectID === secondProject.id && workItemID === secondWorkItem.id
+          ? secondWorkItem
+          : workItem,
+    }));
+    vi.mocked(getProjectAssignments).mockImplementation(async (projectID) => ({
+      object: "project_assignments",
+      data: projectID === secondProject.id ? [] : [hecateAssignment],
+    }));
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project, secondProject],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open project Apollo" }));
+
+    expect(await screen.findByText("Show Apollo project work.")).toBeTruthy();
+    expect(getProjectWorkItem).toHaveBeenCalledWith(secondProject.id, secondWorkItem.id);
+    expect(getProjectWorkItem).not.toHaveBeenCalledWith(secondProject.id, workItem.id);
+  });
+
   it("uses projected work-item assignments for list summaries without per-item requests", async () => {
     resetProjectWorkMocks();
     const secondWorkItem: ProjectWorkItemRecord = {
@@ -326,6 +381,52 @@ describe("ProjectsView cockpit", () => {
     await waitFor(() => {
       expect(getProjectAssignments).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("preserves the selected work item when refreshing project work", async () => {
+    resetProjectWorkMocks();
+    const secondWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      id: "work_2",
+      title: "Write project docs",
+      brief: "Document the project workflow.",
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [
+        { ...workItem, assignments: [hecateAssignment] },
+        { ...secondWorkItem, assignments: [] },
+      ],
+    });
+    vi.mocked(getProjectWorkItem).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_work_item",
+      data: workItemID === secondWorkItem.id ? secondWorkItem : workItem,
+    }));
+    vi.mocked(getProjectAssignments).mockImplementation(async (_projectID, workItemID) => ({
+      object: "project_assignments",
+      data: workItemID === secondWorkItem.id ? [] : [hecateAssignment],
+    }));
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const secondRow = await screen.findByRole("button", {
+      name: "Open work item Write project docs",
+    });
+    await userEvent.click(secondRow);
+    expect(await screen.findByText("Document the project workflow.")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Refresh project work" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Open work item Write project docs" }),
+      ).toHaveAttribute("aria-current", "true");
+    });
+    expect(await screen.findByText("Document the project workflow.")).toBeTruthy();
   });
 
   it("shows selected work item assignments and projected execution state", async () => {
