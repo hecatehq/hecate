@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS %s (
 	project_id TEXT NOT NULL,
 	work_item_id TEXT NOT NULL,
 	role_id TEXT NOT NULL,
+	driver_kind TEXT NOT NULL DEFAULT 'hecate_task',
 	status TEXT NOT NULL,
 	task_id TEXT NOT NULL DEFAULT '',
 	run_id TEXT NOT NULL DEFAULT '',
@@ -118,6 +119,9 @@ CREATE TABLE IF NOT EXISTS %s (
 )`, s.artifactsTbl)); err != nil {
 		return fmt.Errorf("create project work artifacts table: %w", err)
 	}
+	if err := s.ensureColumn(ctx, s.assignmentsTbl, "driver_kind", `TEXT NOT NULL DEFAULT 'hecate_task'`); err != nil {
+		return err
+	}
 	for _, stmt := range []struct {
 		table string
 		name  string
@@ -135,6 +139,46 @@ CREATE TABLE IF NOT EXISTS %s (
 		}
 	}
 	return nil
+}
+
+func (s *SQLiteStore) ensureColumn(ctx context.Context, quotedTable, column, definition string) error {
+	exists, err := s.columnExists(ctx, quotedTable, column)
+	if err != nil {
+		return fmt.Errorf("inspect sqlite project work columns: %w", err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, quotedTable, column, definition)); err != nil {
+		return fmt.Errorf("migrate sqlite project work %s: %w", column, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) columnExists(ctx context.Context, quotedTable, column string) (bool, error) {
+	bare := strings.Trim(quotedTable, `"`)
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info("%s")`, bare))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid          int
+			name         string
+			columnType   string
+			notNull      int
+			defaultValue sql.NullString
+			pk           int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func (s *SQLiteStore) ListRoles(ctx context.Context, projectID string) ([]AgentRoleProfile, error) {
@@ -390,7 +434,7 @@ func (s *SQLiteStore) ListAssignments(ctx context.Context, filter AssignmentFilt
 	filter.ProjectID = strings.TrimSpace(filter.ProjectID)
 	filter.WorkItemID = strings.TrimSpace(filter.WorkItemID)
 	query := fmt.Sprintf(`
-SELECT id, project_id, work_item_id, role_id, status, task_id, run_id, chat_session_id, message_id, context_snapshot_id, created_at, updated_at, started_at, completed_at
+SELECT id, project_id, work_item_id, role_id, driver_kind, status, task_id, run_id, chat_session_id, message_id, context_snapshot_id, created_at, updated_at, started_at, completed_at
 FROM %s
 WHERE project_id = ?`, s.assignmentsTbl)
 	args := []any{filter.ProjectID}
@@ -429,10 +473,10 @@ func (s *SQLiteStore) CreateAssignment(ctx context.Context, assignment Assignmen
 	}
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (
-	id, project_id, work_item_id, role_id, status, task_id, run_id, chat_session_id,
+	id, project_id, work_item_id, role_id, driver_kind, status, task_id, run_id, chat_session_id,
 	message_id, context_snapshot_id, created_at, updated_at, started_at, completed_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.assignmentsTbl),
-		assignment.ID, assignment.ProjectID, assignment.WorkItemID, assignment.RoleID,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.assignmentsTbl),
+		assignment.ID, assignment.ProjectID, assignment.WorkItemID, assignment.RoleID, assignment.DriverKind,
 		assignment.Status, assignment.TaskID, assignment.RunID, assignment.ChatSessionID,
 		assignment.MessageID, assignment.ContextSnapshotID, formatTime(assignment.CreatedAt),
 		formatTime(assignment.UpdatedAt), formatTime(assignment.StartedAt), formatTime(assignment.CompletedAt),
@@ -478,10 +522,10 @@ func (s *SQLiteStore) UpdateAssignment(ctx context.Context, projectID, id string
 	}
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
 UPDATE %s
-SET role_id = ?, status = ?, task_id = ?, run_id = ?, chat_session_id = ?, message_id = ?,
+SET role_id = ?, driver_kind = ?, status = ?, task_id = ?, run_id = ?, chat_session_id = ?, message_id = ?,
 	context_snapshot_id = ?, updated_at = ?, started_at = ?, completed_at = ?
 WHERE project_id = ? AND id = ?`, s.assignmentsTbl),
-		item.RoleID, item.Status, item.TaskID, item.RunID, item.ChatSessionID,
+		item.RoleID, item.DriverKind, item.Status, item.TaskID, item.RunID, item.ChatSessionID,
 		item.MessageID, item.ContextSnapshotID, formatTime(item.UpdatedAt),
 		formatTime(item.StartedAt), formatTime(item.CompletedAt), projectID, id,
 	)
@@ -708,7 +752,7 @@ WHERE project_id = ? AND id = ?`, s.workItemsTbl), strings.TrimSpace(projectID),
 
 func (s *SQLiteStore) getRequiredAssignment(ctx context.Context, projectID, id string) (Assignment, error) {
 	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
-SELECT id, project_id, work_item_id, role_id, status, task_id, run_id, chat_session_id, message_id, context_snapshot_id, created_at, updated_at, started_at, completed_at
+SELECT id, project_id, work_item_id, role_id, driver_kind, status, task_id, run_id, chat_session_id, message_id, context_snapshot_id, created_at, updated_at, started_at, completed_at
 FROM %s
 WHERE project_id = ? AND id = ?`, s.assignmentsTbl), strings.TrimSpace(projectID), strings.TrimSpace(id))
 	item, err := scanAssignment(row)
@@ -770,7 +814,7 @@ func scanAssignment(row scanner) (Assignment, error) {
 	var item Assignment
 	var createdAt, updatedAt, startedAt, completedAt string
 	if err := row.Scan(
-		&item.ID, &item.ProjectID, &item.WorkItemID, &item.RoleID, &item.Status,
+		&item.ID, &item.ProjectID, &item.WorkItemID, &item.RoleID, &item.DriverKind, &item.Status,
 		&item.TaskID, &item.RunID, &item.ChatSessionID, &item.MessageID,
 		&item.ContextSnapshotID, &createdAt, &updatedAt, &startedAt, &completedAt,
 	); err != nil {

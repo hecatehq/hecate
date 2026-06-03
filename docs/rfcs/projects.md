@@ -240,8 +240,10 @@ stores, plus `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects`.
 This landed as a foundation plus chat grouping: project records and roots can be
 persisted, trusted context-source metadata can be attached to a project, and
 chat sessions can carry `project_id`. Chat context packets snapshot enabled
-project context-source metadata as itemized provenance. Tasks, memory entries,
-profiles, and presets are not linked to `project_id` yet.
+project context-source metadata as itemized provenance. Project work
+assignments can now start native Tasks linked back via `origin_kind` /
+`origin_id`; broader task `project_id` scoping, memory entries, profiles, and
+presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 

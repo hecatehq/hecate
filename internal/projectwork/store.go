@@ -11,6 +11,9 @@ import (
 )
 
 const (
+	AssignmentDriverHecateTask    = "hecate_task"
+	AssignmentDriverExternalAgent = "external_agent"
+
 	WorkItemStatusBacklog   = "backlog"
 	WorkItemStatusReady     = "ready"
 	WorkItemStatusRunning   = "running"
@@ -69,6 +72,7 @@ type Assignment struct {
 	ProjectID         string
 	WorkItemID        string
 	RoleID            string
+	DriverKind        string
 	Status            string
 	TaskID            string
 	RunID             string
@@ -564,6 +568,7 @@ func normalizeAssignment(item Assignment, now time.Time) Assignment {
 	item.ProjectID = strings.TrimSpace(item.ProjectID)
 	item.WorkItemID = strings.TrimSpace(item.WorkItemID)
 	item.RoleID = strings.TrimSpace(item.RoleID)
+	item.DriverKind = strings.TrimSpace(item.DriverKind)
 	item.Status = strings.TrimSpace(item.Status)
 	item.TaskID = strings.TrimSpace(item.TaskID)
 	item.RunID = strings.TrimSpace(item.RunID)
@@ -572,6 +577,9 @@ func normalizeAssignment(item Assignment, now time.Time) Assignment {
 	item.ContextSnapshotID = strings.TrimSpace(item.ContextSnapshotID)
 	if item.Status == "" {
 		item.Status = AssignmentStatusQueued
+	}
+	if item.DriverKind == "" {
+		item.DriverKind = AssignmentDriverHecateTask
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -651,10 +659,22 @@ func validateAssignment(item Assignment) error {
 	if item.RoleID == "" {
 		return fmt.Errorf("%w: role_id is required", ErrInvalid)
 	}
+	if !validAssignmentDriverKind(item.DriverKind) {
+		return fmt.Errorf("%w: unsupported assignment driver_kind %q", ErrInvalid, item.DriverKind)
+	}
 	if !validAssignmentStatus(item.Status) {
 		return fmt.Errorf("%w: unsupported assignment status %q", ErrInvalid, item.Status)
 	}
 	return nil
+}
+
+func validAssignmentDriverKind(kind string) bool {
+	switch kind {
+	case AssignmentDriverHecateTask, AssignmentDriverExternalAgent:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateArtifact(item CollaborationArtifact) error {

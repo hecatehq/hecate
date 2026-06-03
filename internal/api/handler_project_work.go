@@ -1,12 +1,21 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type createProjectWorkRoleRequest struct {
@@ -44,6 +53,7 @@ type updateProjectWorkItemRequest struct {
 type createProjectWorkAssignmentRequest struct {
 	ID                string `json:"id,omitempty"`
 	RoleID            string `json:"role_id"`
+	DriverKind        string `json:"driver_kind,omitempty"`
 	Status            string `json:"status,omitempty"`
 	TaskID            string `json:"task_id,omitempty"`
 	RunID             string `json:"run_id,omitempty"`
@@ -56,6 +66,7 @@ type createProjectWorkAssignmentRequest struct {
 
 type updateProjectWorkAssignmentRequest struct {
 	RoleID            *string `json:"role_id,omitempty"`
+	DriverKind        *string `json:"driver_kind,omitempty"`
 	Status            *string `json:"status,omitempty"`
 	TaskID            *string `json:"task_id,omitempty"`
 	RunID             *string `json:"run_id,omitempty"`
@@ -64,6 +75,10 @@ type updateProjectWorkAssignmentRequest struct {
 	ContextSnapshotID *string `json:"context_snapshot_id,omitempty"`
 	StartedAt         *string `json:"started_at,omitempty"`
 	CompletedAt       *string `json:"completed_at,omitempty"`
+}
+
+type startProjectWorkAssignmentRequest struct {
+	DriverKind string `json:"driver_kind,omitempty"`
 }
 
 type createProjectWorkArtifactRequest struct {
@@ -134,6 +149,7 @@ type ProjectWorkAssignmentResponse struct {
 	ProjectID         string `json:"project_id"`
 	WorkItemID        string `json:"work_item_id"`
 	RoleID            string `json:"role_id"`
+	DriverKind        string `json:"driver_kind"`
 	Status            string `json:"status"`
 	TaskID            string `json:"task_id,omitempty"`
 	RunID             string `json:"run_id,omitempty"`
@@ -399,6 +415,7 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 		ProjectID:         projectID,
 		WorkItemID:        workItemID,
 		RoleID:            req.RoleID,
+		DriverKind:        req.DriverKind,
 		Status:            req.Status,
 		TaskID:            req.TaskID,
 		RunID:             req.RunID,
@@ -433,6 +450,9 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 		if req.RoleID != nil {
 			item.RoleID = *req.RoleID
 		}
+		if req.DriverKind != nil {
+			item.DriverKind = *req.DriverKind
+		}
 		if req.Status != nil {
 			item.Status = *req.Status
 		}
@@ -462,6 +482,391 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 		return
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(item)})
+}
+
+func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	assignmentID := r.PathValue("assignment_id")
+	if h.taskStore == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
+		return
+	}
+	if h.taskRunner == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task runner is not configured")
+		return
+	}
+	if h.projects == nil || h.projectWork == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project stores are not configured")
+		return
+	}
+	req, ok := decodeOptionalProjectWorkAssignmentStartRequest(w, r)
+	if !ok {
+		return
+	}
+
+	project, ok, err := h.projects.Get(ctx, projectID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return
+	}
+	workItem, ok, err := h.projectWork.GetWorkItem(ctx, projectID, workItemID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
+		return
+	}
+	assignment, ok, err := h.loadProjectWorkAssignment(ctx, projectID, workItemID, assignmentID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "assignment not found")
+		return
+	}
+	role, ok, err := h.loadProjectWorkRole(ctx, projectID, assignment.RoleID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "assignment role not found")
+		return
+	}
+	if driver := strings.TrimSpace(req.DriverKind); driver != "" && driver != assignment.DriverKind {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("assignment driver_kind is %q, not %q", assignment.DriverKind, driver))
+		return
+	}
+	if assignment.DriverKind != projectwork.AssignmentDriverHecateTask {
+		WriteError(w, http.StatusConflict, errCodeConflict, fmt.Sprintf("assignment driver_kind %q is not supported by native start; V1 supports %q only", assignment.DriverKind, projectwork.AssignmentDriverHecateTask))
+		return
+	}
+	if projectWorkAssignmentIsTerminal(assignment.Status) {
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+		return
+	}
+	active, err := projectWorkAssignmentHasActiveExecution(ctx, h.taskStore, assignment)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if active {
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+		return
+	}
+
+	workingDirectory, workspaceMode, err := resolveProjectAssignmentWorkspace(project)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	requestedModel := strings.TrimSpace(firstNonEmpty(project.DefaultModel, h.config.Router.DefaultModel))
+	if requestedModel == "" {
+		WriteError(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, "project assignment start requires a default model")
+		return
+	}
+
+	taskID := newTaskID()
+	claimRejected := false
+	assignment, err = h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
+		if item.TaskID != "" || item.RunID != "" || projectWorkAssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverHecateTask {
+			claimRejected = true
+			return
+		}
+		item.TaskID = taskID
+		item.Status = projectwork.AssignmentStatusQueued
+		if item.StartedAt.IsZero() {
+			item.StartedAt = time.Now().UTC()
+		}
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if claimRejected {
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+		return
+	}
+
+	task, err := h.createProjectAssignmentTask(ctx, taskID, project, workItem, assignment, role, workingDirectory, workspaceMode, requestedModel)
+	if err != nil {
+		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
+			if item.TaskID == taskID && item.RunID == "" {
+				item.TaskID = ""
+				item.Status = projectwork.AssignmentStatusQueued
+				item.StartedAt = time.Time{}
+				item.CompletedAt = time.Time{}
+			}
+		})
+		if updateErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("%s; assignment status update failed: %v", err.Error(), updateErr))
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task could not be created for assignment %s: %s", assignment.ID, err.Error()))
+		return
+	}
+
+	result, err := h.taskRunner.StartTask(ctx, task, newOpaqueTaskResourceID)
+	if err != nil {
+		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
+			item.TaskID = task.ID
+			item.Status = projectwork.AssignmentStatusFailed
+			item.CompletedAt = time.Now().UTC()
+		})
+		if updateErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("%s; assignment status update failed: %v", err.Error(), updateErr))
+			return
+		}
+		if errors.Is(err, orchestrator.ErrAgentLoopMisconfigured) {
+			WriteError(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, err.Error())
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task %s was created but start failed: %s", assignment.TaskID, err.Error()))
+		return
+	}
+	if result.TraceID != "" {
+		w.Header().Set("X-Trace-Id", result.TraceID)
+	}
+	if result.SpanID != "" {
+		w.Header().Set("X-Span-Id", result.SpanID)
+	}
+	assignment, err = h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
+		item.TaskID = result.Task.ID
+		item.RunID = result.Run.ID
+		item.Status = projectWorkAssignmentStatusFromRun(result.Run.Status)
+		if item.StartedAt.IsZero() {
+			item.StartedAt = time.Now().UTC()
+		}
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+}
+
+func decodeOptionalProjectWorkAssignmentStartRequest(w http.ResponseWriter, r *http.Request) (startProjectWorkAssignmentRequest, bool) {
+	var req startProjectWorkAssignmentRequest
+	if r.Body == nil || r.Body == http.NoBody {
+		return req, true
+	}
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&req); err != nil {
+		if errors.Is(err, io.EOF) {
+			return req, true
+		}
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request body must be valid JSON")
+		return startProjectWorkAssignmentRequest{}, false
+	}
+	return req, true
+}
+
+func (h *Handler) loadProjectWorkAssignment(ctx context.Context, projectID, workItemID, assignmentID string) (projectwork.Assignment, bool, error) {
+	items, err := h.projectWork.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: projectID, WorkItemID: workItemID})
+	if err != nil {
+		return projectwork.Assignment{}, false, err
+	}
+	for _, item := range items {
+		if item.ID == strings.TrimSpace(assignmentID) {
+			return item, true, nil
+		}
+	}
+	return projectwork.Assignment{}, false, nil
+}
+
+func (h *Handler) loadProjectWorkRole(ctx context.Context, projectID, roleID string) (projectwork.AgentRoleProfile, bool, error) {
+	roles, err := h.projectWork.ListRoles(ctx, projectID)
+	if err != nil {
+		return projectwork.AgentRoleProfile{}, false, err
+	}
+	roleID = strings.TrimSpace(roleID)
+	for _, role := range roles {
+		if role.ID == roleID {
+			return role, true, nil
+		}
+	}
+	return projectwork.AgentRoleProfile{}, false, nil
+}
+
+func projectWorkAssignmentIsTerminal(status string) bool {
+	switch strings.TrimSpace(status) {
+	case projectwork.AssignmentStatusCompleted, projectwork.AssignmentStatusFailed, projectwork.AssignmentStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func projectWorkAssignmentHasActiveExecution(ctx context.Context, store taskRunLookupStore, assignment projectwork.Assignment) (bool, error) {
+	if strings.TrimSpace(assignment.RunID) != "" && strings.TrimSpace(assignment.TaskID) != "" && store != nil {
+		run, found, err := store.GetRun(ctx, assignment.TaskID, assignment.RunID)
+		if err != nil {
+			return false, err
+		}
+		if found {
+			return !types.IsTerminalTaskRunStatus(run.Status), nil
+		}
+	}
+	switch strings.TrimSpace(assignment.Status) {
+	case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval:
+		return true, nil
+	case projectwork.AssignmentStatusQueued:
+		return strings.TrimSpace(assignment.TaskID) != "" || strings.TrimSpace(assignment.RunID) != "", nil
+	default:
+		return false, nil
+	}
+}
+
+type taskRunLookupStore interface {
+	GetRun(ctx context.Context, taskID, runID string) (types.TaskRun, bool, error)
+}
+
+func resolveProjectAssignmentWorkspace(project projects.Project) (string, string, error) {
+	root, ok := selectProjectAssignmentRoot(project)
+	if !ok {
+		return "", "", fmt.Errorf("project has no workspace root; add a project root before starting an assignment")
+	}
+	path := strings.TrimSpace(root.Path)
+	if path == "" {
+		return "", "", fmt.Errorf("project root %q has no path", root.ID)
+	}
+	if !filepath.IsAbs(path) {
+		return "", "", fmt.Errorf("project root %q path must be absolute", root.ID)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", "", fmt.Errorf("project root %q is not accessible: %w", root.ID, err)
+	}
+	if !info.IsDir() {
+		return "", "", fmt.Errorf("project root %q is not a directory", root.ID)
+	}
+	workspaceMode := strings.TrimSpace(project.DefaultWorkspaceMode)
+	if workspaceMode == "" {
+		workspaceMode = "ephemeral"
+	}
+	return path, workspaceMode, nil
+}
+
+func selectProjectAssignmentRoot(project projects.Project) (projects.Root, bool) {
+	defaultRootID := strings.TrimSpace(project.DefaultRootID)
+	if defaultRootID != "" {
+		for _, root := range project.Roots {
+			if root.ID == defaultRootID {
+				return root, true
+			}
+		}
+	}
+	for _, root := range project.Roots {
+		if root.Active {
+			return root, true
+		}
+	}
+	if len(project.Roots) > 0 {
+		return project.Roots[0], true
+	}
+	return projects.Root{}, false
+}
+
+func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, workspaceMode, requestedModel string) (types.Task, error) {
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:                 taskID,
+		Title:              projectAssignmentTaskTitle(workItem, role),
+		Prompt:             projectAssignmentPrompt(project, workItem, assignment, role),
+		SystemPrompt:       projectAssignmentSystemPrompt(project, role),
+		ExecutionKind:      "agent_loop",
+		ExecutionProfile:   "project_assignment",
+		OriginKind:         "project_work_item",
+		OriginID:           workItem.ID,
+		WorkspaceMode:      workspaceMode,
+		WorkingDirectory:   workingDirectory,
+		SandboxAllowedRoot: workingDirectory,
+		Status:             "queued",
+		Priority:           firstNonEmpty(workItem.Priority, "normal"),
+		RequestedProvider:  strings.TrimSpace(project.DefaultProvider),
+		RequestedModel:     requestedModel,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	return h.taskStore.CreateTask(ctx, task)
+}
+
+func projectAssignmentTaskTitle(workItem projectwork.WorkItem, role projectwork.AgentRoleProfile) string {
+	title := strings.TrimSpace(workItem.Title)
+	roleName := strings.TrimSpace(role.Name)
+	switch {
+	case title != "" && roleName != "":
+		return title + " - " + roleName
+	case title != "":
+		return title
+	case roleName != "":
+		return roleName + " assignment"
+	default:
+		return "Project work assignment"
+	}
+}
+
+func projectAssignmentPrompt(project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) string {
+	sections := []string{
+		"Project: " + firstNonEmpty(project.Name, project.ID),
+		"Work item: " + firstNonEmpty(workItem.Title, workItem.ID),
+	}
+	if brief := strings.TrimSpace(workItem.Brief); brief != "" {
+		sections = append(sections, "Work item brief:\n"+brief)
+	}
+	if roleName := strings.TrimSpace(role.Name); roleName != "" {
+		sections = append(sections, "Assigned role: "+roleName)
+	}
+	if description := strings.TrimSpace(role.Description); description != "" {
+		sections = append(sections, "Role description:\n"+description)
+	}
+	if instructions := strings.TrimSpace(role.Instructions); instructions != "" {
+		sections = append(sections, "Role instructions:\n"+instructions)
+	}
+	sections = append(sections,
+		"Assignment ID: "+assignment.ID,
+		"Execute this assignment as a native Hecate agent_loop task. Keep outputs and artifacts linked to this work item.",
+	)
+	return strings.Join(sections, "\n\n")
+}
+
+func projectAssignmentSystemPrompt(project projects.Project, role projectwork.AgentRoleProfile) string {
+	var parts []string
+	if prompt := strings.TrimSpace(project.DefaultSystemPrompt); prompt != "" {
+		parts = append(parts, prompt)
+	}
+	if instructions := strings.TrimSpace(role.Instructions); instructions != "" {
+		parts = append(parts, instructions)
+	} else if role.Name != "" {
+		parts = append(parts, "Act as the "+strings.TrimSpace(role.Name)+" for this project work assignment.")
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func projectWorkAssignmentStatusFromRun(status string) string {
+	switch strings.TrimSpace(status) {
+	case "awaiting_approval":
+		return projectwork.AssignmentStatusAwaitingApproval
+	case "running":
+		return projectwork.AssignmentStatusRunning
+	case "completed":
+		return projectwork.AssignmentStatusCompleted
+	case "failed":
+		return projectwork.AssignmentStatusFailed
+	case "cancelled":
+		return projectwork.AssignmentStatusCancelled
+	default:
+		return projectwork.AssignmentStatusQueued
+	}
 }
 
 func (h *Handler) HandleProjectWorkArtifacts(w http.ResponseWriter, r *http.Request) {
@@ -658,6 +1063,7 @@ func renderProjectWorkAssignment(item projectwork.Assignment) ProjectWorkAssignm
 		ProjectID:         item.ProjectID,
 		WorkItemID:        item.WorkItemID,
 		RoleID:            item.RoleID,
+		DriverKind:        item.DriverKind,
 		Status:            item.Status,
 		TaskID:            item.TaskID,
 		RunID:             item.RunID,
