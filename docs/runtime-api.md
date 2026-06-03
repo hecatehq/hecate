@@ -1188,7 +1188,7 @@ Project work coordination is the durable substrate for future project-team
 orchestration. It records project-scoped agent roles, work items, assignment
 metadata, and collaboration artifacts. It does not add a new execution runtime:
 existing Tasks and Chats remain the execution surfaces. Assignment creation
-only records intended or already-linked execution metadata; the separate native
+records intended or already-linked execution metadata; the separate native
 assignment start endpoint can create and start a Hecate-owned `agent_loop` task
 for `driver_kind="hecate_task"` assignments.
 Create requests that supply an existing project-scoped ID return `409 conflict`
@@ -1216,6 +1216,37 @@ Supported assignment driver kinds are `hecate_task` and `external_agent`, but
 native assignment start V1 only dispatches `hecate_task`.
 Supported collaboration artifact kinds are `brief`, `handoff`, `review`, and
 `decision_note`.
+
+Assignment responses are projected from linked canonical task/run state when
+`task_id` and `run_id` point at a Hecate task run. If `task_id` is present and
+`run_id` is empty, Hecate uses that task's `latest_run_id` when available. The
+stored assignment row is coordination metadata; reads do not mutate the task,
+run, or assignment rows. Run statuses map directly into assignment statuses:
+
+| Task/run status     | Project assignment status |
+| ------------------- | ------------------------- |
+| `queued`            | `queued`                  |
+| `running`           | `running`                 |
+| `awaiting_approval` | `awaiting_approval`       |
+| `completed`         | `completed`               |
+| `failed`            | `failed`                  |
+| `cancelled`         | `cancelled`               |
+
+If the linked task/run is missing, Hecate keeps the stored assignment status
+and marks the nested `execution` summary as `missing`. If a linked run is older
+than a newer explicit terminal assignment update, the assignment keeps that
+explicit project-work terminal status instead of being overwritten by stale
+runtime state. The `execution` summary may include `task_status`, `run_status`,
+projected `status`, pending approval count, step/approval/artifact counts,
+model/provider, last error, run timestamps, and trace ID.
+
+Work-item list and detail responses apply the same conservative rollup over
+projected assignment statuses: any active linked assignment (`queued`,
+`running`, or `awaiting_approval`) makes the work item `running`; all
+assignments `completed` makes it `done`; all assignments `cancelled` makes it
+`cancelled`; any failed assignment, or any cancelled assignment mixed with a
+non-cancelled assignment, makes it `blocked`. Otherwise the stored work-item
+status is returned.
 
 #### `GET /hecate/v1/projects/{id}/roles`
 
@@ -1361,6 +1392,13 @@ Returns:
     "task_id": "task_...",
     "run_id": "run_...",
     "context_snapshot_id": "ctx_...",
+    "execution": {
+      "task_id": "task_...",
+      "run_id": "run_...",
+      "task_status": "queued",
+      "run_status": "queued",
+      "status": "queued"
+    },
     "created_at": "2026-06-03T12:00:00Z",
     "updated_at": "2026-06-03T12:00:00Z"
   }
@@ -1413,6 +1451,13 @@ timestamps, and returns the updated assignment:
     "status": "queued",
     "task_id": "task_...",
     "run_id": "run_...",
+    "execution": {
+      "task_id": "task_...",
+      "run_id": "run_...",
+      "task_status": "queued",
+      "run_status": "queued",
+      "status": "queued"
+    },
     "created_at": "2026-06-03T12:00:00Z",
     "updated_at": "2026-06-03T12:00:01Z",
     "started_at": "2026-06-03T12:00:01Z"
