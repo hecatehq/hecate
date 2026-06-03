@@ -274,6 +274,12 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	if h.projectWork != nil {
+		if _, err := h.projectWork.DeleteProject(r.Context(), id); err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+	}
 	err := h.projects.Delete(r.Context(), id)
 	if errors.Is(err, projects.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
