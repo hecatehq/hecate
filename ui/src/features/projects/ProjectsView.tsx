@@ -254,24 +254,13 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       const nextItems = workRes.data ?? [];
       setRoles(nextRoles);
       setWorkItems(nextItems);
-      const assignmentResults = await Promise.allSettled(
-        nextItems.map(async (item) => {
-          const res = await getProjectAssignments(projectID, item.id);
-          return [item.id, res.data ?? []] as const;
-        }),
-      );
       setWorkItemSummaries(
         Object.fromEntries(
-          assignmentResults.flatMap((result) =>
-            result.status === "fulfilled"
-              ? [[result.value[0], summarizeAssignments(result.value[1])] as const]
-              : [],
+          nextItems.flatMap((item) =>
+            item.assignments ? [[item.id, summarizeAssignments(item.assignments)] as const] : [],
           ),
         ),
       );
-      if (assignmentResults.some((result) => result.status === "rejected")) {
-        setWorkError("Some assignment summaries failed to load. Refresh project work to retry.");
-      }
       const nextSelectedID = nextItems[0]?.id || "";
       setSelectedWorkItemID(nextSelectedID);
       setWorkLoadState("loaded");
@@ -1832,15 +1821,15 @@ function AssignmentRow({
   const execution = assignment.execution;
   const taskID = execution?.task_id || assignment.task_id || "";
   const runID = execution?.run_id || assignment.run_id || "";
-  const startable = assignment.driver_kind === "hecate_task" && assignment.status === "queued";
+  const projectedStatus = execution?.status || assignment.status;
+  const startable = assignment.driver_kind === "hecate_task" && projectedStatus === "queued";
   const external = assignment.driver_kind === "external_agent";
+  const startedAt = execution?.started_at || assignment.started_at;
+  const finishedAt = execution?.finished_at || assignment.completed_at;
   return (
     <div style={assignmentStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Badge
-          status={execution?.status || assignment.status}
-          label={assignmentStatusLabel(execution?.status || assignment.status)}
-        />
+        <Badge status={projectedStatus} label={assignmentStatusLabel(projectedStatus)} />
         <span className="badge badge-muted">{assignment.driver_kind}</span>
         <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
           {role?.name ?? assignment.role_id}
@@ -1930,17 +1919,10 @@ function AssignmentRow({
         ) : null}
         {execution?.missing && <span className="badge badge-amber">linked run missing</span>}
       </div>
-      {(assignment.started_at ||
-        execution?.started_at ||
-        assignment.completed_at ||
-        execution?.finished_at) && (
+      {(startedAt || finishedAt) && (
         <div style={{ ...metaLineStyle, marginTop: 8 }}>
-          <span>Started {formatAbsoluteTime(execution?.started_at || assignment.started_at)}</span>
-          {(execution?.finished_at || assignment.completed_at) && (
-            <span>
-              Finished {formatAbsoluteTime(execution?.finished_at || assignment.completed_at)}
-            </span>
-          )}
+          {startedAt && <span>Started {formatAbsoluteTime(startedAt)}</span>}
+          {finishedAt && <span>Finished {formatAbsoluteTime(finishedAt)}</span>}
         </div>
       )}
       {execution?.last_error && (

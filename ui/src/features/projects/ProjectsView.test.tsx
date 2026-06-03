@@ -126,7 +126,7 @@ function resetProjectWorkMocks() {
   vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [role] });
   vi.mocked(getProjectWorkItems).mockResolvedValue({
     object: "project_work_items",
-    data: [workItem],
+    data: [{ ...workItem, assignments: [hecateAssignment] }],
   });
   vi.mocked(getProjectWorkItem).mockResolvedValue({
     object: "project_work_item",
@@ -291,7 +291,7 @@ describe("ProjectsView cockpit", () => {
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
   });
 
-  it("surfaces partial assignment summary load failures", async () => {
+  it("uses projected work-item assignments for list summaries without per-item requests", async () => {
     resetProjectWorkMocks();
     const secondWorkItem: ProjectWorkItemRecord = {
       ...workItem,
@@ -300,18 +300,14 @@ describe("ProjectsView cockpit", () => {
     };
     vi.mocked(getProjectWorkItems).mockResolvedValue({
       object: "project_work_items",
-      data: [workItem, secondWorkItem],
+      data: [
+        { ...workItem, assignments: [hecateAssignment] },
+        {
+          ...secondWorkItem,
+          assignments: [{ ...hecateAssignment, id: "asgn_2", work_item_id: secondWorkItem.id }],
+        },
+      ],
     });
-    vi.mocked(getProjectAssignments)
-      .mockRejectedValueOnce(new Error("assignment request failed"))
-      .mockResolvedValueOnce({
-        object: "project_assignments",
-        data: [{ ...hecateAssignment, work_item_id: secondWorkItem.id }],
-      })
-      .mockResolvedValueOnce({
-        object: "project_assignments",
-        data: [],
-      });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -319,22 +315,17 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    expect(
-      await screen.findByText(
-        "Some assignment summaries failed to load. Refresh project work to retry.",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByText("Write project docs")).toBeTruthy();
-    expect(
-      within(screen.getByRole("button", { name: "Open work item Build cockpit UI" })).queryByText(
-        "1 assignment",
-      ),
-    ).toBeNull();
-    expect(
-      within(screen.getByRole("button", { name: "Open work item Write project docs" })).getByText(
-        "1 assignment",
-      ),
-    ).toBeTruthy();
+    const firstRow = await screen.findByRole("button", {
+      name: "Open work item Build cockpit UI",
+    });
+    const secondRow = await screen.findByRole("button", {
+      name: "Open work item Write project docs",
+    });
+    expect(within(firstRow).queryByText("1 assignment")).toBeTruthy();
+    expect(within(secondRow).getByText("1 assignment")).toBeTruthy();
+    await waitFor(() => {
+      expect(getProjectAssignments).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("shows selected work item assignments and projected execution state", async () => {
@@ -584,7 +575,7 @@ describe("ProjectsView cockpit", () => {
     window.localStorage.setItem("hecate.project", project.id);
     const queuedAssignment = {
       ...hecateAssignment,
-      status: "queued",
+      status: "running",
       execution: { ...hecateAssignment.execution, status: "queued" },
     };
     vi.mocked(getProjectAssignments).mockResolvedValue({
@@ -607,6 +598,36 @@ describe("ProjectsView cockpit", () => {
     await waitFor(() => {
       expect(getProjectWorkItem).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it("renders finished-only assignment timestamps without a blank started label", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [
+        {
+          ...hecateAssignment,
+          status: "completed",
+          started_at: undefined,
+          completed_at: "2026-06-02T12:00:00Z",
+          execution: {
+            ...hecateAssignment.execution,
+            status: "completed",
+            started_at: undefined,
+            finished_at: "2026-06-02T12:00:00Z",
+          },
+        },
+      ],
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText(/^Finished /)).toBeTruthy();
+    expect(screen.queryByText(/^Started\s*$/)).toBeNull();
   });
 
   it("does not expose native start for external-agent assignments", async () => {

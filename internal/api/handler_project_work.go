@@ -122,16 +122,17 @@ type ProjectWorkItemEnvelope struct {
 }
 
 type ProjectWorkItemResponse struct {
-	ID              string   `json:"id"`
-	ProjectID       string   `json:"project_id"`
-	Title           string   `json:"title"`
-	Brief           string   `json:"brief,omitempty"`
-	Status          string   `json:"status"`
-	Priority        string   `json:"priority"`
-	OwnerRoleID     string   `json:"owner_role_id,omitempty"`
-	ReviewerRoleIDs []string `json:"reviewer_role_ids,omitempty"`
-	CreatedAt       string   `json:"created_at"`
-	UpdatedAt       string   `json:"updated_at"`
+	ID              string                          `json:"id"`
+	ProjectID       string                          `json:"project_id"`
+	Title           string                          `json:"title"`
+	Brief           string                          `json:"brief,omitempty"`
+	Status          string                          `json:"status"`
+	Priority        string                          `json:"priority"`
+	OwnerRoleID     string                          `json:"owner_role_id,omitempty"`
+	ReviewerRoleIDs []string                        `json:"reviewer_role_ids,omitempty"`
+	Assignments     []ProjectWorkAssignmentResponse `json:"assignments,omitempty"`
+	CreatedAt       string                          `json:"created_at"`
+	UpdatedAt       string                          `json:"updated_at"`
 }
 
 type ProjectWorkAssignmentExecutionResponse struct {
@@ -1150,6 +1151,7 @@ func (h *Handler) renderProjectedProjectWorkItemWithAssignments(ctx context.Cont
 		}
 		projected = append(projected, projectedAssignment)
 	}
+	response.Assignments = projected
 	response.Status = projectWorkItemStatusFromAssignments(item.Status, projected)
 	return response, nil
 }

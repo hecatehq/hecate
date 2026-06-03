@@ -115,6 +115,7 @@ export type ProjectWorkItemRecord = {
   priority: ProjectWorkItemPriority | string;
   owner_role_id?: string;
   reviewer_role_ids?: string[];
+  assignments?: ProjectAssignmentRecord[];
   created_at: string;
   updated_at: string;
 };

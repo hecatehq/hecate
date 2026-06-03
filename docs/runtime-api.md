@@ -1304,7 +1304,11 @@ Deletes a custom role. Built-in roles return `409 conflict`.
 
 #### `GET /hecate/v1/projects/{id}/work-items`
 
-Lists work items for the project.
+Lists work items for the project. Each item includes projected assignment
+summaries in `assignments` when assignments exist, so callers can render list
+status/count signals without issuing one assignment request per work item.
+The nested assignment objects use the same shape as
+`GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`.
 
 #### `POST /hecate/v1/projects/{id}/work-items`
 
