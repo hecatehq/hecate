@@ -22,7 +22,9 @@ model call only through the context assembly pipeline.
 [Projects](projects.md) provide the durable default scope for memory. Agent
 profiles choose which memory sources and scopes a given agent uses. Context
 assembly remains the enforcement layer that decides what enters a specific
-model or adapter call.
+model or adapter call. Project-team orchestration should use context packets
+for work-item briefs, handoffs, reviews, and decision notes before promoting any
+fact into durable memory.
 
 ## Relationship To Context
 

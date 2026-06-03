@@ -40,13 +40,18 @@ These RFCs are intentionally small and layered:
 2. Agent profiles describe reusable runtime behavior for Hecate Chat or an
    external agent. Presets are templates that create or update profiles/project
    defaults; they are not runtime identity.
-3. [Agent memory](agent-memory.md) stores operator-approved durable context,
+3. [Context assembly](context-assembly-and-injection-boundaries.md) turns chat,
+   project, profile, future memory, workspace, runtime, and collaboration
+   inputs into an inspectable context packet.
+4. [Agent memory](agent-memory.md) stores operator-approved durable context,
    with project memory as the default shared scope.
-4. [Context assembly](context-assembly-and-injection-boundaries.md) turns chat,
-   project, profile, memory, workspace, and runtime inputs into an inspectable
-   context packet.
 5. [Context window management](llm-context-window-management.md) fits that
    packet into a model limit without changing trust labels or source authority.
+
+This ordering matters for project-team orchestration. Work-item briefs,
+handoffs, reviews, and decision notes should enter agent calls through context
+packets first; durable memory and automated summarization should come later so
+Hecate can always answer what each agent saw and why.
 
 ## Active Proposals
 
@@ -55,7 +60,7 @@ These RFCs are intentionally small and layered:
 | [CLI structure](cli-structure.md)                                                         | Proposed. Bare `hecate` should become the terminal operator UI; runtime launch moves to `serve`.     | Land the structured command package, `hecate serve`, `hecate ui`, and `hecate mcp serve` first.     |
 | [Autoresearch](autoresearch.md)                                                           | Proposed. Bounded command/metric/check experiment loop for local code research; not implemented.     | Prototype a files-first companion runner against one conformance workflow before promoting to core. |
 | [Migration CLI](migration-cli.md)                                                         | Proposed. No dedicated migration/rollback CLI exists yet.                                            | Design `hecate migrate` around the current SQLite migration packages.                               |
-| [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md) | Proposed. Hecate does not yet persist an inspectable "what did the model see?" context packet.       | Implement context-packet snapshots before memory or summarization work.                             |
+| [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md) | Proposed; partially implemented. Lightweight chat context packets exist, but Hecate does not yet persist full itemized "what did the model see?" snapshots. | Enrich context-packet snapshots before memory, summarization, or multi-agent project-team execution. |
 | [Agent memory](agent-memory.md)                                                           | Proposed. No durable operator-authored memory primitive exists yet.                                  | Build after context packets so memory inclusion is visible and auditable.                           |
 | [LLM context window management](llm-context-window-management.md)                         | Proposed. Hecate still needs token estimation, context warnings/caps, and optional fitting policies. | Use context packets as the estimator input; keep trust decisions in context assembly.               |
 | [Import external chat history](import-external-chat-history.md)                           | Proposed. Import from Claude Code and Codex transcripts is not implemented.                          | Keep as-is until import work starts.                                                                |

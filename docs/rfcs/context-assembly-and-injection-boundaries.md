@@ -4,15 +4,16 @@
 > **Current source of truth:** [Chat sessions](../chat-sessions.md),
 > [Agent runtime](../agent-runtime.md), and [Security](../security.md) for
 > today's prompt, workspace, tool, and approval behavior.
-> **Next action:** implement a small context-packet snapshot for Hecate Chat
-> and task-backed runs before adding durable memory or automatic context
-> summarization.
+> **Next action:** enrich context-packet snapshots for Hecate Chat,
+> task-backed runs, and future project-team assignments before adding durable
+> memory, automatic context summarization, or autonomous multi-agent dispatch.
 
 Hecate is starting to grow several related ideas: projects, chat settings,
 system prompts, task-backed Hecate Chat turns, external-agent transcripts,
-workspace instructions, model capabilities, future memory, external memory
-providers, and future context window management. Without a named assembly layer,
-these concepts blur together and invite two bad outcomes:
+workspace instructions, model capabilities, project-team work items,
+handoffs/reviews, future memory, external memory providers, and future context
+window management. Without a named assembly layer, these concepts blur together
+and invite two bad outcomes:
 
 - Memory becomes "whatever text we prepend to the prompt."
 - Context-window management becomes responsible for security decisions it
@@ -23,7 +24,9 @@ assembly decides what information is eligible for a model call, how each piece
 is labelled, what trust boundary it crosses, and how the operator can inspect
 the final packet. Context-window management then decides how that packet fits
 inside a model limit. Agent memory becomes one durable input to the packet, not
-the packet itself.
+the packet itself. Multi-agent project orchestration should also route briefs,
+handoffs, reviews, and decisions through context packets so every agent
+assignment has a visible provenance chain.
 
 ## Relationship To Adjacent RFCs
 
@@ -94,6 +97,7 @@ Candidate sources are collected from the active runtime surface:
 | Runtime state             | Task/run status, approvals, artifacts, changed files, prior tool output.                            |
 | Operator settings         | System prompt, tools on/off, RTK state, profile/preset choices when they exist.                     |
 | Project context           | `project_id`, project defaults, project instructions, saved project memory, trusted project docs.   |
+| Project work              | Future work-item briefs, assignment metadata, handoffs, reviews, decision notes, linked artifacts.  |
 | Agent profile context     | Profile-selected memory sources, adapter/model controls, profile instructions.                      |
 | Workspace context         | Concrete workspace path, `AGENTS.md`, `CLAUDE.md`, selected files, git diff, file tree snippets.    |
 | Memory                    | Future operator-authored memory entries selected by scope.                                          |
