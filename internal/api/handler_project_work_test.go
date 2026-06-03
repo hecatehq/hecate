@@ -8,14 +8,17 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -253,6 +256,9 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	}
 	if assignment.Data.DriverKind != projectwork.AssignmentDriverHecateTask {
 		t.Fatalf("driver_kind = %q, want hecate_task", assignment.Data.DriverKind)
+	}
+	if assignment.Data.Execution == nil || assignment.Data.Execution.TaskID != assignment.Data.TaskID || assignment.Data.Execution.RunID != assignment.Data.RunID {
+		t.Fatalf("assignment execution = %+v, want linked task/run summary", assignment.Data.Execution)
 	}
 
 	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
@@ -580,6 +586,77 @@ func TestProjectWorkAPI_StartAssignmentClearsClaimWhenTaskCreateFails(t *testing
 	}
 }
 
+func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
+	t.Parallel()
+	for _, backend := range []string{"memory", "sqlite"} {
+		backend := backend
+		t.Run(backend, func(t *testing.T) {
+			t.Parallel()
+			handler, server := newProjectWorkProjectionTestServer(t, backend)
+			seedProjectWorkProjectionTest(t, handler)
+
+			running := getProjectWorkAssignmentForTest(t, server, "work_running", "asgn_running")
+			if running.Status != projectwork.AssignmentStatusRunning || running.Execution == nil || running.Execution.RunStatus != "running" {
+				t.Fatalf("running assignment = %+v, want projected running execution", running)
+			}
+			if running.StartedAt == "" {
+				t.Fatalf("running assignment started_at is empty, want projected run timestamp")
+			}
+			assertStoredProjectWorkAssignmentStatusForTest(t, handler, "work_running", "asgn_running", projectwork.AssignmentStatusQueued)
+
+			queued := getProjectWorkAssignmentForTest(t, server, "work_queued", "asgn_queued")
+			if queued.Status != projectwork.AssignmentStatusQueued || queued.Execution == nil || queued.Execution.RunStatus != "queued" {
+				t.Fatalf("queued assignment = %+v, want projected queued execution", queued)
+			}
+			assertProjectWorkStatusForTest(t, server, "work_queued", projectwork.WorkItemStatusRunning)
+
+			awaiting := getProjectWorkAssignmentForTest(t, server, "work_awaiting", "asgn_awaiting")
+			if awaiting.Status != projectwork.AssignmentStatusAwaitingApproval || awaiting.Execution == nil || awaiting.Execution.PendingApprovalCount != 1 {
+				t.Fatalf("awaiting assignment = %+v, want awaiting approval with one pending approval", awaiting)
+			}
+
+			completed := getProjectWorkAssignmentForTest(t, server, "work_completed", "asgn_completed")
+			if completed.Status != projectwork.AssignmentStatusCompleted || completed.CompletedAt == "" || completed.Execution == nil || completed.Execution.RunStatus != "completed" {
+				t.Fatalf("completed assignment = %+v, want completed projection", completed)
+			}
+			assertProjectWorkStatusForTest(t, server, "work_completed", projectwork.WorkItemStatusDone)
+
+			failed := getProjectWorkAssignmentForTest(t, server, "work_failed", "asgn_failed")
+			if failed.Status != projectwork.AssignmentStatusFailed || failed.Execution == nil || failed.Execution.LastError != "model failed" {
+				t.Fatalf("failed assignment = %+v, want failed projection with run error", failed)
+			}
+			assertProjectWorkStatusForTest(t, server, "work_failed", projectwork.WorkItemStatusBlocked)
+
+			cancelled := getProjectWorkAssignmentForTest(t, server, "work_cancelled", "asgn_cancelled")
+			if cancelled.Status != projectwork.AssignmentStatusCancelled || cancelled.Execution == nil || cancelled.Execution.RunStatus != "cancelled" {
+				t.Fatalf("cancelled assignment = %+v, want cancelled projection", cancelled)
+			}
+			assertProjectWorkStatusForTest(t, server, "work_cancelled", projectwork.WorkItemStatusCancelled)
+
+			missing := getProjectWorkAssignmentForTest(t, server, "work_missing", "asgn_missing")
+			if missing.Status != projectwork.AssignmentStatusQueued || missing.Execution == nil || !missing.Execution.Missing {
+				t.Fatalf("missing assignment = %+v, want stored queued status with missing execution marker", missing)
+			}
+			assertProjectWorkStatusForTest(t, server, "work_missing", projectwork.WorkItemStatusReady)
+
+			runOnly := getProjectWorkAssignmentForTest(t, server, "work_run_only", "asgn_run_only")
+			if runOnly.Status != projectwork.AssignmentStatusQueued || runOnly.RunID == "" || runOnly.Execution != nil {
+				t.Fatalf("run-only assignment = %+v, want stored queued status without execution projection", runOnly)
+			}
+			assertProjectWorkStatusForTest(t, server, "work_run_only", projectwork.WorkItemStatusReady)
+
+			manual := getProjectWorkAssignmentForTest(t, server, "work_manual_terminal", "asgn_manual_terminal")
+			if manual.Status != projectwork.AssignmentStatusFailed || manual.Execution == nil || manual.Execution.RunStatus != "completed" {
+				t.Fatalf("manual terminal assignment = %+v, want newer explicit failed status over stale completed run", manual)
+			}
+			assertProjectWorkStatusForTest(t, server, "work_manual_terminal", projectwork.WorkItemStatusBlocked)
+
+			assertProjectWorkStatusForTest(t, server, "work_mixed", projectwork.WorkItemStatusBlocked)
+			assertProjectWorkListStatusForTest(t, server, "work_mixed", projectwork.WorkItemStatusBlocked)
+		})
+	}
+}
+
 type failingCreateTaskStore struct {
 	taskstate.Store
 }
@@ -646,6 +723,273 @@ func seedProjectWorkAssignmentStartTest(t *testing.T, handler *Handler, seed pro
 
 func taskstateFilterAll() taskstate.TaskFilter {
 	return taskstate.TaskFilter{Limit: 0}
+}
+
+func newProjectWorkProjectionTestServer(t *testing.T, backend string) (*Handler, http.Handler) {
+	t.Helper()
+	if backend == "memory" {
+		return newProjectWorkTestServer()
+	}
+	ctx := t.Context()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "projection.db"),
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	projectStore, err := projects.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(projects): %v", err)
+	}
+	projectWorkStore, err := projectwork.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(projectwork): %v", err)
+	}
+	taskStore, err := taskstate.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(taskstate): %v", err)
+	}
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, taskStore, nil)
+	t.Cleanup(func() { _ = handler.taskRunner.Shutdown(t.Context()) })
+	handler.SetProjectStore(projectStore)
+	handler.SetProjectWorkStore(projectWorkStore)
+	return handler, NewServer(quietLogger(), handler)
+}
+
+func seedProjectWorkProjectionTest(t *testing.T, handler *Handler) {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := handler.projects.Create(ctx, projects.Project{ID: "proj_projection", Name: "Projection"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateRole(ctx, projectwork.AgentRoleProfile{ID: "role_projection", ProjectID: "proj_projection", Name: "Projection engineer"}); err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+
+	base := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		workID            string
+		assignmentID      string
+		assignmentStatus  string
+		runStatus         string
+		runStartedAt      time.Time
+		runFinishedAt     time.Time
+		assignmentUpdated time.Time
+		lastError         string
+		approvalPending   bool
+		missing           bool
+	}{
+		{workID: "work_running", assignmentID: "asgn_running", runStatus: "running", runStartedAt: base.Add(1 * time.Minute)},
+		{workID: "work_queued", assignmentID: "asgn_queued", runStatus: "queued"},
+		{workID: "work_awaiting", assignmentID: "asgn_awaiting", runStatus: "awaiting_approval", runStartedAt: base.Add(2 * time.Minute), approvalPending: true},
+		{workID: "work_completed", assignmentID: "asgn_completed", runStatus: "completed", runStartedAt: base.Add(3 * time.Minute), runFinishedAt: base.Add(4 * time.Minute)},
+		{workID: "work_failed", assignmentID: "asgn_failed", runStatus: "failed", runStartedAt: base.Add(5 * time.Minute), runFinishedAt: base.Add(6 * time.Minute), lastError: "model failed"},
+		{workID: "work_cancelled", assignmentID: "asgn_cancelled", runStatus: "cancelled", runStartedAt: base.Add(7 * time.Minute), runFinishedAt: base.Add(8 * time.Minute)},
+		{workID: "work_missing", assignmentID: "asgn_missing", runStatus: "queued", missing: true},
+		{workID: "work_manual_terminal", assignmentID: "asgn_manual_terminal", assignmentStatus: projectwork.AssignmentStatusFailed, runStatus: "completed", runStartedAt: base.Add(9 * time.Minute), runFinishedAt: base.Add(10 * time.Minute), assignmentUpdated: base.Add(11 * time.Minute)},
+	}
+	for _, tc := range cases {
+		seedProjectWorkProjectionCase(t, handler, tc.workID, tc.assignmentID, tc.assignmentStatus, tc.runStatus, tc.runStartedAt, tc.runFinishedAt, tc.assignmentUpdated, tc.lastError, tc.approvalPending, tc.missing)
+	}
+	seedProjectWorkRunOnlyProjectionCase(t, handler)
+	seedProjectWorkProjectionCase(t, handler, "work_mixed", "asgn_mixed_completed", "", "completed", base.Add(12*time.Minute), base.Add(13*time.Minute), time.Time{}, "", false, false)
+	seedProjectWorkProjectionCase(t, handler, "work_mixed", "asgn_mixed_failed", "", "failed", base.Add(14*time.Minute), base.Add(15*time.Minute), time.Time{}, "review failed", false, false)
+}
+
+func seedProjectWorkRunOnlyProjectionCase(t *testing.T, handler *Handler) {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_run_only",
+		ProjectID: "proj_projection",
+		Title:     "work_run_only",
+		Status:    projectwork.WorkItemStatusReady,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem(work_run_only): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:         "asgn_run_only",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_run_only",
+		RoleID:     "role_projection",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusQueued,
+		RunID:      "run_without_task",
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_run_only): %v", err)
+	}
+}
+
+func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assignmentID, assignmentStatus, runStatus string, runStartedAt, runFinishedAt, assignmentUpdated time.Time, lastError string, approvalPending, missing bool) {
+	t.Helper()
+	ctx := t.Context()
+	if _, ok, err := handler.projectWork.GetWorkItem(ctx, "proj_projection", workID); err != nil {
+		t.Fatalf("GetWorkItem(%s): %v", workID, err)
+	} else if !ok {
+		if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{
+			ID:        workID,
+			ProjectID: "proj_projection",
+			Title:     workID,
+			Status:    projectwork.WorkItemStatusReady,
+		}); err != nil {
+			t.Fatalf("CreateWorkItem(%s): %v", workID, err)
+		}
+	}
+
+	taskID := "task_" + assignmentID
+	runID := "run_" + assignmentID
+	if assignmentStatus == "" {
+		assignmentStatus = projectwork.AssignmentStatusQueued
+	}
+	if assignmentUpdated.IsZero() {
+		assignmentUpdated = runStartedAt.Add(-time.Minute)
+		if runStartedAt.IsZero() {
+			assignmentUpdated = time.Date(2026, 6, 3, 11, 59, 0, 0, time.UTC)
+		}
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:         assignmentID,
+		ProjectID:  "proj_projection",
+		WorkItemID: workID,
+		RoleID:     "role_projection",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     assignmentStatus,
+		TaskID:     taskID,
+		RunID:      runID,
+		CreatedAt:  assignmentUpdated,
+		UpdatedAt:  assignmentUpdated,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(%s): %v", assignmentID, err)
+	}
+	if missing {
+		return
+	}
+	if _, err := handler.taskStore.CreateTask(ctx, types.Task{
+		ID:          taskID,
+		Title:       assignmentID,
+		Status:      runStatus,
+		LatestRunID: runID,
+		CreatedAt:   assignmentUpdated,
+		UpdatedAt:   firstNonZeroTime(runFinishedAt, runStartedAt, assignmentUpdated),
+	}); err != nil {
+		t.Fatalf("CreateTask(%s): %v", taskID, err)
+	}
+	if _, err := handler.taskStore.CreateRun(ctx, types.TaskRun{
+		ID:            runID,
+		TaskID:        taskID,
+		Number:        1,
+		Status:        runStatus,
+		Model:         "qwen2.5-coder",
+		Provider:      "ollama",
+		StepCount:     2,
+		ApprovalCount: boolToInt(approvalPending),
+		ArtifactCount: 1,
+		LastError:     lastError,
+		StartedAt:     runStartedAt,
+		FinishedAt:    runFinishedAt,
+		TraceID:       "trace_" + assignmentID,
+	}); err != nil {
+		t.Fatalf("CreateRun(%s): %v", runID, err)
+	}
+	if approvalPending {
+		if _, err := handler.taskStore.CreateApproval(ctx, types.TaskApproval{
+			ID:        "ap_" + assignmentID,
+			TaskID:    taskID,
+			RunID:     runID,
+			Kind:      "agent_loop_tool_call",
+			Status:    "pending",
+			CreatedAt: runStartedAt,
+		}); err != nil {
+			t.Fatalf("CreateApproval(%s): %v", assignmentID, err)
+		}
+	}
+}
+
+func getProjectWorkAssignmentForTest(t *testing.T, server http.Handler, workID, assignmentID string) ProjectWorkAssignmentResponse {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/"+workID+"/assignments", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list assignments %s status = %d body=%s, want 200", workID, rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkAssignmentsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode assignments: %v", err)
+	}
+	for _, assignment := range response.Data {
+		if assignment.ID == assignmentID {
+			return assignment
+		}
+	}
+	t.Fatalf("assignment %s not found in %+v", assignmentID, response.Data)
+	return ProjectWorkAssignmentResponse{}
+}
+
+func assertProjectWorkStatusForTest(t *testing.T, server http.Handler, workID, want string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items/"+workID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get work item %s status = %d body=%s, want 200", workID, rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkItemEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode work item: %v", err)
+	}
+	if response.Data.Status != want {
+		t.Fatalf("work item %s status = %q, want %q", workID, response.Data.Status, want)
+	}
+}
+
+func assertProjectWorkListStatusForTest(t *testing.T, server http.Handler, workID, want string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/work-items", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list work items status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response ProjectWorkItemsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode work items: %v", err)
+	}
+	for _, item := range response.Data {
+		if item.ID == workID {
+			if item.Status != want {
+				t.Fatalf("work item list status = %q, want %q", item.Status, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("work item %s not found in %+v", workID, response.Data)
+}
+
+func assertStoredProjectWorkAssignmentStatusForTest(t *testing.T, handler *Handler, workID, assignmentID, want string) {
+	t.Helper()
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{
+		ProjectID:  "proj_projection",
+		WorkItemID: workID,
+	})
+	if err != nil {
+		t.Fatalf("ListAssignments(%s): %v", workID, err)
+	}
+	for _, assignment := range assignments {
+		if assignment.ID == assignmentID {
+			if assignment.Status != want {
+				t.Fatalf("stored assignment status = %q, want %q", assignment.Status, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("stored assignment %s not found in %+v", assignmentID, assignments)
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func createProjectForWorkTest(t *testing.T, server http.Handler) ProjectResponse {

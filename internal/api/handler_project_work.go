@@ -134,6 +134,25 @@ type ProjectWorkItemResponse struct {
 	UpdatedAt       string   `json:"updated_at"`
 }
 
+type ProjectWorkAssignmentExecutionResponse struct {
+	TaskID               string `json:"task_id,omitempty"`
+	RunID                string `json:"run_id,omitempty"`
+	TaskStatus           string `json:"task_status,omitempty"`
+	RunStatus            string `json:"run_status,omitempty"`
+	Status               string `json:"status,omitempty"`
+	PendingApprovalCount int    `json:"pending_approval_count,omitempty"`
+	StepCount            int    `json:"step_count,omitempty"`
+	ApprovalCount        int    `json:"approval_count,omitempty"`
+	ArtifactCount        int    `json:"artifact_count,omitempty"`
+	Model                string `json:"model,omitempty"`
+	Provider             string `json:"provider,omitempty"`
+	LastError            string `json:"last_error,omitempty"`
+	StartedAt            string `json:"started_at,omitempty"`
+	FinishedAt           string `json:"finished_at,omitempty"`
+	TraceID              string `json:"trace_id,omitempty"`
+	Missing              bool   `json:"missing,omitempty"`
+}
+
 type ProjectWorkAssignmentsResponse struct {
 	Object string                          `json:"object"`
 	Data   []ProjectWorkAssignmentResponse `json:"data"`
@@ -145,21 +164,22 @@ type ProjectWorkAssignmentEnvelope struct {
 }
 
 type ProjectWorkAssignmentResponse struct {
-	ID                string `json:"id"`
-	ProjectID         string `json:"project_id"`
-	WorkItemID        string `json:"work_item_id"`
-	RoleID            string `json:"role_id"`
-	DriverKind        string `json:"driver_kind"`
-	Status            string `json:"status"`
-	TaskID            string `json:"task_id,omitempty"`
-	RunID             string `json:"run_id,omitempty"`
-	ChatSessionID     string `json:"chat_session_id,omitempty"`
-	MessageID         string `json:"message_id,omitempty"`
-	ContextSnapshotID string `json:"context_snapshot_id,omitempty"`
-	CreatedAt         string `json:"created_at"`
-	UpdatedAt         string `json:"updated_at"`
-	StartedAt         string `json:"started_at,omitempty"`
-	CompletedAt       string `json:"completed_at,omitempty"`
+	ID                string                                  `json:"id"`
+	ProjectID         string                                  `json:"project_id"`
+	WorkItemID        string                                  `json:"work_item_id"`
+	RoleID            string                                  `json:"role_id"`
+	DriverKind        string                                  `json:"driver_kind"`
+	Status            string                                  `json:"status"`
+	TaskID            string                                  `json:"task_id,omitempty"`
+	RunID             string                                  `json:"run_id,omitempty"`
+	ChatSessionID     string                                  `json:"chat_session_id,omitempty"`
+	MessageID         string                                  `json:"message_id,omitempty"`
+	ContextSnapshotID string                                  `json:"context_snapshot_id,omitempty"`
+	CreatedAt         string                                  `json:"created_at"`
+	UpdatedAt         string                                  `json:"updated_at"`
+	StartedAt         string                                  `json:"started_at,omitempty"`
+	CompletedAt       string                                  `json:"completed_at,omitempty"`
+	Execution         *ProjectWorkAssignmentExecutionResponse `json:"execution,omitempty"`
 }
 
 type ProjectWorkArtifactsResponse struct {
@@ -275,9 +295,20 @@ func (h *Handler) HandleProjectWorkItems(w http.ResponseWriter, r *http.Request)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	assignments, err := h.projectWork.ListAssignments(r.Context(), projectwork.AssignmentFilter{ProjectID: projectID})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
 	data := make([]ProjectWorkItemResponse, 0, len(items))
 	for _, item := range items {
-		data = append(data, renderProjectWorkItem(item))
+		projected, err := h.renderProjectedProjectWorkItemWithAssignments(r.Context(), item, assignmentsByWorkItem[item.ID])
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		data = append(data, projected)
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkItemsResponse{Object: "project_work_items", Data: data})
 }
@@ -308,7 +339,12 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	WriteJSON(w, http.StatusCreated, ProjectWorkItemEnvelope{Object: "project_work_item", Data: renderProjectWorkItem(item)})
+	projected, err := h.renderProjectedProjectWorkItem(r.Context(), item)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusCreated, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
 }
 
 func (h *Handler) HandleProjectWorkItem(w http.ResponseWriter, r *http.Request) {
@@ -325,7 +361,12 @@ func (h *Handler) HandleProjectWorkItem(w http.ResponseWriter, r *http.Request) 
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "work item not found")
 		return
 	}
-	WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: renderProjectWorkItem(item)})
+	projected, err := h.renderProjectedProjectWorkItem(r.Context(), item)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
 }
 
 func (h *Handler) HandleUpdateProjectWorkItem(w http.ResponseWriter, r *http.Request) {
@@ -360,7 +401,12 @@ func (h *Handler) HandleUpdateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: renderProjectWorkItem(item)})
+	projected, err := h.renderProjectedProjectWorkItem(r.Context(), item)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectWorkItemEnvelope{Object: "project_work_item", Data: projected})
 }
 
 func (h *Handler) HandleDeleteProjectWorkItem(w http.ResponseWriter, r *http.Request) {
@@ -387,7 +433,12 @@ func (h *Handler) HandleProjectWorkAssignments(w http.ResponseWriter, r *http.Re
 	}
 	data := make([]ProjectWorkAssignmentResponse, 0, len(items))
 	for _, item := range items {
-		data = append(data, renderProjectWorkAssignment(item))
+		projected, err := h.renderProjectedProjectWorkAssignment(r.Context(), item)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		data = append(data, projected)
 	}
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentsResponse{Object: "project_assignments", Data: data})
 }
@@ -428,7 +479,12 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	WriteJSON(w, http.StatusCreated, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(item)})
+	projected, err := h.renderProjectedProjectWorkAssignment(r.Context(), item)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusCreated, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 }
 
 func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *http.Request) {
@@ -481,7 +537,12 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !writeProjectWorkError(w, err) {
 		return
 	}
-	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(item)})
+	projected, err := h.renderProjectedProjectWorkAssignment(r.Context(), item)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 }
 
 func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *http.Request) {
@@ -551,7 +612,12 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	if projectWorkAssignmentIsTerminal(assignment.Status) {
-		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+		if projectErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+			return
+		}
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 		return
 	}
 	active, err := projectWorkAssignmentHasActiveExecution(ctx, h.taskStore, assignment)
@@ -560,7 +626,12 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	if active {
-		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+		if projectErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+			return
+		}
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 		return
 	}
 
@@ -593,7 +664,12 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	if claimRejected {
-		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+		if projectErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+			return
+		}
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 		return
 	}
 
@@ -651,7 +727,12 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: renderProjectWorkAssignment(assignment)})
+	projected, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 }
 
 func decodeOptionalProjectWorkAssignmentStartRequest(w http.ResponseWriter, r *http.Request) (startProjectWorkAssignmentRequest, bool) {
@@ -1027,6 +1108,259 @@ func parseOptionalProjectWorkTime(value, field string) (time.Time, error) {
 		return time.Time{}, errors.New(field + " must be RFC3339 timestamp")
 	}
 	return parsed.UTC(), nil
+}
+
+func (h *Handler) renderProjectedProjectWorkItem(ctx context.Context, item projectwork.WorkItem) (ProjectWorkItemResponse, error) {
+	if h == nil || h.projectWork == nil {
+		return renderProjectWorkItem(item), nil
+	}
+	assignments, err := h.projectWork.ListAssignments(ctx, projectwork.AssignmentFilter{
+		ProjectID:  item.ProjectID,
+		WorkItemID: item.ID,
+	})
+	if err != nil {
+		return ProjectWorkItemResponse{}, err
+	}
+	return h.renderProjectedProjectWorkItemWithAssignments(ctx, item, assignments)
+}
+
+func (h *Handler) renderProjectedProjectWorkItemWithAssignments(ctx context.Context, item projectwork.WorkItem, assignments []projectwork.Assignment) (ProjectWorkItemResponse, error) {
+	response := renderProjectWorkItem(item)
+	if len(assignments) == 0 {
+		return response, nil
+	}
+	projected := make([]ProjectWorkAssignmentResponse, 0, len(assignments))
+	for _, assignment := range assignments {
+		projectedAssignment, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+		if err != nil {
+			return ProjectWorkItemResponse{}, err
+		}
+		projected = append(projected, projectedAssignment)
+	}
+	response.Status = projectWorkItemStatusFromAssignments(item.Status, projected)
+	return response, nil
+}
+
+func (h *Handler) renderProjectedProjectWorkAssignment(ctx context.Context, item projectwork.Assignment) (ProjectWorkAssignmentResponse, error) {
+	response := renderProjectWorkAssignment(item)
+	projection, err := h.projectWorkAssignmentExecution(ctx, item)
+	if err != nil {
+		return ProjectWorkAssignmentResponse{}, err
+	}
+	if projection == nil {
+		return response, nil
+	}
+	response.Execution = &projection.Execution
+	if projection.Status != "" {
+		response.Status = projection.Status
+	}
+	if response.StartedAt == "" && !projection.StartedAt.IsZero() {
+		response.StartedAt = formatOptionalTime(projection.StartedAt)
+	}
+	if response.CompletedAt == "" && !projection.CompletedAt.IsZero() {
+		response.CompletedAt = formatOptionalTime(projection.CompletedAt)
+	}
+	return response, nil
+}
+
+type projectWorkAssignmentExecutionProjection struct {
+	Execution   ProjectWorkAssignmentExecutionResponse
+	Status      string
+	StartedAt   time.Time
+	CompletedAt time.Time
+}
+
+func (h *Handler) projectWorkAssignmentExecution(ctx context.Context, assignment projectwork.Assignment) (*projectWorkAssignmentExecutionProjection, error) {
+	taskID := strings.TrimSpace(assignment.TaskID)
+	runID := strings.TrimSpace(assignment.RunID)
+	if taskID == "" {
+		return nil, nil
+	}
+	projection := &projectWorkAssignmentExecutionProjection{
+		Status:    assignment.Status,
+		StartedAt: assignment.StartedAt,
+		Execution: ProjectWorkAssignmentExecutionResponse{
+			TaskID: taskID,
+			RunID:  runID,
+		},
+	}
+	if h == nil || h.taskStore == nil {
+		projection.Execution.Missing = true
+		return projection, nil
+	}
+
+	var task types.Task
+	if taskID != "" {
+		foundTask, found, err := h.taskStore.GetTask(ctx, taskID)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			projection.Execution.Missing = true
+			return projection, nil
+		}
+		task = foundTask
+		projection.Execution.TaskStatus = task.Status
+		if runID == "" {
+			runID = strings.TrimSpace(task.LatestRunID)
+			projection.Execution.RunID = runID
+		}
+	}
+
+	if runID == "" {
+		status := projectWorkAssignmentStatusFromRun(task.Status)
+		projection.Execution.Status = status
+		projection.Status = projectWorkProjectedAssignmentStatus(assignment, status, task.UpdatedAt)
+		return projection, nil
+	}
+
+	run, found, err := h.taskStore.GetRun(ctx, taskID, runID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		projection.Execution.Missing = true
+		return projection, nil
+	}
+
+	status := projectWorkAssignmentStatusFromRun(run.Status)
+	pendingApprovalCount := 0
+	if status == projectwork.AssignmentStatusAwaitingApproval {
+		pendingCount, err := projectWorkPendingApprovalCount(ctx, h.taskStore, taskID, runID)
+		if err != nil {
+			return nil, err
+		}
+		pendingApprovalCount = pendingCount
+	}
+	projection.Status = projectWorkProjectedAssignmentStatus(assignment, status, projectWorkRunProjectionTime(run))
+	projection.StartedAt = firstNonZeroTime(assignment.StartedAt, run.StartedAt)
+	if types.IsTerminalTaskRunStatus(run.Status) {
+		projection.CompletedAt = firstNonZeroTime(assignment.CompletedAt, run.FinishedAt)
+	} else {
+		projection.CompletedAt = assignment.CompletedAt
+	}
+	projection.Execution = ProjectWorkAssignmentExecutionResponse{
+		TaskID:               taskID,
+		RunID:                runID,
+		TaskStatus:           task.Status,
+		RunStatus:            run.Status,
+		Status:               status,
+		PendingApprovalCount: pendingApprovalCount,
+		StepCount:            run.StepCount,
+		ApprovalCount:        run.ApprovalCount,
+		ArtifactCount:        run.ArtifactCount,
+		Model:                run.Model,
+		Provider:             run.Provider,
+		LastError:            run.LastError,
+		StartedAt:            formatOptionalTime(run.StartedAt),
+		FinishedAt:           formatOptionalTime(run.FinishedAt),
+		TraceID:              run.TraceID,
+	}
+	return projection, nil
+}
+
+func groupProjectWorkAssignmentsByWorkItem(assignments []projectwork.Assignment) map[string][]projectwork.Assignment {
+	if len(assignments) == 0 {
+		return map[string][]projectwork.Assignment{}
+	}
+	grouped := make(map[string][]projectwork.Assignment, len(assignments))
+	for _, assignment := range assignments {
+		grouped[assignment.WorkItemID] = append(grouped[assignment.WorkItemID], assignment)
+	}
+	return grouped
+}
+
+func projectWorkProjectedAssignmentStatus(assignment projectwork.Assignment, projectedStatus string, projectedAt time.Time) string {
+	projectedStatus = strings.TrimSpace(projectedStatus)
+	if projectedStatus == "" {
+		return assignment.Status
+	}
+	if projectWorkAssignmentIsTerminal(assignment.Status) && assignment.Status != projectedStatus {
+		if projectedAt.IsZero() || !projectedAt.After(assignment.UpdatedAt) {
+			return assignment.Status
+		}
+	}
+	return projectedStatus
+}
+
+func projectWorkRunProjectionTime(run types.TaskRun) time.Time {
+	if !run.FinishedAt.IsZero() {
+		return run.FinishedAt
+	}
+	return run.StartedAt
+}
+
+func firstNonZeroTime(values ...time.Time) time.Time {
+	for _, value := range values {
+		if !value.IsZero() {
+			return value
+		}
+	}
+	return time.Time{}
+}
+
+func projectWorkPendingApprovalCount(ctx context.Context, store taskRunApprovalStore, taskID, runID string) (int, error) {
+	if store == nil {
+		return 0, nil
+	}
+	approvals, err := store.ListApprovals(ctx, taskID)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, approval := range approvals {
+		if approval.RunID == runID && approval.Status == "pending" {
+			count++
+		}
+	}
+	return count, nil
+}
+
+type taskRunApprovalStore interface {
+	ListApprovals(ctx context.Context, taskID string) ([]types.TaskApproval, error)
+}
+
+func projectWorkItemStatusFromAssignments(storedStatus string, assignments []ProjectWorkAssignmentResponse) string {
+	if len(assignments) == 0 {
+		return storedStatus
+	}
+	allCompleted := true
+	allCancelled := true
+	hasFailedOrCancelled := false
+	for _, assignment := range assignments {
+		switch assignment.Status {
+		case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval:
+			return projectwork.WorkItemStatusRunning
+		case projectwork.AssignmentStatusQueued:
+			if assignment.Execution != nil && !assignment.Execution.Missing && (assignment.Execution.RunID != "" || assignment.Execution.TaskID != "") {
+				return projectwork.WorkItemStatusRunning
+			}
+			allCompleted = false
+			allCancelled = false
+		case projectwork.AssignmentStatusCompleted:
+			allCancelled = false
+		case projectwork.AssignmentStatusFailed:
+			allCompleted = false
+			allCancelled = false
+			hasFailedOrCancelled = true
+		case projectwork.AssignmentStatusCancelled:
+			allCompleted = false
+			hasFailedOrCancelled = true
+		default:
+			allCompleted = false
+			allCancelled = false
+		}
+	}
+	switch {
+	case allCompleted:
+		return projectwork.WorkItemStatusDone
+	case allCancelled:
+		return projectwork.WorkItemStatusCancelled
+	case hasFailedOrCancelled:
+		return projectwork.WorkItemStatusBlocked
+	default:
+		return storedStatus
+	}
 }
 
 func renderProjectWorkRole(item projectwork.AgentRoleProfile) ProjectWorkRoleResponse {
