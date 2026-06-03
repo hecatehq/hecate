@@ -49,9 +49,19 @@ import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 import type { RetentionRunResponse, RetentionRunsResponse } from "../types/retention";
 import type {
   CreateProjectPayload,
+  CreateProjectAssignmentPayload,
+  CreateProjectWorkItemPayload,
+  ProjectAssignmentResponse,
+  ProjectAssignmentsResponse,
+  ProjectCollaborationArtifactsResponse,
   ProjectResponse,
+  ProjectWorkItemsResponse,
+  ProjectWorkItemResponse,
+  ProjectWorkRolesResponse,
   ProjectsResponse,
+  UpdateProjectAssignmentPayload,
   UpdateProjectPayload,
+  UpdateProjectWorkItemPayload,
 } from "../types/project";
 
 type RequestOptions = {
@@ -315,6 +325,118 @@ export async function deleteProject(id: string): Promise<void> {
   return fetchJSON<void>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+}
+
+export async function getProjectWorkRoles(projectID: string): Promise<ProjectWorkRolesResponse> {
+  return fetchJSON<ProjectWorkRolesResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/roles`,
+  );
+}
+
+export async function getProjectWorkItems(projectID: string): Promise<ProjectWorkItemsResponse> {
+  return fetchJSON<ProjectWorkItemsResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items`,
+  );
+}
+
+export async function createProjectWorkItem(
+  projectID: string,
+  payload: CreateProjectWorkItemPayload,
+): Promise<ProjectWorkItemResponse> {
+  return fetchJSON<ProjectWorkItemResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items`,
+    { method: "POST", body: payload },
+  );
+}
+
+export async function getProjectWorkItem(
+  projectID: string,
+  workItemID: string,
+): Promise<ProjectWorkItemResponse> {
+  return fetchJSON<ProjectWorkItemResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}`,
+  );
+}
+
+export async function updateProjectWorkItem(
+  projectID: string,
+  workItemID: string,
+  payload: UpdateProjectWorkItemPayload,
+): Promise<ProjectWorkItemResponse> {
+  return fetchJSON<ProjectWorkItemResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export async function deleteProjectWorkItem(projectID: string, workItemID: string): Promise<void> {
+  return fetchJSON<void>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function getProjectAssignments(
+  projectID: string,
+  workItemID: string,
+): Promise<ProjectAssignmentsResponse> {
+  return fetchJSON<ProjectAssignmentsResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments`,
+  );
+}
+
+export async function createProjectAssignment(
+  projectID: string,
+  workItemID: string,
+  payload: CreateProjectAssignmentPayload,
+): Promise<ProjectAssignmentResponse> {
+  return fetchJSON<ProjectAssignmentResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments`,
+    { method: "POST", body: payload },
+  );
+}
+
+export async function updateProjectAssignment(
+  projectID: string,
+  workItemID: string,
+  assignmentID: string,
+  payload: UpdateProjectAssignmentPayload,
+): Promise<ProjectAssignmentResponse> {
+  return fetchJSON<ProjectAssignmentResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments/${encodeURIComponent(assignmentID)}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export async function deleteProjectAssignment(
+  projectID: string,
+  workItemID: string,
+  assignmentID: string,
+): Promise<void> {
+  return fetchJSON<void>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments/${encodeURIComponent(assignmentID)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function startProjectAssignment(
+  projectID: string,
+  workItemID: string,
+  assignmentID: string,
+): Promise<ProjectAssignmentResponse> {
+  return fetchJSON<ProjectAssignmentResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments/${encodeURIComponent(assignmentID)}/start`,
+    { method: "POST", body: { driver_kind: "hecate_task" } },
+  );
+}
+
+export async function getProjectCollaborationArtifacts(
+  projectID: string,
+  workItemID: string,
+): Promise<ProjectCollaborationArtifactsResponse> {
+  return fetchJSON<ProjectCollaborationArtifactsResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/artifacts`,
+  );
 }
 
 export async function getChatSessions(): Promise<ChatSessionsResponse> {

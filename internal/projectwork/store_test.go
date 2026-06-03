@@ -171,6 +171,27 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 				t.Fatalf("artifacts = %+v, want created artifact", artifacts)
 			}
 
+			if err := store.DeleteAssignment(ctx, "proj_alpha", "work_api", "asgn_impl"); err != nil {
+				t.Fatalf("DeleteAssignment: %v", err)
+			}
+			assignments, err = store.ListAssignments(ctx, AssignmentFilter{ProjectID: "proj_alpha", WorkItemID: "work_api"})
+			if err != nil {
+				t.Fatalf("ListAssignments after assignment delete: %v", err)
+			}
+			artifacts, err = store.ListArtifacts(ctx, ArtifactFilter{ProjectID: "proj_alpha", WorkItemID: "work_api"})
+			if err != nil {
+				t.Fatalf("ListArtifacts after assignment delete: %v", err)
+			}
+			if len(assignments) != 0 || len(artifacts) != 0 {
+				t.Fatalf("assignment delete left assignments=%+v artifacts=%+v", assignments, artifacts)
+			}
+			if _, err := store.CreateAssignment(ctx, Assignment{ID: "asgn_impl", ProjectID: "proj_alpha", WorkItemID: "work_api", RoleID: "software_developer"}); err != nil {
+				t.Fatalf("recreate assignment after delete: %v", err)
+			}
+			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_brief", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindBrief, Body: "Brief again."}); err != nil {
+				t.Fatalf("recreate artifact after delete: %v", err)
+			}
+
 			if err := store.DeleteWorkItem(ctx, "proj_alpha", "work_api"); err != nil {
 				t.Fatalf("DeleteWorkItem: %v", err)
 			}

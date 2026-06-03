@@ -177,6 +177,46 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments/asgn_backend", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete assignment status = %d body=%s, want 204", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list assignments after delete status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignments); err != nil {
+		t.Fatalf("decode assignments after delete: %v", err)
+	}
+	if len(assignments.Data) != 0 {
+		t.Fatalf("assignments after delete = %+v, want none", assignments.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments", bytes.NewReader([]byte(`{
+		"id":"asgn_backend",
+		"role_id":"software_developer"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("recreate assignment status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/artifacts", bytes.NewReader([]byte(`{
+		"id":"art_handoff",
+		"assignment_id":"asgn_backend",
+		"kind":"handoff",
+		"title":"Backend handoff",
+		"body":"Store and API are ready for UI wiring.",
+		"author_role_id":"software_developer"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("recreate artifact status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/artifacts", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list artifacts status = %d body=%s, want 200", rec.Code, rec.Body.String())

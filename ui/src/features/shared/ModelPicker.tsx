@@ -206,6 +206,7 @@ export function ModelPicker({
     <div className="dropdown-wrap" ref={ref}>
       <button
         ref={triggerRef}
+        type="button"
         aria-label={`Model picker: ${label}`}
         aria-expanded={open}
         aria-haspopup="listbox"

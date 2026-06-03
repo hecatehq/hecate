@@ -545,6 +545,19 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 }
 
+func (h *Handler) HandleDeleteProjectWorkAssignment(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	assignmentID := r.PathValue("assignment_id")
+	if !h.requireProjectAssignment(w, r, projectID, workItemID, assignmentID) {
+		return
+	}
+	if err := h.projectWork.DeleteAssignment(r.Context(), projectID, workItemID, assignmentID); !writeProjectWorkError(w, err) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	projectID := r.PathValue("id")

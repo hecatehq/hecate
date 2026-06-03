@@ -12,10 +12,11 @@ import { withRuntimeConsole } from "../test/runtime-console-render";
 // removed so text inputs, screen readers, and browser shortcuts own the
 // number keys without surprises.
 describe("getAvailableWorkspaces", () => {
-  it("returns chats / runs / connections / overview / usage / settings", () => {
+  it("returns chats / projects / runs / connections / overview / usage / settings", () => {
     const ws = getAvailableWorkspaces();
     expect(ws.map((w) => w.id)).toEqual([
       "chats",
+      "projects",
       "runs",
       "connections",
       "overview",
@@ -24,6 +25,7 @@ describe("getAvailableWorkspaces", () => {
     ]);
     expect(ws.map((w) => w.label)).toEqual([
       "Chats",
+      "Projects",
       "Tasks",
       "Connections",
       "Observability",
@@ -130,6 +132,27 @@ describe("ConsoleShell titlebar", () => {
 });
 
 describe("ConsoleShell navigation", () => {
+  it("renders Projects as a top-level workspace and switches to the Projects view", async () => {
+    const state = createRuntimeConsoleFixture();
+    const onSelectWorkspace = vi.fn();
+    render(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="projects" onSelectWorkspace={onSelectWorkspace} />,
+        {
+          state,
+          actions: createRuntimeConsoleActions(),
+        },
+      ),
+    );
+
+    expect(screen.getByRole("button", { name: "Projects" })).toBeEnabled();
+    expect(
+      await screen.findByText("No projects yet", undefined, { timeout: 30_000 }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Tasks" }));
+    expect(onSelectWorkspace).toHaveBeenCalledWith("runs");
+  });
+
   it("keeps Chats available when no providers are configured", async () => {
     const state = createRuntimeConsoleFixture({
       chatTarget: "agent",
