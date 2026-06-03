@@ -1187,8 +1187,10 @@ cleanup.
 Project work coordination is the durable substrate for future project-team
 orchestration. It records project-scoped agent roles, work items, assignment
 metadata, and collaboration artifacts. It does not add a new execution runtime:
-existing Tasks and Chats remain the execution surfaces, and V1 assignment
-creation only records intended or already-linked execution metadata.
+existing Tasks and Chats remain the execution surfaces. Assignment creation
+only records intended or already-linked execution metadata; the separate native
+assignment start endpoint can create and start a Hecate-owned `agent_loop` task
+for `driver_kind="hecate_task"` assignments.
 Create requests that supply an existing project-scoped ID return `409 conflict`
 instead of overwriting the existing record.
 
@@ -1210,6 +1212,8 @@ reviewer_qa
 Supported work-item statuses are `backlog`, `ready`, `running`, `review`,
 `blocked`, `done`, and `cancelled`. Supported assignment statuses are `queued`,
 `running`, `awaiting_approval`, `completed`, `failed`, and `cancelled`.
+Supported assignment driver kinds are `hecate_task` and `external_agent`, but
+native assignment start V1 only dispatches `hecate_task`.
 Supported collaboration artifact kinds are `brief`, `handoff`, `review`, and
 `decision_note`.
 
@@ -1327,13 +1331,15 @@ Lists assignment metadata for a work item.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`
 
-Creates an assignment metadata record. `role_id` is required. Optional link
-fields (`task_id`, `run_id`, `chat_session_id`, `message_id`,
-`context_snapshot_id`) are stored as references only.
+Creates an assignment metadata record. `role_id` is required. `driver_kind`
+defaults to `hecate_task`. Optional link fields (`task_id`, `run_id`,
+`chat_session_id`, `message_id`, `context_snapshot_id`) are stored as
+references only.
 
 ```json
 {
   "role_id": "software_developer",
+  "driver_kind": "hecate_task",
   "task_id": "task_...",
   "run_id": "run_...",
   "context_snapshot_id": "ctx_..."
@@ -1350,6 +1356,7 @@ Returns:
     "project_id": "proj_...",
     "work_item_id": "work_...",
     "role_id": "software_developer",
+    "driver_kind": "hecate_task",
     "status": "queued",
     "task_id": "task_...",
     "run_id": "run_...",
@@ -1364,6 +1371,61 @@ Returns:
 
 Updates assignment status, role, link fields, `started_at`, or `completed_at`.
 It does not mutate or start the linked Task or Chat.
+
+#### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/start`
+
+Starts a native Hecate assignment. V1 supports only assignments whose
+`driver_kind` is `hecate_task`; `external_agent` assignments return
+`409 conflict` and must still be run through the external-agent chat/session
+surface. The request body is optional. When present, `driver_kind` must match
+the stored assignment driver.
+
+```json
+{
+  "driver_kind": "hecate_task"
+}
+```
+
+Starting verifies that the project, work item, assignment, and role exist, then
+creates a normal Task with `execution_kind="agent_loop"`,
+`origin_kind="project_work_item"`, and `origin_id` set to the work item ID. The
+task title, prompt, and system prompt are composed from the work item brief,
+role profile, and project defaults. Project default provider/model/workspace
+settings are copied onto the task when configured. The workspace root must
+resolve to an absolute existing project root before a task is created; missing
+or defaultless roots return `400 invalid_request`. A missing model returns
+`422 model_not_configured`.
+
+The endpoint then starts the task through the canonical task runner, so normal
+task approvals, queueing, run events, artifacts, and SSE inspection apply. On
+success it updates the assignment with `task_id`, latest `run_id`, status, and
+timestamps, and returns the updated assignment:
+
+```json
+{
+  "object": "project_assignment",
+  "data": {
+    "id": "asgn_...",
+    "project_id": "proj_...",
+    "work_item_id": "work_...",
+    "role_id": "software_developer",
+    "driver_kind": "hecate_task",
+    "status": "queued",
+    "task_id": "task_...",
+    "run_id": "run_...",
+    "created_at": "2026-06-03T12:00:00Z",
+    "updated_at": "2026-06-03T12:00:01Z",
+    "started_at": "2026-06-03T12:00:01Z"
+  }
+}
+```
+
+Repeated starts for an assignment that already has an active execution return
+`409` with the current assignment envelope and do not create another task/run.
+Assignments in terminal states (`completed`, `failed`, `cancelled`) also return
+`409`. If task creation succeeds but task start fails, Hecate keeps the
+assignment's `task_id`, marks the assignment `failed`, and returns an error so
+the operator can inspect the linked task instead of losing the partial state.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts`
 

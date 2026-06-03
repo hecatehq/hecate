@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/taskstate"
 )
 
 func newProjectWorkTestServer() (*Handler, http.Handler) {
@@ -220,6 +222,246 @@ func TestProjectWorkAPI_ProjectDeletionCleansRows(t *testing.T) {
 	if roles, err := handler.projectWork.ListRoles(ctx, project.Data.ID); err != nil || projectWorkRoleExistsStore(roles, "role_custom", false) {
 		t.Fatalf("project roles after project delete = %+v err=%v, want custom role gone", roles, err)
 	}
+}
+
+func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	if assignment.Data.TaskID == "" || assignment.Data.RunID == "" {
+		t.Fatalf("assignment links = task %q run %q, want both set", assignment.Data.TaskID, assignment.Data.RunID)
+	}
+	if assignment.Data.DriverKind != projectwork.AssignmentDriverHecateTask {
+		t.Fatalf("driver_kind = %q, want hecate_task", assignment.Data.DriverKind)
+	}
+
+	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+	}
+	if task.ExecutionKind != "agent_loop" || task.OriginKind != "project_work_item" || task.OriginID != "work_start" {
+		t.Fatalf("task execution/origin = %q %q/%q, want agent_loop project_work_item/work_start", task.ExecutionKind, task.OriginKind, task.OriginID)
+	}
+	if task.RequestedProvider != "ollama" || task.RequestedModel != "qwen2.5-coder" {
+		t.Fatalf("task provider/model = %q/%q, want ollama/qwen2.5-coder", task.RequestedProvider, task.RequestedModel)
+	}
+	if task.WorkingDirectory != workspace || task.SandboxAllowedRoot != workspace || task.WorkspaceMode != "in_place" {
+		t.Fatalf("task workspace = dir %q root %q mode %q, want %q in_place", task.WorkingDirectory, task.SandboxAllowedRoot, task.WorkspaceMode, workspace)
+	}
+	for _, want := range []string{"Implement the native assignment start path.", "Follow backend invariants."} {
+		if !strings.Contains(task.Prompt, want) {
+			t.Fatalf("task prompt = %q, want %q", task.Prompt, want)
+		}
+	}
+	if !strings.Contains(task.SystemPrompt, "Follow backend invariants.") || !strings.Contains(task.SystemPrompt, "Project default system prompt.") {
+		t.Fatalf("task system_prompt = %q, want role and project prompts", task.SystemPrompt)
+	}
+	if _, found, err := handler.taskStore.GetRun(t.Context(), task.ID, assignment.Data.RunID); err != nil || !found {
+		t.Fatalf("GetRun(%q) found=%v err=%v, want run", assignment.Data.RunID, found, err)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentRejectsMissingWorkspaceRoot(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Driver: projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("start missing workspace status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want none created", tasks)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentRejectsUnsupportedDriver(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverExternalAgent,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("start external assignment status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentRejectsDriverMismatch(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("start mismatched driver status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want none created", tasks)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentRepeatedReturnsCurrentAssignment(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first start status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var first ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
+		t.Fatalf("decode first assignment: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("second start status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	var second ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
+		t.Fatalf("decode second assignment: %v", err)
+	}
+	if second.Data.TaskID != first.Data.TaskID || second.Data.RunID != first.Data.RunID {
+		t.Fatalf("second assignment links = %q/%q, want existing %q/%q", second.Data.TaskID, second.Data.RunID, first.Data.TaskID, first.Data.RunID)
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("task count = %d, want 1", len(tasks))
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentTerminalReturnsCurrentAssignment(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+		Status:    projectwork.AssignmentStatusCompleted,
+		TaskID:    "task_existing",
+		RunID:     "run_existing",
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("terminal start status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	if assignment.Data.TaskID != "task_existing" || assignment.Data.RunID != "run_existing" {
+		t.Fatalf("terminal assignment links = %q/%q, want existing links", assignment.Data.TaskID, assignment.Data.RunID)
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want none created", tasks)
+	}
+}
+
+type projectWorkAssignmentStartSeed struct {
+	Workspace string
+	Driver    string
+	Status    string
+	TaskID    string
+	RunID     string
+}
+
+func seedProjectWorkAssignmentStartTest(t *testing.T, handler *Handler, seed projectWorkAssignmentStartSeed) {
+	t.Helper()
+	project := projects.Project{
+		ID:                   "proj_start",
+		Name:                 "Hecate",
+		DefaultProvider:      "ollama",
+		DefaultModel:         "qwen2.5-coder",
+		DefaultWorkspaceMode: "in_place",
+		DefaultSystemPrompt:  "Project default system prompt.",
+	}
+	if seed.Workspace != "" {
+		project.Roots = []projects.Root{{ID: "root_start", Path: seed.Workspace, Kind: "git", Active: true}}
+		project.DefaultRootID = "root_start"
+	}
+	if _, err := handler.projects.Create(t.Context(), project); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:           "role_backend",
+		ProjectID:    "proj_start",
+		Name:         "Backend engineer",
+		Instructions: "Follow backend invariants.",
+	}); err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:        "work_start",
+		ProjectID: "proj_start",
+		Title:     "Native assignment start",
+		Brief:     "Implement the native assignment start path.",
+		Priority:  "high",
+	}); err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_start",
+		ProjectID:  "proj_start",
+		WorkItemID: "work_start",
+		RoleID:     "role_backend",
+		DriverKind: seed.Driver,
+		Status:     seed.Status,
+		TaskID:     seed.TaskID,
+		RunID:      seed.RunID,
+	}); err != nil {
+		t.Fatalf("CreateAssignment: %v", err)
+	}
+}
+
+func taskstateFilterAll() taskstate.TaskFilter {
+	return taskstate.TaskFilter{Limit: 0}
 }
 
 func createProjectForWorkTest(t *testing.T, server http.Handler) ProjectResponse {

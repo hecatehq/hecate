@@ -107,17 +107,26 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if assignment.Status != AssignmentStatusQueued {
 				t.Fatalf("assignment status = %q, want queued", assignment.Status)
 			}
+			if assignment.DriverKind != AssignmentDriverHecateTask {
+				t.Fatalf("assignment driver_kind = %q, want hecate_task", assignment.DriverKind)
+			}
 
 			startedAt := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
 			updatedAssignment, err := store.UpdateAssignment(ctx, "proj_alpha", "asgn_impl", func(item *Assignment) {
+				item.DriverKind = AssignmentDriverExternalAgent
 				item.Status = AssignmentStatusRunning
 				item.StartedAt = startedAt
 			})
 			if err != nil {
 				t.Fatalf("UpdateAssignment: %v", err)
 			}
-			if updatedAssignment.Status != AssignmentStatusRunning || !updatedAssignment.StartedAt.Equal(startedAt) {
+			if updatedAssignment.DriverKind != AssignmentDriverExternalAgent || updatedAssignment.Status != AssignmentStatusRunning || !updatedAssignment.StartedAt.Equal(startedAt) {
 				t.Fatalf("updated assignment = %+v, want running with start time", updatedAssignment)
+			}
+			if _, err := store.UpdateAssignment(ctx, "proj_alpha", "asgn_impl", func(item *Assignment) {
+				item.DriverKind = "unsupported"
+			}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("UpdateAssignment unsupported driver error = %v, want ErrInvalid", err)
 			}
 
 			artifact, err := store.CreateArtifact(ctx, CollaborationArtifact{
@@ -248,6 +257,61 @@ func TestMemoryStore_UpdateRejectsIDChanges(t *testing.T) {
 		item.ID = "work_beta"
 	}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("UpdateWorkItem id change error = %v, want ErrInvalid", err)
+	}
+}
+
+func TestSQLiteStore_AddsAssignmentDriverKindToExistingTable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "projectwork.db"),
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	assignmentsTbl := client.QualifiedTable("project_work_assignments")
+	if _, err := client.DB().ExecContext(ctx, `
+CREATE TABLE `+assignmentsTbl+` (
+	id TEXT NOT NULL,
+	project_id TEXT NOT NULL,
+	work_item_id TEXT NOT NULL,
+	role_id TEXT NOT NULL,
+	status TEXT NOT NULL,
+	task_id TEXT NOT NULL DEFAULT '',
+	run_id TEXT NOT NULL DEFAULT '',
+	chat_session_id TEXT NOT NULL DEFAULT '',
+	message_id TEXT NOT NULL DEFAULT '',
+	context_snapshot_id TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	started_at TEXT NOT NULL DEFAULT '',
+	completed_at TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY(project_id, id)
+)`); err != nil {
+		t.Fatalf("create legacy assignments table: %v", err)
+	}
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	if _, err := client.DB().ExecContext(ctx, `
+INSERT INTO `+assignmentsTbl+` (
+	id, project_id, work_item_id, role_id, status, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"asgn_legacy", "proj_alpha", "work_alpha", "software_developer", AssignmentStatusQueued, now, now,
+	); err != nil {
+		t.Fatalf("insert legacy assignment: %v", err)
+	}
+
+	store, err := NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	assignments, err := store.ListAssignments(ctx, AssignmentFilter{ProjectID: "proj_alpha"})
+	if err != nil {
+		t.Fatalf("ListAssignments: %v", err)
+	}
+	if len(assignments) != 1 || assignments[0].DriverKind != AssignmentDriverHecateTask {
+		t.Fatalf("assignments = %+v, want legacy assignment backfilled to hecate_task", assignments)
 	}
 }
 
