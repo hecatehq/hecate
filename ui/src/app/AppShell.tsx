@@ -315,6 +315,7 @@ function AuthenticatedShell({
       chat.actions.setModel(request.model);
     }
     void chatActions.createChatSession({
+      agentID: "hecate",
       projectID: request.projectID,
       provider: request.provider,
       model: request.model,

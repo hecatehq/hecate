@@ -7,6 +7,65 @@ import {
   createRuntimeConsoleFixture,
 } from "../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../test/runtime-console-render";
+import {
+  getProjectAssignments,
+  getProjectCollaborationArtifacts,
+  getProjectWorkItem,
+  getProjectWorkItems,
+  getProjectWorkRoles,
+} from "../lib/api";
+import type { ProjectAssignmentRecord, ProjectWorkItemRecord } from "../types/project";
+
+vi.mock("../lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/api")>();
+  const emptyWorkItem = {
+    id: "",
+    project_id: "",
+    title: "",
+    status: "backlog",
+    priority: "normal",
+    created_at: "",
+    updated_at: "",
+  };
+  return {
+    ...actual,
+    getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
+    getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
+    getProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: emptyWorkItem })),
+    getProjectAssignments: vi.fn(async () => ({ object: "project_assignments", data: [] })),
+    getProjectCollaborationArtifacts: vi.fn(async () => ({
+      object: "project_collaboration_artifacts",
+      data: [],
+    })),
+  };
+});
+
+function resetProjectWorkMocks() {
+  const emptyWorkItem: ProjectWorkItemRecord = {
+    id: "",
+    project_id: "",
+    title: "",
+    status: "backlog",
+    priority: "normal",
+    created_at: "",
+    updated_at: "",
+  };
+  vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [] });
+  vi.mocked(getProjectWorkItems).mockResolvedValue({ object: "project_work_items", data: [] });
+  vi.mocked(getProjectWorkItem).mockResolvedValue({
+    object: "project_work_item",
+    data: emptyWorkItem,
+  });
+  vi.mocked(getProjectAssignments).mockResolvedValue({ object: "project_assignments", data: [] });
+  vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
+    object: "project_collaboration_artifacts",
+    data: [],
+  });
+}
+
+beforeEach(() => {
+  resetProjectWorkMocks();
+});
 
 // Workspace lineup is fixed. Numeric keyboard workspace switching was
 // removed so text inputs, screen readers, and browser shortcuts own the
@@ -426,6 +485,104 @@ describe("ConsoleShell navigation", () => {
       agentID: "hecate",
       projectID: "proj_1",
     });
+  });
+
+  it("forces Hecate chats when opening chat from a project assignment", async () => {
+    const createChatSession = vi.fn(async () => undefined);
+    const onSelectWorkspace = vi.fn();
+    const project = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [
+        {
+          id: "root_1",
+          path: "/Users/alice/dev/hecate",
+          kind: "workspace",
+          active: true,
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      default_root_id: "root_1",
+      default_provider: "ollama",
+      default_model: "qwen2.5-coder",
+      created_at: "2026-05-21T10:00:00Z",
+      updated_at: "2026-05-21T10:00:00Z",
+    };
+    const workItem: ProjectWorkItemRecord = {
+      id: "work_1",
+      project_id: project.id,
+      title: "Build cockpit UI",
+      brief: "Open a model chat from this assignment.",
+      status: "ready",
+      priority: "high",
+      owner_role_id: "software_developer",
+      created_at: "2026-06-02T10:00:00Z",
+      updated_at: "2026-06-02T11:00:00Z",
+    };
+    const assignment: ProjectAssignmentRecord = {
+      id: "asgn_1",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      role_id: "software_developer",
+      driver_kind: "hecate_task",
+      status: "queued",
+      created_at: "2026-06-02T10:00:00Z",
+      updated_at: "2026-06-02T11:00:00Z",
+      execution: {
+        status: "queued",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+      },
+    };
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [
+        {
+          id: "software_developer",
+          project_id: project.id,
+          name: "Software developer",
+          built_in: true,
+        },
+      ],
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [assignment] }],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: workItem,
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [assignment],
+    });
+    const state = createRuntimeConsoleFixture({
+      chatTarget: "external_agent",
+      defaultChatTarget: "external_agent",
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="projects" onSelectWorkspace={onSelectWorkspace} />,
+        {
+          state,
+          actions: { ...createRuntimeConsoleActions(), createChatSession },
+        },
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+
+    expect(createChatSession).toHaveBeenCalledWith({
+      agentID: "hecate",
+      projectID: project.id,
+      provider: "ollama",
+      model: "qwen2.5-coder",
+    });
+    expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
   });
 
   it("moves the active chat when selecting a different project", () => {
