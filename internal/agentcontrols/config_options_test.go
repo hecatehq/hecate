@@ -33,7 +33,7 @@ func TestFromACPOptions_NormalizesSelectAndBoolean(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("len = %d, want 2", len(got))
 	}
-	if got[0].ID != "model" || got[0].Category != "model" || got[0].CurrentValue != "fast" || len(got[0].Options) != 2 {
+	if got[0].ID != "model" || got[0].Category != "model" || got[0].Source != ConfigOptionSourceACPModel || got[0].CurrentValue != "fast" || len(got[0].Options) != 2 {
 		t.Fatalf("select option = %#v", got[0])
 	}
 	if got[0].Options[1].Description != description {
@@ -88,44 +88,6 @@ func TestFromACPOptions_PreservesUnknownVariants(t *testing.T) {
 	}
 	if got[0].Type != ConfigOptionTypeUnknown || got[0].ID != "unknown_1" || got[0].Name == "" {
 		t.Fatalf("unknown option = %#v", got[0])
-	}
-}
-
-func TestFromACPModelState_NormalizesModelPicker(t *testing.T) {
-	description := "larger context"
-	got, ok := FromACPModelState(&acp.SessionModelState{
-		CurrentModelId: acp.ModelId("smart"),
-		AvailableModels: []acp.ModelInfo{
-			{ModelId: acp.ModelId("fast"), Name: "Fast"},
-			{ModelId: acp.ModelId("smart"), Name: "Smart", Description: &description},
-		},
-	})
-	if !ok {
-		t.Fatal("FromACPModelState ok = false, want true")
-	}
-	if got.ID != "model" || got.Category != "model" || got.Source != ConfigOptionSourceACPModel {
-		t.Fatalf("model option identity = %#v", got)
-	}
-	if got.CurrentValue != "smart" {
-		t.Fatalf("current value = %q, want smart", got.CurrentValue)
-	}
-	if len(got.Options) != 2 || got.Options[1].Description != "larger context" {
-		t.Fatalf("model options = %#v, want ACP models with descriptions", got.Options)
-	}
-}
-
-func TestFromACPModelState_PreservesCurrentModelWhenMissingFromList(t *testing.T) {
-	got, ok := FromACPModelState(&acp.SessionModelState{
-		CurrentModelId: acp.ModelId("custom"),
-		AvailableModels: []acp.ModelInfo{
-			{ModelId: acp.ModelId("fast"), Name: "Fast"},
-		},
-	})
-	if !ok {
-		t.Fatal("FromACPModelState ok = false, want true")
-	}
-	if len(got.Options) != 2 || got.Options[0].Value != "custom" {
-		t.Fatalf("model options = %#v, want current model preserved first", got.Options)
 	}
 }
 
