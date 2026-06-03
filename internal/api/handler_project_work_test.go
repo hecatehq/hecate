@@ -410,6 +410,35 @@ func TestProjectWorkAPI_StartAssignmentRepeatedReturnsCurrentAssignment(t *testi
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentLinklessActiveStatusReturnsConflict(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval} {
+		status := status
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			handler, server := newProjectWorkTestServer()
+			seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+				Workspace: t.TempDir(),
+				Driver:    projectwork.AssignmentDriverHecateTask,
+				Status:    status,
+			})
+
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("start status = %d body=%s, want 409", rec.Code, rec.Body.String())
+			}
+			tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+			if err != nil {
+				t.Fatalf("ListTasks: %v", err)
+			}
+			if len(tasks) != 0 {
+				t.Fatalf("tasks = %+v, want none created", tasks)
+			}
+		})
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentConcurrentRequestsCreateOneTask(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()

@@ -717,7 +717,9 @@ func projectWorkAssignmentHasActiveExecution(ctx context.Context, store taskRunL
 		}
 	}
 	switch strings.TrimSpace(assignment.Status) {
-	case projectwork.AssignmentStatusQueued, projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval:
+	case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval:
+		return true, nil
+	case projectwork.AssignmentStatusQueued:
 		return strings.TrimSpace(assignment.TaskID) != "" || strings.TrimSpace(assignment.RunID) != "", nil
 	default:
 		return false, nil
