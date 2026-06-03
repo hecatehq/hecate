@@ -1053,10 +1053,14 @@ test("agent chat previews failed tool stdout and stderr in Advanced details", as
   await page.getByText(/1 (failed )?tool/).click();
   await page.getByText("Advanced").first().click();
 
-  await expect(page.getByText(/Preview the related run output/)).toBeVisible();
+  await expect(page.getByText(/Preview the related run output/)).toHaveCount(0);
+  await page.getByText(/Output and artifacts/).click();
+  await expect(page.getByText("git-stdout.txt")).toBeVisible();
+  await page.getByText("Output", { exact: true }).first().click();
   await expect(page.getByText("On branch feature/chat-message-queue")).toBeVisible();
+  await expect(page.getByText("git-stderr.txt")).toBeVisible();
+  await page.getByText("Output", { exact: true }).nth(1).click();
   await expect(page.getByText("fatal: not a git repository")).toBeVisible();
-  await expect(page.getByText("Open task output")).toBeVisible();
   await expect(page.getByText("No output preview was captured for this snapshot.")).toHaveCount(0);
 });
 

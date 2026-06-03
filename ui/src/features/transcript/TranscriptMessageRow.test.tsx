@@ -699,6 +699,46 @@ describe("TranscriptMessageRow", () => {
     expect(output.textContent).not.toContain(String.fromCharCode(27));
   });
 
+  it("preserves surrounding whitespace in copied raw command output", async () => {
+    const user = userEvent.setup();
+    const originalClipboard = navigator.clipboard;
+    const activities: ChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_shell",
+        status: "completed",
+        kind: "execute",
+        detail: "execute · output: wrapped",
+        artifact_preview: `\n  ${String.fromCharCode(27)}[32mraw line${String.fromCharCode(27)}[0m  \n`,
+      },
+    ];
+
+    try {
+      render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+      await user.click(screen.getByText("Output"));
+      await user.click(screen.getByRole("button", { name: "Show raw Tool output" }));
+
+      const output = screen.getByText(/raw line/);
+      expect(output.textContent).toContain("\n  raw line");
+      expect(output.textContent).not.toContain(String.fromCharCode(27));
+
+      const writeText = vi.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+
+      await user.click(screen.getByRole("button", { name: "Copy Tool output" }));
+      expect(writeText).toHaveBeenCalledWith("\n  raw line  \n");
+    } finally {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: originalClipboard,
+      });
+    }
+  });
+
   it("renders arrow-separated read-context output with real line breaks", async () => {
     const user = userEvent.setup();
     const activities: ChatActivityRecord[] = [
