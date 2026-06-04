@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 
 import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
@@ -10,7 +10,7 @@ import { formatAbsoluteTime } from "../../lib/format";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatSessionRecord } from "../../types/chat";
-import type { ProjectRecord } from "../../types/project";
+import { ProjectScopePanel } from "../projects/ProjectScopePanel";
 import { BrandAvatar, ConfirmModal, Icon, Icons } from "../shared/ui";
 
 import { NewChatAgentButton, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
@@ -42,18 +42,6 @@ type Props = {
   onCreateChat: (agentID: ChatAgentOptionID, projectID: string) => void;
 };
 
-const sidebarSectionActionStyle: CSSProperties = {
-  alignItems: "center",
-  display: "inline-flex",
-  height: 24,
-  justifyContent: "center",
-  lineHeight: 1,
-  minHeight: 24,
-  minWidth: 24,
-  padding: 0,
-  width: 24,
-};
-
 export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Props) {
   const chat = useChat();
   const providersAndModels = useProvidersAndModels();
@@ -75,11 +63,6 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const [renameValue, setRenameValue] = useState("");
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
   const [deleteChatID, setDeleteChatID] = useState<string | null>(null);
-  const [projectsExpanded, setProjectsExpanded] = useState(false);
-  const [renamingProjectID, setRenamingProjectID] = useState<string | null>(null);
-  const [projectRenameValue, setProjectRenameValue] = useState("");
-  const [hoveredProjectID, setHoveredProjectID] = useState<string | null>(null);
-  const [deleteProjectID, setDeleteProjectID] = useState<string | null>(null);
 
   const sessions: SidebarSession[] = (chatSessions ?? []).map((s) => ({
     id: s.id,
@@ -105,8 +88,6 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
       : (projects.state.projects.find((project) => project.id === projects.activeProjectID) ??
         null);
   const pendingDeleteChat = sessions.find((session) => session.id === deleteChatID) ?? null;
-  const pendingDeleteProject =
-    projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
   const selectedProjectWorkspace = projectDefaultWorkspace(activeProject);
   const workspaceForNewChat = projects.activeProjectID
     ? selectedProjectWorkspace
@@ -123,26 +104,12 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
     return chatAgentOptionStatus(agentID, adapter, health);
   }
 
-  function startProjectRename(project: ProjectRecord) {
-    setRenamingProjectID(project.id);
-    setProjectRenameValue(project.name);
-  }
-
-  function commitProjectRename(project: ProjectRecord) {
-    const nextName = projectRenameValue.trim();
-    setRenamingProjectID(null);
-    if (nextName && nextName !== project.name) {
-      void projects.actions.renameProject(project.id, nextName);
-    }
-  }
-
   function selectProjectScope(projectID: string) {
     const scopedSessions = filterSidebarSessionsByProject(sessions, projectID);
     const project =
       projectID === ""
         ? null
         : (projects.state.projects.find((item) => item.id === projectID) ?? null);
-    void projects.actions.selectProject(projectID);
     chat.actions.setAgentWorkspace(projectID ? projectDefaultWorkspace(project) : "");
     chat.actions.setAgentWorkspaceBranch("");
     if (activeSessionID && scopedSessions.some((session) => session.id === activeSessionID)) {
@@ -164,76 +131,29 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
           background: "var(--bg1)",
         }}
       >
-        <div style={{ padding: "8px 8px 6px", borderBottom: "1px solid var(--border)" }}>
-          <SidebarSectionHeader
-            actionLabel="Add project"
-            expanded={projectsExpanded}
-            label="Projects"
-            onAction={() => {
-              void projects.actions.createProjectFromFolder();
-            }}
-            onToggle={() => setProjectsExpanded((value) => !value)}
-          />
-          {projectsExpanded ? (
+        <ProjectScopePanel
+          noProjectDetail="Chats and tasks stay ungrouped."
+          emptyHint="Add a folder when you want a project context."
+          deleteMessage={(project) => (
             <>
-              <ProjectRow
-                active={projects.activeProjectID === ""}
-                detail="Chats and tasks stay ungrouped."
-                label="No project"
-                onSelect={() => {
-                  selectProjectScope("");
-                }}
-              />
-              {projects.state.projects.map((project) => (
-                <ProjectRow
-                  key={project.id}
-                  active={projects.activeProjectID === project.id}
-                  actionsVisible={hoveredProjectID === project.id}
-                  detail={projectDetail(project)}
-                  editable
-                  label={project.name}
-                  onSelect={() => {
-                    selectProjectScope(project.id);
-                  }}
-                  onDelete={() => {
-                    setDeleteProjectID(project.id);
-                  }}
-                  onInteractionChange={(active) => {
-                    setHoveredProjectID(active ? project.id : null);
-                  }}
-                  onRenameCancel={() => setRenamingProjectID(null)}
-                  onRenameChange={setProjectRenameValue}
-                  onRenameCommit={() => commitProjectRename(project)}
-                  onRenameStart={() => startProjectRename(project)}
-                  renameValue={projectRenameValue}
-                  renaming={renamingProjectID === project.id}
-                />
-              ))}
+              Delete <strong>{project.name}</strong>? This also deletes chats in this project.
+              Unprojected chats and other projects stay untouched.
             </>
-          ) : (
-            <ProjectRow
-              active
-              detail={
-                activeProject ? projectDetail(activeProject) : "Chats and tasks stay ungrouped."
-              }
-              label={activeProject?.name ?? "No project"}
-              onSelect={() => setProjectsExpanded(true)}
-            />
           )}
-          {projectsExpanded && projects.state.projects.length === 0 && (
-            <div style={{ padding: "6px 8px 3px", color: "var(--t3)", fontSize: 11 }}>
-              Add a folder when you want a project context.
-            </div>
-          )}
-          {projects.state.error && (
-            <div
-              role="status"
-              style={{ padding: "6px 8px 0", color: "var(--yellow)", fontSize: 11 }}
-            >
-              {projects.state.error}
-            </div>
-          )}
-        </div>
+          onProjectSelected={(projectID) => selectProjectScope(projectID)}
+          onProjectDeleted={(projectID) => {
+            const activeDeletedSession = chat.state.chatSessions.some(
+              (session) =>
+                session.id === chat.state.activeChatSessionID && session.project_id === projectID,
+            );
+            chat.actions.setChatSessions((current) =>
+              current.filter((session) => session.project_id !== projectID),
+            );
+            if (activeDeletedSession || chat.state.activeChatSession?.project_id === projectID) {
+              chatActions.startNewChat();
+            }
+          }}
+        />
         <div
           style={{
             padding: "8px 12px 4px",
@@ -540,270 +460,8 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
           }}
         />
       )}
-      {pendingDeleteProject && (
-        <ConfirmModal
-          danger
-          title="Delete project"
-          confirmLabel="Delete project"
-          message={
-            <>
-              Delete <strong>{pendingDeleteProject.name}</strong>? This also deletes chats in this
-              project. Unprojected chats and other projects stay untouched.
-            </>
-          }
-          onClose={() => setDeleteProjectID(null)}
-          onConfirm={async () => {
-            const projectID = pendingDeleteProject.id;
-            const activeDeletedSession = chat.state.chatSessions.some(
-              (session) =>
-                session.id === chat.state.activeChatSessionID && session.project_id === projectID,
-            );
-            const deleted = await projects.actions.deleteProject(projectID);
-            if (!deleted) return;
-            chat.actions.setChatSessions((current) =>
-              current.filter((session) => session.project_id !== projectID),
-            );
-            if (activeDeletedSession || chat.state.activeChatSession?.project_id === projectID) {
-              chatActions.startNewChat();
-            }
-            setDeleteProjectID(null);
-          }}
-        />
-      )}
     </>
   );
-}
-
-function SidebarSectionHeader({
-  actionLabel,
-  expanded,
-  label,
-  onAction,
-  onToggle,
-}: {
-  actionLabel: string;
-  expanded: boolean;
-  label: string;
-  onAction: () => void;
-  onToggle: () => void;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "0 4px 4px",
-        gap: 8,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          color: "var(--t3)",
-        }}
-      >
-        {label}
-      </div>
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          aria-label={actionLabel}
-          title={actionLabel}
-          onClick={onAction}
-          style={sidebarSectionActionStyle}
-        >
-          <Icon d={Icons.plus} size={14} />
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          aria-expanded={expanded}
-          aria-label={expanded ? "Collapse projects" : "Expand projects"}
-          title={expanded ? "Collapse projects" : "Expand projects"}
-          onClick={onToggle}
-          style={sidebarSectionActionStyle}
-        >
-          <Icon d={expanded ? Icons.chevD : Icons.chevR} size={12} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ProjectRow({
-  actionsVisible = false,
-  active,
-  detail,
-  editable = false,
-  label,
-  onDelete,
-  onInteractionChange,
-  onRenameCancel,
-  onRenameChange,
-  onRenameCommit,
-  onRenameStart,
-  onSelect,
-  renameValue = "",
-  renaming = false,
-}: {
-  actionsVisible?: boolean;
-  active: boolean;
-  detail: string;
-  editable?: boolean;
-  label: string;
-  onDelete?: () => void;
-  onInteractionChange?: (active: boolean) => void;
-  onRenameCancel?: () => void;
-  onRenameChange?: (value: string) => void;
-  onRenameCommit?: () => void;
-  onRenameStart?: () => void;
-  onSelect: () => void;
-  renameValue?: string;
-  renaming?: boolean;
-}) {
-  return (
-    <div
-      onBlur={(e) => {
-        const nextFocus = e.relatedTarget;
-        if (!(nextFocus instanceof Node) || !e.currentTarget.contains(nextFocus)) {
-          onInteractionChange?.(false);
-        }
-      }}
-      onFocus={() => onInteractionChange?.(true)}
-      onMouseEnter={() => onInteractionChange?.(true)}
-      onMouseLeave={() => onInteractionChange?.(false)}
-      style={{
-        width: "100%",
-        borderRadius: "var(--radius-md)",
-        background: active ? "var(--teal-bg)" : "transparent",
-        color: active ? "var(--t0)" : "var(--t2)",
-        display: "flex",
-        gap: 8,
-        alignItems: "center",
-        padding: "3px 6px",
-        minHeight: 28,
-      }}
-      title={detail ? `${label} — ${detail}` : label}
-    >
-      {renaming ? (
-        <input
-          autoFocus
-          aria-label={`Rename project ${label}`}
-          onBlur={onRenameCommit}
-          onChange={(e) => onRenameChange?.(e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onRenameCommit?.();
-            if (e.key === "Escape") onRenameCancel?.();
-          }}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            height: 22,
-            boxSizing: "border-box",
-            fontSize: 12,
-            background: "var(--bg3)",
-            border: "1px solid var(--teal)",
-            borderRadius: "var(--radius-sm)",
-            color: "var(--t0)",
-            padding: "0 5px",
-            outline: "none",
-            fontFamily: "var(--font-sans)",
-            lineHeight: "20px",
-          }}
-          value={renameValue}
-        />
-      ) : (
-        <button
-          type="button"
-          aria-current={active ? "true" : undefined}
-          aria-label={`Project ${label}`}
-          onClick={onSelect}
-          style={{
-            minWidth: 0,
-            flex: 1,
-            border: 0,
-            background: "transparent",
-            color: "inherit",
-            cursor: "pointer",
-            display: "grid",
-            gridTemplateColumns: "18px minmax(0, 1fr)",
-            gap: 8,
-            alignItems: "center",
-            padding: "2px 0",
-            textAlign: "left",
-            font: "inherit",
-          }}
-        >
-          <Icon d={Icons.folder} size={15} strokeWidth={1.7} />
-          <span
-            style={{
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              fontSize: 12,
-              lineHeight: "16px",
-              fontWeight: active ? 550 : 450,
-            }}
-          >
-            {label}
-          </span>
-        </button>
-      )}
-      {editable && !renaming && (
-        <span
-          style={{
-            display: "flex",
-            gap: 1,
-            opacity: actionsVisible ? 1 : 0,
-            transition: "opacity 0.15s",
-            flexShrink: 0,
-          }}
-        >
-          <button
-            aria-label={`Rename project ${label}`}
-            aria-hidden={!actionsVisible}
-            className="btn btn-ghost btn-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRenameStart?.();
-            }}
-            style={{ padding: "1px 3px" }}
-            tabIndex={actionsVisible ? 0 : -1}
-            title="Rename"
-            type="button"
-          >
-            <Icon d={Icons.edit} size={10} />
-          </button>
-          <button
-            aria-label={`Delete project ${label}`}
-            aria-hidden={!actionsVisible}
-            className="btn btn-ghost btn-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete?.();
-            }}
-            style={{ padding: "1px 3px", color: "var(--red)" }}
-            tabIndex={actionsVisible ? 0 : -1}
-            title="Delete"
-            type="button"
-          >
-            <Icon d={Icons.trash} size={10} />
-          </button>
-        </span>
-      )}
-    </div>
-  );
-}
-
-function projectDetail(project: ProjectRecord): string {
-  return projectDefaultWorkspace(project) || project.description || "";
 }
 
 function filterSidebarSessionsByProject(

@@ -112,6 +112,10 @@ export function TranscriptActivityTimeline({
   const details = orderVisibleActivities(compactDetailActivities(activities, Boolean(diffStat)));
   const primaryRaw = visible;
   const primary = summarizeTimelineActivities(primaryRaw);
+  const detailsAreOnlyOutputArtifacts =
+    primary.length === 0 &&
+    details.length > 0 &&
+    details.every((activity) => activity.type === "artifact" && isOutputArtifactActivity(activity));
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(isActiveAgentActivity);
   const [open, setOpen] = useState(hasRunning || defaultOpen);
@@ -180,7 +184,16 @@ export function TranscriptActivityTimeline({
             renderAdvancedActivity={renderAdvancedActivity}
           />
         ))}
-        {details.length > 0 && (
+        {detailsAreOnlyOutputArtifacts &&
+          details.map((activity, index) => (
+            <TimelineActivityLine
+              key={activity.id || `detail-${activity.type}-${activity.created_at ?? index}`}
+              activity={activity}
+              inlineOutputArtifactPreview
+              renderAdvancedActivity={renderAdvancedActivity}
+            />
+          ))}
+        {details.length > 0 && !detailsAreOnlyOutputArtifacts && (
           <details
             style={{
               borderTop: primary.length > 0 ? "1px solid var(--border)" : "none",
@@ -216,15 +229,22 @@ export function TranscriptActivityTimeline({
 
 function TimelineActivityLine({
   activity,
+  inlineOutputArtifactPreview = false,
   renderAdvancedActivity,
 }: {
   activity: ChatActivityRecord;
+  inlineOutputArtifactPreview?: boolean;
   renderAdvancedActivity?: (activity: ChatActivityRecord) => ReactNode;
 }) {
   const children = activity.children ?? [];
   const advancedContent = renderAdvancedActivity?.(activity);
   const shouldAutoOpenAdvanced =
     activity.type !== "tool_group" && activityEffectiveStatus(activity) === "failed";
+  const shouldInlineAdvanced =
+    inlineOutputArtifactPreview &&
+    activity.type === "artifact" &&
+    isOutputArtifactActivity(activity) &&
+    children.length === 0;
   const line =
     activity.type === "plan" ? (
       <PlanActivityLine activity={activity} />
@@ -237,6 +257,14 @@ function TimelineActivityLine({
     if (shouldAutoOpenAdvanced) setAdvancedOpen(true);
   }, [shouldAutoOpenAdvanced]);
   if (!hasAdvanced) return line;
+  if (shouldInlineAdvanced) {
+    return (
+      <div style={{ display: "grid", gap: 5, minWidth: 0 }}>
+        {line}
+        {advancedContent && <div style={{ marginLeft: 15 }}>{advancedContent}</div>}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "grid", gap: 4, minWidth: 0 }}>

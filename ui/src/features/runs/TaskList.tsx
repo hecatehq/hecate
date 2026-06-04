@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { TaskRecord } from "../../types/task";
 import { Badge, Icon, Icons } from "../shared/ui";
@@ -13,7 +13,7 @@ type Props = {
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onNewTask: () => void;
-  onRefresh: () => void;
+  projectScope?: ReactNode;
 };
 
 function taskKindLabel(task: TaskRecord): string {
@@ -35,7 +35,7 @@ export function TaskList({
   onSelect,
   onDelete,
   onNewTask,
-  onRefresh,
+  projectScope,
 }: Props) {
   const [actionTaskID, setActionTaskID] = useState("");
 
@@ -54,34 +54,30 @@ export function TaskList({
         background: "var(--bg1)",
       }}
     >
-      <div
-        style={{
-          height: "var(--topbar-h)",
-          padding: "0 8px",
-          borderBottom: "1px solid var(--border)",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          flexShrink: 0,
-        }}
-      >
-        <button
-          className="btn btn-primary btn-sm"
-          style={{ flex: 1, justifyContent: "center", minHeight: 30 }}
-          onClick={onNewTask}
-          type="button"
+      {projectScope}
+      <div style={{ borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+        <div
+          style={{
+            padding: "8px 12px 4px",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "var(--t3)",
+          }}
         >
-          New task
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={onRefresh}
-          title="Refresh"
-          aria-label="Refresh tasks"
-          type="button"
-        >
-          <Icon d={Icons.refresh} size={13} />
-        </button>
+          Tasks{tasks.length > 0 ? ` · ${tasks.length}` : ""}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 8px 8px" }}>
+          <button
+            className="btn btn-primary btn-sm"
+            style={{ flex: 1, justifyContent: "center", minHeight: 30 }}
+            onClick={onNewTask}
+            type="button"
+          >
+            New task
+          </button>
+        </div>
       </div>
       <div style={{ flex: 1, overflowY: "auto" }}>
         {loading && tasks.length === 0 && (

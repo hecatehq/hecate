@@ -2,8 +2,8 @@
 
 Hecate keeps shipping `v0.1.0-alpha.N` releases while beta work lands
 incrementally. Beta is not the next release by default; it is the quality gate
-after core runtime contracts, view-by-view UX polish, and cleanup/refactoring
-are complete.
+after core runtime contracts, project orchestration, view-by-view UX polish,
+and cleanup/refactoring are complete.
 
 `master` stays the protected integration and release branch. Beta-scope work
 happens on feature branches forked from current `master`, lands through PRs, and
@@ -17,6 +17,7 @@ is released in alpha tags only after it merges.
 | Provider/model readiness | Provider readiness is the canonical setup contract: credential state, discovery state, discovered model count, selected-model validity, route blocking reason, tool capability, last probe/result, and repair action.                                                 |
 | Routing explainability   | Route reports persist and expose selected route, skipped candidates, skip reasons, failover path, cache path, policy decision, provider latency/error state, and final error.                                                                                         |
 | Task runtime hardening   | Queue, lease, running, awaiting approval, approved/rejected, cancelled, failed, completed, retry, resume, stale worker recovery, and shutdown behavior are audited and tested.                                                                                        |
+| Project orchestration    | Projects provide the operator cockpit for project-scoped agent teams: roles, work items, assignments, native task launches, structured handoffs, activity health, memory candidates, and context readiness stay linked without replacing Tasks or Chats.              |
 | Storage and retention    | Memory/SQLite parity is verified for providers, chats, tasks, approvals, grants, retention pruning, startup reconcile, and schema migration safety.                                                                                                                   |
 | OpenTelemetry            | Route choice/skip, provider failure, cache hit/miss, task lifecycle, approval lifecycle, chat segment lifecycle, external adapter behavior, retention, rate limits, and readiness probes emit useful spans, metrics, or logs.                                         |
 | Endpoint stability       | Hecate-native endpoints stay under `/hecate/v1/*`; provider-compatible endpoints stay under `/v1/*`; tests and docs checks prevent old `/admin/*` and accidental Hecate-native `/v1/*` routes from returning.                                                         |
@@ -27,6 +28,7 @@ is released in alpha tags only after it merges.
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Chats         | Hecate Chat, External Agent, and direct model chat have clear segment boundaries, queued prompts, busy state, task/trace/run links, approvals, markdown/code rendering, run activity grouping, changed-files review, model/tool capability state, stale-model repair, and refresh/resume accuracy. |
 | Connections   | Provider setup is self-explanatory: readiness cards, discovered/running/installed states, credential repair, duplicate endpoint handling, route blocking reasons, model discovery failures, local provider discovery, and optimistic edits/deletes where safe.                                     |
+| Projects      | Projects is the orchestration cockpit: project identity, defaults, roles, work items, assignments, handoffs, activity inbox, needs-attention triage, timeline/decision log, and memory/context inspection are compact, responsive, and connected to launch/review actions.                         |
 | Tasks         | Task Detail is the canonical deep-debug view: clear run timeline, grouped advanced activity, approval cards, stdout/stderr/artifacts, retry/resume/cancel explanations, patch review, and chat-origin links.                                                                                       |
 | Observability | The UI answers "what happened?" without JSON archaeology: request history, route report, trace viewer, skipped providers, policy denial, usage, cache path, provider failure, and final outcome.                                                                                                   |
 | Settings      | Settings stays focused on retention and OTel/export knobs when needed. Provider readiness and External Agent setup/grants live in Connections.                                                                                                                                                     |
@@ -43,6 +45,9 @@ is released in alpha tags only after it merges.
 - **Task/chat boundaries**: Tasks remain canonical for full run history and
   patch review; Hecate Chat projections stay accurate and linked. One chat can
   have many historical segments but only one active task-backed loop.
+- **Project orchestration boundaries**: Projects coordinate roles,
+  assignments, handoffs, memory, and activity health; they do not become a
+  separate execution engine or hosted project-management system.
 - **Docs structure**: operator docs, runtime references, contributor docs,
   design records, and `docs-ai` guidance describe the same product and same
   caveats.
@@ -81,14 +86,17 @@ true:
 - Routing decisions are inspectable in traces/UI.
 - Hecate Chat supports mixed direct/model and tools-on task-backed segments
   reliably.
+- Projects can coordinate project-scoped work through roles, assignments,
+  handoffs, activity health, timeline/decision signals, and memory/context
+  inspection without hiding the canonical Task/Chat execution records.
 - External Agent sessions have approvals, readiness, diagnostics, guardrails,
   diff inspect/revert, and trusted-subprocess warnings.
 - Task runtime lifecycle is tested for approval, cancel, retry/resume, stale
   worker recovery, and shutdown.
 - Memory/SQLite persistence and retention boundaries are tested and documented.
 - OTel covers the important runtime decisions.
-- UI polish passes are complete for Chats, Connections, Tasks, Observability, and
-  Settings.
+- UI polish passes are complete for Chats, Connections, Projects, Tasks,
+  Observability, and Settings.
 - README, known limitations, runtime API docs, release docs, screenshots, and
   `docs-ai` guidance all describe the same product.
 - Latest alpha release passes `just verify`, release workflow, links workflow,

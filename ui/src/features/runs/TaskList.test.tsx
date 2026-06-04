@@ -28,7 +28,6 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof TaskList>> = {
     onSelect: vi.fn(),
     onDelete: vi.fn(),
     onNewTask: vi.fn(),
-    onRefresh: vi.fn(),
     ...propOverrides,
   };
   const user = userEvent.setup();
@@ -179,14 +178,6 @@ describe("TaskList", () => {
     const button = screen.getByRole("button", { name: "New task" });
     await user.click(button);
     expect(onNewTask).toHaveBeenCalled();
-  });
-
-  it("refresh button calls onRefresh", async () => {
-    const onRefresh = vi.fn();
-    const { render, user } = setup({ onRefresh });
-    render();
-    await user.click(screen.getByRole("button", { name: /refresh tasks/i }));
-    expect(onRefresh).toHaveBeenCalled();
   });
 
   it("does not show a run placeholder when the task has no latest_run_id", () => {

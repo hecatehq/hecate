@@ -118,6 +118,7 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof TaskDetail>> =
     onCancelRun: vi.fn(),
     onRetryRun: vi.fn(),
     onResumeRun: vi.fn(),
+    onRefresh: vi.fn(),
     onRetryFromTurn: vi.fn(),
     onResumeRaisingCeiling: vi.fn(),
     onApplyPatch: vi.fn(),
@@ -129,6 +130,16 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof TaskDetail>> =
 }
 
 describe("TaskDetail run picker", () => {
+  it("keeps refresh in the selected task header", async () => {
+    const onRefresh = vi.fn();
+    const { render, user } = setup({ onRefresh });
+    render();
+
+    await user.click(screen.getByRole("button", { name: "Refresh task" }));
+
+    expect(onRefresh).toHaveBeenCalled();
+  });
+
   it("shows the current run number", () => {
     const { render } = setup();
     render();
@@ -408,8 +419,8 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("fatal: not a git repository")).toBeTruthy();
   });
 
-  it("previews output artifacts from the shared activity details", async () => {
-    const { render, user } = setup({
+  it("previews output artifacts inline in runtime activity", () => {
+    const { render } = setup({
       activity: [
         makeActivity({
           id: "activity-stdout",
@@ -427,12 +438,11 @@ describe("TaskDetail runtime activity and patches", () => {
     });
     render();
 
-    await user.click(screen.getByText("Artifacts · 1 item"));
-    await user.click(screen.getByText("Output"));
-
     expect(screen.getByText("git-stdout.txt")).toBeTruthy();
     expect(screen.getByText(/On branch feature\/runtime/)).toBeTruthy();
     expect(screen.getByText(/nothing to commit/)).toBeTruthy();
+    expect(screen.queryByText("Artifacts · 1 item")).toBeNull();
+    expect(screen.queryByText("Output and artifacts · 1 item")).toBeNull();
   });
 
   it("keeps empty stderr discoverable for failed tool diagnostics", () => {

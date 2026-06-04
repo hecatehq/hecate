@@ -55,6 +55,9 @@ describe("TasksView empty state", () => {
     });
 
     expect(screen.queryByText("Select a task to inspect.")).toBeNull();
+    expect(screen.getByText("Projects")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add project" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Project No project" })).toBeTruthy();
     // One button lives in the task sidebar; the second is the
     // main-pane start affordance for an empty task workspace.
     expect(screen.getAllByRole("button", { name: "New task" }).length).toBeGreaterThanOrEqual(2);
@@ -98,6 +101,7 @@ describe("TasksView empty state", () => {
     await waitFor(() => {
       expect(screen.getByText("Start a task")).toBeTruthy();
     });
+    expect(screen.getByRole("button", { name: "Project Hecate" })).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: "New task" })[0]);
 
     await waitFor(() => {

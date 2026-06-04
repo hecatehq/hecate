@@ -1,11 +1,13 @@
 # Projects
 
-> **Status:** accepted; foundation in progress.
+> **Status:** accepted; orchestration foundation in progress.
 
 Current source of truth: [Agent runtime](../../runtime/agent-runtime.md), [Chat sessions](../../runtime/chat-sessions.md), [Architecture](../../contributor/architecture.md)
 
-Next action: attach tasks to the project store before adding project-scoped
-memory, agent profiles, and richer context assembly.
+Next action: make Projects the operational cockpit for project-scoped agent
+teams: finish task/run project linkage, wire agent profiles into defaults and
+memory-source selection, and harden the activity/health/timeline UI with
+end-to-end project journeys.
 
 ## Summary
 
@@ -51,6 +53,9 @@ Raw paths are not stable enough to be the durable identity:
 - Add stable project identity independent of raw filesystem paths.
 - Make project memory a first-class durable scope.
 - Give Hecate Chat, Tasks, and External Agents a shared grouping model.
+- Coordinate project-scoped agent teams through roles, assignments, handoffs,
+  project activity, and reviewed memory/context without replacing Tasks or
+  Chats as execution surfaces.
 - Keep workspace modes explicit: in-place, isolated clone, temporary workspace, editor-owned workspace.
 - Let project defaults feed new chats and tasks: provider, model, agent profile, tools, command-output compaction, approval posture, workspace mode, and system prompt where applicable.
 - Let context assembly use project-level sources: project instructions, selected docs, saved memories, and trusted files.
@@ -134,7 +139,7 @@ POST   /hecate/v1/projects
 GET    /hecate/v1/projects/{project_id}
 PATCH  /hecate/v1/projects/{project_id}
 DELETE /hecate/v1/projects/{project_id}
-GET    /hecate/v1/projects/{project_id}/activity    # future
+GET    /hecate/v1/projects/{project_id}/activity
 ```
 
 Chats and tasks should expose project linkage directly:
@@ -222,7 +227,7 @@ inject file contents.
 
 ## UI Shape
 
-Initial UI should stay lightweight:
+The Projects UI should stay lightweight but operational:
 
 - Show project identity in the Chats sidebar and Chat settings when present.
 - Group chat history by selected project, while keeping **No project** valid.
@@ -231,12 +236,17 @@ Initial UI should stay lightweight:
 - Let future “Use model” and “Use external agent” flows attach to the same project when started from the same workspace.
 - Let agent profiles expose whether project memory is injected, visible only,
   or disabled for that agent.
-- Show a compact project health band in the project cockpit that derives
-  operational status from existing activity, assignment execution rollups,
-  handoff summaries, project defaults, memory entries, memory candidates, and
-  context-source metadata.
+- Show compact activity and needs-attention surfaces in the project cockpit that
+  derive operational status from existing activity, assignment execution
+  rollups, handoff summaries, project defaults, memory entries, memory
+  candidates, and context-source metadata.
 - Keep the project details surface focused on defaults, memory, trusted docs,
   activity, and assignment drill-downs.
+- Use the cockpit as the first screen for project orchestration: activity inbox,
+  health, timeline/decision log, memory/context inspection, and selected
+  assignment detail should answer "what needs attention, what happened, and
+  what can I launch or review next" without a separate project-management
+  surface.
 
 Avoid turning Projects into a heavy project-management product. This is a runtime identity and context boundary first.
 
@@ -268,14 +278,14 @@ assignment, but the handoff record itself does not dispatch another agent.
 The Projects UI also derives a compact project timeline / decision log from
 activity rows, structured handoffs, collaboration artifacts, project memory
 entries, and memory candidates; explicit decisions are only shown when existing
-`decision_note` artifacts are present. The Projects cockpit derives a compact
-health band from that activity response plus
-project defaults, handoff summaries, memory candidates, and memory/context
-metadata so operators can scan active work, waiting approvals, blocked or stale
-assignments, recent completions, pending handoffs, memory review work, missing
-provider/model defaults, and context readiness without adding a separate
-persisted health model. Broader task `project_id` scoping, profiles, and presets
-are not linked to `project_id` yet.
+`decision_note` artifacts are present. The Projects cockpit derives Activity
+Inbox and Needs Attention surfaces from that activity response plus project
+defaults, handoff summaries, memory candidates, and memory/context metadata so
+operators can separate live assignment buckets from actionable setup gaps,
+waiting approvals, blocked or stale assignments, pending handoffs, memory review
+work, missing provider/model defaults, and context readiness without adding a
+separate persisted health model. Broader task `project_id` scoping, profiles,
+and presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 
@@ -298,17 +308,39 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 ## Implementation Plan
 
 1. Add project store and API basics. Done for memory + SQLite CRUD.
-2. Add UI list/create/rename/delete basics.
+2. Add UI list/create/rename/delete basics. Done.
 3. Add `project_id` to chat sessions.
-4. Add `project_id` to tasks.
+4. Add `project_id` to tasks. Partial: project work assignments can start
+   linked native tasks via origin metadata; broader task/run scoping remains
+   future.
 5. Thread project identity into chat context packets. Done for itemized project context-source metadata.
-6. Add project-scoped memory.
+6. Add project-scoped memory. Done.
 7. Add agent-profile memory-source selection.
 8. Move relevant defaults from ad hoc chat/task state into project defaults.
+   Partial: provider, model, workspace mode, and agent profile defaults are
+   project defaults; profile-driven activation remains future.
 9. Add project activity aggregation. Done for the read-only V1 inbox.
 10. Add structured handoffs. Done for memory + SQLite store parity, API, UI
     actions, and activity projection signals.
-11. Update docs, screenshots, and e2e coverage.
+11. Update docs, screenshots, and e2e coverage. Partial: docs and focused UI/API
+    tests are updated; broad end-to-end project journeys remain beta-hardening
+    work.
+
+## Near-Term Plan
+
+The next project-orchestration slices are:
+
+1. Finish durable task/run project linkage so native tasks, project assignments,
+   and chat-origin work all expose the same `project_id` boundary.
+2. Wire agent profiles into project defaults and memory-source selection so a
+   role/assignment can launch with a known provider/model/profile/context
+   posture instead of only a provider/model/workspace default.
+3. Add focused end-to-end project journeys: create project, set defaults, add
+   memory, create work item, create/start assignment, resolve approval or
+   failure, inspect activity health, and follow a handoff.
+4. Keep tightening the Projects cockpit UI around operator decisions: no hidden
+   recommendations, no separate health persistence, and no automatic memory
+   promotion.
 
 ## Test Plan
 

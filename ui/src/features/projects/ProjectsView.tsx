@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { useProjects } from "../../app/state/projects";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
@@ -38,6 +45,19 @@ import {
 import { formatAbsoluteTime } from "../../lib/format";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import { providerDisplayName } from "../../lib/provider-utils";
+import { ChatRightPanel } from "../chats/ChatRightPanel";
+import { useFloatingMenu } from "../shared/useFloatingMenu";
+import {
+  activitySignalLabel,
+  buildProjectHealthSummary,
+  buildProjectTimelineItems,
+  projectActivityWorkItemToWorkItem,
+  timelineBadgeClass,
+  timelineKindLabel,
+  type ProjectActivityBucketKey,
+  type ProjectHealthAttention,
+  type ProjectTimelineItem,
+} from "./projectInsights";
 import type {
   ProjectAssignmentRecord,
   ProjectActivityData,
@@ -74,6 +94,9 @@ type Props = {
   onOpenTask?: (taskID: string, runID?: string) => void;
 };
 
+const RIGHT_PANEL_WIDTH_KEY = "hecate.chat.rightPanelWidth";
+const DEFAULT_RIGHT_PANEL_WIDTH = 380;
+
 export type ProjectAssignmentChatLaunchRequest = {
   projectID: string;
   provider?: string;
@@ -89,89 +112,9 @@ type WorkItemSummary = {
   completedCount: number;
 };
 
-type ProjectActivityBucketKey = "active" | "blocked" | "completed" | "recent";
-
 type LoadState = "idle" | "loading" | "loaded" | "error";
 
-type ProjectTimelineItemKind =
-  | "assignment"
-  | "artifact"
-  | "decision"
-  | "handoff"
-  | "memory"
-  | "memory_candidate";
-
-type ProjectTimelineItem = {
-  id: string;
-  kind: ProjectTimelineItemKind;
-  title: string;
-  summary: string;
-  actor: string;
-  source: string;
-  timestamp: string;
-  status?: string;
-  workItemID?: string;
-  taskID?: string;
-  runID?: string;
-  chatID?: string;
-  memoryEntry?: ProjectMemoryRecord;
-  assignment?: ProjectAssignmentRecord;
-};
-
-type ProjectHealthMetric = {
-  key:
-    | ProjectActivityBucketKey
-    | "approvals"
-    | "failed"
-    | "stale"
-    | "defaults"
-    | "context"
-    | "handoffs"
-    | "memory_candidates";
-  label: string;
-  value: number | string;
-  status: string;
-  detail: string;
-  bucket?: ProjectActivityBucketKey;
-};
-
-type ProjectHealthAttention = {
-  id: string;
-  title: string;
-  detail: string;
-  status: string;
-  bucket?: ProjectActivityBucketKey;
-  workItemID?: string;
-  taskID?: string;
-  runID?: string;
-  candidateID?: string;
-  actionLabel?: string;
-};
-
-type ProjectHealthSummary = {
-  activeNow: number;
-  waitingApproval: number;
-  blockedOrFailed: number;
-  recentCompleted: number;
-  staleAssignments: number;
-  missingDefaults: boolean;
-  enabledMemory: number;
-  savedMemory: number;
-  enabledContextSources: number;
-  memoryCandidates: {
-    pending: number;
-    promoted: number;
-    rejected: number;
-  };
-  handoffs: {
-    total: number;
-    pending: number;
-    accepted: number;
-    superseded: number;
-    dismissed: number;
-  };
-  attention: ProjectHealthAttention[];
-};
+type ProjectWorkspaceTab = "work" | "timeline" | "memory";
 
 type NewWorkItemForm = {
   title: string;
@@ -281,6 +224,9 @@ const MEMORY_SOURCE_KINDS = [
   "runtime_state",
 ];
 
+const PROJECTS_PANEL_COLLAPSED_STORAGE_KEY = "hecate.projects.panel_collapsed";
+const PROJECTS_LIST_PANEL_WIDTH = 220;
+
 const shellStyle: CSSProperties = {
   display: "flex",
   height: "100%",
@@ -289,7 +235,7 @@ const shellStyle: CSSProperties = {
 };
 
 const sidePanelStyle: CSSProperties = {
-  width: 280,
+  width: PROJECTS_LIST_PANEL_WIDTH,
   borderRight: "1px solid var(--border)",
   background: "var(--bg1)",
   display: "flex",
@@ -298,13 +244,15 @@ const sidePanelStyle: CSSProperties = {
   flexShrink: 0,
 };
 
-const workListStyle: CSSProperties = {
-  width: 320,
+const collapsedSidePanelStyle: CSSProperties = {
+  width: PROJECTS_LIST_PANEL_WIDTH,
   borderRight: "1px solid var(--border)",
-  background: "var(--bg0)",
+  background: "var(--bg1)",
   display: "flex",
   flexDirection: "column",
+  gap: 8,
   minHeight: 0,
+  padding: 8,
   flexShrink: 0,
 };
 
@@ -314,6 +262,8 @@ const detailStyle: CSSProperties = {
   minHeight: 0,
   overflow: "auto",
   background: "var(--bg0)",
+  display: "grid",
+  alignContent: "start",
 };
 
 export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
@@ -321,11 +271,15 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const providersAndModels = useProvidersAndModels();
   const settings = useSettings();
   const [selectedProjectID, setSelectedProjectID] = useState(projects.activeProjectID);
+  const [projectsPanelCollapsed, setProjectsPanelCollapsed] = useState(() =>
+    readProjectsPanelCollapsedPreference(),
+  );
   const [renamingProjectID, setRenamingProjectID] = useState("");
   const [renameValue, setRenameValue] = useState("");
   const [deleteProjectID, setDeleteProjectID] = useState("");
   const [deletePending, setDeletePending] = useState(false);
-  const [defaultsModalOpen, setDefaultsModalOpen] = useState(false);
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => readStoredRightPanelWidth());
   const [defaultsPending, setDefaultsPending] = useState(false);
   const [defaultsError, setDefaultsError] = useState("");
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
@@ -351,6 +305,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [workItemSummaries, setWorkItemSummaries] = useState<Record<string, WorkItemSummary>>({});
   const [activity, setActivity] = useState<ProjectActivityData | null>(null);
   const [activityBucket, setActivityBucket] = useState<ProjectActivityBucketKey>("blocked");
+  const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>("work");
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
   const [selectedWorkItem, setSelectedWorkItem] = useState<ProjectWorkItemRecord | null>(null);
@@ -367,6 +322,11 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [detailError, setDetailError] = useState("");
   const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   const [startingAssignmentID, setStartingAssignmentID] = useState("");
+
+  function updateRightPanelWidth(width: number) {
+    setRightPanelWidth(width);
+    rememberRightPanelWidth(width);
+  }
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryRecord[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<ProjectMemoryCandidateRecord[]>([]);
   const [memoryLoadState, setMemoryLoadState] = useState<LoadState>("idle");
@@ -387,6 +347,17 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const pendingDeleteProject =
     projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
   const roleByID = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
+  const projectHealth = useMemo(
+    () =>
+      buildProjectHealthSummary(
+        selectedProject,
+        activity,
+        workItems,
+        memoryEntries,
+        memoryCandidates,
+      ),
+    [activity, memoryCandidates, memoryEntries, selectedProject, workItems],
+  );
   const providerPresets = providersAndModels.state.providerPresets;
   const providerOptions = useMemo<ProviderOption[]>(() => {
     const configuredProviders = settings.state.config?.providers ?? [];
@@ -571,6 +542,10 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   }, [loadProjectMemory, selectedProjectID]);
 
   useEffect(() => {
+    writeProjectsPanelCollapsedPreference(projectsPanelCollapsed);
+  }, [projectsPanelCollapsed]);
+
+  useEffect(() => {
     if (!selectedProjectID || !selectedWorkItemID) return;
     void loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
   }, [loadWorkItemDetail, selectedProjectID, selectedWorkItemID]);
@@ -623,7 +598,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     try {
       const payload = await updateProject(selectedProject.id, patch);
       projects.actions.setProjects((current) => upsertProject(current, payload.data));
-      setDefaultsModalOpen(false);
+      setSettingsPanelOpen(false);
     } catch (error) {
       setDefaultsError(errorMessage(error, "Failed to update project defaults."));
     } finally {
@@ -1069,232 +1044,342 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }
 
+  const hasWorkItemDetail =
+    Boolean(selectedWorkItemID) || detailLoadState === "loading" || Boolean(detailError);
+
   return (
     <div style={shellStyle}>
-      <section style={sidePanelStyle} aria-label="Projects">
-        <div style={topbarStyle}>
-          <div>
-            <div style={sectionLabelStyle}>Projects</div>
-            <div style={subtleTextStyle}>{projects.state.projects.length} records</div>
-          </div>
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            onClick={() => void projects.actions.createProjectFromFolder()}
-          >
-            <Icon d={Icons.folder} size={13} />
-            Add
-          </button>
-        </div>
-        {projects.state.error && (
-          <div style={{ padding: 10 }}>
-            <InlineError message={projects.state.error} />
-          </div>
+      <section
+        style={projectsPanelCollapsed ? collapsedSidePanelStyle : sidePanelStyle}
+        aria-label={projectsPanelCollapsed ? "Collapsed projects panel" : "Projects"}
+      >
+        {projectsPanelCollapsed ? (
+          <>
+            <div style={collapsedPanelHeaderStyle}>
+              <div>
+                <div style={sectionLabelStyle}>Projects</div>
+                <div style={subtleTextStyle}>{projects.state.projects.length} records</div>
+              </div>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                aria-label="Expand projects panel"
+                title="Expand projects panel"
+                style={collapsedPanelButtonStyle}
+                onClick={() => setProjectsPanelCollapsed(false)}
+              >
+                <Icon d={Icons.chevR} size={14} />
+              </button>
+            </div>
+            {selectedProject && (
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                aria-label={`Active project ${selectedProject.name}`}
+                title={selectedProject.name}
+                style={collapsedProjectMarkerStyle}
+                onClick={() => setProjectsPanelCollapsed(false)}
+              >
+                <span style={collapsedProjectNameStyle}>{selectedProject.name}</span>
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <div style={topbarStyle}>
+              <div>
+                <div style={sectionLabelStyle}>Projects</div>
+                <div style={subtleTextStyle}>{projects.state.projects.length} records</div>
+              </div>
+              <div style={topbarActionsStyle}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  aria-label="Collapse projects panel"
+                  title="Collapse projects panel"
+                  onClick={() => setProjectsPanelCollapsed(true)}
+                >
+                  <Icon d={Icons.chevL} size={13} />
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  type="button"
+                  onClick={() => void projects.actions.createProjectFromFolder()}
+                >
+                  <Icon d={Icons.folder} size={13} />
+                  Add
+                </button>
+              </div>
+            </div>
+            {projects.state.error && (
+              <div style={{ padding: 10 }}>
+                <InlineError message={projects.state.error} />
+              </div>
+            )}
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {projects.state.loading && projects.state.projects.length === 0 && (
+                <EmptyBlock
+                  title="Loading projects…"
+                  detail="Checking the local project catalog."
+                />
+              )}
+              {!projects.state.loading && projects.state.projects.length === 0 && (
+                <EmptyBlock
+                  title="No projects yet"
+                  detail="Add a workspace folder to create the first durable project record."
+                />
+              )}
+              {projects.state.projects.map((project) => (
+                <ProjectIndexRow
+                  key={project.id}
+                  active={project.id === selectedProjectID}
+                  project={project}
+                  renaming={renamingProjectID === project.id}
+                  renameValue={renameValue}
+                  onRenameChange={setRenameValue}
+                  onRenameCancel={() => setRenamingProjectID("")}
+                  onRenameCommit={() => void commitRename(project)}
+                  onRenameStart={() => startRename(project)}
+                  onDelete={() => setDeleteProjectID(project.id)}
+                  onOpen={() => openProject(project.id)}
+                />
+              ))}
+            </div>
+          </>
         )}
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-          {projects.state.loading && projects.state.projects.length === 0 && (
-            <EmptyBlock title="Loading projects…" detail="Checking the local project catalog." />
-          )}
-          {!projects.state.loading && projects.state.projects.length === 0 && (
-            <EmptyBlock
-              title="No projects yet"
-              detail="Add a workspace folder to create the first durable project record."
-            />
-          )}
-          {projects.state.projects.map((project) => (
-            <ProjectIndexRow
-              key={project.id}
-              active={project.id === selectedProjectID}
-              project={project}
-              renaming={renamingProjectID === project.id}
-              renameValue={renameValue}
-              onRenameChange={setRenameValue}
-              onRenameCancel={() => setRenamingProjectID("")}
-              onRenameCommit={() => void commitRename(project)}
-              onRenameStart={() => startRename(project)}
-              onDelete={() => setDeleteProjectID(project.id)}
-              onOpen={() => openProject(project.id)}
-            />
-          ))}
-        </div>
       </section>
 
-      <section style={workListStyle} aria-label="Project work items">
+      <section style={detailStyle} aria-label="Selected work item">
         <ProjectHeader
+          attentionItems={projectHealth.attention}
+          memoryCandidates={memoryCandidates}
           project={selectedProject}
+          onAttentionBucket={(bucket) => {
+            setActivityBucket(bucket);
+          }}
+          onAttentionDefaults={() => {
+            setDefaultsError("");
+            setSettingsPanelOpen(true);
+          }}
+          onAttentionMemory={() => setWorkspaceTab("memory")}
+          onAttentionReviewCandidate={setPromotingCandidate}
+          onAttentionTask={onOpenTask}
+          onAttentionWorkItem={(workItemID) => {
+            setWorkspaceTab("work");
+            setSelectedWorkItemID(workItemID);
+          }}
           onRefresh={refreshSelectedWorkItem}
+          settingsOpen={settingsPanelOpen}
           onEditDefaults={() => {
             setDefaultsError("");
-            setDefaultsModalOpen(true);
+            setSettingsPanelOpen((open) => !open);
           }}
           onManageRoles={() => {
             setRolesError("");
             setRolesModalOpen(true);
           }}
-          onNewWorkItem={() => {
-            setNewWorkError("");
-            setNewWorkModalOpen(true);
-          }}
         />
-        {workError && (
-          <div style={{ padding: 10 }}>
-            <InlineError message={workError} />
-          </div>
-        )}
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-          {!selectedProject && (
-            <EmptyBlock
-              title="Select a project"
-              detail="Project work appears after opening a project."
+        <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
+          <ProjectActivityInbox
+            activity={activity}
+            bucket={activityBucket}
+            loading={workLoadState === "loading"}
+            onBucketChange={setActivityBucket}
+            onOpenChat={onOpenChat}
+            onOpenTask={onOpenTask}
+            onSelectWorkItem={setSelectedWorkItemID}
+            onStartAssignment={(assignment, workItemID) =>
+              void handleStartAssignment(assignment, workItemID)
+            }
+            project={selectedProject}
+            startingAssignmentID={startingAssignmentID}
+            workItems={workItems}
+          />
+
+          <section style={domainSectionStyle} aria-label="Project workspace">
+            <ProjectWorkspaceTabs
+              activeTab={workspaceTab}
+              memoryCandidateCount={memoryCandidates.length}
+              memoryEntryCount={memoryEntries.length}
+              onChange={setWorkspaceTab}
+              workItemCount={workItems.length}
             />
-          )}
-          {selectedProject && workLoadState === "loading" && workItems.length === 0 && (
-            <EmptyBlock
-              title="Loading work…"
-              detail="Reading roles, work items, and assignments."
-            />
-          )}
-          {selectedProject &&
-            workLoadState !== "loading" &&
-            workItems.length === 0 &&
-            !workError && (
-              <EmptyBlock
-                title="No work items"
-                detail="Project work coordination is empty for this project."
+            {workspaceTab === "work" && (
+              <section style={projectTabPanelStyle} aria-label="Work coordination">
+                <SectionHeader
+                  title="Work Coordination"
+                  detail={
+                    workLoadState === "loading"
+                      ? "Loading project work..."
+                      : `${workItems.length} work item${workItems.length === 1 ? "" : "s"}`
+                  }
+                  actions={
+                    <button
+                      className="btn btn-primary btn-sm"
+                      type="button"
+                      onClick={() => {
+                        setNewWorkError("");
+                        setNewWorkModalOpen(true);
+                      }}
+                      disabled={!selectedProject}
+                    >
+                      <Icon d={Icons.plus} size={13} />
+                      Work
+                    </button>
+                  }
+                />
+                {workError && <InlineError message={workError} />}
+                <div className="project-work-coordination-grid" style={workCoordinationGridStyle}>
+                  <div style={workItemsPanelStyle}>
+                    <div style={sectionLabelStyle}>Work Items</div>
+                    <div style={{ ...subtleTextStyle, marginTop: 3, marginBottom: 10 }}>
+                      Select the project outcome to coordinate.
+                    </div>
+                    {!selectedProject && (
+                      <EmptyBlock
+                        title="Select a project"
+                        detail="Project work appears after opening a project."
+                      />
+                    )}
+                    {selectedProject && workLoadState === "loading" && workItems.length === 0 && (
+                      <EmptyBlock
+                        title="Loading work..."
+                        detail="Reading roles, work items, and assignments."
+                      />
+                    )}
+                    {selectedProject && workLoadState !== "loading" && workItems.length === 0 && (
+                      <EmptyBlock
+                        title="No work items"
+                        detail="Create work to coordinate assignments, handoffs, and artifacts."
+                      />
+                    )}
+                    {workItems.length > 0 && (
+                      <div style={workItemListStyle}>
+                        {workItems.map((item) => (
+                          <WorkItemRow
+                            key={item.id}
+                            active={item.id === selectedWorkItemID}
+                            item={item}
+                            summary={workItemSummaries[item.id]}
+                            role={item.owner_role_id ? roleByID.get(item.owner_role_id) : undefined}
+                            onSelect={() => setSelectedWorkItemID(item.id)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={workDetailColumnStyle}>
+                    {hasWorkItemDetail ? (
+                      <WorkItemDetail
+                        assignments={assignments}
+                        artifacts={artifacts}
+                        handoffActionID={handoffActionID}
+                        handoffError={handoffError}
+                        handoffs={handoffs}
+                        assignmentErrors={assignmentErrors}
+                        detailError={detailError}
+                        loading={detailLoadState === "loading"}
+                        onOpenTask={onOpenTask}
+                        onRefresh={refreshSelectedWorkItem}
+                        onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
+                        onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
+                        onDeleteWorkItem={(item) => setDeleteWorkItem(item)}
+                        onEditHandoff={(handoff) => {
+                          setHandoffError("");
+                          setEditingHandoff(handoff);
+                        }}
+                        onEditAssignment={(assignment) => {
+                          setEditAssignmentError("");
+                          setEditingAssignment(assignment);
+                        }}
+                        onEditWorkItem={(item) => {
+                          setEditWorkError("");
+                          setEditingWorkItem(item);
+                        }}
+                        onDeleteAssignment={(assignment) => setDeleteAssignment(assignment)}
+                        onOpenChat={onOpenChat}
+                        onStartAssignment={handleStartAssignment}
+                        onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
+                        onSetHandoffStatus={(handoff, status) =>
+                          void handleSetHandoffStatus(handoff, status)
+                        }
+                        project={selectedProject}
+                        roleByID={roleByID}
+                        startingAssignmentID={startingAssignmentID}
+                        workItem={selectedWorkItem}
+                        onAddAssignment={() => {
+                          setNewAssignmentError("");
+                          setNewAssignmentModalOpen(true);
+                        }}
+                        onAddHandoff={() => {
+                          setHandoffError("");
+                          setEditingHandoff("new");
+                        }}
+                      />
+                    ) : (
+                      <EmptyBlock
+                        title={
+                          workLoadState === "loading" ? "Loading detail..." : "No work selected"
+                        }
+                        detail="Create or select a work item to manage assignments and collaboration artifacts."
+                      />
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+            {workspaceTab === "timeline" && (
+              <ProjectTimelinePanel
+                activity={activity}
+                artifacts={artifacts}
+                handoffs={handoffs}
+                memoryCandidates={memoryCandidates}
+                memoryEntries={memoryEntries}
+                onEditMemory={setEditingMemory}
+                onOpenChat={onOpenChat}
+                onOpenTask={onOpenTask}
+                onSelectWorkItem={setSelectedWorkItemID}
+                project={selectedProject}
+                roles={roles}
+                workItems={workItems}
               />
             )}
-          {workItems.map((item) => (
-            <WorkItemRow
-              key={item.id}
-              active={item.id === selectedWorkItemID}
-              item={item}
-              summary={workItemSummaries[item.id]}
-              role={item.owner_role_id ? roleByID.get(item.owner_role_id) : undefined}
-              onSelect={() => setSelectedWorkItemID(item.id)}
-            />
-          ))}
+            {workspaceTab === "memory" && (
+              <ProjectMemoryPanel
+                candidates={memoryCandidates}
+                entries={memoryEntries}
+                error={memoryError}
+                loading={memoryLoadState === "loading"}
+                onPromoteCandidate={setPromotingCandidate}
+                onRejectCandidate={handleRejectCandidate}
+                onDelete={setDeleteMemory}
+                onEdit={setEditingMemory}
+                onNew={() => setEditingMemory("new")}
+                onRefresh={() => void loadProjectMemory(selectedProjectID)}
+                project={selectedProject}
+                rejectingCandidateID={rejectingCandidateID}
+              />
+            )}
+          </section>
         </div>
       </section>
 
-      <section style={detailStyle} aria-label="Selected work item">
-        <ProjectHealthPanel
-          activity={activity}
-          bucket={activityBucket}
-          loading={workLoadState === "loading"}
-          memoryCandidates={memoryCandidates}
-          memoryEntries={memoryEntries}
-          onBucketChange={setActivityBucket}
-          onEditDefaults={() => {
-            setDefaultsError("");
-            setDefaultsModalOpen(true);
-          }}
-          onNewMemory={() => setEditingMemory("new")}
-          onOpenTask={onOpenTask}
-          onReviewCandidate={setPromotingCandidate}
-          onSelectWorkItem={setSelectedWorkItemID}
-          project={selectedProject}
-          workItems={workItems}
-        />
-        <ProjectTimelinePanel
-          activity={activity}
-          artifacts={artifacts}
-          handoffs={handoffs}
-          memoryCandidates={memoryCandidates}
-          memoryEntries={memoryEntries}
-          onEditMemory={setEditingMemory}
-          onOpenChat={onOpenChat}
-          onOpenTask={onOpenTask}
-          onSelectWorkItem={setSelectedWorkItemID}
-          project={selectedProject}
-          roles={roles}
-          workItems={workItems}
-        />
-        <ProjectActivityInbox
-          activity={activity}
-          bucket={activityBucket}
-          loading={workLoadState === "loading"}
-          onOpenChat={onOpenChat}
-          onOpenTask={onOpenTask}
-          onBucketChange={setActivityBucket}
-          onSelectWorkItem={setSelectedWorkItemID}
-          onStartAssignment={(assignment, workItemID) =>
-            void handleStartAssignment(assignment, workItemID)
-          }
-          project={selectedProject}
-          startingAssignmentID={startingAssignmentID}
-          workItems={workItems}
-        />
-        <ProjectMemoryPanel
-          candidates={memoryCandidates}
-          entries={memoryEntries}
-          error={memoryError}
-          loading={memoryLoadState === "loading"}
-          onPromoteCandidate={setPromotingCandidate}
-          onRejectCandidate={handleRejectCandidate}
-          onDelete={setDeleteMemory}
-          onEdit={setEditingMemory}
-          onNew={() => setEditingMemory("new")}
-          onRefresh={() => void loadProjectMemory(selectedProjectID)}
-          project={selectedProject}
-          rejectingCandidateID={rejectingCandidateID}
-        />
-        <WorkItemDetail
-          assignments={assignments}
-          artifacts={artifacts}
-          handoffActionID={handoffActionID}
-          handoffError={handoffError}
-          handoffs={handoffs}
-          assignmentErrors={assignmentErrors}
-          detailError={detailError}
-          loading={detailLoadState === "loading"}
-          onOpenTask={onOpenTask}
-          onRefresh={refreshSelectedWorkItem}
-          onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
-          onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
-          onDeleteWorkItem={(item) => setDeleteWorkItem(item)}
-          onEditHandoff={(handoff) => {
-            setHandoffError("");
-            setEditingHandoff(handoff);
-          }}
-          onEditAssignment={(assignment) => {
-            setEditAssignmentError("");
-            setEditingAssignment(assignment);
-          }}
-          onEditWorkItem={(item) => {
-            setEditWorkError("");
-            setEditingWorkItem(item);
-          }}
-          onDeleteAssignment={(assignment) => setDeleteAssignment(assignment)}
-          onOpenChat={onOpenChat}
-          onStartAssignment={handleStartAssignment}
-          onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
-          onSetHandoffStatus={(handoff, status) => void handleSetHandoffStatus(handoff, status)}
-          project={selectedProject}
-          roleByID={roleByID}
-          startingAssignmentID={startingAssignmentID}
-          workItem={selectedWorkItem}
-          onAddAssignment={() => {
-            setNewAssignmentError("");
-            setNewAssignmentModalOpen(true);
-          }}
-          onAddHandoff={() => {
-            setHandoffError("");
-            setEditingHandoff("new");
-          }}
-        />
-      </section>
-
-      {selectedProject && defaultsModalOpen && (
-        <ProjectDefaultsModal
-          error={defaultsError}
-          models={providersAndModels.state.models}
-          pending={defaultsPending}
-          providerOptions={providerOptions}
-          providerPresets={providerPresets}
-          project={selectedProject}
-          onClose={() => setDefaultsModalOpen(false)}
-          onSave={handleSaveProjectDefaults}
-        />
+      {selectedProject && settingsPanelOpen && (
+        <ChatRightPanel
+          ariaLabel="Project settings panel"
+          width={rightPanelWidth}
+          onWidthChange={updateRightPanelWidth}
+        >
+          <ProjectSettingsPanel
+            error={defaultsError}
+            models={providersAndModels.state.models}
+            pending={defaultsPending}
+            providerOptions={providerOptions}
+            providerPresets={providerPresets}
+            project={selectedProject}
+            onSave={handleSaveProjectDefaults}
+          />
+        </ChatRightPanel>
       )}
 
       {selectedProject && rolesModalOpen && (
@@ -1486,11 +1571,7 @@ function ProjectIndexRow({
   onDelete: () => void;
   onOpen: () => void;
 }) {
-  const workspace = projectDefaultWorkspace(project) || "No default root";
-  const defaults =
-    project.default_provider || project.default_model
-      ? [project.default_provider, project.default_model].filter(Boolean).join(" / ")
-      : "No default model";
+  const updated = formatProjectRowRelativeTime(project.updated_at);
   return (
     <div
       role="button"
@@ -1566,16 +1647,8 @@ function ProjectIndexRow({
               <Icon d={Icons.trash} size={12} />
             </button>
           </div>
-          <div style={pathTextStyle} title={workspace}>
-            {workspace}
-          </div>
           <div style={metaLineStyle}>
-            <span>{defaults}</span>
-            <span>
-              {project.last_opened_at
-                ? `Opened ${formatAbsoluteTime(project.last_opened_at)}`
-                : `Updated ${formatAbsoluteTime(project.updated_at)}`}
-            </span>
+            <span title={formatAbsoluteTime(project.updated_at)}>Updated {updated}</span>
           </div>
         </>
       )}
@@ -1583,67 +1656,197 @@ function ProjectIndexRow({
   );
 }
 
+function formatProjectRowRelativeTime(iso: string): string {
+  const parsed = Date.parse(iso);
+  if (!Number.isFinite(parsed)) return iso || "—";
+  const diff = Math.max(0, Date.now() - parsed);
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 14) return `${day}d ago`;
+  const week = Math.floor(day / 7);
+  if (week < 8) return `${week}w ago`;
+  const month = Math.floor(day / 30);
+  if (day < 365) return `${Math.max(1, month)}mo ago`;
+  return `${Math.max(1, Math.floor(day / 365))}y ago`;
+}
+
 function ProjectHeader({
+  attentionItems,
+  memoryCandidates,
   project,
+  settingsOpen,
+  onAttentionBucket,
+  onAttentionDefaults,
+  onAttentionMemory,
+  onAttentionReviewCandidate,
+  onAttentionTask,
+  onAttentionWorkItem,
   onEditDefaults,
   onManageRoles,
-  onNewWorkItem,
   onRefresh,
 }: {
+  attentionItems: ProjectHealthAttention[];
+  memoryCandidates: ProjectMemoryCandidateRecord[];
   project: ProjectRecord | null;
+  settingsOpen: boolean;
+  onAttentionBucket: (bucket: ProjectActivityBucketKey) => void;
+  onAttentionDefaults: () => void;
+  onAttentionMemory: () => void;
+  onAttentionReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
+  onAttentionTask?: (taskID: string, runID?: string) => void;
+  onAttentionWorkItem: (workItemID: string) => void;
   onEditDefaults: () => void;
   onManageRoles: () => void;
-  onNewWorkItem: () => void;
   onRefresh: () => void;
 }) {
+  const attentionMenu = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
+    portalSelector: null,
+  });
   const workspace = project ? projectDefaultWorkspace(project) : "";
+  const subline = project
+    ? `${workspace || "No default root"}${project.default_model ? ` · ${project.default_model}` : ""}`
+    : "";
+  const attentionCount = attentionItems.length;
+  const handleAttentionAction = (item: ProjectHealthAttention) => {
+    if (item.id.endsWith(":defaults")) {
+      onAttentionDefaults();
+    } else if (item.candidateID) {
+      const candidate = memoryCandidates.find((candidate) => candidate.id === item.candidateID);
+      if (candidate) onAttentionReviewCandidate(candidate);
+      else onAttentionMemory();
+    } else if (item.workItemID) {
+      onAttentionWorkItem(item.workItemID);
+    } else if (item.taskID) {
+      onAttentionTask?.(item.taskID, item.runID);
+    } else if (item.bucket) {
+      onAttentionBucket(item.bucket);
+    } else if (item.id.endsWith(":context")) {
+      onAttentionMemory();
+    }
+    attentionMenu.close();
+  };
   return (
-    <div style={{ ...topbarStyle, minHeight: 68 }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={sectionLabelStyle}>Cockpit</div>
-        <div style={{ ...titleStyle, fontSize: 14 }}>{project?.name ?? "No project selected"}</div>
-        {project && (
-          <div style={pathTextStyle} title={workspace || "No default root"}>
-            {workspace || "No default root"}{" "}
-            {project.default_model ? `· ${project.default_model}` : ""}
+    <div style={projectInlineHeaderStyle}>
+      <div style={projectHeaderAvatarStyle} title="Project">
+        <Icon d={Icons.folder} size={14} strokeWidth={1.7} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={projectHeaderTitleStyle}>{project?.name ?? "No project selected"}</div>
+        {subline && (
+          <div style={projectHeaderSublineStyle} title={subline}>
+            {subline}
           </div>
         )}
       </div>
-      <button
-        className="btn btn-ghost btn-sm"
-        type="button"
-        onClick={onEditDefaults}
-        disabled={!project}
-      >
-        Defaults
-      </button>
-      <button
-        className="btn btn-ghost btn-sm"
-        type="button"
-        onClick={onManageRoles}
-        disabled={!project}
-      >
-        Roles
-      </button>
-      <button
-        className="btn btn-primary btn-sm"
-        type="button"
-        onClick={onNewWorkItem}
-        disabled={!project}
-      >
-        <Icon d={Icons.plus} size={13} />
-        Work
-      </button>
-      <button
-        className="btn btn-ghost btn-sm"
-        type="button"
-        aria-label="Refresh project work"
-        title="Refresh"
-        onClick={onRefresh}
-        disabled={!project}
-      >
-        <Icon d={Icons.refresh} size={13} />
-      </button>
+      <div aria-label="Project header actions" style={projectHeaderActionsStyle}>
+        <div ref={attentionMenu.wrapRef} style={projectAttentionMenuStyle}>
+          <button
+            ref={attentionMenu.triggerRef}
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-expanded={attentionMenu.open}
+            aria-label={`Project attention${attentionCount > 0 ? `: ${attentionCount}` : ""}`}
+            title="Project attention"
+            onClick={attentionMenu.toggle}
+            disabled={!project}
+            style={{
+              ...projectHeaderActionButtonStyle,
+              color: attentionCount > 0 ? "var(--amber)" : "var(--t2)",
+            }}
+          >
+            <Icon d={Icons.warning} size={13} />
+            {attentionCount > 0 && <span style={projectAttentionCountStyle}>{attentionCount}</span>}
+          </button>
+          {attentionMenu.open && project && (
+            <div
+              ref={attentionMenu.menuRef}
+              role="menu"
+              aria-label="Project attention"
+              style={projectAttentionPopoverStyle}
+            >
+              <div style={projectAttentionPopoverHeaderStyle}>
+                <div style={sectionLabelStyle}>Needs Attention</div>
+                <span className="badge badge-muted">{attentionCount}</span>
+              </div>
+              {attentionItems.length === 0 ? (
+                <div style={subtleTextStyle}>No project attention items detected.</div>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {attentionItems.map((item) => (
+                    <ProjectHealthAttentionRow
+                      key={item.id}
+                      item={item}
+                      onActivate={() => handleAttentionAction(item)}
+                      onBucketChange={(bucket) => {
+                        onAttentionBucket(bucket);
+                        attentionMenu.close();
+                      }}
+                      onOpenTask={(taskID, runID) => {
+                        onAttentionTask?.(taskID, runID);
+                        attentionMenu.close();
+                      }}
+                      onReviewCandidate={(candidate) => {
+                        onAttentionReviewCandidate(candidate);
+                        attentionMenu.close();
+                      }}
+                      onSelectWorkItem={(workItemID) => {
+                        onAttentionWorkItem(workItemID);
+                        attentionMenu.close();
+                      }}
+                      reviewCandidate={memoryCandidates.find(
+                        (candidate) => candidate.id === item.candidateID,
+                      )}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-label="Roles"
+          title="Project roles"
+          onClick={onManageRoles}
+          disabled={!project}
+          style={projectHeaderActionButtonStyle}
+        >
+          <Icon d={Icons.user} size={13} />
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-expanded={settingsOpen}
+          aria-label="Project settings"
+          title="Project settings"
+          onClick={onEditDefaults}
+          disabled={!project}
+          style={{
+            ...projectHeaderActionButtonStyle,
+            background: settingsOpen ? "var(--teal-bg)" : "transparent",
+            color: settingsOpen ? "var(--teal)" : "var(--t2)",
+          }}
+        >
+          <Icon d={Icons.settings} size={13} />
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-label="Refresh project work"
+          title="Refresh"
+          onClick={onRefresh}
+          disabled={!project}
+          style={projectHeaderActionButtonStyle}
+        >
+          <Icon d={Icons.refresh} size={13} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -1701,178 +1904,68 @@ function WorkItemRow({
   );
 }
 
-function ProjectHealthPanel({
-  activity,
-  bucket,
-  loading,
-  memoryCandidates,
-  memoryEntries,
-  onBucketChange,
-  onEditDefaults,
-  onNewMemory,
-  onOpenTask,
-  onReviewCandidate,
-  onSelectWorkItem,
-  project,
-  workItems,
+function SectionHeader({
+  actions,
+  detail,
+  title,
 }: {
-  activity: ProjectActivityData | null;
-  bucket: ProjectActivityBucketKey;
-  loading: boolean;
-  memoryCandidates: ProjectMemoryCandidateRecord[];
-  memoryEntries: ProjectMemoryRecord[];
-  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
-  onEditDefaults: () => void;
-  onNewMemory: () => void;
-  onOpenTask?: (taskID: string, runID?: string) => void;
-  onReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
-  onSelectWorkItem: (workItemID: string) => void;
-  project: ProjectRecord | null;
-  workItems: ProjectWorkItemRecord[];
+  actions?: ReactNode;
+  detail?: string;
+  title: string;
 }) {
-  const health = useMemo(
-    () => buildProjectHealthSummary(project, activity, workItems, memoryEntries, memoryCandidates),
-    [activity, memoryCandidates, memoryEntries, project, workItems],
+  return (
+    <div style={domainHeaderStyle}>
+      <div style={{ minWidth: 0 }}>
+        <div style={sectionLabelStyle}>{title}</div>
+        {detail && <div style={{ ...subtleTextStyle, marginTop: 3 }}>{detail}</div>}
+      </div>
+      {actions && <div style={domainHeaderActionsStyle}>{actions}</div>}
+    </div>
   );
-  if (!project) return null;
+}
 
-  const metrics = projectHealthMetrics(health);
-  const contextDetail =
-    health.enabledMemory > 0 || health.enabledContextSources > 0
-      ? `${health.enabledMemory} memory / ${health.enabledContextSources} source`
-      : "No enabled memory or context sources";
-  const candidateDetail =
-    health.memoryCandidates.pending > 0
-      ? `${health.memoryCandidates.pending} pending review`
-      : `${health.memoryCandidates.promoted} promoted, ${health.memoryCandidates.rejected} rejected`;
+function ProjectWorkspaceTabs({
+  activeTab,
+  memoryCandidateCount,
+  memoryEntryCount,
+  onChange,
+  workItemCount,
+}: {
+  activeTab: ProjectWorkspaceTab;
+  memoryCandidateCount: number;
+  memoryEntryCount: number;
+  onChange: (tab: ProjectWorkspaceTab) => void;
+  workItemCount: number;
+}) {
+  const tabs: Array<{ id: ProjectWorkspaceTab; label: string; count: number }> = [
+    { id: "work", label: "Work Coordination", count: workItemCount },
+    { id: "timeline", label: "Timeline / Decision Log", count: 0 },
+    { id: "memory", label: "Memory / Context", count: memoryEntryCount + memoryCandidateCount },
+  ];
 
   return (
-    <section style={{ padding: "16px 16px 0" }} aria-label="Project health">
-      <div style={panelStyle}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 12,
-            marginBottom: 12,
-          }}
+    <div role="tablist" aria-label="Project workspace views" style={projectWorkspaceTabsStyle}>
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          className={activeTab === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+          type="button"
+          role="tab"
+          aria-selected={activeTab === tab.id}
+          onClick={() => onChange(tab.id)}
+          style={projectWorkspaceTabButtonStyle}
         >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={sectionLabelStyle}>Project Health</div>
-            <div style={{ ...titleStyle, fontSize: 14, marginTop: 3 }}>
-              What needs attention now
-            </div>
-            <div style={{ ...subtleTextStyle, marginTop: 4 }}>
-              {loading && !activity
-                ? "Loading project status…"
-                : `${health.activeNow} active, ${health.waitingApproval} waiting, ${health.blockedOrFailed} blocked or failed`}
-            </div>
-          </div>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onEditDefaults}>
-            <Icon d={Icons.settings} size={12} />
-            Edit defaults
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onNewMemory}>
-            <Icon d={Icons.plus} size={12} />
-            Add memory
-          </button>
-        </div>
-
-        <div style={healthMetricGridStyle}>
-          {metrics.map((metric) => (
-            <button
-              key={metric.key}
-              className="btn btn-ghost"
-              type="button"
-              aria-pressed={metric.bucket ? bucket === metric.bucket : undefined}
-              aria-label={
-                metric.bucket
-                  ? `Show ${metric.label.toLowerCase()} assignments`
-                  : `Project ${metric.label.toLowerCase()} status`
-              }
-              onClick={() => {
-                if (metric.bucket) onBucketChange(metric.bucket);
-                if (metric.key === "defaults") onEditDefaults();
-                if (metric.key === "context") onNewMemory();
-              }}
-              style={healthMetricStyle}
-            >
-              <Badge status={metric.status} label={String(metric.value)} />
-              <span style={{ ...titleStyle, whiteSpace: "normal" }}>{metric.label}</span>
-              <span style={subtleTextStyle}>{metric.detail}</span>
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12 }}>
-          <div style={healthColumnStyle}>
-            <div style={sectionLabelStyle}>Needs Attention</div>
-            {health.attention.length === 0 ? (
-              <div style={{ ...subtleTextStyle, marginTop: 8 }}>
-                No approvals, pending handoffs, memory reviews, failures, stale assignments, or
-                missing launch defaults detected.
-              </div>
-            ) : (
-              <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                {health.attention.map((item) => (
-                  <ProjectHealthAttentionRow
-                    key={item.id}
-                    item={item}
-                    onBucketChange={onBucketChange}
-                    onOpenTask={onOpenTask}
-                    onReviewCandidate={onReviewCandidate}
-                    onSelectWorkItem={onSelectWorkItem}
-                    reviewCandidate={memoryCandidates.find(
-                      (candidate) => candidate.id === item.candidateID,
-                    )}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-          <div style={healthColumnStyle}>
-            <div style={sectionLabelStyle}>Memory / Context</div>
-            <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-              <div style={healthContextLineStyle}>
-                <span style={titleStyle}>Project memory</span>
-                <span
-                  className={health.enabledMemory > 0 ? "badge badge-muted" : "badge badge-amber"}
-                >
-                  {health.enabledMemory} enabled
-                </span>
-              </div>
-              <div style={healthContextLineStyle}>
-                <span style={titleStyle}>Context sources</span>
-                <span
-                  className={
-                    health.enabledContextSources > 0 ? "badge badge-muted" : "badge badge-amber"
-                  }
-                >
-                  {health.enabledContextSources} enabled
-                </span>
-              </div>
-              <div style={healthContextLineStyle}>
-                <span style={titleStyle}>Memory candidates</span>
-                <span
-                  className={
-                    health.memoryCandidates.pending > 0 ? "badge badge-amber" : "badge badge-muted"
-                  }
-                >
-                  {health.memoryCandidates.pending} pending
-                </span>
-              </div>
-              <div style={subtleTextStyle}>{contextDetail}</div>
-              <div style={subtleTextStyle}>{candidateDetail}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+          {tab.label}
+          {tab.count > 0 && <span className="badge badge-muted">{tab.count}</span>}
+        </button>
+      ))}
+    </div>
   );
 }
 
 function ProjectHealthAttentionRow({
   item,
+  onActivate,
   onBucketChange,
   onOpenTask,
   onReviewCandidate,
@@ -1880,6 +1973,7 @@ function ProjectHealthAttentionRow({
   reviewCandidate,
 }: {
   item: ProjectHealthAttention;
+  onActivate: () => void;
   onBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
@@ -1887,35 +1981,59 @@ function ProjectHealthAttentionRow({
   reviewCandidate?: ProjectMemoryCandidateRecord;
 }) {
   return (
-    <div style={healthAttentionStyle}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+    <div
+      className="project-attention-item"
+      role="button"
+      tabIndex={0}
+      aria-label={`Open attention item ${item.title}`}
+      onClick={onActivate}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onActivate();
+      }}
+      style={healthAttentionStyle}
+    >
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, minWidth: 0 }}>
         <Badge status={item.status} label={activitySignalLabel(item.status)} />
         <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{item.title}</div>
+        <span aria-hidden="true" className="project-attention-item-chevron">
+          <Icon d={Icons.chevR} size={12} />
+        </span>
         {item.bucket && (
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
-            onClick={() => onBucketChange(item.bucket!)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onBucketChange(item.bucket!);
+            }}
           >
             {item.actionLabel ?? "Inbox"}
           </button>
         )}
         {item.workItemID && (
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
             aria-label="Open attention details"
-            onClick={() => onSelectWorkItem(item.workItemID!)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelectWorkItem(item.workItemID!);
+            }}
           >
             Details
           </button>
         )}
         {item.taskID && (
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
             aria-label="Open attention task"
-            onClick={() => onOpenTask?.(item.taskID!, item.runID)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenTask?.(item.taskID!, item.runID);
+            }}
             disabled={!onOpenTask}
           >
             <Icon d={Icons.tasks} size={12} />
@@ -1924,16 +2042,19 @@ function ProjectHealthAttentionRow({
         )}
         {reviewCandidate && (
           <button
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-sm project-attention-item-action"
             type="button"
             aria-label="Review memory candidate"
-            onClick={() => onReviewCandidate(reviewCandidate)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onReviewCandidate(reviewCandidate);
+            }}
           >
             Review candidate
           </button>
         )}
       </div>
-      <div style={{ ...subtleTextStyle, marginTop: 6 }}>{item.detail}</div>
+      <div style={subtleTextStyle}>{item.detail}</div>
     </div>
   );
 }
@@ -1942,9 +2063,9 @@ function ProjectActivityInbox({
   activity,
   bucket,
   loading,
+  onBucketChange,
   onOpenChat,
   onOpenTask,
-  onBucketChange,
   onSelectWorkItem,
   onStartAssignment,
   project,
@@ -1954,9 +2075,9 @@ function ProjectActivityInbox({
   activity: ProjectActivityData | null;
   bucket: ProjectActivityBucketKey;
   loading: boolean;
+  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
-  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onSelectWorkItem: (workItemID: string) => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord, workItemID: string) => void;
   project: ProjectRecord | null;
@@ -1966,36 +2087,38 @@ function ProjectActivityInbox({
   const counts = activity?.summary;
   const buckets = activity?.buckets;
   const selectedItems = buckets?.[bucket] ?? [];
+  const selectedTotal = projectActivityBucketCount(activity, bucket) ?? selectedItems.length;
+  const bucketLabel = projectActivityBucketLabel(bucket);
   const tabs: Array<{ id: ProjectActivityBucketKey; label: string; count: number }> = [
     { id: "blocked", label: "Blocked", count: counts?.blocked_count ?? 0 },
     { id: "active", label: "Active", count: counts?.active_count ?? 0 },
     { id: "completed", label: "Completed", count: counts?.completed_count ?? 0 },
     { id: "recent", label: "Recent", count: counts?.recent_count ?? 0 },
   ];
-  const selectedTotal = tabs.find((tab) => tab.id === bucket)?.count ?? selectedItems.length;
 
   if (!project) {
     return null;
   }
 
   return (
-    <div style={{ padding: "16px 16px 0", display: "grid", gap: 10 }}>
+    <section aria-label="Activity inbox">
       <div style={panelStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div>
-            <div style={sectionLabelStyle}>Activity Inbox</div>
-            <div style={{ ...subtleTextStyle, marginTop: 3 }}>
-              {loading && !activity
-                ? "Loading project activity…"
-                : `${counts?.assignment_count ?? 0} assignments across ${counts?.work_item_count ?? 0} work items; newest 20 per bucket`}
-            </div>
-          </div>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div style={activityInboxHeaderStyle}>
+          <SectionHeader
+            title="Activity Inbox"
+            detail={
+              loading && !activity
+                ? "Loading project activity..."
+                : `${counts?.assignment_count ?? 0} assignments across ${counts?.work_item_count ?? 0} work items`
+            }
+          />
+          <div style={activityHeaderTabsStyle}>
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 className={bucket === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
                 type="button"
+                aria-label={`Show ${tab.label.toLowerCase()} assignments`}
                 onClick={() => onBucketChange(tab.id)}
               >
                 {tab.label}
@@ -2003,6 +2126,11 @@ function ProjectActivityInbox({
               </button>
             ))}
           </div>
+        </div>
+        <div style={{ ...subtleTextStyle, marginBottom: 10 }}>
+          {counts
+            ? `${selectedTotal} ${bucketLabel.toLowerCase()} in this view`
+            : "Newest 20 per activity bucket"}
         </div>
         {!activity && !loading && (
           <div style={subtleTextStyle}>No activity is recorded for this project yet.</div>
@@ -2054,7 +2182,7 @@ function ProjectActivityInbox({
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -2109,7 +2237,7 @@ function ProjectTimelinePanel({
   if (!project) return null;
 
   return (
-    <div style={{ padding: "16px 16px 0" }}>
+    <div>
       <div style={panelStyle}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
           <div>
@@ -2223,60 +2351,64 @@ function ProjectTimelineRow({
   const memoryEntry = item.memoryEntry;
   return (
     <div style={timelineItemStyle}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-        <span className={timelineBadgeClass(item)}>{timelineKindLabel(item.kind)}</span>
-        {item.status && <Badge status={item.status} label={activitySignalLabel(item.status)} />}
-        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{item.title}</div>
-        {item.workItemID && (
-          <button
-            aria-label={`Show timeline details for ${item.title}`}
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onSelectWorkItem(item.workItemID ?? "")}
-          >
-            Details
-          </button>
-        )}
-        {item.taskID && (
-          <button
-            aria-label={`Open timeline task ${shortID(item.taskID)}`}
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onOpenTask?.(item.taskID ?? "", item.runID)}
-            disabled={!onOpenTask}
-            title="Open task"
-          >
-            <Icon d={Icons.tasks} size={12} />
-            Task
-          </button>
-        )}
-        {chatRequest && (
-          <button
-            aria-label={`Open timeline chat for ${item.title}`}
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onOpenChat?.(chatRequest)}
-            disabled={!onOpenChat || !chatRequest.model}
-            title={
-              chatRequest.model
-                ? `Open chat with ${chatRequest.model}`
-                : "Set project defaults before opening chat."
-            }
-          >
-            <Icon d={Icons.chat} size={12} />
-            Chat
-          </button>
-        )}
-        {memoryEntry && (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onEditMemory(memoryEntry)}
-          >
-            <Icon d={Icons.edit} size={12} />
-            Inspect
-          </button>
-        )}
+      <div style={timelineItemHeaderStyle}>
+        <div style={timelineItemTitleRowStyle}>
+          <span className={timelineBadgeClass(item)}>{timelineKindLabel(item.kind)}</span>
+          {item.status && <Badge status={item.status} label={activitySignalLabel(item.status)} />}
+          <div style={{ ...titleStyle, minWidth: 0 }}>{item.title}</div>
+        </div>
+        <div style={timelineItemActionsStyle}>
+          {item.workItemID && (
+            <button
+              aria-label={`Show timeline details for ${item.title}`}
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onSelectWorkItem(item.workItemID ?? "")}
+            >
+              Details
+            </button>
+          )}
+          {item.taskID && (
+            <button
+              aria-label={`Open timeline task ${shortID(item.taskID)}`}
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onOpenTask?.(item.taskID ?? "", item.runID)}
+              disabled={!onOpenTask}
+              title="Open task"
+            >
+              <Icon d={Icons.tasks} size={12} />
+              Task
+            </button>
+          )}
+          {chatRequest && (
+            <button
+              aria-label={`Open timeline chat for ${item.title}`}
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onOpenChat?.(chatRequest)}
+              disabled={!onOpenChat || !chatRequest.model}
+              title={
+                chatRequest.model
+                  ? `Open chat with ${chatRequest.model}`
+                  : "Set project defaults before opening chat."
+              }
+            >
+              <Icon d={Icons.chat} size={12} />
+              Chat
+            </button>
+          )}
+          {memoryEntry && (
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onEditMemory(memoryEntry)}
+            >
+              <Icon d={Icons.edit} size={12} />
+              Inspect
+            </button>
+          )}
+        </div>
       </div>
       {item.summary && <div style={timelineSummaryStyle}>{item.summary}</div>}
       <div style={metaLineStyle}>
@@ -2320,6 +2452,39 @@ function ProjectDecisionRow({
       </div>
     </div>
   );
+}
+
+function projectActivityBucketLabel(bucket: ProjectActivityBucketKey): string {
+  switch (bucket) {
+    case "active":
+      return "Active";
+    case "completed":
+      return "Completed";
+    case "recent":
+      return "Recent";
+    case "blocked":
+    default:
+      return "Blocked";
+  }
+}
+
+function projectActivityBucketCount(
+  activity: ProjectActivityData | null,
+  bucket: ProjectActivityBucketKey,
+): number | undefined {
+  const summary = activity?.summary;
+  if (!summary) return undefined;
+  switch (bucket) {
+    case "active":
+      return summary.active_count;
+    case "completed":
+      return summary.completed_count;
+    case "recent":
+      return summary.recent_count;
+    case "blocked":
+    default:
+      return summary.blocked_count;
+  }
 }
 
 function ProjectActivityRow({
@@ -2466,7 +2631,7 @@ function ProjectMemoryPanel({
   const enabledCount = entries.filter((entry) => entry.enabled).length;
   const pendingCount = candidates.filter((candidate) => candidate.status === "pending").length;
   return (
-    <div style={{ padding: "12px 16px 0" }}>
+    <div>
       <div style={panelStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <div>
@@ -2497,10 +2662,6 @@ function ProjectMemoryPanel({
             <InlineError message={error} />
           </div>
         )}
-        <div style={{ ...subtleTextStyle, marginBottom: entries.length > 0 ? 10 : 0 }}>
-          Enabled entries appear in chat context packets with their trust label. Standalone native
-          task context still resolves only when linked to a Hecate Chat packet.
-        </div>
         {candidates.length > 0 && (
           <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
             <div style={sectionLabelStyle}>Candidates</div>
@@ -2840,8 +3001,8 @@ function WorkItemDetail({
     );
   }
   return (
-    <div style={{ padding: 16, display: "grid", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+    <div style={workItemDetailStyle}>
+      <div style={workItemDetailHeaderStyle}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={sectionLabelStyle}>Work item</div>
           <h2 style={{ margin: "4px 0 8px", fontSize: 18, color: "var(--t0)" }}>
@@ -2899,7 +3060,7 @@ function WorkItemDetail({
         </div>
       </div>
       <div style={panelStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <div style={panelHeaderStyle}>
           <div style={sectionLabelStyle}>Assignments</div>
           <span className="badge badge-muted">{assignments.length}</span>
           <button
@@ -2952,7 +3113,7 @@ function WorkItemDetail({
         )}
       </div>
       <div style={panelStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <div style={panelHeaderStyle}>
           <div style={sectionLabelStyle}>Collaboration Artifacts</div>
           <span className="badge badge-muted">{artifacts.length}</span>
         </div>
@@ -2975,7 +3136,7 @@ function WorkItemDetail({
         )}
       </div>
       <div style={panelStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <div style={panelHeaderStyle}>
           <div style={sectionLabelStyle}>Handoffs</div>
           <span className="badge badge-muted">{handoffs.length}</span>
           <button
@@ -3015,14 +3176,13 @@ function WorkItemDetail({
   );
 }
 
-function ProjectDefaultsModal({
+function ProjectSettingsPanel({
   error,
   models,
   pending,
   providerOptions,
   providerPresets,
   project,
-  onClose,
   onSave,
 }: {
   error: string;
@@ -3031,7 +3191,6 @@ function ProjectDefaultsModal({
   providerOptions: ProviderOption[];
   providerPresets: ProviderPresetRecord[];
   project: ProjectRecord;
-  onClose: () => void;
   onSave: (form: ProjectDefaultsForm) => void | Promise<void>;
 }) {
   const [form, setForm] = useState<ProjectDefaultsForm>({
@@ -3068,96 +3227,133 @@ function ProjectDefaultsModal({
   }
   const submitForm = () => onSave({ ...form, model: selectedModel });
 
+  const workspace = projectDefaultWorkspace(project);
+
   return (
-    <Modal
-      title="Project defaults"
-      onClose={onClose}
-      width={520}
-      footer={
-        <button
-          className="btn btn-primary"
-          type="button"
-          disabled={pending}
-          onClick={() => void submitForm()}
-          style={{ width: "100%", justifyContent: "center" }}
-        >
-          {pending ? "Saving…" : "Save defaults"}
-        </button>
-      }
+    <div
+      style={{
+        background: "var(--bg1)",
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+        minWidth: 0,
+      }}
     >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submitForm();
+      <div
+        style={{
+          borderBottom: "1px solid var(--border)",
+          padding: "14px 14px 12px",
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
         }}
-        style={{ display: "grid", gap: 12 }}
       >
-        {error && <InlineError message={error} />}
-        <div style={fieldStyle}>
-          <span style={fieldLabelStyle}>Provider and model</span>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <ProviderPicker
-              value={form.provider}
-              onChange={handleProviderChange}
-              options={providerOptions}
-              emptyLabel={
-                providerOptions.length === 0 ? "no providers configured" : "select provider"
-              }
-            />
-            <ModelPicker
-              value={selectedModel}
-              onChange={(model) => setForm((current) => ({ ...current, model }))}
-              models={scopedModels}
-              presets={providerPresets}
-              showProvider={!form.provider}
-            />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Project settings</div>
+          <div
+            style={{
+              marginTop: 4,
+              fontSize: 11,
+              color: "var(--t3)",
+              lineHeight: 1.45,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={workspace}
+          >
+            {workspace || "No default root"}
           </div>
         </div>
-        <div style={fieldStyle}>
-          <span style={fieldLabelStyle}>Workspace mode</span>
-          <div style={{ position: "relative", width: "100%" }}>
-            <select
-              aria-label="Workspace mode"
-              className="input"
-              value={normalizeWorkspaceMode(form.workspaceMode)}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, workspaceMode: event.target.value }))
-              }
-              style={{
-                appearance: "none",
-                cursor: "pointer",
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                minHeight: 36,
-                paddingRight: 34,
-              }}
-            >
-              <option value="in_place">in_place</option>
-              <option value="persistent">persistent</option>
-              <option value="ephemeral">ephemeral</option>
-            </select>
-            <span
-              aria-hidden="true"
-              style={{
-                alignItems: "center",
-                color: "var(--t2)",
-                display: "inline-flex",
-                height: "100%",
-                pointerEvents: "none",
-                position: "absolute",
-                right: 11,
-                top: 0,
-              }}
-            >
-              <Icon d={Icons.chevD} size={12} />
-            </span>
+      </div>
+      <div style={{ overflowY: "auto", padding: 14, display: "grid", gap: 14 }}>
+        <div style={projectSettingsSectionStyle}>
+          <div style={sectionLabelStyle}>Defaults</div>
+          <div style={{ ...subtleTextStyle, marginTop: 5 }}>
+            Native Hecate assignments copy these defaults when creating the backing task.
           </div>
         </div>
-        <div style={subtleTextStyle}>
-          Native Hecate assignments copy these defaults when creating the backing task.
-        </div>
-      </form>
-    </Modal>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitForm();
+          }}
+          style={{ display: "grid", gap: 12 }}
+        >
+          {error && <InlineError message={error} />}
+          <div style={fieldStyle}>
+            <span style={fieldLabelStyle}>Provider and model</span>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <ProviderPicker
+                value={form.provider}
+                onChange={handleProviderChange}
+                options={providerOptions}
+                emptyLabel={
+                  providerOptions.length === 0 ? "no providers configured" : "select provider"
+                }
+              />
+              <ModelPicker
+                value={selectedModel}
+                onChange={(model) => setForm((current) => ({ ...current, model }))}
+                models={scopedModels}
+                presets={providerPresets}
+                showProvider={!form.provider}
+              />
+            </div>
+          </div>
+          <div style={fieldStyle}>
+            <span style={fieldLabelStyle}>Workspace mode</span>
+            <div style={{ position: "relative", width: "100%" }}>
+              <select
+                aria-label="Workspace mode"
+                className="input"
+                value={normalizeWorkspaceMode(form.workspaceMode)}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, workspaceMode: event.target.value }))
+                }
+                style={{
+                  appearance: "none",
+                  cursor: "pointer",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 12,
+                  minHeight: 36,
+                  paddingRight: 34,
+                }}
+              >
+                <option value="in_place">in_place</option>
+                <option value="persistent">persistent</option>
+                <option value="ephemeral">ephemeral</option>
+              </select>
+              <span
+                aria-hidden="true"
+                style={{
+                  alignItems: "center",
+                  color: "var(--t2)",
+                  display: "inline-flex",
+                  height: "100%",
+                  pointerEvents: "none",
+                  position: "absolute",
+                  right: 11,
+                  top: 0,
+                }}
+              >
+                <Icon d={Icons.chevD} size={12} />
+              </span>
+            </div>
+          </div>
+          <button
+            className="btn btn-primary"
+            type="submit"
+            disabled={pending}
+            style={{ width: "100%", justifyContent: "center" }}
+          >
+            {pending ? "Saving…" : "Save defaults"}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -4382,560 +4578,6 @@ function EmptyBlock({ title, detail }: { title: string; detail: string }) {
   );
 }
 
-function buildProjectTimelineItems({
-  activity,
-  artifacts,
-  handoffs,
-  memoryCandidates,
-  memoryEntries,
-  project,
-  roles,
-  workItems,
-}: {
-  activity: ProjectActivityData | null;
-  artifacts: ProjectCollaborationArtifactRecord[];
-  handoffs: ProjectHandoffRecord[];
-  memoryCandidates: ProjectMemoryCandidateRecord[];
-  memoryEntries: ProjectMemoryRecord[];
-  project: ProjectRecord;
-  roles: ProjectWorkRoleRecord[];
-  workItems: ProjectWorkItemRecord[];
-}): ProjectTimelineItem[] {
-  const items = new Map<string, ProjectTimelineItem>();
-  const roleByID = new Map(roles.map((role) => [role.id, role]));
-  const workByID = new Map(workItems.map((item) => [item.id, item]));
-  for (const activityItem of projectActivityItems(activity)) {
-    const workItem =
-      workByID.get(activityItem.work_item.id) ??
-      projectActivityWorkItemToWorkItem(project.id, activityItem.work_item);
-    const role = roleByID.get(activityItem.assignment.role_id) ?? activityItem.role;
-    const taskID = activityItem.linked_task_id || activityItem.assignment.task_id || "";
-    const runID = activityItem.linked_run_id || activityItem.assignment.run_id || "";
-    setTimelineItem(items, {
-      id: `assignment:${activityItem.assignment.id}`,
-      kind: "assignment",
-      title: workItem.title,
-      summary: activityItem.status_summary,
-      actor: `role ${role?.name || activityItem.assignment.role_id}`,
-      source: activityItem.assignment.driver_kind,
-      timestamp: activityItem.updated_at || activityItem.assignment.updated_at,
-      status: activityItem.blocking_signal,
-      workItemID: workItem.id,
-      taskID,
-      runID,
-      chatID: activityItem.linked_chat_id || activityItem.assignment.chat_session_id,
-      assignment: activityItem.assignment,
-    });
-    for (const artifact of activityItem.recent_artifacts ?? []) {
-      addTimelineArtifact(items, artifact, workItem.title);
-    }
-    for (const handoff of activityItem.recent_handoffs ?? []) {
-      addTimelineHandoff(items, handoff, workItem.title);
-    }
-  }
-  for (const artifact of artifacts) {
-    const workTitle = workByID.get(artifact.work_item_id)?.title ?? "";
-    addTimelineArtifact(items, artifact, workTitle);
-  }
-  for (const handoff of handoffs) {
-    const workTitle = workByID.get(handoff.work_item_id)?.title ?? "";
-    addTimelineHandoff(items, handoff, workTitle);
-  }
-  for (const entry of memoryEntries) {
-    setTimelineItem(items, {
-      id: `memory:${entry.id}`,
-      kind: "memory",
-      title: `Context memory: ${entry.title}`,
-      summary: `${entry.enabled ? "Enabled" : "Disabled"} project memory entry`,
-      actor: entry.source_kind || "operator",
-      source: `${entry.trust_label}${entry.enabled ? "" : " / disabled"}`,
-      timestamp: entry.updated_at || entry.created_at,
-      status: entry.enabled ? "completed" : "stale_unknown",
-      memoryEntry: entry,
-    });
-  }
-  for (const candidate of memoryCandidates) {
-    setTimelineItem(items, {
-      id: `memory_candidate:${candidate.id}`,
-      kind: "memory_candidate",
-      title: `Memory candidate: ${candidate.title}`,
-      summary: candidate.body,
-      actor: candidate.suggested_source_kind || "generated",
-      source: `${candidate.suggested_trust_label} / ${candidate.status}`,
-      timestamp: candidate.updated_at || candidate.created_at,
-      status: candidate.status === "pending" ? "awaiting_approval" : candidate.status,
-    });
-  }
-  return Array.from(items.values()).sort(compareTimelineItems);
-}
-
-function buildProjectHealthSummary(
-  project: ProjectRecord | null,
-  activity: ProjectActivityData | null,
-  workItems: ProjectWorkItemRecord[],
-  memoryEntries: ProjectMemoryRecord[],
-  memoryCandidates: ProjectMemoryCandidateRecord[],
-): ProjectHealthSummary {
-  const activityItems = uniqueActivityItems(activity);
-  const projectedAssignments = workItems.flatMap((item) =>
-    (item.assignments ?? []).map((assignment) => ({
-      assignment,
-      workItem: item,
-      status: assignment.execution?.status || assignment.status,
-    })),
-  );
-  const waitingItems = activityItems.filter((item) => isWaitingApprovalActivity(item));
-  const failedItems = activityItems.filter((item) => isFailedOrCancelledActivity(item));
-  const staleItems = [
-    ...activityItems.filter((item) => item.blocking_signal === "stale_unknown"),
-    ...activityItems.filter((item) => item.assignment.execution?.missing),
-    ...projectedAssignments
-      .filter((item) => isStaleAssignment(item.assignment, item.status))
-      .map((item) => projectAssignmentToActivityAttention(project, item.workItem, item.assignment)),
-  ].filter(Boolean) as ProjectActivityItemRecord[];
-  const notStartedItems = activityItems.filter((item) => item.blocking_signal === "not_started");
-  const enabledMemory = memoryEntries.filter((entry) => entry.enabled).length;
-  const enabledContextSources = (project?.context_sources ?? []).filter(
-    (source) => source.enabled,
-  ).length;
-  const memoryCandidateSummary = summarizeProjectMemoryCandidates(memoryCandidates);
-  const handoffSummary = summarizeProjectHandoffs(activityItems);
-  const summary = activity?.summary;
-  const missingDefaults = Boolean(project && (!project.default_provider || !project.default_model));
-  const attention: ProjectHealthAttention[] = [];
-  const firstWaiting = waitingItems[0];
-  if (firstWaiting) {
-    attention.push(
-      activityAttention(firstWaiting, "Approval waiting", "View approvals", "blocked"),
-    );
-  }
-  const firstFailed = failedItems[0];
-  if (firstFailed) {
-    attention.push(
-      activityAttention(firstFailed, "Execution needs review", "View blocked", "blocked"),
-    );
-  }
-  if (missingDefaults && project) {
-    attention.push({
-      id: `${project.id}:defaults`,
-      title: "Provider/model defaults missing",
-      detail: "Native project starts and assignment chats need a default provider and model.",
-      status: "awaiting_approval",
-    });
-  }
-  const firstPendingHandoff = activityItems.find((item) => hasPendingHandoff(item));
-  if (firstPendingHandoff) {
-    const latestHandoff = firstPendingHandoff.recent_handoffs?.find(
-      (handoff) => handoff.status === "pending",
-    );
-    attention.push({
-      id: `${firstPendingHandoff.id}:handoff`,
-      title: `Pending handoff: ${firstPendingHandoff.work_item.title}`,
-      detail: [
-        firstNonEmpty(
-          latestHandoff?.title,
-          firstPendingHandoff.handoff_summary?.latest_title,
-          "Handoff awaiting operator follow-up",
-        ),
-        firstPendingHandoff.role.name || firstPendingHandoff.assignment.role_id,
-        firstPendingHandoff.handoff_summary?.latest_at
-          ? `updated ${formatAbsoluteTime(firstPendingHandoff.handoff_summary.latest_at)}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      status: "awaiting_approval",
-      bucket: "recent",
-      workItemID: firstPendingHandoff.work_item.id,
-      actionLabel: "View recent",
-    });
-  }
-  const firstStale = staleItems[0];
-  if (firstStale) {
-    attention.push(
-      activityAttention(firstStale, "Stale or unknown assignment", "View blocked", "blocked"),
-    );
-  }
-  const firstNotStarted = notStartedItems[0];
-  if (firstNotStarted) {
-    attention.push(
-      activityAttention(firstNotStarted, "Assignment not started", "View blocked", "blocked"),
-    );
-  }
-  if (enabledMemory === 0 && enabledContextSources === 0 && project) {
-    attention.push({
-      id: `${project.id}:context`,
-      title: "No project memory or context sources enabled",
-      detail: "Project-scoped context is empty for new chats and linked context packets.",
-      status: "stale_unknown",
-    });
-  }
-  const firstPendingCandidate = memoryCandidates.find(
-    (candidate) => candidate.status === "pending",
-  );
-  if (firstPendingCandidate) {
-    attention.push({
-      id: `${firstPendingCandidate.id}:memory-candidate`,
-      title: "Memory candidate pending review",
-      detail: `${firstPendingCandidate.title} · ${firstPendingCandidate.suggested_trust_label}`,
-      status: "awaiting_approval",
-      candidateID: firstPendingCandidate.id,
-    });
-  }
-
-  return {
-    activeNow: summary?.active_count ?? countActivityBySignals(activityItems, ["running"]),
-    waitingApproval: waitingItems.length,
-    blockedOrFailed: failedItems.length,
-    recentCompleted: activity?.buckets.completed.length ?? summary?.completed_count ?? 0,
-    staleAssignments: uniqueByID(staleItems).length,
-    missingDefaults,
-    enabledMemory,
-    savedMemory: memoryEntries.length,
-    enabledContextSources,
-    memoryCandidates: memoryCandidateSummary,
-    handoffs: handoffSummary,
-    attention: uniqueAttention(attention).slice(0, 5),
-  };
-}
-
-function projectHealthMetrics(health: ProjectHealthSummary): ProjectHealthMetric[] {
-  return [
-    {
-      key: "active",
-      label: "Active work",
-      value: health.activeNow,
-      status: health.activeNow > 0 ? "running" : "completed",
-      detail: "queued, running, or live",
-      bucket: "active",
-    },
-    {
-      key: "approvals",
-      label: "Waiting approval",
-      value: health.waitingApproval,
-      status: health.waitingApproval > 0 ? "awaiting_approval" : "completed",
-      detail: "operator decisions pending",
-      bucket: "blocked",
-    },
-    {
-      key: "handoffs",
-      label: "Pending handoffs",
-      value: health.handoffs.pending,
-      status: health.handoffs.pending > 0 ? "awaiting_approval" : "completed",
-      detail: `${health.handoffs.accepted} accepted, ${health.handoffs.superseded} superseded, ${health.handoffs.dismissed} dismissed`,
-      bucket: "recent",
-    },
-    {
-      key: "failed",
-      label: "Blocked / failed",
-      value: health.blockedOrFailed,
-      status: health.blockedOrFailed > 0 ? "failed" : "completed",
-      detail: "blocked, failed, cancelled",
-      bucket: "blocked",
-    },
-    {
-      key: "completed",
-      label: "Recent completions",
-      value: health.recentCompleted,
-      status: "completed",
-      detail: "finished project work",
-      bucket: "completed",
-    },
-    {
-      key: "stale",
-      label: "Stale / unknown",
-      value: health.staleAssignments,
-      status: health.staleAssignments > 0 ? "stale_unknown" : "completed",
-      detail: "old active or missing linked run",
-      bucket: "blocked",
-    },
-    {
-      key: "defaults",
-      label: "Defaults",
-      value: health.missingDefaults ? "missing" : "set",
-      status: health.missingDefaults ? "awaiting_approval" : "completed",
-      detail: "provider and model",
-    },
-    {
-      key: "context",
-      label: "Context",
-      value: health.enabledMemory + health.enabledContextSources,
-      status:
-        health.enabledMemory + health.enabledContextSources > 0 ? "completed" : "stale_unknown",
-      detail: `${health.enabledMemory}/${health.savedMemory} memory, ${health.enabledContextSources} sources`,
-    },
-    {
-      key: "memory_candidates",
-      label: "Memory candidates",
-      value: health.memoryCandidates.pending,
-      status: health.memoryCandidates.pending > 0 ? "awaiting_approval" : "completed",
-      detail: `${health.memoryCandidates.promoted} promoted, ${health.memoryCandidates.rejected} rejected`,
-    },
-  ];
-}
-
-function summarizeProjectMemoryCandidates(
-  candidates: ProjectMemoryCandidateRecord[],
-): ProjectHealthSummary["memoryCandidates"] {
-  return candidates.reduce<ProjectHealthSummary["memoryCandidates"]>(
-    (summary, candidate) => {
-      if (candidate.status === "pending") summary.pending += 1;
-      if (candidate.status === "promoted") summary.promoted += 1;
-      if (candidate.status === "rejected") summary.rejected += 1;
-      return summary;
-    },
-    { pending: 0, promoted: 0, rejected: 0 },
-  );
-}
-
-function summarizeProjectHandoffs(
-  items: ProjectActivityItemRecord[],
-): ProjectHealthSummary["handoffs"] {
-  const seenHandoffIDs = new Set<string>();
-  return items.reduce<ProjectHealthSummary["handoffs"]>(
-    (summary, item) => {
-      const handoffSummary = item.handoff_summary;
-      const recentHandoffs = item.recent_handoffs ?? [];
-      if (recentHandoffs.length > 0) {
-        for (const handoff of recentHandoffs) {
-          if (seenHandoffIDs.has(handoff.id)) continue;
-          seenHandoffIDs.add(handoff.id);
-          addHandoffStatus(summary, handoff.status);
-        }
-        return summary;
-      }
-      if (handoffSummary) {
-        summary.total += handoffSummary.count;
-        summary.pending += handoffSummary.pending_count ?? 0;
-        summary.accepted += handoffSummary.accepted_count ?? 0;
-      }
-      return summary;
-    },
-    { total: 0, pending: 0, accepted: 0, superseded: 0, dismissed: 0 },
-  );
-}
-
-function addHandoffStatus(summary: ProjectHealthSummary["handoffs"], status: string) {
-  summary.total += 1;
-  if (status === "pending") summary.pending += 1;
-  if (status === "accepted") summary.accepted += 1;
-  if (status === "superseded") summary.superseded += 1;
-  if (status === "dismissed") summary.dismissed += 1;
-}
-
-function hasPendingHandoff(item: ProjectActivityItemRecord): boolean {
-  return (
-    (item.handoff_summary?.pending_count ?? 0) > 0 ||
-    Boolean(item.recent_handoffs?.some((handoff) => handoff.status === "pending"))
-  );
-}
-
-function projectActivityItems(activity: ProjectActivityData | null): ProjectActivityItemRecord[] {
-  if (!activity) return [];
-  return [
-    ...activity.buckets.blocked,
-    ...activity.buckets.active,
-    ...activity.buckets.completed,
-    ...activity.buckets.recent,
-    ...(activity.recent ?? []),
-  ];
-}
-
-function uniqueActivityItems(activity: ProjectActivityData | null): ProjectActivityItemRecord[] {
-  return uniqueByID(projectActivityItems(activity));
-}
-
-function addTimelineArtifact(
-  items: Map<string, ProjectTimelineItem>,
-  artifact: ProjectCollaborationArtifactRecord,
-  workTitle: string,
-) {
-  const title = artifact.title || artifact.id;
-  setTimelineItem(items, {
-    id: `artifact:${artifact.id}`,
-    kind: artifact.kind === "decision_note" ? "decision" : "artifact",
-    title,
-    summary: artifact.body,
-    actor: artifact.author_role_id || "project",
-    source: workTitle ? `${artifact.kind} / ${workTitle}` : artifact.kind,
-    timestamp: artifact.updated_at || artifact.created_at,
-    workItemID: artifact.work_item_id,
-  });
-}
-
-function addTimelineHandoff(
-  items: Map<string, ProjectTimelineItem>,
-  handoff: ProjectHandoffRecord,
-  workTitle: string,
-) {
-  setTimelineItem(items, {
-    id: `handoff:${handoff.id}`,
-    kind: "handoff",
-    title: handoff.title || handoff.id,
-    summary: handoff.summary || handoff.recommended_next_action,
-    actor: handoff.created_by_role_id || "handoff",
-    source: workTitle ? `${handoff.status} / ${workTitle}` : handoff.status,
-    timestamp: handoff.updated_at || handoff.created_at,
-    status: handoff.status,
-    workItemID: handoff.work_item_id,
-    taskID: "",
-    runID: handoff.source_run_id,
-    chatID: handoff.source_chat_session_id,
-  });
-}
-
-function setTimelineItem(items: Map<string, ProjectTimelineItem>, item: ProjectTimelineItem) {
-  const current = items.get(item.id);
-  if (!current || compareTimelineItems(item, current) < 0) {
-    items.set(item.id, item);
-  }
-}
-
-function compareTimelineItems(left: ProjectTimelineItem, right: ProjectTimelineItem): number {
-  const leftTime = Date.parse(left.timestamp || "");
-  const rightTime = Date.parse(right.timestamp || "");
-  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
-    return rightTime - leftTime;
-  }
-  if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) {
-    return Number.isFinite(leftTime) ? -1 : 1;
-  }
-  return left.id.localeCompare(right.id);
-}
-
-function timelineKindLabel(kind: ProjectTimelineItemKind): string {
-  switch (kind) {
-    case "assignment":
-      return "assignment";
-    case "decision":
-      return "decision";
-    case "handoff":
-      return "handoff";
-    case "memory":
-      return "memory";
-    case "memory_candidate":
-      return "memory candidate";
-    case "artifact":
-      return "artifact";
-  }
-}
-
-function timelineBadgeClass(item: ProjectTimelineItem): string {
-  if (item.kind === "decision") return "badge badge-amber";
-  if (item.kind === "handoff" && item.status === "pending") return "badge badge-amber";
-  if (item.kind === "memory_candidate" && item.status === "awaiting_approval") {
-    return "badge badge-amber";
-  }
-  if (item.kind === "memory" && item.status === "stale_unknown") return "badge badge-amber";
-  return "badge badge-muted";
-}
-
-function uniqueByID<T extends { id: string }>(items: T[]): T[] {
-  const seen = new Set<string>();
-  const unique: T[] = [];
-  for (const item of items) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
-    unique.push(item);
-  }
-  return unique;
-}
-
-function uniqueAttention(items: ProjectHealthAttention[]): ProjectHealthAttention[] {
-  return uniqueByID(items);
-}
-
-function isWaitingApprovalActivity(item: ProjectActivityItemRecord): boolean {
-  return (
-    item.blocking_signal === "awaiting_approval" ||
-    item.status === "awaiting_approval" ||
-    Boolean(item.assignment.execution?.pending_approval_count)
-  );
-}
-
-function isFailedOrCancelledActivity(item: ProjectActivityItemRecord): boolean {
-  return (
-    item.blocking_signal === "failed" ||
-    item.status === "failed" ||
-    item.status === "cancelled" ||
-    item.assignment.execution?.status === "failed" ||
-    item.assignment.execution?.status === "cancelled"
-  );
-}
-
-function countActivityBySignals(items: ProjectActivityItemRecord[], signals: string[]): number {
-  return items.filter(
-    (item) => signals.includes(item.blocking_signal) || signals.includes(item.status),
-  ).length;
-}
-
-function isStaleAssignment(assignment: ProjectAssignmentRecord, status: string): boolean {
-  if (status !== "queued" && status !== "running" && status !== "awaiting_approval") return false;
-  const updatedAt = Date.parse(assignment.updated_at || assignment.started_at || "");
-  if (!Number.isFinite(updatedAt)) return false;
-  return Date.now() - updatedAt > 24 * 60 * 60 * 1000;
-}
-
-function projectAssignmentToActivityAttention(
-  project: ProjectRecord | null,
-  workItem: ProjectWorkItemRecord,
-  assignment: ProjectAssignmentRecord,
-): ProjectActivityItemRecord | null {
-  if (!project) return null;
-  return {
-    id: assignment.id,
-    project_id: project.id,
-    work_item: {
-      id: workItem.id,
-      title: workItem.title,
-      status: workItem.status,
-      priority: workItem.priority,
-    },
-    assignment,
-    role: {
-      id: assignment.role_id,
-      project_id: project.id,
-      name: assignment.role_id,
-      built_in: false,
-    },
-    status: assignment.execution?.status || assignment.status,
-    blocking_signal: "stale_unknown",
-    status_summary: "active assignment has not changed recently",
-    linked_task_id: assignment.execution?.task_id || assignment.task_id,
-    linked_run_id: assignment.execution?.run_id || assignment.run_id,
-    artifact_summary: { count: assignment.execution?.artifact_count ?? 0 },
-    updated_at: assignment.updated_at,
-  };
-}
-
-function activityAttention(
-  item: ProjectActivityItemRecord,
-  title: string,
-  actionLabel: string,
-  bucket: ProjectActivityBucketKey,
-): ProjectHealthAttention {
-  const taskID =
-    item.linked_task_id || item.assignment.execution?.task_id || item.assignment.task_id;
-  const runID = item.linked_run_id || item.assignment.execution?.run_id || item.assignment.run_id;
-  return {
-    id: item.id,
-    title: `${title}: ${item.work_item.title}`,
-    detail: [
-      item.status_summary,
-      item.role.name || item.assignment.role_id,
-      item.updated_at ? `updated ${formatAbsoluteTime(item.updated_at)}` : "",
-    ]
-      .filter(Boolean)
-      .join(" · "),
-    status: item.blocking_signal || item.status,
-    bucket,
-    workItemID: item.work_item.id,
-    taskID,
-    runID,
-    actionLabel,
-  };
-}
-
 function summarizeAssignments(assignments: ProjectAssignmentRecord[]): WorkItemSummary {
   return assignments.reduce<WorkItemSummary>(
     (summary, assignment) => {
@@ -5203,36 +4845,6 @@ function defaultDriverForRole(role: ProjectWorkRoleRecord | null): string {
   return role?.default_driver_kind || "hecate_task";
 }
 
-function projectActivityWorkItemToWorkItem(
-  projectID: string,
-  item: ProjectActivityItemRecord["work_item"],
-): ProjectWorkItemRecord {
-  return {
-    id: item.id,
-    project_id: projectID,
-    title: item.title,
-    status: item.status,
-    priority: item.priority,
-    created_at: "",
-    updated_at: "",
-  };
-}
-
-function activitySignalLabel(signal: string): string {
-  switch (signal) {
-    case "awaiting_approval":
-      return "approval";
-    case "not_started":
-      return "not started";
-    case "stale_unknown":
-      return "unknown";
-    case "completed":
-      return "done";
-    default:
-      return signal.replaceAll("_", " ");
-  }
-}
-
 function shortID(id: string): string {
   if (id.length <= 12) return id;
   return id.slice(0, 10) + "...";
@@ -5300,6 +4912,45 @@ function upsertHandoff(items: ProjectHandoffRecord[], item: ProjectHandoffRecord
   });
 }
 
+function readProjectsPanelCollapsedPreference(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(PROJECTS_PANEL_COLLAPSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeProjectsPanelCollapsedPreference(collapsed: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    if (collapsed) {
+      window.localStorage.setItem(PROJECTS_PANEL_COLLAPSED_STORAGE_KEY, "1");
+    } else {
+      window.localStorage.removeItem(PROJECTS_PANEL_COLLAPSED_STORAGE_KEY);
+    }
+  } catch {
+    // Layout persistence should never block the operator console.
+  }
+}
+
+function readStoredRightPanelWidth(): number {
+  try {
+    const value = Number.parseInt(localStorage.getItem(RIGHT_PANEL_WIDTH_KEY) ?? "", 10);
+    return Number.isFinite(value) && value > 0 ? value : DEFAULT_RIGHT_PANEL_WIDTH;
+  } catch {
+    return DEFAULT_RIGHT_PANEL_WIDTH;
+  }
+}
+
+function rememberRightPanelWidth(width: number) {
+  try {
+    localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(width));
+  } catch {
+    // Best-effort preference only.
+  }
+}
+
 function splitRoleIDs(value: string): string[] {
   return splitIDs(value);
 }
@@ -5358,6 +5009,36 @@ const topbarStyle: CSSProperties = {
   flexShrink: 0,
 };
 
+const topbarActionsStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+};
+
+const collapsedPanelButtonStyle: CSSProperties = {
+  height: 30,
+  width: 30,
+  padding: 0,
+};
+
+const collapsedPanelHeaderStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 8,
+  padding: "6px 2px 8px",
+};
+
+const collapsedProjectMarkerStyle: CSSProperties = {
+  border: "1px solid var(--border)",
+  justifyContent: "flex-start",
+  color: "var(--t0)",
+  fontWeight: 700,
+  minHeight: 34,
+  padding: "0 10px",
+  width: "100%",
+};
+
 const sectionLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 10,
@@ -5375,20 +5056,15 @@ const titleStyle: CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const collapsedProjectNameStyle: CSSProperties = {
+  ...titleStyle,
+  minWidth: 0,
+};
+
 const subtleTextStyle: CSSProperties = {
   color: "var(--t3)",
   fontSize: 12,
   lineHeight: 1.4,
-};
-
-const pathTextStyle: CSSProperties = {
-  color: "var(--t2)",
-  fontSize: 11,
-  fontFamily: "var(--font-mono)",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-  marginTop: 5,
 };
 
 const metaLineStyle: CSSProperties = {
@@ -5412,11 +5088,233 @@ const fieldLabelStyle: CSSProperties = {
   textTransform: "uppercase",
 };
 
+const projectSettingsSectionStyle: CSSProperties = {
+  background: "var(--bg2)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  padding: 10,
+};
+
 const panelStyle: CSSProperties = {
   border: "1px solid var(--border)",
   background: "var(--bg1)",
   borderRadius: "var(--radius-sm)",
+  boxSizing: "border-box",
+  maxWidth: "100%",
+  minWidth: 0,
   padding: 12,
+};
+
+const projectInlineHeaderStyle: CSSProperties = {
+  alignItems: "center",
+  borderBottom: "1px solid var(--border)",
+  background: "var(--bg1)",
+  display: "flex",
+  flexShrink: 0,
+  gap: 8,
+  height: "var(--topbar-h)",
+  minWidth: 0,
+  padding: "0 12px",
+};
+
+const projectHeaderAvatarStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--t2)",
+  display: "inline-flex",
+  flexShrink: 0,
+  height: 24,
+  justifyContent: "center",
+  width: 24,
+};
+
+const projectHeaderTitleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 13,
+  fontWeight: 500,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const projectHeaderSublineStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  lineHeight: 1.25,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const projectHeaderActionsStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexShrink: 0,
+  gap: 4,
+};
+
+const projectHeaderActionButtonStyle: CSSProperties = {
+  position: "relative",
+  boxShadow: "none",
+  color: "var(--t2)",
+  height: 30,
+  justifyContent: "center",
+  minWidth: 30,
+  padding: 0,
+};
+
+const projectAttentionMenuStyle: CSSProperties = {
+  position: "relative",
+};
+
+const projectAttentionCountStyle: CSSProperties = {
+  alignItems: "center",
+  background: "var(--amber)",
+  borderRadius: 8,
+  color: "var(--bg0)",
+  display: "inline-flex",
+  fontSize: 9,
+  fontWeight: 700,
+  height: 14,
+  justifyContent: "center",
+  minWidth: 14,
+  padding: "0 4px",
+  position: "absolute",
+  right: -2,
+  top: -3,
+};
+
+const projectAttentionPopoverStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  boxShadow: "0 16px 36px rgba(0, 0, 0, 0.42)",
+  boxSizing: "border-box",
+  display: "grid",
+  gap: 10,
+  maxHeight: "min(560px, calc(100vh - 84px))",
+  minWidth: 340,
+  overflowY: "auto",
+  padding: 10,
+  position: "absolute",
+  right: 0,
+  top: 36,
+  width: "min(420px, calc(100vw - 28px))",
+  zIndex: 30,
+};
+
+const projectAttentionPopoverHeaderStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  gap: 8,
+  justifyContent: "space-between",
+  minWidth: 0,
+};
+
+const domainSectionStyle: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  minWidth: 0,
+};
+
+const domainHeaderStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "flex",
+  gap: 10,
+  justifyContent: "space-between",
+  minWidth: 0,
+};
+
+const domainHeaderActionsStyle: CSSProperties = {
+  display: "flex",
+  flexShrink: 0,
+  gap: 8,
+};
+
+const cockpitWorkspaceStyle: CSSProperties = {
+  display: "grid",
+  gap: 14,
+  alignItems: "start",
+  minWidth: 0,
+  padding: 14,
+};
+
+const projectWorkspaceTabsStyle: CSSProperties = {
+  alignItems: "center",
+  borderBottom: "1px solid var(--border)",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  minWidth: 0,
+  paddingBottom: 8,
+};
+
+const projectWorkspaceTabButtonStyle: CSSProperties = {
+  minHeight: 32,
+};
+
+const projectTabPanelStyle: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  minWidth: 0,
+};
+
+const workCoordinationGridStyle: CSSProperties = {
+  display: "grid",
+  gap: 14,
+  alignItems: "start",
+  minWidth: 0,
+};
+
+const workItemsPanelStyle: CSSProperties = {
+  border: "1px solid var(--border)",
+  background: "var(--bg1)",
+  borderRadius: "var(--radius-sm)",
+  minWidth: 0,
+  padding: 10,
+};
+
+const workItemListStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  display: "grid",
+  margin: "0 -10px -10px",
+  maxHeight: 520,
+  overflowY: "auto",
+};
+
+const workDetailColumnStyle: CSSProperties = {
+  boxSizing: "border-box",
+  maxWidth: "100%",
+  minWidth: 0,
+  overflow: "hidden",
+};
+
+const workItemDetailStyle: CSSProperties = {
+  boxSizing: "border-box",
+  display: "grid",
+  gap: 16,
+  maxWidth: "100%",
+  minWidth: 0,
+  overflow: "hidden",
+  padding: 16,
+  width: "100%",
+};
+
+const workItemDetailHeaderStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 12,
+  minWidth: 0,
+};
+
+const panelHeaderStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  marginBottom: 10,
+  minWidth: 0,
 };
 
 const assignmentStyle: CSSProperties = {
@@ -5433,7 +5331,7 @@ const activityRowStyle: CSSProperties = {
 
 const timelineGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(220px, 32%)",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))",
   gap: 14,
   alignItems: "start",
 };
@@ -5442,6 +5340,32 @@ const timelineItemStyle: CSSProperties = {
   borderTop: "1px solid var(--border)",
   paddingTop: 9,
   minWidth: 0,
+};
+
+const timelineItemHeaderStyle: CSSProperties = {
+  alignItems: "flex-start",
+  display: "grid",
+  gap: 8,
+  gridTemplateColumns: "minmax(0, 1fr)",
+  minWidth: 0,
+};
+
+const timelineItemTitleRowStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  flex: "1 1 160px",
+  flexWrap: "wrap",
+  gap: 8,
+  minWidth: 0,
+};
+
+const timelineItemActionsStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  justifyContent: "flex-end",
+  minWidth: 0,
+  maxWidth: "100%",
 };
 
 const timelineSummaryStyle: CSSProperties = {
@@ -5458,8 +5382,8 @@ const timelineSummaryStyle: CSSProperties = {
 };
 
 const decisionLogStyle: CSSProperties = {
-  borderLeft: "1px solid var(--border)",
-  paddingLeft: 14,
+  borderTop: "1px solid var(--border)",
+  paddingTop: 9,
   minWidth: 0,
 };
 
@@ -5469,41 +5393,30 @@ const decisionItemStyle: CSSProperties = {
   minWidth: 0,
 };
 
-const healthMetricGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))",
-  gap: 8,
-  marginBottom: 12,
-};
-
-const healthMetricStyle: CSSProperties = {
-  alignItems: "flex-start",
-  border: "1px solid var(--border)",
+const healthAttentionStyle: CSSProperties = {
+  background: "transparent",
+  border: "1px solid transparent",
+  borderRadius: "var(--radius-sm)",
+  cursor: "pointer",
   display: "grid",
   gap: 6,
-  justifyContent: "stretch",
-  minHeight: 92,
-  padding: 10,
-  textAlign: "left",
-};
-
-const healthColumnStyle: CSSProperties = {
-  borderTop: "1px solid var(--border)",
-  paddingTop: 10,
-};
-
-const healthAttentionStyle: CSSProperties = {
-  background: "var(--bg2)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-sm)",
+  outline: "none",
   padding: 9,
+  transition: "background 120ms ease, border-color 120ms ease",
 };
 
-const healthContextLineStyle: CSSProperties = {
-  alignItems: "center",
+const activityHeaderTabsStyle: CSSProperties = {
   display: "flex",
-  gap: 8,
-  justifyContent: "space-between",
+  gap: 6,
+  flexWrap: "wrap",
+};
+
+const activityInboxHeaderStyle: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  marginBottom: 10,
+  minWidth: 0,
 };
 
 const artifactStyle: CSSProperties = {
