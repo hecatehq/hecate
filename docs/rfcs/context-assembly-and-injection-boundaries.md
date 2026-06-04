@@ -64,7 +64,10 @@ assignment has a visible provenance chain.
   candidate context later, but the first assembly layer is source/provenance
   plumbing.
 - **Automatic memory extraction.** This RFC explicitly keeps memory writes
-  operator-approved. Auto-extraction needs a separate review and eval story.
+  operator-approved. Project memory candidates may capture generated/runtime
+  text for review, but they are not included in context packets and do not
+  become durable memory until the operator promotes them. Auto-extraction needs
+  a separate review and eval story.
 - **Replacing sandbox or approval policy.** Prompt labelling reduces instruction
   confusion; it does not replace tool sandboxing, approvals, network policy, or
   workspace validation.
@@ -153,6 +156,11 @@ source metadata, and itemized visible metadata with trust labels, origins, and
 inclusion reasons. Enabled project memory entries are included as itemized
 `memory` entries with trust/provenance labels and body snapshots. Other source
 types still do not store full source bodies yet.
+
+Pending memory candidates are intentionally excluded from context packets. They
+are review artifacts, not operator-approved context. If the operator promotes a
+candidate, future packets may include the resulting project memory entry using
+the promoted entry's trust/provenance labels.
 
 Sketch:
 

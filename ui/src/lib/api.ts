@@ -49,6 +49,7 @@ import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 import type { RetentionRunResponse, RetentionRunsResponse } from "../types/retention";
 import type {
   CreateProjectPayload,
+  CreateProjectMemoryCandidatePayload,
   CreateProjectMemoryPayload,
   CreateProjectAssignmentPayload,
   CreateProjectHandoffPayload,
@@ -60,6 +61,8 @@ import type {
   ProjectCollaborationArtifactsResponse,
   ProjectHandoffResponse,
   ProjectHandoffsResponse,
+  ProjectMemoryCandidateListResponse,
+  ProjectMemoryCandidateResponse,
   ProjectMemoryListResponse,
   ProjectMemoryResponse,
   ProjectResponse,
@@ -68,6 +71,8 @@ import type {
   ProjectWorkRoleResponse,
   ProjectWorkRolesResponse,
   ProjectsResponse,
+  PromoteProjectMemoryCandidatePayload,
+  RejectProjectMemoryCandidatePayload,
   UpdateProjectAssignmentPayload,
   UpdateProjectHandoffPayload,
   UpdateProjectMemoryPayload,
@@ -374,6 +379,48 @@ export async function deleteProjectMemory(projectID: string, memoryID: string): 
   return fetchJSON<void>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/memory/${encodeURIComponent(memoryID)}`,
     { method: "DELETE" },
+  );
+}
+
+export async function getProjectMemoryCandidates(
+  projectID: string,
+  includeResolved = false,
+): Promise<ProjectMemoryCandidateListResponse> {
+  const query = includeResolved ? "?include_resolved=true" : "";
+  return fetchJSON<ProjectMemoryCandidateListResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/memory/candidates${query}`,
+  );
+}
+
+export async function createProjectMemoryCandidate(
+  projectID: string,
+  payload: CreateProjectMemoryCandidatePayload,
+): Promise<ProjectMemoryCandidateResponse> {
+  return fetchJSON<ProjectMemoryCandidateResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/memory/candidates`,
+    { method: "POST", body: payload },
+  );
+}
+
+export async function promoteProjectMemoryCandidate(
+  projectID: string,
+  candidateID: string,
+  payload: PromoteProjectMemoryCandidatePayload,
+): Promise<ProjectMemoryCandidateResponse> {
+  return fetchJSON<ProjectMemoryCandidateResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/memory/candidates/${encodeURIComponent(candidateID)}/promote`,
+    { method: "POST", body: payload },
+  );
+}
+
+export async function rejectProjectMemoryCandidate(
+  projectID: string,
+  candidateID: string,
+  payload: RejectProjectMemoryCandidatePayload = {},
+): Promise<ProjectMemoryCandidateResponse> {
+  return fetchJSON<ProjectMemoryCandidateResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/memory/candidates/${encodeURIComponent(candidateID)}/reject`,
+    { method: "POST", body: payload },
   );
 }
 

@@ -433,7 +433,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries, project work-coordination rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -1189,7 +1189,7 @@ PATCH /hecate/v1/projects/proj_...
 ### `DELETE /hecate/v1/projects/{id}`
 
 Deletes the project catalog entry, its roots, and chat sessions scoped to that
-project. It also deletes project memory entries and project work-coordination
+project. It also deletes project memory entries, memory candidates, and project work-coordination
 rows for that project. This does not delete workspace files. Unprojected chats
 and chats scoped to other projects stay untouched. Assignment links to task/chat
 IDs are metadata only; the linked tasks or unprojected chat sessions are not
@@ -1200,7 +1200,10 @@ deleted through assignment cleanup.
 Project memory is explicit operator-approved context. Hecate never writes these
 entries automatically from chat, task, handoff, or generated output; generated
 or external text must be reviewed and saved by the operator before it becomes
-memory.
+memory. Agents, chats, tasks, and project-work surfaces may create memory
+candidates, but candidates are review records only. They do not participate in
+context packets and do not create durable memory until the operator explicitly
+promotes one.
 
 Memory entry fields:
 
@@ -1288,6 +1291,63 @@ and `project_id` are immutable.
 
 Deletes the memory entry. Historical chat context packets that already
 snapshotted the entry are not rewritten.
+
+#### `GET /hecate/v1/projects/{id}/memory/candidates`
+
+Lists pending memory candidates by default. Pass `include_resolved=true` to
+include promoted and rejected candidates, or `status=pending|promoted|rejected`
+to filter explicitly.
+
+```json
+GET /hecate/v1/projects/proj_.../memory/candidates
+→ 200
+{
+  "object": "project_memory_candidates",
+  "data": [
+    {
+      "id": "memcand_...",
+      "project_id": "proj_...",
+      "title": "Generated summary",
+      "body": "Keep generated context labelled until reviewed.",
+      "suggested_kind": "note",
+      "suggested_trust_label": "generated_summary",
+      "suggested_source_kind": "task_output",
+      "suggested_source_id": "run_...",
+      "source_refs": [{ "kind": "task_run", "id": "run_..." }],
+      "status": "pending",
+      "created_at": "2026-06-04T10:00:00Z",
+      "updated_at": "2026-06-04T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### `POST /hecate/v1/projects/{id}/memory/candidates`
+
+Creates a review candidate from a manual payload or a known source reference.
+`title` and `body` are required. Candidates default to
+`suggested_trust_label="generated_summary"` and
+`suggested_source_kind="generated"` so generated/external text stays
+lower-trust unless the operator changes it during promotion.
+
+#### `POST /hecate/v1/projects/{id}/memory/candidates/{candidate_id}/promote`
+
+Promotes a pending candidate into a durable project memory entry. The request
+may include edited `title`, `body`, `trust_label`, `source_kind`, `source_id`,
+and `enabled`; omitted fields use the candidate's suggested values. Promotion
+sets the candidate status to `promoted` and records `promoted_memory_id`.
+Promoting an already-promoted candidate is idempotent when the linked
+`promoted_memory_id` still exists and returns the existing promoted candidate.
+Promoting a rejected candidate returns `409 conflict`.
+
+The response is `{ "object": "project_memory_candidate", "data": ... }`. The
+created memory entry is returned by the normal project memory list/get flows.
+
+#### `POST /hecate/v1/projects/{id}/memory/candidates/{candidate_id}/reject`
+
+Rejects or dismisses a pending candidate without creating durable memory. The
+optional request body is `{ "reason": "..." }`. Rejecting an already resolved
+candidate returns `409 conflict`.
 
 ### Project Work Coordination
 

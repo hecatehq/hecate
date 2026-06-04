@@ -44,6 +44,7 @@ type Handler struct {
 	agentChat                chat.Store
 	projects                 projects.Store
 	memory                   memory.Store
+	memoryCandidates         memory.CandidateStore
 	projectWork              projectwork.Store
 	agentChatRunner          agentadapters.Runner
 	agentChatLive            *agentChatLive
@@ -299,6 +300,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	})
 	agentChatRunner.SetApprovalCoordinator(approvalCoordinator)
 
+	memoryStore := memory.NewMemoryStore()
 	h := &Handler{
 		config:              cfg,
 		logger:              logger,
@@ -311,7 +313,8 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		rateLimiter:         rl,
 		agentChat:           chat.NewMemoryStore(),
 		projects:            projects.NewMemoryStore(),
-		memory:              memory.NewMemoryStore(),
+		memory:              memoryStore,
+		memoryCandidates:    memoryStore,
 		projectWork:         projectwork.NewMemoryStore(),
 		agentChatRunner:     agentChatRunner,
 		agentChatLive:       agentChatLive,
@@ -390,6 +393,11 @@ func (h *Handler) SetMemoryStore(store memory.Store) {
 		return
 	}
 	h.memory = store
+	if candidates, ok := store.(memory.CandidateStore); ok {
+		h.memoryCandidates = candidates
+	} else {
+		h.memoryCandidates = nil
+	}
 }
 
 func (h *Handler) SetProjectWorkStore(store projectwork.Store) {

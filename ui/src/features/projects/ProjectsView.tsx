@@ -20,10 +20,13 @@ import {
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
   getProjectMemory,
+  getProjectMemoryCandidates,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
   startProjectAssignment,
+  promoteProjectMemoryCandidate,
+  rejectProjectMemoryCandidate,
   updateProject,
   updateProjectAssignment,
   updateProjectHandoff,
@@ -39,6 +42,7 @@ import type {
   ProjectAssignmentRecord,
   ProjectActivityData,
   ProjectActivityItemRecord,
+  ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
   CreateProjectHandoffPayload,
   ProjectHandoffRecord,
@@ -187,7 +191,10 @@ const MEMORY_TRUST_LABELS = [
 ];
 const MEMORY_SOURCE_KINDS = [
   "operator",
+  "generated",
   "generated_summary",
+  "task_output",
+  "chat_message",
   "handoff",
   "project_launch_context",
   "external_handoff",
@@ -280,9 +287,14 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   const [startingAssignmentID, setStartingAssignmentID] = useState("");
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryRecord[]>([]);
+  const [memoryCandidates, setMemoryCandidates] = useState<ProjectMemoryCandidateRecord[]>([]);
   const [memoryLoadState, setMemoryLoadState] = useState<LoadState>("idle");
   const [memoryError, setMemoryError] = useState("");
   const [editingMemory, setEditingMemory] = useState<ProjectMemoryRecord | "new" | null>(null);
+  const [promotingCandidate, setPromotingCandidate] = useState<ProjectMemoryCandidateRecord | null>(
+    null,
+  );
+  const [rejectingCandidateID, setRejectingCandidateID] = useState("");
   const [memoryPending, setMemoryPending] = useState(false);
   const [deleteMemory, setDeleteMemory] = useState<ProjectMemoryRecord | null>(null);
   const [deleteMemoryPending, setDeleteMemoryPending] = useState(false);
@@ -407,18 +419,26 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setMemoryError("");
     if (!projectID) {
       setMemoryEntries([]);
+      setMemoryCandidates([]);
       setEditingMemory(null);
+      setPromotingCandidate(null);
       setDeleteMemory(null);
       setMemoryLoadState("idle");
       return;
     }
     setMemoryEntries([]);
+    setMemoryCandidates([]);
     setEditingMemory(null);
+    setPromotingCandidate(null);
     setDeleteMemory(null);
     setMemoryLoadState("loading");
     try {
-      const payload = await getProjectMemory(projectID, true);
-      setMemoryEntries(payload.data ?? []);
+      const [memoryPayload, candidatePayload] = await Promise.all([
+        getProjectMemory(projectID, true),
+        getProjectMemoryCandidates(projectID),
+      ]);
+      setMemoryEntries(memoryPayload.data ?? []);
+      setMemoryCandidates(candidatePayload.data ?? []);
       setMemoryLoadState("loaded");
     } catch (error) {
       setMemoryLoadState("error");
@@ -630,6 +650,48 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       return false;
     } finally {
       setRolesPending(false);
+    }
+  }
+
+  async function handlePromoteCandidate(form: MemoryForm) {
+    if (!selectedProjectID || !promotingCandidate) return;
+    const payload = {
+      title: form.title.trim(),
+      body: form.body.trim(),
+      trust_label: form.trustLabel.trim(),
+      source_kind: form.sourceKind.trim(),
+      source_id: form.sourceID.trim(),
+      enabled: form.enabled,
+    };
+    setMemoryPending(true);
+    setMemoryError("");
+    try {
+      const candidateRes = await promoteProjectMemoryCandidate(
+        selectedProjectID,
+        promotingCandidate.id,
+        payload,
+      );
+      setMemoryCandidates((current) => current.filter((item) => item.id !== candidateRes.data.id));
+      await loadProjectMemory(selectedProjectID);
+      setPromotingCandidate(null);
+    } catch (error) {
+      setMemoryError(errorMessage(error, "Failed to promote memory candidate."));
+    } finally {
+      setMemoryPending(false);
+    }
+  }
+
+  async function handleRejectCandidate(candidate: ProjectMemoryCandidateRecord) {
+    if (!selectedProjectID || rejectingCandidateID) return;
+    setRejectingCandidateID(candidate.id);
+    setMemoryError("");
+    try {
+      const res = await rejectProjectMemoryCandidate(selectedProjectID, candidate.id, {});
+      setMemoryCandidates((current) => current.filter((item) => item.id !== res.data.id));
+    } catch (error) {
+      setMemoryError(errorMessage(error, "Failed to reject memory candidate."));
+    } finally {
+      setRejectingCandidateID("");
     }
   }
 
@@ -1048,14 +1110,18 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           workItems={workItems}
         />
         <ProjectMemoryPanel
+          candidates={memoryCandidates}
           entries={memoryEntries}
           error={memoryError}
           loading={memoryLoadState === "loading"}
+          onPromoteCandidate={setPromotingCandidate}
+          onRejectCandidate={handleRejectCandidate}
           onDelete={setDeleteMemory}
           onEdit={setEditingMemory}
           onNew={() => setEditingMemory("new")}
           onRefresh={() => void loadProjectMemory(selectedProjectID)}
           project={selectedProject}
+          rejectingCandidateID={rejectingCandidateID}
         />
         <WorkItemDetail
           assignments={assignments}
@@ -1178,6 +1244,17 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           pending={memoryPending}
           onClose={() => setEditingMemory(null)}
           onSave={handleSaveMemory}
+        />
+      )}
+      {promotingCandidate && (
+        <ProjectMemoryModal
+          key={promotingCandidate.id}
+          candidate={promotingCandidate}
+          entry={null}
+          error={memoryError}
+          pending={memoryPending}
+          onClose={() => setPromotingCandidate(null)}
+          onSave={handlePromoteCandidate}
         />
       )}
 
@@ -1740,26 +1817,35 @@ function ProjectActivityRow({
 }
 
 function ProjectMemoryPanel({
+  candidates,
   entries,
   error,
   loading,
+  onPromoteCandidate,
+  onRejectCandidate,
   onDelete,
   onEdit,
   onNew,
   onRefresh,
   project,
+  rejectingCandidateID,
 }: {
+  candidates: ProjectMemoryCandidateRecord[];
   entries: ProjectMemoryRecord[];
   error: string;
   loading: boolean;
+  onPromoteCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
+  onRejectCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
   onDelete: (entry: ProjectMemoryRecord) => void;
   onEdit: (entry: ProjectMemoryRecord) => void;
   onNew: () => void;
   onRefresh: () => void;
   project: ProjectRecord | null;
+  rejectingCandidateID: string;
 }) {
   if (!project) return null;
   const enabledCount = entries.filter((entry) => entry.enabled).length;
+  const pendingCount = candidates.filter((candidate) => candidate.status === "pending").length;
   return (
     <div style={{ padding: "12px 16px 0" }}>
       <div style={panelStyle}>
@@ -1769,7 +1855,7 @@ function ProjectMemoryPanel({
             <div style={{ ...subtleTextStyle, marginTop: 3 }}>
               {loading
                 ? "Loading project memory…"
-                : `${enabledCount} enabled / ${entries.length} saved entries`}
+                : `${enabledCount} enabled / ${entries.length} saved entries · ${pendingCount} pending candidates`}
             </div>
           </div>
           <button
@@ -1796,6 +1882,20 @@ function ProjectMemoryPanel({
           Enabled entries appear in chat context packets with their trust label. Standalone native
           task context still resolves only when linked to a Hecate Chat packet.
         </div>
+        {candidates.length > 0 && (
+          <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+            <div style={sectionLabelStyle}>Candidates</div>
+            {candidates.map((candidate) => (
+              <ProjectMemoryCandidateRow
+                key={candidate.id}
+                candidate={candidate}
+                pendingReject={rejectingCandidateID === candidate.id}
+                onPromote={() => onPromoteCandidate(candidate)}
+                onReject={() => onRejectCandidate(candidate)}
+              />
+            ))}
+          </div>
+        )}
         {entries.length === 0 && !loading ? (
           <div style={subtleTextStyle}>No project memory entries saved yet.</div>
         ) : (
@@ -1863,24 +1963,84 @@ function ProjectMemoryRow({
   );
 }
 
+function ProjectMemoryCandidateRow({
+  candidate,
+  onPromote,
+  onReject,
+  pendingReject,
+}: {
+  candidate: ProjectMemoryCandidateRecord;
+  onPromote: () => void;
+  onReject: () => void;
+  pendingReject: boolean;
+}) {
+  const source = formatCandidateSource(candidate);
+  return (
+    <div style={memoryEntryStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <span className="badge badge-amber">{candidate.status}</span>
+        <span className="badge badge-muted">{candidate.suggested_trust_label}</span>
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{candidate.title}</div>
+        <button
+          className="btn btn-primary btn-sm"
+          type="button"
+          aria-label={`Promote memory candidate ${candidate.title}`}
+          onClick={onPromote}
+          title="Promote"
+        >
+          <Icon d={Icons.check} size={12} />
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-label={`Reject memory candidate ${candidate.title}`}
+          disabled={pendingReject}
+          onClick={onReject}
+          title="Reject"
+          style={{ color: "var(--red)" }}
+        >
+          <Icon d={Icons.x} size={12} />
+        </button>
+      </div>
+      <div style={memoryBodyStyle}>{candidate.body}</div>
+      <div style={metaLineStyle}>
+        <span>{source}</span>
+        <span>Suggested {formatAbsoluteTime(candidate.created_at)}</span>
+        <CopyableID text={candidate.id} compact />
+      </div>
+    </div>
+  );
+}
+
 function ProjectMemoryModal({
+  candidate,
   entry,
   error,
   pending,
   onClose,
   onSave,
 }: {
+  candidate?: ProjectMemoryCandidateRecord | null;
   entry: ProjectMemoryRecord | null;
   error: string;
   pending: boolean;
   onClose: () => void;
   onSave: (form: MemoryForm) => void | Promise<void>;
 }) {
-  const [form, setForm] = useState<MemoryForm>(() => memoryFormFromRecord(entry));
+  const [form, setForm] = useState<MemoryForm>(() =>
+    candidate ? memoryFormFromCandidate(candidate) : memoryFormFromRecord(entry),
+  );
   const valid = form.title.trim().length > 0 && form.body.trim().length > 0;
+  const isCandidate = Boolean(candidate);
   return (
     <Modal
-      title={entry ? "Edit project memory" : "New project memory"}
+      title={
+        isCandidate
+          ? "Promote memory candidate"
+          : entry
+            ? "Edit project memory"
+            : "New project memory"
+      }
       onClose={onClose}
       width={620}
       footer={
@@ -1891,7 +2051,13 @@ function ProjectMemoryModal({
           onClick={() => void onSave(form)}
           style={{ width: "100%", justifyContent: "center" }}
         >
-          {pending ? "Saving…" : entry ? "Save memory" : "Create memory"}
+          {pending
+            ? "Saving…"
+            : isCandidate
+              ? "Promote memory"
+              : entry
+                ? "Save memory"
+                : "Create memory"}
         </button>
       }
     >
@@ -3677,9 +3843,34 @@ function memoryFormFromRecord(entry: ProjectMemoryRecord | null): MemoryForm {
   };
 }
 
+function memoryFormFromCandidate(candidate: ProjectMemoryCandidateRecord): MemoryForm {
+  return {
+    title: candidate.title,
+    body: candidate.body,
+    trustLabel: candidate.suggested_trust_label || "generated_summary",
+    sourceKind: candidate.suggested_source_kind || "generated",
+    sourceID: candidate.suggested_source_id ?? "",
+    enabled: true,
+  };
+}
+
 function formatMemorySource(entry: ProjectMemoryRecord): string {
   const sourceKind = entry.source_kind || "operator";
   return entry.source_id ? `${sourceKind}:${entry.source_id}` : sourceKind;
+}
+
+function formatCandidateSource(candidate: ProjectMemoryCandidateRecord): string {
+  const refs = candidate.source_refs ?? [];
+  if (refs.length > 0) {
+    const ref = refs[0];
+    const label = ref.title || ref.id || ref.kind;
+    const suffix = refs.length > 1 ? ` +${refs.length - 1}` : "";
+    return `${ref.kind}:${label}${suffix}`;
+  }
+  const sourceKind = candidate.suggested_source_kind || "generated";
+  return candidate.suggested_source_id
+    ? `${sourceKind}:${candidate.suggested_source_id}`
+    : sourceKind;
 }
 
 function buildProjectAssignmentChatLaunchRequest({

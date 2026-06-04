@@ -183,3 +183,139 @@ func TestMemoryStore_UpdateRejectsImmutableFields(t *testing.T) {
 		})
 	}
 }
+
+func TestMemoryStore_CandidateLifecycle(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	created, err := store.CreateCandidate(ctx, Candidate{
+		ID:                  "memcand_alpha",
+		ProjectID:           " proj_alpha ",
+		Title:               " Review finding ",
+		Body:                " Keep generated content labelled. ",
+		SuggestedKind:       "note",
+		SuggestedTrustLabel: " generated_summary ",
+		SuggestedSourceKind: " task_output ",
+		SuggestedSourceID:   " run_1 ",
+		SourceRefs: []CandidateSourceRef{
+			{Kind: "task_run", ID: "run_1", Title: "Run 1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+	if created.Status != CandidateStatusPending || created.ProjectID != "proj_alpha" {
+		t.Fatalf("created candidate = %+v, want pending scoped candidate", created)
+	}
+	if created.Title != "Review finding" || created.Body != "Keep generated content labelled." {
+		t.Fatalf("trimmed candidate = %+v, want trimmed title/body", created)
+	}
+
+	got, ok, err := store.GetCandidate(ctx, "proj_alpha", "memcand_alpha")
+	if err != nil || !ok {
+		t.Fatalf("GetCandidate ok=%v err=%v, want candidate", ok, err)
+	}
+	if len(got.SourceRefs) != 1 || got.SourceRefs[0].ID != "run_1" {
+		t.Fatalf("source refs = %+v, want run_1", got.SourceRefs)
+	}
+	got.SourceRefs[0].ID = "mutated"
+	again, ok, err := store.GetCandidate(ctx, "proj_alpha", "memcand_alpha")
+	if err != nil || !ok {
+		t.Fatalf("GetCandidate again ok=%v err=%v, want candidate", ok, err)
+	}
+	if again.SourceRefs[0].ID != "run_1" {
+		t.Fatalf("stored source ref mutated through caller: %+v", again.SourceRefs)
+	}
+
+	updated, err := store.UpdateCandidate(ctx, "proj_alpha", "memcand_alpha", func(item *Candidate) {
+		item.Status = CandidateStatusPromoted
+		item.PromotedMemoryID = "mem_alpha"
+	})
+	if err != nil {
+		t.Fatalf("UpdateCandidate: %v", err)
+	}
+	if updated.Status != CandidateStatusPromoted || updated.PromotedMemoryID != "mem_alpha" {
+		t.Fatalf("updated candidate = %+v, want promoted marker", updated)
+	}
+
+	pending, err := store.ListCandidates(ctx, CandidateFilter{ProjectID: "proj_alpha", Status: CandidateStatusPending})
+	if err != nil {
+		t.Fatalf("ListCandidates pending: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending candidates = %+v, want none", pending)
+	}
+	all, err := store.ListCandidates(ctx, CandidateFilter{ProjectID: "proj_alpha"})
+	if err != nil {
+		t.Fatalf("ListCandidates all: %v", err)
+	}
+	if len(all) != 1 || all[0].ID != "memcand_alpha" {
+		t.Fatalf("all candidates = %+v, want memcand_alpha", all)
+	}
+
+	deleted, err := store.DeleteCandidatesByProjectID(ctx, "proj_alpha")
+	if err != nil {
+		t.Fatalf("DeleteCandidatesByProjectID: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+}
+
+func TestMemoryStore_PromoteCandidateIsSingleOperation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	if _, err := store.CreateCandidate(ctx, Candidate{
+		ID:        "memcand_alpha",
+		ProjectID: "proj_alpha",
+		Title:     "Candidate",
+		Body:      "Review me.",
+	}); err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+	candidate, entry, err := store.PromoteCandidate(ctx, "proj_alpha", "memcand_alpha", Entry{
+		ID:         "mem_alpha",
+		Title:      "Promoted",
+		Body:       "Reviewed.",
+		Enabled:    true,
+		SourceKind: SourceKindOperator,
+	})
+	if err != nil {
+		t.Fatalf("PromoteCandidate: %v", err)
+	}
+	if candidate.Status != CandidateStatusPromoted || candidate.PromotedMemoryID != entry.ID {
+		t.Fatalf("promoted candidate = %+v entry=%+v, want linked promoted entry", candidate, entry)
+	}
+	retriedCandidate, retriedEntry, err := store.PromoteCandidate(ctx, "proj_alpha", "memcand_alpha", Entry{
+		ID:      "mem_duplicate",
+		Title:   "Duplicate",
+		Body:    "Should not save.",
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("repeat PromoteCandidate: %v", err)
+	}
+	if retriedCandidate.PromotedMemoryID != entry.ID || retriedEntry.ID != entry.ID {
+		t.Fatalf("repeat promotion = candidate %+v entry %+v, want original entry %q", retriedCandidate, retriedEntry, entry.ID)
+	}
+	entries, err := store.List(ctx, Filter{ProjectID: "proj_alpha", IncludeDisabled: true})
+	if err != nil {
+		t.Fatalf("List entries: %v", err)
+	}
+	if len(entries) != 1 || entries[0].ID != "mem_alpha" {
+		t.Fatalf("entries after repeat promote = %+v, want only original promoted entry", entries)
+	}
+}
+
+func TestMemoryStore_CandidateValidation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	if _, err := store.CreateCandidate(ctx, Candidate{ID: "memcand", ProjectID: "proj", Title: "T", Body: "B", Status: "unknown"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("CreateCandidate unsupported status error = %v, want ErrInvalid", err)
+	}
+	if _, err := store.CreateCandidate(ctx, Candidate{ID: "memcand_promoted", ProjectID: "proj", Title: "T", Body: "B", PromotedMemoryID: "mem"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("CreateCandidate promoted id without status error = %v, want ErrInvalid", err)
+	}
+}

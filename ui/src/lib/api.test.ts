@@ -7,6 +7,7 @@ import {
   createProjectAssignment,
   createProjectHandoff,
   createProjectMemory,
+  createProjectMemoryCandidate,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteChatGrant,
@@ -28,6 +29,7 @@ import {
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
   getProjectMemory,
+  getProjectMemoryCandidates,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
@@ -40,7 +42,9 @@ import {
   listChatMessageFiles,
   openWorkspaceTargetViaAPI,
   probeAgentAdapter,
+  promoteProjectMemoryCandidate,
   refreshAgentAdapterLauncher,
+  rejectProjectMemoryCandidate,
   revertChatMessageFiles,
   revertChatWorkspaceFiles,
   resolveChatApproval,
@@ -395,7 +399,17 @@ describe("api client", () => {
       .mockResolvedValueOnce(
         jsonResponse({ object: "project_memory_entry", data: { id: "mem/1" } }),
       )
-      .mockResolvedValueOnce(jsonResponse(null));
+      .mockResolvedValueOnce(jsonResponse(null))
+      .mockResolvedValueOnce(jsonResponse({ object: "project_memory_candidates", data: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ object: "project_memory_candidate", data: { id: "memcand/1" } }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ object: "project_memory_candidate", data: { id: "memcand/1" } }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ object: "project_memory_candidate", data: { id: "memcand/2" } }),
+      );
 
     await getProjectMemory("proj/1", true);
     await createProjectMemory("proj/1", {
@@ -409,6 +423,24 @@ describe("api client", () => {
       enabled: false,
     });
     await deleteProjectMemory("proj/1", "mem/1");
+    await getProjectMemoryCandidates("proj/1", true);
+    await createProjectMemoryCandidate("proj/1", {
+      title: "Candidate",
+      body: "Review me.",
+      suggested_trust_label: "generated_summary",
+      suggested_source_kind: "task_output",
+      source_refs: [{ kind: "task_run", id: "run/1" }],
+    });
+    await promoteProjectMemoryCandidate("proj/1", "memcand/1", {
+      title: "Reviewed",
+      body: "Reviewed body.",
+      trust_label: "operator_memory",
+      source_kind: "operator",
+      enabled: true,
+    });
+    await rejectProjectMemoryCandidate("proj/1", "memcand/2", {
+      reason: "Too speculative",
+    });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -443,6 +475,47 @@ describe("api client", () => {
       4,
       "/hecate/v1/projects/proj%2F1/memory/mem%2F1",
       expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "/hecate/v1/projects/proj%2F1/memory/candidates?include_resolved=true",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      "/hecate/v1/projects/proj%2F1/memory/candidates",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "Candidate",
+          body: "Review me.",
+          suggested_trust_label: "generated_summary",
+          suggested_source_kind: "task_output",
+          source_refs: [{ kind: "task_run", id: "run/1" }],
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      7,
+      "/hecate/v1/projects/proj%2F1/memory/candidates/memcand%2F1/promote",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "Reviewed",
+          body: "Reviewed body.",
+          trust_label: "operator_memory",
+          source_kind: "operator",
+          enabled: true,
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      8,
+      "/hecate/v1/projects/proj%2F1/memory/candidates/memcand%2F2/reject",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ reason: "Too speculative" }),
+      }),
     );
   });
 
