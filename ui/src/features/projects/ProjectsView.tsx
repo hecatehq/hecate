@@ -118,6 +118,61 @@ type ProjectTimelineItem = {
   assignment?: ProjectAssignmentRecord;
 };
 
+type ProjectHealthMetric = {
+  key:
+    | ProjectActivityBucketKey
+    | "approvals"
+    | "failed"
+    | "stale"
+    | "defaults"
+    | "context"
+    | "handoffs"
+    | "memory_candidates";
+  label: string;
+  value: number | string;
+  status: string;
+  detail: string;
+  bucket?: ProjectActivityBucketKey;
+};
+
+type ProjectHealthAttention = {
+  id: string;
+  title: string;
+  detail: string;
+  status: string;
+  bucket?: ProjectActivityBucketKey;
+  workItemID?: string;
+  taskID?: string;
+  runID?: string;
+  candidateID?: string;
+  actionLabel?: string;
+};
+
+type ProjectHealthSummary = {
+  activeNow: number;
+  waitingApproval: number;
+  blockedOrFailed: number;
+  recentCompleted: number;
+  staleAssignments: number;
+  missingDefaults: boolean;
+  enabledMemory: number;
+  savedMemory: number;
+  enabledContextSources: number;
+  memoryCandidates: {
+    pending: number;
+    promoted: number;
+    rejected: number;
+  };
+  handoffs: {
+    total: number;
+    pending: number;
+    accepted: number;
+    superseded: number;
+    dismissed: number;
+  };
+  attention: ProjectHealthAttention[];
+};
+
 type NewWorkItemForm = {
   title: string;
   brief: string;
@@ -295,6 +350,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [workItems, setWorkItems] = useState<ProjectWorkItemRecord[]>([]);
   const [workItemSummaries, setWorkItemSummaries] = useState<Record<string, WorkItemSummary>>({});
   const [activity, setActivity] = useState<ProjectActivityData | null>(null);
+  const [activityBucket, setActivityBucket] = useState<ProjectActivityBucketKey>("blocked");
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
   const [selectedWorkItem, setSelectedWorkItem] = useState<ProjectWorkItemRecord | null>(null);
@@ -1121,6 +1177,24 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       </section>
 
       <section style={detailStyle} aria-label="Selected work item">
+        <ProjectHealthPanel
+          activity={activity}
+          bucket={activityBucket}
+          loading={workLoadState === "loading"}
+          memoryCandidates={memoryCandidates}
+          memoryEntries={memoryEntries}
+          onBucketChange={setActivityBucket}
+          onEditDefaults={() => {
+            setDefaultsError("");
+            setDefaultsModalOpen(true);
+          }}
+          onNewMemory={() => setEditingMemory("new")}
+          onOpenTask={onOpenTask}
+          onReviewCandidate={setPromotingCandidate}
+          onSelectWorkItem={setSelectedWorkItemID}
+          project={selectedProject}
+          workItems={workItems}
+        />
         <ProjectTimelinePanel
           activity={activity}
           artifacts={artifacts}
@@ -1137,9 +1211,11 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
         />
         <ProjectActivityInbox
           activity={activity}
+          bucket={activityBucket}
           loading={workLoadState === "loading"}
           onOpenChat={onOpenChat}
           onOpenTask={onOpenTask}
+          onBucketChange={setActivityBucket}
           onSelectWorkItem={setSelectedWorkItemID}
           onStartAssignment={(assignment, workItemID) =>
             void handleStartAssignment(assignment, workItemID)
@@ -1625,11 +1701,250 @@ function WorkItemRow({
   );
 }
 
+function ProjectHealthPanel({
+  activity,
+  bucket,
+  loading,
+  memoryCandidates,
+  memoryEntries,
+  onBucketChange,
+  onEditDefaults,
+  onNewMemory,
+  onOpenTask,
+  onReviewCandidate,
+  onSelectWorkItem,
+  project,
+  workItems,
+}: {
+  activity: ProjectActivityData | null;
+  bucket: ProjectActivityBucketKey;
+  loading: boolean;
+  memoryCandidates: ProjectMemoryCandidateRecord[];
+  memoryEntries: ProjectMemoryRecord[];
+  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
+  onEditDefaults: () => void;
+  onNewMemory: () => void;
+  onOpenTask?: (taskID: string, runID?: string) => void;
+  onReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
+  onSelectWorkItem: (workItemID: string) => void;
+  project: ProjectRecord | null;
+  workItems: ProjectWorkItemRecord[];
+}) {
+  const health = useMemo(
+    () => buildProjectHealthSummary(project, activity, workItems, memoryEntries, memoryCandidates),
+    [activity, memoryCandidates, memoryEntries, project, workItems],
+  );
+  if (!project) return null;
+
+  const metrics = projectHealthMetrics(health);
+  const contextDetail =
+    health.enabledMemory > 0 || health.enabledContextSources > 0
+      ? `${health.enabledMemory} memory / ${health.enabledContextSources} source`
+      : "No enabled memory or context sources";
+  const candidateDetail =
+    health.memoryCandidates.pending > 0
+      ? `${health.memoryCandidates.pending} pending review`
+      : `${health.memoryCandidates.promoted} promoted, ${health.memoryCandidates.rejected} rejected`;
+
+  return (
+    <section style={{ padding: "16px 16px 0" }} aria-label="Project health">
+      <div style={panelStyle}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 12,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={sectionLabelStyle}>Project Health</div>
+            <div style={{ ...titleStyle, fontSize: 14, marginTop: 3 }}>
+              What needs attention now
+            </div>
+            <div style={{ ...subtleTextStyle, marginTop: 4 }}>
+              {loading && !activity
+                ? "Loading project status…"
+                : `${health.activeNow} active, ${health.waitingApproval} waiting, ${health.blockedOrFailed} blocked or failed`}
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onEditDefaults}>
+            <Icon d={Icons.settings} size={12} />
+            Edit defaults
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onNewMemory}>
+            <Icon d={Icons.plus} size={12} />
+            Add memory
+          </button>
+        </div>
+
+        <div style={healthMetricGridStyle}>
+          {metrics.map((metric) => (
+            <button
+              key={metric.key}
+              className="btn btn-ghost"
+              type="button"
+              aria-pressed={metric.bucket ? bucket === metric.bucket : undefined}
+              aria-label={
+                metric.bucket
+                  ? `Show ${metric.label.toLowerCase()} assignments`
+                  : `Project ${metric.label.toLowerCase()} status`
+              }
+              onClick={() => {
+                if (metric.bucket) onBucketChange(metric.bucket);
+                if (metric.key === "defaults") onEditDefaults();
+                if (metric.key === "context") onNewMemory();
+              }}
+              style={healthMetricStyle}
+            >
+              <Badge status={metric.status} label={String(metric.value)} />
+              <span style={{ ...titleStyle, whiteSpace: "normal" }}>{metric.label}</span>
+              <span style={subtleTextStyle}>{metric.detail}</span>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12 }}>
+          <div style={healthColumnStyle}>
+            <div style={sectionLabelStyle}>Needs Attention</div>
+            {health.attention.length === 0 ? (
+              <div style={{ ...subtleTextStyle, marginTop: 8 }}>
+                No approvals, pending handoffs, memory reviews, failures, stale assignments, or
+                missing launch defaults detected.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                {health.attention.map((item) => (
+                  <ProjectHealthAttentionRow
+                    key={item.id}
+                    item={item}
+                    onBucketChange={onBucketChange}
+                    onOpenTask={onOpenTask}
+                    onReviewCandidate={onReviewCandidate}
+                    onSelectWorkItem={onSelectWorkItem}
+                    reviewCandidate={memoryCandidates.find(
+                      (candidate) => candidate.id === item.candidateID,
+                    )}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+          <div style={healthColumnStyle}>
+            <div style={sectionLabelStyle}>Memory / Context</div>
+            <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+              <div style={healthContextLineStyle}>
+                <span style={titleStyle}>Project memory</span>
+                <span
+                  className={health.enabledMemory > 0 ? "badge badge-muted" : "badge badge-amber"}
+                >
+                  {health.enabledMemory} enabled
+                </span>
+              </div>
+              <div style={healthContextLineStyle}>
+                <span style={titleStyle}>Context sources</span>
+                <span
+                  className={
+                    health.enabledContextSources > 0 ? "badge badge-muted" : "badge badge-amber"
+                  }
+                >
+                  {health.enabledContextSources} enabled
+                </span>
+              </div>
+              <div style={healthContextLineStyle}>
+                <span style={titleStyle}>Memory candidates</span>
+                <span
+                  className={
+                    health.memoryCandidates.pending > 0 ? "badge badge-amber" : "badge badge-muted"
+                  }
+                >
+                  {health.memoryCandidates.pending} pending
+                </span>
+              </div>
+              <div style={subtleTextStyle}>{contextDetail}</div>
+              <div style={subtleTextStyle}>{candidateDetail}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProjectHealthAttentionRow({
+  item,
+  onBucketChange,
+  onOpenTask,
+  onReviewCandidate,
+  onSelectWorkItem,
+  reviewCandidate,
+}: {
+  item: ProjectHealthAttention;
+  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
+  onOpenTask?: (taskID: string, runID?: string) => void;
+  onReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
+  onSelectWorkItem: (workItemID: string) => void;
+  reviewCandidate?: ProjectMemoryCandidateRecord;
+}) {
+  return (
+    <div style={healthAttentionStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <Badge status={item.status} label={activitySignalLabel(item.status)} />
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{item.title}</div>
+        {item.bucket && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onBucketChange(item.bucket!)}
+          >
+            {item.actionLabel ?? "Inbox"}
+          </button>
+        )}
+        {item.workItemID && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-label="Open attention details"
+            onClick={() => onSelectWorkItem(item.workItemID!)}
+          >
+            Details
+          </button>
+        )}
+        {item.taskID && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-label="Open attention task"
+            onClick={() => onOpenTask?.(item.taskID!, item.runID)}
+            disabled={!onOpenTask}
+          >
+            <Icon d={Icons.tasks} size={12} />
+            Task
+          </button>
+        )}
+        {reviewCandidate && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-label="Review memory candidate"
+            onClick={() => onReviewCandidate(reviewCandidate)}
+          >
+            Review candidate
+          </button>
+        )}
+      </div>
+      <div style={{ ...subtleTextStyle, marginTop: 6 }}>{item.detail}</div>
+    </div>
+  );
+}
+
 function ProjectActivityInbox({
   activity,
+  bucket,
   loading,
   onOpenChat,
   onOpenTask,
+  onBucketChange,
   onSelectWorkItem,
   onStartAssignment,
   project,
@@ -1637,16 +1952,17 @@ function ProjectActivityInbox({
   workItems,
 }: {
   activity: ProjectActivityData | null;
+  bucket: ProjectActivityBucketKey;
   loading: boolean;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
+  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
   onSelectWorkItem: (workItemID: string) => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord, workItemID: string) => void;
   project: ProjectRecord | null;
   startingAssignmentID: string;
   workItems: ProjectWorkItemRecord[];
 }) {
-  const [bucket, setBucket] = useState<ProjectActivityBucketKey>("blocked");
   const counts = activity?.summary;
   const buckets = activity?.buckets;
   const selectedItems = buckets?.[bucket] ?? [];
@@ -1680,7 +1996,7 @@ function ProjectActivityInbox({
                 key={tab.id}
                 className={bucket === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
                 type="button"
-                onClick={() => setBucket(tab.id)}
+                onClick={() => onBucketChange(tab.id)}
               >
                 {tab.label}
                 <span className="badge badge-muted">{tab.count}</span>
@@ -2278,32 +2594,39 @@ function ProjectMemoryCandidateRow({
   pendingReject: boolean;
 }) {
   const source = formatCandidateSource(candidate);
+  const pending = candidate.status === "pending";
   return (
     <div style={memoryEntryStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-        <span className="badge badge-amber">{candidate.status}</span>
+        <span className={pending ? "badge badge-amber" : "badge badge-muted"}>
+          {candidate.status}
+        </span>
         <span className="badge badge-muted">{candidate.suggested_trust_label}</span>
         <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{candidate.title}</div>
-        <button
-          className="btn btn-primary btn-sm"
-          type="button"
-          aria-label={`Promote memory candidate ${candidate.title}`}
-          onClick={onPromote}
-          title="Promote"
-        >
-          <Icon d={Icons.check} size={12} />
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          aria-label={`Reject memory candidate ${candidate.title}`}
-          disabled={pendingReject}
-          onClick={onReject}
-          title="Reject"
-          style={{ color: "var(--red)" }}
-        >
-          <Icon d={Icons.x} size={12} />
-        </button>
+        {pending && (
+          <>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              aria-label={`Promote memory candidate ${candidate.title}`}
+              onClick={onPromote}
+              title="Promote"
+            >
+              <Icon d={Icons.check} size={12} />
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-label={`Reject memory candidate ${candidate.title}`}
+              disabled={pendingReject}
+              onClick={onReject}
+              title="Reject"
+              style={{ color: "var(--red)" }}
+            >
+              <Icon d={Icons.x} size={12} />
+            </button>
+          </>
+        )}
       </div>
       <div style={memoryBodyStyle}>{candidate.body}</div>
       <div style={metaLineStyle}>
@@ -4146,6 +4469,267 @@ function buildProjectTimelineItems({
   return Array.from(items.values()).sort(compareTimelineItems);
 }
 
+function buildProjectHealthSummary(
+  project: ProjectRecord | null,
+  activity: ProjectActivityData | null,
+  workItems: ProjectWorkItemRecord[],
+  memoryEntries: ProjectMemoryRecord[],
+  memoryCandidates: ProjectMemoryCandidateRecord[],
+): ProjectHealthSummary {
+  const activityItems = uniqueActivityItems(activity);
+  const projectedAssignments = workItems.flatMap((item) =>
+    (item.assignments ?? []).map((assignment) => ({
+      assignment,
+      workItem: item,
+      status: assignment.execution?.status || assignment.status,
+    })),
+  );
+  const waitingItems = activityItems.filter((item) => isWaitingApprovalActivity(item));
+  const failedItems = activityItems.filter((item) => isFailedOrCancelledActivity(item));
+  const staleItems = [
+    ...activityItems.filter((item) => item.blocking_signal === "stale_unknown"),
+    ...activityItems.filter((item) => item.assignment.execution?.missing),
+    ...projectedAssignments
+      .filter((item) => isStaleAssignment(item.assignment, item.status))
+      .map((item) => projectAssignmentToActivityAttention(project, item.workItem, item.assignment)),
+  ].filter(Boolean) as ProjectActivityItemRecord[];
+  const notStartedItems = activityItems.filter((item) => item.blocking_signal === "not_started");
+  const enabledMemory = memoryEntries.filter((entry) => entry.enabled).length;
+  const enabledContextSources = (project?.context_sources ?? []).filter(
+    (source) => source.enabled,
+  ).length;
+  const memoryCandidateSummary = summarizeProjectMemoryCandidates(memoryCandidates);
+  const handoffSummary = summarizeProjectHandoffs(activityItems);
+  const summary = activity?.summary;
+  const missingDefaults = Boolean(project && (!project.default_provider || !project.default_model));
+  const attention: ProjectHealthAttention[] = [];
+  const firstWaiting = waitingItems[0];
+  if (firstWaiting) {
+    attention.push(
+      activityAttention(firstWaiting, "Approval waiting", "View approvals", "blocked"),
+    );
+  }
+  const firstFailed = failedItems[0];
+  if (firstFailed) {
+    attention.push(
+      activityAttention(firstFailed, "Execution needs review", "View blocked", "blocked"),
+    );
+  }
+  if (missingDefaults && project) {
+    attention.push({
+      id: `${project.id}:defaults`,
+      title: "Provider/model defaults missing",
+      detail: "Native project starts and assignment chats need a default provider and model.",
+      status: "awaiting_approval",
+    });
+  }
+  const firstPendingHandoff = activityItems.find((item) => hasPendingHandoff(item));
+  if (firstPendingHandoff) {
+    const latestHandoff = firstPendingHandoff.recent_handoffs?.find(
+      (handoff) => handoff.status === "pending",
+    );
+    attention.push({
+      id: `${firstPendingHandoff.id}:handoff`,
+      title: `Pending handoff: ${firstPendingHandoff.work_item.title}`,
+      detail: [
+        firstNonEmpty(
+          latestHandoff?.title,
+          firstPendingHandoff.handoff_summary?.latest_title,
+          "Handoff awaiting operator follow-up",
+        ),
+        firstPendingHandoff.role.name || firstPendingHandoff.assignment.role_id,
+        firstPendingHandoff.handoff_summary?.latest_at
+          ? `updated ${formatAbsoluteTime(firstPendingHandoff.handoff_summary.latest_at)}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      status: "awaiting_approval",
+      bucket: "recent",
+      workItemID: firstPendingHandoff.work_item.id,
+      actionLabel: "View recent",
+    });
+  }
+  const firstStale = staleItems[0];
+  if (firstStale) {
+    attention.push(
+      activityAttention(firstStale, "Stale or unknown assignment", "View blocked", "blocked"),
+    );
+  }
+  const firstNotStarted = notStartedItems[0];
+  if (firstNotStarted) {
+    attention.push(
+      activityAttention(firstNotStarted, "Assignment not started", "View blocked", "blocked"),
+    );
+  }
+  if (enabledMemory === 0 && enabledContextSources === 0 && project) {
+    attention.push({
+      id: `${project.id}:context`,
+      title: "No project memory or context sources enabled",
+      detail: "Project-scoped context is empty for new chats and linked context packets.",
+      status: "stale_unknown",
+    });
+  }
+  const firstPendingCandidate = memoryCandidates.find(
+    (candidate) => candidate.status === "pending",
+  );
+  if (firstPendingCandidate) {
+    attention.push({
+      id: `${firstPendingCandidate.id}:memory-candidate`,
+      title: "Memory candidate pending review",
+      detail: `${firstPendingCandidate.title} · ${firstPendingCandidate.suggested_trust_label}`,
+      status: "awaiting_approval",
+      candidateID: firstPendingCandidate.id,
+    });
+  }
+
+  return {
+    activeNow: summary?.active_count ?? countActivityBySignals(activityItems, ["running"]),
+    waitingApproval: waitingItems.length,
+    blockedOrFailed: failedItems.length,
+    recentCompleted: activity?.buckets.completed.length ?? summary?.completed_count ?? 0,
+    staleAssignments: uniqueByID(staleItems).length,
+    missingDefaults,
+    enabledMemory,
+    savedMemory: memoryEntries.length,
+    enabledContextSources,
+    memoryCandidates: memoryCandidateSummary,
+    handoffs: handoffSummary,
+    attention: uniqueAttention(attention).slice(0, 5),
+  };
+}
+
+function projectHealthMetrics(health: ProjectHealthSummary): ProjectHealthMetric[] {
+  return [
+    {
+      key: "active",
+      label: "Active work",
+      value: health.activeNow,
+      status: health.activeNow > 0 ? "running" : "completed",
+      detail: "queued, running, or live",
+      bucket: "active",
+    },
+    {
+      key: "approvals",
+      label: "Waiting approval",
+      value: health.waitingApproval,
+      status: health.waitingApproval > 0 ? "awaiting_approval" : "completed",
+      detail: "operator decisions pending",
+      bucket: "blocked",
+    },
+    {
+      key: "handoffs",
+      label: "Pending handoffs",
+      value: health.handoffs.pending,
+      status: health.handoffs.pending > 0 ? "awaiting_approval" : "completed",
+      detail: `${health.handoffs.accepted} accepted, ${health.handoffs.superseded} superseded, ${health.handoffs.dismissed} dismissed`,
+      bucket: "recent",
+    },
+    {
+      key: "failed",
+      label: "Blocked / failed",
+      value: health.blockedOrFailed,
+      status: health.blockedOrFailed > 0 ? "failed" : "completed",
+      detail: "blocked, failed, cancelled",
+      bucket: "blocked",
+    },
+    {
+      key: "completed",
+      label: "Recent completions",
+      value: health.recentCompleted,
+      status: "completed",
+      detail: "finished project work",
+      bucket: "completed",
+    },
+    {
+      key: "stale",
+      label: "Stale / unknown",
+      value: health.staleAssignments,
+      status: health.staleAssignments > 0 ? "stale_unknown" : "completed",
+      detail: "old active or missing linked run",
+      bucket: "blocked",
+    },
+    {
+      key: "defaults",
+      label: "Defaults",
+      value: health.missingDefaults ? "missing" : "set",
+      status: health.missingDefaults ? "awaiting_approval" : "completed",
+      detail: "provider and model",
+    },
+    {
+      key: "context",
+      label: "Context",
+      value: health.enabledMemory + health.enabledContextSources,
+      status:
+        health.enabledMemory + health.enabledContextSources > 0 ? "completed" : "stale_unknown",
+      detail: `${health.enabledMemory}/${health.savedMemory} memory, ${health.enabledContextSources} sources`,
+    },
+    {
+      key: "memory_candidates",
+      label: "Memory candidates",
+      value: health.memoryCandidates.pending,
+      status: health.memoryCandidates.pending > 0 ? "awaiting_approval" : "completed",
+      detail: `${health.memoryCandidates.promoted} promoted, ${health.memoryCandidates.rejected} rejected`,
+    },
+  ];
+}
+
+function summarizeProjectMemoryCandidates(
+  candidates: ProjectMemoryCandidateRecord[],
+): ProjectHealthSummary["memoryCandidates"] {
+  return candidates.reduce<ProjectHealthSummary["memoryCandidates"]>(
+    (summary, candidate) => {
+      if (candidate.status === "pending") summary.pending += 1;
+      if (candidate.status === "promoted") summary.promoted += 1;
+      if (candidate.status === "rejected") summary.rejected += 1;
+      return summary;
+    },
+    { pending: 0, promoted: 0, rejected: 0 },
+  );
+}
+
+function summarizeProjectHandoffs(
+  items: ProjectActivityItemRecord[],
+): ProjectHealthSummary["handoffs"] {
+  const seenHandoffIDs = new Set<string>();
+  return items.reduce<ProjectHealthSummary["handoffs"]>(
+    (summary, item) => {
+      const handoffSummary = item.handoff_summary;
+      const recentHandoffs = item.recent_handoffs ?? [];
+      if (recentHandoffs.length > 0) {
+        for (const handoff of recentHandoffs) {
+          if (seenHandoffIDs.has(handoff.id)) continue;
+          seenHandoffIDs.add(handoff.id);
+          addHandoffStatus(summary, handoff.status);
+        }
+        return summary;
+      }
+      if (handoffSummary) {
+        summary.total += handoffSummary.count;
+        summary.pending += handoffSummary.pending_count ?? 0;
+        summary.accepted += handoffSummary.accepted_count ?? 0;
+      }
+      return summary;
+    },
+    { total: 0, pending: 0, accepted: 0, superseded: 0, dismissed: 0 },
+  );
+}
+
+function addHandoffStatus(summary: ProjectHealthSummary["handoffs"], status: string) {
+  summary.total += 1;
+  if (status === "pending") summary.pending += 1;
+  if (status === "accepted") summary.accepted += 1;
+  if (status === "superseded") summary.superseded += 1;
+  if (status === "dismissed") summary.dismissed += 1;
+}
+
+function hasPendingHandoff(item: ProjectActivityItemRecord): boolean {
+  return (
+    (item.handoff_summary?.pending_count ?? 0) > 0 ||
+    Boolean(item.recent_handoffs?.some((handoff) => handoff.status === "pending"))
+  );
+}
+
 function projectActivityItems(activity: ProjectActivityData | null): ProjectActivityItemRecord[] {
   if (!activity) return [];
   return [
@@ -4155,6 +4739,10 @@ function projectActivityItems(activity: ProjectActivityData | null): ProjectActi
     ...activity.buckets.recent,
     ...(activity.recent ?? []),
   ];
+}
+
+function uniqueActivityItems(activity: ProjectActivityData | null): ProjectActivityItemRecord[] {
+  return uniqueByID(projectActivityItems(activity));
 }
 
 function addTimelineArtifact(
@@ -4240,6 +4828,112 @@ function timelineBadgeClass(item: ProjectTimelineItem): string {
   }
   if (item.kind === "memory" && item.status === "stale_unknown") return "badge badge-amber";
   return "badge badge-muted";
+}
+
+function uniqueByID<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    unique.push(item);
+  }
+  return unique;
+}
+
+function uniqueAttention(items: ProjectHealthAttention[]): ProjectHealthAttention[] {
+  return uniqueByID(items);
+}
+
+function isWaitingApprovalActivity(item: ProjectActivityItemRecord): boolean {
+  return (
+    item.blocking_signal === "awaiting_approval" ||
+    item.status === "awaiting_approval" ||
+    Boolean(item.assignment.execution?.pending_approval_count)
+  );
+}
+
+function isFailedOrCancelledActivity(item: ProjectActivityItemRecord): boolean {
+  return (
+    item.blocking_signal === "failed" ||
+    item.status === "failed" ||
+    item.status === "cancelled" ||
+    item.assignment.execution?.status === "failed" ||
+    item.assignment.execution?.status === "cancelled"
+  );
+}
+
+function countActivityBySignals(items: ProjectActivityItemRecord[], signals: string[]): number {
+  return items.filter(
+    (item) => signals.includes(item.blocking_signal) || signals.includes(item.status),
+  ).length;
+}
+
+function isStaleAssignment(assignment: ProjectAssignmentRecord, status: string): boolean {
+  if (status !== "queued" && status !== "running" && status !== "awaiting_approval") return false;
+  const updatedAt = Date.parse(assignment.updated_at || assignment.started_at || "");
+  if (!Number.isFinite(updatedAt)) return false;
+  return Date.now() - updatedAt > 24 * 60 * 60 * 1000;
+}
+
+function projectAssignmentToActivityAttention(
+  project: ProjectRecord | null,
+  workItem: ProjectWorkItemRecord,
+  assignment: ProjectAssignmentRecord,
+): ProjectActivityItemRecord | null {
+  if (!project) return null;
+  return {
+    id: assignment.id,
+    project_id: project.id,
+    work_item: {
+      id: workItem.id,
+      title: workItem.title,
+      status: workItem.status,
+      priority: workItem.priority,
+    },
+    assignment,
+    role: {
+      id: assignment.role_id,
+      project_id: project.id,
+      name: assignment.role_id,
+      built_in: false,
+    },
+    status: assignment.execution?.status || assignment.status,
+    blocking_signal: "stale_unknown",
+    status_summary: "active assignment has not changed recently",
+    linked_task_id: assignment.execution?.task_id || assignment.task_id,
+    linked_run_id: assignment.execution?.run_id || assignment.run_id,
+    artifact_summary: { count: assignment.execution?.artifact_count ?? 0 },
+    updated_at: assignment.updated_at,
+  };
+}
+
+function activityAttention(
+  item: ProjectActivityItemRecord,
+  title: string,
+  actionLabel: string,
+  bucket: ProjectActivityBucketKey,
+): ProjectHealthAttention {
+  const taskID =
+    item.linked_task_id || item.assignment.execution?.task_id || item.assignment.task_id;
+  const runID = item.linked_run_id || item.assignment.execution?.run_id || item.assignment.run_id;
+  return {
+    id: item.id,
+    title: `${title}: ${item.work_item.title}`,
+    detail: [
+      item.status_summary,
+      item.role.name || item.assignment.role_id,
+      item.updated_at ? `updated ${formatAbsoluteTime(item.updated_at)}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    status: item.blocking_signal || item.status,
+    bucket,
+    workItemID: item.work_item.id,
+    taskID,
+    runID,
+    actionLabel,
+  };
 }
 
 function summarizeAssignments(assignments: ProjectAssignmentRecord[]): WorkItemSummary {
@@ -4773,6 +5467,43 @@ const decisionItemStyle: CSSProperties = {
   borderTop: "1px solid var(--border)",
   paddingTop: 8,
   minWidth: 0,
+};
+
+const healthMetricGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))",
+  gap: 8,
+  marginBottom: 12,
+};
+
+const healthMetricStyle: CSSProperties = {
+  alignItems: "flex-start",
+  border: "1px solid var(--border)",
+  display: "grid",
+  gap: 6,
+  justifyContent: "stretch",
+  minHeight: 92,
+  padding: 10,
+  textAlign: "left",
+};
+
+const healthColumnStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  paddingTop: 10,
+};
+
+const healthAttentionStyle: CSSProperties = {
+  background: "var(--bg2)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  padding: 9,
+};
+
+const healthContextLineStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  gap: 8,
+  justifyContent: "space-between",
 };
 
 const artifactStyle: CSSProperties = {

@@ -231,7 +231,12 @@ Initial UI should stay lightweight:
 - Let future “Use model” and “Use external agent” flows attach to the same project when started from the same workspace.
 - Let agent profiles expose whether project memory is injected, visible only,
   or disabled for that agent.
-- Add a project details surface later for defaults, memory, trusted docs, and recent activity.
+- Show a compact project health band in the project cockpit that derives
+  operational status from existing activity, assignment execution rollups,
+  handoff summaries, project defaults, memory entries, memory candidates, and
+  context-source metadata.
+- Keep the project details surface focused on defaults, memory, trusted docs,
+  activity, and assignment drill-downs.
 
 Avoid turning Projects into a heavy project-management product. This is a runtime identity and context boundary first.
 
@@ -263,8 +268,14 @@ assignment, but the handoff record itself does not dispatch another agent.
 The Projects UI also derives a compact project timeline / decision log from
 activity rows, structured handoffs, collaboration artifacts, project memory
 entries, and memory candidates; explicit decisions are only shown when existing
-`decision_note` artifacts are present. Broader task `project_id` scoping,
-profiles, and presets are not linked to `project_id` yet.
+`decision_note` artifacts are present. The Projects cockpit derives a compact
+health band from that activity response plus
+project defaults, handoff summaries, memory candidates, and memory/context
+metadata so operators can scan active work, waiting approvals, blocked or stale
+assignments, recent completions, pending handoffs, memory review work, missing
+provider/model defaults, and context readiness without adding a separate
+persisted health model. Broader task `project_id` scoping, profiles, and presets
+are not linked to `project_id` yet.
 
 Persist `project_id` on:
 
