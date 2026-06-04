@@ -38,7 +38,7 @@ type launchContextContract struct {
 
 func loadLaunchContextContract(t *testing.T) launchContextContract {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "rfcs", "launch-context-v1-contract.json"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "ui", "src", "test", "fixtures", "launch-context-v1-contract.json"))
 	if err != nil {
 		t.Fatalf("Read launch context contract: %v", err)
 	}

@@ -119,10 +119,11 @@ runtime ids, while native assignment starts place the same labelled pieces in
 the task prompt. Standalone native task runs still do not store a separate
 `ContextPacket`; the durable audit trail for those runs is the task prompt and
 system prompt until task-run context packets get their own storage path. The
-section and field vocabulary for this interim contract is captured in
-[`launch-context-v1-contract.json`](launch-context-v1-contract.json), which UI
-and backend tests both read to reduce drift between the client-side chat draft
-renderer and the server-side native task prompt renderer.
+section and field vocabulary for this interim contract is captured in the
+shared test fixture
+[`launch-context-v1-contract.json`](../../ui/src/test/fixtures/launch-context-v1-contract.json),
+which UI and backend tests both read to reduce drift between the client-side
+chat draft renderer and the server-side native task prompt renderer.
 
 ### 2. Trust Classification
 

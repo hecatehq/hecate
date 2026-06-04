@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import launchContextContractRaw from "../../../../docs/rfcs/launch-context-v1-contract.json";
 import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
 import { ProjectsProvider } from "../../app/state/projects";
 import {
@@ -28,6 +27,7 @@ import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
 } from "../../test/runtime-console-fixture";
+import launchContextContractRaw from "../../test/fixtures/launch-context-v1-contract.json";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type {
   ProjectAssignmentRecord,
