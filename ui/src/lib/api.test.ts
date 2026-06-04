@@ -5,11 +5,13 @@ import {
   cancelChatApproval,
   chatCompletions,
   createProjectAssignment,
+  createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteChatGrant,
   deletePolicyRule,
   deleteProjectAssignment,
+  deleteProjectMemory,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   discoverLocalProviders,
@@ -22,6 +24,7 @@ import {
   getProjectAssignments,
   getProjectActivity,
   getProjectCollaborationArtifacts,
+  getProjectMemory,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
@@ -47,6 +50,7 @@ import {
   updateChatSession,
   updateProject,
   updateProjectAssignment,
+  updateProjectMemory,
   updateProjectWorkRole,
   updateProjectWorkItem,
   type ApiError,
@@ -299,6 +303,67 @@ describe("api client", () => {
       6,
       "/hecate/v1/projects/proj%2F1/work-items/work%2F1/artifacts",
       expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("manages project memory requests", async () => {
+    fetchMock.mockClear();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ object: "project_memory", data: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ object: "project_memory_entry", data: { id: "mem/1" } }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ object: "project_memory_entry", data: { id: "mem/1" } }),
+      )
+      .mockResolvedValueOnce(jsonResponse(null));
+
+    await getProjectMemory("proj/1", true);
+    await createProjectMemory("proj/1", {
+      title: "Commit style",
+      body: "Use conventional commits.",
+      trust_label: "operator_memory",
+      source_kind: "operator",
+    });
+    await updateProjectMemory("proj/1", "mem/1", {
+      body: "Prefer small commits.",
+      enabled: false,
+    });
+    await deleteProjectMemory("proj/1", "mem/1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/hecate/v1/projects/proj%2F1/memory?include_disabled=true",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/hecate/v1/projects/proj%2F1/memory",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "Commit style",
+          body: "Use conventional commits.",
+          trust_label: "operator_memory",
+          source_kind: "operator",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/hecate/v1/projects/proj%2F1/memory/mem%2F1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          body: "Prefer small commits.",
+          enabled: false,
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/hecate/v1/projects/proj%2F1/memory/mem%2F1",
+      expect.objectContaining({ method: "DELETE" }),
     );
   });
 

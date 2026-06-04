@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -14,6 +15,7 @@ const chatContextPacketVersion = "chat.context.v1"
 
 const (
 	contextTrustSystemInstruction = "system_instruction"
+	contextTrustOperatorMemory    = "operator_memory"
 	contextTrustWorkspaceGuidance = "workspace_guidance"
 	contextTrustRuntimeState      = "runtime_state"
 )
@@ -152,6 +154,7 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 			InclusionReason: "Configured for this direct model turn",
 		})
 	}
+	appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
 	if strings.TrimSpace(session.Workspace) != "" {
 		appendContextPacketSource(&packet, chat.ContextSource{
 			Kind:   "workspace",
@@ -193,6 +196,7 @@ func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Sess
 			InclusionReason: "Stored on the backing task for this task segment",
 		})
 	}
+	appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
 	if strings.TrimSpace(session.Workspace) != "" {
 		appendContextPacketSource(&packet, chat.ContextSource{
 			Kind:   "workspace",
@@ -235,6 +239,7 @@ func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Sess
 func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.Session, adapterName string) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeExternalAgent, "", "", session.Workspace)
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
+	appendProjectMemory(&packet, h.projectMemoryEntries(ctx, session))
 	if strings.TrimSpace(session.Workspace) != "" {
 		appendContextPacketSource(&packet, chat.ContextSource{
 			Kind:   "workspace",
@@ -301,6 +306,44 @@ func (h *Handler) projectContextSources(ctx context.Context, session chat.Sessio
 		})
 	}
 	return sources
+}
+
+func (h *Handler) projectMemoryEntries(ctx context.Context, session chat.Session) []memory.Entry {
+	if h == nil || h.memory == nil || strings.TrimSpace(session.ProjectID) == "" {
+		return nil
+	}
+	items, err := h.memory.List(ctx, memory.Filter{ProjectID: session.ProjectID})
+	if err != nil {
+		return nil
+	}
+	return items
+}
+
+func appendProjectMemory(packet *chat.ContextPacket, entries []memory.Entry) {
+	for _, entry := range entries {
+		trust := strings.TrimSpace(entry.TrustLabel)
+		if trust == "" {
+			trust = contextTrustOperatorMemory
+		}
+		sourceDetail := strings.TrimSpace(entry.SourceKind)
+		if sourceID := strings.TrimSpace(entry.SourceID); sourceID != "" {
+			sourceDetail = firstNonEmptyString(sourceDetail, "operator") + ":" + sourceID
+		}
+		appendContextPacketSource(packet, chat.ContextSource{
+			Kind:   "memory",
+			Label:  entry.Title,
+			Detail: sourceDetail,
+			Trust:  trust,
+		}, chat.ContextItem{
+			Kind:            "memory",
+			TrustLevel:      trust,
+			Origin:          entry.ID,
+			Title:           entry.Title,
+			Body:            entry.Body,
+			Included:        true,
+			InclusionReason: "Enabled project memory entry",
+		})
+	}
 }
 
 func appendProjectContextSources(packet *chat.ContextPacket, sources []chat.ContextSource) {

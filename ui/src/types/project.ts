@@ -48,6 +48,41 @@ export type ProjectResponse = {
   data: ProjectRecord;
 };
 
+export type ProjectMemoryRecord = {
+  id: string;
+  scope: "project" | (string & {});
+  project_id: string;
+  title: string;
+  body: string;
+  trust_label: string;
+  source_kind: string;
+  source_id?: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectMemoryResponse = {
+  object: string;
+  data: ProjectMemoryRecord;
+};
+
+export type ProjectMemoryListResponse = {
+  object: string;
+  data: ProjectMemoryRecord[];
+};
+
+export type CreateProjectMemoryPayload = {
+  title: string;
+  body: string;
+  trust_label?: string;
+  source_kind?: string;
+  source_id?: string;
+  enabled?: boolean;
+};
+
+export type UpdateProjectMemoryPayload = Partial<CreateProjectMemoryPayload>;
+
 export type ProjectRootPayload = {
   id?: string;
   path: string;

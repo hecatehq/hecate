@@ -368,7 +368,8 @@ sequenceDiagram
 ## Runtime backend and queue configuration
 
 - `HECATE_BACKEND=memory|sqlite` controls all Hecate-owned durable state,
-  including tasks, the task queue, projects, chats, usage events, and settings.
+  including tasks, the task queue, projects, project memory, chats, usage
+  events, and settings.
 - `HECATE_TASK_QUEUE_WORKERS=<int>`
 - `HECATE_TASK_QUEUE_BUFFER=<int>`
 - `HECATE_TASK_QUEUE_LEASE_SECONDS=<int>`
@@ -432,7 +433,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project work-coordination rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries, project work-coordination rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -1041,8 +1042,13 @@ inject those files into prompts yet. Project work-coordination endpoints can
 persist roles, work items, assignments, and collaboration artifacts under a
 project. Assignments may record links to existing task runs or chat messages,
 but creating an assignment does not start a task, open a chat, inject context,
-or dispatch any agent. Durable memory, profiles, presets, and source-content
-injection are not linked to `project_id` yet.
+or dispatch any agent. Project memory entries are structured project-scoped
+records with Markdown-compatible `body` text; they are not Markdown files, and
+they are written only through explicit operator API/UI actions. Enabled project
+memory entries appear as itemized chat context-packet metadata with their
+`trust_label`, but Hecate still does not perform automatic memory extraction,
+embeddings, retrieval ranking, or source-content injection. Profiles, presets,
+and source-content injection are not linked to `project_id` yet.
 
 ### `GET /hecate/v1/projects`
 
@@ -1179,11 +1185,105 @@ PATCH /hecate/v1/projects/proj_...
 ### `DELETE /hecate/v1/projects/{id}`
 
 Deletes the project catalog entry, its roots, and chat sessions scoped to that
-project. It also deletes project work-coordination rows for that project. This
-does not delete workspace files. Unprojected chats and chats scoped to other
-projects stay untouched. Assignment links to task/chat IDs are metadata only;
-the linked tasks or unprojected chat sessions are not deleted through assignment
-cleanup.
+project. It also deletes project memory entries and project work-coordination
+rows for that project. This does not delete workspace files. Unprojected chats
+and chats scoped to other projects stay untouched. Assignment links to task/chat
+IDs are metadata only; the linked tasks or unprojected chat sessions are not
+deleted through assignment cleanup.
+
+### Project Memory
+
+Project memory is explicit operator-approved context. Hecate never writes these
+entries automatically from chat, task, handoff, or generated output; generated
+or external text must be reviewed and saved by the operator before it becomes
+memory.
+
+Memory entry fields:
+
+| Field         | Meaning                                                                |
+| ------------- | ---------------------------------------------------------------------- |
+| `id`          | Stable `mem_...` entry id.                                             |
+| `scope`       | `"project"` in this release.                                           |
+| `project_id`  | Owning project id.                                                     |
+| `title`       | Operator-facing label.                                                 |
+| `body`        | Markdown-compatible text stored on the structured record.              |
+| `trust_label` | Context trust label such as `operator_memory` or `generated_summary`.  |
+| `source_kind` | Provenance category such as `operator`, `handoff`, or `runtime_state`. |
+| `source_id`   | Optional source artifact/chat/message/handoff id.                      |
+| `enabled`     | Disabled entries remain saved but are excluded from active context.    |
+| `created_at`  | UTC RFC3339Nano timestamp.                                             |
+| `updated_at`  | UTC RFC3339Nano timestamp.                                             |
+
+#### `GET /hecate/v1/projects/{id}/memory`
+
+Lists enabled project memory entries by default. Pass
+`include_disabled=true` to inspect disabled entries too.
+
+```json
+GET /hecate/v1/projects/proj_.../memory?include_disabled=true
+→ 200
+{
+  "object": "project_memory",
+  "data": [
+    {
+      "id": "mem_...",
+      "scope": "project",
+      "project_id": "proj_...",
+      "title": "Commit style",
+      "body": "Use conventional commits.",
+      "trust_label": "operator_memory",
+      "source_kind": "operator",
+      "enabled": true,
+      "created_at": "2026-06-04T10:00:00Z",
+      "updated_at": "2026-06-04T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### `POST /hecate/v1/projects/{id}/memory`
+
+Creates a project memory entry. `title` and `body` are required. `trust_label`
+defaults to `operator_memory`, `source_kind` defaults to `operator`, and
+`enabled` defaults to `true`. A duplicate generated entry id returns
+`409 conflict`.
+
+```json
+POST /hecate/v1/projects/proj_.../memory
+{
+  "title": "Review posture",
+  "body": "Keep generated summaries labelled.",
+  "trust_label": "operator_memory",
+  "source_kind": "operator"
+}
+
+→ 201
+{
+  "object": "project_memory_entry",
+  "data": {
+    "id": "mem_...",
+    "scope": "project",
+    "project_id": "proj_...",
+    "title": "Review posture",
+    "body": "Keep generated summaries labelled.",
+    "trust_label": "operator_memory",
+    "source_kind": "operator",
+    "enabled": true,
+    "created_at": "2026-06-04T10:00:00Z",
+    "updated_at": "2026-06-04T10:00:00Z"
+  }
+}
+```
+
+#### `PATCH /hecate/v1/projects/{id}/memory/{memory_id}`
+
+Updates title, body, trust/provenance fields, or enabled state. `id`, `scope`,
+and `project_id` are immutable.
+
+#### `DELETE /hecate/v1/projects/{id}/memory/{memory_id}`
+
+Deletes the memory entry. Historical chat context packets that already
+snapshotted the entry are not rewritten.
 
 ### Project Work Coordination
 

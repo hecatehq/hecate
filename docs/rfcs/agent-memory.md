@@ -1,12 +1,13 @@
 # Agent Memory
 
-> **Status:** proposed; not implemented.
+> **Status:** proposed; partially implemented.
 > **Current source of truth:** [Chat sessions](../chat-sessions.md),
 > [Agent runtime](../agent-runtime.md), and
 > [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md)
 > for today's prompt and context behavior.
-> **Next action:** implement context-packet snapshots first, then add a
-> small operator-authored memory store as one source for context assembly.
+> **Next action:** extend activation/profile selection beyond the current
+> project-scoped operator-driven memory store, then add broader context
+> assembly and prompt-rendering integration.
 
 Operators often repeat the same durable context: coding preferences,
 repository conventions, communication style, recurring paths, and project facts
@@ -199,9 +200,16 @@ The UI should make this distinction visible: "available to Hecate Chat" versus
 
 ## Storage
 
-Memory should live in a new `internal/memory/` package with memory and SQLite
-backends, following the storage-tier rule. It is logically related to chats but
-not owned by chat sessions.
+Memory now has an `internal/memory/` package with memory and SQLite backends,
+following the storage-tier rule. The first implementation is deliberately
+project-scoped: entries live under `/hecate/v1/projects/{project_id}/memory`,
+are written only by explicit operator action, and are shown in the Projects UI.
+Enabled entries are added to chat context packets as itemized `memory` context
+items using the entry's trust/provenance labels. Global, chat, profile,
+surface, composite, external-provider, and `/active` selection surfaces remain
+future work.
+
+It is logically related to chats but not owned by chat sessions.
 
 SQLite sketch:
 
@@ -310,14 +318,14 @@ visibility at the point of use.
 
 ## Implementation Plan
 
-| PR  | Scope                                                                              |
-| --- | ---------------------------------------------------------------------------------- |
-| 1   | `internal/memory/` store interface with memory + SQLite backends and parity tests. |
-| 2   | CRUD and `/active` API endpoints with structured errors and trace IDs.             |
-| 3   | Context assembly integration that emits `operator_memory` context items.           |
-| 4   | Agent profile memory-source selection for Hecate Chat and external agents.         |
-| 5   | UI management surface plus active-memory indicators in Chat and Task Detail.       |
-| 6   | Docs, screenshots, and e2e coverage for scoped memory visibility.                  |
+| PR  | Scope                                                                                                           |
+| --- | --------------------------------------------------------------------------------------------------------------- |
+| 1   | Landed: project-scoped `internal/memory/` store with memory + SQLite backends, CRUD API, UI management surface. |
+| 2   | Landed for chat packets: enabled project memory emits labelled `memory` context items.                          |
+| 3   | Add `/active` introspection once profiles/surface selection exist beyond project scope.                         |
+| 4   | Agent profile memory-source selection for Hecate Chat and external agents.                                      |
+| 5   | Extend active-memory indicators into Chat/Task Detail and standalone task-run context packets.                  |
+| 6   | Docs, screenshots, and e2e coverage for scoped memory visibility.                                               |
 
 This should land after the first context-packet implementation. Otherwise
 memory will have no durable "what saw this entry?" audit trail.

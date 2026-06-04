@@ -49,6 +49,7 @@ import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 import type { RetentionRunResponse, RetentionRunsResponse } from "../types/retention";
 import type {
   CreateProjectPayload,
+  CreateProjectMemoryPayload,
   CreateProjectAssignmentPayload,
   CreateProjectWorkRolePayload,
   CreateProjectWorkItemPayload,
@@ -56,6 +57,8 @@ import type {
   ProjectAssignmentsResponse,
   ProjectActivityResponse,
   ProjectCollaborationArtifactsResponse,
+  ProjectMemoryListResponse,
+  ProjectMemoryResponse,
   ProjectResponse,
   ProjectWorkItemsResponse,
   ProjectWorkItemResponse,
@@ -63,6 +66,7 @@ import type {
   ProjectWorkRolesResponse,
   ProjectsResponse,
   UpdateProjectAssignmentPayload,
+  UpdateProjectMemoryPayload,
   UpdateProjectPayload,
   UpdateProjectWorkRolePayload,
   UpdateProjectWorkItemPayload,
@@ -329,6 +333,44 @@ export async function deleteProject(id: string): Promise<void> {
   return fetchJSON<void>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+}
+
+export async function getProjectMemory(
+  projectID: string,
+  includeDisabled = false,
+): Promise<ProjectMemoryListResponse> {
+  const query = includeDisabled ? "?include_disabled=true" : "";
+  return fetchJSON<ProjectMemoryListResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/memory${query}`,
+  );
+}
+
+export async function createProjectMemory(
+  projectID: string,
+  payload: CreateProjectMemoryPayload,
+): Promise<ProjectMemoryResponse> {
+  return fetchJSON<ProjectMemoryResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/memory`,
+    { method: "POST", body: payload },
+  );
+}
+
+export async function updateProjectMemory(
+  projectID: string,
+  memoryID: string,
+  payload: UpdateProjectMemoryPayload,
+): Promise<ProjectMemoryResponse> {
+  return fetchJSON<ProjectMemoryResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/memory/${encodeURIComponent(memoryID)}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export async function deleteProjectMemory(projectID: string, memoryID: string): Promise<void> {
+  return fetchJSON<void>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/memory/${encodeURIComponent(memoryID)}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function getProjectActivity(projectID: string): Promise<ProjectActivityResponse> {
