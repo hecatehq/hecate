@@ -1336,7 +1336,9 @@ Promotes a pending candidate into a durable project memory entry. The request
 may include edited `title`, `body`, `trust_label`, `source_kind`, `source_id`,
 and `enabled`; omitted fields use the candidate's suggested values. Promotion
 sets the candidate status to `promoted` and records `promoted_memory_id`.
-Promoting an already resolved candidate returns `409 conflict`.
+Promoting an already-promoted candidate is idempotent when the linked
+`promoted_memory_id` still exists and returns the existing promoted candidate.
+Promoting a rejected candidate returns `409 conflict`.
 
 The response is `{ "object": "project_memory_candidate", "data": ... }`. The
 created memory entry is returned by the normal project memory list/get flows.

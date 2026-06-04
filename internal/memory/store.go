@@ -310,6 +310,13 @@ func (s *MemoryStore) PromoteCandidate(_ context.Context, projectID, id string, 
 	if !ok || candidate.ProjectID != projectID {
 		return Candidate{}, Entry{}, ErrNotFound
 	}
+	if candidate.Status == CandidateStatusPromoted && candidate.PromotedMemoryID != "" {
+		promoted, ok := s.entries[candidate.PromotedMemoryID]
+		if !ok || promoted.ProjectID != projectID {
+			return Candidate{}, Entry{}, ErrConflict
+		}
+		return cloneCandidate(candidate), promoted, nil
+	}
 	if candidate.Status != CandidateStatusPending {
 		return Candidate{}, Entry{}, ErrConflict
 	}

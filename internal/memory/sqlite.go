@@ -498,6 +498,21 @@ WHERE id = ? AND project_id = ?`, s.candidates), id, projectID)
 	if err != nil {
 		return Candidate{}, Entry{}, err
 	}
+	if candidate.Status == CandidateStatusPromoted && candidate.PromotedMemoryID != "" {
+		row := tx.QueryRowContext(ctx, fmt.Sprintf(`
+SELECT id, scope, project_id, title, body, trust_label, source_kind, source_id,
+	enabled, created_at, updated_at
+FROM %s
+WHERE id = ? AND project_id = ?`, s.entries), candidate.PromotedMemoryID, projectID)
+		promoted, err := scanEntry(row)
+		if errors.Is(err, sql.ErrNoRows) {
+			return Candidate{}, Entry{}, ErrConflict
+		}
+		if err != nil {
+			return Candidate{}, Entry{}, err
+		}
+		return candidate, promoted, nil
+	}
 	if candidate.Status != CandidateStatusPending {
 		return Candidate{}, Entry{}, ErrConflict
 	}

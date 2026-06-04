@@ -287,13 +287,17 @@ func TestMemoryStore_PromoteCandidateIsSingleOperation(t *testing.T) {
 	if candidate.Status != CandidateStatusPromoted || candidate.PromotedMemoryID != entry.ID {
 		t.Fatalf("promoted candidate = %+v entry=%+v, want linked promoted entry", candidate, entry)
 	}
-	if _, _, err := store.PromoteCandidate(ctx, "proj_alpha", "memcand_alpha", Entry{
+	retriedCandidate, retriedEntry, err := store.PromoteCandidate(ctx, "proj_alpha", "memcand_alpha", Entry{
 		ID:      "mem_duplicate",
 		Title:   "Duplicate",
 		Body:    "Should not save.",
 		Enabled: true,
-	}); !errors.Is(err, ErrConflict) {
-		t.Fatalf("repeat PromoteCandidate error = %v, want ErrConflict", err)
+	})
+	if err != nil {
+		t.Fatalf("repeat PromoteCandidate: %v", err)
+	}
+	if retriedCandidate.PromotedMemoryID != entry.ID || retriedEntry.ID != entry.ID {
+		t.Fatalf("repeat promotion = candidate %+v entry %+v, want original entry %q", retriedCandidate, retriedEntry, entry.ID)
 	}
 	entries, err := store.List(ctx, Filter{ProjectID: "proj_alpha", IncludeDisabled: true})
 	if err != nil {

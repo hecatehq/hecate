@@ -180,8 +180,15 @@ func TestProjectMemoryAPI_CandidatePromotionFlow(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/memory/candidates/"+created.Data.ID+"/promote", bytes.NewReader([]byte(`{}`))))
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("repeat promote status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("repeat promote status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var retried ProjectMemoryCandidateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &retried); err != nil {
+		t.Fatalf("decode repeat promoted candidate response: %v", err)
+	}
+	if retried.Data.PromotedMemoryID != promoted.Data.PromotedMemoryID {
+		t.Fatalf("repeat promoted memory id = %q, want %q", retried.Data.PromotedMemoryID, promoted.Data.PromotedMemoryID)
 	}
 
 	rec = httptest.NewRecorder()
