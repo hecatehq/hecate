@@ -1357,7 +1357,8 @@ Rows are sorted by most recent assignment/work/artifact update, then assignment
 ID. Each bucket is capped at 20 rows; `recent` mirrors
 `buckets.recent`. The example above leaves the mirrored recent arrays empty for
 brevity; real responses include the same item shape there when `recent_count`
-is non-zero.
+is non-zero. `artifact_summary.assignment_id` is present only when the latest
+summarized artifact is assignment-scoped; work-item-level artifacts omit it.
 
 #### `GET /hecate/v1/projects/{id}/roles`
 

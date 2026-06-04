@@ -1590,7 +1590,7 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 }
 
 func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, role projectwork.AgentRoleProfile, artifacts []projectwork.CollaborationArtifact) ProjectActivityItemResponse {
-	artifactSummary, recentArtifacts := renderProjectActivityArtifactSignals(artifacts, assignment.ID)
+	artifactSummary, recentArtifacts := renderProjectActivityArtifactSignals(artifacts)
 	status := strings.TrimSpace(firstNonEmpty(projectActivityExecutionStatus(assignment), assignment.Status))
 	if status == "" {
 		status = "unknown"
@@ -1624,7 +1624,7 @@ func renderProjectActivityWorkItem(item ProjectWorkItemResponse) ProjectActivity
 	}
 }
 
-func renderProjectActivityArtifactSignals(artifacts []projectwork.CollaborationArtifact, assignmentID string) (ProjectActivityArtifactSummaryResponse, []ProjectWorkArtifactResponse) {
+func renderProjectActivityArtifactSignals(artifacts []projectwork.CollaborationArtifact) (ProjectActivityArtifactSummaryResponse, []ProjectWorkArtifactResponse) {
 	if len(artifacts) == 0 {
 		return ProjectActivityArtifactSummaryResponse{}, nil
 	}
@@ -1645,7 +1645,7 @@ func renderProjectActivityArtifactSignals(artifacts []projectwork.CollaborationA
 		LatestKind:   latest.Kind,
 		LatestTitle:  firstNonEmpty(latest.Title, latest.ID),
 		LatestAt:     formatOptionalTime(firstNonZeroTime(latest.UpdatedAt, latest.CreatedAt)),
-		AssignmentID: assignmentID,
+		AssignmentID: latest.AssignmentID,
 	}
 	limit := len(items)
 	if limit > 3 {

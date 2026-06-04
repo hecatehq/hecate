@@ -966,9 +966,12 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 			if notStarted.BlockingSignal != "not_started" || notStarted.LinkedTaskID != "" || notStarted.LinkedRunID != "" {
 				t.Fatalf("not-started activity = %+v, want not_started without linked runtime ids", notStarted)
 			}
+			if notStarted.ArtifactSummary.Count != 1 || notStarted.ArtifactSummary.AssignmentID != "" {
+				t.Fatalf("not-started artifact summary = %+v, want work-item artifact without assignment attribution", notStarted.ArtifactSummary)
+			}
 
 			completed := findProjectActivityItemForTest(t, response.Data.Buckets.Completed, "asgn_completed")
-			if completed.BlockingSignal != "completed" || completed.ArtifactSummary.Count != 1 || completed.ArtifactSummary.LatestTitle != "Completion handoff" {
+			if completed.BlockingSignal != "completed" || completed.ArtifactSummary.Count != 1 || completed.ArtifactSummary.LatestTitle != "Completion handoff" || completed.ArtifactSummary.AssignmentID != "asgn_completed" {
 				t.Fatalf("completed activity = %+v, want artifact signal", completed)
 			}
 
@@ -1178,6 +1181,18 @@ func seedProjectWorkNotStartedProjectionCase(t *testing.T, handler *Handler) {
 		UpdatedAt:  time.Date(2026, 6, 3, 11, 58, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_not_started): %v", err)
+	}
+	if _, err := handler.projectWork.CreateArtifact(ctx, projectwork.CollaborationArtifact{
+		ID:         "art_work_not_started",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_not_started",
+		Kind:       projectwork.ArtifactKindHandoff,
+		Title:      "Work-item handoff",
+		Body:       "Shared at the work-item level.",
+		CreatedAt:  time.Date(2026, 6, 3, 11, 58, 30, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 6, 3, 11, 58, 30, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("CreateArtifact(work_not_started): %v", err)
 	}
 }
 
