@@ -292,17 +292,19 @@ packets are audit snapshots owned by their parent message/run.
 
 ## Implementation Plan
 
-| PR  | Scope                                                                                                                                     |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Landed: enrich chat-message packet types, assembly for direct-model, tools-on, and external-agent turns, plus context inspector API.      |
-| 2   | Landed for chat messages: persist itemized snapshots through memory and SQLite chat stores. Task-run lookup resolves linked chat packets. |
-| 3   | Landed for chat messages: UI context inspector groups itemized packet data by trust level.                                                |
-| 4   | Wire token estimates from the context-window RFC against packet items.                                                                    |
-| 5   | Landed for project memory: enabled entries appear as labelled chat packet items. Broader profile/surface memory selection remains future. |
+| PR  | Scope                                                                                                                                        |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Landed: enrich chat-message packet types, assembly for direct-model, tools-on, and external-agent turns, plus context inspector API.         |
+| 2   | Landed for chat messages: persist itemized snapshots through memory and SQLite chat stores. Task-run lookup resolves linked chat packets.    |
+| 3   | Landed for chat messages: UI context inspector groups itemized packet data by trust level.                                                   |
+| 4   | Wire token estimates from the context-window RFC against packet items.                                                                       |
+| 5   | Landed for project memory: enabled entries appear as labelled chat packet items. Broader profile/surface memory selection remains future.    |
+| 6   | Landed for project handoffs: handoff records can carry explicit context refs and linked memory IDs, but they are not injected automatically. |
 
 The first packet work was intentionally small: no summarization, no vector
-retrieval. Project memory now uses the audit boundary, while broader context
-assembly remains explicit future work.
+retrieval. Project memory now uses the audit boundary, and structured handoffs
+can point at context that an operator may choose to carry forward. Broader
+context assembly and automatic injection remain explicit future work.
 
 ## Test Plan
 

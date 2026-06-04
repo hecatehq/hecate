@@ -12,6 +12,7 @@ import {
   getProjectAssignments,
   getProjectActivity,
   getProjectCollaborationArtifacts,
+  getProjectHandoffs,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
@@ -43,6 +44,7 @@ vi.mock("../lib/api", async (importOriginal) => {
       object: "project_collaboration_artifacts",
       data: [],
     })),
+    getProjectHandoffs: vi.fn(async () => ({ object: "project_handoffs", data: [] })),
   };
 });
 
@@ -90,6 +92,10 @@ function resetProjectWorkMocks() {
   vi.mocked(getProjectAssignments).mockResolvedValue({ object: "project_assignments", data: [] });
   vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
     object: "project_collaboration_artifacts",
+    data: [],
+  });
+  vi.mocked(getProjectHandoffs).mockResolvedValue({
+    object: "project_handoffs",
     data: [],
   });
 }

@@ -94,6 +94,12 @@ func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/start", handler.HandleStartProjectWorkAssignment)
 	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts", handler.HandleProjectWorkArtifacts)
 	mux.HandleFunc("POST /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts", handler.HandleCreateProjectWorkArtifact)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}/handoffs", handler.HandleProjectHandoffs)
+	mux.HandleFunc("GET /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs", handler.HandleProjectWorkItemHandoffs)
+	mux.HandleFunc("POST /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs", handler.HandleCreateProjectHandoff)
+	mux.HandleFunc("PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}", handler.HandleUpdateProjectHandoff)
+	mux.HandleFunc("POST /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}/status", handler.HandleUpdateProjectHandoffStatus)
+	mux.HandleFunc("DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}", handler.HandleDeleteProjectHandoff)
 }
 
 func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {

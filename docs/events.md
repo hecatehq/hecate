@@ -15,6 +15,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 
 - [Quick reference](#quick-reference)
 - [Runtime snapshot payloads](#runtime-snapshot-payloads)
+- [Project handoff activity](#project-handoff-activity)
 - [Run lifecycle](#run-lifecycle)
 - [Approvals](#approvals)
 - [Agent loop](#agent-loop)
@@ -85,6 +86,15 @@ are written; older alpha rows replay as they were stored rather than being
 normalized or migrated.
 The stream endpoint itself is read-only: live projection frames are not appended
 to `run_events`.
+
+## Project handoff activity
+
+Structured project handoffs are not persisted to the task run-event log in V1.
+Creating, accepting, superseding, dismissing, or deleting a handoff mutates the
+project-work handoff record and updates project activity projections returned
+from `GET /hecate/v1/projects/{id}/activity` as `handoff_summary` and
+`recent_handoffs` on matching assignment/work-item activity rows. The public
+`/hecate/v1/events` feeds remain scoped to task/run events.
 
 ## Runtime snapshot payloads
 

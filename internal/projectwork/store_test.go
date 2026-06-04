@@ -170,6 +170,45 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 				t.Fatalf("artifact = %+v, want brief artifact", artifact)
 			}
 
+			handoff, err := store.CreateHandoff(ctx, Handoff{
+				ID:                    "handoff_impl",
+				ProjectID:             "proj_alpha",
+				WorkItemID:            "work_api",
+				SourceAssignmentID:    "asgn_impl",
+				SourceRunID:           "run_123",
+				TargetRoleID:          "reviewer_qa",
+				Title:                 "Implementation handoff",
+				Summary:               "Backend substrate is ready for review.",
+				RecommendedNextAction: "Review the API and storage behavior.",
+				LinkedArtifactIDs:     []string{"art_brief", "art_brief"},
+				LinkedMemoryIDs:       []string{"mem_project"},
+				ContextRefs:           []string{"ctx_123"},
+				ProvenanceKind:        "agent_draft",
+				TrustLabel:            "operator_reviewed",
+				CreatedByRoleID:       "software_developer",
+			})
+			if err != nil {
+				t.Fatalf("CreateHandoff: %v", err)
+			}
+			if handoff.Status != HandoffStatusPending || len(handoff.LinkedArtifactIDs) != 1 || handoff.ProvenanceKind != "agent_draft" {
+				t.Fatalf("handoff = %+v, want pending normalized handoff", handoff)
+			}
+			updatedHandoff, err := store.UpdateHandoff(ctx, "proj_alpha", "work_api", "handoff_impl", func(item *Handoff) {
+				item.Status = HandoffStatusAccepted
+				item.TargetAssignmentID = "asgn_impl"
+			})
+			if err != nil {
+				t.Fatalf("UpdateHandoff: %v", err)
+			}
+			if updatedHandoff.Status != HandoffStatusAccepted || updatedHandoff.TargetAssignmentID != "asgn_impl" || updatedHandoff.StatusChangedAt.IsZero() {
+				t.Fatalf("updated handoff = %+v, want accepted linked handoff", updatedHandoff)
+			}
+			if _, err := store.UpdateHandoff(ctx, "proj_alpha", "work_api", "handoff_impl", func(item *Handoff) {
+				item.Status = "unsupported"
+			}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("UpdateHandoff unsupported status error = %v, want ErrInvalid", err)
+			}
+
 			if _, err := store.CreateWorkItem(ctx, WorkItem{ID: "work_api", ProjectID: "proj_alpha", Title: "Duplicate"}); !errors.Is(err, ErrDuplicate) {
 				t.Fatalf("duplicate CreateWorkItem error = %v, want ErrDuplicate", err)
 			}
@@ -178,6 +217,9 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			}
 			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_brief", ProjectID: "proj_alpha", WorkItemID: "work_api", Kind: ArtifactKindBrief, Body: "Duplicate"}); !errors.Is(err, ErrDuplicate) {
 				t.Fatalf("duplicate CreateArtifact error = %v, want ErrDuplicate", err)
+			}
+			if _, err := store.CreateHandoff(ctx, Handoff{ID: "handoff_impl", ProjectID: "proj_alpha", WorkItemID: "work_api", Title: "Duplicate", Summary: "Duplicate.", RecommendedNextAction: "Ignore."}); !errors.Is(err, ErrDuplicate) {
+				t.Fatalf("duplicate CreateHandoff error = %v, want ErrDuplicate", err)
 			}
 
 			assignments, err := store.ListAssignments(ctx, AssignmentFilter{ProjectID: "proj_alpha", WorkItemID: "work_api"})
@@ -194,6 +236,13 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if len(artifacts) != 1 || artifacts[0].ID != "art_brief" {
 				t.Fatalf("artifacts = %+v, want created artifact", artifacts)
 			}
+			handoffs, err := store.ListHandoffs(ctx, HandoffFilter{ProjectID: "proj_alpha", WorkItemID: "work_api"})
+			if err != nil {
+				t.Fatalf("ListHandoffs: %v", err)
+			}
+			if len(handoffs) != 1 || handoffs[0].ID != "handoff_impl" {
+				t.Fatalf("handoffs = %+v, want created handoff", handoffs)
+			}
 
 			if err := store.DeleteAssignment(ctx, "proj_alpha", "work_api", "asgn_impl"); err != nil {
 				t.Fatalf("DeleteAssignment: %v", err)
@@ -206,14 +255,21 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ListArtifacts after assignment delete: %v", err)
 			}
-			if len(assignments) != 0 || len(artifacts) != 0 {
-				t.Fatalf("assignment delete left assignments=%+v artifacts=%+v", assignments, artifacts)
+			handoffs, err = store.ListHandoffs(ctx, HandoffFilter{ProjectID: "proj_alpha", WorkItemID: "work_api"})
+			if err != nil {
+				t.Fatalf("ListHandoffs after assignment delete: %v", err)
+			}
+			if len(assignments) != 0 || len(artifacts) != 0 || len(handoffs) != 0 {
+				t.Fatalf("assignment delete left assignments=%+v artifacts=%+v handoffs=%+v", assignments, artifacts, handoffs)
 			}
 			if _, err := store.CreateAssignment(ctx, Assignment{ID: "asgn_impl", ProjectID: "proj_alpha", WorkItemID: "work_api", RoleID: "software_developer"}); err != nil {
 				t.Fatalf("recreate assignment after delete: %v", err)
 			}
 			if _, err := store.CreateArtifact(ctx, CollaborationArtifact{ID: "art_brief", ProjectID: "proj_alpha", WorkItemID: "work_api", AssignmentID: "asgn_impl", Kind: ArtifactKindBrief, Body: "Brief again."}); err != nil {
 				t.Fatalf("recreate artifact after delete: %v", err)
+			}
+			if _, err := store.CreateHandoff(ctx, Handoff{ID: "handoff_impl", ProjectID: "proj_alpha", WorkItemID: "work_api", SourceAssignmentID: "asgn_impl", Title: "Handoff again", Summary: "Ready again.", RecommendedNextAction: "Review again."}); err != nil {
+				t.Fatalf("recreate handoff after delete: %v", err)
 			}
 
 			if err := store.DeleteWorkItem(ctx, "proj_alpha", "work_api"); err != nil {
@@ -227,8 +283,12 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ListArtifacts after delete: %v", err)
 			}
-			if len(assignments) != 0 || len(artifacts) != 0 {
-				t.Fatalf("work item delete left assignments=%+v artifacts=%+v", assignments, artifacts)
+			handoffs, err = store.ListHandoffs(ctx, HandoffFilter{ProjectID: "proj_alpha"})
+			if err != nil {
+				t.Fatalf("ListHandoffs after delete: %v", err)
+			}
+			if len(assignments) != 0 || len(artifacts) != 0 || len(handoffs) != 0 {
+				t.Fatalf("work item delete left assignments=%+v artifacts=%+v handoffs=%+v", assignments, artifacts, handoffs)
 			}
 		})
 	}

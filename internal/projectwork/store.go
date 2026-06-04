@@ -33,6 +33,11 @@ const (
 	ArtifactKindHandoff      = "handoff"
 	ArtifactKindReview       = "review"
 	ArtifactKindDecisionNote = "decision_note"
+
+	HandoffStatusPending    = "pending"
+	HandoffStatusAccepted   = "accepted"
+	HandoffStatusSuperseded = "superseded"
+	HandoffStatusDismissed  = "dismissed"
 )
 
 var (
@@ -102,6 +107,32 @@ type CollaborationArtifact struct {
 	UpdatedAt    time.Time
 }
 
+type Handoff struct {
+	ID                    string
+	ProjectID             string
+	WorkItemID            string
+	SourceAssignmentID    string
+	SourceRunID           string
+	SourceChatSessionID   string
+	SourceMessageID       string
+	TargetRoleID          string
+	TargetAssignmentID    string
+	TargetWorkItemID      string
+	Title                 string
+	Summary               string
+	RecommendedNextAction string
+	LinkedArtifactIDs     []string
+	LinkedMemoryIDs       []string
+	ContextRefs           []string
+	Status                string
+	ProvenanceKind        string
+	TrustLabel            string
+	CreatedByRoleID       string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	StatusChangedAt       time.Time
+}
+
 type AssignmentFilter struct {
 	ProjectID  string
 	WorkItemID string
@@ -111,6 +142,12 @@ type ArtifactFilter struct {
 	ProjectID    string
 	WorkItemID   string
 	AssignmentID string
+}
+
+type HandoffFilter struct {
+	ProjectID  string
+	WorkItemID string
+	Status     string
 }
 
 type Store interface {
@@ -130,6 +167,10 @@ type Store interface {
 	DeleteAssignment(ctx context.Context, projectID, workItemID, id string) error
 	ListArtifacts(ctx context.Context, filter ArtifactFilter) ([]CollaborationArtifact, error)
 	CreateArtifact(ctx context.Context, artifact CollaborationArtifact) (CollaborationArtifact, error)
+	ListHandoffs(ctx context.Context, filter HandoffFilter) ([]Handoff, error)
+	CreateHandoff(ctx context.Context, handoff Handoff) (Handoff, error)
+	UpdateHandoff(ctx context.Context, projectID, workItemID, id string, update func(*Handoff)) (Handoff, error)
+	DeleteHandoff(ctx context.Context, projectID, workItemID, id string) error
 	DeleteProject(ctx context.Context, projectID string) (int, error)
 	Clear(ctx context.Context) (int, error)
 }
@@ -140,6 +181,7 @@ type MemoryStore struct {
 	workItems   map[string]WorkItem
 	assignments map[string]Assignment
 	artifacts   map[string]CollaborationArtifact
+	handoffs    map[string]Handoff
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -148,6 +190,7 @@ func NewMemoryStore() *MemoryStore {
 		workItems:   make(map[string]WorkItem),
 		assignments: make(map[string]Assignment),
 		artifacts:   make(map[string]CollaborationArtifact),
+		handoffs:    make(map[string]Handoff),
 	}
 }
 
@@ -359,6 +402,11 @@ func (s *MemoryStore) DeleteWorkItem(_ context.Context, projectID, id string) er
 			delete(s.artifacts, key)
 		}
 	}
+	for key, handoff := range s.handoffs {
+		if handoff.ProjectID == projectID && handoff.WorkItemID == id {
+			delete(s.handoffs, key)
+		}
+	}
 	return nil
 }
 
@@ -450,6 +498,11 @@ func (s *MemoryStore) DeleteAssignment(_ context.Context, projectID, workItemID,
 			delete(s.artifacts, key)
 		}
 	}
+	for key, handoff := range s.handoffs {
+		if handoff.ProjectID == projectID && (handoff.SourceAssignmentID == id || handoff.TargetAssignmentID == id) {
+			delete(s.handoffs, key)
+		}
+	}
 	return nil
 }
 
@@ -500,6 +553,124 @@ func (s *MemoryStore) CreateArtifact(_ context.Context, artifact CollaborationAr
 	return cloneArtifact(artifact), nil
 }
 
+func (s *MemoryStore) ListHandoffs(_ context.Context, filter HandoffFilter) ([]Handoff, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	filter.ProjectID = strings.TrimSpace(filter.ProjectID)
+	filter.WorkItemID = strings.TrimSpace(filter.WorkItemID)
+	filter.Status = strings.TrimSpace(filter.Status)
+	items := make([]Handoff, 0, len(s.handoffs))
+	for _, item := range s.handoffs {
+		if item.ProjectID != filter.ProjectID {
+			continue
+		}
+		if filter.WorkItemID != "" && item.WorkItemID != filter.WorkItemID {
+			continue
+		}
+		if filter.Status != "" && item.Status != filter.Status {
+			continue
+		}
+		items = append(items, cloneHandoff(item))
+	}
+	sortHandoffs(items)
+	return items, nil
+}
+
+func (s *MemoryStore) CreateHandoff(_ context.Context, handoff Handoff) (Handoff, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	handoff = normalizeHandoff(handoff, time.Now().UTC(), false)
+	if err := validateHandoff(handoff); err != nil {
+		return Handoff{}, err
+	}
+	if _, ok := s.workItems[workItemKey(handoff.ProjectID, handoff.WorkItemID)]; !ok {
+		return Handoff{}, fmt.Errorf("%w: work item not found", ErrNotFound)
+	}
+	if handoff.SourceAssignmentID != "" {
+		assignment, ok := s.assignments[assignmentKey(handoff.ProjectID, handoff.SourceAssignmentID)]
+		if !ok || assignment.WorkItemID != handoff.WorkItemID {
+			return Handoff{}, fmt.Errorf("%w: source assignment not found", ErrNotFound)
+		}
+	}
+	if handoff.TargetAssignmentID != "" {
+		assignment, ok := s.assignments[assignmentKey(handoff.ProjectID, handoff.TargetAssignmentID)]
+		if !ok {
+			return Handoff{}, fmt.Errorf("%w: target assignment not found", ErrNotFound)
+		}
+		if handoff.TargetWorkItemID != "" && assignment.WorkItemID != handoff.TargetWorkItemID {
+			return Handoff{}, fmt.Errorf("%w: target assignment not found", ErrNotFound)
+		}
+	}
+	key := handoffKey(handoff.ProjectID, handoff.ID)
+	if _, exists := s.handoffs[key]; exists {
+		return Handoff{}, ErrDuplicate
+	}
+	s.handoffs[key] = cloneHandoff(handoff)
+	return cloneHandoff(handoff), nil
+}
+
+func (s *MemoryStore) UpdateHandoff(_ context.Context, projectID, workItemID, id string, update func(*Handoff)) (Handoff, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := handoffKey(projectID, id)
+	item, ok := s.handoffs[key]
+	if !ok || item.WorkItemID != strings.TrimSpace(workItemID) {
+		return Handoff{}, ErrNotFound
+	}
+	item = cloneHandoff(item)
+	originalID := item.ID
+	originalProjectID := item.ProjectID
+	originalWorkItemID := item.WorkItemID
+	originalCreatedAt := item.CreatedAt
+	originalStatus := item.Status
+	if update != nil {
+		update(&item)
+	}
+	if strings.TrimSpace(item.ID) != originalID ||
+		strings.TrimSpace(item.ProjectID) != originalProjectID ||
+		strings.TrimSpace(item.WorkItemID) != originalWorkItemID {
+		return Handoff{}, fmt.Errorf("%w: handoff id, project_id, and work_item_id cannot be changed", ErrInvalid)
+	}
+	item.ID = originalID
+	item.ProjectID = originalProjectID
+	item.WorkItemID = originalWorkItemID
+	item.CreatedAt = originalCreatedAt
+	item.UpdatedAt = time.Now().UTC()
+	item = normalizeHandoff(item, item.UpdatedAt, strings.TrimSpace(item.Status) != originalStatus)
+	if err := validateHandoff(item); err != nil {
+		return Handoff{}, err
+	}
+	if item.SourceAssignmentID != "" {
+		assignment, ok := s.assignments[assignmentKey(item.ProjectID, item.SourceAssignmentID)]
+		if !ok || assignment.WorkItemID != item.WorkItemID {
+			return Handoff{}, fmt.Errorf("%w: source assignment not found", ErrNotFound)
+		}
+	}
+	if item.TargetAssignmentID != "" {
+		assignment, ok := s.assignments[assignmentKey(item.ProjectID, item.TargetAssignmentID)]
+		if !ok {
+			return Handoff{}, fmt.Errorf("%w: target assignment not found", ErrNotFound)
+		}
+		if item.TargetWorkItemID != "" && assignment.WorkItemID != item.TargetWorkItemID {
+			return Handoff{}, fmt.Errorf("%w: target assignment not found", ErrNotFound)
+		}
+	}
+	s.handoffs[key] = cloneHandoff(item)
+	return cloneHandoff(item), nil
+}
+
+func (s *MemoryStore) DeleteHandoff(_ context.Context, projectID, workItemID, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := handoffKey(projectID, id)
+	handoff, ok := s.handoffs[key]
+	if !ok || handoff.WorkItemID != strings.TrimSpace(workItemID) {
+		return ErrNotFound
+	}
+	delete(s.handoffs, key)
+	return nil
+}
+
 func (s *MemoryStore) DeleteProject(_ context.Context, projectID string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -529,17 +700,24 @@ func (s *MemoryStore) DeleteProject(_ context.Context, projectID string) (int, e
 			deleted++
 		}
 	}
+	for key, item := range s.handoffs {
+		if item.ProjectID == projectID {
+			delete(s.handoffs, key)
+			deleted++
+		}
+	}
 	return deleted, nil
 }
 
 func (s *MemoryStore) Clear(_ context.Context) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	deleted := len(s.roles) + len(s.workItems) + len(s.assignments) + len(s.artifacts)
+	deleted := len(s.roles) + len(s.workItems) + len(s.assignments) + len(s.artifacts) + len(s.handoffs)
 	s.roles = make(map[string]AgentRoleProfile)
 	s.workItems = make(map[string]WorkItem)
 	s.assignments = make(map[string]Assignment)
 	s.artifacts = make(map[string]CollaborationArtifact)
+	s.handoffs = make(map[string]Handoff)
 	return deleted, nil
 }
 
@@ -643,6 +821,51 @@ func normalizeArtifact(item CollaborationArtifact, now time.Time) CollaborationA
 	return item
 }
 
+func normalizeHandoff(item Handoff, now time.Time, statusChanged bool) Handoff {
+	item.ID = strings.TrimSpace(item.ID)
+	item.ProjectID = strings.TrimSpace(item.ProjectID)
+	item.WorkItemID = strings.TrimSpace(item.WorkItemID)
+	item.SourceAssignmentID = strings.TrimSpace(item.SourceAssignmentID)
+	item.SourceRunID = strings.TrimSpace(item.SourceRunID)
+	item.SourceChatSessionID = strings.TrimSpace(item.SourceChatSessionID)
+	item.SourceMessageID = strings.TrimSpace(item.SourceMessageID)
+	item.TargetRoleID = strings.TrimSpace(item.TargetRoleID)
+	item.TargetAssignmentID = strings.TrimSpace(item.TargetAssignmentID)
+	item.TargetWorkItemID = strings.TrimSpace(item.TargetWorkItemID)
+	item.Title = strings.TrimSpace(item.Title)
+	item.Summary = strings.TrimSpace(item.Summary)
+	item.RecommendedNextAction = strings.TrimSpace(item.RecommendedNextAction)
+	item.LinkedArtifactIDs = normalizeStringList(item.LinkedArtifactIDs)
+	item.LinkedMemoryIDs = normalizeStringList(item.LinkedMemoryIDs)
+	item.ContextRefs = normalizeStringList(item.ContextRefs)
+	item.Status = strings.TrimSpace(item.Status)
+	item.ProvenanceKind = strings.TrimSpace(item.ProvenanceKind)
+	item.TrustLabel = strings.TrimSpace(item.TrustLabel)
+	item.CreatedByRoleID = strings.TrimSpace(item.CreatedByRoleID)
+	if item.Status == "" {
+		item.Status = HandoffStatusPending
+	}
+	if item.ProvenanceKind == "" {
+		item.ProvenanceKind = "operator"
+	}
+	if item.TrustLabel == "" {
+		item.TrustLabel = "operator_reviewed"
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if item.CreatedAt.IsZero() {
+		item.CreatedAt = now
+	}
+	if item.UpdatedAt.IsZero() {
+		item.UpdatedAt = item.CreatedAt
+	}
+	if item.StatusChangedAt.IsZero() || statusChanged {
+		item.StatusChangedAt = now
+	}
+	return item
+}
+
 func validateRole(role AgentRoleProfile) error {
 	if role.ProjectID == "" {
 		return fmt.Errorf("%w: project_id is required", ErrInvalid)
@@ -728,6 +951,31 @@ func validateArtifact(item CollaborationArtifact) error {
 	return nil
 }
 
+func validateHandoff(item Handoff) error {
+	if item.ProjectID == "" {
+		return fmt.Errorf("%w: project_id is required", ErrInvalid)
+	}
+	if item.ID == "" {
+		return fmt.Errorf("%w: handoff id is required", ErrInvalid)
+	}
+	if item.WorkItemID == "" {
+		return fmt.Errorf("%w: work_item_id is required", ErrInvalid)
+	}
+	if item.Title == "" {
+		return fmt.Errorf("%w: handoff title is required", ErrInvalid)
+	}
+	if item.Summary == "" {
+		return fmt.Errorf("%w: handoff summary is required", ErrInvalid)
+	}
+	if item.RecommendedNextAction == "" {
+		return fmt.Errorf("%w: recommended_next_action is required", ErrInvalid)
+	}
+	if !validHandoffStatus(item.Status) {
+		return fmt.Errorf("%w: unsupported handoff status %q", ErrInvalid, item.Status)
+	}
+	return nil
+}
+
 func validWorkItemStatus(status string) bool {
 	switch status {
 	case WorkItemStatusBacklog, WorkItemStatusReady, WorkItemStatusRunning, WorkItemStatusReview, WorkItemStatusBlocked, WorkItemStatusDone, WorkItemStatusCancelled:
@@ -749,6 +997,15 @@ func validAssignmentStatus(status string) bool {
 func validArtifactKind(kind string) bool {
 	switch kind {
 	case ArtifactKindBrief, ArtifactKindHandoff, ArtifactKindReview, ArtifactKindDecisionNote:
+		return true
+	default:
+		return false
+	}
+}
+
+func validHandoffStatus(status string) bool {
+	switch status {
+	case HandoffStatusPending, HandoffStatusAccepted, HandoffStatusSuperseded, HandoffStatusDismissed:
 		return true
 	default:
 		return false
@@ -801,6 +1058,10 @@ func artifactKey(projectID, id string) string {
 	return strings.TrimSpace(projectID) + "\x00" + strings.TrimSpace(id)
 }
 
+func handoffKey(projectID, id string) string {
+	return strings.TrimSpace(projectID) + "\x00" + strings.TrimSpace(id)
+}
+
 func cloneRole(item AgentRoleProfile) AgentRoleProfile {
 	return item
 }
@@ -815,6 +1076,13 @@ func cloneAssignment(item Assignment) Assignment {
 }
 
 func cloneArtifact(item CollaborationArtifact) CollaborationArtifact {
+	return item
+}
+
+func cloneHandoff(item Handoff) Handoff {
+	item.LinkedArtifactIDs = append([]string(nil), item.LinkedArtifactIDs...)
+	item.LinkedMemoryIDs = append([]string(nil), item.LinkedMemoryIDs...)
+	item.ContextRefs = append([]string(nil), item.ContextRefs...)
 	return item
 }
 
@@ -852,6 +1120,18 @@ func sortArtifacts(items []CollaborationArtifact) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
 			return items[i].CreatedAt.Before(items[j].CreatedAt)
+		}
+		return items[i].ID < items[j].ID
+	})
+}
+
+func sortHandoffs(items []Handoff) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if !items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].UpdatedAt.After(items[j].UpdatedAt)
+		}
+		if !items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].CreatedAt.After(items[j].CreatedAt)
 		}
 		return items[i].ID < items[j].ID
 	})

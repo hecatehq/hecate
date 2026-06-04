@@ -51,12 +51,15 @@ import type {
   CreateProjectPayload,
   CreateProjectMemoryPayload,
   CreateProjectAssignmentPayload,
+  CreateProjectHandoffPayload,
   CreateProjectWorkRolePayload,
   CreateProjectWorkItemPayload,
   ProjectAssignmentResponse,
   ProjectAssignmentsResponse,
   ProjectActivityResponse,
   ProjectCollaborationArtifactsResponse,
+  ProjectHandoffResponse,
+  ProjectHandoffsResponse,
   ProjectMemoryListResponse,
   ProjectMemoryResponse,
   ProjectResponse,
@@ -66,6 +69,7 @@ import type {
   ProjectWorkRolesResponse,
   ProjectsResponse,
   UpdateProjectAssignmentPayload,
+  UpdateProjectHandoffPayload,
   UpdateProjectMemoryPayload,
   UpdateProjectPayload,
   UpdateProjectWorkRolePayload,
@@ -516,6 +520,61 @@ export async function getProjectCollaborationArtifacts(
 ): Promise<ProjectCollaborationArtifactsResponse> {
   return fetchJSON<ProjectCollaborationArtifactsResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/artifacts`,
+  );
+}
+
+export async function getProjectHandoffs(
+  projectID: string,
+  workItemID: string,
+): Promise<ProjectHandoffsResponse> {
+  return fetchJSON<ProjectHandoffsResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/handoffs`,
+  );
+}
+
+export async function createProjectHandoff(
+  projectID: string,
+  workItemID: string,
+  payload: CreateProjectHandoffPayload,
+): Promise<ProjectHandoffResponse> {
+  return fetchJSON<ProjectHandoffResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/handoffs`,
+    { method: "POST", body: payload },
+  );
+}
+
+export async function updateProjectHandoff(
+  projectID: string,
+  workItemID: string,
+  handoffID: string,
+  payload: UpdateProjectHandoffPayload,
+): Promise<ProjectHandoffResponse> {
+  return fetchJSON<ProjectHandoffResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/handoffs/${encodeURIComponent(handoffID)}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export async function updateProjectHandoffStatus(
+  projectID: string,
+  workItemID: string,
+  handoffID: string,
+  status: string,
+): Promise<ProjectHandoffResponse> {
+  return fetchJSON<ProjectHandoffResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/handoffs/${encodeURIComponent(handoffID)}/status`,
+    { method: "POST", body: { status } },
+  );
+}
+
+export async function deleteProjectHandoff(
+  projectID: string,
+  workItemID: string,
+  handoffID: string,
+): Promise<void> {
+  return fetchJSON<void>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/handoffs/${encodeURIComponent(handoffID)}`,
+    { method: "DELETE" },
   );
 }
 

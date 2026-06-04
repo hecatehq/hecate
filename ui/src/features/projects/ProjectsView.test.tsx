@@ -8,16 +8,19 @@ import { ProjectsProvider } from "../../app/state/projects";
 import { SettingsProvider } from "../../app/state/settings";
 import {
   createProjectAssignment,
+  createProjectHandoff,
   createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteProjectAssignment,
+  deleteProjectHandoff,
   deleteProjectMemory,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
+  getProjectHandoffs,
   getProjectMemory,
   getProjectWorkItem,
   getProjectWorkItems,
@@ -25,6 +28,8 @@ import {
   startProjectAssignment,
   updateProject,
   updateProjectAssignment,
+  updateProjectHandoff,
+  updateProjectHandoffStatus,
   updateProjectMemory,
   updateProjectWorkRole,
   updateProjectWorkItem,
@@ -88,7 +93,12 @@ vi.mock("../../lib/api", async (importOriginal) => {
       object: "project_collaboration_artifacts",
       data: [],
     })),
+    getProjectHandoffs: vi.fn(async () => ({ object: "project_handoffs", data: [] })),
     getProjectMemory: vi.fn(async () => ({ object: "project_memory", data: [] })),
+    createProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
+    updateProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
+    updateProjectHandoffStatus: vi.fn(async () => ({ object: "project_handoff", data: null })),
+    deleteProjectHandoff: vi.fn(async () => undefined),
     createProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
     updateProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
     deleteProjectMemory: vi.fn(async () => undefined),
@@ -224,6 +234,7 @@ function resetProjectWorkMocks() {
             linked_task_id: "task_1",
             linked_run_id: "run_1",
             artifact_summary: { count: 1, latest_kind: "handoff", latest_title: "Runtime notes" },
+            handoff_summary: { count: 0 },
             recent_artifacts: [
               {
                 id: "art_1",
@@ -263,7 +274,64 @@ function resetProjectWorkMocks() {
     object: "project_collaboration_artifacts",
     data: [],
   });
+  vi.mocked(getProjectHandoffs).mockResolvedValue({
+    object: "project_handoffs",
+    data: [],
+  });
   vi.mocked(getProjectMemory).mockResolvedValue({ object: "project_memory", data: [] });
+  vi.mocked(createProjectHandoff).mockResolvedValue({
+    object: "project_handoff",
+    data: {
+      id: "handoff_new",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      title: "QA handoff",
+      summary: "Ready for review.",
+      recommended_next_action: "Start QA.",
+      status: "pending",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T12:00:00Z",
+      updated_at: "2026-06-02T12:00:00Z",
+      status_changed_at: "2026-06-02T12:00:00Z",
+    },
+  });
+  vi.mocked(updateProjectHandoff).mockResolvedValue({
+    object: "project_handoff",
+    data: {
+      id: "handoff_new",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      title: "QA handoff",
+      summary: "Ready for review.",
+      recommended_next_action: "Start QA.",
+      target_assignment_id: "asgn_new",
+      status: "accepted",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T12:00:00Z",
+      updated_at: "2026-06-02T12:05:00Z",
+      status_changed_at: "2026-06-02T12:05:00Z",
+    },
+  });
+  vi.mocked(updateProjectHandoffStatus).mockResolvedValue({
+    object: "project_handoff",
+    data: {
+      id: "handoff_new",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      title: "QA handoff",
+      summary: "Ready for review.",
+      recommended_next_action: "Start QA.",
+      status: "accepted",
+      provenance_kind: "operator",
+      trust_label: "operator_reviewed",
+      created_at: "2026-06-02T12:00:00Z",
+      updated_at: "2026-06-02T12:05:00Z",
+      status_changed_at: "2026-06-02T12:05:00Z",
+    },
+  });
+  vi.mocked(deleteProjectHandoff).mockResolvedValue(undefined);
   vi.mocked(createProjectMemory).mockResolvedValue({
     object: "project_memory_entry",
     data: { ...memoryEntry, id: "mem_new", title: "Review posture" },
@@ -361,7 +429,12 @@ afterEach(() => {
   vi.mocked(getProjectWorkItem).mockReset();
   vi.mocked(getProjectAssignments).mockReset();
   vi.mocked(getProjectCollaborationArtifacts).mockReset();
+  vi.mocked(getProjectHandoffs).mockReset();
   vi.mocked(getProjectMemory).mockReset();
+  vi.mocked(createProjectHandoff).mockReset();
+  vi.mocked(updateProjectHandoff).mockReset();
+  vi.mocked(updateProjectHandoffStatus).mockReset();
+  vi.mocked(deleteProjectHandoff).mockReset();
   vi.mocked(createProjectMemory).mockReset();
   vi.mocked(updateProjectMemory).mockReset();
   vi.mocked(deleteProjectMemory).mockReset();
@@ -1122,6 +1195,69 @@ describe("ProjectsView cockpit", () => {
       role_id: "software_developer",
       driver_kind: "external_agent",
     });
+  });
+
+  it("creates target assignments from handoffs without starting them", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectHandoffs).mockResolvedValue({
+      object: "project_handoffs",
+      data: [
+        {
+          id: "handoff_1",
+          project_id: project.id,
+          work_item_id: workItem.id,
+          title: "QA handoff",
+          summary: "Ready for review.",
+          recommended_next_action: "Create a QA assignment.",
+          target_role_id: "reviewer_qa",
+          target_work_item_id: "work_followup",
+          status: "pending",
+          provenance_kind: "agent_draft",
+          trust_label: "operator_reviewed",
+          created_at: "2026-06-02T12:00:00Z",
+          updated_at: "2026-06-02T12:00:00Z",
+          status_changed_at: "2026-06-02T12:00:00Z",
+        },
+      ],
+    });
+    vi.mocked(createProjectAssignment).mockResolvedValueOnce({
+      object: "project_assignment",
+      data: {
+        ...hecateAssignment,
+        id: "asgn_new",
+        work_item_id: "work_followup",
+        role_id: "reviewer_qa",
+        status: "queued",
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const detail = screen.getByLabelText("Selected work item");
+    expect(await within(detail).findByText("QA handoff")).toBeTruthy();
+    await userEvent.click(within(detail).getByRole("button", { name: "Target assignment" }));
+
+    await waitFor(() => {
+      expect(createProjectAssignment).toHaveBeenCalledWith(project.id, "work_followup", {
+        role_id: "reviewer_qa",
+        driver_kind: "hecate_task",
+      });
+    });
+    expect(updateProjectHandoff).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      "handoff_1",
+      expect.objectContaining({
+        target_assignment_id: "asgn_new",
+        target_role_id: "reviewer_qa",
+        status: "accepted",
+      }),
+    );
+    expect(startProjectAssignment).not.toHaveBeenCalled();
   });
 
   it("uses a role default driver when adding assignments", async () => {

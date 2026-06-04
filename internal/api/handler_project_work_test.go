@@ -227,6 +227,84 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs", bytes.NewReader([]byte(`{
+		"id":"handoff_backend",
+		"source_assignment_id":"asgn_backend",
+		"source_run_id":"run_123",
+		"source_chat_session_id":"chat_123",
+		"source_message_id":"msg_123",
+		"target_role_id":"reviewer_qa",
+		"title":"Review backend substrate",
+		"summary":"Store and API are ready for operator review.",
+		"recommended_next_action":"Review the tests and start a QA assignment if acceptable.",
+		"linked_artifact_ids":["art_handoff","art_handoff"],
+		"linked_memory_ids":["mem_123"],
+		"context_refs":["ctx_123"],
+		"provenance_kind":"agent_draft",
+		"trust_label":"operator_reviewed",
+		"created_by_role_id":"software_developer"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create handoff status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var handoff ProjectHandoffEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &handoff); err != nil {
+		t.Fatalf("decode handoff: %v", err)
+	}
+	if handoff.Data.Status != projectwork.HandoffStatusPending || handoff.Data.TargetRoleID != "reviewer_qa" || len(handoff.Data.LinkedArtifactIDs) != 1 {
+		t.Fatalf("handoff = %+v, want pending structured handoff", handoff.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list handoffs status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var handoffs ProjectHandoffsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &handoffs); err != nil {
+		t.Fatalf("decode handoffs: %v", err)
+	}
+	if len(handoffs.Data) != 1 || handoffs.Data[0].ID != "handoff_backend" {
+		t.Fatalf("handoffs = %+v, want created handoff", handoffs.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs/handoff_backend/status", bytes.NewReader([]byte(`{"status":"accepted"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("accept handoff status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &handoff); err != nil {
+		t.Fatalf("decode accepted handoff: %v", err)
+	}
+	if handoff.Data.Status != projectwork.HandoffStatusAccepted || handoff.Data.StatusChangedAt == "" {
+		t.Fatalf("accepted handoff = %+v, want status timestamp", handoff.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/handoffs?work_item_id=work_backend&status=accepted", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("project handoffs status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &handoffs); err != nil {
+		t.Fatalf("decode project handoffs: %v", err)
+	}
+	if len(handoffs.Data) != 1 || handoffs.Data[0].ID != "handoff_backend" || handoffs.Data[0].Status != projectwork.HandoffStatusAccepted {
+		t.Fatalf("project handoffs = %+v, want accepted handoff", handoffs.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs/handoff_backend", bytes.NewReader([]byte(`{"target_assignment_id":"asgn_backend","recommended_next_action":"Start the linked follow-up assignment."}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch handoff status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &handoff); err != nil {
+		t.Fatalf("decode patched handoff: %v", err)
+	}
+	if handoff.Data.TargetAssignmentID != "asgn_backend" || handoff.Data.RecommendedNextAction != "Start the linked follow-up assignment." {
+		t.Fatalf("patched handoff = %+v, want linked target assignment", handoff.Data)
+	}
+
+	rec = httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list assignments status = %d body=%s, want 200", rec.Code, rec.Body.String())
@@ -237,6 +315,19 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 	if len(assignments.Data) != 1 || assignments.Data[0].ID != "asgn_backend" {
 		t.Fatalf("assignments = %+v, want created assignment", assignments.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/"+project.Data.ID+"/activity", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("activity with handoff status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var activity ProjectActivityEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &activity); err != nil {
+		t.Fatalf("decode activity: %v", err)
+	}
+	if len(activity.Data.Recent) == 0 || activity.Data.Recent[0].HandoffSummary.Count != 1 || activity.Data.Recent[0].HandoffSummary.LatestStatus != projectwork.HandoffStatusAccepted {
+		t.Fatalf("activity handoff summary = %+v, want accepted handoff signal", activity.Data.Recent)
 	}
 
 	rec = httptest.NewRecorder()
@@ -252,6 +343,12 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_other/assignments/asgn_backend", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("delete assignment with wrong work item status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/handoffs/handoff_backend", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete handoff status = %d body=%s, want 204", rec.Code, rec.Body.String())
 	}
 
 	rec = httptest.NewRecorder()
@@ -974,6 +1071,14 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 			if completed.BlockingSignal != "completed" || completed.ArtifactSummary.Count != 1 || completed.ArtifactSummary.LatestTitle != "Completion handoff" || completed.ArtifactSummary.AssignmentID != "asgn_completed" {
 				t.Fatalf("completed activity = %+v, want artifact signal", completed)
 			}
+			if completed.HandoffSummary.Count != 1 || completed.HandoffSummary.LatestTitle != "Review follow-up" {
+				t.Fatalf("completed handoff summary = %+v, want source assignment handoff signal", completed.HandoffSummary)
+			}
+
+			queued := findProjectActivityItemForTest(t, response.Data.Buckets.Active, "asgn_queued")
+			if queued.HandoffSummary.Count != 1 || queued.HandoffSummary.LatestTitle != "Review follow-up" || queued.HandoffSummary.TargetWorkItem != "work_queued" {
+				t.Fatalf("target handoff summary = %+v, want target assignment handoff signal", queued.HandoffSummary)
+			}
 
 			if len(response.Data.Recent) == 0 || len(response.Data.Buckets.Recent) != len(response.Data.Recent) {
 				t.Fatalf("recent activity = %+v buckets=%+v, want mirrored recent list", response.Data.Recent, response.Data.Buckets.Recent)
@@ -1292,6 +1397,21 @@ func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assig
 			UpdatedAt:    runFinishedAt.Add(time.Minute),
 		}); err != nil {
 			t.Fatalf("CreateArtifact(%s): %v", assignmentID, err)
+		}
+		if _, err := handler.projectWork.CreateHandoff(ctx, projectwork.Handoff{
+			ID:                    "handoff_review_followup",
+			ProjectID:             "proj_projection",
+			WorkItemID:            workID,
+			SourceAssignmentID:    assignmentID,
+			TargetAssignmentID:    "asgn_queued",
+			TargetWorkItemID:      "work_queued",
+			Title:                 "Review follow-up",
+			Summary:               "Implementation is ready for queue review.",
+			RecommendedNextAction: "Review the queued follow-up assignment.",
+			CreatedAt:             runFinishedAt.Add(2 * time.Minute),
+			UpdatedAt:             runFinishedAt.Add(2 * time.Minute),
+		}); err != nil {
+			t.Fatalf("CreateHandoff(%s): %v", assignmentID, err)
 		}
 	}
 }

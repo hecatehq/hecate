@@ -6,16 +6,19 @@ import { useSettings } from "../../app/state/settings";
 import {
   ApiError,
   createProjectAssignment,
+  createProjectHandoff,
   createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteProjectAssignment,
+  deleteProjectHandoff,
   deleteProjectMemory,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
+  getProjectHandoffs,
   getProjectMemory,
   getProjectWorkItem,
   getProjectWorkItems,
@@ -23,6 +26,8 @@ import {
   startProjectAssignment,
   updateProject,
   updateProjectAssignment,
+  updateProjectHandoff,
+  updateProjectHandoffStatus,
   updateProjectMemory,
   updateProjectWorkRole,
   updateProjectWorkItem,
@@ -35,6 +40,8 @@ import type {
   ProjectActivityData,
   ProjectActivityItemRecord,
   ProjectCollaborationArtifactRecord,
+  CreateProjectHandoffPayload,
+  ProjectHandoffRecord,
   ProjectMemoryRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
@@ -110,6 +117,22 @@ type EditAssignmentForm = NewAssignmentForm & {
   contextSnapshotID: string;
 };
 
+type HandoffForm = {
+  id: string;
+  sourceAssignmentID: string;
+  targetRoleID: string;
+  targetAssignmentID: string;
+  title: string;
+  summary: string;
+  recommendedNextAction: string;
+  linkedArtifactIDs: string;
+  linkedMemoryIDs: string;
+  contextRefs: string;
+  status: string;
+  provenanceKind: string;
+  trustLabel: string;
+};
+
 type ProjectDefaultsForm = {
   provider: string;
   model: string;
@@ -154,6 +177,7 @@ const ASSIGNMENT_STATUSES = [
   "failed",
   "cancelled",
 ];
+const HANDOFF_STATUSES = ["pending", "accepted", "superseded", "dismissed"];
 const MEMORY_TRUST_LABELS = [
   "operator_memory",
   "generated_summary",
@@ -244,6 +268,11 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [selectedWorkItem, setSelectedWorkItem] = useState<ProjectWorkItemRecord | null>(null);
   const [assignments, setAssignments] = useState<ProjectAssignmentRecord[]>([]);
   const [artifacts, setArtifacts] = useState<ProjectCollaborationArtifactRecord[]>([]);
+  const [handoffs, setHandoffs] = useState<ProjectHandoffRecord[]>([]);
+  const [editingHandoff, setEditingHandoff] = useState<ProjectHandoffRecord | "new" | null>(null);
+  const [handoffPending, setHandoffPending] = useState(false);
+  const [handoffError, setHandoffError] = useState("");
+  const [handoffActionID, setHandoffActionID] = useState("");
   const [workLoadState, setWorkLoadState] = useState<LoadState>("idle");
   const [detailLoadState, setDetailLoadState] = useState<LoadState>("idle");
   const [workError, setWorkError] = useState("");
@@ -337,6 +366,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       setSelectedWorkItem(null);
       setAssignments([]);
       setArtifacts([]);
+      setHandoffs([]);
     }
     if (!projectID) {
       setWorkLoadState("idle");
@@ -403,19 +433,22 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       setSelectedWorkItem(null);
       setAssignments([]);
       setArtifacts([]);
+      setHandoffs([]);
       setDetailLoadState("idle");
       return;
     }
     setDetailLoadState("loading");
     try {
-      const [itemRes, assignmentRes, artifactRes] = await Promise.all([
+      const [itemRes, assignmentRes, artifactRes, handoffRes] = await Promise.all([
         getProjectWorkItem(projectID, workItemID),
         getProjectAssignments(projectID, workItemID),
         getProjectCollaborationArtifacts(projectID, workItemID),
+        getProjectHandoffs(projectID, workItemID),
       ]);
       setSelectedWorkItem(itemRes.data);
       setAssignments(assignmentRes.data ?? []);
       setArtifacts(artifactRes.data ?? []);
+      setHandoffs(handoffRes.data ?? []);
       setWorkItems((current) => upsertWorkItem(current, itemRes.data));
       setWorkItemSummaries((current) => ({
         ...current,
@@ -739,6 +772,126 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }
 
+  async function handleSaveHandoff(form: HandoffForm) {
+    if (!selectedProjectID || !selectedWorkItemID) return;
+    const title = form.title.trim();
+    const summary = form.summary.trim();
+    const recommendedNextAction = form.recommendedNextAction.trim();
+    if (!title || !summary || !recommendedNextAction) return;
+    const payload: CreateProjectHandoffPayload = {
+      source_assignment_id: form.sourceAssignmentID.trim(),
+      target_role_id: form.targetRoleID.trim(),
+      target_assignment_id: form.targetAssignmentID.trim(),
+      title,
+      summary,
+      recommended_next_action: recommendedNextAction,
+      linked_artifact_ids: splitIDs(form.linkedArtifactIDs),
+      linked_memory_ids: splitIDs(form.linkedMemoryIDs),
+      context_refs: splitIDs(form.contextRefs),
+      status: form.status || "pending",
+      provenance_kind: form.provenanceKind.trim() || "operator",
+      trust_label: form.trustLabel.trim() || "operator_reviewed",
+    };
+    setHandoffPending(true);
+    setHandoffError("");
+    try {
+      const res =
+        editingHandoff === "new"
+          ? await createProjectHandoff(selectedProjectID, selectedWorkItemID, payload)
+          : await updateProjectHandoff(selectedProjectID, selectedWorkItemID, form.id, payload);
+      setHandoffs((current) => upsertHandoff(current, res.data));
+      setEditingHandoff(null);
+      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+    } catch (error) {
+      setHandoffError(errorMessage(error, "Failed to save handoff."));
+    } finally {
+      setHandoffPending(false);
+    }
+  }
+
+  async function handleSetHandoffStatus(handoff: ProjectHandoffRecord, status: string) {
+    if (!selectedProjectID || !selectedWorkItemID) return;
+    setHandoffActionID(handoff.id);
+    setHandoffError("");
+    try {
+      const res = await updateProjectHandoffStatus(
+        selectedProjectID,
+        selectedWorkItemID,
+        handoff.id,
+        status,
+      );
+      setHandoffs((current) => upsertHandoff(current, res.data));
+      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+    } catch (error) {
+      setHandoffError(errorMessage(error, "Failed to update handoff status."));
+    } finally {
+      setHandoffActionID("");
+    }
+  }
+
+  async function handleDeleteHandoff(handoff: ProjectHandoffRecord) {
+    if (!selectedProjectID || !selectedWorkItemID) return;
+    setHandoffActionID(handoff.id);
+    setHandoffError("");
+    try {
+      await deleteProjectHandoff(selectedProjectID, selectedWorkItemID, handoff.id);
+      setHandoffs((current) => current.filter((item) => item.id !== handoff.id));
+      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+    } catch (error) {
+      setHandoffError(errorMessage(error, "Failed to delete handoff."));
+    } finally {
+      setHandoffActionID("");
+    }
+  }
+
+  async function handleCreateAssignmentFromHandoff(handoff: ProjectHandoffRecord) {
+    if (!selectedProjectID || !selectedWorkItemID) return;
+    const roleID = (handoff.target_role_id || "software_developer").trim();
+    if (!roleID) return;
+    const targetWorkItemID = (handoff.target_work_item_id || selectedWorkItemID).trim();
+    if (!targetWorkItemID) return;
+    setHandoffActionID(handoff.id);
+    setHandoffError("");
+    try {
+      const assignment = await createProjectAssignment(selectedProjectID, targetWorkItemID, {
+        role_id: roleID,
+        driver_kind: "hecate_task",
+      });
+      if (targetWorkItemID === selectedWorkItemID) {
+        setAssignments((current) => upsertAssignment(current, assignment.data));
+      }
+      const updated = await updateProjectHandoff(
+        selectedProjectID,
+        selectedWorkItemID,
+        handoff.id,
+        {
+          target_assignment_id: assignment.data.id,
+          target_role_id: assignment.data.role_id,
+          status: "accepted",
+        },
+      );
+      setHandoffs((current) => upsertHandoff(current, updated.data));
+      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
+      await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+    } catch (error) {
+      setHandoffError(errorMessage(error, "Failed to create target assignment."));
+    } finally {
+      setHandoffActionID("");
+    }
+  }
+
+  async function handleStartHandoff(handoff: ProjectHandoffRecord) {
+    const assignment = assignments.find((item) => item.id === handoff.target_assignment_id);
+    if (!assignment) {
+      setHandoffError("Handoff has no loaded target assignment to start.");
+      return;
+    }
+    await handleStartAssignment(assignment, selectedWorkItemID);
+    if (handoff.status === "pending") {
+      await handleSetHandoffStatus(handoff, "accepted");
+    }
+  }
+
   async function refreshSelectedWorkItem() {
     if (!selectedProjectID) return;
     const refreshedWorkItemID = await loadWorkForProject(selectedProjectID, selectedWorkItemID);
@@ -907,12 +1060,21 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
         <WorkItemDetail
           assignments={assignments}
           artifacts={artifacts}
+          handoffActionID={handoffActionID}
+          handoffError={handoffError}
+          handoffs={handoffs}
           assignmentErrors={assignmentErrors}
           detailError={detailError}
           loading={detailLoadState === "loading"}
           onOpenTask={onOpenTask}
           onRefresh={refreshSelectedWorkItem}
+          onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
+          onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
           onDeleteWorkItem={(item) => setDeleteWorkItem(item)}
+          onEditHandoff={(handoff) => {
+            setHandoffError("");
+            setEditingHandoff(handoff);
+          }}
           onEditAssignment={(assignment) => {
             setEditAssignmentError("");
             setEditingAssignment(assignment);
@@ -924,6 +1086,8 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           onDeleteAssignment={(assignment) => setDeleteAssignment(assignment)}
           onOpenChat={onOpenChat}
           onStartAssignment={handleStartAssignment}
+          onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
+          onSetHandoffStatus={(handoff, status) => void handleSetHandoffStatus(handoff, status)}
           project={selectedProject}
           roleByID={roleByID}
           startingAssignmentID={startingAssignmentID}
@@ -931,6 +1095,10 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           onAddAssignment={() => {
             setNewAssignmentError("");
             setNewAssignmentModalOpen(true);
+          }}
+          onAddHandoff={() => {
+            setHandoffError("");
+            setEditingHandoff("new");
           }}
         />
       </section>
@@ -1010,6 +1178,19 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           pending={memoryPending}
           onClose={() => setEditingMemory(null)}
           onSave={handleSaveMemory}
+        />
+      )}
+
+      {editingHandoff && selectedWorkItem && (
+        <ProjectHandoffModal
+          key={editingHandoff === "new" ? "new" : editingHandoff.id}
+          assignments={assignments}
+          handoff={editingHandoff === "new" ? null : editingHandoff}
+          error={handoffError}
+          pending={handoffPending}
+          roles={roles}
+          onClose={() => setEditingHandoff(null)}
+          onSave={handleSaveHandoff}
         />
       )}
 
@@ -1466,6 +1647,7 @@ function ProjectActivityRow({
   const taskID = item.linked_task_id || item.assignment.task_id || "";
   const runID = item.linked_run_id || item.assignment.run_id || "";
   const startable = item.assignment.driver_kind === "hecate_task" && signal === "not_started";
+  const handoffCount = item.handoff_summary?.count ?? 0;
   return (
     <div style={activityRowStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -1527,6 +1709,12 @@ function ProjectActivityRow({
             {item.artifact_summary.count === 1 ? "" : "s"}
           </span>
         )}
+        {handoffCount > 0 && (
+          <span>
+            {handoffCount} handoff
+            {handoffCount === 1 ? "" : "s"}
+          </span>
+        )}
         {item.updated_at && <span>Updated {formatAbsoluteTime(item.updated_at)}</span>}
       </div>
       {item.recent_artifacts && item.recent_artifacts.length > 0 && (
@@ -1534,6 +1722,15 @@ function ProjectActivityRow({
           {item.recent_artifacts.map((artifact) => (
             <span key={artifact.id} className="badge badge-muted">
               {artifact.kind}: {artifact.title || artifact.id}
+            </span>
+          ))}
+        </div>
+      )}
+      {item.recent_handoffs && item.recent_handoffs.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+          {item.recent_handoffs.map((handoff) => (
+            <span key={handoff.id} className="badge badge-muted">
+              {handoff.status}: {handoff.title || handoff.id}
             </span>
           ))}
         </div>
@@ -1788,18 +1985,27 @@ function ProjectMemoryModal({
 function WorkItemDetail({
   assignments,
   artifacts,
+  handoffActionID,
+  handoffError,
+  handoffs,
   assignmentErrors,
   detailError,
   loading,
   onAddAssignment,
+  onAddHandoff,
+  onCreateAssignmentFromHandoff,
   onDeleteAssignment,
+  onDeleteHandoff,
   onDeleteWorkItem,
   onEditAssignment,
+  onEditHandoff,
   onEditWorkItem,
   onOpenChat,
   onOpenTask,
   onRefresh,
   onStartAssignment,
+  onStartHandoff,
+  onSetHandoffStatus,
   project,
   roleByID,
   startingAssignmentID,
@@ -1807,18 +2013,27 @@ function WorkItemDetail({
 }: {
   assignments: ProjectAssignmentRecord[];
   artifacts: ProjectCollaborationArtifactRecord[];
+  handoffActionID: string;
+  handoffError: string;
+  handoffs: ProjectHandoffRecord[];
   assignmentErrors: Record<string, string>;
   detailError: string;
   loading: boolean;
   onAddAssignment: () => void;
+  onAddHandoff: () => void;
+  onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
+  onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
   onDeleteWorkItem: (item: ProjectWorkItemRecord) => void;
   onEditAssignment: (assignment: ProjectAssignmentRecord) => void;
+  onEditHandoff: (handoff: ProjectHandoffRecord) => void;
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onRefresh: () => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
+  onStartHandoff: (handoff: ProjectHandoffRecord) => void;
+  onSetHandoffStatus: (handoff: ProjectHandoffRecord, status: string) => void;
   project: ProjectRecord | null;
   roleByID: Map<string, ProjectWorkRoleRecord>;
   startingAssignmentID: string;
@@ -1963,6 +2178,43 @@ function WorkItemDetail({
                   {artifact.body}
                 </div>
               </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={panelStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <div style={sectionLabelStyle}>Handoffs</div>
+          <span className="badge badge-muted">{handoffs.length}</span>
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            onClick={onAddHandoff}
+            style={{ marginLeft: "auto" }}
+          >
+            <Icon d={Icons.plus} size={12} />
+            Handoff
+          </button>
+        </div>
+        {handoffError && <InlineError message={handoffError} />}
+        {handoffs.length === 0 ? (
+          <div style={subtleTextStyle}>No structured handoffs recorded for this work item.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {handoffs.map((handoff) => (
+              <ProjectHandoffRow
+                key={handoff.id}
+                actionPending={handoffActionID === handoff.id}
+                assignment={assignments.find((item) => item.id === handoff.target_assignment_id)}
+                handoff={handoff}
+                onCreateAssignment={() => onCreateAssignmentFromHandoff(handoff)}
+                onDelete={() => onDeleteHandoff(handoff)}
+                onEdit={() => onEditHandoff(handoff)}
+                onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
+                onStart={() => onStartHandoff(handoff)}
+                role={handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined}
+                starting={startingAssignmentID === handoff.target_assignment_id}
+              />
             ))}
           </div>
         )}
@@ -2864,6 +3116,199 @@ function EditAssignmentModal({
   );
 }
 
+function ProjectHandoffModal({
+  assignments,
+  error,
+  handoff,
+  pending,
+  roles,
+  onClose,
+  onSave,
+}: {
+  assignments: ProjectAssignmentRecord[];
+  error: string;
+  handoff: ProjectHandoffRecord | null;
+  pending: boolean;
+  roles: ProjectWorkRoleRecord[];
+  onClose: () => void;
+  onSave: (form: HandoffForm) => void | Promise<void>;
+}) {
+  const [form, setForm] = useState<HandoffForm>(() => handoffFormFromRecord(handoff));
+  const valid =
+    form.title.trim().length > 0 &&
+    form.summary.trim().length > 0 &&
+    form.recommendedNextAction.trim().length > 0;
+  return (
+    <Modal
+      title={handoff ? "Edit handoff" : "New handoff"}
+      onClose={onClose}
+      width={620}
+      footer={
+        <button
+          className="btn btn-primary"
+          type="button"
+          disabled={pending || !valid}
+          onClick={() => void onSave(form)}
+          style={{ width: "100%", justifyContent: "center" }}
+        >
+          {pending ? "Saving…" : "Save handoff"}
+        </button>
+      }
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (valid) void onSave(form);
+        }}
+        style={{ display: "grid", gap: 12 }}
+      >
+        {error && <InlineError message={error} />}
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Title</span>
+          <input
+            className="input"
+            autoFocus
+            value={form.title}
+            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+            placeholder="QA review handoff"
+          />
+        </label>
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Summary</span>
+          <textarea
+            className="input"
+            value={form.summary}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, summary: event.target.value }))
+            }
+            rows={4}
+            style={{ resize: "vertical", minHeight: 90 }}
+          />
+        </label>
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Recommended next action</span>
+          <textarea
+            className="input"
+            value={form.recommendedNextAction}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                recommendedNextAction: event.target.value,
+              }))
+            }
+            rows={3}
+            style={{ resize: "vertical", minHeight: 76 }}
+          />
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Source assignment</span>
+            <select
+              className="input"
+              value={form.sourceAssignmentID}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, sourceAssignmentID: event.target.value }))
+              }
+            >
+              <option value="">No source assignment</option>
+              {assignments.map((assignment) => (
+                <option key={assignment.id} value={assignment.id}>
+                  {shortID(assignment.id)} · {assignment.role_id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Target role</span>
+            <select
+              className="input"
+              value={form.targetRoleID}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, targetRoleID: event.target.value }))
+              }
+            >
+              <option value="">No target role</option>
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Target assignment</span>
+            <select
+              className="input"
+              value={form.targetAssignmentID}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, targetAssignmentID: event.target.value }))
+              }
+            >
+              <option value="">No target assignment</option>
+              {assignments.map((assignment) => (
+                <option key={assignment.id} value={assignment.id}>
+                  {shortID(assignment.id)} · {assignment.role_id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Status</span>
+            <select
+              className="input"
+              value={form.status}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, status: event.target.value }))
+              }
+            >
+              {HANDOFF_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Artifact IDs</span>
+            <input
+              className="input"
+              value={form.linkedArtifactIDs}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, linkedArtifactIDs: event.target.value }))
+              }
+              placeholder="art_1, art_2"
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Memory IDs</span>
+            <input
+              className="input"
+              value={form.linkedMemoryIDs}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, linkedMemoryIDs: event.target.value }))
+              }
+              placeholder="mem_1"
+            />
+          </label>
+        </div>
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Context refs</span>
+          <input
+            className="input"
+            value={form.contextRefs}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, contextRefs: event.target.value }))
+            }
+            placeholder="ctx_1, task/run/context"
+          />
+        </label>
+      </form>
+    </Modal>
+  );
+}
+
 function AssignmentRow({
   assignment,
   chatModel,
@@ -3008,6 +3453,130 @@ function AssignmentRow({
   );
 }
 
+function ProjectHandoffRow({
+  actionPending,
+  assignment,
+  handoff,
+  onCreateAssignment,
+  onDelete,
+  onEdit,
+  onSetStatus,
+  onStart,
+  role,
+  starting,
+}: {
+  actionPending: boolean;
+  assignment?: ProjectAssignmentRecord;
+  handoff: ProjectHandoffRecord;
+  onCreateAssignment: () => void;
+  onDelete: () => void;
+  onEdit: () => void;
+  onSetStatus: (status: string) => void;
+  onStart: () => void;
+  role?: ProjectWorkRoleRecord;
+  starting: boolean;
+}) {
+  const startable =
+    assignment?.driver_kind === "hecate_task" &&
+    (assignment.execution?.status || assignment.status) === "queued";
+  const canCreateAssignment = !assignment && handoff.status !== "dismissed";
+  return (
+    <div style={artifactStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Badge status={handoff.status} label={handoffStatusLabel(handoff.status)} />
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{handoff.title}</div>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onEdit}>
+          <Icon d={Icons.edit} size={12} />
+          Edit
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={onDelete}
+          disabled={actionPending}
+          style={{ color: "var(--red)" }}
+        >
+          <Icon d={Icons.trash} size={12} />
+          Delete
+        </button>
+      </div>
+      <div style={{ marginTop: 7, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
+        {handoff.summary}
+      </div>
+      <div style={{ marginTop: 7, fontSize: 12, color: "var(--t1)", lineHeight: 1.45 }}>
+        Next: {handoff.recommended_next_action}
+      </div>
+      <div style={{ ...metaLineStyle, marginTop: 8 }}>
+        {role && <span>target {role.name}</span>}
+        {handoff.target_assignment_id && (
+          <span>assignment {shortID(handoff.target_assignment_id)}</span>
+        )}
+        <span>{handoff.provenance_kind}</span>
+        <span>{handoff.trust_label}</span>
+        {handoff.updated_at && <span>Updated {formatAbsoluteTime(handoff.updated_at)}</span>}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
+        {handoff.status === "pending" && (
+          <>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onSetStatus("accepted")}
+              disabled={actionPending}
+            >
+              <Icon d={Icons.check} size={12} />
+              Accept
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onSetStatus("dismissed")}
+              disabled={actionPending}
+            >
+              Dismiss
+            </button>
+          </>
+        )}
+        {handoff.status !== "superseded" && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onSetStatus("superseded")}
+            disabled={actionPending}
+          >
+            Supersede
+          </button>
+        )}
+        {canCreateAssignment && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={onCreateAssignment}
+            disabled={actionPending}
+          >
+            <Icon d={Icons.plus} size={12} />
+            Target assignment
+          </button>
+        )}
+        {assignment && (
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            onClick={onStart}
+            disabled={!startable || starting}
+            title={
+              startable ? "Start linked native assignment" : "Linked assignment is not queued."
+            }
+          >
+            <Icon d={Icons.send} size={12} />
+            {starting ? "Starting…" : "Start from handoff"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EmptyBlock({ title, detail }: { title: string; detail: string }) {
   return (
     <div
@@ -3076,6 +3645,24 @@ function rolePayloadFromForm(form: RoleForm) {
     default_provider: form.defaultProvider.trim(),
     default_model: form.defaultModel.trim(),
     default_agent_profile: form.defaultAgentProfile.trim(),
+  };
+}
+
+function handoffFormFromRecord(handoff: ProjectHandoffRecord | null): HandoffForm {
+  return {
+    id: handoff?.id ?? "",
+    sourceAssignmentID: handoff?.source_assignment_id ?? "",
+    targetRoleID: handoff?.target_role_id ?? "",
+    targetAssignmentID: handoff?.target_assignment_id ?? "",
+    title: handoff?.title ?? "",
+    summary: handoff?.summary ?? "",
+    recommendedNextAction: handoff?.recommended_next_action ?? "",
+    linkedArtifactIDs: (handoff?.linked_artifact_ids ?? []).join(", "),
+    linkedMemoryIDs: (handoff?.linked_memory_ids ?? []).join(", "),
+    contextRefs: (handoff?.context_refs ?? []).join(", "),
+    status: handoff?.status ?? "pending",
+    provenanceKind: handoff?.provenance_kind ?? "operator",
+    trustLabel: handoff?.trust_label ?? "operator_reviewed",
   };
 }
 
@@ -3328,7 +3915,25 @@ function upsertAssignment(items: ProjectAssignmentRecord[], item: ProjectAssignm
   return next;
 }
 
+function upsertHandoff(items: ProjectHandoffRecord[], item: ProjectHandoffRecord) {
+  const index = items.findIndex((current) => current.id === item.id);
+  const next = index === -1 ? [item, ...items] : items.slice();
+  if (index !== -1) {
+    next[index] = item;
+  }
+  return next.sort((left, right) => {
+    const byTime = (right.updated_at || right.created_at).localeCompare(
+      left.updated_at || left.created_at,
+    );
+    return byTime || left.id.localeCompare(right.id);
+  });
+}
+
 function splitRoleIDs(value: string): string[] {
+  return splitIDs(value);
+}
+
+function splitIDs(value: string): string[] {
   return value
     .split(",")
     .map((item) => item.trim())
@@ -3354,6 +3959,21 @@ function assignmentStatusLabel(status: string | undefined): string {
   if (status === "awaiting_approval") return "approval";
   if (status === "completed") return "done";
   return status.replaceAll("_", " ");
+}
+
+function handoffStatusLabel(status: string): string {
+  switch (status) {
+    case "pending":
+      return "Pending";
+    case "accepted":
+      return "Accepted";
+    case "superseded":
+      return "Superseded";
+    case "dismissed":
+      return "Dismissed";
+    default:
+      return status || "Unknown";
+  }
 }
 
 const topbarStyle: CSSProperties = {
