@@ -1,13 +1,24 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getModels, getProviders, getTasks } from "../../lib/api";
+import {
+  getModels,
+  getProviders,
+  getTaskApprovals,
+  getTaskRunArtifacts,
+  getTaskRunEvents,
+  getTaskRuns,
+  getTaskRunSteps,
+  getTasks,
+  streamTaskRun,
+} from "../../lib/api";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
 } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type { ProjectRecord } from "../../types/project";
+import type { TaskRecord, TaskRunRecord } from "../../types/task";
 import { streamTurnCostKey, TasksView } from "./TasksView";
 
 vi.mock("../../lib/api", async (importOriginal) => {
@@ -15,17 +26,56 @@ vi.mock("../../lib/api", async (importOriginal) => {
   return {
     ...actual,
     getTasks: vi.fn(async () => ({ object: "list", data: [] })),
+    getTaskRuns: vi.fn(async () => ({ object: "list", data: [] })),
+    getTaskApprovals: vi.fn(async () => ({ object: "list", data: [] })),
+    getTaskRunSteps: vi.fn(async () => ({ object: "list", data: [] })),
+    getTaskRunArtifacts: vi.fn(async () => ({ object: "list", data: [] })),
+    getTaskRunEvents: vi.fn(async () => ({ object: "list", data: [] })),
+    streamTaskRun: vi.fn(async () => {}),
     getModels: vi.fn(async () => ({ object: "list", data: [] })),
     getProviders: vi.fn(async () => ({ object: "list", data: [] })),
   };
 });
 
 const localSession = { label: "Local" };
+const task: TaskRecord = {
+  id: "task_1",
+  title: "Review project cockpit",
+  prompt: "Review project cockpit",
+  status: "completed",
+  execution_kind: "agent_loop",
+  latest_run_id: "run_1",
+  latest_model: "gpt-4o-mini",
+  step_count: 1,
+  created_at: "2026-06-04T10:00:00Z",
+  updated_at: "2026-06-04T10:05:00Z",
+};
+const run: TaskRunRecord = {
+  id: "run_1",
+  task_id: task.id,
+  number: 1,
+  status: "completed",
+  model: "gpt-4o-mini",
+  started_at: "2026-06-04T10:00:00Z",
+  finished_at: "2026-06-04T10:05:00Z",
+};
 
 afterEach(() => {
   window.localStorage.clear();
   vi.mocked(getTasks).mockReset();
   vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [] });
+  vi.mocked(getTaskRuns).mockReset();
+  vi.mocked(getTaskRuns).mockResolvedValue({ object: "list", data: [] });
+  vi.mocked(getTaskApprovals).mockReset();
+  vi.mocked(getTaskApprovals).mockResolvedValue({ object: "list", data: [] });
+  vi.mocked(getTaskRunSteps).mockReset();
+  vi.mocked(getTaskRunSteps).mockResolvedValue({ object: "list", data: [] });
+  vi.mocked(getTaskRunArtifacts).mockReset();
+  vi.mocked(getTaskRunArtifacts).mockResolvedValue({ object: "list", data: [] });
+  vi.mocked(getTaskRunEvents).mockReset();
+  vi.mocked(getTaskRunEvents).mockResolvedValue({ object: "list", data: [] });
+  vi.mocked(streamTaskRun).mockReset();
+  vi.mocked(streamTaskRun).mockResolvedValue();
   vi.mocked(getModels).mockReset();
   vi.mocked(getModels).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(getProviders).mockReset();
@@ -108,6 +158,26 @@ describe("TasksView empty state", () => {
       expect((screen.getByLabelText("Workspace path") as HTMLInputElement).value).toBe(
         "/workspace/default",
       );
+    });
+  });
+});
+
+describe("TasksView selected task", () => {
+  it("keeps refresh in the task header instead of the task list header", async () => {
+    vi.mocked(getTasks).mockResolvedValue({ object: "list", data: [task] });
+    vi.mocked(getTaskRuns).mockResolvedValue({ object: "list", data: [run] });
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    render(withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Refresh task" })).toBeTruthy();
+    });
+
+    expect(screen.queryByRole("button", { name: "Refresh tasks" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh task" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(getTasks).mock.calls.length).toBeGreaterThanOrEqual(2);
     });
   });
 });

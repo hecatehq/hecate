@@ -242,11 +242,18 @@ The Projects UI should stay lightweight but operational:
   candidates, and context-source metadata.
 - Keep the project details surface focused on defaults, memory, trusted docs,
   activity, and assignment drill-downs.
-- Use the cockpit as the first screen for project orchestration: activity inbox,
-  health, timeline/decision log, memory/context inspection, and selected
-  assignment detail should answer "what needs attention, what happened, and
-  what can I launch or review next" without a separate project-management
-  surface.
+- Use the cockpit as the first screen for project orchestration. The project
+  header owns project identity plus global actions: Needs Attention, Roles,
+  Project Settings, and refresh. Needs Attention is a compact dropdown of
+  actionable rows, not a second health dashboard.
+- Keep the cockpit workspace tabbed by operator intent: Work Coordination,
+  Timeline / Decision Log, and Memory / Context. Work Coordination owns work
+  items, assignment launch, handoffs, and selected work detail. Timeline /
+  Decision Log owns project story and durable decisions. Memory / Context owns
+  saved entries, candidates, and context sources.
+- Open Project Settings as the same right-side inspector pattern used by Chat
+  settings, with the same right-panel width behavior. Do not use a modal for
+  routine project defaults.
 
 Avoid turning Projects into a heavy project-management product. This is a runtime identity and context boundary first.
 

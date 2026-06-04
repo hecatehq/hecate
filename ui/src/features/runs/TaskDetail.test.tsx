@@ -441,6 +441,7 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("git-stdout.txt")).toBeTruthy();
     expect(screen.getByText(/On branch feature\/runtime/)).toBeTruthy();
     expect(screen.getByText(/nothing to commit/)).toBeTruthy();
+    expect(screen.queryByText(/^Artifact$/)).toBeNull();
     expect(screen.queryByText("Artifacts · 1 item")).toBeNull();
     expect(screen.queryByText("Output and artifacts · 1 item")).toBeNull();
   });

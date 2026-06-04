@@ -247,6 +247,7 @@ src/
   features/
     runs/               TasksView, TaskDetail, NewTaskSlideOver — agent task list + run replay (the headline UI)
     chats/              ChatView, ChatSidebar, ChatComposer, ChatHeader, ChatTranscript, ChatSettingsPanel, HecateTaskApprovalsBanner, ...
+    projects/           ProjectsView, ProjectScopePanel, projectInsights — project identity, cockpit, memory/context, work coordination
     transcript/         reusable transcript pieces for Chats and Task Detail
     overview/           ConnectYourClient, ObservabilityView — request history + trace drilldown
     connections/        ConnectionsPanel — provider readiness, external-agent setup/grants
@@ -361,6 +362,18 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
 - **`.dropdown-menu` has `left: 0`** baked into the `.dropdown-menu` rule in `styles.css`. When using `useFloatingDropdownStyle` with `align="right"`, the hook explicitly sets `left: "auto"` to override. Don't remove that — without it the dropdown stretches viewport-wide.
 - **Slideover overflow clipping** — dropdowns inside `<NewTaskSlideOver>` get clipped by the slideover's overflow. Always use `useFloatingDropdownStyle` (which uses `position: fixed` to escape) for any dropdown that might appear inside a panel. See `ProviderPicker` / `ModelPicker` in `shared/ui.tsx` for the pattern.
 - **404 on stale task IDs** — `localStorage` may hold a task ID from a prior gateway boot (memory backend resets on restart). `TasksView` drops the dead row from the list and re-loads. Don't propagate the 404 as an error toast.
+- **Task refresh belongs to the selected task header** — the Tasks list is for
+  selection and creation. Keep task/run refresh with the selected task header,
+  next to run controls, so it matches Chat and Project header action placement.
+- **Runtime activity output stays flat when it is standalone** — stdout/stderr
+  artifacts with no primary tool row should render inline as output previews.
+  Failed tools keep their richer diagnostics view; don't wrap simple output in
+  nested `Artifacts -> Output -> preview` disclosures.
+- **Project cockpit action ownership** — project-global actions live in the
+  project header. Needs Attention is a dropdown, Project Settings opens the
+  shared right-side inspector pattern, and Work Coordination / Timeline /
+  Memory are workspace tabs. Avoid duplicating the same state across header,
+  side panels, and cards.
 - **`render1()` + `render2()` in the same `it` block** — don't. React Testing Library cleanup runs between tests, not within. Split into two `it`s if you need fresh mounts.
 - **Cost-ceiling banner** — gates on `run.otel_status_message === "cost_ceiling_exceeded"` (the specific string). A regression that drops or rewords that string silently breaks the "Raise ceiling & resume" affordance.
 - **Every gateway response is `{object, data}`** — `lib/api.ts` clients must read `payload.data.<field>`, not `payload.<field>`. When mocking, copy the real wire shape, not the fields you happen to need; fixtures that skip the envelope hide production bugs.

@@ -258,12 +258,7 @@ function TimelineActivityLine({
   }, [shouldAutoOpenAdvanced]);
   if (!hasAdvanced) return line;
   if (shouldInlineAdvanced) {
-    return (
-      <div style={{ display: "grid", gap: 5, minWidth: 0 }}>
-        {line}
-        {advancedContent && <div style={{ marginLeft: 15 }}>{advancedContent}</div>}
-      </div>
-    );
+    return advancedContent ? <div style={{ minWidth: 0 }}>{advancedContent}</div> : line;
   }
 
   return (
