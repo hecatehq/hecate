@@ -262,6 +262,48 @@ func TestMemoryStore_CandidateLifecycle(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_PromoteCandidateIsSingleOperation(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	if _, err := store.CreateCandidate(ctx, Candidate{
+		ID:        "memcand_alpha",
+		ProjectID: "proj_alpha",
+		Title:     "Candidate",
+		Body:      "Review me.",
+	}); err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+	candidate, entry, err := store.PromoteCandidate(ctx, "proj_alpha", "memcand_alpha", Entry{
+		ID:         "mem_alpha",
+		Title:      "Promoted",
+		Body:       "Reviewed.",
+		Enabled:    true,
+		SourceKind: SourceKindOperator,
+	})
+	if err != nil {
+		t.Fatalf("PromoteCandidate: %v", err)
+	}
+	if candidate.Status != CandidateStatusPromoted || candidate.PromotedMemoryID != entry.ID {
+		t.Fatalf("promoted candidate = %+v entry=%+v, want linked promoted entry", candidate, entry)
+	}
+	if _, _, err := store.PromoteCandidate(ctx, "proj_alpha", "memcand_alpha", Entry{
+		ID:      "mem_duplicate",
+		Title:   "Duplicate",
+		Body:    "Should not save.",
+		Enabled: true,
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("repeat PromoteCandidate error = %v, want ErrConflict", err)
+	}
+	entries, err := store.List(ctx, Filter{ProjectID: "proj_alpha", IncludeDisabled: true})
+	if err != nil {
+		t.Fatalf("List entries: %v", err)
+	}
+	if len(entries) != 1 || entries[0].ID != "mem_alpha" {
+		t.Fatalf("entries after repeat promote = %+v, want only original promoted entry", entries)
+	}
+}
+
 func TestMemoryStore_CandidateValidation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

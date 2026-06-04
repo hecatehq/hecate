@@ -395,6 +395,8 @@ func (h *Handler) SetMemoryStore(store memory.Store) {
 	h.memory = store
 	if candidates, ok := store.(memory.CandidateStore); ok {
 		h.memoryCandidates = candidates
+	} else {
+		h.memoryCandidates = nil
 	}
 }
 

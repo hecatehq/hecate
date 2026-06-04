@@ -14,6 +14,7 @@ var (
 	ErrNotFound      = errors.New("memory entry not found")
 	ErrAlreadyExists = errors.New("memory entry already exists")
 	ErrInvalid       = errors.New("invalid memory entry")
+	ErrConflict      = errors.New("memory conflict")
 )
 
 const (
@@ -91,6 +92,7 @@ type CandidateStore interface {
 	GetCandidate(ctx context.Context, projectID, id string) (Candidate, bool, error)
 	ListCandidates(ctx context.Context, filter CandidateFilter) ([]Candidate, error)
 	UpdateCandidate(ctx context.Context, projectID, id string, update func(*Candidate)) (Candidate, error)
+	PromoteCandidate(ctx context.Context, projectID, id string, entry Entry) (Candidate, Entry, error)
 	DeleteCandidatesByProjectID(ctx context.Context, projectID string) (int, error)
 }
 
@@ -296,6 +298,41 @@ func (s *MemoryStore) UpdateCandidate(_ context.Context, projectID, id string, u
 	}
 	s.candidates[id] = candidate
 	return cloneCandidate(candidate), nil
+}
+
+func (s *MemoryStore) PromoteCandidate(_ context.Context, projectID, id string, entry Entry) (Candidate, Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	projectID = strings.TrimSpace(projectID)
+	id = strings.TrimSpace(id)
+	candidate, ok := s.candidates[id]
+	if !ok || candidate.ProjectID != projectID {
+		return Candidate{}, Entry{}, ErrNotFound
+	}
+	if candidate.Status != CandidateStatusPending {
+		return Candidate{}, Entry{}, ErrConflict
+	}
+	entry.ProjectID = projectID
+	entry.Scope = ScopeProject
+	entry = normalizeEntry(entry, now)
+	if err := validateEntry(entry); err != nil {
+		return Candidate{}, Entry{}, err
+	}
+	if _, ok := s.entries[entry.ID]; ok {
+		return Candidate{}, Entry{}, ErrAlreadyExists
+	}
+	candidate.Status = CandidateStatusPromoted
+	candidate.StatusReason = ""
+	candidate.PromotedMemoryID = entry.ID
+	candidate.UpdatedAt = now
+	candidate = normalizeCandidate(candidate, now)
+	if err := validateCandidate(candidate); err != nil {
+		return Candidate{}, Entry{}, err
+	}
+	s.entries[entry.ID] = entry
+	s.candidates[id] = candidate
+	return cloneCandidate(candidate), entry, nil
 }
 
 func (s *MemoryStore) DeleteCandidatesByProjectID(_ context.Context, projectID string) (int, error) {

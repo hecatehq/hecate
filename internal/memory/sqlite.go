@@ -99,26 +99,7 @@ func (s *SQLiteStore) Create(ctx context.Context, entry Entry) (Entry, error) {
 	} else if ok {
 		return Entry{}, ErrAlreadyExists
 	}
-	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-INSERT INTO %s (
-	id, scope, project_id, title, body, trust_label, source_kind, source_id,
-	enabled, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.entries),
-		entry.ID,
-		entry.Scope,
-		entry.ProjectID,
-		entry.Title,
-		entry.Body,
-		entry.TrustLabel,
-		entry.SourceKind,
-		entry.SourceID,
-		boolToDB(entry.Enabled),
-		formatTime(entry.CreatedAt),
-		formatTime(entry.UpdatedAt),
-	); err != nil {
-		if isSQLiteConstraintError(err) {
-			return Entry{}, ErrAlreadyExists
-		}
+	if err := insertEntry(ctx, s.db, s.entries, entry); err != nil {
 		return Entry{}, err
 	}
 	return entry, nil
@@ -281,6 +262,34 @@ func (s *SQLiteStore) DeleteByProjectID(ctx context.Context, projectID string) (
 		return 0, err
 	}
 	return int(affected), nil
+}
+
+func insertEntry(ctx context.Context, execer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, table string, entry Entry) error {
+	if _, err := execer.ExecContext(ctx, fmt.Sprintf(`
+INSERT INTO %s (
+	id, scope, project_id, title, body, trust_label, source_kind, source_id,
+	enabled, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, table),
+		entry.ID,
+		entry.Scope,
+		entry.ProjectID,
+		entry.Title,
+		entry.Body,
+		entry.TrustLabel,
+		entry.SourceKind,
+		entry.SourceID,
+		boolToDB(entry.Enabled),
+		formatTime(entry.CreatedAt),
+		formatTime(entry.UpdatedAt),
+	); err != nil {
+		if isSQLiteConstraintError(err) {
+			return ErrAlreadyExists
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *SQLiteStore) CreateCandidate(ctx context.Context, candidate Candidate) (Candidate, error) {
@@ -462,6 +471,81 @@ WHERE id = ? AND project_id = ?`, s.candidates),
 		return Candidate{}, ErrNotFound
 	}
 	return candidate, nil
+}
+
+func (s *SQLiteStore) PromoteCandidate(ctx context.Context, projectID, id string, entry Entry) (Candidate, Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	projectID = strings.TrimSpace(projectID)
+	id = strings.TrimSpace(id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Candidate{}, Entry{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	row := tx.QueryRowContext(ctx, fmt.Sprintf(`
+SELECT id, project_id, title, body, suggested_kind, suggested_trust_label,
+	suggested_source_kind, suggested_source_id, source_refs_json, status,
+	status_reason, promoted_memory_id, created_at, updated_at
+FROM %s
+WHERE id = ? AND project_id = ?`, s.candidates), id, projectID)
+	candidate, err := scanCandidate(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Candidate{}, Entry{}, ErrNotFound
+	}
+	if err != nil {
+		return Candidate{}, Entry{}, err
+	}
+	if candidate.Status != CandidateStatusPending {
+		return Candidate{}, Entry{}, ErrConflict
+	}
+
+	entry.ProjectID = projectID
+	entry.Scope = ScopeProject
+	entry = normalizeEntry(entry, now)
+	if err := validateEntry(entry); err != nil {
+		return Candidate{}, Entry{}, err
+	}
+	if err := insertEntry(ctx, tx, s.entries, entry); err != nil {
+		return Candidate{}, Entry{}, err
+	}
+
+	candidate.Status = CandidateStatusPromoted
+	candidate.StatusReason = ""
+	candidate.PromotedMemoryID = entry.ID
+	candidate.UpdatedAt = now
+	candidate = normalizeCandidate(candidate, now)
+	if err := validateCandidate(candidate); err != nil {
+		return Candidate{}, Entry{}, err
+	}
+	res, err := tx.ExecContext(ctx, fmt.Sprintf(`
+UPDATE %s
+SET status = ?, status_reason = ?, promoted_memory_id = ?, updated_at = ?
+WHERE id = ? AND project_id = ? AND status = ?`, s.candidates),
+		candidate.Status,
+		candidate.StatusReason,
+		candidate.PromotedMemoryID,
+		formatTime(candidate.UpdatedAt),
+		candidate.ID,
+		candidate.ProjectID,
+		CandidateStatusPending,
+	)
+	if err != nil {
+		return Candidate{}, Entry{}, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return Candidate{}, Entry{}, err
+	}
+	if affected == 0 {
+		return Candidate{}, Entry{}, ErrConflict
+	}
+	if err := tx.Commit(); err != nil {
+		return Candidate{}, Entry{}, err
+	}
+	return candidate, entry, nil
 }
 
 func (s *SQLiteStore) DeleteCandidatesByProjectID(ctx context.Context, projectID string) (int, error) {

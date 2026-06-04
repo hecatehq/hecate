@@ -475,6 +475,37 @@ func TestProjectMemoryAPI_CreateDuplicateMapsToConflict(t *testing.T) {
 	}
 }
 
+func TestProjectMemoryAPI_CandidateEndpointsRequireCandidateStore(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	if _, err := projectStore.Create(t.Context(), projects.Project{ID: "proj_plain", Name: "Plain"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	handler.SetProjectStore(projectStore)
+	handler.SetMemoryStore(conflictMemoryStore{})
+	server := NewServer(quietLogger(), handler)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_plain/memory/candidates", nil))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("candidate list status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Error.Type != errCodeInvalidRequest || payload.Error.Message != "project memory candidate store is not configured" {
+		t.Fatalf("error = %+v, want candidate store configuration error", payload.Error)
+	}
+}
+
 func createMemoryTestProject(t *testing.T, server http.Handler, name string) ProjectResponse {
 	t.Helper()
 	rec := httptest.NewRecorder()

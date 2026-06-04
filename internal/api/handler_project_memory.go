@@ -61,6 +61,9 @@ func (h *Handler) HandleProjectMemoryEntries(w http.ResponseWriter, r *http.Requ
 	if !h.requireProjectExists(w, r, projectID) {
 		return
 	}
+	if !h.requireProjectMemoryStore(w) {
+		return
+	}
 	includeDisabled := requestBool(r, "include_disabled")
 	items, err := h.memory.List(r.Context(), memory.Filter{
 		ProjectID:       projectID,
@@ -80,6 +83,9 @@ func (h *Handler) HandleProjectMemoryEntries(w http.ResponseWriter, r *http.Requ
 func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
 	if !h.requireProjectExists(w, r, projectID) {
+		return
+	}
+	if !h.requireProjectMemoryStore(w) {
 		return
 	}
 	var req createProjectMemoryRequest
@@ -122,11 +128,15 @@ func (h *Handler) HandleProjectMemoryCandidates(w http.ResponseWriter, r *http.R
 	if !h.requireProjectExists(w, r, projectID) {
 		return
 	}
+	candidateStore, ok := h.requireProjectMemoryCandidateStore(w)
+	if !ok {
+		return
+	}
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	if status == "" && !requestBool(r, "include_resolved") {
 		status = memory.CandidateStatusPending
 	}
-	items, err := h.memoryCandidates.ListCandidates(r.Context(), memory.CandidateFilter{
+	items, err := candidateStore.ListCandidates(r.Context(), memory.CandidateFilter{
 		ProjectID: projectID,
 		Status:    status,
 	})
@@ -146,6 +156,10 @@ func (h *Handler) HandleCreateProjectMemoryCandidate(w http.ResponseWriter, r *h
 	if !h.requireProjectExists(w, r, projectID) {
 		return
 	}
+	candidateStore, ok := h.requireProjectMemoryCandidateStore(w)
+	if !ok {
+		return
+	}
 	var req createProjectMemoryCandidateRequest
 	if !decodeJSON(w, r, &req) {
 		return
@@ -162,7 +176,7 @@ func (h *Handler) HandleCreateProjectMemoryCandidate(w http.ResponseWriter, r *h
 		SourceRefs:          candidateSourceRefsFromRequest(req.SourceRefs),
 		Status:              memory.CandidateStatusPending,
 	}
-	created, err := h.memoryCandidates.CreateCandidate(r.Context(), candidate)
+	created, err := candidateStore.CreateCandidate(r.Context(), candidate)
 	if errors.Is(err, memory.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
@@ -183,22 +197,22 @@ func (h *Handler) HandlePromoteProjectMemoryCandidate(w http.ResponseWriter, r *
 	if !h.requireProjectExists(w, r, projectID) {
 		return
 	}
+	candidateStore, ok := h.requireProjectMemoryCandidateStore(w)
+	if !ok {
+		return
+	}
 	var req promoteProjectMemoryCandidateRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	candidateID := r.PathValue("candidate_id")
-	candidate, ok, err := h.memoryCandidates.GetCandidate(r.Context(), projectID, candidateID)
+	candidate, ok, err := candidateStore.GetCandidate(r.Context(), projectID, candidateID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	if !ok {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project memory candidate not found")
-		return
-	}
-	if candidate.Status != memory.CandidateStatusPending {
-		WriteError(w, http.StatusConflict, errCodeConflict, "project memory candidate is already resolved")
 		return
 	}
 	enabled := true
@@ -231,24 +245,23 @@ func (h *Handler) HandlePromoteProjectMemoryCandidate(w http.ResponseWriter, r *
 	if req.SourceID != nil {
 		entry.SourceID = *req.SourceID
 	}
-	created, err := h.memory.Create(r.Context(), entry)
+	updated, _, err := candidateStore.PromoteCandidate(r.Context(), projectID, candidateID, entry)
 	if errors.Is(err, memory.ErrInvalid) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if errors.Is(err, memory.ErrNotFound) {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project memory candidate not found")
+		return
+	}
+	if errors.Is(err, memory.ErrConflict) {
+		WriteError(w, http.StatusConflict, errCodeConflict, "project memory candidate is already resolved")
 		return
 	}
 	if errors.Is(err, memory.ErrAlreadyExists) {
 		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
 		return
 	}
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	updated, err := h.memoryCandidates.UpdateCandidate(r.Context(), projectID, candidateID, func(item *memory.Candidate) {
-		item.Status = memory.CandidateStatusPromoted
-		item.PromotedMemoryID = created.ID
-		item.StatusReason = ""
-	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -261,12 +274,16 @@ func (h *Handler) HandleRejectProjectMemoryCandidate(w http.ResponseWriter, r *h
 	if !h.requireProjectExists(w, r, projectID) {
 		return
 	}
+	candidateStore, ok := h.requireProjectMemoryCandidateStore(w)
+	if !ok {
+		return
+	}
 	var req rejectProjectMemoryCandidateRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	candidateID := r.PathValue("candidate_id")
-	candidate, ok, err := h.memoryCandidates.GetCandidate(r.Context(), projectID, candidateID)
+	candidate, ok, err := candidateStore.GetCandidate(r.Context(), projectID, candidateID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -279,7 +296,7 @@ func (h *Handler) HandleRejectProjectMemoryCandidate(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusConflict, errCodeConflict, "project memory candidate is already resolved")
 		return
 	}
-	updated, err := h.memoryCandidates.UpdateCandidate(r.Context(), projectID, candidateID, func(item *memory.Candidate) {
+	updated, err := candidateStore.UpdateCandidate(r.Context(), projectID, candidateID, func(item *memory.Candidate) {
 		item.Status = memory.CandidateStatusRejected
 		item.StatusReason = req.Reason
 		item.PromotedMemoryID = ""
@@ -298,6 +315,9 @@ func (h *Handler) HandleRejectProjectMemoryCandidate(w http.ResponseWriter, r *h
 func (h *Handler) HandleUpdateProjectMemoryEntry(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSpace(r.PathValue("id"))
 	if !h.requireProjectExists(w, r, projectID) {
+		return
+	}
+	if !h.requireProjectMemoryStore(w) {
 		return
 	}
 	var req updateProjectMemoryRequest
@@ -344,6 +364,9 @@ func (h *Handler) HandleDeleteProjectMemoryEntry(w http.ResponseWriter, r *http.
 	if !h.requireProjectExists(w, r, projectID) {
 		return
 	}
+	if !h.requireProjectMemoryStore(w) {
+		return
+	}
 	err := h.memory.Delete(r.Context(), projectID, r.PathValue("memory_id"))
 	if errors.Is(err, memory.ErrNotFound) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project memory entry not found")
@@ -357,8 +380,8 @@ func (h *Handler) HandleDeleteProjectMemoryEntry(w http.ResponseWriter, r *http.
 }
 
 func (h *Handler) requireProjectExists(w http.ResponseWriter, r *http.Request, projectID string) bool {
-	if h.projects == nil || h.memory == nil || h.memoryCandidates == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project memory store is not configured")
+	if h.projects == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project store is not configured")
 		return false
 	}
 	if projectID == "" {
@@ -375,6 +398,22 @@ func (h *Handler) requireProjectExists(w http.ResponseWriter, r *http.Request, p
 		return false
 	}
 	return true
+}
+
+func (h *Handler) requireProjectMemoryStore(w http.ResponseWriter) bool {
+	if h.memory == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project memory store is not configured")
+		return false
+	}
+	return true
+}
+
+func (h *Handler) requireProjectMemoryCandidateStore(w http.ResponseWriter) (memory.CandidateStore, bool) {
+	if h.memoryCandidates == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project memory candidate store is not configured")
+		return nil, false
+	}
+	return h.memoryCandidates, true
 }
 
 func renderProjectMemory(entry memory.Entry) ProjectMemoryResponseItem {
