@@ -349,9 +349,14 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setMemoryError("");
     if (!projectID) {
       setMemoryEntries([]);
+      setEditingMemory(null);
+      setDeleteMemory(null);
       setMemoryLoadState("idle");
       return;
     }
+    setMemoryEntries([]);
+    setEditingMemory(null);
+    setDeleteMemory(null);
     setMemoryLoadState("loading");
     try {
       const payload = await getProjectMemory(projectID, true);

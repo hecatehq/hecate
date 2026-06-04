@@ -547,6 +547,60 @@ describe("ProjectsView cockpit", () => {
     expect(screen.getByLabelText("Body")).toHaveValue("Summarize cautiously.");
   });
 
+  it("clears stale project memory while switching projects", async () => {
+    resetProjectWorkMocks();
+    const secondProject: ProjectRecord = {
+      ...project,
+      id: "proj_2",
+      name: "Apollo",
+      roots: [
+        {
+          ...project.roots[0],
+          id: "root_2",
+          path: "/Users/alice/dev/apollo",
+        },
+      ],
+    };
+    let resolveSecondMemory = (_value: {
+      object: "project_memory";
+      data: ProjectMemoryRecord[];
+    }) => {};
+    const secondMemoryRequest = new Promise<{
+      object: "project_memory";
+      data: ProjectMemoryRecord[];
+    }>((resolve) => {
+      resolveSecondMemory = resolve;
+    });
+    vi.mocked(getProjectMemory).mockImplementation(async (projectID) => {
+      if (projectID === secondProject.id) {
+        return secondMemoryRequest;
+      }
+      return { object: "project_memory", data: [memoryEntry] };
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const user = userEvent.setup();
+    const state = createRuntimeConsoleFixture({
+      projects: [project, secondProject],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Use conventional commits.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
+    expect(screen.getByRole("button", { name: "Save memory" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Open project Apollo" }));
+
+    await waitFor(() => {
+      expect(getProjectMemory).toHaveBeenCalledWith(secondProject.id, true);
+    });
+    expect(screen.queryByText("Use conventional commits.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save memory" })).toBeNull();
+
+    resolveSecondMemory({ object: "project_memory", data: [] });
+    expect(await screen.findByText("No project memory entries saved yet.")).toBeTruthy();
+  });
+
   it("keeps project work visible when activity loading fails", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectActivity).mockRejectedValueOnce(new Error("activity failed"));

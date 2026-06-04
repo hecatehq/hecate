@@ -163,6 +163,30 @@ func TestSQLiteStore_ProjectScopingAndDeleteByProject(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_ListWithoutProjectReturnsAllProjects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	_, _ = store.Create(ctx, Entry{ID: "mem_a", ProjectID: "proj_a", Title: "A", Body: "Alpha", Enabled: true})
+	_, _ = store.Create(ctx, Entry{ID: "mem_b", ProjectID: "proj_b", Title: "B", Body: "Beta", Enabled: true})
+	_, _ = store.Create(ctx, Entry{ID: "mem_disabled", ProjectID: "proj_b", Title: "Disabled", Body: "Hidden", Enabled: false})
+
+	active, err := store.List(ctx, Filter{})
+	if err != nil {
+		t.Fatalf("List active all projects: %v", err)
+	}
+	if len(active) != 2 {
+		t.Fatalf("active all-project entries = %+v, want two enabled entries", active)
+	}
+	all, err := store.List(ctx, Filter{IncludeDisabled: true})
+	if err != nil {
+		t.Fatalf("List all projects: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("all-project entries = %+v, want three entries including disabled", all)
+	}
+}
+
 func TestSQLiteStore_RejectsDuplicateID(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

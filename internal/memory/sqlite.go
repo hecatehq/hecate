@@ -131,11 +131,18 @@ func (s *SQLiteStore) List(ctx context.Context, filter Filter) ([]Entry, error) 
 	query := fmt.Sprintf(`
 SELECT id, scope, project_id, title, body, trust_label, source_kind, source_id,
 	enabled, created_at, updated_at
-FROM %s
-WHERE project_id = ?`, s.entries)
-	args := []any{projectID}
+FROM %s`, s.entries)
+	args := []any{}
+	clauses := []string{}
+	if projectID != "" {
+		clauses = append(clauses, `project_id = ?`)
+		args = append(args, projectID)
+	}
 	if !filter.IncludeDisabled {
-		query += ` AND enabled != 0`
+		clauses = append(clauses, `enabled != 0`)
+	}
+	if len(clauses) > 0 {
+		query += ` WHERE ` + strings.Join(clauses, ` AND `)
 	}
 	query += ` ORDER BY enabled DESC, updated_at DESC, title ASC, id ASC`
 	rows, err := s.db.QueryContext(ctx, query, args...)
