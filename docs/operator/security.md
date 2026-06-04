@@ -59,7 +59,7 @@ Hecate stores local configuration and operational state on disk.
 - Provider credentials and settings are local to the gateway data directory / desktop app data directory.
 - Missing SQLite data directories are created as owner-only on POSIX (`0700`), and database files are created or repaired as `0600`. Hecate does not chmod existing parent directories supplied by the operator.
 - Do not commit `.env`, SQLite databases, release keys, update signing keys, or platform credential files.
-- External agent credentials belong to the underlying CLI account. Hecate can probe and surface auth failures, but it does not own, proxy, or pool those accounts. See [External agent adapters](../design/accepted/external-agent-adapters.md#credential-and-account-boundaries) for credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok Build.
+- External agent credentials belong to the underlying CLI account. Hecate can probe and surface auth failures, but it does not own, proxy, or pool those accounts. See [External agent adapters](../runtime/external-agent-adapters.md#credential-and-account-boundaries) for credential and billing notes for Codex, Claude Code, Cursor Agent, and Grok Build.
 - Stdio MCP servers inherit only runtime-essential environment variables from the gateway. Server credentials must be configured explicitly on that MCP server entry.
 - If you expose Hecate beyond loopback while provider credentials are configured, anyone who can reach an unprotected inference path may be able to spend those credentials. Use your own network access control; set `HECATE_INFERENCE_TOKEN` for provider-compatible `/v1/*` clients and `HECATE_RUNTIME_TOKEN` for Hecate-native chat, task, and control-plane clients.
 

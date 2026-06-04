@@ -1425,6 +1425,15 @@ items, assignments, projected task/run execution summaries, linked chat/task
 identifiers, and recent collaboration artifact signals without mutating any
 project-work or task rows.
 
+The Projects UI also derives a compact Project Health band from this response
+plus the project defaults, memory candidates, and memory/context-source lists.
+That health view is a client-side projection for operator orientation: active
+work, approvals waiting, pending handoffs, memory candidates awaiting review,
+blocked/failed/cancelled assignments, recent completions, stale or missing
+linked execution, missing provider/model defaults, and memory/context readiness.
+It does not add a separate recommendation engine, dependency model, persisted
+health record, or new API contract.
+
 The top-level envelope follows the Hecate-native convention:
 
 ```json

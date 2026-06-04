@@ -2,7 +2,7 @@
 
 This guide covers the source-build toolchain, local-build path, UI hot reload,
 website development, the test surface, and the screenshot tooling. For the
-simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the
+simplest get-it-running flow, see [Start Here](../README.md#start-here) — the
 desktop app is the recommended on-ramp for macOS personal use; Docker is the
 more predictable path for server use and for Linux/Windows until those desktop
 bundles are manually tested.

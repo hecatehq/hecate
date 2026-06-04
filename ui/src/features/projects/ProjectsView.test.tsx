@@ -45,6 +45,7 @@ import launchContextContractRaw from "../../test/fixtures/launch-context-v1-cont
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type {
   ProjectAssignmentRecord,
+  ProjectActivityData,
   ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
   ProjectRecord,
@@ -1311,6 +1312,622 @@ describe("ProjectsView cockpit", () => {
     expect(
       screen.getByText(/No explicit decision notes yet. Existing decision_note artifacts/),
     ).toBeTruthy();
+  });
+
+  it("renders project health signals and jumps to attention targets", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [memoryEntry],
+    });
+    const onOpenTask = vi.fn();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<ProjectsView onOpenTask={onOpenTask} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    const health = await screen.findByLabelText("Project health");
+    expect(within(health).getByText("Project Health")).toBeTruthy();
+    expect(within(health).getByText("0 active, 1 waiting, 0 blocked or failed")).toBeTruthy();
+    expect(within(health).getByText("Waiting approval")).toBeTruthy();
+    expect(within(health).getByText("Blocked / failed")).toBeTruthy();
+    expect(within(health).getByText("Project memory")).toBeTruthy();
+    expect(within(health).getByText("1 enabled")).toBeTruthy();
+    expect(within(health).getByText(/Approval waiting: Build cockpit UI/i)).toBeTruthy();
+
+    await userEvent.click(within(health).getByRole("button", { name: "Open attention task" }));
+    expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
+
+    await userEvent.click(within(health).getByRole("button", { name: "Edit defaults" }));
+    expect(screen.getByRole("dialog", { name: "Project defaults" })).toBeTruthy();
+  });
+
+  it("keeps project health failed counts separate from approval and stale blocked rows", async () => {
+    resetProjectWorkMocks();
+    const failedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_failed",
+      status: "failed",
+      execution: {
+        ...hecateAssignment.execution,
+        status: "failed",
+        pending_approval_count: 0,
+      },
+      updated_at: "2026-06-02T12:00:00Z",
+    };
+    const staleAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_stale_health",
+      status: "running",
+      execution: {
+        ...hecateAssignment.execution,
+        status: "running",
+        pending_approval_count: 0,
+        missing: true,
+      },
+      updated_at: "2026-06-01T08:00:00Z",
+    };
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: {
+        project_id: project.id,
+        summary: {
+          work_item_count: 1,
+          assignment_count: 3,
+          active_count: 0,
+          blocked_count: 3,
+          completed_count: 0,
+          recent_count: 3,
+        },
+        buckets: {
+          active: [],
+          blocked: [
+            {
+              id: hecateAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "running",
+                priority: workItem.priority,
+              },
+              assignment: hecateAssignment,
+              role,
+              status: "awaiting_approval",
+              blocking_signal: "awaiting_approval",
+              status_summary: "2 approval pending",
+              linked_task_id: "task_1",
+              linked_run_id: "run_1",
+              artifact_summary: { count: 0 },
+              handoff_summary: { count: 0 },
+              updated_at: "2026-06-02T11:00:00Z",
+            },
+            {
+              id: failedAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "running",
+                priority: workItem.priority,
+              },
+              assignment: failedAssignment,
+              role,
+              status: "failed",
+              blocking_signal: "failed",
+              status_summary: "execution failed",
+              linked_task_id: "task_1",
+              linked_run_id: "run_failed",
+              artifact_summary: { count: 0 },
+              handoff_summary: { count: 0 },
+              updated_at: "2026-06-02T12:00:00Z",
+            },
+            {
+              id: staleAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "running",
+                priority: workItem.priority,
+              },
+              assignment: staleAssignment,
+              role,
+              status: "running",
+              blocking_signal: "stale_unknown",
+              status_summary: "linked run missing",
+              linked_task_id: "task_1",
+              linked_run_id: "run_missing",
+              artifact_summary: { count: 0 },
+              handoff_summary: { count: 0 },
+              updated_at: "2026-06-01T08:00:00Z",
+            },
+          ],
+          completed: [],
+          recent: [],
+        },
+        recent: [],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const health = await screen.findByLabelText("Project health");
+    expect(within(health).getByText("0 active, 1 waiting, 1 blocked or failed")).toBeTruthy();
+    expect(within(health).getByText("Stale / unknown")).toBeTruthy();
+    expect(within(health).getByText(/Execution needs review: Build cockpit UI/i)).toBeTruthy();
+  });
+
+  it("surfaces handoff and memory candidate health after project promotion surfaces load", async () => {
+    resetProjectWorkMocks();
+    const handoffActivity: ProjectActivityData = {
+      project_id: project.id,
+      summary: {
+        work_item_count: 1,
+        assignment_count: 1,
+        active_count: 0,
+        blocked_count: 0,
+        completed_count: 0,
+        recent_count: 1,
+      },
+      buckets: {
+        active: [],
+        blocked: [],
+        completed: [],
+        recent: [
+          {
+            id: hecateAssignment.id,
+            project_id: project.id,
+            work_item: {
+              id: workItem.id,
+              title: workItem.title,
+              status: "running",
+              priority: workItem.priority,
+            },
+            assignment: {
+              ...hecateAssignment,
+              execution: {
+                ...hecateAssignment.execution,
+                status: "running",
+                pending_approval_count: 0,
+              },
+            },
+            role,
+            status: "running",
+            blocking_signal: "running",
+            status_summary: "work recently updated",
+            linked_task_id: "task_1",
+            linked_run_id: "run_1",
+            artifact_summary: { count: 0 },
+            handoff_summary: {
+              count: 4,
+              pending_count: 1,
+              accepted_count: 1,
+              latest_status: "pending",
+              latest_title: "QA handoff",
+              latest_at: "2026-06-04T10:00:00Z",
+            },
+            recent_handoffs: [
+              {
+                id: "handoff_pending",
+                project_id: project.id,
+                work_item_id: workItem.id,
+                source_assignment_id: hecateAssignment.id,
+                target_role_id: "reviewer_qa",
+                title: "QA handoff",
+                summary: "Implementation is ready for review.",
+                recommended_next_action: "Create a queued QA assignment.",
+                status: "pending",
+                provenance_kind: "agent_draft",
+                trust_label: "operator_reviewed",
+                created_at: "2026-06-04T10:00:00Z",
+                updated_at: "2026-06-04T10:00:00Z",
+                status_changed_at: "2026-06-04T10:00:00Z",
+              },
+              {
+                id: "handoff_superseded",
+                project_id: project.id,
+                work_item_id: workItem.id,
+                title: "Old QA handoff",
+                summary: "Earlier handoff.",
+                recommended_next_action: "Ignore the old handoff.",
+                status: "superseded",
+                provenance_kind: "operator",
+                trust_label: "operator_reviewed",
+                created_at: "2026-06-04T09:00:00Z",
+                updated_at: "2026-06-04T09:30:00Z",
+                status_changed_at: "2026-06-04T09:30:00Z",
+              },
+              {
+                id: "handoff_accepted",
+                project_id: project.id,
+                work_item_id: workItem.id,
+                title: "Accepted QA handoff",
+                summary: "Already accepted.",
+                recommended_next_action: "Use the accepted target assignment.",
+                status: "accepted",
+                provenance_kind: "operator",
+                trust_label: "operator_reviewed",
+                created_at: "2026-06-04T08:45:00Z",
+                updated_at: "2026-06-04T09:15:00Z",
+                status_changed_at: "2026-06-04T09:15:00Z",
+              },
+              {
+                id: "handoff_dismissed",
+                project_id: project.id,
+                work_item_id: workItem.id,
+                title: "Dismissed QA handoff",
+                summary: "No longer needed.",
+                recommended_next_action: "No action.",
+                status: "dismissed",
+                provenance_kind: "operator",
+                trust_label: "operator_reviewed",
+                created_at: "2026-06-04T08:00:00Z",
+                updated_at: "2026-06-04T08:30:00Z",
+                status_changed_at: "2026-06-04T08:30:00Z",
+              },
+            ],
+            updated_at: "2026-06-04T10:00:00Z",
+          },
+        ],
+      },
+      recent: [],
+    };
+    const sourceHandoffItem = handoffActivity.buckets.recent[0]!;
+    handoffActivity.buckets.recent.push({
+      ...sourceHandoffItem,
+      id: "asgn_target",
+      assignment: {
+        ...sourceHandoffItem.assignment,
+        id: "asgn_target",
+        role_id: "reviewer_qa",
+      },
+      role: {
+        ...role,
+        id: "reviewer_qa",
+        name: "Reviewer QA",
+      },
+    });
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: handoffActivity,
+    });
+    vi.mocked(getProjectMemoryCandidates).mockResolvedValue({
+      object: "project_memory_candidates",
+      data: [
+        memoryCandidate,
+        {
+          ...memoryCandidate,
+          id: "memcand_promoted",
+          title: "Promoted convention",
+          status: "promoted",
+        },
+        {
+          ...memoryCandidate,
+          id: "memcand_rejected",
+          title: "Rejected guess",
+          status: "rejected",
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const health = await screen.findByLabelText("Project health");
+    expect(within(health).getByText("Pending handoffs")).toBeTruthy();
+    expect(within(health).getByText("1 accepted, 1 superseded, 1 dismissed")).toBeTruthy();
+    expect(within(health).getByText(/Pending handoff: Build cockpit UI/i)).toBeTruthy();
+    expect(within(health).getByText(/QA handoff/i)).toBeTruthy();
+    expect(within(health).getByText("1 pending review")).toBeTruthy();
+    expect(within(health).getByText("1 promoted, 1 rejected")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Promote memory candidate Promoted convention" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Reject memory candidate Rejected guess" }),
+    ).toBeNull();
+
+    await user.click(within(health).getByRole("button", { name: "Review memory candidate" }));
+    expect(screen.getByRole("button", { name: "Promote memory" })).toBeTruthy();
+  });
+
+  it("uses project health filters to focus activity buckets", async () => {
+    resetProjectWorkMocks();
+    const activeActivity: ProjectActivityData = {
+      project_id: project.id,
+      summary: {
+        work_item_count: 1,
+        assignment_count: 1,
+        active_count: 1,
+        blocked_count: 0,
+        completed_count: 0,
+        recent_count: 1,
+      },
+      buckets: {
+        active: [
+          {
+            id: "asgn_active",
+            project_id: project.id,
+            work_item: {
+              id: workItem.id,
+              title: workItem.title,
+              status: "running",
+              priority: workItem.priority,
+            },
+            assignment: {
+              ...hecateAssignment,
+              id: "asgn_active",
+              status: "running",
+              execution: { ...hecateAssignment.execution, status: "running" },
+            },
+            role,
+            status: "running",
+            blocking_signal: "running",
+            status_summary: "run live now",
+            linked_task_id: "task_1",
+            linked_run_id: "run_1",
+            artifact_summary: { count: 1 },
+            updated_at: "2026-06-02T11:05:00Z",
+          },
+        ],
+        blocked: [],
+        completed: [],
+        recent: [],
+      },
+      recent: [],
+    };
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: activeActivity,
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("No blocked assignments for this project.")).toBeTruthy();
+    const health = screen.getByLabelText("Project health");
+    await userEvent.click(
+      within(health).getByRole("button", { name: "Show active work assignments" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("run live now").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("surfaces missing defaults and empty context in project health", async () => {
+    resetProjectWorkMocks();
+    const projectWithoutDefaults: ProjectRecord = {
+      ...project,
+      default_provider: undefined,
+      default_model: undefined,
+      context_sources: [
+        {
+          id: "ctx_1",
+          kind: "doc",
+          title: "Notes",
+          path: "notes.md",
+          enabled: false,
+          created_at: "2026-06-02T09:00:00Z",
+          updated_at: "2026-06-02T09:00:00Z",
+        },
+      ],
+    };
+    vi.mocked(getProjectMemory).mockResolvedValue({ object: "project_memory", data: [] });
+    window.localStorage.setItem("hecate.project", projectWithoutDefaults.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [projectWithoutDefaults],
+      activeProjectID: projectWithoutDefaults.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const health = await screen.findByLabelText("Project health");
+    expect(within(health).getByText("Provider/model defaults missing")).toBeTruthy();
+    expect(within(health).getByText("No project memory or context sources enabled")).toBeTruthy();
+    expect(within(health).getByText("No enabled memory or context sources")).toBeTruthy();
+
+    await userEvent.click(within(health).getByRole("button", { name: "Add memory" }));
+    expect(screen.getByRole("dialog", { name: "New project memory" })).toBeTruthy();
+  });
+
+  it("surfaces stale and missing linked execution in project health", async () => {
+    resetProjectWorkMocks();
+    const staleAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_stale",
+      status: "running",
+      execution: {
+        ...hecateAssignment.execution,
+        status: "running",
+        pending_approval_count: 0,
+        missing: true,
+      },
+      updated_at: "2026-06-01T08:00:00Z",
+    };
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: {
+        project_id: project.id,
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 0,
+          blocked_count: 1,
+          completed_count: 0,
+          recent_count: 1,
+        },
+        buckets: {
+          active: [],
+          blocked: [
+            {
+              id: staleAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "running",
+                priority: workItem.priority,
+              },
+              assignment: staleAssignment,
+              role,
+              status: "running",
+              blocking_signal: "stale_unknown",
+              status_summary: "linked run missing",
+              linked_task_id: "task_1",
+              linked_run_id: "run_missing",
+              artifact_summary: { count: 0 },
+              updated_at: "2026-06-01T08:00:00Z",
+            },
+          ],
+          completed: [],
+          recent: [],
+        },
+        recent: [],
+      },
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [staleAssignment] }],
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [staleAssignment],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const health = await screen.findByLabelText("Project health");
+    expect(within(health).getByText("Stale / unknown")).toBeTruthy();
+    expect(within(health).getByText(/Stale or unknown assignment: Build cockpit UI/i)).toBeTruthy();
+    expect(within(health).getByText(/linked run missing/i)).toBeTruthy();
+
+    await userEvent.click(within(health).getByRole("button", { name: "View blocked" }));
+    await waitFor(() => {
+      expect(screen.getAllByText("linked run missing").length).toBeGreaterThan(1);
+    });
+  });
+
+  it("renders an all-clear project health state when context and defaults are ready", async () => {
+    resetProjectWorkMocks();
+    const readyProject: ProjectRecord = {
+      ...project,
+      context_sources: [
+        {
+          id: "ctx_ready",
+          kind: "doc",
+          title: "Runbook",
+          path: "docs/runbook.md",
+          enabled: true,
+          created_at: "2026-06-04T09:00:00Z",
+          updated_at: "2026-06-04T09:00:00Z",
+        },
+      ],
+    };
+    const completedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      status: "completed",
+      execution: {
+        ...hecateAssignment.execution,
+        status: "completed",
+        pending_approval_count: 0,
+        finished_at: "2026-06-04T10:00:00Z",
+      },
+      updated_at: "2026-06-04T10:00:00Z",
+      completed_at: "2026-06-04T10:00:00Z",
+    };
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: {
+        project_id: readyProject.id,
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 0,
+          blocked_count: 0,
+          completed_count: 1,
+          recent_count: 1,
+        },
+        buckets: {
+          active: [],
+          blocked: [],
+          completed: [
+            {
+              id: completedAssignment.id,
+              project_id: readyProject.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "done",
+                priority: workItem.priority,
+              },
+              assignment: completedAssignment,
+              role,
+              status: "completed",
+              blocking_signal: "completed",
+              status_summary: "completed",
+              linked_task_id: "task_1",
+              linked_run_id: "run_1",
+              artifact_summary: { count: 1 },
+              updated_at: "2026-06-04T10:00:00Z",
+            },
+          ],
+          recent: [],
+        },
+        recent: [],
+      },
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, status: "done", assignments: [completedAssignment] }],
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [completedAssignment],
+    });
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [memoryEntry],
+    });
+    window.localStorage.setItem("hecate.project", readyProject.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [readyProject],
+      activeProjectID: readyProject.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const health = await screen.findByLabelText("Project health");
+    expect(within(health).getByText("0 active, 0 waiting, 0 blocked or failed")).toBeTruthy();
+    expect(
+      within(health).getByText(
+        /No approvals, pending handoffs, memory reviews, failures, stale assignments, or missing launch defaults detected./i,
+      ),
+    ).toBeTruthy();
+    expect(within(health).getByText("1 memory / 1 source")).toBeTruthy();
+    expect(within(health).getByText("1/1 memory, 1 sources")).toBeTruthy();
   });
 
   it("starts not-started assignments from the activity inbox", async () => {
