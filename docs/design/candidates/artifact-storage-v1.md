@@ -1,10 +1,10 @@
-# Artifact Storage — v1 Candidate (RFC)
+# Artifact Storage — v1 Candidate (design record)
 
 > **Status:** candidate; partially superseded by shipped task artifacts and chat
 > diff inspect/revert.
 > **Current source of truth:** [Agent runtime](../../runtime/agent-runtime.md),
 > [Runtime API](../../runtime/runtime-api.md), and [Chat sessions](../../runtime/chat-sessions.md).
-> **Next action:** rewrite before exposing a standalone artifact API; this RFC is
+> **Next action:** rewrite before exposing a standalone artifact API; this design record is
 > broader than the current alpha implementation.
 
 This document proposes how the agent runtime stores, fetches, and prunes the
@@ -13,7 +13,7 @@ persisted byte blobs the [event protocol](event-protocol-v1.md) calls
 image attachments. Artifacts are first-class objects with a stable id, a
 content-addressable hash, a kind-specific lifecycle, and an HTTP API.
 
-This is the highest-risk unknown the event protocol RFC flagged. Settling it
+This is the highest-risk unknown the event protocol design record flagged. Settling it
 unblocks the Edit/MultiEdit tool families and the CLI/web/IDE consumers that
 need to render diffs without re-deriving state from `git status`.
 
@@ -111,7 +111,7 @@ CREATE TABLE artifacts (
     storage_path    TEXT,                       -- non-null when body_inline IS NULL
     metadata_json   TEXT NOT NULL,              -- kind-specific JSON, see below
     pinned          INTEGER NOT NULL DEFAULT 0, -- 0 | 1 — operator-flagged, never auto-pruned
-    created_at      TEXT NOT NULL,              -- RFC3339 nano
+    created_at      TEXT NOT NULL,              -- __design record3339__ nano
     updated_at      TEXT NOT NULL,
     -- Provenance: who produced this artifact?
     run_id          TEXT,                       -- nullable for ad-hoc creates
@@ -458,7 +458,7 @@ approval resolution; those endpoints perform workspace checks and then update
 the artifact internally.
 
 The exact higher-level patch-review endpoints are still out of scope for this
-RFC, but direct UI-driven `PATCH /hecate/v1/artifacts/{id}` is not part of the
+design record, but direct UI-driven `PATCH /hecate/v1/artifacts/{id}` is not part of the
 candidate contract.
 
 ### Pin / unpin
@@ -622,7 +622,7 @@ gates don't drift.
 
 ## Next steps
 
-1. **Land this doc** as a draft RFC alongside the event-protocol RFC. Solicit feedback on the open questions, especially #1 (stream separation) and #5 (patch-review endpoint shape).
+1. **Land this doc** as a draft design record alongside the event-protocol design record. Solicit feedback on the open questions, especially #1 (stream separation) and #5 (patch-review endpoint shape).
 2. **Implement the schema + service in a feature branch.** Single-package Go module under `internal/artifacts/`, with memory and SQLite backends behind the existing storage abstractions.
 3. **Wire `tool.shell.*` to produce `command_output` artifacts** — the smallest end-to-end slice that exercises create, fetch, list, retain. Behind `HECATE_ARTIFACTS_ENABLED`.
 4. **Add the retention subsystem.** Mark + free phases, OTel metrics, env vars in `.env.example`.

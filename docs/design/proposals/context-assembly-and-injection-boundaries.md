@@ -33,7 +33,7 @@ assignment has a visible provenance chain.
 | Concept                                                               | Owns                                                                                                                                   | Does not own                                                                                                          |
 | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | [**Projects**](../accepted/projects.md)                               | Durable identity for a codebase/work area: defaults, memory scope, history grouping, trusted context sources.                          | Concrete sandbox/workspace execution or per-call prompt rendering.                                                    |
-| **Context assembly** (this RFC)                                       | Source collection, trust labels, injection boundaries, final context packet snapshot, "what did the model see?" UI.                    | Token fitting, summarization algorithms, long-term memory CRUD.                                                       |
+| **Context assembly** (this design record)                             | Source collection, trust labels, injection boundaries, final context packet snapshot, "what did the model see?" UI.                    | Token fitting, summarization algorithms, long-term memory CRUD.                                                       |
 | [**Agent memory**](agent-memory.md)                                   | Durable operator-approved facts and preferences with scopes.                                                                           | Deciding whether an entry fits a model window or whether untrusted content should become memory.                      |
 | [**LLM context window management**](llm-context-window-management.md) | Token estimation, warning/cap thresholds, truncation, summarization, model limit lookup.                                               | Deciding whether a source is trusted, authoritative, or eligible.                                                     |
 | [**Workflow runbooks**](workflow-runbooks-v0.md)                      | Named task patterns that consume context packets, emit evidence artifacts, and propose memory candidates.                              | A separate prompt, memory, approval, artifact, or browser-state subsystem.                                            |
@@ -64,7 +64,7 @@ assignment has a visible provenance chain.
 - **Full semantic retrieval.** Embeddings and vector search can suggest
   candidate context later, but the first assembly layer is source/provenance
   plumbing.
-- **Automatic memory extraction.** This RFC explicitly keeps memory writes
+- **Automatic memory extraction.** This design record explicitly keeps memory writes
   operator-approved. Project memory candidates may capture generated/runtime
   text for review, but they are not included in context packets and do not
   become durable memory until the operator promotes them. Auto-extraction needs
@@ -77,7 +77,7 @@ assignment has a visible provenance chain.
   the transcript and raw adapter output it receives, but cannot fully assemble
   their private model context through ACP today.
 - **Hosted multi-user policy.** Hecate remains local-first and single-operator
-  shaped for this RFC.
+  shaped for this design record.
 
 ## Context Pipeline
 
@@ -307,7 +307,7 @@ packets are audit snapshots owned by their parent message/run.
 | 1   | Landed: enrich chat-message packet types, assembly for direct-model, tools-on, and external-agent turns, plus context inspector API.         |
 | 2   | Landed for chat messages: persist itemized snapshots through memory and SQLite chat stores. Task-run lookup resolves linked chat packets.    |
 | 3   | Landed for chat messages: UI context inspector groups itemized packet data by trust level.                                                   |
-| 4   | Wire token estimates from the context-window RFC against packet items.                                                                       |
+| 4   | Wire token estimates from the context-window design record against packet items.                                                             |
 | 5   | Landed for project memory: enabled entries appear as labelled chat packet items. Broader profile/surface memory selection remains future.    |
 | 6   | Landed for project handoffs: handoff records can carry explicit context refs and linked memory IDs, but they are not injected automatically. |
 

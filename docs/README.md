@@ -71,7 +71,6 @@ candidate-shaped, already implemented, or intentionally parked.
 | [Candidates](design/candidates/)   | Some implementation exists, but the wire/payload shape is not stable.                      |
 | [Implemented](design/implemented/) | Work landed; the record remains as design history. Current behavior lives in runtime docs. |
 | [Parking lot](design/parking-lot/) | Future or experimental ideas that should not drive implementation by themselves.           |
-| [Audits](design/audits/)           | Historical reviews of design-record accuracy.                                              |
 
 Start with the [design index](design/) before changing projects, context,
 memory, workflow runbooks, event contracts, artifact contracts, external-agent

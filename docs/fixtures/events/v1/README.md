@@ -3,8 +3,8 @@
 These fixtures are contract examples for the draft event protocol in
 [`docs/design/candidates/event-protocol-v1.md`](../../../design/candidates/event-protocol-v1.md).
 
-They are not runtime output yet. Their job is to make the RFC mechanically
-checkable before implementation starts.
+They are not runtime output yet. Their job is to make the design record
+mechanically checkable before implementation starts.
 
 ## Layout
 

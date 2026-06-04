@@ -6,7 +6,7 @@
 > **Next action:** implement workspace modes, named agent profiles, automatic
 > capability probes, and broader e2e hardening.
 >
-> **Terminology note:** this RFC was written while "Hecate Agent" was the
+> **Terminology note:** this design record was written while "Hecate Agent" was the
 > proposed product label for Hecate-owned tools-on chat. Current UI and
 > operator docs use **Hecate Chat** as the product surface and describe
 > tools-on turns as task-backed Hecate Chat segments. Older "Hecate Agent"
@@ -81,7 +81,7 @@ task segment.
 - Do not merge external agents into the provider/model list.
 - Do not call the product target "model + tools."
 - Do not create a second runtime beside `agent_loop` for Hecate-owned tools.
-- Do not solve endpoint namespace/versioning here. The endpoint-versioning RFC
+- Do not solve endpoint namespace/versioning here. The endpoint-versioning design record
   can rename the current `/v1/...` Hecate endpoints later.
 
 ## Model Capability Registry

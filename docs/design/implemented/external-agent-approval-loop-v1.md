@@ -1,4 +1,4 @@
-# External-Adapter Approval Loop — v1 Candidate (RFC)
+# External-Adapter Approval Loop — Implemented Design Record
 
 > **Status:** implemented record for alpha. Wire shape, persistence, SSE, UI,
 > grants management, telemetry, and migration docs have landed.
@@ -8,7 +8,7 @@
 > **Next action:** keep as design history unless the approval contract changes
 > before beta.
 
-This RFC defines how Hecate handles the `RequestPermission` reverse-RPC that
+This design record defines how Hecate handles the `RequestPermission` reverse-RPC that
 external ACP adapters (Codex, Claude Code, Cursor Agent, Grok Build, future ACP
 CLIs) emit when they want to do something the operator should sign off on —
 write a file, run a shell command, hit the network, take a destructive action.
@@ -64,7 +64,7 @@ can't audit. Codex / Claude Code / Cursor / Grok Build can:
 - fetch arbitrary URLs,
 - propose `rm -rf` and have it auto-confirmed.
 
-The Hecate UI advertises an "operator-controlled" tool. This RFC is what makes
+The Hecate UI advertises an "operator-controlled" tool. This design record is what makes
 that claim true.
 
 ## Design decisions
@@ -90,9 +90,9 @@ chat_approval
   selected_option string (filled when status=approved/denied; null otherwise)
   scope           string ("once" | "session" | "workspace_tool" | "adapter_tool")
   decision_note   string (optional operator note)
-  created_at      RFC3339 nano
-  resolved_at     RFC3339 nano (null while pending)
-  expires_at      RFC3339 nano (when the timeout fires)
+  created_at      __design record3339__ nano
+  resolved_at     __design record3339__ nano (null while pending)
+  expires_at      __design record3339__ nano (when the timeout fires)
   request_id      string  (matches assistant message)
   trace_id        string
   span_id         string
@@ -128,8 +128,8 @@ chat_approval_grants
   session_id      ULID    (only for scope=session; null otherwise)
   decision        string  ("approve" | "deny")
   granted_by      string  (operator user-agent fingerprint or "operator")
-  granted_at      RFC3339 nano
-  expires_at      RFC3339 nano (null = no expiry; v1 default = 7d for session, 90d for workspace_tool, 30d for adapter_tool — configurable)
+  granted_at      __design record3339__ nano
+  expires_at      __design record3339__ nano (null = no expiry; v1 default = 7d for session, 90d for workspace_tool, 30d for adapter_tool — configurable)
 ```
 
 When a new `RequestPermission` arrives, the session manager checks the grants

@@ -9,6 +9,5 @@ Use lifecycle buckets there instead of adding new records to `docs/design/`:
 - [Candidates](../design/candidates/)
 - [Implemented](../design/implemented/)
 - [Parking lot](../design/parking-lot/)
-- [Audits](../design/audits/)
 
 This directory remains only as a short compatibility pointer for older links.

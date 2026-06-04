@@ -100,7 +100,8 @@ Full matrix in [`../skills/tester/SKILL.md`](../skills/tester/SKILL.md).
 - Vet passes for touched Go packages, or `go vet ./...` for broad changes.
 - Race suite passes for runtime/backend work.
 - Inbound and outbound wire shapes are tested independently.
-- New env knobs documented in `.env.example` AND the relevant `docs/<feature>.md`.
+- New env knobs documented in `.env.example` AND the relevant page under
+  `docs/operator/`, `docs/runtime/`, `docs/contributor/`, or `docs/design/`.
 - Error paths return the right HTTP status with a useful message.
 - OTel attributes are populated for new spans.
 - New metric labels are emitted through `internal/telemetry` guardrails, with tests for closed-set and free-form dimensions when adding a new label.

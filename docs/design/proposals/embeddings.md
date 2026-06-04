@@ -4,7 +4,7 @@
 > **Current source of truth:** [Providers](../../operator/providers.md) and
 > [Runtime API](../../runtime/runtime-api.md) for today's chat-completion routing.
 > **Next action:** refresh provider/capability references before implementation.
-> This RFC predates the simplified Usage view and Connections model.
+> This design record predates the simplified Usage view and Connections model.
 
 Hecate today routes only chat-completion traffic. Operators who
 want to run a retrieval pipeline (Hecate Chat memory, RAG over
@@ -26,7 +26,7 @@ gateway and call OpenAI / Voyage / Gemini / a local
   OpenAI-compatible base URL" fails the moment it tries the
   embeddings endpoint, even when chat works.
 
-This RFC scopes the work to close that gap with the smallest
+This design record scopes the work to close that gap with the smallest
 possible surface change — one new route, one optional interface
 on the adapter, one capability flag, one llama-server arg.
 
@@ -78,7 +78,7 @@ In rough priority order:
 - **Caching at the gateway.** Embeddings are pure functions of
   the input, and content-addressed caching would be a real win,
   but it touches request hashing, eviction policy, and storage
-  sizing — material enough to be its own RFC.
+  sizing — material enough to be its own design record.
 - **Streaming.** Embeddings APIs don't stream; the response is a
   single JSON envelope. No SSE path.
 
@@ -297,7 +297,7 @@ The chat router would happily try to call them, and the only
 reason it doesn't is that provider adapters fail at upstream
 call time.
 
-This RFC extends `pkg/types.ModelCapabilities` with a new field:
+This design record extends `pkg/types.ModelCapabilities` with a new field:
 
 ```go
 type ModelCapabilities struct {
@@ -515,4 +515,4 @@ input: "hello world"}` returns an OpenAI-compatible
   at Hecate via the OpenAI-compatible base URL (`OPENAI_BASE_URL`).
 - Model capabilities: the per-model `embeddings` capability bit is a
   forward-compatible extension of the current capability record; document the
-  wire-format change in this RFC or a focused follow-up before implementation.
+  wire-format change in this design record or a focused follow-up before implementation.

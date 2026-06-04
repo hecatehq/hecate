@@ -1,4 +1,4 @@
-# External Agent Adapters — Candidate (RFC)
+# External Agent Adapters — Accepted Design Record
 
 > **Status:** accepted; partially implemented alpha baseline.
 > **Current source of truth:** [External agent adapters](../../runtime/external-agent-adapters.md),
@@ -6,7 +6,7 @@
 > **Next action:** keep improving adapter-specific structured mapping, patch
 > review UX, and convergence with task-runtime primitives.
 
-This RFC defines how Hecate should let an operator chat with external coding
+This design record defines how Hecate should let an operator chat with external coding
 agents such as Codex CLI, Claude Code, Cursor Agent, Grok Build, and future agent CLIs
 without pretending those agents are model providers.
 
@@ -66,7 +66,7 @@ Putting Codex, Claude Code, Cursor Agent, or Grok Build in the provider/model dr
 - Do not claim exact cost accounting for external agents until the adapter can
   report it.
 - Do not build a plugin marketplace or broad agent-runtime SDK yet.
-- Do not support remote multi-user agent sessions in this RFC.
+- Do not support remote multi-user agent sessions in this design record.
 
 ## Recommended Shape
 
@@ -149,7 +149,7 @@ The shipped alpha shape uses one chat-session API:
 Hecate-owned chat, or an external adapter id such as `codex`, `claude_code`, or
 `cursor_agent`. Individual messages record the execution mode that produced
 them. This replaced the earlier model-vs-agent session-type sketch from this
-RFC; there is no separate live target selector field.
+design record; there is no separate live target selector field.
 
 Implemented MVP endpoints:
 

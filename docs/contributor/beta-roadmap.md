@@ -43,8 +43,9 @@ is released in alpha tags only after it merges.
 - **Task/chat boundaries**: Tasks remain canonical for full run history and
   patch review; Hecate Chat projections stay accurate and linked. One chat can
   have many historical segments but only one active task-backed loop.
-- **Docs structure**: user docs, runtime/API docs, RFCs, and `docs-ai` guidance
-  describe the same product and same caveats.
+- **Docs structure**: operator docs, runtime references, contributor docs,
+  design records, and `docs-ai` guidance describe the same product and same
+  caveats.
 - **Remove stale legacy**: old endpoint names, old `/gateway` language,
   one-binary claims, stale screenshots, obsolete scripts, dead fixtures, and
   duplicate UI rendering paths are removed.
