@@ -372,8 +372,9 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
 - **Project cockpit action ownership** — project-global actions live in the
   project header. Needs Attention is a dropdown, Project Settings opens the
   shared right-side inspector pattern, and Work Coordination / Timeline /
-  Memory are workspace tabs. Avoid duplicating the same state across header,
-  side panels, and cards.
+  Memory are workspace tabs. Work Coordination uses one Work Queue with All /
+  activity filters plus one selected work-item card; don't split the same work
+  state across a separate Activity Inbox, Work Items list, and detail card.
 - **`render1()` + `render2()` in the same `it` block** — don't. React Testing Library cleanup runs between tests, not within. Split into two `it`s if you need fresh mounts.
 - **Cost-ceiling banner** — gates on `run.otel_status_message === "cost_ceiling_exceeded"` (the specific string). A regression that drops or rewords that string silently breaks the "Raise ceiling & resume" affordance.
 - **Every gateway response is `{object, data}`** — `lib/api.ts` clients must read `payload.data.<field>`, not `payload.<field>`. When mocking, copy the real wire shape, not the fields you happen to need; fixtures that skip the envelope hide production bugs.
