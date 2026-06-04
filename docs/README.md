@@ -19,7 +19,7 @@ Docs are organized by audience and stability:
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Running Hecate locally                      | [Desktop app](operator/desktop-app.md), [Deployment](operator/deployment.md), [Security](operator/security.md), [Providers](operator/providers.md), [Known limitations](operator/known-limitations.md)     |
 | Calling Hecate from a client                | [Runtime API](runtime/runtime-api.md), [Chat sessions](runtime/chat-sessions.md), [Agent runtime](runtime/agent-runtime.md), [Events](runtime/events.md)                                                   |
-| Building or using coding-agent integrations | [External agent adapters](runtime/external-agent-adapters.md), [Runtime API](runtime/runtime-api.md), [Events](runtime/events.md), [MCP integration](runtime/mcp.md)                                       |
+| Building or using coding-agent integrations | [External Agents](runtime/external-agents.md), [Runtime API](runtime/runtime-api.md), [Events](runtime/events.md), [MCP integration](runtime/mcp.md)                                                       |
 | Changing the codebase                       | [Architecture](contributor/architecture.md), [Development](contributor/development.md), [Beta roadmap](contributor/beta-roadmap.md), [`docs-ai/`](../docs-ai/README.md), [Release](contributor/release.md) |
 | Planning future behavior                    | [Design records](design/), especially the relevant lifecycle bucket before implementation starts.                                                                                                          |
 | Working as an AI agent                      | [`AGENTS.md`](../AGENTS.md), [`docs-ai/README.md`](../docs-ai/README.md), then the relevant `docs-ai/skills/*/SKILL.md`.                                                                                   |
@@ -38,16 +38,16 @@ Docs are organized by audience and stability:
 
 ## Runtime References
 
-| Doc                                                           | What it answers                                                                                                                              |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Runtime API](runtime/runtime-api.md)                         | `/hecate/v1/tasks/*`, `/hecate/v1/chat/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints.                      |
-| [Agent runtime](runtime/agent-runtime.md)                     | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-turn.          |
-| [Chat sessions](runtime/chat-sessions.md)                     | Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queued prompts, approvals, context packets, External Agent chats. |
-| [External agent adapters](runtime/external-agent-adapters.md) | Codex, Claude Code, Cursor Agent, and Grok Build from Chats; install checks, credential boundaries, persistence, troubleshooting.            |
-| [Events](runtime/events.md)                                   | Implemented event names, payloads, stdout/stderr stream chunks, and when each is emitted.                                                    |
-| [MCP integration](runtime/mcp.md)                             | Hecate as an MCP server and external MCP servers as task tools.                                                                              |
-| [Sandbox](runtime/sandbox.md)                                 | Per-call subprocess execution, policy validation, env sanitisation, output cap, timeout, and OS wrappers.                                    |
-| [Telemetry](runtime/telemetry.md)                             | OpenTelemetry traces, metrics, logs, response headers, local trace view, runtime stats, retention.                                           |
+| Doc                                           | What it answers                                                                                                                              |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Runtime API](runtime/runtime-api.md)         | `/hecate/v1/tasks/*`, `/hecate/v1/chat/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints.                      |
+| [Agent runtime](runtime/agent-runtime.md)     | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-turn.          |
+| [Chat sessions](runtime/chat-sessions.md)     | Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queued prompts, approvals, context packets, External Agent chats. |
+| [External Agents](runtime/external-agents.md) | Codex, Claude Code, Cursor Agent, and Grok Build from Chats; install checks, credential boundaries, persistence, troubleshooting.            |
+| [Events](runtime/events.md)                   | Implemented event names, payloads, stdout/stderr stream chunks, and when each is emitted.                                                    |
+| [MCP integration](runtime/mcp.md)             | Hecate as an MCP server and external MCP servers as task tools.                                                                              |
+| [Sandbox](runtime/sandbox.md)                 | Per-call subprocess execution, policy validation, env sanitisation, output cap, timeout, and OS wrappers.                                    |
+| [Telemetry](runtime/telemetry.md)             | OpenTelemetry traces, metrics, logs, response headers, local trace view, runtime stats, retention.                                           |
 
 ## Contributor Docs
 

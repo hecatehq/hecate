@@ -169,7 +169,7 @@ fresh agent session.
 
 The chat session API shape used by the operator UI is in
 [`runtime-api.md`](runtime-api.md#get-hecatev1chatsessions), and external-agent
-behavior is in [`external-agent-adapters.md`](../design/accepted/external-agent-adapters.md).
+behavior is in [External Agents](external-agents.md).
 
 ## Activity rendering
 

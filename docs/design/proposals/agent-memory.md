@@ -385,5 +385,5 @@ memory will have no durable "what saw this entry?" audit trail.
   backup and migration; keep it out of the first storage/API PR.
 - Should a future "remember this" command exist? Only if it opens a visible
   approval/edit flow before persisting anything.
-- Which external-agent adapters support a safe project-memory injection surface
+- Which External Agent integrations support a safe project-memory injection surface
   today, and which should show memory as operator-side notes only?

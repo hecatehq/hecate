@@ -167,17 +167,17 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 ## Canonical docs
 
-| Doc                                                                                  | Covers                                                                                        |
-| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| [`docs/contributor/architecture.md`](docs/contributor/architecture.md)               | Request flow, lease semantics, storage tier matrix                                            |
-| [`docs/runtime/agent-runtime.md`](docs/runtime/agent-runtime.md)                     | `agent_loop` tools, system prompt layers, cost model, retry-from-turn                         |
-| [`docs/runtime/runtime-api.md`](docs/runtime/runtime-api.md)                         | Task / run / step / approval endpoints, queue + lease                                         |
-| [`docs/runtime/events.md`](docs/runtime/events.md)                                   | Every event type at `/hecate/v1/events` with payload shapes                                   |
-| [`docs/runtime/telemetry.md`](docs/runtime/telemetry.md)                             | OTel spans + metrics, OTLP wiring, status & gaps                                              |
-| [`docs/operator/security.md`](docs/operator/security.md)                             | Local-first threat model, workspace safety, approvals, secrets, advisories                    |
-| [`docs/operator/providers.md`](docs/operator/providers.md)                           | Provider catalog, configuration                                                               |
-| [`docs/runtime/mcp.md`](docs/runtime/mcp.md)                                         | MCP server: tools, transport, configure                                                       |
-| [`docs/runtime/external-agent-adapters.md`](docs/runtime/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, Cursor Agent, and Grok Build |
-| [`docs/operator/deployment.md`](docs/operator/deployment.md)                         | Compose profiles, image pinning, lost-token recovery                                          |
-| [`docs/contributor/development.md`](docs/contributor/development.md)                 | Local build, testing, screenshot tooling, `[skip ci]` convention                              |
-| [`docs/operator/desktop-app.md`](docs/operator/desktop-app.md)                       | Native Tauri 2.x app: distribution, current state, roadmap, footguns                          |
+| Doc                                                                    | Covers                                                                                         |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [`docs/contributor/architecture.md`](docs/contributor/architecture.md) | Request flow, lease semantics, storage tier matrix                                             |
+| [`docs/runtime/agent-runtime.md`](docs/runtime/agent-runtime.md)       | `agent_loop` tools, system prompt layers, cost model, retry-from-turn                          |
+| [`docs/runtime/runtime-api.md`](docs/runtime/runtime-api.md)           | Task / run / step / approval endpoints, queue + lease                                          |
+| [`docs/runtime/events.md`](docs/runtime/events.md)                     | Every event type at `/hecate/v1/events` with payload shapes                                    |
+| [`docs/runtime/telemetry.md`](docs/runtime/telemetry.md)               | OTel spans + metrics, OTLP wiring, status & gaps                                               |
+| [`docs/operator/security.md`](docs/operator/security.md)               | Local-first threat model, workspace safety, approvals, secrets, advisories                     |
+| [`docs/operator/providers.md`](docs/operator/providers.md)             | Provider catalog, configuration                                                                |
+| [`docs/runtime/mcp.md`](docs/runtime/mcp.md)                           | MCP server: tools, transport, configure                                                        |
+| [`docs/runtime/external-agents.md`](docs/runtime/external-agents.md)   | External Agents: Hecate supervises Codex, Claude Code, Cursor Agent, and Grok Build from Chats |
+| [`docs/operator/deployment.md`](docs/operator/deployment.md)           | Compose profiles, image pinning, lost-token recovery                                           |
+| [`docs/contributor/development.md`](docs/contributor/development.md)   | Local build, testing, screenshot tooling, `[skip ci]` convention                               |
+| [`docs/operator/desktop-app.md`](docs/operator/desktop-app.md)         | Native Tauri 2.x app: distribution, current state, roadmap, footguns                           |

@@ -155,7 +155,7 @@ When changing this path:
    (`model_not_configured`) if it reaches the server, but UI clients are
    expected to preflight against `/v1/models` plus
    `/hecate/v1/providers/status` and block send with actionable diagnostics.
-3. Keep `docs/runtime/external-agent-adapters.md` aligned for operator-visible
+3. Keep `docs/runtime/external-agents.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
    guardrails, auth/readiness probes, and troubleshooting.
 4. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
