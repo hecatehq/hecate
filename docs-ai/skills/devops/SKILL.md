@@ -17,7 +17,7 @@ Anything with a CI/CD, environment, deploy, or migration footprint:
 - New public HTTP endpoints (downstream SDKs depend on them).
 - Retention worker changes (new subsystem, changed cadence, retention windows).
 - OTel surface changes (new spans, new metrics, new error codes).
-- Release-note drafting and tag-cutting — see [`../../tasks/release.md`](../../tasks/release.md) for the procedure (snapshot dry-run, verification gate, footguns, recovery).
+- Release-note drafting and tag-cutting — see [`../../tasks/release.md`](../../../docs/contributor/release.md) for the procedure (snapshot dry-run, verification gate, footguns, recovery).
 
 ## Surfaces to check
 
@@ -35,7 +35,7 @@ Anything with a CI/CD, environment, deploy, or migration footprint:
 1. **Surfaces affected.** Env, schema, CI, observability — name each one explicitly.
 2. **Rollout risk.** Blast radius if this misbehaves; blocking vs non-blocking; flag-gateable or not.
 3. **Rollback path.** Can this revert cleanly? If a schema change is involved, is the rollback documented?
-4. **Doc updates required.** `.env.example`, `docs/<feature>.md`, `docs/events.md`, `docs/runtime-api.md` — whichever apply.
+4. **Doc updates required.** `.env.example`, `docs/<feature>.md`, `docs/runtime/events.md`, `docs/runtime/runtime-api.md` — whichever apply.
 5. **Draft release-note line.** When relevant.
 
 ## Bias

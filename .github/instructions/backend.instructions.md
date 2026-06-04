@@ -14,7 +14,7 @@ High-signal rules:
   subprocesses go through ProcessRunner, GitRunner, or the sandbox seams.
 - Mirror persisted behavior across memory and sqlite backends.
 - Run events are append-only and use the runtime event seams; document new event
-  types in `docs/events.md`.
+  types in `docs/runtime/events.md`.
 - Store money as `int64` micro-USD, never floats.
 - Add OTel spans/attributes for new request or runtime paths.
 - Do not introduce auth, tenant, or remote-multi-user assumptions; Hecate is a

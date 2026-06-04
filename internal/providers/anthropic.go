@@ -701,7 +701,7 @@ var ephemeralCacheControl = json.RawMessage(`{"type":"ephemeral"}`)
 // re-marshal fall through to returning the original — the goal is
 // "best-effort cache hint", never to fail the request.
 //
-// TODO(memory): once the agent-memory RFC (docs/rfcs/agent-memory.md)
+// TODO(memory): once the agent-memory RFC (docs/design/proposals/agent-memory.md)
 // lands and memory blocks are injected into the system prompt as a
 // dedicated content block, the ideal cache boundary becomes the LAST
 // memory block rather than the LAST system block — the static

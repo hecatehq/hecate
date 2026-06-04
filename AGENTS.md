@@ -106,7 +106,7 @@ touches request handling, persistence, or tool execution.
 - **WorkspaceFS / runners are the workspace boundary.** Hecate-mediated file/search/write operations resolve paths through `internal/workspacefs`. Shell commands go through the sandbox executor and `internal/processrunner`; Hecate-owned Git helper calls go through `internal/gitrunner` where they do not need the broad `git_exec` shell-shaped interface. Avoid raw `os.*` path access, raw `exec.Command`, or direct `git` subprocesses for workspace-bound behavior unless you are inside those seams or writing a narrowly scoped test.
 - **Sandbox is per-call and applied inline.** Tool subprocesses run after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (auto-detected at startup). No separate sandbox daemon, no per-call rlimits (those would shrink the long-running gateway). New workspace tools follow WorkspaceFS / ProcessRunner / GitRunner as appropriate.
 - **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the `TaskApproval` shape.
-- **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/events.md`.
+- **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/runtime/events.md`.
 - **Cost is `int64` micro-USD when present.** Never `float64` for money. Hecate records usage events for visibility; it does not enforce global spend controls.
 - **OTel is first-class.** Every request gets a trace ID surfaced in the `X-Trace-Id` response header and persisted on the run record. New code paths add spans, not just log lines.
 
@@ -141,14 +141,14 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 ## Recipes
 
-| Task                                                                        | Where                                                                                                                                                                            |
-| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Add a passthrough wire field (the seven-step chain — most-redone task here) | [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md)                                                                                                         |
-| Add an MCP tool / persisted run-event type / test helper cheat-sheet        | [`docs-ai/skills/backend/SKILL.md`](docs-ai/skills/backend/SKILL.md)                                                                                                             |
-| UI recipes (SSE-driven state field, paired pickers, snapshot refresh)       | [`docs-ai/skills/ui/SKILL.md`](docs-ai/skills/ui/SKILL.md)                                                                                                                       |
-| Native desktop app (sidecar lifecycle, bundling, Tauri commands)            | [`docs-ai/skills/tauri/SKILL.md`](docs-ai/skills/tauri/SKILL.md)                                                                                                                 |
-| Cut a release tag                                                           | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`docs-ai/tasks/release.md`](docs-ai/tasks/release.md) |
-| Stamp Tauri version files                                                   | `bun scripts/stamp-version.ts` (or `just tauri-version`) — syncs Cargo.toml, package.json, tauri.conf.json to current git tag                                                    |
+| Task                                                                        | Where                                                                                                                                                                               |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Add a passthrough wire field (the seven-step chain — most-redone task here) | [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md)                                                                                                            |
+| Add an MCP tool / persisted run-event type / test helper cheat-sheet        | [`docs-ai/skills/backend/SKILL.md`](docs-ai/skills/backend/SKILL.md)                                                                                                                |
+| UI recipes (SSE-driven state field, paired pickers, snapshot refresh)       | [`docs-ai/skills/ui/SKILL.md`](docs-ai/skills/ui/SKILL.md)                                                                                                                          |
+| Native desktop app (sidecar lifecycle, bundling, Tauri commands)            | [`docs-ai/skills/tauri/SKILL.md`](docs-ai/skills/tauri/SKILL.md)                                                                                                                    |
+| Cut a release tag                                                           | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`docs-ai/tasks/release.md`](docs/contributor/release.md) |
+| Stamp Tauri version files                                                   | `bun scripts/stamp-version.ts` (or `just tauri-version`) — syncs Cargo.toml, package.json, tauri.conf.json to current git tag                                                       |
 
 ## Gotchas
 
@@ -166,17 +166,17 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 ## Canonical docs
 
-| Doc                                                                  | Covers                                                                                        |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| [`docs/architecture.md`](docs/architecture.md)                       | Request flow, lease semantics, storage tier matrix                                            |
-| [`docs/agent-runtime.md`](docs/agent-runtime.md)                     | `agent_loop` tools, system prompt layers, cost model, retry-from-turn                         |
-| [`docs/runtime-api.md`](docs/runtime-api.md)                         | Task / run / step / approval endpoints, queue + lease                                         |
-| [`docs/events.md`](docs/events.md)                                   | Every event type at `/hecate/v1/events` with payload shapes                                   |
-| [`docs/telemetry.md`](docs/telemetry.md)                             | OTel spans + metrics, OTLP wiring, status & gaps                                              |
-| [`docs/security.md`](docs/security.md)                               | Local-first threat model, workspace safety, approvals, secrets, advisories                    |
-| [`docs/providers.md`](docs/providers.md)                             | Provider catalog, configuration                                                               |
-| [`docs/mcp.md`](docs/mcp.md)                                         | MCP server: tools, transport, configure                                                       |
-| [`docs/external-agent-adapters.md`](docs/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, Cursor Agent, and Grok Build |
-| [`docs/deployment.md`](docs/deployment.md)                           | Compose profiles, image pinning, lost-token recovery                                          |
-| [`docs/development.md`](docs/development.md)                         | Local build, testing, screenshot tooling, `[skip ci]` convention                              |
-| [`docs/desktop-app.md`](docs/desktop-app.md)                         | Native Tauri 2.x app: distribution, current state, roadmap, footguns                          |
+| Doc                                                                                          | Covers                                                                                        |
+| -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [`docs/contributor/architecture.md`](docs/contributor/architecture.md)                       | Request flow, lease semantics, storage tier matrix                                            |
+| [`docs/runtime/agent-runtime.md`](docs/runtime/agent-runtime.md)                             | `agent_loop` tools, system prompt layers, cost model, retry-from-turn                         |
+| [`docs/runtime/runtime-api.md`](docs/runtime/runtime-api.md)                                 | Task / run / step / approval endpoints, queue + lease                                         |
+| [`docs/runtime/events.md`](docs/runtime/events.md)                                           | Every event type at `/hecate/v1/events` with payload shapes                                   |
+| [`docs/runtime/telemetry.md`](docs/runtime/telemetry.md)                                     | OTel spans + metrics, OTLP wiring, status & gaps                                              |
+| [`docs/operator/security.md`](docs/operator/security.md)                                     | Local-first threat model, workspace safety, approvals, secrets, advisories                    |
+| [`docs/operator/providers.md`](docs/operator/providers.md)                                   | Provider catalog, configuration                                                               |
+| [`docs/runtime/mcp.md`](docs/runtime/mcp.md)                                                 | MCP server: tools, transport, configure                                                       |
+| [`docs/runtime/external-agent-adapters.md`](docs/design/accepted/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, Cursor Agent, and Grok Build |
+| [`docs/operator/deployment.md`](docs/operator/deployment.md)                                 | Compose profiles, image pinning, lost-token recovery                                          |
+| [`docs/contributor/development.md`](docs/contributor/development.md)                         | Local build, testing, screenshot tooling, `[skip ci]` convention                              |
+| [`docs/operator/desktop-app.md`](docs/operator/desktop-app.md)                               | Native Tauri 2.x app: distribution, current state, roadmap, footguns                          |

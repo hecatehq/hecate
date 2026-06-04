@@ -7,7 +7,7 @@ description: Use when working on the Hecate native desktop app in `tauri/`. Cove
 
 Use this skill for any work inside `tauri/`. Gateway changes use [`../backend/SKILL.md`](../backend/SKILL.md); UI changes use [`../ui/SKILL.md`](../ui/SKILL.md).
 
-Operator-facing companion: [`../../../docs/desktop-app.md`](../../../docs/desktop-app.md) — distribution, current state, roadmap, footguns. When this skill grows a footgun an end user might hit, mirror it there.
+Operator-facing companion: [`../../../docs/operator/desktop-app.md`](../../../docs/operator/desktop-app.md) — distribution, current state, roadmap, footguns. When this skill grows a footgun an end user might hit, mirror it there.
 
 ## Canonical guidance lives here
 
@@ -294,7 +294,7 @@ it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
 
 ### Code signing — macOS conditional, Windows not yet wired
 
-macOS bundles are signed with a Developer ID Application certificate and notarized by Apple **on release-workflow runs when the seven `APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets are configured**. "Release-workflow run" = any invocation of `release.yml` (tag push or `workflow_dispatch`); both pass a non-empty `tagName` to the reusable workflow. The CI workflow in `.github/workflows/_tauri-shared.yml` reads the secrets via env, gated on two conditions in series: `matrix.os == 'macos-latest'` AND `inputs.tagName != ''`. PR validation in `test.yml` and manual `tauri-build.yml` rebuilds deliberately do not use `secrets: inherit`, so they always produce unsigned bundles by design — they're throwaway artifacts. Maintainer-side setup checklist for the secrets is in [`docs/macos-signing.md`](../../../docs/macos-signing.md), including a verification recipe and a rotation playbook. Operators downloading an unsigned build (PR validation, fork builds, releases cut before secrets landed) need right-click → Open on first launch.
+macOS bundles are signed with a Developer ID Application certificate and notarized by Apple **on release-workflow runs when the seven `APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets are configured**. "Release-workflow run" = any invocation of `release.yml` (tag push or `workflow_dispatch`); both pass a non-empty `tagName` to the reusable workflow. The CI workflow in `.github/workflows/_tauri-shared.yml` reads the secrets via env, gated on two conditions in series: `matrix.os == 'macos-latest'` AND `inputs.tagName != ''`. PR validation in `test.yml` and manual `tauri-build.yml` rebuilds deliberately do not use `secrets: inherit`, so they always produce unsigned bundles by design — they're throwaway artifacts. Maintainer-side setup checklist for the secrets is in [`docs/operator/macos-signing.md`](../../../docs/operator/macos-signing.md), including a verification recipe and a rotation playbook. Operators downloading an unsigned build (PR validation, fork builds, releases cut before secrets landed) need right-click → Open on first launch.
 
 macOS Apple Silicon is the only desktop path maintainers currently launch-test.
 Linux `.deb` / `.AppImage` and Windows `.msi` bundles are CI-built but have not
@@ -311,7 +311,7 @@ End-to-end signed-update pipeline, active.
 - The frontend has `useDesktopUpdate()` (in `ui/src/lib/desktop-update.ts`) — silently calls `check()` on app start in the Tauri runtime, returns the version + a download progress fraction. `<UpdateBanner>` (in `ui/src/features/shared/UpdateBanner.tsx`) shows "Hecate X.Y.Z is available — Install and Restart / Dismiss" with a live progress bar during install. Dismissed banners stay dismissed for the session via `sessionStorage`.
 - `_tauri-shared.yml` runs a three-step signed-release pipeline. Per matrix leg: tauri-action receives `TAURI_UPDATER_PRIVATE_KEY` + `TAURI_UPDATER_PRIVATE_KEY_PASSWORD` (gated on `inputs.tagName != ''` — same caller-side / called-side protection model as the Apple secrets) and signs the platform bundles; a follow-up step uploads the `.sig` files and macOS `Hecate.app.tar.gz` to the release. Post-matrix: the `publish-updater-manifest` job stitches the per-platform signatures into `latest.json` and uploads it to the GitHub Release. Then `publish-updater-website` commits the same manifest to `website/public/releases/alpha/latest.json`, dispatches `website.yml`, and waits until `https://hecate.sh/releases/alpha/latest.json` serves the new version. tauri-action can't build the manifest in matrix mode because each leg only sees its own signature. The bundler also needs `bundle.createUpdaterArtifacts: "v1Compatible"` in `tauri.conf.json` — without it no updater payloads get produced, and the stitch job fails loudly on `missing updater signature(s)`. Existing installs verify the signature against the embedded pubkey before surfacing the banner.
 
-Maintainer-side keypair custody and rotation playbook: [`docs/desktop-updater-signing.md`](../../../docs/desktop-updater-signing.md).
+Maintainer-side keypair custody and rotation playbook: [`docs/operator/desktop-updater-signing.md`](../../../docs/operator/desktop-updater-signing.md).
 
 Outside the Tauri runtime (web build, Docker, bare-binary serving the embedded UI), the hook is inert — `isTauriRuntime()` from `ui/src/lib/tauri.ts` gates the dynamic import so the plugin code never enters non-desktop bundle paths.
 

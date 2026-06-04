@@ -138,10 +138,10 @@ if (nextReadme === readme) {
   console.log(`README release references updated for ${tag}`);
 }
 
-const deploymentPath = resolve(root, "docs/deployment.md");
+const deploymentPath = resolve(root, "docs/operator/deployment.md");
 updateFile(deploymentPath, updateDeploymentReferences);
 
-const desktopPath = resolve(root, "docs/desktop-app.md");
+const desktopPath = resolve(root, "docs/operator/desktop-app.md");
 updateFile(desktopPath, updatePinnedReleaseReferences);
 
 function updateFile(path: string, update: (value: string) => string): void {

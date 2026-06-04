@@ -52,7 +52,7 @@ work, run `bun run typecheck` and `bun run test`.
 
 ## Canonical product docs (UI-relevant)
 
-- [`../docs/architecture.md`](../docs/architecture.md) — request flow, what the UI is observing.
-- [`../docs/runtime-api.md`](../docs/runtime-api.md) — task / run / approval endpoints the UI calls.
-- [`../docs/events.md`](../docs/events.md) — every `/hecate/v1/events` event type with payload shapes.
-- [`../docs/development.md`](../docs/development.md) — UI hot reload, screenshot tooling.
+- [`../docs/contributor/architecture.md`](../docs/contributor/architecture.md) — request flow, what the UI is observing.
+- [`../docs/runtime/runtime-api.md`](../docs/runtime/runtime-api.md) — task / run / approval endpoints the UI calls.
+- [`../docs/runtime/events.md`](../docs/runtime/events.md) — every `/hecate/v1/events` event type with payload shapes.
+- [`../docs/contributor/development.md`](../docs/contributor/development.md) — UI hot reload, screenshot tooling.

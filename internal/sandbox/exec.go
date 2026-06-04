@@ -25,7 +25,7 @@ import (
 // setrlimit would shrink the calling process (the long-running gateway),
 // so they're intentionally left to deployment-level controls (systemd
 // CPUQuota=, LimitNOFILE=, MemoryMax=, or container --cpus / --memory
-// flags). See docs/sandbox.md for the layer model.
+// flags). See docs/runtime/sandbox.md for the layer model.
 type ResourceLimits struct {
 	// MaxOutputBytes caps the combined stdout+stderr that outputCollector
 	// will buffer. When the cap is reached the command is cancelled and

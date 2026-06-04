@@ -26,7 +26,7 @@ var approvalTracer = otel.Tracer("github.com/hecatehq/hecate/internal/agentadapt
 // legacy behavior (auto-select the first allow option). Operator-facing
 // runtime flips this default to ModePrompt — see internal/config.
 //
-// See docs/rfcs/external-adapter-approvals-v1.md.
+// See docs/design/external-adapter-approvals-v1.md.
 type ApprovalMode string
 
 const (

@@ -159,7 +159,7 @@ const (
 	AttrHecateAgentDiffCaptured      = "hecate.agent_adapter.diff.captured"
 	AttrHecateWorkspacePath          = "hecate.workspace.path"
 
-	// External-adapter approval attributes — see docs/rfcs/external-adapter-approvals-v1.md.
+	// External-adapter approval attributes — see docs/design/external-adapter-approvals-v1.md.
 	// `decision` is approve|deny, `scope` is once|session|workspace_tool|adapter_tool,
 	// `path` is operator|grant|default_mode|timeout, `mode` is the configured
 	// HECATE_AGENT_ADAPTER_APPROVAL_MODE.

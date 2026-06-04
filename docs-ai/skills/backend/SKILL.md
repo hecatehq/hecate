@@ -57,7 +57,7 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
 - **Workspace-bound IO uses shared seams.** Hecate-mediated file/search/write operations go through `internal/workspacefs`. Shell commands go through the sandbox executor and `internal/processrunner`; Hecate-owned Git helpers use `internal/gitrunner` where they do not need the broad `git_exec` shell-shaped interface. Avoid raw `os.Open`, `os.ReadFile`, `os.WriteFile`, `os.Stat`, `filepath.WalkDir`, raw `exec.Command`, or direct `git` subprocesses for workspace-bound behavior. Raw OS/process APIs are fine for config/data-dir/platform plumbing and narrowly scoped tests; say why when the distinction is not obvious.
 - **Sandbox is per-call subprocess, applied inline.** Shell tool calls and broad `git_exec` calls run through the sandbox executor after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for fs+net confinement (auto-detected at startup, exposed on `/healthz` under `sandbox.os_isolation`). No separate sandbox daemon, no per-call rlimits — operators who want CPU/FD/memory caps run the gateway under systemd or in a container with `--cpus` / `--memory` flags. New tools follow WorkspaceFS / ProcessRunner / GitRunner as appropriate.
 - **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the same `TaskApproval` shape.
-- **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/events.md`.
+- **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/runtime/events.md`.
 - **Cost is in micro-USD when present.** Money fields stay `int64` in micro-USD (`1_000_000` = $1). Never `float64` for money. The gateway records usage events for visibility; it does not enforce global spend controls.
 - **OTel is first-class.** Every request gets a trace ID surfaced in the response header (`X-Trace-Id`) and persisted on the run record. New code paths add spans, not just log lines.
 - **Metric labels are guarded.** Record metrics through `internal/telemetry` helpers and normalizers. Closed-set dimensions collapse unknown values to `other`; free-form dimensions must reject control characters and oversized labels. Put raw commands, paths, stdout/stderr snippets, and adapter diagnostics in spans, logs, or persisted events — never metric labels.
@@ -74,7 +74,7 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 
 1. Append a `s.RegisterTool(...)` call in `RegisterDefaultTools` with `Annotations` set (`ReadOnlyHint`, `DestructiveHint`, `IdempotentHint` as appropriate).
 2. Add a `<name>Handler` returning `ToolHandler` further down.
-3. Update the `docs/mcp.md` tool table.
+3. Update the `docs/runtime/mcp.md` tool table.
 4. Tests in `internal/mcp/server/tools_test.go` using the `fakeGateway` helper.
 
 ### Change task-run streaming
@@ -146,16 +146,16 @@ Native `agent_loop` code is intentionally split by responsibility:
 
 When changing this path:
 
-1. Keep `docs/rfcs/hecate-chat-model-capabilities.md` and
-   `docs/runtime-api.md` aligned when changing task-backed Hecate Chat or capability
+1. Keep `docs/design/accepted/hecate-chat-model-capabilities.md` and
+   `docs/runtime/runtime-api.md` aligned when changing task-backed Hecate Chat or capability
    behavior.
 2. Keep provider/model readiness contracts aligned across
-   `docs/providers.md`, `docs/chat-sessions.md`, and `docs/runtime-api.md`.
+   `docs/operator/providers.md`, `docs/runtime/chat-sessions.md`, and `docs/runtime/runtime-api.md`.
    A stale selected model should fail with the stable API contract
    (`model_not_configured`) if it reaches the server, but UI clients are
    expected to preflight against `/v1/models` plus
    `/hecate/v1/providers/status` and block send with actionable diagnostics.
-3. Keep `docs/external-agent-adapters.md` aligned for operator-visible
+3. Keep `docs/runtime/external-agent-adapters.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
    guardrails, auth/readiness probes, and troubleshooting.
 4. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
@@ -176,7 +176,7 @@ When changing this path:
 2. Write normal run events through the event recorder path: orchestrator code uses `r.emitRunEvent(...)`, and HTTP/API-owned writes use `internal/runtimeevents.Recorder`. Avoid direct `store.AppendRunEvent` calls outside storage tests and the store-level terminal transition path (`ApplyRunTerminalTransition`), where the event write must remain in the same transaction as the terminal state mutation.
 3. Put shared event payload shapes in `internal/runtimeevents` as small builder functions that return `map[string]any`; reuse existing builders such as `ApprovalRequested`, `ApprovalResolved`, `TurnCompleted`, `PatchApplied`, and `PatchReverted` instead of recreating key sets inline.
 4. In orchestrator code, call `r.emitRunEvent(ctx, taskID, runID, "your.event.type", ..., extraDataMap)` at the right life-cycle moment. Emit the event **before** handing off to the queue — see the emit-before-enqueue gotcha above.
-5. Document the event and its payload in `docs/events.md`.
+5. Document the event and its payload in `docs/runtime/events.md`.
 6. If high-cardinality, wire into `internal/retention/retention.go` as a new subsystem (see `turn_events` for the pattern).
 
 ### Add a start-time validation error (HTTP 422)

@@ -483,7 +483,7 @@ func otelSummary(o config.OTelConfig) string {
 // (local dev) or sqlite (Docker, native binary). The hint reflects the
 // control-plane backend by default — that's the "primary" backend an
 // operator identifies with — and appends "(mixed)" when a peer subsystem
-// disagrees, signaling to look at `docs/deployment.md`.
+// disagrees, signaling to look at `docs/operator/deployment.md`.
 func storageSummary(cfg config.Config) string {
 	primary := strings.TrimSpace(cfg.Server.ControlPlaneBackend)
 	if primary == "" {

@@ -1,5 +1,5 @@
 ---
-applyTo: "tauri/**,scripts/stamp-version.ts,scripts/release.ts,docs/desktop-app.md"
+applyTo: "tauri/**,scripts/stamp-version.ts,scripts/release.ts,docs/operator/desktop-app.md"
 ---
 
 # Tauri Desktop App

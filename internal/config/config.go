@@ -134,7 +134,7 @@ type ServerConfig struct {
 	// External Agent Adapters subsystem is alpha; operators who depend
 	// on the old behavior must opt into "auto" explicitly.
 	//
-	// See docs/rfcs/external-adapter-approvals-v1.md.
+	// See docs/design/external-adapter-approvals-v1.md.
 	AgentAdapterApprovalMode string
 	// AgentAdapterApprovalTimeout is how long a pending approval waits
 	// before resolving to ACP `Cancelled`. Default 5m. Set via

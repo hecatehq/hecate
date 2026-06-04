@@ -62,7 +62,7 @@ func TestProjectsAPI_CRUD(t *testing.T) {
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+created.Data.ID, bytes.NewReader([]byte(`{
 		"name":"Renamed",
 		"default_model":"ministral-3:latest",
-		"context_sources":[{"id":"ctx_architecture","path":"docs/architecture.md","enabled":false}]
+		"context_sources":[{"id":"ctx_architecture","path":"docs/contributor/architecture.md","enabled":false}]
 	}`))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch status = %d body=%s, want 200", rec.Code, rec.Body.String())
