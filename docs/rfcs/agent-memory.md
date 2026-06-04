@@ -318,14 +318,14 @@ visibility at the point of use.
 
 ## Implementation Plan
 
-| PR  | Scope                                                                                                            |
-| --- | ---------------------------------------------------------------------------------------------------------------- |
+| PR  | Scope                                                                                                           |
+| --- | --------------------------------------------------------------------------------------------------------------- |
 | 1   | Landed: project-scoped `internal/memory/` store with memory + SQLite backends, CRUD API, UI management surface. |
 | 2   | Landed for chat packets: enabled project memory emits labelled `memory` context items.                          |
-| 3   | Add `/active` introspection once profiles/surface selection exist beyond project scope.                          |
-| 4   | Agent profile memory-source selection for Hecate Chat and external agents.                                       |
-| 5   | Extend active-memory indicators into Chat/Task Detail and standalone task-run context packets.                   |
-| 6   | Docs, screenshots, and e2e coverage for scoped memory visibility.                                                |
+| 3   | Add `/active` introspection once profiles/surface selection exist beyond project scope.                         |
+| 4   | Agent profile memory-source selection for Hecate Chat and external agents.                                      |
+| 5   | Extend active-memory indicators into Chat/Task Detail and standalone task-run context packets.                  |
+| 6   | Docs, screenshots, and e2e coverage for scoped memory visibility.                                               |
 
 This should land after the first context-packet implementation. Otherwise
 memory will have no durable "what saw this entry?" audit trail.

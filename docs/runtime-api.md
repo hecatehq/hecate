@@ -1200,19 +1200,19 @@ memory.
 
 Memory entry fields:
 
-| Field         | Meaning                                                                 |
-| ------------- | ----------------------------------------------------------------------- |
-| `id`          | Stable `mem_...` entry id.                                               |
-| `scope`       | `"project"` in this release.                                             |
-| `project_id`  | Owning project id.                                                       |
-| `title`       | Operator-facing label.                                                   |
-| `body`        | Markdown-compatible text stored on the structured record.                |
-| `trust_label` | Context trust label such as `operator_memory` or `generated_summary`.    |
-| `source_kind` | Provenance category such as `operator`, `handoff`, or `runtime_state`.   |
-| `source_id`   | Optional source artifact/chat/message/handoff id.                        |
-| `enabled`     | Disabled entries remain saved but are excluded from active context.      |
-| `created_at`  | UTC RFC3339Nano timestamp.                                               |
-| `updated_at`  | UTC RFC3339Nano timestamp.                                               |
+| Field         | Meaning                                                                |
+| ------------- | ---------------------------------------------------------------------- |
+| `id`          | Stable `mem_...` entry id.                                             |
+| `scope`       | `"project"` in this release.                                           |
+| `project_id`  | Owning project id.                                                     |
+| `title`       | Operator-facing label.                                                 |
+| `body`        | Markdown-compatible text stored on the structured record.              |
+| `trust_label` | Context trust label such as `operator_memory` or `generated_summary`.  |
+| `source_kind` | Provenance category such as `operator`, `handoff`, or `runtime_state`. |
+| `source_id`   | Optional source artifact/chat/message/handoff id.                      |
+| `enabled`     | Disabled entries remain saved but are excluded from active context.    |
+| `created_at`  | UTC RFC3339Nano timestamp.                                             |
+| `updated_at`  | UTC RFC3339Nano timestamp.                                             |
 
 #### `GET /hecate/v1/projects/{id}/memory`
 
