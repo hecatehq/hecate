@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate - Local AI Runtime Console" width="720">
+  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate - Local AI Operations Console" width="720">
 </h1>
 
 [![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases)
@@ -11,14 +11,16 @@
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
 <p align="center">
-  <strong>Local-first AI runtime console for model routing, supervised agent work, approvals, artifacts, and traces.</strong>
+  <strong>Local AI operations console for supervised agent work.</strong><br>
+  Run Hecate on your machine between AI clients, model providers, coding agents,
+  and workspace tools so every action is routed, approved, traced, and reviewable.
 </p>
 
-> **Status: public alpha.** Hecate is useful today for local model-provider
-> routing, Hecate Chat, External Agent sessions, project-scoped work, approvals,
-> artifacts, and observability. It is not production-stable infrastructure yet:
-> workflow runbooks, richer agent profiles, browser QA, and sandbox hardening are
-> still design or early-alpha work. Read
+> **Status: public alpha.** Hecate is useful today for model-provider routing,
+> Hecate Chat, External Agent sessions, project-scoped work, approvals,
+> artifacts, usage, and observability. It is not production-stable
+> infrastructure yet: workflow runbooks, richer agent profiles, browser QA, and
+> sandbox hardening are still design or early-alpha work. Read
 > [known limitations](docs/operator/known-limitations.md) before depending on it.
 
 ## Contents
@@ -36,10 +38,15 @@
 
 ## What Hecate Is
 
-Hecate is a local operator console for the AI work happening on your machine.
-It sits between compatible API clients, cloud/local model providers, task tools,
-and external coding-agent CLIs. Its job is to make that work routable,
-reviewable, interruptible, and observable.
+Hecate is a local AI operations console for running and supervising AI work. It
+combines a model gateway, chat workspace, task runtime, external-agent console,
+project context and memory, approval gates, artifacts, usage, and OpenTelemetry
+traces into one operator surface.
+
+Hecate is local-first in the operational sense: the runtime and UI run on your
+machine, Hecate-owned state is stored locally, and the gateway binds to loopback
+by default. It is not local-only: you can route to cloud providers and supervise
+external coding-agent CLIs that use their own accounts.
 
 The short version:
 
@@ -59,20 +66,19 @@ The short version:
 - **Evidence:** traces, route reports, task artifacts, diffs, logs, screenshots
   where available, and final run output close to the decision that produced it.
 
-Hecate is local-first. By default it binds to `127.0.0.1`, stores state locally
-using memory or SQLite backends, and treats approvals as blocking operator
-decisions. It is meant to be an operator boundary, not a hosted multi-tenant
-service.
+The product goal is not just to make model calls. It is to give the operator a
+single place to understand what AI work is happening, what context it used, what
+it changed, what it cost, what needs approval, and where the evidence lives.
 
 ## System Shape
 
 ```mermaid
 flowchart TB
-    Operator["Operator"] --> UI["Hecate UI<br/>Chats · Projects · Tasks · Observability"]
+    Operator["Operator"] --> Console["Hecate operations console<br/>Chats · Projects · Tasks · Observability"]
     APIClients["Compatible API clients<br/>SDKs · tools · local apps"] --> Gateway["Model gateway"]
 
     subgraph Runtime["Local Hecate runtime"]
-        UI
+        Console
         Gateway
         Projects["Projects · context packets · memory"]
         Tasks["Task runtime<br/>queue · agent_loop · retry/resume"]
@@ -83,9 +89,10 @@ flowchart TB
     end
 
     Gateway --> Providers["Cloud + local providers"]
-    UI --> Projects
-    UI --> Tasks
-    UI --> Adapters
+    Console --> Projects
+    Console --> Tasks
+    Console --> Adapters
+    Console --> Gateway
     Tasks --> Approvals
     Tasks --> Artifacts
     Tasks --> Events
@@ -238,7 +245,7 @@ Approvals surface as blocking operator prompts before gated actions can proceed.
 ![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
 
 See [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime/agent-runtime.md),
-and [External agent adapters](docs/design/accepted/external-agent-adapters.md)
+and [External agent adapters](docs/runtime/external-agent-adapters.md)
 for the deeper contracts.
 
 ## Project, Context, And Memory Flow
@@ -293,7 +300,7 @@ bucket that matches your job.
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Running Hecate locally             | [Desktop app](docs/operator/desktop-app.md), [Deployment](docs/operator/deployment.md), [Security](docs/operator/security.md), [Providers](docs/operator/providers.md)       |
 | Calling Hecate from a client       | [Runtime API](docs/runtime/runtime-api.md), [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime/agent-runtime.md), [Events](docs/runtime/events.md) |
-| Building coding-agent integrations | [External agent adapters](docs/design/accepted/external-agent-adapters.md), [MCP integration](docs/runtime/mcp.md), [Events](docs/runtime/events.md)                         |
+| Building coding-agent integrations | [External agent adapters](docs/runtime/external-agent-adapters.md), [MCP integration](docs/runtime/mcp.md), [Events](docs/runtime/events.md)                                 |
 | Changing the codebase              | [Architecture](docs/contributor/architecture.md), [Development](docs/contributor/development.md), [Release](docs/contributor/release.md), [docs-ai](docs-ai/README.md)       |
 | Planning future runtime behavior   | [Design records](docs/design/README.md), especially the proposal/accepted/candidate bucket before implementation starts.                                                     |
 

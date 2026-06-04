@@ -1,12 +1,13 @@
 # Hecate
 
-Open-source local AI runtime console. Hecate routes OpenAI- and
-Anthropic-shaped client traffic to upstream providers, runs queued
-`agent_loop` tasks behind policy and approval gates, supervises ACP coding
-agents, and emits OpenTelemetry traces. Local-first, deny-by-default, storage-tiered
-(memory / sqlite). Binds to 127.0.0.1 by default and is intended to run as
-a local operator console. The React operator UI is embedded via
-`//go:embed ui/dist`.
+Open-source local AI operations console for supervised agent work. Hecate
+combines a model gateway, Hecate Chat, queued `agent_loop` tasks, External Agent
+supervision, projects, memory, approvals, artifacts, usage, and OpenTelemetry
+traces into one operator surface. Local-first here means the runtime and UI run
+on the operator's machine, Hecate-owned state is local (memory / sqlite), and
+the gateway binds to 127.0.0.1 by default; Hecate can still route to cloud
+providers and supervise external coding-agent CLIs with their own accounts. The
+React operator UI is embedded via `//go:embed ui/dist`.
 
 This file is the orientation entry — the codebase map, the runtime
 invariants, and the gotchas that bite often. It is what an agent
@@ -166,17 +167,17 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 ## Canonical docs
 
-| Doc                                                                                          | Covers                                                                                        |
-| -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| [`docs/contributor/architecture.md`](docs/contributor/architecture.md)                       | Request flow, lease semantics, storage tier matrix                                            |
-| [`docs/runtime/agent-runtime.md`](docs/runtime/agent-runtime.md)                             | `agent_loop` tools, system prompt layers, cost model, retry-from-turn                         |
-| [`docs/runtime/runtime-api.md`](docs/runtime/runtime-api.md)                                 | Task / run / step / approval endpoints, queue + lease                                         |
-| [`docs/runtime/events.md`](docs/runtime/events.md)                                           | Every event type at `/hecate/v1/events` with payload shapes                                   |
-| [`docs/runtime/telemetry.md`](docs/runtime/telemetry.md)                                     | OTel spans + metrics, OTLP wiring, status & gaps                                              |
-| [`docs/operator/security.md`](docs/operator/security.md)                                     | Local-first threat model, workspace safety, approvals, secrets, advisories                    |
-| [`docs/operator/providers.md`](docs/operator/providers.md)                                   | Provider catalog, configuration                                                               |
-| [`docs/runtime/mcp.md`](docs/runtime/mcp.md)                                                 | MCP server: tools, transport, configure                                                       |
-| [`docs/runtime/external-agent-adapters.md`](docs/design/accepted/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, Cursor Agent, and Grok Build |
-| [`docs/operator/deployment.md`](docs/operator/deployment.md)                                 | Compose profiles, image pinning, lost-token recovery                                          |
-| [`docs/contributor/development.md`](docs/contributor/development.md)                         | Local build, testing, screenshot tooling, `[skip ci]` convention                              |
-| [`docs/operator/desktop-app.md`](docs/operator/desktop-app.md)                               | Native Tauri 2.x app: distribution, current state, roadmap, footguns                          |
+| Doc                                                                                  | Covers                                                                                        |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| [`docs/contributor/architecture.md`](docs/contributor/architecture.md)               | Request flow, lease semantics, storage tier matrix                                            |
+| [`docs/runtime/agent-runtime.md`](docs/runtime/agent-runtime.md)                     | `agent_loop` tools, system prompt layers, cost model, retry-from-turn                         |
+| [`docs/runtime/runtime-api.md`](docs/runtime/runtime-api.md)                         | Task / run / step / approval endpoints, queue + lease                                         |
+| [`docs/runtime/events.md`](docs/runtime/events.md)                                   | Every event type at `/hecate/v1/events` with payload shapes                                   |
+| [`docs/runtime/telemetry.md`](docs/runtime/telemetry.md)                             | OTel spans + metrics, OTLP wiring, status & gaps                                              |
+| [`docs/operator/security.md`](docs/operator/security.md)                             | Local-first threat model, workspace safety, approvals, secrets, advisories                    |
+| [`docs/operator/providers.md`](docs/operator/providers.md)                           | Provider catalog, configuration                                                               |
+| [`docs/runtime/mcp.md`](docs/runtime/mcp.md)                                         | MCP server: tools, transport, configure                                                       |
+| [`docs/runtime/external-agent-adapters.md`](docs/runtime/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, Cursor Agent, and Grok Build |
+| [`docs/operator/deployment.md`](docs/operator/deployment.md)                         | Compose profiles, image pinning, lost-token recovery                                          |
+| [`docs/contributor/development.md`](docs/contributor/development.md)                 | Local build, testing, screenshot tooling, `[skip ci]` convention                              |
+| [`docs/operator/desktop-app.md`](docs/operator/desktop-app.md)                       | Native Tauri 2.x app: distribution, current state, roadmap, footguns                          |
