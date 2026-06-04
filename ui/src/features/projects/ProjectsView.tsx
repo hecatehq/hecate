@@ -3002,176 +3002,178 @@ function WorkItemDetail({
   }
   return (
     <div style={workItemDetailStyle}>
-      <div style={workItemDetailHeaderStyle}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={sectionLabelStyle}>Work item</div>
-          <h2 style={{ margin: "4px 0 8px", fontSize: 18, color: "var(--t0)" }}>
-            {workItem.title}
-          </h2>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            <Badge status={workItem.status} label={workStatusLabel(workItem.status)} />
-            <span className="badge badge-muted">{workItem.priority}</span>
-            <span className="badge badge-muted">
-              Updated {formatAbsoluteTime(workItem.updated_at)}
-            </span>
+      <article style={workItemCardStyle} aria-label={`${workItem.title} work item`}>
+        <div style={workItemDetailHeaderStyle}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={sectionLabelStyle}>Work item</div>
+            <h2 style={{ margin: "4px 0 8px", fontSize: 18, color: "var(--t0)" }}>
+              {workItem.title}
+            </h2>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <Badge status={workItem.status} label={workStatusLabel(workItem.status)} />
+              <span className="badge badge-muted">{workItem.priority}</span>
+              <span className="badge badge-muted">
+                Updated {formatAbsoluteTime(workItem.updated_at)}
+              </span>
+            </div>
           </div>
-        </div>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          onClick={() => onEditWorkItem(workItem)}
-        >
-          <Icon d={Icons.edit} size={13} />
-          Edit
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          onClick={() => onDeleteWorkItem(workItem)}
-          style={{ color: "var(--red)" }}
-        >
-          <Icon d={Icons.trash} size={13} />
-          Delete
-        </button>
-        <button className="btn btn-ghost btn-sm" type="button" onClick={onRefresh}>
-          <Icon d={Icons.refresh} size={13} />
-          Refresh
-        </button>
-      </div>
-      {detailError && <InlineError message={detailError} />}
-      <div style={panelStyle}>
-        <div style={sectionLabelStyle}>Brief</div>
-        <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--t1)", lineHeight: 1.55 }}>
-          {workItem.brief || "No brief recorded."}
-        </p>
-        <div style={{ ...metaLineStyle, marginTop: 10 }}>
-          <span>Created {formatAbsoluteTime(workItem.created_at)}</span>
-          {workItem.owner_role_id && (
-            <span>
-              Owner {roleByID.get(workItem.owner_role_id)?.name ?? workItem.owner_role_id}
-            </span>
-          )}
-          {workItem.reviewer_role_ids && workItem.reviewer_role_ids.length > 0 && (
-            <span>
-              {workItem.reviewer_role_ids.length} reviewer role
-              {workItem.reviewer_role_ids.length === 1 ? "" : "s"}
-            </span>
-          )}
-        </div>
-      </div>
-      <div style={panelStyle}>
-        <div style={panelHeaderStyle}>
-          <div style={sectionLabelStyle}>Assignments</div>
-          <span className="badge badge-muted">{assignments.length}</span>
           <button
-            className="btn btn-primary btn-sm"
+            className="btn btn-ghost btn-sm"
             type="button"
-            onClick={onAddAssignment}
-            style={{ marginLeft: "auto" }}
+            onClick={() => onEditWorkItem(workItem)}
           >
-            <Icon d={Icons.plus} size={12} />
-            Assignment
+            <Icon d={Icons.edit} size={13} />
+            Edit
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onDeleteWorkItem(workItem)}
+            style={{ color: "var(--red)" }}
+          >
+            <Icon d={Icons.trash} size={13} />
+            Delete
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onRefresh}>
+            <Icon d={Icons.refresh} size={13} />
+            Refresh
           </button>
         </div>
-        {assignments.length === 0 ? (
-          <div style={subtleTextStyle}>No assignments recorded for this work item.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 10 }}>
-            {assignments.map((assignment) => (
-              <AssignmentRow
-                key={assignment.id}
-                assignment={assignment}
-                chatModel={
-                  assignment.execution?.model ||
-                  roleByID.get(assignment.role_id)?.default_model ||
-                  project?.default_model ||
-                  ""
-                }
-                error={assignmentErrors[assignment.id] ?? ""}
-                onDelete={() => onDeleteAssignment(assignment)}
-                onEdit={() => onEditAssignment(assignment)}
-                onOpenChat={
-                  project
-                    ? () =>
-                        onOpenChat?.(
-                          buildProjectAssignmentChatLaunchRequest({
-                            project,
-                            workItem,
-                            assignment,
-                            role: roleByID.get(assignment.role_id) ?? null,
-                          }),
-                        )
-                    : undefined
-                }
-                onOpenTask={onOpenTask}
-                onStart={() => onStartAssignment(assignment)}
-                role={roleByID.get(assignment.role_id)}
-                starting={startingAssignmentID === assignment.id}
-              />
-            ))}
+        {detailError && <InlineError message={detailError} />}
+        <section style={workItemCardSectionStyle}>
+          <div style={sectionLabelStyle}>Brief</div>
+          <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--t1)", lineHeight: 1.55 }}>
+            {workItem.brief || "No brief recorded."}
+          </p>
+          <div style={{ ...metaLineStyle, marginTop: 10 }}>
+            <span>Created {formatAbsoluteTime(workItem.created_at)}</span>
+            {workItem.owner_role_id && (
+              <span>
+                Owner {roleByID.get(workItem.owner_role_id)?.name ?? workItem.owner_role_id}
+              </span>
+            )}
+            {workItem.reviewer_role_ids && workItem.reviewer_role_ids.length > 0 && (
+              <span>
+                {workItem.reviewer_role_ids.length} reviewer role
+                {workItem.reviewer_role_ids.length === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
-        )}
-      </div>
-      <div style={panelStyle}>
-        <div style={panelHeaderStyle}>
-          <div style={sectionLabelStyle}>Collaboration Artifacts</div>
-          <span className="badge badge-muted">{artifacts.length}</span>
-        </div>
-        {artifacts.length === 0 ? (
-          <div style={subtleTextStyle}>No collaboration artifacts recorded yet.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {artifacts.map((artifact) => (
-              <div key={artifact.id} style={artifactStyle}>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <span className="badge badge-muted">{artifact.kind}</span>
-                  <span style={titleStyle}>{artifact.title || artifact.id}</span>
+        </section>
+        <section style={workItemCardSectionStyle}>
+          <div style={panelHeaderStyle}>
+            <div style={sectionLabelStyle}>Assignments</div>
+            <span className="badge badge-muted">{assignments.length}</span>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={onAddAssignment}
+              style={{ marginLeft: "auto" }}
+            >
+              <Icon d={Icons.plus} size={12} />
+              Assignment
+            </button>
+          </div>
+          {assignments.length === 0 ? (
+            <div style={subtleTextStyle}>No assignments recorded for this work item.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {assignments.map((assignment) => (
+                <AssignmentRow
+                  key={assignment.id}
+                  assignment={assignment}
+                  chatModel={
+                    assignment.execution?.model ||
+                    roleByID.get(assignment.role_id)?.default_model ||
+                    project?.default_model ||
+                    ""
+                  }
+                  error={assignmentErrors[assignment.id] ?? ""}
+                  onDelete={() => onDeleteAssignment(assignment)}
+                  onEdit={() => onEditAssignment(assignment)}
+                  onOpenChat={
+                    project
+                      ? () =>
+                          onOpenChat?.(
+                            buildProjectAssignmentChatLaunchRequest({
+                              project,
+                              workItem,
+                              assignment,
+                              role: roleByID.get(assignment.role_id) ?? null,
+                            }),
+                          )
+                      : undefined
+                  }
+                  onOpenTask={onOpenTask}
+                  onStart={() => onStartAssignment(assignment)}
+                  role={roleByID.get(assignment.role_id)}
+                  starting={startingAssignmentID === assignment.id}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+        <section style={workItemCardSectionStyle}>
+          <div style={panelHeaderStyle}>
+            <div style={sectionLabelStyle}>Collaboration Artifacts</div>
+            <span className="badge badge-muted">{artifacts.length}</span>
+          </div>
+          {artifacts.length === 0 ? (
+            <div style={subtleTextStyle}>No collaboration artifacts recorded yet.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {artifacts.map((artifact) => (
+                <div key={artifact.id} style={artifactStyle}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span className="badge badge-muted">{artifact.kind}</span>
+                    <span style={titleStyle}>{artifact.title || artifact.id}</span>
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
+                    {artifact.body}
+                  </div>
                 </div>
-                <div style={{ marginTop: 6, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
-                  {artifact.body}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          )}
+        </section>
+        <section style={workItemCardSectionStyle}>
+          <div style={panelHeaderStyle}>
+            <div style={sectionLabelStyle}>Handoffs</div>
+            <span className="badge badge-muted">{handoffs.length}</span>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={onAddHandoff}
+              style={{ marginLeft: "auto" }}
+            >
+              <Icon d={Icons.plus} size={12} />
+              Handoff
+            </button>
           </div>
-        )}
-      </div>
-      <div style={panelStyle}>
-        <div style={panelHeaderStyle}>
-          <div style={sectionLabelStyle}>Handoffs</div>
-          <span className="badge badge-muted">{handoffs.length}</span>
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            onClick={onAddHandoff}
-            style={{ marginLeft: "auto" }}
-          >
-            <Icon d={Icons.plus} size={12} />
-            Handoff
-          </button>
-        </div>
-        {handoffError && <InlineError message={handoffError} />}
-        {handoffs.length === 0 ? (
-          <div style={subtleTextStyle}>No structured handoffs recorded for this work item.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {handoffs.map((handoff) => (
-              <ProjectHandoffRow
-                key={handoff.id}
-                actionPending={handoffActionID === handoff.id}
-                assignment={assignments.find((item) => item.id === handoff.target_assignment_id)}
-                handoff={handoff}
-                onCreateAssignment={() => onCreateAssignmentFromHandoff(handoff)}
-                onDelete={() => onDeleteHandoff(handoff)}
-                onEdit={() => onEditHandoff(handoff)}
-                onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
-                onStart={() => onStartHandoff(handoff)}
-                role={handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined}
-                starting={startingAssignmentID === handoff.target_assignment_id}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+          {handoffError && <InlineError message={handoffError} />}
+          {handoffs.length === 0 ? (
+            <div style={subtleTextStyle}>No structured handoffs recorded for this work item.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {handoffs.map((handoff) => (
+                <ProjectHandoffRow
+                  key={handoff.id}
+                  actionPending={handoffActionID === handoff.id}
+                  assignment={assignments.find((item) => item.id === handoff.target_assignment_id)}
+                  handoff={handoff}
+                  onCreateAssignment={() => onCreateAssignmentFromHandoff(handoff)}
+                  onDelete={() => onDeleteHandoff(handoff)}
+                  onEdit={() => onEditHandoff(handoff)}
+                  onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
+                  onStart={() => onStartHandoff(handoff)}
+                  role={handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined}
+                  starting={startingAssignmentID === handoff.target_assignment_id}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      </article>
     </div>
   );
 }
@@ -5291,13 +5293,23 @@ const workDetailColumnStyle: CSSProperties = {
 
 const workItemDetailStyle: CSSProperties = {
   boxSizing: "border-box",
-  display: "grid",
-  gap: 16,
   maxWidth: "100%",
   minWidth: 0,
   overflow: "hidden",
-  padding: 16,
   width: "100%",
+};
+
+const workItemCardStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  boxSizing: "border-box",
+  display: "grid",
+  gap: 0,
+  maxWidth: "100%",
+  minWidth: 0,
+  overflow: "hidden",
+  padding: 12,
 };
 
 const workItemDetailHeaderStyle: CSSProperties = {
@@ -5306,6 +5318,13 @@ const workItemDetailHeaderStyle: CSSProperties = {
   flexWrap: "wrap",
   gap: 12,
   minWidth: 0,
+};
+
+const workItemCardSectionStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  marginTop: 12,
+  minWidth: 0,
+  paddingTop: 12,
 };
 
 const panelHeaderStyle: CSSProperties = {
