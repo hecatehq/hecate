@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS %s (
 	name TEXT NOT NULL,
 	description TEXT NOT NULL DEFAULT '',
 	instructions TEXT NOT NULL DEFAULT '',
+	default_driver_kind TEXT NOT NULL DEFAULT '',
+	default_provider TEXT NOT NULL DEFAULT '',
+	default_model TEXT NOT NULL DEFAULT '',
+	default_agent_profile TEXT NOT NULL DEFAULT '',
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	PRIMARY KEY(project_id, id)
@@ -122,6 +126,11 @@ CREATE TABLE IF NOT EXISTS %s (
 	if err := s.ensureColumn(ctx, s.assignmentsTbl, "driver_kind", `TEXT NOT NULL DEFAULT 'hecate_task'`); err != nil {
 		return err
 	}
+	for _, column := range []string{"default_driver_kind", "default_provider", "default_model", "default_agent_profile"} {
+		if err := s.ensureColumn(ctx, s.rolesTbl, column, `TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
 	for _, stmt := range []struct {
 		table string
 		name  string
@@ -184,7 +193,7 @@ func (s *SQLiteStore) columnExists(ctx context.Context, quotedTable, column stri
 func (s *SQLiteStore) ListRoles(ctx context.Context, projectID string) ([]AgentRoleProfile, error) {
 	projectID = strings.TrimSpace(projectID)
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-SELECT id, project_id, name, description, instructions, created_at, updated_at
+SELECT id, project_id, name, description, instructions, default_driver_kind, default_provider, default_model, default_agent_profile, created_at, updated_at
 FROM %s
 WHERE project_id = ?
 ORDER BY name ASC, id ASC`, s.rolesTbl), projectID)
@@ -218,9 +227,10 @@ func (s *SQLiteStore) CreateRole(ctx context.Context, role AgentRoleProfile) (Ag
 		return AgentRoleProfile{}, err
 	}
 	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-INSERT INTO %s (id, project_id, name, description, instructions, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)`, s.rolesTbl),
+INSERT INTO %s (id, project_id, name, description, instructions, default_driver_kind, default_provider, default_model, default_agent_profile, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.rolesTbl),
 		role.ID, role.ProjectID, role.Name, role.Description, role.Instructions,
+		role.DefaultDriverKind, role.DefaultProvider, role.DefaultModel, role.DefaultAgentProfile,
 		formatTime(role.CreatedAt), formatTime(role.UpdatedAt),
 	)
 	if err != nil {
@@ -266,9 +276,11 @@ func (s *SQLiteStore) UpdateRole(ctx context.Context, projectID, id string, upda
 	}
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
 UPDATE %s
-SET name = ?, description = ?, instructions = ?, updated_at = ?
+SET name = ?, description = ?, instructions = ?, default_driver_kind = ?, default_provider = ?, default_model = ?, default_agent_profile = ?, updated_at = ?
 WHERE project_id = ? AND id = ?`, s.rolesTbl),
-		role.Name, role.Description, role.Instructions, formatTime(role.UpdatedAt), projectID, id,
+		role.Name, role.Description, role.Instructions,
+		role.DefaultDriverKind, role.DefaultProvider, role.DefaultModel, role.DefaultAgentProfile,
+		formatTime(role.UpdatedAt), projectID, id,
 	)
 	if err != nil {
 		return AgentRoleProfile{}, err
@@ -757,7 +769,7 @@ ORDER BY role_id ASC`, s.reviewersTbl), projectID, workItemID)
 
 func (s *SQLiteStore) getCustomRole(ctx context.Context, projectID, id string) (AgentRoleProfile, error) {
 	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
-SELECT id, project_id, name, description, instructions, created_at, updated_at
+SELECT id, project_id, name, description, instructions, default_driver_kind, default_provider, default_model, default_agent_profile, created_at, updated_at
 FROM %s
 WHERE project_id = ? AND id = ?`, s.rolesTbl), strings.TrimSpace(projectID), strings.TrimSpace(id))
 	role, err := scanRole(row)
@@ -818,7 +830,19 @@ type scanner interface {
 func scanRole(row scanner) (AgentRoleProfile, error) {
 	var item AgentRoleProfile
 	var createdAt, updatedAt string
-	if err := row.Scan(&item.ID, &item.ProjectID, &item.Name, &item.Description, &item.Instructions, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(
+		&item.ID,
+		&item.ProjectID,
+		&item.Name,
+		&item.Description,
+		&item.Instructions,
+		&item.DefaultDriverKind,
+		&item.DefaultProvider,
+		&item.DefaultModel,
+		&item.DefaultAgentProfile,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
 		return AgentRoleProfile{}, err
 	}
 	var err error

@@ -52,7 +52,12 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/roles", bytes.NewReader([]byte(`{
 		"id":"role_release",
 		"name":"Release captain",
-		"description":"Coordinates release work"
+		"description":"Coordinates release work",
+		"instructions":"Keep release notes current.",
+		"default_driver_kind":"external_agent",
+		"default_provider":"anthropic",
+		"default_model":"claude-sonnet-4",
+		"default_agent_profile":"safe_external_review"
 	}`))))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create role status = %d body=%s, want 201", rec.Code, rec.Body.String())
@@ -63,6 +68,9 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 	if role.Data.ID != "role_release" || role.Data.BuiltIn {
 		t.Fatalf("created role = %+v, want custom role", role.Data)
+	}
+	if role.Data.DefaultDriverKind != projectwork.AssignmentDriverExternalAgent || role.Data.DefaultProvider != "anthropic" || role.Data.DefaultModel != "claude-sonnet-4" || role.Data.DefaultAgentProfile != "safe_external_review" {
+		t.Fatalf("created role defaults = %+v, want role execution defaults", role.Data)
 	}
 
 	rec = httptest.NewRecorder()
@@ -301,6 +309,47 @@ func TestProjectWorkAPI_ProjectDeletionCleansRows(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_CreateAssignmentUsesRoleDefaultDriver(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectWorkTestServer()
+	project := createProjectForWorkTest(t, server)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/roles", bytes.NewReader([]byte(`{
+		"id":"role_external",
+		"name":"External reviewer",
+		"default_driver_kind":"external_agent"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create role status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
+		"id":"work_external",
+		"title":"External assignment default"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create work item status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_external/assignments", bytes.NewReader([]byte(`{
+		"id":"asgn_external",
+		"role_id":"role_external"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create assignment status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	if assignment.Data.DriverKind != projectwork.AssignmentDriverExternalAgent {
+		t.Fatalf("assignment driver_kind = %q, want role default external_agent", assignment.Data.DriverKind)
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -336,8 +385,8 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	if task.ExecutionKind != "agent_loop" || task.OriginKind != "project_work_item" || task.OriginID != "work_start" {
 		t.Fatalf("task execution/origin = %q %q/%q, want agent_loop project_work_item/work_start", task.ExecutionKind, task.OriginKind, task.OriginID)
 	}
-	if task.RequestedProvider != "ollama" || task.RequestedModel != "qwen2.5-coder" {
-		t.Fatalf("task provider/model = %q/%q, want ollama/qwen2.5-coder", task.RequestedProvider, task.RequestedModel)
+	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.ExecutionProfile != "implementation" {
+		t.Fatalf("task provider/model/profile = %q/%q/%q, want role defaults", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
 	}
 	if task.WorkingDirectory != workspace || task.SandboxAllowedRoot != workspace || task.WorkspaceMode != "in_place" {
 		t.Fatalf("task workspace = dir %q root %q mode %q, want %q in_place", task.WorkingDirectory, task.SandboxAllowedRoot, task.WorkspaceMode, workspace)
@@ -352,6 +401,35 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	}
 	if _, found, err := handler.taskStore.GetRun(t.Context(), task.ID, assignment.Data.RunID); err != nil || !found {
 		t.Fatalf("GetRun(%q) found=%v err=%v, want run", assignment.Data.RunID, found, err)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentFallsBackToProjectDefaults(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverHecateTask,
+		ProjectAgentProfile: "project_review",
+		WithoutRoleDefaults: true,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+	}
+	if task.RequestedProvider != "ollama" || task.RequestedModel != "qwen2.5-coder" || task.ExecutionProfile != "project_review" {
+		t.Fatalf("task provider/model/profile = %q/%q/%q, want project defaults", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
 	}
 }
 
@@ -734,11 +812,13 @@ func (s failingCreateTaskStore) CreateTask(context.Context, types.Task) (types.T
 }
 
 type projectWorkAssignmentStartSeed struct {
-	Workspace string
-	Driver    string
-	Status    string
-	TaskID    string
-	RunID     string
+	Workspace           string
+	Driver              string
+	Status              string
+	TaskID              string
+	RunID               string
+	ProjectAgentProfile string
+	WithoutRoleDefaults bool
 }
 
 func seedProjectWorkAssignmentStartTest(t *testing.T, handler *Handler, seed projectWorkAssignmentStartSeed) {
@@ -751,6 +831,9 @@ func seedProjectWorkAssignmentStartTest(t *testing.T, handler *Handler, seed pro
 		DefaultWorkspaceMode: "in_place",
 		DefaultSystemPrompt:  "Project default system prompt.",
 	}
+	if seed.ProjectAgentProfile != "" {
+		project.DefaultAgentProfile = seed.ProjectAgentProfile
+	}
 	if seed.Workspace != "" {
 		project.Roots = []projects.Root{{ID: "root_start", Path: seed.Workspace, Kind: "git", Active: true}}
 		project.DefaultRootID = "root_start"
@@ -758,12 +841,18 @@ func seedProjectWorkAssignmentStartTest(t *testing.T, handler *Handler, seed pro
 	if _, err := handler.projects.Create(t.Context(), project); err != nil {
 		t.Fatalf("Create project: %v", err)
 	}
-	if _, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+	role := projectwork.AgentRoleProfile{
 		ID:           "role_backend",
 		ProjectID:    "proj_start",
 		Name:         "Backend engineer",
 		Instructions: "Follow backend invariants.",
-	}); err != nil {
+	}
+	if !seed.WithoutRoleDefaults {
+		role.DefaultProvider = "anthropic"
+		role.DefaultModel = "claude-sonnet-4"
+		role.DefaultAgentProfile = "implementation"
+	}
+	if _, err := handler.projectWork.CreateRole(t.Context(), role); err != nil {
 		t.Fatalf("CreateRole: %v", err)
 	}
 	if _, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{

@@ -90,10 +90,27 @@ export type ProjectWorkRoleRecord = {
   name: string;
   description?: string;
   instructions?: string;
+  default_driver_kind?: ProjectAssignmentDriverKind | string;
+  default_provider?: string;
+  default_model?: string;
+  default_agent_profile?: string;
   built_in: boolean;
   created_at?: string;
   updated_at?: string;
 };
+
+export type CreateProjectWorkRolePayload = {
+  id?: string;
+  name: string;
+  description?: string;
+  instructions?: string;
+  default_driver_kind?: ProjectAssignmentDriverKind | string;
+  default_provider?: string;
+  default_model?: string;
+  default_agent_profile?: string;
+};
+
+export type UpdateProjectWorkRolePayload = Partial<CreateProjectWorkRolePayload>;
 
 export type ProjectWorkItemStatus =
   | "backlog"
@@ -214,6 +231,11 @@ export type ProjectCollaborationArtifactRecord = {
 export type ProjectWorkRolesResponse = {
   object: string;
   data: ProjectWorkRoleRecord[];
+};
+
+export type ProjectWorkRoleResponse = {
+  object: string;
+  data: ProjectWorkRoleRecord;
 };
 
 export type ProjectWorkItemsResponse = {

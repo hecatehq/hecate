@@ -33,17 +33,41 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			}
 
 			custom, err := store.CreateRole(ctx, AgentRoleProfile{
-				ID:           "role_release_captain",
-				ProjectID:    "proj_alpha",
-				Name:         " Release Captain ",
-				Description:  " Coordinates releases ",
-				Instructions: "Keep release notes current.",
+				ID:                  "role_release_captain",
+				ProjectID:           "proj_alpha",
+				Name:                " Release Captain ",
+				Description:         " Coordinates releases ",
+				Instructions:        "Keep release notes current.",
+				DefaultDriverKind:   " hecate_task ",
+				DefaultProvider:     " ollama ",
+				DefaultModel:        " ministral-3:latest ",
+				DefaultAgentProfile: " implementation ",
 			})
 			if err != nil {
 				t.Fatalf("CreateRole: %v", err)
 			}
 			if custom.Name != "Release Captain" || custom.BuiltIn {
 				t.Fatalf("custom role = %+v, want normalized custom role", custom)
+			}
+			if custom.DefaultDriverKind != AssignmentDriverHecateTask || custom.DefaultProvider != "ollama" || custom.DefaultModel != "ministral-3:latest" || custom.DefaultAgentProfile != "implementation" {
+				t.Fatalf("custom role defaults = %+v, want normalized execution defaults", custom)
+			}
+			updatedRole, err := store.UpdateRole(ctx, "proj_alpha", "role_release_captain", func(item *AgentRoleProfile) {
+				item.DefaultDriverKind = AssignmentDriverExternalAgent
+				item.DefaultProvider = "anthropic"
+				item.DefaultModel = "claude-sonnet-4"
+				item.DefaultAgentProfile = "safe_external_review"
+			})
+			if err != nil {
+				t.Fatalf("UpdateRole defaults: %v", err)
+			}
+			if updatedRole.DefaultDriverKind != AssignmentDriverExternalAgent || updatedRole.DefaultProvider != "anthropic" || updatedRole.DefaultModel != "claude-sonnet-4" || updatedRole.DefaultAgentProfile != "safe_external_review" {
+				t.Fatalf("updated role defaults = %+v, want updated defaults", updatedRole)
+			}
+			if _, err := store.UpdateRole(ctx, "proj_alpha", "role_release_captain", func(item *AgentRoleProfile) {
+				item.DefaultDriverKind = "unsupported"
+			}); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("UpdateRole unsupported default driver error = %v, want ErrInvalid", err)
 			}
 			if _, err := store.CreateRole(ctx, AgentRoleProfile{ID: "product_manager", ProjectID: "proj_alpha", Name: "Override"}); !errors.Is(err, ErrBuiltInRole) {
 				t.Fatalf("CreateRole built-in error = %v, want ErrBuiltInRole", err)
@@ -333,6 +357,64 @@ INSERT INTO `+assignmentsTbl+` (
 	}
 	if len(assignments) != 1 || assignments[0].DriverKind != AssignmentDriverHecateTask {
 		t.Fatalf("assignments = %+v, want legacy assignment backfilled to hecate_task", assignments)
+	}
+}
+
+func TestSQLiteStore_AddsRoleDefaultColumnsToExistingTable(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "projectwork.db"),
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	rolesTbl := client.QualifiedTable("project_work_roles")
+	if _, err := client.DB().ExecContext(ctx, `
+CREATE TABLE `+rolesTbl+` (
+	id TEXT NOT NULL,
+	project_id TEXT NOT NULL,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	instructions TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	PRIMARY KEY(project_id, id)
+)`); err != nil {
+		t.Fatalf("create legacy roles table: %v", err)
+	}
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
+	if _, err := client.DB().ExecContext(ctx, `
+INSERT INTO `+rolesTbl+` (
+	id, project_id, name, description, instructions, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"role_legacy", "proj_alpha", "Legacy role", "Older schema", "Keep going.", now, now,
+	); err != nil {
+		t.Fatalf("insert legacy role: %v", err)
+	}
+
+	store, err := NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	roles, err := store.ListRoles(ctx, "proj_alpha")
+	if err != nil {
+		t.Fatalf("ListRoles: %v", err)
+	}
+	var legacy AgentRoleProfile
+	for _, role := range roles {
+		if role.ID == "role_legacy" {
+			legacy = role
+			break
+		}
+	}
+	if legacy.ID == "" {
+		t.Fatalf("roles = %+v, want legacy role", roles)
+	}
+	if legacy.DefaultDriverKind != "" || legacy.DefaultProvider != "" || legacy.DefaultModel != "" || legacy.DefaultAgentProfile != "" {
+		t.Fatalf("legacy role defaults = %+v, want empty migrated defaults", legacy)
 	}
 }
 
