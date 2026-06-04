@@ -606,13 +606,14 @@ describe("ProjectsView index", () => {
       name: "Build cockpit UI work item",
     });
     expect(within(projectList).queryByText("/Users/alice/dev/hecate")).toBeNull();
-    expect(within(detail).getByText("/Users/alice/dev/hecate · qwen2.5-coder")).toBeTruthy();
+    expect(screen.getByText("/Users/alice/dev/hecate · qwen2.5-coder")).toBeTruthy();
     expect(within(selectedWorkCard).getByText("Brief")).toBeTruthy();
     expect(within(selectedWorkCard).getByText("Assignments")).toBeTruthy();
     expect(within(selectedWorkCard).getByText("Collaboration Artifacts")).toBeTruthy();
     expect(within(selectedWorkCard).getByText("Handoffs")).toBeTruthy();
-    const headerActions = within(detail).getByLabelText("Project header actions");
+    const headerActions = screen.getByLabelText("Project header actions");
     expect(headerActions).toBeTruthy();
+    expect(within(detail).queryByLabelText("Project header actions")).toBeNull();
     const actionLabels = within(headerActions)
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label") ?? "");
@@ -1497,6 +1498,14 @@ describe("ProjectsView cockpit", () => {
     expect(screen.getByRole("complementary", { name: "Project settings panel" })).toHaveStyle({
       width: "380px",
     });
+    expect(
+      within(screen.getByRole("region", { name: "Selected work item" })).queryByRole(
+        "complementary",
+        { name: "Project settings panel" },
+      ),
+    ).toBeNull();
+    expect(screen.getByText("Assignment defaults")).toBeTruthy();
+    expect(screen.getByText("Project context")).toBeTruthy();
   });
 
   it("uses the shared chat right-panel width for project settings", async () => {

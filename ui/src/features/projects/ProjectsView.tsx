@@ -256,6 +256,23 @@ const collapsedSidePanelStyle: CSSProperties = {
   flexShrink: 0,
 };
 
+const projectMainStyle: CSSProperties = {
+  display: "flex",
+  flex: 1,
+  flexDirection: "column",
+  minHeight: 0,
+  minWidth: 0,
+  overflow: "hidden",
+};
+
+const projectMainBodyStyle: CSSProperties = {
+  display: "flex",
+  flex: 1,
+  minHeight: 0,
+  minWidth: 0,
+  overflow: "hidden",
+};
+
 const detailStyle: CSSProperties = {
   flex: 1,
   minWidth: 0,
@@ -1149,7 +1166,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
         )}
       </section>
 
-      <section style={detailStyle} aria-label="Selected work item">
+      <div style={projectMainStyle}>
         <ProjectHeader
           attentionItems={projectHealth.attention}
           memoryCandidates={memoryCandidates}
@@ -1179,371 +1196,384 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
             setRolesModalOpen(true);
           }}
         />
-        <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
-          <ProjectActivityInbox
-            activity={activity}
-            bucket={activityBucket}
-            loading={workLoadState === "loading"}
-            onBucketChange={setActivityBucket}
-            onOpenChat={onOpenChat}
-            onOpenTask={onOpenTask}
-            onSelectWorkItem={setSelectedWorkItemID}
-            onStartAssignment={(assignment, workItemID) =>
-              void handleStartAssignment(assignment, workItemID)
-            }
-            project={selectedProject}
-            startingAssignmentID={startingAssignmentID}
-            workItems={workItems}
-          />
-
-          <section style={domainSectionStyle} aria-label="Project workspace">
-            <ProjectWorkspaceTabs
-              activeTab={workspaceTab}
-              memoryCandidateCount={memoryCandidates.length}
-              memoryEntryCount={memoryEntries.length}
-              onChange={setWorkspaceTab}
-              workItemCount={workItems.length}
-            />
-            {workspaceTab === "work" && (
-              <section style={projectTabPanelStyle} aria-label="Work coordination">
-                <SectionHeader
-                  title="Work Coordination"
-                  detail={
-                    workLoadState === "loading"
-                      ? "Loading project work..."
-                      : `${workItems.length} work item${workItems.length === 1 ? "" : "s"}`
-                  }
-                  actions={
-                    <button
-                      className="btn btn-primary btn-sm"
-                      type="button"
-                      onClick={() => {
-                        setNewWorkError("");
-                        setNewWorkModalOpen(true);
-                      }}
-                      disabled={!selectedProject}
-                    >
-                      <Icon d={Icons.plus} size={13} />
-                      Work
-                    </button>
-                  }
-                />
-                {workError && <InlineError message={workError} />}
-                <div className="project-work-coordination-grid" style={workCoordinationGridStyle}>
-                  <div style={workItemsPanelStyle}>
-                    <div style={sectionLabelStyle}>Work Items</div>
-                    <div style={{ ...subtleTextStyle, marginTop: 3, marginBottom: 10 }}>
-                      Select the project outcome to coordinate.
-                    </div>
-                    {!selectedProject && (
-                      <EmptyBlock
-                        title="Select a project"
-                        detail="Project work appears after opening a project."
-                      />
-                    )}
-                    {selectedProject && workLoadState === "loading" && workItems.length === 0 && (
-                      <EmptyBlock
-                        title="Loading work..."
-                        detail="Reading roles, work items, and assignments."
-                      />
-                    )}
-                    {selectedProject && workLoadState !== "loading" && workItems.length === 0 && (
-                      <EmptyBlock
-                        title="No work items"
-                        detail="Create work to coordinate assignments, handoffs, and artifacts."
-                      />
-                    )}
-                    {workItems.length > 0 && (
-                      <div style={workItemListStyle}>
-                        {workItems.map((item) => (
-                          <WorkItemRow
-                            key={item.id}
-                            active={item.id === selectedWorkItemID}
-                            item={item}
-                            summary={workItemSummaries[item.id]}
-                            role={item.owner_role_id ? roleByID.get(item.owner_role_id) : undefined}
-                            onSelect={() => setSelectedWorkItemID(item.id)}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div style={workDetailColumnStyle}>
-                    {hasWorkItemDetail ? (
-                      <WorkItemDetail
-                        assignments={assignments}
-                        artifacts={artifacts}
-                        handoffActionID={handoffActionID}
-                        handoffError={handoffError}
-                        handoffs={handoffs}
-                        assignmentErrors={assignmentErrors}
-                        detailError={detailError}
-                        loading={detailLoadState === "loading"}
-                        onOpenTask={onOpenTask}
-                        onRefresh={refreshSelectedWorkItem}
-                        onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
-                        onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
-                        onDeleteWorkItem={(item) => setDeleteWorkItem(item)}
-                        onEditHandoff={(handoff) => {
-                          setHandoffError("");
-                          setEditingHandoff(handoff);
-                        }}
-                        onEditAssignment={(assignment) => {
-                          setEditAssignmentError("");
-                          setEditingAssignment(assignment);
-                        }}
-                        onEditWorkItem={(item) => {
-                          setEditWorkError("");
-                          setEditingWorkItem(item);
-                        }}
-                        onDeleteAssignment={(assignment) => setDeleteAssignment(assignment)}
-                        onOpenChat={onOpenChat}
-                        onStartAssignment={handleStartAssignment}
-                        onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
-                        onSetHandoffStatus={(handoff, status) =>
-                          void handleSetHandoffStatus(handoff, status)
-                        }
-                        project={selectedProject}
-                        roleByID={roleByID}
-                        startingAssignmentID={startingAssignmentID}
-                        workItem={selectedWorkItem}
-                        onAddAssignment={() => {
-                          setNewAssignmentError("");
-                          setNewAssignmentModalOpen(true);
-                        }}
-                        onAddHandoff={() => {
-                          setHandoffError("");
-                          setEditingHandoff("new");
-                        }}
-                      />
-                    ) : (
-                      <EmptyBlock
-                        title={
-                          workLoadState === "loading" ? "Loading detail..." : "No work selected"
-                        }
-                        detail="Create or select a work item to manage assignments and collaboration artifacts."
-                      />
-                    )}
-                  </div>
-                </div>
-              </section>
-            )}
-            {workspaceTab === "timeline" && (
-              <ProjectTimelinePanel
+        <div style={projectMainBodyStyle}>
+          <section style={detailStyle} aria-label="Selected work item">
+            <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
+              <ProjectActivityInbox
                 activity={activity}
-                artifacts={artifacts}
-                handoffs={handoffs}
-                memoryCandidates={memoryCandidates}
-                memoryEntries={memoryEntries}
-                onEditMemory={setEditingMemory}
+                bucket={activityBucket}
+                loading={workLoadState === "loading"}
+                onBucketChange={setActivityBucket}
                 onOpenChat={onOpenChat}
                 onOpenTask={onOpenTask}
                 onSelectWorkItem={setSelectedWorkItemID}
+                onStartAssignment={(assignment, workItemID) =>
+                  void handleStartAssignment(assignment, workItemID)
+                }
                 project={selectedProject}
-                roles={roles}
+                startingAssignmentID={startingAssignmentID}
                 workItems={workItems}
               />
-            )}
-            {workspaceTab === "memory" && (
-              <ProjectMemoryPanel
-                candidates={memoryCandidates}
-                entries={memoryEntries}
-                error={memoryError}
-                loading={memoryLoadState === "loading"}
-                onPromoteCandidate={setPromotingCandidate}
-                onRejectCandidate={handleRejectCandidate}
-                onDelete={setDeleteMemory}
-                onEdit={setEditingMemory}
-                onNew={() => setEditingMemory("new")}
-                onRefresh={() => void loadProjectMemory(selectedProjectID)}
-                project={selectedProject}
-                rejectingCandidateID={rejectingCandidateID}
-              />
-            )}
+
+              <section style={domainSectionStyle} aria-label="Project workspace">
+                <ProjectWorkspaceTabs
+                  activeTab={workspaceTab}
+                  memoryCandidateCount={memoryCandidates.length}
+                  memoryEntryCount={memoryEntries.length}
+                  onChange={setWorkspaceTab}
+                  workItemCount={workItems.length}
+                />
+                {workspaceTab === "work" && (
+                  <section style={projectTabPanelStyle} aria-label="Work coordination">
+                    <SectionHeader
+                      title="Work Coordination"
+                      detail={
+                        workLoadState === "loading"
+                          ? "Loading project work..."
+                          : `${workItems.length} work item${workItems.length === 1 ? "" : "s"}`
+                      }
+                      actions={
+                        <button
+                          className="btn btn-primary btn-sm"
+                          type="button"
+                          onClick={() => {
+                            setNewWorkError("");
+                            setNewWorkModalOpen(true);
+                          }}
+                          disabled={!selectedProject}
+                        >
+                          <Icon d={Icons.plus} size={13} />
+                          Work
+                        </button>
+                      }
+                    />
+                    {workError && <InlineError message={workError} />}
+                    <div
+                      className="project-work-coordination-grid"
+                      style={workCoordinationGridStyle}
+                    >
+                      <div style={workItemsPanelStyle}>
+                        <div style={sectionLabelStyle}>Work Items</div>
+                        <div style={{ ...subtleTextStyle, marginTop: 3, marginBottom: 10 }}>
+                          Select the project outcome to coordinate.
+                        </div>
+                        {!selectedProject && (
+                          <EmptyBlock
+                            title="Select a project"
+                            detail="Project work appears after opening a project."
+                          />
+                        )}
+                        {selectedProject &&
+                          workLoadState === "loading" &&
+                          workItems.length === 0 && (
+                            <EmptyBlock
+                              title="Loading work..."
+                              detail="Reading roles, work items, and assignments."
+                            />
+                          )}
+                        {selectedProject &&
+                          workLoadState !== "loading" &&
+                          workItems.length === 0 && (
+                            <EmptyBlock
+                              title="No work items"
+                              detail="Create work to coordinate assignments, handoffs, and artifacts."
+                            />
+                          )}
+                        {workItems.length > 0 && (
+                          <div style={workItemListStyle}>
+                            {workItems.map((item) => (
+                              <WorkItemRow
+                                key={item.id}
+                                active={item.id === selectedWorkItemID}
+                                item={item}
+                                summary={workItemSummaries[item.id]}
+                                role={
+                                  item.owner_role_id ? roleByID.get(item.owner_role_id) : undefined
+                                }
+                                onSelect={() => setSelectedWorkItemID(item.id)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={workDetailColumnStyle}>
+                        {hasWorkItemDetail ? (
+                          <WorkItemDetail
+                            assignments={assignments}
+                            artifacts={artifacts}
+                            handoffActionID={handoffActionID}
+                            handoffError={handoffError}
+                            handoffs={handoffs}
+                            assignmentErrors={assignmentErrors}
+                            detailError={detailError}
+                            loading={detailLoadState === "loading"}
+                            onOpenTask={onOpenTask}
+                            onRefresh={refreshSelectedWorkItem}
+                            onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
+                            onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
+                            onDeleteWorkItem={(item) => setDeleteWorkItem(item)}
+                            onEditHandoff={(handoff) => {
+                              setHandoffError("");
+                              setEditingHandoff(handoff);
+                            }}
+                            onEditAssignment={(assignment) => {
+                              setEditAssignmentError("");
+                              setEditingAssignment(assignment);
+                            }}
+                            onEditWorkItem={(item) => {
+                              setEditWorkError("");
+                              setEditingWorkItem(item);
+                            }}
+                            onDeleteAssignment={(assignment) => setDeleteAssignment(assignment)}
+                            onOpenChat={onOpenChat}
+                            onStartAssignment={handleStartAssignment}
+                            onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
+                            onSetHandoffStatus={(handoff, status) =>
+                              void handleSetHandoffStatus(handoff, status)
+                            }
+                            project={selectedProject}
+                            roleByID={roleByID}
+                            startingAssignmentID={startingAssignmentID}
+                            workItem={selectedWorkItem}
+                            onAddAssignment={() => {
+                              setNewAssignmentError("");
+                              setNewAssignmentModalOpen(true);
+                            }}
+                            onAddHandoff={() => {
+                              setHandoffError("");
+                              setEditingHandoff("new");
+                            }}
+                          />
+                        ) : (
+                          <EmptyBlock
+                            title={
+                              workLoadState === "loading" ? "Loading detail..." : "No work selected"
+                            }
+                            detail="Create or select a work item to manage assignments and collaboration artifacts."
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                )}
+                {workspaceTab === "timeline" && (
+                  <ProjectTimelinePanel
+                    activity={activity}
+                    artifacts={artifacts}
+                    handoffs={handoffs}
+                    memoryCandidates={memoryCandidates}
+                    memoryEntries={memoryEntries}
+                    onEditMemory={setEditingMemory}
+                    onOpenChat={onOpenChat}
+                    onOpenTask={onOpenTask}
+                    onSelectWorkItem={setSelectedWorkItemID}
+                    project={selectedProject}
+                    roles={roles}
+                    workItems={workItems}
+                  />
+                )}
+                {workspaceTab === "memory" && (
+                  <ProjectMemoryPanel
+                    candidates={memoryCandidates}
+                    entries={memoryEntries}
+                    error={memoryError}
+                    loading={memoryLoadState === "loading"}
+                    onPromoteCandidate={setPromotingCandidate}
+                    onRejectCandidate={handleRejectCandidate}
+                    onDelete={setDeleteMemory}
+                    onEdit={setEditingMemory}
+                    onNew={() => setEditingMemory("new")}
+                    onRefresh={() => void loadProjectMemory(selectedProjectID)}
+                    project={selectedProject}
+                    rejectingCandidateID={rejectingCandidateID}
+                  />
+                )}
+              </section>
+            </div>
           </section>
+
+          {selectedProject && settingsPanelOpen && (
+            <ChatRightPanel
+              ariaLabel="Project settings panel"
+              width={rightPanelWidth}
+              onWidthChange={updateRightPanelWidth}
+            >
+              <ProjectSettingsPanel
+                error={defaultsError}
+                models={providersAndModels.state.models}
+                pending={defaultsPending}
+                providerOptions={providerOptions}
+                providerPresets={providerPresets}
+                project={selectedProject}
+                onSave={handleSaveProjectDefaults}
+              />
+            </ChatRightPanel>
+          )}
         </div>
-      </section>
 
-      {selectedProject && settingsPanelOpen && (
-        <ChatRightPanel
-          ariaLabel="Project settings panel"
-          width={rightPanelWidth}
-          onWidthChange={updateRightPanelWidth}
-        >
-          <ProjectSettingsPanel
-            error={defaultsError}
-            models={providersAndModels.state.models}
-            pending={defaultsPending}
-            providerOptions={providerOptions}
-            providerPresets={providerPresets}
-            project={selectedProject}
-            onSave={handleSaveProjectDefaults}
+        {selectedProject && rolesModalOpen && (
+          <RolesModal
+            error={rolesError}
+            pending={rolesPending}
+            roles={roles}
+            onClose={() => setRolesModalOpen(false)}
+            onCreate={handleCreateRole}
+            onDelete={handleDeleteRole}
+            onUpdate={handleUpdateRole}
           />
-        </ChatRightPanel>
-      )}
+        )}
 
-      {selectedProject && rolesModalOpen && (
-        <RolesModal
-          error={rolesError}
-          pending={rolesPending}
-          roles={roles}
-          onClose={() => setRolesModalOpen(false)}
-          onCreate={handleCreateRole}
-          onDelete={handleDeleteRole}
-          onUpdate={handleUpdateRole}
-        />
-      )}
+        {selectedProject && newWorkModalOpen && (
+          <NewWorkItemModal
+            error={newWorkError}
+            pending={newWorkPending}
+            roles={roles}
+            onClose={() => setNewWorkModalOpen(false)}
+            onCreate={handleCreateWorkItem}
+          />
+        )}
 
-      {selectedProject && newWorkModalOpen && (
-        <NewWorkItemModal
-          error={newWorkError}
-          pending={newWorkPending}
-          roles={roles}
-          onClose={() => setNewWorkModalOpen(false)}
-          onCreate={handleCreateWorkItem}
-        />
-      )}
+        {selectedWorkItem && newAssignmentModalOpen && (
+          <NewAssignmentModal
+            error={newAssignmentError}
+            pending={newAssignmentPending}
+            roles={roles}
+            onClose={() => setNewAssignmentModalOpen(false)}
+            onCreate={handleCreateAssignment}
+          />
+        )}
 
-      {selectedWorkItem && newAssignmentModalOpen && (
-        <NewAssignmentModal
-          error={newAssignmentError}
-          pending={newAssignmentPending}
-          roles={roles}
-          onClose={() => setNewAssignmentModalOpen(false)}
-          onCreate={handleCreateAssignment}
-        />
-      )}
+        {editingWorkItem && (
+          <EditWorkItemModal
+            error={editWorkError}
+            item={editingWorkItem}
+            pending={editWorkPending}
+            roles={roles}
+            onClose={() => setEditingWorkItem(null)}
+            onSave={handleUpdateWorkItem}
+          />
+        )}
 
-      {editingWorkItem && (
-        <EditWorkItemModal
-          error={editWorkError}
-          item={editingWorkItem}
-          pending={editWorkPending}
-          roles={roles}
-          onClose={() => setEditingWorkItem(null)}
-          onSave={handleUpdateWorkItem}
-        />
-      )}
+        {editingAssignment && (
+          <EditAssignmentModal
+            assignment={editingAssignment}
+            error={editAssignmentError}
+            pending={editAssignmentPending}
+            roles={roles}
+            onClose={() => setEditingAssignment(null)}
+            onSave={handleUpdateAssignment}
+          />
+        )}
 
-      {editingAssignment && (
-        <EditAssignmentModal
-          assignment={editingAssignment}
-          error={editAssignmentError}
-          pending={editAssignmentPending}
-          roles={roles}
-          onClose={() => setEditingAssignment(null)}
-          onSave={handleUpdateAssignment}
-        />
-      )}
+        {editingMemory && (
+          <ProjectMemoryModal
+            key={editingMemory === "new" ? "new" : editingMemory.id}
+            entry={editingMemory === "new" ? null : editingMemory}
+            error={memoryError}
+            pending={memoryPending}
+            onClose={() => setEditingMemory(null)}
+            onSave={handleSaveMemory}
+          />
+        )}
+        {promotingCandidate && (
+          <ProjectMemoryModal
+            key={promotingCandidate.id}
+            candidate={promotingCandidate}
+            entry={null}
+            error={memoryError}
+            pending={memoryPending}
+            onClose={() => setPromotingCandidate(null)}
+            onSave={handlePromoteCandidate}
+          />
+        )}
 
-      {editingMemory && (
-        <ProjectMemoryModal
-          key={editingMemory === "new" ? "new" : editingMemory.id}
-          entry={editingMemory === "new" ? null : editingMemory}
-          error={memoryError}
-          pending={memoryPending}
-          onClose={() => setEditingMemory(null)}
-          onSave={handleSaveMemory}
-        />
-      )}
-      {promotingCandidate && (
-        <ProjectMemoryModal
-          key={promotingCandidate.id}
-          candidate={promotingCandidate}
-          entry={null}
-          error={memoryError}
-          pending={memoryPending}
-          onClose={() => setPromotingCandidate(null)}
-          onSave={handlePromoteCandidate}
-        />
-      )}
+        {editingHandoff && selectedWorkItem && (
+          <ProjectHandoffModal
+            key={editingHandoff === "new" ? "new" : editingHandoff.id}
+            assignments={assignments}
+            handoff={editingHandoff === "new" ? null : editingHandoff}
+            error={handoffError}
+            pending={handoffPending}
+            roles={roles}
+            onClose={() => setEditingHandoff(null)}
+            onSave={handleSaveHandoff}
+          />
+        )}
 
-      {editingHandoff && selectedWorkItem && (
-        <ProjectHandoffModal
-          key={editingHandoff === "new" ? "new" : editingHandoff.id}
-          assignments={assignments}
-          handoff={editingHandoff === "new" ? null : editingHandoff}
-          error={handoffError}
-          pending={handoffPending}
-          roles={roles}
-          onClose={() => setEditingHandoff(null)}
-          onSave={handleSaveHandoff}
-        />
-      )}
+        {pendingDeleteProject && (
+          <ConfirmModal
+            title="Delete project"
+            danger
+            pending={deletePending}
+            confirmLabel="Delete project record"
+            onClose={() => setDeleteProjectID("")}
+            onConfirm={confirmDeleteProject}
+            message={
+              <>
+                Hecate will delete the project record, project roots, project-scoped chats, and
+                project work coordination state for <strong>{pendingDeleteProject.name}</strong>.
+                Workspace files and the git repository are not deleted.
+              </>
+            }
+          />
+        )}
 
-      {pendingDeleteProject && (
-        <ConfirmModal
-          title="Delete project"
-          danger
-          pending={deletePending}
-          confirmLabel="Delete project record"
-          onClose={() => setDeleteProjectID("")}
-          onConfirm={confirmDeleteProject}
-          message={
-            <>
-              Hecate will delete the project record, project roots, project-scoped chats, and
-              project work coordination state for <strong>{pendingDeleteProject.name}</strong>.
-              Workspace files and the git repository are not deleted.
-            </>
-          }
-        />
-      )}
+        {deleteWorkItem && (
+          <ConfirmModal
+            title="Delete work item"
+            danger
+            pending={deleteWorkPending}
+            confirmLabel="Delete work item"
+            onClose={() => setDeleteWorkItem(null)}
+            onConfirm={confirmDeleteWorkItem}
+            message={
+              <>
+                Delete <strong>{deleteWorkItem.title}</strong> and its assignments and collaboration
+                artifacts. Linked tasks, runs, chats, workspace files, and git history are not
+                deleted.
+              </>
+            }
+          />
+        )}
 
-      {deleteWorkItem && (
-        <ConfirmModal
-          title="Delete work item"
-          danger
-          pending={deleteWorkPending}
-          confirmLabel="Delete work item"
-          onClose={() => setDeleteWorkItem(null)}
-          onConfirm={confirmDeleteWorkItem}
-          message={
-            <>
-              Delete <strong>{deleteWorkItem.title}</strong> and its assignments and collaboration
-              artifacts. Linked tasks, runs, chats, workspace files, and git history are not
-              deleted.
-            </>
-          }
-        />
-      )}
+        {deleteAssignment && (
+          <ConfirmModal
+            title="Delete assignment"
+            danger
+            pending={deleteAssignmentPending}
+            confirmLabel="Delete assignment"
+            onClose={() => setDeleteAssignment(null)}
+            onConfirm={confirmDeleteAssignment}
+            message={
+              <>
+                Delete the assignment metadata record for{" "}
+                <strong>
+                  {roleByID.get(deleteAssignment.role_id)?.name ?? deleteAssignment.role_id}
+                </strong>
+                . Linked tasks, runs, chats, and external-agent executions are not deleted or
+                cancelled.
+              </>
+            }
+          />
+        )}
 
-      {deleteAssignment && (
-        <ConfirmModal
-          title="Delete assignment"
-          danger
-          pending={deleteAssignmentPending}
-          confirmLabel="Delete assignment"
-          onClose={() => setDeleteAssignment(null)}
-          onConfirm={confirmDeleteAssignment}
-          message={
-            <>
-              Delete the assignment metadata record for{" "}
-              <strong>
-                {roleByID.get(deleteAssignment.role_id)?.name ?? deleteAssignment.role_id}
-              </strong>
-              . Linked tasks, runs, chats, and external-agent executions are not deleted or
-              cancelled.
-            </>
-          }
-        />
-      )}
-
-      {deleteMemory && (
-        <ConfirmModal
-          title="Delete project memory"
-          danger
-          pending={deleteMemoryPending}
-          confirmLabel="Delete memory"
-          onClose={() => setDeleteMemory(null)}
-          onConfirm={confirmDeleteMemory}
-          message={
-            <>
-              Delete <strong>{deleteMemory.title}</strong>. Historical context packets that already
-              captured this memory stay unchanged.
-            </>
-          }
-        />
-      )}
+        {deleteMemory && (
+          <ConfirmModal
+            title="Delete project memory"
+            danger
+            pending={deleteMemoryPending}
+            confirmLabel="Delete memory"
+            onClose={() => setDeleteMemory(null)}
+            onConfirm={confirmDeleteMemory}
+            message={
+              <>
+                Delete <strong>{deleteMemory.title}</strong>. Historical context packets that
+                already captured this memory stay unchanged.
+              </>
+            }
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -3260,102 +3290,137 @@ function ProjectSettingsPanel({
               fontSize: 11,
               color: "var(--t3)",
               lineHeight: 1.45,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
             }}
-            title={workspace}
           >
-            {workspace || "No default root"}
+            Controls defaults for future native project assignments. Existing task runs keep the
+            settings they started with.
           </div>
         </div>
       </div>
       <div style={{ overflowY: "auto", padding: 14, display: "grid", gap: 14 }}>
-        <div style={projectSettingsSectionStyle}>
-          <div style={sectionLabelStyle}>Defaults</div>
-          <div style={{ ...subtleTextStyle, marginTop: 5 }}>
-            Native Hecate assignments copy these defaults when creating the backing task.
-          </div>
-        </div>
         <form
           onSubmit={(event) => {
             event.preventDefault();
             void submitForm();
           }}
-          style={{ display: "grid", gap: 12 }}
+          style={{ display: "grid", gap: 14 }}
         >
           {error && <InlineError message={error} />}
-          <div style={fieldStyle}>
-            <span style={fieldLabelStyle}>Provider and model</span>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              <ProviderPicker
-                value={form.provider}
-                onChange={handleProviderChange}
-                options={providerOptions}
-                emptyLabel={
-                  providerOptions.length === 0 ? "no providers configured" : "select provider"
-                }
-              />
-              <ModelPicker
-                value={selectedModel}
-                onChange={(model) => setForm((current) => ({ ...current, model }))}
-                models={scopedModels}
-                presets={providerPresets}
-                showProvider={!form.provider}
-              />
+          <ProjectSettingsSection title="Assignment defaults">
+            <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
+              Native Hecate assignments copy these defaults when creating the backing task.
             </div>
-          </div>
-          <div style={fieldStyle}>
-            <span style={fieldLabelStyle}>Workspace mode</span>
-            <div style={{ position: "relative", width: "100%" }}>
-              <select
-                aria-label="Workspace mode"
-                className="input"
-                value={normalizeWorkspaceMode(form.workspaceMode)}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, workspaceMode: event.target.value }))
-                }
-                style={{
-                  appearance: "none",
-                  cursor: "pointer",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 12,
-                  minHeight: 36,
-                  paddingRight: 34,
-                }}
+            <div style={{ display: "grid", gap: 12 }}>
+              <div style={fieldStyle}>
+                <span style={fieldLabelStyle}>Provider and model</span>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <ProviderPicker
+                    value={form.provider}
+                    onChange={handleProviderChange}
+                    options={providerOptions}
+                    emptyLabel={
+                      providerOptions.length === 0 ? "no providers configured" : "select provider"
+                    }
+                  />
+                  <ModelPicker
+                    value={selectedModel}
+                    onChange={(model) => setForm((current) => ({ ...current, model }))}
+                    models={scopedModels}
+                    presets={providerPresets}
+                    showProvider={!form.provider}
+                  />
+                </div>
+              </div>
+              <div style={fieldStyle}>
+                <span style={fieldLabelStyle}>Workspace mode</span>
+                <div style={{ position: "relative", width: "100%" }}>
+                  <select
+                    aria-label="Workspace mode"
+                    className="input"
+                    value={normalizeWorkspaceMode(form.workspaceMode)}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, workspaceMode: event.target.value }))
+                    }
+                    style={{
+                      appearance: "none",
+                      cursor: "pointer",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 12,
+                      minHeight: 36,
+                      paddingRight: 34,
+                    }}
+                  >
+                    <option value="in_place">in_place</option>
+                    <option value="persistent">persistent</option>
+                    <option value="ephemeral">ephemeral</option>
+                  </select>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      alignItems: "center",
+                      color: "var(--t2)",
+                      display: "inline-flex",
+                      height: "100%",
+                      pointerEvents: "none",
+                      position: "absolute",
+                      right: 11,
+                      top: 0,
+                    }}
+                  >
+                    <Icon d={Icons.chevD} size={12} />
+                  </span>
+                </div>
+              </div>
+              <button
+                className="btn btn-primary"
+                type="submit"
+                disabled={pending}
+                style={{ width: "100%", justifyContent: "center" }}
               >
-                <option value="in_place">in_place</option>
-                <option value="persistent">persistent</option>
-                <option value="ephemeral">ephemeral</option>
-              </select>
-              <span
-                aria-hidden="true"
-                style={{
-                  alignItems: "center",
-                  color: "var(--t2)",
-                  display: "inline-flex",
-                  height: "100%",
-                  pointerEvents: "none",
-                  position: "absolute",
-                  right: 11,
-                  top: 0,
-                }}
-              >
-                <Icon d={Icons.chevD} size={12} />
-              </span>
+                {pending ? "Saving…" : "Save defaults"}
+              </button>
             </div>
-          </div>
-          <button
-            className="btn btn-primary"
-            type="submit"
-            disabled={pending}
-            style={{ width: "100%", justifyContent: "center" }}
-          >
-            {pending ? "Saving…" : "Save defaults"}
-          </button>
+          </ProjectSettingsSection>
+          <ProjectSettingsSection title="Project context">
+            <div
+              style={{
+                display: "grid",
+                gap: 5,
+                fontSize: 11,
+                color: "var(--t3)",
+                lineHeight: 1.45,
+              }}
+            >
+              <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                <span style={{ color: "var(--t3)", fontSize: 11, minWidth: 78 }}>Workspace</span>
+                <span
+                  title={workspace}
+                  style={{
+                    color: "var(--t1)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 11,
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {workspace || "No default root"}
+                </span>
+              </div>
+            </div>
+          </ProjectSettingsSection>
         </form>
       </div>
     </div>
+  );
+}
+
+function ProjectSettingsSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <div className="kicker" style={{ marginBottom: 7 }}>
+        {title}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -5088,13 +5153,6 @@ const fieldLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 11,
   textTransform: "uppercase",
-};
-
-const projectSettingsSectionStyle: CSSProperties = {
-  background: "var(--bg2)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-sm)",
-  padding: 10,
 };
 
 const panelStyle: CSSProperties = {
