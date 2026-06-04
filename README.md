@@ -73,33 +73,38 @@ it changed, what it cost, what needs approval, and where the evidence lives.
 ## System Shape
 
 ```mermaid
-flowchart TB
-    Operator["Operator"] --> Console["Hecate operations console<br/>Chats · Projects · Tasks · Observability"]
-    APIClients["Compatible API clients<br/>SDKs · tools · local apps"] --> Gateway["Model gateway"]
+flowchart LR
+    Operator["Operator"] --> Console["Browser / desktop console<br/>served by Hecate"]
+    APIClients["Compatible API clients<br/>SDKs · tools · local apps"]
 
-    subgraph Runtime["Local Hecate runtime"]
-        Console
-        Gateway
-        Projects["Projects · context packets · memory"]
-        Tasks["Task runtime<br/>queue · agent_loop · retry/resume"]
-        Approvals["Approval gates"]
-        Artifacts["Artifacts · diffs · reports"]
-        Events["Run events · route reports · traces"]
-        Adapters["External Agent supervisor<br/>ACP sessions"]
+    subgraph HecateProcess["Local Hecate runtime process"]
+        direction LR
+        HTTP["Loopback HTTP server<br/>embedded UI assets<br/>/v1 · /hecate/v1"]
+        Gateway["Model gateway<br/>routing · failover · usage"]
+        TaskRuntime["Hecate task runtime<br/>queue · agent_loop<br/>retry/resume"]
+        AgentSupervisor["External Agent supervisor<br/>ACP sessions · diagnostics"]
+        State["Local state<br/>chats · projects · memory<br/>tasks · settings"]
+        Evidence["Evidence + observability<br/>approvals · artifacts · events<br/>route reports · trace export"]
+
+        HTTP --> Gateway
+        HTTP --> TaskRuntime
+        HTTP --> AgentSupervisor
+        HTTP --> State
+        Gateway --> Evidence
+        TaskRuntime --> Evidence
+        AgentSupervisor --> Evidence
+        State --> Evidence
     end
 
-    Gateway --> Providers["Cloud + local providers"]
-    Console --> Projects
-    Console --> Tasks
-    Console --> Adapters
-    Console --> Gateway
-    Tasks --> Approvals
-    Tasks --> Artifacts
-    Tasks --> Events
-    Tasks --> Tools["Sandboxed local tools"]
-    Adapters --> ExternalCLIs["Local agent CLIs<br/>their own accounts + billing"]
-    Projects --> Tasks
-    Gateway --> Events
+    Providers["Cloud + local model providers"]
+    Tools["Sandboxed workspace tools<br/>WorkspaceFS · ProcessRunner · GitRunner"]
+    ExternalCLIs["External Agent CLIs<br/>own accounts · own runtime"]
+
+    Console --> HTTP
+    APIClients --> HTTP
+    Gateway --> Providers
+    TaskRuntime --> Tools
+    AgentSupervisor --> ExternalCLIs
 ```
 
 The runtime is deliberately boring in the good way: request handling, routing,
