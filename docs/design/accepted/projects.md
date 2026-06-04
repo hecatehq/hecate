@@ -255,8 +255,9 @@ The Projects UI should stay lightweight but operational:
   assignments, collaboration artifacts, and handoffs are one work coordination
   object with internal sections, not separate dashboard panels.
 - Open Project Settings as the same right-side inspector pattern used by Chat
-  settings, with the same right-panel width behavior. Do not use a modal for
-  routine project defaults.
+  settings, with the same right-panel width behavior. The project header stays
+  above the workspace/settings split so the inspector starts below the header,
+  not beside it. Do not use a modal for routine project defaults.
 
 Avoid turning Projects into a heavy project-management product. This is a runtime identity and context boundary first.
 
