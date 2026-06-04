@@ -82,6 +82,15 @@ function emptyActivityData() {
   };
 }
 
+async function openProjectWorkspaceTab(name: RegExp | string) {
+  await userEvent.click(await screen.findByRole("tab", { name }));
+}
+
+async function openProjectAttentionMenu() {
+  await userEvent.click(await screen.findByRole("button", { name: /Project attention/ }));
+  return screen.getByRole("menu", { name: "Project attention" });
+}
+
 vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
@@ -499,17 +508,156 @@ afterEach(() => {
 });
 
 describe("ProjectsView index", () => {
-  it("renders project rows with roots and defaults", async () => {
+  it("renders project rows as compact navigation with update recency", async () => {
     resetProjectWorkMocks();
-    window.localStorage.setItem("hecate.project", project.id);
+    const recentlyUpdatedProject = {
+      ...project,
+      updated_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    };
+    window.localStorage.setItem("hecate.project", recentlyUpdatedProject.id);
     render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [recentlyUpdatedProject] }),
+    });
+
+    const projectList = screen.getByRole("region", { name: "Projects" });
+    expect(projectList.style.width).toBe("220px");
+    expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
+    expect(within(projectList).queryByText("/Users/alice/dev/hecate")).toBeNull();
+    expect(screen.getByText("/Users/alice/dev/hecate · qwen2.5-coder")).toBeTruthy();
+    expect(within(projectList).queryByText("ollama / qwen2.5-coder")).toBeNull();
+    expect(within(projectList).getByText("Updated 2h ago")).toBeTruthy();
+    expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
+  });
+
+  it("collapses and restores the projects panel", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const view = render(<ProjectsView />, {
       wrapper: directWrapper({ projects: [project] }),
     });
 
     expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
-    expect(screen.getByText("/Users/alice/dev/hecate")).toBeTruthy();
-    expect(screen.getByText("ollama / qwen2.5-coder")).toBeTruthy();
-    expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Collapse projects panel" }));
+
+    const collapsedPanel = screen.getByRole("region", { name: "Collapsed projects panel" });
+    expect(collapsedPanel.style.width).toBe("220px");
+    expect(screen.getByRole("button", { name: "Expand projects panel" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Active project Hecate" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open project Hecate" })).toBeNull();
+    expect(window.localStorage.getItem("hecate.projects.panel_collapsed")).toBe("1");
+
+    await user.click(screen.getByRole("button", { name: "Expand projects panel" }));
+
+    expect(screen.getByRole("region", { name: "Projects" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
+    expect(window.localStorage.getItem("hecate.projects.panel_collapsed")).toBeNull();
+
+    window.localStorage.setItem("hecate.projects.panel_collapsed", "1");
+    view.unmount();
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project] }),
+    });
+
+    expect(screen.getByRole("region", { name: "Collapsed projects panel" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open project Hecate" })).toBeNull();
+  });
+
+  it("keeps work coordination in the cockpit when the selected project has no work", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: emptyActivityData(),
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    window.localStorage.setItem("hecate.projects.panel_collapsed", "1");
+
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project] }),
+    });
+
+    expect(await screen.findByText("Activity Inbox")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Collapsed projects panel" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Project work items" })).toBeNull();
+    const workPanel = screen.getByRole("region", { name: "Work coordination" });
+    expect(workPanel).toBeTruthy();
+    expect(screen.getByText("No work items")).toBeTruthy();
+    expect(within(workPanel).getByRole("button", { name: "Work" })).toBeTruthy();
+  });
+
+  it("keeps cockpit controls and work coordination in stable regions when work items exist", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project] }),
+    });
+
+    expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
+    const projectList = screen.getByRole("region", { name: "Projects" });
+    const detail = screen.getByRole("region", { name: "Selected work item" });
+    const workPanel = screen.getByRole("region", { name: "Work coordination" });
+    expect(within(projectList).queryByText("/Users/alice/dev/hecate")).toBeNull();
+    expect(within(detail).getByText("/Users/alice/dev/hecate · qwen2.5-coder")).toBeTruthy();
+    const headerActions = within(detail).getByLabelText("Project header actions");
+    expect(headerActions).toBeTruthy();
+    const actionLabels = within(headerActions)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label") ?? "");
+    expect(actionLabels[0]).toMatch(/^Project attention/);
+    expect(actionLabels.slice(1)).toEqual(["Roles", "Project settings", "Refresh project work"]);
+    expect(within(detail).queryByText("Cockpit")).toBeNull();
+    expect(within(workPanel).getByRole("button", { name: "Work" })).toBeTruthy();
+    expect(within(workPanel).getByText("Work Items")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Project work items" })).toBeNull();
+
+    await openProjectAttentionMenu();
+    expect(screen.getByRole("menu", { name: "Project attention" })).toBeTruthy();
+    fireEvent.mouseDown(workPanel);
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: "Project attention" })).toBeNull();
+    });
+  });
+
+  it("groups live operations separately from project continuity", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project] }),
+    });
+
+    expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
+    const workspace = screen.getByRole("region", { name: "Project workspace" });
+    const tabs = within(workspace).getByRole("tablist", { name: "Project workspace views" });
+    expect(screen.getByRole("region", { name: "Activity inbox" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Project attention/ })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Needs attention" })).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Project continuity" })).toBeNull();
+    expect(within(tabs).getByRole("tab", { name: /Work Coordination/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(within(tabs).getByRole("tab", { name: /Timeline \/ Decision Log/ })).toBeTruthy();
+    expect(within(tabs).getByRole("tab", { name: /Memory \/ Context/ })).toBeTruthy();
+    const workPanel = within(workspace).getByRole("region", { name: "Work coordination" });
+    expect(workPanel).toBeTruthy();
+    expect(workPanel.querySelector(".project-work-coordination-grid")).toBeTruthy();
+    expect(within(workspace).getByRole("heading", { name: "Build cockpit UI" })).toBeTruthy();
+    expect(within(workspace).queryByLabelText("Project timeline")).toBeNull();
+
+    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
+    expect(within(workspace).getByLabelText("Project timeline")).toBeTruthy();
+    expect(within(workspace).queryByRole("heading", { name: "Build cockpit UI" })).toBeNull();
+
+    await openProjectWorkspaceTab(/Memory \/ Context/);
+    expect(within(workspace).getByText("No project memory entries saved yet.")).toBeTruthy();
+    expect(within(workspace).queryByLabelText("Project timeline")).toBeNull();
   });
 
   it("renders empty, loading, and error states for the project index", () => {
@@ -602,6 +750,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
+    await openProjectWorkspaceTab(/Memory \/ Context/);
     expect(await screen.findByText("Commit style")).toBeTruthy();
     expect(screen.getAllByText("operator_memory").length).toBeGreaterThan(0);
     expect(screen.getByText("Use conventional commits.")).toBeTruthy();
@@ -675,6 +824,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
+    await openProjectWorkspaceTab(/Memory \/ Context/);
     expect(await screen.findByText("Generated summary")).toBeTruthy();
     expect(screen.getByText("Temporary note")).toBeTruthy();
     expect(screen.getAllByText("generated_summary").length).toBeGreaterThan(0);
@@ -727,6 +877,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
+    await openProjectWorkspaceTab(/Memory \/ Context/);
     expect(await screen.findByText("Commit style")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
     expect(screen.getByLabelText("Title")).toHaveValue("Commit style");
@@ -776,6 +927,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
+    await openProjectWorkspaceTab(/Memory \/ Context/);
     expect(await screen.findByText("Use conventional commits.")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
     expect(screen.getByRole("button", { name: "Save memory" })).toBeTruthy();
@@ -966,7 +1118,7 @@ describe("ProjectsView cockpit", () => {
 
     expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
     const detail = screen.getByLabelText("Selected work item");
-    expect(within(detail).getByText("Software developer")).toBeTruthy();
+    expect(within(detail).getAllByText("Software developer").length).toBeGreaterThan(0);
     expect(within(detail).getAllByText("approval").length).toBeGreaterThan(0);
     expect(within(detail).getAllByText("2 approval pending").length).toBeGreaterThan(0);
     expect(within(detail).getByText("4 steps")).toBeTruthy();
@@ -990,9 +1142,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     expect(await screen.findByText("Activity Inbox")).toBeTruthy();
-    expect(
-      screen.getByText(/1 assignments across 1 work items; newest 20 per bucket/),
-    ).toBeTruthy();
+    expect(screen.getByText(/1 assignments across 1 work items/)).toBeTruthy();
     expect(screen.getAllByText("2 approval pending").length).toBeGreaterThan(0);
     expect(screen.getByText("handoff: Runtime notes")).toBeTruthy();
 
@@ -1167,7 +1317,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    expect(await screen.findByText("Timeline / Decision Log")).toBeTruthy();
+    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
     await waitFor(() => {
       expect(getProjectMemoryCandidates).toHaveBeenCalledWith(project.id, true);
     });
@@ -1292,7 +1442,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    expect(await screen.findByText("Timeline / Decision Log")).toBeTruthy();
+    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
     await waitFor(() => {
       expect(screen.getByText("Showing 12 of 13 story items.")).toBeTruthy();
     });
@@ -1308,48 +1458,62 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    expect(await screen.findByText("Timeline / Decision Log")).toBeTruthy();
+    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
     expect(
       screen.getByText(/No explicit decision notes yet. Existing decision_note artifacts/),
     ).toBeTruthy();
   });
 
-  it("renders project health signals and jumps to attention targets", async () => {
+  it("keeps live approval rows in activity inbox while needs attention owns setup gaps", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectMemory).mockResolvedValue({
       object: "project_memory",
       data: [memoryEntry],
     });
-    const onOpenTask = vi.fn();
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
       activeProjectID: project.id,
     });
-    render(
-      withRuntimeConsole(<ProjectsView onOpenTask={onOpenTask} />, {
-        state,
-        actions: createRuntimeConsoleActions(),
-      }),
-    );
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    const health = await screen.findByLabelText("Project health");
-    expect(within(health).getByText("Project Health")).toBeTruthy();
-    expect(within(health).getByText("0 active, 1 waiting, 0 blocked or failed")).toBeTruthy();
-    expect(within(health).getByText("Waiting approval")).toBeTruthy();
-    expect(within(health).getByText("Blocked / failed")).toBeTruthy();
-    expect(within(health).getByText("Project memory")).toBeTruthy();
-    expect(within(health).getByText("1 enabled")).toBeTruthy();
-    expect(within(health).getByText(/Approval waiting: Build cockpit UI/i)).toBeTruthy();
+    await screen.findByText("Activity Inbox");
+    expect(screen.queryByText("Project Health")).toBeNull();
 
-    await userEvent.click(within(health).getByRole("button", { name: "Open attention task" }));
-    expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
+    const activity = screen.getByLabelText("Activity inbox");
+    expect(within(activity).getByText(/2 approval pending/i)).toBeTruthy();
+    const health = await openProjectAttentionMenu();
+    expect(within(health).queryByText(/Approval waiting: Build cockpit UI/i)).toBeNull();
+    expect(within(health).getByText("No project attention items detected.")).toBeTruthy();
 
-    await userEvent.click(within(health).getByRole("button", { name: "Edit defaults" }));
-    expect(screen.getByRole("dialog", { name: "Project defaults" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Project settings" }));
+    expect(screen.getByRole("complementary", { name: "Project settings panel" })).toHaveStyle({
+      width: "380px",
+    });
   });
 
-  it("keeps project health failed counts separate from approval and stale blocked rows", async () => {
+  it("uses the shared chat right-panel width for project settings", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    window.localStorage.setItem("hecate.chat.rightPanelWidth", "432");
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
+    const panel = screen.getByRole("complementary", { name: "Project settings panel" });
+    expect(panel).toHaveStyle({ width: "432px" });
+
+    fireEvent.keyDown(screen.getByRole("separator", { name: "Resize right panel" }), {
+      key: "ArrowLeft",
+    });
+    expect(panel).toHaveStyle({ width: "440px" });
+    expect(window.localStorage.getItem("hecate.chat.rightPanelWidth")).toBe("440");
+  });
+
+  it("keeps live failures in activity inbox while stale links remain in needs attention", async () => {
     resetProjectWorkMocks();
     const failedAssignment: ProjectAssignmentRecord = {
       ...hecateAssignment,
@@ -1463,10 +1627,12 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    const health = await screen.findByLabelText("Project health");
-    expect(within(health).getByText("0 active, 1 waiting, 1 blocked or failed")).toBeTruthy();
-    expect(within(health).getByText("Stale / unknown")).toBeTruthy();
-    expect(within(health).getByText(/Execution needs review: Build cockpit UI/i)).toBeTruthy();
+    await screen.findByText("Activity Inbox");
+    const activity = screen.getByLabelText("Activity inbox");
+    expect(within(activity).getByText("execution failed")).toBeTruthy();
+    const health = await openProjectAttentionMenu();
+    expect(within(health).queryByText(/Execution needs review: Build cockpit UI/i)).toBeNull();
+    expect(within(health).getByText(/Stale or unknown assignment: Build cockpit UI/i)).toBeTruthy();
   });
 
   it("surfaces handoff and memory candidate health after project promotion surfaces load", async () => {
@@ -1630,13 +1796,11 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    const health = await screen.findByLabelText("Project health");
-    expect(within(health).getByText("Pending handoffs")).toBeTruthy();
-    expect(within(health).getByText("1 accepted, 1 superseded, 1 dismissed")).toBeTruthy();
+    await screen.findByText("Activity Inbox");
+    const health = await openProjectAttentionMenu();
     expect(within(health).getByText(/Pending handoff: Build cockpit UI/i)).toBeTruthy();
     expect(within(health).getByText(/QA handoff/i)).toBeTruthy();
-    expect(within(health).getByText("1 pending review")).toBeTruthy();
-    expect(within(health).getByText("1 promoted, 1 rejected")).toBeTruthy();
+    expect(within(health).getByText("Memory candidate pending review")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Promote memory candidate Promoted convention" }),
     ).toBeNull();
@@ -1648,7 +1812,7 @@ describe("ProjectsView cockpit", () => {
     expect(screen.getByRole("button", { name: "Promote memory" })).toBeTruthy();
   });
 
-  it("uses project health filters to focus activity buckets", async () => {
+  it("uses activity inbox tabs to focus activity buckets", async () => {
     resetProjectWorkMocks();
     const activeActivity: ProjectActivityData = {
       project_id: project.id,
@@ -1705,17 +1869,16 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
     expect(await screen.findByText("No blocked assignments for this project.")).toBeTruthy();
-    const health = screen.getByLabelText("Project health");
-    await userEvent.click(
-      within(health).getByRole("button", { name: "Show active work assignments" }),
-    );
+    const inbox = screen.getByText("Activity Inbox").closest("div");
+    expect(inbox).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Show active assignments" }));
 
     await waitFor(() => {
       expect(screen.getAllByText("run live now").length).toBeGreaterThan(0);
     });
   });
 
-  it("surfaces missing defaults and empty context in project health", async () => {
+  it("surfaces missing defaults and empty context in needs attention", async () => {
     resetProjectWorkMocks();
     const projectWithoutDefaults: ProjectRecord = {
       ...project,
@@ -1741,16 +1904,26 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    const health = await screen.findByLabelText("Project health");
+    await screen.findByText("Activity Inbox");
+    const health = await openProjectAttentionMenu();
     expect(within(health).getByText("Provider/model defaults missing")).toBeTruthy();
     expect(within(health).getByText("No project memory or context sources enabled")).toBeTruthy();
-    expect(within(health).getByText("No enabled memory or context sources")).toBeTruthy();
 
-    await userEvent.click(within(health).getByRole("button", { name: "Add memory" }));
+    const contextAttentionItem = within(health).getByRole("button", {
+      name: "Open attention item No project memory or context sources enabled",
+    });
+    expect(contextAttentionItem).toHaveClass("project-attention-item");
+
+    await userEvent.click(contextAttentionItem);
+    expect(screen.getByRole("tab", { name: /Memory \/ Context/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Memory" }));
     expect(screen.getByRole("dialog", { name: "New project memory" })).toBeTruthy();
   });
 
-  it("surfaces stale and missing linked execution in project health", async () => {
+  it("surfaces stale and missing linked execution in needs attention", async () => {
     resetProjectWorkMocks();
     const staleAssignment: ProjectAssignmentRecord = {
       ...hecateAssignment,
@@ -1820,8 +1993,8 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    const health = await screen.findByLabelText("Project health");
-    expect(within(health).getByText("Stale / unknown")).toBeTruthy();
+    await screen.findByText("Activity Inbox");
+    const health = await openProjectAttentionMenu();
     expect(within(health).getByText(/Stale or unknown assignment: Build cockpit UI/i)).toBeTruthy();
     expect(within(health).getByText(/linked run missing/i)).toBeTruthy();
 
@@ -1831,7 +2004,7 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
-  it("renders an all-clear project health state when context and defaults are ready", async () => {
+  it("renders an all-clear needs attention state when context and defaults are ready", async () => {
     resetProjectWorkMocks();
     const readyProject: ProjectRecord = {
       ...project,
@@ -1919,15 +2092,9 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    const health = await screen.findByLabelText("Project health");
-    expect(within(health).getByText("0 active, 0 waiting, 0 blocked or failed")).toBeTruthy();
-    expect(
-      within(health).getByText(
-        /No approvals, pending handoffs, memory reviews, failures, stale assignments, or missing launch defaults detected./i,
-      ),
-    ).toBeTruthy();
-    expect(within(health).getByText("1 memory / 1 source")).toBeTruthy();
-    expect(within(health).getByText("1/1 memory, 1 sources")).toBeTruthy();
+    await screen.findByText("Activity Inbox");
+    const health = await openProjectAttentionMenu();
+    expect(within(health).getByText("No project attention items detected.")).toBeTruthy();
   });
 
   it("starts not-started assignments from the activity inbox", async () => {
@@ -1986,6 +2153,13 @@ describe("ProjectsView cockpit", () => {
       activeProjectID: project.id,
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Activity Inbox");
+    const activity = screen.getByLabelText("Activity inbox");
+    await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
+    const timeline = screen.getByLabelText("Project timeline");
+    expect(within(activity).getAllByText("not started").length).toBeGreaterThan(0);
+    expect(within(timeline).queryByText("not started")).toBeNull();
 
     await userEvent.click(await screen.findByRole("button", { name: "Start" }));
 
@@ -2472,7 +2646,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Defaults" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
     expect(screen.getByRole("button", { name: /Ollama/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Model picker: ministral-3:latest/i })).toBeTruthy();
     expect(screen.queryByLabelText("Provider ID")).toBeNull();
@@ -2486,7 +2660,9 @@ describe("ProjectsView cockpit", () => {
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Workspace mode" }), [
       "ephemeral",
     ]);
-    expect(screen.getByRole("dialog", { name: "Project defaults" })).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Project settings panel" })).toHaveStyle({
+      width: "380px",
+    });
     await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
 
     expect(updateProject).toHaveBeenCalledWith(projectWithUpdatedDefaults.id, {

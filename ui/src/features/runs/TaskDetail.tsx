@@ -367,6 +367,7 @@ type Props = {
   onCancelRun: () => void;
   onRetryRun: () => void;
   onResumeRun: () => void;
+  onRefresh: () => void;
   // onRetryFromTurn re-runs the agent_loop from turn N (1-indexed),
   // preserving the conversation up to that turn's assistant message.
   // The button appears next to each assistant bubble in the
@@ -412,6 +413,7 @@ export function TaskDetail({
   onCancelRun,
   onRetryRun,
   onResumeRun,
+  onRefresh,
   onRetryFromTurn,
   onOpenChat,
   onResumeRaisingCeiling,
@@ -613,6 +615,15 @@ export function TaskDetail({
               </button>
             </>
           )}
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={onRefresh}
+            title="Refresh"
+            aria-label="Refresh task"
+            type="button"
+          >
+            <Icon d={Icons.refresh} size={13} />
+          </button>
         </div>
       </div>
 

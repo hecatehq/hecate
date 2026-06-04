@@ -13,7 +13,8 @@
 <p align="center">
   <strong>Local AI operations console for supervised agent work.</strong><br>
   Run Hecate on your machine between AI clients, model providers, coding agents,
-  and workspace tools so every action is routed, approved, traced, and reviewable.
+  and workspace tools so project work can be coordinated, routed, approved,
+  traced, and reviewable.
 </p>
 
 > **Status: public alpha.** Hecate is useful today for model-provider routing,
@@ -38,10 +39,11 @@
 
 ## What Hecate Is
 
-Hecate is a local AI operations console for running and supervising AI work. It
-combines a model gateway, chat workspace, task runtime, external-agent console,
-project context and memory, approval gates, artifacts, usage, and OpenTelemetry
-traces into one operator surface.
+Hecate is a local AI operations console for running, supervising, and
+coordinating AI work. It combines a model gateway, chat workspace, task runtime,
+external-agent console, project orchestration, project context and memory,
+approval gates, artifacts, usage, and OpenTelemetry traces into one operator
+surface.
 
 Hecate is local-first in the operational sense: the runtime and UI run on your
 machine, Hecate-owned state is stored locally, and the gateway binds to loopback
@@ -60,15 +62,16 @@ The short version:
 - **External Agent supervision:** long-lived local ACP sessions for coding-agent
   CLIs, with readiness checks, approvals, adapter diagnostics, and Git diff
   review.
-- **Project memory and context:** durable project identity, project-scoped
-  memory, context packet snapshots, work records, handoffs, and explicit memory
-  promotion.
+- **Project orchestration:** durable project identity, roles, work records,
+  assignments, handoffs, activity health, project-scoped memory, context packet
+  snapshots, and explicit memory promotion.
 - **Evidence:** traces, route reports, task artifacts, diffs, logs, screenshots
   where available, and final run output close to the decision that produced it.
 
 The product goal is not just to make model calls. It is to give the operator a
-single place to understand what AI work is happening, what context it used, what
-it changed, what it cost, what needs approval, and where the evidence lives.
+single place to coordinate project-scoped agent work and understand what is
+happening, what context it used, what it changed, what it cost, what needs
+approval, and where the evidence lives.
 
 ## System Shape
 

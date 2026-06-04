@@ -42,6 +42,7 @@ import type {
 import { TaskList } from "./TaskList";
 import { TaskDetail } from "./TaskDetail";
 import { NewTaskSlideOver, type CreateTaskPayload } from "./NewTaskSlideOver";
+import { ProjectScopePanel } from "../projects/ProjectScopePanel";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
@@ -566,12 +567,23 @@ export function TasksView({
         selectedTaskID={selectedTaskID}
         loading={loading}
         busyAction={busyAction}
+        projectScope={
+          <ProjectScopePanel
+            noProjectDetail="Tasks stay ungrouped."
+            emptyHint="Add a folder when you want task defaults and workspace context."
+            deleteMessage={(project) => (
+              <>
+                Delete <strong>{project.name}</strong>? Existing tasks stay available, but this
+                project context and its defaults are removed.
+              </>
+            )}
+          />
+        }
         onSelect={(id) => void handleSelectTask(id)}
         onDelete={(id) => void handleDeleteTask(id)}
         onNewTask={() => {
           setNewTaskOpen(true);
         }}
-        onRefresh={() => void loadTasks(selectedTaskID, selectedRunID)}
       />
 
       {selectedTask ? (
@@ -595,6 +607,7 @@ export function TasksView({
           onCancelRun={() => void handleCancelRun()}
           onRetryRun={() => void handleRetryRun()}
           onResumeRun={() => void handleResumeRun()}
+          onRefresh={() => void loadTasks(selectedTaskID, selectedRunID)}
           onRetryFromTurn={(turn, reason) => void handleRetryFromTurn(turn, reason)}
           onResumeRaisingCeiling={(budgetMicrosUSD) =>
             void handleResumeRaisingCeiling(budgetMicrosUSD)

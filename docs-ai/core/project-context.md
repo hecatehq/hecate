@@ -1,25 +1,29 @@
 # Project context
 
-Hecate is an open-source local AI operations console for supervised agent work.
-The main Go runtime runs the local HTTP service, embeds the React operator UI,
-routes OpenAI- and Anthropic-shaped client traffic to upstream LLM providers,
-runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises
-External Agents from Chats, manages projects, context, memory
-candidates, approvals, artifacts, usage, and emits OpenTelemetry traces for
-everything it does. Hecate is local-first in the operational sense: the runtime
-and UI run on the operator's machine, Hecate-owned state is local
-(memory / sqlite), and the gateway binds to 127.0.0.1 by default. It is not
-local-only; it can route to cloud providers and supervise external
-coding-agent CLIs with their own accounts. Every endpoint, config knob, and
-error message exists to answer five operator questions: what did Hecate just
-decide, why, what did it cost, what happens on the next failure, and where is
-the trace.
+Hecate is an open-source local AI operations console for supervised agent work
+and project orchestration. The main Go runtime runs the local HTTP service,
+embeds the React operator UI, routes OpenAI- and Anthropic-shaped client traffic
+to upstream LLM providers, runs Hecate Chat tools-on turns through visible
+`agent_loop` tasks, supervises External Agents from Chats, manages projects,
+roles, assignments, handoffs, context, memory candidates, approvals, artifacts,
+usage, and emits OpenTelemetry traces for everything it does. Hecate is
+local-first in the operational sense: the runtime and UI run on the operator's
+machine, Hecate-owned state is local (memory / sqlite), and the gateway binds to
+127.0.0.1 by default. It is not local-only; it can route to cloud providers and
+supervise external coding-agent CLIs with their own accounts. Every endpoint,
+config knob, and error message exists to answer five operator questions: what
+did Hecate just decide, why, what did it cost, what happens on the next failure,
+and where is the trace.
 
 Hecate's own boundary is the runtime/control plane: projects, chats, tasks,
 providers, supervised external agents, approvals, tool policy, storage, and
 observability. Higher-level assistant behavior should be built from those
 primitives through agent profiles, presets, project memory, and context
 assembly rather than hidden prompt glue or provider-specific shortcuts.
+The Projects surface is the operator cockpit for coordinating project-scoped
+teams of agents: project roles describe who should do the work, assignments and
+handoffs record collaboration state, Tasks and Chats remain the execution
+surfaces, and project memory/context carries reviewed knowledge forward.
 Model-backed assistant turns should carry a small context-inspector packet:
 execution mode, route/workspace metadata, source provenance, and visible
 transcript counts. Do not store full prompt bodies, raw transcript text, file
