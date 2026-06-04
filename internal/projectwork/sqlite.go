@@ -3,6 +3,7 @@ package projectwork
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -20,6 +21,7 @@ type SQLiteStore struct {
 	reviewersTbl   string
 	assignmentsTbl string
 	artifactsTbl   string
+	handoffsTbl    string
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
@@ -33,6 +35,7 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 		reviewersTbl:   client.QualifiedTable("project_work_item_reviewers"),
 		assignmentsTbl: client.QualifiedTable("project_work_assignments"),
 		artifactsTbl:   client.QualifiedTable("project_work_artifacts"),
+		handoffsTbl:    client.QualifiedTable("project_handoffs"),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -123,6 +126,35 @@ CREATE TABLE IF NOT EXISTS %s (
 )`, s.artifactsTbl)); err != nil {
 		return fmt.Errorf("create project work artifacts table: %w", err)
 	}
+	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s (
+	id TEXT NOT NULL,
+	project_id TEXT NOT NULL,
+	work_item_id TEXT NOT NULL,
+	source_assignment_id TEXT NOT NULL DEFAULT '',
+	source_run_id TEXT NOT NULL DEFAULT '',
+	source_chat_session_id TEXT NOT NULL DEFAULT '',
+	source_message_id TEXT NOT NULL DEFAULT '',
+	target_role_id TEXT NOT NULL DEFAULT '',
+	target_assignment_id TEXT NOT NULL DEFAULT '',
+	target_work_item_id TEXT NOT NULL DEFAULT '',
+	title TEXT NOT NULL,
+	summary TEXT NOT NULL,
+	recommended_next_action TEXT NOT NULL,
+	linked_artifact_ids TEXT NOT NULL DEFAULT '[]',
+	linked_memory_ids TEXT NOT NULL DEFAULT '[]',
+	context_refs TEXT NOT NULL DEFAULT '[]',
+	status TEXT NOT NULL,
+	provenance_kind TEXT NOT NULL DEFAULT '',
+	trust_label TEXT NOT NULL DEFAULT '',
+	created_by_role_id TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	status_changed_at TEXT NOT NULL,
+	PRIMARY KEY(project_id, id)
+)`, s.handoffsTbl)); err != nil {
+		return fmt.Errorf("create project handoffs table: %w", err)
+	}
 	if err := s.ensureColumn(ctx, s.assignmentsTbl, "driver_kind", `TEXT NOT NULL DEFAULT 'hecate_task'`); err != nil {
 		return err
 	}
@@ -141,6 +173,7 @@ CREATE TABLE IF NOT EXISTS %s (
 		{s.reviewersTbl, "work_item_idx", "project_id, work_item_id"},
 		{s.assignmentsTbl, "work_item_idx", "project_id, work_item_id"},
 		{s.artifactsTbl, "work_item_idx", "project_id, work_item_id"},
+		{s.handoffsTbl, "work_item_idx", "project_id, work_item_id"},
 	} {
 		name := strings.Trim(stmt.table, `"`) + "_" + stmt.name
 		if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (%s)`, name, stmt.table, stmt.cols)); err != nil {
@@ -421,6 +454,7 @@ func (s *SQLiteStore) DeleteWorkItem(ctx context.Context, projectID, id string) 
 		return err
 	}
 	for _, stmt := range []string{
+		fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND work_item_id = ?`, s.handoffsTbl),
 		fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND work_item_id = ?`, s.artifactsTbl),
 		fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND work_item_id = ?`, s.assignmentsTbl),
 		fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND work_item_id = ?`, s.reviewersTbl),
@@ -566,6 +600,16 @@ func (s *SQLiteStore) DeleteAssignment(ctx context.Context, projectID, workItemI
 		_ = tx.Rollback()
 		return err
 	}
+	if _, err := tx.ExecContext(
+		ctx,
+		fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND (source_assignment_id = ? OR target_assignment_id = ?)`, s.handoffsTbl),
+		projectID,
+		id,
+		id,
+	); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
 	res, err := tx.ExecContext(
 		ctx,
 		fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND work_item_id = ? AND id = ?`, s.assignmentsTbl),
@@ -659,6 +703,171 @@ INSERT INTO %s (
 	return s.getRequiredArtifact(ctx, artifact.ProjectID, artifact.ID)
 }
 
+func (s *SQLiteStore) ListHandoffs(ctx context.Context, filter HandoffFilter) ([]Handoff, error) {
+	filter.ProjectID = strings.TrimSpace(filter.ProjectID)
+	filter.WorkItemID = strings.TrimSpace(filter.WorkItemID)
+	filter.Status = strings.TrimSpace(filter.Status)
+	query := fmt.Sprintf(`
+SELECT id, project_id, work_item_id, source_assignment_id, source_run_id, source_chat_session_id, source_message_id, target_role_id, target_assignment_id, target_work_item_id, title, summary, recommended_next_action, linked_artifact_ids, linked_memory_ids, context_refs, status, provenance_kind, trust_label, created_by_role_id, created_at, updated_at, status_changed_at
+FROM %s
+WHERE project_id = ?`, s.handoffsTbl)
+	args := []any{filter.ProjectID}
+	if filter.WorkItemID != "" {
+		query += ` AND work_item_id = ?`
+		args = append(args, filter.WorkItemID)
+	}
+	if filter.Status != "" {
+		query += ` AND status = ?`
+		args = append(args, filter.Status)
+	}
+	query += ` ORDER BY updated_at DESC, created_at DESC, id ASC`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Handoff
+	for rows.Next() {
+		item, err := scanHandoff(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *SQLiteStore) CreateHandoff(ctx context.Context, handoff Handoff) (Handoff, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	handoff = normalizeHandoff(handoff, time.Now().UTC(), false)
+	if err := validateHandoff(handoff); err != nil {
+		return Handoff{}, err
+	}
+	if _, ok, err := s.GetWorkItem(ctx, handoff.ProjectID, handoff.WorkItemID); err != nil {
+		return Handoff{}, err
+	} else if !ok {
+		return Handoff{}, fmt.Errorf("%w: work item not found", ErrNotFound)
+	}
+	if err := s.validateHandoffAssignments(ctx, handoff); err != nil {
+		return Handoff{}, err
+	}
+	linkedArtifacts, err := encodeStringList(handoff.LinkedArtifactIDs)
+	if err != nil {
+		return Handoff{}, err
+	}
+	linkedMemory, err := encodeStringList(handoff.LinkedMemoryIDs)
+	if err != nil {
+		return Handoff{}, err
+	}
+	contextRefs, err := encodeStringList(handoff.ContextRefs)
+	if err != nil {
+		return Handoff{}, err
+	}
+	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
+INSERT INTO %s (
+	id, project_id, work_item_id, source_assignment_id, source_run_id, source_chat_session_id, source_message_id,
+	target_role_id, target_assignment_id, target_work_item_id, title, summary, recommended_next_action,
+	linked_artifact_ids, linked_memory_ids, context_refs, status, provenance_kind, trust_label, created_by_role_id,
+	created_at, updated_at, status_changed_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.handoffsTbl),
+		handoff.ID, handoff.ProjectID, handoff.WorkItemID, handoff.SourceAssignmentID,
+		handoff.SourceRunID, handoff.SourceChatSessionID, handoff.SourceMessageID,
+		handoff.TargetRoleID, handoff.TargetAssignmentID, handoff.TargetWorkItemID,
+		handoff.Title, handoff.Summary, handoff.RecommendedNextAction, linkedArtifacts,
+		linkedMemory, contextRefs, handoff.Status, handoff.ProvenanceKind,
+		handoff.TrustLabel, handoff.CreatedByRoleID, formatTime(handoff.CreatedAt),
+		formatTime(handoff.UpdatedAt), formatTime(handoff.StatusChangedAt),
+	)
+	if err != nil {
+		if isSQLiteConstraint(err) {
+			return Handoff{}, ErrDuplicate
+		}
+		return Handoff{}, err
+	}
+	return s.getRequiredHandoff(ctx, handoff.ProjectID, handoff.ID)
+}
+
+func (s *SQLiteStore) UpdateHandoff(ctx context.Context, projectID, workItemID, id string, update func(*Handoff)) (Handoff, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, err := s.getRequiredHandoff(ctx, projectID, id)
+	if err != nil {
+		return Handoff{}, err
+	}
+	if item.WorkItemID != strings.TrimSpace(workItemID) {
+		return Handoff{}, ErrNotFound
+	}
+	originalID := item.ID
+	originalProjectID := item.ProjectID
+	originalWorkItemID := item.WorkItemID
+	originalCreatedAt := item.CreatedAt
+	originalStatus := item.Status
+	if update != nil {
+		update(&item)
+	}
+	if strings.TrimSpace(item.ID) != originalID ||
+		strings.TrimSpace(item.ProjectID) != originalProjectID ||
+		strings.TrimSpace(item.WorkItemID) != originalWorkItemID {
+		return Handoff{}, fmt.Errorf("%w: handoff id, project_id, and work_item_id cannot be changed", ErrInvalid)
+	}
+	item.ID = originalID
+	item.ProjectID = originalProjectID
+	item.WorkItemID = originalWorkItemID
+	item.CreatedAt = originalCreatedAt
+	item.UpdatedAt = time.Now().UTC()
+	item = normalizeHandoff(item, item.UpdatedAt, strings.TrimSpace(item.Status) != originalStatus)
+	if err := validateHandoff(item); err != nil {
+		return Handoff{}, err
+	}
+	if err := s.validateHandoffAssignments(ctx, item); err != nil {
+		return Handoff{}, err
+	}
+	linkedArtifacts, err := encodeStringList(item.LinkedArtifactIDs)
+	if err != nil {
+		return Handoff{}, err
+	}
+	linkedMemory, err := encodeStringList(item.LinkedMemoryIDs)
+	if err != nil {
+		return Handoff{}, err
+	}
+	contextRefs, err := encodeStringList(item.ContextRefs)
+	if err != nil {
+		return Handoff{}, err
+	}
+	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+UPDATE %s SET
+	source_assignment_id = ?, source_run_id = ?, source_chat_session_id = ?, source_message_id = ?,
+	target_role_id = ?, target_assignment_id = ?, target_work_item_id = ?, title = ?, summary = ?,
+	recommended_next_action = ?, linked_artifact_ids = ?, linked_memory_ids = ?, context_refs = ?,
+	status = ?, provenance_kind = ?, trust_label = ?, created_by_role_id = ?, updated_at = ?, status_changed_at = ?
+WHERE project_id = ? AND id = ? AND work_item_id = ?`, s.handoffsTbl),
+		item.SourceAssignmentID, item.SourceRunID, item.SourceChatSessionID, item.SourceMessageID,
+		item.TargetRoleID, item.TargetAssignmentID, item.TargetWorkItemID, item.Title,
+		item.Summary, item.RecommendedNextAction, linkedArtifacts, linkedMemory, contextRefs,
+		item.Status, item.ProvenanceKind, item.TrustLabel, item.CreatedByRoleID,
+		formatTime(item.UpdatedAt), formatTime(item.StatusChangedAt),
+		item.ProjectID, item.ID, item.WorkItemID,
+	)
+	if err != nil {
+		return Handoff{}, err
+	}
+	if err := requireAffected(res); err != nil {
+		return Handoff{}, err
+	}
+	return s.getRequiredHandoff(ctx, item.ProjectID, item.ID)
+}
+
+func (s *SQLiteStore) DeleteHandoff(ctx context.Context, projectID, workItemID, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ? AND work_item_id = ? AND id = ?`, s.handoffsTbl), strings.TrimSpace(projectID), strings.TrimSpace(workItemID), strings.TrimSpace(id))
+	if err != nil {
+		return err
+	}
+	return requireAffected(res)
+}
+
 func (s *SQLiteStore) DeleteProject(ctx context.Context, projectID string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -673,7 +882,7 @@ func (s *SQLiteStore) Clear(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	for _, table := range []string{s.artifactsTbl, s.assignmentsTbl, s.reviewersTbl, s.workItemsTbl, s.rolesTbl} {
+	for _, table := range []string{s.handoffsTbl, s.artifactsTbl, s.assignmentsTbl, s.reviewersTbl, s.workItemsTbl, s.rolesTbl} {
 		res, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s`, table))
 		if err != nil {
 			_ = tx.Rollback()
@@ -698,7 +907,7 @@ func (s *SQLiteStore) deleteWhereProject(ctx context.Context, projectID string) 
 	if err != nil {
 		return 0, err
 	}
-	for _, table := range []string{s.artifactsTbl, s.assignmentsTbl, s.reviewersTbl, s.workItemsTbl, s.rolesTbl} {
+	for _, table := range []string{s.handoffsTbl, s.artifactsTbl, s.assignmentsTbl, s.reviewersTbl, s.workItemsTbl, s.rolesTbl} {
 		res, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE project_id = ?`, table), projectID)
 		if err != nil {
 			_ = tx.Rollback()
@@ -823,6 +1032,46 @@ WHERE project_id = ? AND id = ?`, s.artifactsTbl), strings.TrimSpace(projectID),
 	return item, err
 }
 
+func (s *SQLiteStore) getRequiredHandoff(ctx context.Context, projectID, id string) (Handoff, error) {
+	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
+SELECT id, project_id, work_item_id, source_assignment_id, source_run_id, source_chat_session_id, source_message_id, target_role_id, target_assignment_id, target_work_item_id, title, summary, recommended_next_action, linked_artifact_ids, linked_memory_ids, context_refs, status, provenance_kind, trust_label, created_by_role_id, created_at, updated_at, status_changed_at
+FROM %s
+WHERE project_id = ? AND id = ?`, s.handoffsTbl), strings.TrimSpace(projectID), strings.TrimSpace(id))
+	item, err := scanHandoff(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Handoff{}, ErrNotFound
+	}
+	return item, err
+}
+
+func (s *SQLiteStore) validateHandoffAssignments(ctx context.Context, handoff Handoff) error {
+	if handoff.SourceAssignmentID != "" {
+		assignment, err := s.getRequiredAssignment(ctx, handoff.ProjectID, handoff.SourceAssignmentID)
+		if errors.Is(err, ErrNotFound) {
+			return fmt.Errorf("%w: source assignment not found", err)
+		}
+		if err != nil {
+			return err
+		}
+		if assignment.WorkItemID != handoff.WorkItemID {
+			return fmt.Errorf("%w: source assignment not found", ErrNotFound)
+		}
+	}
+	if handoff.TargetAssignmentID != "" {
+		assignment, err := s.getRequiredAssignment(ctx, handoff.ProjectID, handoff.TargetAssignmentID)
+		if errors.Is(err, ErrNotFound) {
+			return fmt.Errorf("%w: target assignment not found", err)
+		}
+		if err != nil {
+			return err
+		}
+		if handoff.TargetWorkItemID != "" && assignment.WorkItemID != handoff.TargetWorkItemID {
+			return fmt.Errorf("%w: target assignment not found", ErrNotFound)
+		}
+	}
+	return nil
+}
+
 type scanner interface {
 	Scan(...any) error
 }
@@ -913,6 +1162,43 @@ func scanArtifact(row scanner) (CollaborationArtifact, error) {
 	return item, nil
 }
 
+func scanHandoff(row scanner) (Handoff, error) {
+	var item Handoff
+	var linkedArtifactIDs, linkedMemoryIDs, contextRefs string
+	var createdAt, updatedAt, statusChangedAt string
+	if err := row.Scan(
+		&item.ID, &item.ProjectID, &item.WorkItemID, &item.SourceAssignmentID,
+		&item.SourceRunID, &item.SourceChatSessionID, &item.SourceMessageID,
+		&item.TargetRoleID, &item.TargetAssignmentID, &item.TargetWorkItemID,
+		&item.Title, &item.Summary, &item.RecommendedNextAction,
+		&linkedArtifactIDs, &linkedMemoryIDs, &contextRefs, &item.Status,
+		&item.ProvenanceKind, &item.TrustLabel, &item.CreatedByRoleID,
+		&createdAt, &updatedAt, &statusChangedAt,
+	); err != nil {
+		return Handoff{}, err
+	}
+	var err error
+	if item.LinkedArtifactIDs, err = decodeStringList(linkedArtifactIDs); err != nil {
+		return Handoff{}, err
+	}
+	if item.LinkedMemoryIDs, err = decodeStringList(linkedMemoryIDs); err != nil {
+		return Handoff{}, err
+	}
+	if item.ContextRefs, err = decodeStringList(contextRefs); err != nil {
+		return Handoff{}, err
+	}
+	if item.CreatedAt, err = parseTime(createdAt); err != nil {
+		return Handoff{}, err
+	}
+	if item.UpdatedAt, err = parseTime(updatedAt); err != nil {
+		return Handoff{}, err
+	}
+	if item.StatusChangedAt, err = parseTime(statusChangedAt); err != nil {
+		return Handoff{}, err
+	}
+	return item, nil
+}
+
 func requireAffected(res sql.Result) error {
 	affected, err := res.RowsAffected()
 	if err != nil {
@@ -926,6 +1212,30 @@ func requireAffected(res sql.Result) error {
 
 func isSQLiteConstraint(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "constraint")
+}
+
+func encodeStringList(values []string) (string, error) {
+	values = normalizeStringList(values)
+	if values == nil {
+		values = []string{}
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func decodeStringList(value string) ([]string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(value), &values); err != nil {
+		return nil, err
+	}
+	return normalizeStringList(values), nil
 }
 
 func formatTime(value time.Time) string {

@@ -313,7 +313,10 @@ visibility at the point of use.
 4. Deleted or edited entries do not rewrite historical context packet snapshots.
 5. Memory cannot override Hecate security policy, approvals, sandboxing, or
    workspace validation.
-6. Memory entries should have size guardrails. Initial proposal: warn at 5,000
+6. Structured project handoffs may link memory entry IDs as context references,
+   but creating or accepting a handoff does not create, edit, enable, or
+   promote memory.
+7. Memory entries should have size guardrails. Initial proposal: warn at 5,000
    characters and block at 20,000 characters per entry unless overridden.
 
 ## Implementation Plan
@@ -322,10 +325,11 @@ visibility at the point of use.
 | --- | --------------------------------------------------------------------------------------------------------------- |
 | 1   | Landed: project-scoped `internal/memory/` store with memory + SQLite backends, CRUD API, UI management surface. |
 | 2   | Landed for chat packets: enabled project memory emits labelled `memory` context items.                          |
-| 3   | Add `/active` introspection once profiles/surface selection exist beyond project scope.                         |
-| 4   | Agent profile memory-source selection for Hecate Chat and external agents.                                      |
-| 5   | Extend active-memory indicators into Chat/Task Detail and standalone task-run context packets.                  |
-| 6   | Docs, screenshots, and e2e coverage for scoped memory visibility.                                               |
+| 3   | Landed for project handoffs: handoff records can reference memory IDs without writing or promoting memory.      |
+| 4   | Add `/active` introspection once profiles/surface selection exist beyond project scope.                         |
+| 5   | Agent profile memory-source selection for Hecate Chat and external agents.                                      |
+| 6   | Extend active-memory indicators into Chat/Task Detail and standalone task-run context packets.                  |
+| 7   | Docs, screenshots, and e2e coverage for scoped memory visibility.                                               |
 
 This should land after the first context-packet implementation. Otherwise
 memory will have no durable "what saw this entry?" audit trail.

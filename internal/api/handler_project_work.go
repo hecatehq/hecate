@@ -99,6 +99,51 @@ type createProjectWorkArtifactRequest struct {
 	AuthorRoleID string `json:"author_role_id,omitempty"`
 }
 
+type createProjectHandoffRequest struct {
+	ID                    string   `json:"id,omitempty"`
+	SourceAssignmentID    string   `json:"source_assignment_id,omitempty"`
+	SourceRunID           string   `json:"source_run_id,omitempty"`
+	SourceChatSessionID   string   `json:"source_chat_session_id,omitempty"`
+	SourceMessageID       string   `json:"source_message_id,omitempty"`
+	TargetRoleID          string   `json:"target_role_id,omitempty"`
+	TargetAssignmentID    string   `json:"target_assignment_id,omitempty"`
+	TargetWorkItemID      string   `json:"target_work_item_id,omitempty"`
+	Title                 string   `json:"title"`
+	Summary               string   `json:"summary"`
+	RecommendedNextAction string   `json:"recommended_next_action"`
+	LinkedArtifactIDs     []string `json:"linked_artifact_ids,omitempty"`
+	LinkedMemoryIDs       []string `json:"linked_memory_ids,omitempty"`
+	ContextRefs           []string `json:"context_refs,omitempty"`
+	Status                string   `json:"status,omitempty"`
+	ProvenanceKind        string   `json:"provenance_kind,omitempty"`
+	TrustLabel            string   `json:"trust_label,omitempty"`
+	CreatedByRoleID       string   `json:"created_by_role_id,omitempty"`
+}
+
+type updateProjectHandoffRequest struct {
+	SourceAssignmentID    *string   `json:"source_assignment_id,omitempty"`
+	SourceRunID           *string   `json:"source_run_id,omitempty"`
+	SourceChatSessionID   *string   `json:"source_chat_session_id,omitempty"`
+	SourceMessageID       *string   `json:"source_message_id,omitempty"`
+	TargetRoleID          *string   `json:"target_role_id,omitempty"`
+	TargetAssignmentID    *string   `json:"target_assignment_id,omitempty"`
+	TargetWorkItemID      *string   `json:"target_work_item_id,omitempty"`
+	Title                 *string   `json:"title,omitempty"`
+	Summary               *string   `json:"summary,omitempty"`
+	RecommendedNextAction *string   `json:"recommended_next_action,omitempty"`
+	LinkedArtifactIDs     *[]string `json:"linked_artifact_ids,omitempty"`
+	LinkedMemoryIDs       *[]string `json:"linked_memory_ids,omitempty"`
+	ContextRefs           *[]string `json:"context_refs,omitempty"`
+	Status                *string   `json:"status,omitempty"`
+	ProvenanceKind        *string   `json:"provenance_kind,omitempty"`
+	TrustLabel            *string   `json:"trust_label,omitempty"`
+	CreatedByRoleID       *string   `json:"created_by_role_id,omitempty"`
+}
+
+type updateProjectHandoffStatusRequest struct {
+	Status string `json:"status"`
+}
+
 type ProjectWorkRolesResponse struct {
 	Object string                    `json:"object"`
 	Data   []ProjectWorkRoleResponse `json:"data"`
@@ -219,6 +264,42 @@ type ProjectWorkArtifactResponse struct {
 	UpdatedAt    string `json:"updated_at"`
 }
 
+type ProjectHandoffsResponse struct {
+	Object string                   `json:"object"`
+	Data   []ProjectHandoffResponse `json:"data"`
+}
+
+type ProjectHandoffEnvelope struct {
+	Object string                 `json:"object"`
+	Data   ProjectHandoffResponse `json:"data"`
+}
+
+type ProjectHandoffResponse struct {
+	ID                    string   `json:"id"`
+	ProjectID             string   `json:"project_id"`
+	WorkItemID            string   `json:"work_item_id"`
+	SourceAssignmentID    string   `json:"source_assignment_id,omitempty"`
+	SourceRunID           string   `json:"source_run_id,omitempty"`
+	SourceChatSessionID   string   `json:"source_chat_session_id,omitempty"`
+	SourceMessageID       string   `json:"source_message_id,omitempty"`
+	TargetRoleID          string   `json:"target_role_id,omitempty"`
+	TargetAssignmentID    string   `json:"target_assignment_id,omitempty"`
+	TargetWorkItemID      string   `json:"target_work_item_id,omitempty"`
+	Title                 string   `json:"title"`
+	Summary               string   `json:"summary"`
+	RecommendedNextAction string   `json:"recommended_next_action"`
+	LinkedArtifactIDs     []string `json:"linked_artifact_ids,omitempty"`
+	LinkedMemoryIDs       []string `json:"linked_memory_ids,omitempty"`
+	ContextRefs           []string `json:"context_refs,omitempty"`
+	Status                string   `json:"status"`
+	ProvenanceKind        string   `json:"provenance_kind"`
+	TrustLabel            string   `json:"trust_label"`
+	CreatedByRoleID       string   `json:"created_by_role_id,omitempty"`
+	CreatedAt             string   `json:"created_at"`
+	UpdatedAt             string   `json:"updated_at"`
+	StatusChangedAt       string   `json:"status_changed_at"`
+}
+
 type ProjectActivityEnvelope struct {
 	Object string                      `json:"object"`
 	Data   ProjectActivityDataResponse `json:"data"`
@@ -262,6 +343,8 @@ type ProjectActivityItemResponse struct {
 	LinkedMessageID string                                 `json:"linked_message_id,omitempty"`
 	RecentArtifacts []ProjectWorkArtifactResponse          `json:"recent_artifacts,omitempty"`
 	ArtifactSummary ProjectActivityArtifactSummaryResponse `json:"artifact_summary"`
+	RecentHandoffs  []ProjectHandoffResponse               `json:"recent_handoffs,omitempty"`
+	HandoffSummary  ProjectActivityHandoffSummaryResponse  `json:"handoff_summary"`
 	UpdatedAt       string                                 `json:"updated_at"`
 }
 
@@ -278,6 +361,18 @@ type ProjectActivityArtifactSummaryResponse struct {
 	LatestTitle  string `json:"latest_title,omitempty"`
 	LatestAt     string `json:"latest_at,omitempty"`
 	AssignmentID string `json:"assignment_id,omitempty"`
+}
+
+type ProjectActivityHandoffSummaryResponse struct {
+	Count          int    `json:"count"`
+	PendingCount   int    `json:"pending_count,omitempty"`
+	AcceptedCount  int    `json:"accepted_count,omitempty"`
+	LatestStatus   string `json:"latest_status,omitempty"`
+	LatestTitle    string `json:"latest_title,omitempty"`
+	LatestAt       string `json:"latest_at,omitempty"`
+	AssignmentID   string `json:"assignment_id,omitempty"`
+	TargetRoleID   string `json:"target_role_id,omitempty"`
+	TargetWorkItem string `json:"target_work_item_id,omitempty"`
 }
 
 func (h *Handler) HandleProjectActivity(w http.ResponseWriter, r *http.Request) {
@@ -1193,6 +1288,197 @@ func (h *Handler) HandleCreateProjectWorkArtifact(w http.ResponseWriter, r *http
 	WriteJSON(w, http.StatusCreated, ProjectWorkArtifactEnvelope{Object: "project_collaboration_artifact", Data: renderProjectWorkArtifact(item)})
 }
 
+func (h *Handler) HandleProjectHandoffs(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	if !h.requireProject(w, r, projectID) {
+		return
+	}
+	filter := projectwork.HandoffFilter{
+		ProjectID:  projectID,
+		WorkItemID: strings.TrimSpace(r.URL.Query().Get("work_item_id")),
+		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
+	}
+	items, err := h.projectWork.ListHandoffs(r.Context(), filter)
+	if !writeProjectWorkError(w, err) {
+		return
+	}
+	data := make([]ProjectHandoffResponse, 0, len(items))
+	for _, item := range items {
+		data = append(data, renderProjectHandoff(item))
+	}
+	WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
+}
+
+func (h *Handler) HandleProjectWorkItemHandoffs(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
+		return
+	}
+	items, err := h.projectWork.ListHandoffs(r.Context(), projectwork.HandoffFilter{
+		ProjectID:  projectID,
+		WorkItemID: workItemID,
+		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
+	})
+	if !writeProjectWorkError(w, err) {
+		return
+	}
+	data := make([]ProjectHandoffResponse, 0, len(items))
+	for _, item := range items {
+		data = append(data, renderProjectHandoff(item))
+	}
+	WriteJSON(w, http.StatusOK, ProjectHandoffsResponse{Object: "project_handoffs", Data: data})
+}
+
+func (h *Handler) HandleCreateProjectHandoff(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
+		return
+	}
+	var req createProjectHandoffRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id = newOpaqueTaskResourceID("handoff")
+	}
+	item, err := h.projectWork.CreateHandoff(r.Context(), projectwork.Handoff{
+		ID:                    id,
+		ProjectID:             projectID,
+		WorkItemID:            workItemID,
+		SourceAssignmentID:    req.SourceAssignmentID,
+		SourceRunID:           req.SourceRunID,
+		SourceChatSessionID:   req.SourceChatSessionID,
+		SourceMessageID:       req.SourceMessageID,
+		TargetRoleID:          req.TargetRoleID,
+		TargetAssignmentID:    req.TargetAssignmentID,
+		TargetWorkItemID:      req.TargetWorkItemID,
+		Title:                 req.Title,
+		Summary:               req.Summary,
+		RecommendedNextAction: req.RecommendedNextAction,
+		LinkedArtifactIDs:     req.LinkedArtifactIDs,
+		LinkedMemoryIDs:       req.LinkedMemoryIDs,
+		ContextRefs:           req.ContextRefs,
+		Status:                req.Status,
+		ProvenanceKind:        req.ProvenanceKind,
+		TrustLabel:            req.TrustLabel,
+		CreatedByRoleID:       req.CreatedByRoleID,
+	})
+	if !writeProjectWorkError(w, err) {
+		return
+	}
+	WriteJSON(w, http.StatusCreated, ProjectHandoffEnvelope{Object: "project_handoff", Data: renderProjectHandoff(item)})
+}
+
+func (h *Handler) HandleUpdateProjectHandoff(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	handoffID := r.PathValue("handoff_id")
+	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
+		return
+	}
+	var req updateProjectHandoffRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	item, err := h.projectWork.UpdateHandoff(r.Context(), projectID, workItemID, handoffID, func(item *projectwork.Handoff) {
+		applyProjectHandoffPatch(item, req)
+	})
+	if !writeProjectWorkError(w, err) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectHandoffEnvelope{Object: "project_handoff", Data: renderProjectHandoff(item)})
+}
+
+func (h *Handler) HandleUpdateProjectHandoffStatus(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	handoffID := r.PathValue("handoff_id")
+	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
+		return
+	}
+	var req updateProjectHandoffStatusRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	item, err := h.projectWork.UpdateHandoff(r.Context(), projectID, workItemID, handoffID, func(item *projectwork.Handoff) {
+		item.Status = req.Status
+	})
+	if !writeProjectWorkError(w, err) {
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectHandoffEnvelope{Object: "project_handoff", Data: renderProjectHandoff(item)})
+}
+
+func (h *Handler) HandleDeleteProjectHandoff(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("id")
+	workItemID := r.PathValue("work_item_id")
+	handoffID := r.PathValue("handoff_id")
+	if !h.requireProjectWorkItem(w, r, projectID, workItemID) {
+		return
+	}
+	if err := h.projectWork.DeleteHandoff(r.Context(), projectID, workItemID, handoffID); !writeProjectWorkError(w, err) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func applyProjectHandoffPatch(item *projectwork.Handoff, req updateProjectHandoffRequest) {
+	if req.SourceAssignmentID != nil {
+		item.SourceAssignmentID = *req.SourceAssignmentID
+	}
+	if req.SourceRunID != nil {
+		item.SourceRunID = *req.SourceRunID
+	}
+	if req.SourceChatSessionID != nil {
+		item.SourceChatSessionID = *req.SourceChatSessionID
+	}
+	if req.SourceMessageID != nil {
+		item.SourceMessageID = *req.SourceMessageID
+	}
+	if req.TargetRoleID != nil {
+		item.TargetRoleID = *req.TargetRoleID
+	}
+	if req.TargetAssignmentID != nil {
+		item.TargetAssignmentID = *req.TargetAssignmentID
+	}
+	if req.TargetWorkItemID != nil {
+		item.TargetWorkItemID = *req.TargetWorkItemID
+	}
+	if req.Title != nil {
+		item.Title = *req.Title
+	}
+	if req.Summary != nil {
+		item.Summary = *req.Summary
+	}
+	if req.RecommendedNextAction != nil {
+		item.RecommendedNextAction = *req.RecommendedNextAction
+	}
+	if req.LinkedArtifactIDs != nil {
+		item.LinkedArtifactIDs = *req.LinkedArtifactIDs
+	}
+	if req.LinkedMemoryIDs != nil {
+		item.LinkedMemoryIDs = *req.LinkedMemoryIDs
+	}
+	if req.ContextRefs != nil {
+		item.ContextRefs = *req.ContextRefs
+	}
+	if req.Status != nil {
+		item.Status = *req.Status
+	}
+	if req.ProvenanceKind != nil {
+		item.ProvenanceKind = *req.ProvenanceKind
+	}
+	if req.TrustLabel != nil {
+		item.TrustLabel = *req.TrustLabel
+	}
+	if req.CreatedByRoleID != nil {
+		item.CreatedByRoleID = *req.CreatedByRoleID
+	}
+}
+
 func (h *Handler) requireProject(w http.ResponseWriter, r *http.Request, projectID string) bool {
 	_, ok, err := h.projects.Get(r.Context(), projectID)
 	if err != nil {
@@ -1533,6 +1819,10 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 	if err != nil {
 		return ProjectActivityDataResponse{}, err
 	}
+	handoffs, err := h.projectWork.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: projectID})
+	if err != nil {
+		return ProjectActivityDataResponse{}, err
+	}
 
 	roleByID := make(map[string]projectwork.AgentRoleProfile, len(roles))
 	for _, role := range roles {
@@ -1549,6 +1839,7 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 	}
 
 	artifactsByAssignment, artifactsByWorkItem := groupProjectActivityArtifacts(artifacts)
+	handoffsByAssignment, handoffsByWorkItem := groupProjectActivityHandoffs(handoffs)
 	items := make([]ProjectActivityItemResponse, 0, len(assignments))
 	for _, workItem := range projectedWorkItems {
 		for _, projected := range workItem.Assignments {
@@ -1556,8 +1847,12 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 			if len(activityArtifacts) == 0 {
 				activityArtifacts = artifactsByWorkItem[projected.WorkItemID]
 			}
+			activityHandoffs := handoffsByAssignment[projected.ID]
+			if len(activityHandoffs) == 0 {
+				activityHandoffs = handoffsByWorkItem[projected.WorkItemID]
+			}
 			role, _ := roleByID[projected.RoleID]
-			items = append(items, renderProjectActivityItem(workItem, projected, role, activityArtifacts))
+			items = append(items, renderProjectActivityItem(workItem, projected, role, activityArtifacts, activityHandoffs))
 		}
 	}
 	sortProjectActivityItems(items)
@@ -1589,8 +1884,9 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 	return response, nil
 }
 
-func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, role projectwork.AgentRoleProfile, artifacts []projectwork.CollaborationArtifact) ProjectActivityItemResponse {
+func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, role projectwork.AgentRoleProfile, artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) ProjectActivityItemResponse {
 	artifactSummary, recentArtifacts := renderProjectActivityArtifactSignals(artifacts)
+	handoffSummary, recentHandoffs := renderProjectActivityHandoffSignals(handoffs)
 	status := strings.TrimSpace(firstNonEmpty(projectActivityExecutionStatus(assignment), assignment.Status))
 	if status == "" {
 		status = "unknown"
@@ -1611,7 +1907,9 @@ func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment Proj
 		LinkedMessageID: assignment.MessageID,
 		RecentArtifacts: recentArtifacts,
 		ArtifactSummary: artifactSummary,
-		UpdatedAt:       projectActivityUpdatedAt(workItem, assignment, artifactSummary),
+		RecentHandoffs:  recentHandoffs,
+		HandoffSummary:  handoffSummary,
+		UpdatedAt:       projectActivityUpdatedAt(workItem, assignment, artifactSummary, handoffSummary),
 	}
 }
 
@@ -1667,6 +1965,63 @@ func groupProjectActivityArtifacts(artifacts []projectwork.CollaborationArtifact
 			continue
 		}
 		byWorkItem[artifact.WorkItemID] = append(byWorkItem[artifact.WorkItemID], artifact)
+	}
+	return byAssignment, byWorkItem
+}
+
+func renderProjectActivityHandoffSignals(handoffs []projectwork.Handoff) (ProjectActivityHandoffSummaryResponse, []ProjectHandoffResponse) {
+	if len(handoffs) == 0 {
+		return ProjectActivityHandoffSummaryResponse{}, nil
+	}
+	items := append([]projectwork.Handoff(nil), handoffs...)
+	sort.SliceStable(items, func(i, j int) bool {
+		left, right := items[i], items[j]
+		if !left.UpdatedAt.Equal(right.UpdatedAt) {
+			return left.UpdatedAt.After(right.UpdatedAt)
+		}
+		if !left.CreatedAt.Equal(right.CreatedAt) {
+			return left.CreatedAt.After(right.CreatedAt)
+		}
+		return left.ID < right.ID
+	})
+	latest := items[0]
+	summary := ProjectActivityHandoffSummaryResponse{
+		Count:          len(items),
+		LatestStatus:   latest.Status,
+		LatestTitle:    firstNonEmpty(latest.Title, latest.ID),
+		LatestAt:       formatOptionalTime(firstNonZeroTime(latest.UpdatedAt, latest.CreatedAt)),
+		AssignmentID:   latest.SourceAssignmentID,
+		TargetRoleID:   latest.TargetRoleID,
+		TargetWorkItem: latest.TargetWorkItemID,
+	}
+	for _, item := range items {
+		switch item.Status {
+		case projectwork.HandoffStatusPending:
+			summary.PendingCount++
+		case projectwork.HandoffStatusAccepted:
+			summary.AcceptedCount++
+		}
+	}
+	limit := len(items)
+	if limit > 3 {
+		limit = 3
+	}
+	recent := make([]ProjectHandoffResponse, 0, limit)
+	for _, handoff := range items[:limit] {
+		recent = append(recent, renderProjectHandoff(handoff))
+	}
+	return summary, recent
+}
+
+func groupProjectActivityHandoffs(handoffs []projectwork.Handoff) (map[string][]projectwork.Handoff, map[string][]projectwork.Handoff) {
+	byAssignment := make(map[string][]projectwork.Handoff)
+	byWorkItem := make(map[string][]projectwork.Handoff)
+	for _, handoff := range handoffs {
+		if handoff.SourceAssignmentID != "" {
+			byAssignment[handoff.SourceAssignmentID] = append(byAssignment[handoff.SourceAssignmentID], handoff)
+			continue
+		}
+		byWorkItem[handoff.WorkItemID] = append(byWorkItem[handoff.WorkItemID], handoff)
 	}
 	return byAssignment, byWorkItem
 }
@@ -1783,15 +2138,19 @@ func projectActivityExecutionRunID(assignment ProjectWorkAssignmentResponse) str
 	return assignment.Execution.RunID
 }
 
-func projectActivityUpdatedAt(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, artifacts ProjectActivityArtifactSummaryResponse) string {
+func projectActivityUpdatedAt(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, artifacts ProjectActivityArtifactSummaryResponse, handoffs ProjectActivityHandoffSummaryResponse) string {
 	latest := parseProjectActivityTime(firstNonEmpty(assignment.CompletedAt, assignment.StartedAt, assignment.UpdatedAt, assignment.CreatedAt))
 	workUpdated := parseProjectActivityTime(workItem.UpdatedAt)
 	artifactUpdated := parseProjectActivityTime(artifacts.LatestAt)
+	handoffUpdated := parseProjectActivityTime(handoffs.LatestAt)
 	if workUpdated.After(latest) {
 		latest = workUpdated
 	}
 	if artifactUpdated.After(latest) {
 		latest = artifactUpdated
+	}
+	if handoffUpdated.After(latest) {
+		latest = handoffUpdated
 	}
 	return formatOptionalTime(latest)
 }
@@ -1921,5 +2280,33 @@ func renderProjectWorkArtifact(item projectwork.CollaborationArtifact) ProjectWo
 		AuthorRoleID: item.AuthorRoleID,
 		CreatedAt:    formatOptionalTime(item.CreatedAt),
 		UpdatedAt:    formatOptionalTime(item.UpdatedAt),
+	}
+}
+
+func renderProjectHandoff(item projectwork.Handoff) ProjectHandoffResponse {
+	return ProjectHandoffResponse{
+		ID:                    item.ID,
+		ProjectID:             item.ProjectID,
+		WorkItemID:            item.WorkItemID,
+		SourceAssignmentID:    item.SourceAssignmentID,
+		SourceRunID:           item.SourceRunID,
+		SourceChatSessionID:   item.SourceChatSessionID,
+		SourceMessageID:       item.SourceMessageID,
+		TargetRoleID:          item.TargetRoleID,
+		TargetAssignmentID:    item.TargetAssignmentID,
+		TargetWorkItemID:      item.TargetWorkItemID,
+		Title:                 item.Title,
+		Summary:               item.Summary,
+		RecommendedNextAction: item.RecommendedNextAction,
+		LinkedArtifactIDs:     append([]string(nil), item.LinkedArtifactIDs...),
+		LinkedMemoryIDs:       append([]string(nil), item.LinkedMemoryIDs...),
+		ContextRefs:           append([]string(nil), item.ContextRefs...),
+		Status:                item.Status,
+		ProvenanceKind:        item.ProvenanceKind,
+		TrustLabel:            item.TrustLabel,
+		CreatedByRoleID:       item.CreatedByRoleID,
+		CreatedAt:             formatOptionalTime(item.CreatedAt),
+		UpdatedAt:             formatOptionalTime(item.UpdatedAt),
+		StatusChangedAt:       formatOptionalTime(item.StatusChangedAt),
 	}
 }

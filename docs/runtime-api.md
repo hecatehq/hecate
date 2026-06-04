@@ -1042,10 +1042,14 @@ inject those files into prompts yet. Project work-coordination endpoints can
 persist roles, work items, assignments, and collaboration artifacts under a
 project. Assignments may record links to existing task runs or chat messages,
 but creating an assignment does not start a task, open a chat, inject context,
-or dispatch any agent. Project memory entries are structured project-scoped
-records with Markdown-compatible `body` text; they are not Markdown files, and
-they are written only through explicit operator API/UI actions. Enabled project
-memory entries appear as itemized chat context-packet metadata with their
+or dispatch any agent. Project handoffs are structured project-scoped records
+for passing context and a recommended next action from one assignment/run/chat
+to another role or assignment. They can link artifacts, memory entries, and
+context references, but they do not launch follow-up work by themselves.
+Project memory entries are structured project-scoped records with
+Markdown-compatible `body` text; they are not Markdown files, and they are
+written only through explicit operator API/UI actions. Enabled project memory
+entries appear as itemized chat context-packet metadata with their
 `trust_label`, but Hecate still does not perform automatic memory extraction,
 embeddings, retrieval ranking, or source-content injection. Profiles, presets,
 and source-content injection are not linked to `project_id` yet.
@@ -1319,6 +1323,8 @@ Supported assignment driver kinds are `hecate_task` and `external_agent`, but
 native assignment start V1 only dispatches `hecate_task`.
 Supported collaboration artifact kinds are `brief`, `handoff`, `review`, and
 `decision_note`.
+Supported structured handoff statuses are `pending`, `accepted`, `superseded`,
+and `dismissed`.
 
 Assignment responses are projected from linked canonical task/run state when
 `task_id` and `run_id` point at a Hecate task run. If `task_id` is present and
@@ -1423,6 +1429,16 @@ The top-level envelope follows the Hecate-native convention:
             "latest_at": "2026-06-03T12:03:00Z",
             "assignment_id": "asgn_..."
           },
+          "handoff_summary": {
+            "count": 1,
+            "pending_count": 1,
+            "accepted_count": 0,
+            "latest_status": "pending",
+            "latest_title": "QA handoff",
+            "latest_at": "2026-06-03T12:04:00Z",
+            "assignment_id": "asgn_...",
+            "target_role_id": "reviewer_qa"
+          },
           "recent_artifacts": [
             {
               "id": "art_...",
@@ -1436,7 +1452,25 @@ The top-level envelope follows the Hecate-native convention:
               "updated_at": "2026-06-03T12:03:00Z"
             }
           ],
-          "updated_at": "2026-06-03T12:03:00Z"
+          "recent_handoffs": [
+            {
+              "id": "handoff_...",
+              "project_id": "proj_...",
+              "work_item_id": "work_...",
+              "source_assignment_id": "asgn_...",
+              "target_role_id": "reviewer_qa",
+              "title": "QA handoff",
+              "summary": "Implementation is ready for review.",
+              "recommended_next_action": "Create a queued QA assignment.",
+              "status": "pending",
+              "provenance_kind": "agent_draft",
+              "trust_label": "operator_reviewed",
+              "created_at": "2026-06-03T12:04:00Z",
+              "updated_at": "2026-06-03T12:04:00Z",
+              "status_changed_at": "2026-06-03T12:04:00Z"
+            }
+          ],
+          "updated_at": "2026-06-03T12:04:00Z"
         }
       ],
       "active": [],
@@ -1459,6 +1493,11 @@ ID. Each bucket is capped at 20 rows; `recent` mirrors
 brevity; real responses include the same item shape there when `recent_count`
 is non-zero. `artifact_summary.assignment_id` is present only when the latest
 summarized artifact is assignment-scoped; work-item-level artifacts omit it.
+`handoff_summary` and `recent_handoffs` are activity projections over
+structured handoff records attached to the same work item and, when present,
+the same source or target assignment. Handoffs that are not assignment-linked
+are still available from the handoff list/detail endpoints; V1 does not create
+standalone activity rows for them.
 
 #### `GET /hecate/v1/projects/{id}/roles`
 
@@ -1711,6 +1750,94 @@ Assignments in terminal states (`completed`, `failed`, `cancelled`) also return
 `409`. If task creation succeeds but task start fails, Hecate keeps the
 assignment's `task_id`, marks the assignment `failed`, and returns an error so
 the operator can inspect the linked task instead of losing the partial state.
+
+#### `GET /hecate/v1/projects/{id}/handoffs`
+
+Lists structured handoff records for the project. Optional query parameters:
+`work_item_id=<id>` and `status=<pending|accepted|superseded|dismissed>`.
+Responses use `{ "object": "project_handoffs", "data": [...] }`.
+
+#### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs`
+
+Lists structured handoff records for one work item. Handoffs are sorted by
+latest update time, newest first.
+
+```json
+{
+  "object": "project_handoffs",
+  "data": [
+    {
+      "id": "handoff_...",
+      "project_id": "proj_...",
+      "work_item_id": "work_...",
+      "source_assignment_id": "asgn_...",
+      "source_run_id": "run_...",
+      "source_chat_session_id": "chat_...",
+      "source_message_id": "msg_...",
+      "target_role_id": "reviewer_qa",
+      "target_assignment_id": "asgn_review_...",
+      "target_work_item_id": "work_followup_...",
+      "title": "QA handoff",
+      "summary": "The implementation is ready for review.",
+      "recommended_next_action": "Review the changed files and run the focused checks.",
+      "linked_artifact_ids": ["art_..."],
+      "linked_memory_ids": ["mem_..."],
+      "context_refs": ["ctx_..."],
+      "status": "pending",
+      "provenance_kind": "agent_draft",
+      "trust_label": "operator_reviewed",
+      "created_by_role_id": "software_developer",
+      "created_at": "2026-06-03T12:00:00Z",
+      "updated_at": "2026-06-03T12:00:00Z",
+      "status_changed_at": "2026-06-03T12:00:00Z"
+    }
+  ]
+}
+```
+
+#### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs`
+
+Creates a handoff. `title`, `summary`, and `recommended_next_action` are
+required. `status` defaults to `pending`, `provenance_kind` defaults to
+`operator`, and `trust_label` defaults to `operator_reviewed`. Source/target
+assignment IDs, if supplied, must belong to the same work item. Linked artifact
+IDs, memory IDs, and context refs are stored as references only; creating a
+handoff does not write memory, inject context, start a task, or open a chat.
+
+```json
+{
+  "source_assignment_id": "asgn_...",
+  "target_role_id": "reviewer_qa",
+  "title": "QA handoff",
+  "summary": "The implementation is ready for review.",
+  "recommended_next_action": "Create a queued QA assignment and run focused UI tests.",
+  "linked_artifact_ids": ["art_..."],
+  "linked_memory_ids": ["mem_..."],
+  "context_refs": ["ctx_..."],
+  "provenance_kind": "agent_draft",
+  "trust_label": "operator_reviewed",
+  "created_by_role_id": "software_developer"
+}
+```
+
+Returns `{ "object": "project_handoff", "data": { ... } }`.
+
+#### `PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}`
+
+Updates handoff refs, target hints, text fields, linked IDs, provenance/trust
+metadata, or `status`. Status changes update `status_changed_at`.
+
+#### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}/status`
+
+Transitions only the handoff status. The body is `{ "status": "accepted" }`
+where status is one of `pending`, `accepted`, `superseded`, or `dismissed`.
+Accepting a handoff records operator intent; it does not automatically start a
+linked assignment.
+
+#### `DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}/handoffs/{handoff_id}`
+
+Deletes the handoff record. It does not delete linked artifacts, memory
+entries, tasks, runs, chats, work items, or assignments.
 
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/artifacts`
 

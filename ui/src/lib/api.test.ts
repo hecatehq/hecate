@@ -5,12 +5,14 @@ import {
   cancelChatApproval,
   chatCompletions,
   createProjectAssignment,
+  createProjectHandoff,
   createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteChatGrant,
   deletePolicyRule,
   deleteProjectAssignment,
+  deleteProjectHandoff,
   deleteProjectMemory,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
@@ -24,6 +26,7 @@ import {
   getProjectAssignments,
   getProjectActivity,
   getProjectCollaborationArtifacts,
+  getProjectHandoffs,
   getProjectMemory,
   getProjectWorkItem,
   getProjectWorkItems,
@@ -50,6 +53,8 @@ import {
   updateChatSession,
   updateProject,
   updateProjectAssignment,
+  updateProjectHandoff,
+  updateProjectHandoffStatus,
   updateProjectMemory,
   updateProjectWorkRole,
   updateProjectWorkItem,
@@ -263,7 +268,7 @@ describe("api client", () => {
 
   it("builds project work coordination requests", async () => {
     fetchMock.mockClear();
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 7; i += 1) {
       fetchMock.mockResolvedValueOnce(jsonResponse({ object: "ok", data: [] }));
     }
 
@@ -273,6 +278,7 @@ describe("api client", () => {
     await getProjectWorkItem("proj/1", "work/1");
     await getProjectAssignments("proj/1", "work/1");
     await getProjectCollaborationArtifacts("proj/1", "work/1");
+    await getProjectHandoffs("proj/1", "work/1");
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -303,6 +309,79 @@ describe("api client", () => {
       6,
       "/hecate/v1/projects/proj%2F1/work-items/work%2F1/artifacts",
       expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      7,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("manages project handoff records", async () => {
+    fetchMock.mockClear();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ object: "project_handoff", data: { id: "handoff/1" } }))
+      .mockResolvedValueOnce(jsonResponse({ object: "project_handoff", data: { id: "handoff/1" } }))
+      .mockResolvedValueOnce(jsonResponse({ object: "project_handoff", data: { id: "handoff/1" } }))
+      .mockResolvedValueOnce(jsonResponse(null));
+
+    await createProjectHandoff("proj/1", "work/1", {
+      title: "Review next",
+      summary: "Implementation is ready.",
+      recommended_next_action: "Start QA.",
+      source_assignment_id: "asgn/1",
+      target_role_id: "reviewer_qa",
+      linked_artifact_ids: ["art/1"],
+      linked_memory_ids: ["mem/1"],
+      context_refs: ["ctx/1"],
+      provenance_kind: "agent_draft",
+      trust_label: "operator_reviewed",
+    });
+    await updateProjectHandoff("proj/1", "work/1", "handoff/1", {
+      target_assignment_id: "asgn/2",
+    });
+    await updateProjectHandoffStatus("proj/1", "work/1", "handoff/1", "accepted");
+    await deleteProjectHandoff("proj/1", "work/1", "handoff/1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          title: "Review next",
+          summary: "Implementation is ready.",
+          recommended_next_action: "Start QA.",
+          source_assignment_id: "asgn/1",
+          target_role_id: "reviewer_qa",
+          linked_artifact_ids: ["art/1"],
+          linked_memory_ids: ["mem/1"],
+          context_refs: ["ctx/1"],
+          provenance_kind: "agent_draft",
+          trust_label: "operator_reviewed",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs/handoff%2F1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ target_assignment_id: "asgn/2" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs/handoff%2F1/status",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ status: "accepted" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/handoffs/handoff%2F1",
+      expect.objectContaining({ method: "DELETE" }),
     );
   });
 

@@ -263,6 +263,57 @@ export type ProjectCollaborationArtifactRecord = {
   updated_at: string;
 };
 
+export type ProjectHandoffStatus = "pending" | "accepted" | "superseded" | "dismissed";
+
+export type ProjectHandoffRecord = {
+  id: string;
+  project_id: string;
+  work_item_id: string;
+  source_assignment_id?: string;
+  source_run_id?: string;
+  source_chat_session_id?: string;
+  source_message_id?: string;
+  target_role_id?: string;
+  target_assignment_id?: string;
+  target_work_item_id?: string;
+  title: string;
+  summary: string;
+  recommended_next_action: string;
+  linked_artifact_ids?: string[];
+  linked_memory_ids?: string[];
+  context_refs?: string[];
+  status: ProjectHandoffStatus | string;
+  provenance_kind: string;
+  trust_label: string;
+  created_by_role_id?: string;
+  created_at: string;
+  updated_at: string;
+  status_changed_at: string;
+};
+
+export type CreateProjectHandoffPayload = {
+  id?: string;
+  source_assignment_id?: string;
+  source_run_id?: string;
+  source_chat_session_id?: string;
+  source_message_id?: string;
+  target_role_id?: string;
+  target_assignment_id?: string;
+  target_work_item_id?: string;
+  title: string;
+  summary: string;
+  recommended_next_action: string;
+  linked_artifact_ids?: string[];
+  linked_memory_ids?: string[];
+  context_refs?: string[];
+  status?: ProjectHandoffStatus | string;
+  provenance_kind?: string;
+  trust_label?: string;
+  created_by_role_id?: string;
+};
+
+export type UpdateProjectHandoffPayload = Partial<CreateProjectHandoffPayload>;
+
 export type ProjectActivitySignal =
   | "awaiting_approval"
   | "failed"
@@ -287,6 +338,18 @@ export type ProjectActivityArtifactSummary = {
   assignment_id?: string;
 };
 
+export type ProjectActivityHandoffSummary = {
+  count: number;
+  pending_count?: number;
+  accepted_count?: number;
+  latest_status?: ProjectHandoffStatus | string;
+  latest_title?: string;
+  latest_at?: string;
+  assignment_id?: string;
+  target_role_id?: string;
+  target_work_item_id?: string;
+};
+
 export type ProjectActivityItemRecord = {
   id: string;
   project_id: string;
@@ -302,6 +365,8 @@ export type ProjectActivityItemRecord = {
   linked_message_id?: string;
   recent_artifacts?: ProjectCollaborationArtifactRecord[];
   artifact_summary: ProjectActivityArtifactSummary;
+  recent_handoffs?: ProjectHandoffRecord[];
+  handoff_summary?: ProjectActivityHandoffSummary;
   updated_at: string;
 };
 
@@ -366,4 +431,14 @@ export type ProjectAssignmentResponse = {
 export type ProjectCollaborationArtifactsResponse = {
   object: string;
   data: ProjectCollaborationArtifactRecord[];
+};
+
+export type ProjectHandoffsResponse = {
+  object: string;
+  data: ProjectHandoffRecord[];
+};
+
+export type ProjectHandoffResponse = {
+  object: string;
+  data: ProjectHandoffRecord;
 };

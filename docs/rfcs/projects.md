@@ -249,8 +249,15 @@ context-packet items, but writes remain operator-driven. Project work
 assignments can now start native Tasks linked back via `origin_kind` /
 `origin_id`, and `GET /hecate/v1/projects/{id}/activity` exposes a read-only
 project activity inbox over work items, assignments, linked task/run/chat ids,
-status signals, and recent collaboration artifacts. Broader task `project_id`
-scoping, profiles, and presets are not linked to `project_id` yet.
+status signals, recent collaboration artifacts, and structured handoff signals.
+Structured project handoffs now persist as operator-controlled records that can
+carry source assignment/run/chat refs, target role or assignment hints,
+recommended next action text, linked artifact IDs, linked memory IDs, context
+refs, provenance labels, and `pending` / `accepted` / `superseded` /
+`dismissed` status. A handoff may help the operator create or start a follow-up
+assignment, but the handoff record itself does not dispatch another agent.
+Broader task `project_id` scoping, profiles, and presets are not linked to
+`project_id` yet.
 
 Persist `project_id` on:
 
@@ -281,7 +288,9 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 7. Add agent-profile memory-source selection.
 8. Move relevant defaults from ad hoc chat/task state into project defaults.
 9. Add project activity aggregation. Done for the read-only V1 inbox.
-10. Update docs, screenshots, and e2e coverage.
+10. Add structured handoffs. Done for memory + SQLite store parity, API, UI
+    actions, and activity projection signals.
+11. Update docs, screenshots, and e2e coverage.
 
 ## Test Plan
 
