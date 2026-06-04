@@ -950,40 +950,107 @@ func projectAssignmentTaskTitle(workItem projectwork.WorkItem, role projectwork.
 }
 
 func projectAssignmentPrompt(project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) string {
+	provider := firstNonEmpty(role.DefaultProvider, project.DefaultProvider, "auto")
+	model := firstNonEmpty(role.DefaultModel, project.DefaultModel, "project/runtime default")
+	profile := firstNonEmpty(role.DefaultAgentProfile, project.DefaultAgentProfile, "none")
+	driver := firstNonEmpty(assignment.DriverKind, role.DefaultDriverKind, projectwork.AssignmentDriverHecateTask)
 	sections := []string{
-		"Project: " + firstNonEmpty(project.Name, project.ID),
-		"Work item: " + firstNonEmpty(workItem.Title, workItem.ID),
+		"Launch context",
+		"Project: " + labelWithID(project.Name, project.ID),
+		strings.Join([]string{
+			"Work item:",
+			"- Title: " + firstNonEmpty(workItem.Title, workItem.ID),
+			launchContextBullet("Brief", firstNonEmpty(workItem.Brief, "No brief recorded.")),
+			"- Status: " + firstNonEmpty(workItem.Status, "unknown"),
+			"- Priority: " + firstNonEmpty(workItem.Priority, "normal"),
+		}, "\n"),
+		strings.Join([]string{
+			"Assignment:",
+			"- ID: " + assignment.ID,
+			"- Status: " + firstNonEmpty(assignment.Status, projectwork.AssignmentStatusQueued),
+			"- Driver: " + driver,
+		}, "\n"),
+		strings.Join([]string{
+			"Role:",
+			"- Name: " + firstNonEmpty(role.Name, assignment.RoleID),
+			launchContextBullet("Description", firstNonEmpty(role.Description, "No description recorded.")),
+			launchContextBullet("Instructions", firstNonEmpty(role.Instructions, "No role instructions recorded.")),
+		}, "\n"),
+		strings.Join([]string{
+			"Execution hints:",
+			"- Driver: " + driver,
+			"- Provider: " + provider,
+			"- Model: " + model,
+			"- Profile: " + profile,
+			"- Role defaults: " + formatAssignmentHints([]assignmentHint{
+				{"driver", role.DefaultDriverKind},
+				{"provider", role.DefaultProvider},
+				{"model", role.DefaultModel},
+				{"profile", role.DefaultAgentProfile},
+			}),
+			"- Project defaults: " + formatAssignmentHints([]assignmentHint{
+				{"provider", project.DefaultProvider},
+				{"model", project.DefaultModel},
+				{"profile", project.DefaultAgentProfile},
+				{"workspace_mode", project.DefaultWorkspaceMode},
+			}),
+		}, "\n"),
+		"Request:\nExecute this assignment as a native agent_loop task. Keep outputs and artifacts linked to this work item.",
 	}
-	if brief := strings.TrimSpace(workItem.Brief); brief != "" {
-		sections = append(sections, "Work item brief:\n"+brief)
-	}
-	if roleName := strings.TrimSpace(role.Name); roleName != "" {
-		sections = append(sections, "Assigned role: "+roleName)
-	}
-	if description := strings.TrimSpace(role.Description); description != "" {
-		sections = append(sections, "Role description:\n"+description)
-	}
-	if instructions := strings.TrimSpace(role.Instructions); instructions != "" {
-		sections = append(sections, "Role instructions:\n"+instructions)
-	}
-	sections = append(sections,
-		"Assignment ID: "+assignment.ID,
-		"Execute this assignment as a native Hecate agent_loop task. Keep outputs and artifacts linked to this work item.",
-	)
 	return strings.Join(sections, "\n\n")
 }
 
 func projectAssignmentSystemPrompt(project projects.Project, role projectwork.AgentRoleProfile) string {
 	var parts []string
 	if prompt := strings.TrimSpace(project.DefaultSystemPrompt); prompt != "" {
-		parts = append(parts, prompt)
+		parts = append(parts, "Project system prompt:\n"+prompt)
 	}
 	if instructions := strings.TrimSpace(role.Instructions); instructions != "" {
-		parts = append(parts, instructions)
+		parts = append(parts, "Role instructions:\n"+instructions)
 	} else if role.Name != "" {
 		parts = append(parts, "Act as the "+strings.TrimSpace(role.Name)+" for this project work assignment.")
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+type assignmentHint struct {
+	label string
+	value string
+}
+
+func formatAssignmentHints(items []assignmentHint) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		value := strings.TrimSpace(item.value)
+		if value == "" {
+			continue
+		}
+		parts = append(parts, item.label+"="+value)
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func labelWithID(label, id string) string {
+	label = strings.TrimSpace(label)
+	id = strings.TrimSpace(id)
+	if label != "" && id != "" {
+		return label + " (" + id + ")"
+	}
+	return firstNonEmpty(label, id)
+}
+
+func launchContextBullet(label, value string) string {
+	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\r", "\n"), "\n")
+	if len(lines) == 0 {
+		return "- " + label + ": "
+	}
+	if len(lines) == 1 {
+		return "- " + label + ": " + lines[0]
+	}
+	return "- " + label + ": " + lines[0] + "\n  " + strings.Join(lines[1:], "\n  ")
 }
 
 func projectWorkAssignmentStatusFromRun(status string) string {

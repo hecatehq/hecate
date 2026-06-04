@@ -5,6 +5,7 @@ import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
 import {
   createRuntimeConsoleActions,
   createRuntimeConsoleFixture,
+  type RuntimeConsoleFixtureActions,
 } from "../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../test/runtime-console-render";
 import {
@@ -448,7 +449,9 @@ describe("ConsoleShell navigation", () => {
   });
 
   it("creates new chats inside the selected project scope", async () => {
-    const createChatSession = vi.fn(async () => undefined);
+    const createChatSession = vi.fn<RuntimeConsoleFixtureActions["createChatSession"]>(
+      async () => undefined,
+    );
     const state = createRuntimeConsoleFixture({
       agentWorkspace: "/Users/alice/dev/hecate",
       projects: [
@@ -488,7 +491,9 @@ describe("ConsoleShell navigation", () => {
   });
 
   it("forces Hecate chats when opening chat from a project assignment", async () => {
-    const createChatSession = vi.fn(async () => undefined);
+    const createChatSession = vi.fn<RuntimeConsoleFixtureActions["createChatSession"]>(
+      async () => undefined,
+    );
     const onSelectWorkspace = vi.fn();
     const project = {
       id: "proj_1",
@@ -542,6 +547,12 @@ describe("ConsoleShell navigation", () => {
           id: "software_developer",
           project_id: project.id,
           name: "Software developer",
+          description: "Owns implementation work.",
+          instructions: "Keep changes reviewable.",
+          default_driver_kind: "hecate_task",
+          default_provider: "anthropic",
+          default_model: "claude-sonnet-4",
+          default_agent_profile: "implementation",
           built_in: true,
         },
       ],
@@ -576,12 +587,25 @@ describe("ConsoleShell navigation", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open chat" }));
 
-    expect(createChatSession).toHaveBeenCalledWith({
-      agentID: "hecate",
-      projectID: project.id,
-      provider: "ollama",
-      model: "qwen2.5-coder",
-    });
+    expect(createChatSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentID: "hecate",
+        projectID: project.id,
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        title: "Build cockpit UI - Software developer",
+      }),
+    );
+    const request = createChatSession.mock.calls[0]?.[0];
+    expect(request?.draft).toContain("Launch context");
+    expect(request?.draft).toContain("Project: Hecate (proj_1)");
+    expect(request?.draft).toContain("- Brief: Open a model chat from this assignment.");
+    expect(request?.draft).toContain("- Name: Software developer");
+    expect(request?.draft).toContain("- Provider: ollama");
+    expect(request?.draft).toContain("- Model: qwen2.5-coder");
+    expect(request?.draft).toContain(
+      "Role defaults: driver=hecate_task, provider=anthropic, model=claude-sonnet-4, profile=implementation",
+    );
     expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
   });
 

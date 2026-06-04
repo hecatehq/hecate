@@ -871,6 +871,60 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.model).toBe("llama3.1:8b");
   });
 
+  it("creates a scoped Hecate chat with a launch title and editable draft", async () => {
+    window.localStorage.setItem("hecate.chatToolsEnabled", "false");
+    let createBody: any = null;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_assignment",
+                title: createBody.title,
+                project_id: createBody.project_id,
+                agent_id: "hecate",
+                provider: createBody.provider,
+                model: createBody.model,
+                status: "idle",
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession({
+        agentID: "hecate",
+        projectID: "proj_1",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        title: "Build cockpit UI - Software developer",
+        draft: "Launch context\n\nProject: Hecate (proj_1)\n\nRequest:\n- ",
+      });
+    });
+
+    expect(createBody).toMatchObject({
+      title: "Build cockpit UI - Software developer",
+      agent_id: "hecate",
+      project_id: "proj_1",
+      provider: "ollama",
+      model: "qwen2.5-coder",
+    });
+    expect(result.current.state.activeChatSessionID).toBe("chat_assignment");
+    expect(result.current.state.message).toBe(
+      "Launch context\n\nProject: Hecate (proj_1)\n\nRequest:\n- ",
+    );
+  });
+
   it("does not fall back to ambient provider or model when scoped launch passes explicit empty values", async () => {
     window.localStorage.setItem("hecate.chatToolsEnabled", "false");
     window.localStorage.setItem("hecate.providerFilter", "openai");

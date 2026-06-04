@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -28,6 +29,47 @@ func newProjectWorkTestServer() (*Handler, http.Handler) {
 	handler.SetProjectStore(projects.NewMemoryStore())
 	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
 	return handler, NewServer(quietLogger(), handler)
+}
+
+type launchContextContract struct {
+	Sections []string            `json:"sections"`
+	Fields   map[string][]string `json:"fields"`
+}
+
+func loadLaunchContextContract(t *testing.T) launchContextContract {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "ui", "src", "test", "fixtures", "launch-context-v1-contract.json"))
+	if err != nil {
+		t.Fatalf("Read launch context contract: %v", err)
+	}
+	var contract launchContextContract
+	if err := json.Unmarshal(data, &contract); err != nil {
+		t.Fatalf("Decode launch context contract: %v", err)
+	}
+	return contract
+}
+
+func assertLaunchContextContract(t *testing.T, text string) {
+	t.Helper()
+	contract := loadLaunchContextContract(t)
+	for _, section := range contract.Sections {
+		if section == "Project" {
+			if !strings.Contains(text, "Project:") {
+				t.Fatalf("launch context missing project label: %q", text)
+			}
+			continue
+		}
+		if !strings.Contains(text, section) {
+			t.Fatalf("launch context missing section %q: %q", section, text)
+		}
+	}
+	for _, fields := range contract.Fields {
+		for _, field := range fields {
+			if !strings.Contains(text, "- "+field+":") {
+				t.Fatalf("launch context missing field %q: %q", field, text)
+			}
+		}
+	}
 }
 
 func TestProjectWorkAPI_CRUD(t *testing.T) {
@@ -396,7 +438,23 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 			t.Fatalf("task prompt = %q, want %q", task.Prompt, want)
 		}
 	}
-	if !strings.Contains(task.SystemPrompt, "Follow backend invariants.") || !strings.Contains(task.SystemPrompt, "Project default system prompt.") {
+	assertLaunchContextContract(t, task.Prompt)
+	for _, want := range []string{
+		"Launch context",
+		"Project: Hecate (proj_start)",
+		"Work item:\n- Title: Native assignment start",
+		"Assignment:\n- ID: asgn_start",
+		"Role:\n- Name: Backend engineer",
+		"Execution hints:\n- Driver: hecate_task\n- Provider: anthropic\n- Model: claude-sonnet-4\n- Profile: implementation",
+		"Role defaults: provider=anthropic, model=claude-sonnet-4, profile=implementation",
+		"Project defaults: provider=ollama, model=qwen2.5-coder, workspace_mode=in_place",
+		"Request:\nExecute this assignment as a native agent_loop task.",
+	} {
+		if !strings.Contains(task.Prompt, want) {
+			t.Fatalf("task prompt = %q, want launch context fragment %q", task.Prompt, want)
+		}
+	}
+	if !strings.Contains(task.SystemPrompt, "Role instructions:\nFollow backend invariants.") || !strings.Contains(task.SystemPrompt, "Project system prompt:\nProject default system prompt.") {
 		t.Fatalf("task system_prompt = %q, want role and project prompts", task.SystemPrompt)
 	}
 	if _, found, err := handler.taskStore.GetRun(t.Context(), task.ID, assignment.Data.RunID); err != nil || !found {
@@ -430,6 +488,59 @@ func TestProjectWorkAPI_StartAssignmentFallsBackToProjectDefaults(t *testing.T) 
 	}
 	if task.RequestedProvider != "ollama" || task.RequestedModel != "qwen2.5-coder" || task.ExecutionProfile != "project_review" {
 		t.Fatalf("task provider/model/profile = %q/%q/%q, want project defaults", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
+	}
+	for _, want := range []string{
+		"- Provider: ollama",
+		"- Model: qwen2.5-coder",
+		"- Profile: project_review",
+		"Role defaults: none",
+		"Project defaults: provider=ollama, model=qwen2.5-coder, profile=project_review, workspace_mode=in_place",
+	} {
+		if !strings.Contains(task.Prompt, want) {
+			t.Fatalf("task prompt = %q, want project-default fragment %q", task.Prompt, want)
+		}
+	}
+}
+
+func TestProjectWorkAPI_AssignmentPromptIndentsMultilineLaunchContextValues(t *testing.T) {
+	t.Parallel()
+	prompt := projectAssignmentPrompt(
+		projects.Project{
+			ID:              "proj_multiline",
+			Name:            "Hecate",
+			DefaultProvider: "ollama",
+			DefaultModel:    "qwen2.5-coder",
+		},
+		projectwork.WorkItem{
+			ID:       "work_multiline",
+			Title:    "Launch context",
+			Brief:    "Expose project work.\nKeep the first launch editable.",
+			Status:   projectwork.WorkItemStatusReady,
+			Priority: "high",
+		},
+		projectwork.Assignment{
+			ID:         "asgn_multiline",
+			RoleID:     "role_multiline",
+			DriverKind: projectwork.AssignmentDriverHecateTask,
+			Status:     projectwork.AssignmentStatusQueued,
+		},
+		projectwork.AgentRoleProfile{
+			ID:           "role_multiline",
+			Name:         "Software developer",
+			Description:  "Owns implementation work.\nCoordinates with review.",
+			Instructions: "Keep changes reviewable.\nCall out risks.",
+		},
+	)
+
+	assertLaunchContextContract(t, prompt)
+	for _, want := range []string{
+		"- Brief: Expose project work.\n  Keep the first launch editable.",
+		"- Description: Owns implementation work.\n  Coordinates with review.",
+		"- Instructions: Keep changes reviewable.\n  Call out risks.",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt = %q, want indented multiline fragment %q", prompt, want)
+		}
 	}
 }
 

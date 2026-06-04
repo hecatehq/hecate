@@ -184,6 +184,8 @@ export type CreateChatSessionOptions = {
   projectID?: string;
   provider?: string;
   model?: string;
+  title?: string;
+  draft?: string;
 };
 
 type ChatActionsReturn = {
@@ -810,6 +812,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
 
   async function createChatSession(options?: CreateChatSessionOptions) {
     const requestedAgentID = options?.agentID?.trim();
+    const requestedTitle = options?.title?.trim() || "";
+    const requestedDraft = options?.draft ?? "";
     const createProjectID =
       options && "projectID" in options ? options.projectID?.trim() || "" : activeProjectID;
     const requestedProviderFilter = (
@@ -836,7 +840,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         const adapter = agentAdapters.find((item) => item.id === externalAgentID);
         const configOptions = configOptionsForExternalAgent(externalAgentID);
         const created = await createChatSessionRequest({
-          title: adapter ? `${adapter.name} chat` : "External agent chat",
+          title: requestedTitle || (adapter ? `${adapter.name} chat` : "External agent chat"),
           ...(createProjectID ? { project_id: createProjectID } : {}),
           agent_id: externalAgentID,
           workspace,
@@ -844,6 +848,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         });
         setActiveChatSessionID(created.data.id);
         applyChatSession(created.data);
+        if (requestedDraft) {
+          setMessage(requestedDraft);
+        }
       } catch (error) {
         setChatErrorState(error, "failed to create external agent chat");
         params.setNoticeMessage(
@@ -890,6 +897,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     clearChatErrorState();
     try {
       const created = await createChatSessionRequest({
+        ...(requestedTitle ? { title: requestedTitle } : {}),
         ...(createProjectID ? { project_id: createProjectID } : {}),
         agent_id: "hecate",
         provider: requestedProviderFilter === "auto" ? "" : requestedProviderFilter,
@@ -913,6 +921,9 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         return next;
       });
       applyChatSession(created.data);
+      if (requestedDraft) {
+        setMessage(requestedDraft);
+      }
     } catch (error) {
       setChatErrorState(error, "failed to create Hecate chat");
       if (!isExpectedHecateChatSetupError(error)) {
