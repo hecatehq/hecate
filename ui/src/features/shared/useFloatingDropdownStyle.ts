@@ -21,6 +21,8 @@
 import { useEffect, useState } from "react";
 import type React from "react";
 
+const FLOATING_DROPDOWN_Z_INDEX = 1000;
+
 export function useFloatingDropdownStyle(
   triggerRef: React.RefObject<HTMLElement | null>,
   open: boolean,
@@ -47,7 +49,10 @@ export function useFloatingDropdownStyle(
       // aligned model picker.
       const next: React.CSSProperties = {
         position: "fixed",
-        zIndex: 200,
+        // Floating menus must sit above modal/slideover chrome and any
+        // sibling form controls while staying in the dialog subtree for
+        // focus-trap and outside-click behavior.
+        zIndex: FLOATING_DROPDOWN_Z_INDEX,
       };
       if (placement === "up") {
         next.bottom = window.innerHeight - r.top + 4;

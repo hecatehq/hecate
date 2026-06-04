@@ -575,6 +575,15 @@ describe("ProviderPicker", () => {
     expect(onChange).toHaveBeenCalledWith("");
   });
 
+  it("opens on the floating overlay layer", async () => {
+    const user = userEvent.setup();
+    render(<ProviderPicker value="" onChange={() => {}} options={options} />);
+    await user.click(screen.getByRole("button"));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    await waitFor(() => expect(menu.style.position).toBe("fixed"));
+    expect(menu.style.zIndex).toBe("1000");
+  });
+
   it("emits the option id (not the display name) when a row is clicked", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
@@ -646,6 +655,22 @@ describe("ProviderPicker", () => {
       />,
     );
     expect(screen.getByRole("button").textContent).toContain("no providers configured");
+  });
+
+  it("shows a visible empty row when opening an empty provider menu", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderPicker
+        value=""
+        onChange={() => {}}
+        options={[]}
+        emptyLabel="no providers configured"
+      />,
+    );
+
+    await user.click(screen.getByRole("button"));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    expect(within(menu).getByRole("option", { name: /no providers configured/i })).toBeTruthy();
   });
 
   it("autoLabel still wins over emptyLabel when value matches autoValue", () => {

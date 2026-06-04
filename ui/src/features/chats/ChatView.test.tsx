@@ -100,6 +100,17 @@ function expectBefore(before: Element, after: Element) {
   expect(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 }
 
+function mockTextareaScrollHeight(textarea: HTMLTextAreaElement, initial: number) {
+  let scrollHeight = initial;
+  Object.defineProperty(textarea, "scrollHeight", {
+    configurable: true,
+    get: () => scrollHeight,
+  });
+  return (next: number) => {
+    scrollHeight = next;
+  };
+}
+
 describe("ChatView input", () => {
   it("renders Hecate first in the unified agent picker", async () => {
     const { state, actions } = setup({
@@ -828,6 +839,61 @@ describe("ChatView input", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
+  });
+
+  it("does not render a manual composer panel resize handle", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      message: "hello",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.queryByRole("separator", { name: "Resize chat composer panel" })).toBeNull();
+  });
+
+  it("grows and shrinks the message box as lines are added or removed", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      message: "hello",
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    const setScrollHeight = mockTextareaScrollHeight(textarea, 80);
+
+    fireEvent.input(textarea);
+    const grownHeight = Number.parseFloat(textarea.style.height);
+    expect(grownHeight).toBeGreaterThan(60);
+    expect(textarea.style.overflowY).toBe("hidden");
+
+    setScrollHeight(70);
+    fireEvent.input(textarea);
+    expect(Number.parseFloat(textarea.style.height)).toBeLessThan(grownHeight);
+    expect(textarea.style.overflowY).toBe("hidden");
+  });
+
+  it("caps the message box at ten lines and makes it scrollable", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      defaultChatToolsEnabled: false,
+      message: Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join("\n"),
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    const setScrollHeight = mockTextareaScrollHeight(textarea, 400);
+
+    fireEvent.input(textarea);
+    const cappedHeight = Number.parseFloat(textarea.style.height);
+    expect(cappedHeight).toBeLessThan(240);
+    expect(textarea.style.overflowY).toBe("auto");
+
+    setScrollHeight(220);
+    fireEvent.input(textarea);
+    expect(Number.parseFloat(textarea.style.height)).toBe(cappedHeight);
+    expect(textarea.style.overflowY).toBe("auto");
   });
 
   it("keeps Hecate Chat composer editable but blocks send until a model is selected", () => {

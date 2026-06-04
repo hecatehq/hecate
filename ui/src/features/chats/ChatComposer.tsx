@@ -31,6 +31,14 @@ import {
 import { ChatNoticeInline } from "./ChatNotice";
 import { mergeAgentConfigOptions } from "./agentConfigOptions";
 
+const COMPOSER_TEXTAREA_MAX_LINES = 10;
+const COMPOSER_TEXTAREA_MIN_HEIGHT = 42;
+type ComposerTextareaNumericStyle =
+  | "paddingTop"
+  | "paddingBottom"
+  | "borderTopWidth"
+  | "borderBottomWidth";
+
 type HecateProviderOption = {
   id: string;
   name: string;
@@ -217,6 +225,12 @@ export function ChatComposer(props: ChatComposerProps) {
     messageHistoryCursorRef.current = null;
     messageHistoryPendingTextRef.current = "";
   }, [activeSessionID]);
+
+  useEffect(() => {
+    const node = textareaRef.current;
+    if (!node || !composerVisible) return;
+    adjustComposerTextareaHeight(node);
+  }, [composerVisible, message, textareaRef]);
 
   function setComposerText(value: string, cursorAtEnd = false) {
     runtime.actions.setMessage(value);
@@ -508,7 +522,13 @@ export function ChatComposer(props: ChatComposerProps) {
               ))}
             </div>
           )}
-          <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
+          <div
+            style={{
+              maxWidth: 820,
+              margin: "0 auto",
+              position: "relative",
+            }}
+          >
             <textarea
               ref={textareaRef}
               aria-label="Message"
@@ -529,20 +549,16 @@ export function ChatComposer(props: ChatComposerProps) {
                 color: "var(--t0)",
                 fontFamily: "var(--font-sans)",
                 fontSize: 13,
+                boxSizing: "border-box",
                 padding: "10px 44px 10px 12px",
                 outline: "none",
                 resize: "none",
                 lineHeight: 1.5,
                 transition: "border-color 0.1s",
-                minHeight: 42,
-                maxHeight: 160,
-                overflowY: "auto",
+                minHeight: COMPOSER_TEXTAREA_MIN_HEIGHT,
+                overflowY: "hidden",
               }}
-              onInput={(e) => {
-                const el = e.target as HTMLTextAreaElement;
-                el.style.height = "auto";
-                el.style.height = Math.min(el.scrollHeight, 160) + "px";
-              }}
+              onInput={(e) => adjustComposerTextareaHeight(e.target as HTMLTextAreaElement)}
               onFocus={(e) => (e.target.style.borderColor = "var(--teal)")}
               onBlur={(e) => (e.target.style.borderColor = "var(--border)")}
             />
@@ -726,6 +742,41 @@ export function ChatComposer(props: ChatComposerProps) {
       )}
     </form>
   );
+}
+
+function adjustComposerTextareaHeight(textarea: HTMLTextAreaElement) {
+  const maxHeight = composerTextareaMaxHeight(textarea);
+  const borderHeight =
+    numericStyleValue(textarea, "borderTopWidth") +
+    numericStyleValue(textarea, "borderBottomWidth");
+  textarea.style.height = "auto";
+  const nextHeight = Math.min(
+    Math.max(textarea.scrollHeight + borderHeight, COMPOSER_TEXTAREA_MIN_HEIGHT),
+    maxHeight,
+  );
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight + borderHeight > maxHeight ? "auto" : "hidden";
+}
+
+function composerTextareaMaxHeight(textarea: HTMLTextAreaElement) {
+  const style = window.getComputedStyle(textarea);
+  const fontSize = Number.parseFloat(style.fontSize) || 13;
+  const parsedLineHeight = Number.parseFloat(style.lineHeight);
+  const lineHeight = Number.isFinite(parsedLineHeight)
+    ? style.lineHeight.endsWith("px")
+      ? parsedLineHeight
+      : parsedLineHeight * fontSize
+    : fontSize * 1.5;
+  const paddingHeight =
+    numericStyleValue(textarea, "paddingTop") + numericStyleValue(textarea, "paddingBottom");
+  const borderHeight =
+    numericStyleValue(textarea, "borderTopWidth") +
+    numericStyleValue(textarea, "borderBottomWidth");
+  return Math.ceil(lineHeight * COMPOSER_TEXTAREA_MAX_LINES + paddingHeight + borderHeight);
+}
+
+function numericStyleValue(element: HTMLElement, property: ComposerTextareaNumericStyle) {
+  return Number.parseFloat(window.getComputedStyle(element)[property]) || 0;
 }
 
 export function ChatErrorPanel({

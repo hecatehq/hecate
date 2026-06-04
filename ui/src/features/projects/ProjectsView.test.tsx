@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
 import { ProjectsProvider } from "../../app/state/projects";
+import { SettingsProvider } from "../../app/state/settings";
 import {
   createProjectAssignment,
   createProjectWorkRole,
@@ -299,9 +300,11 @@ function resetProjectWorkMocks() {
 function directWrapper(initialState: Parameters<typeof ProjectsProvider>[0]["initialState"]) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <ProvidersAndModelsProvider>
-        <ProjectsProvider initialState={initialState}>{children}</ProjectsProvider>
-      </ProvidersAndModelsProvider>
+      <SettingsProvider>
+        <ProvidersAndModelsProvider>
+          <ProjectsProvider initialState={initialState}>{children}</ProjectsProvider>
+        </ProvidersAndModelsProvider>
+      </SettingsProvider>
     );
   };
 }
@@ -1089,15 +1092,22 @@ describe("ProjectsView cockpit", () => {
     const state = createRuntimeConsoleFixture({
       projects: [projectWithUpdatedDefaults],
       activeProjectID: projectWithUpdatedDefaults.id,
-      providers: [
-        {
-          name: "ollama",
-          kind: "local",
-          healthy: true,
-          status: "healthy",
-          credential_state: "not_required",
-        },
-      ],
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: false,
+          },
+        ],
+        policy_rules: [],
+        events: [],
+      },
+      providers: [],
       providerPresets: [
         {
           id: "ollama",
@@ -1127,15 +1137,22 @@ describe("ProjectsView cockpit", () => {
     expect(screen.getByRole("button", { name: /Model picker: ministral-3:latest/i })).toBeTruthy();
     expect(screen.queryByLabelText("Provider ID")).toBeNull();
     expect(screen.queryByLabelText("Model")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /Ollama/ }));
+    const providerMenu = document.querySelector(".dropdown-menu") as HTMLElement;
+    expect(within(providerMenu).getByRole("option", { name: /Ollama/i })).toBeTruthy();
+    await userEvent.click(document.body);
     await userEvent.click(screen.getByRole("button", { name: /Model picker/i }));
     await userEvent.click(await screen.findByText("qwen2.5-coder"));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Workspace mode" }), [
+      "ephemeral",
+    ]);
     expect(screen.getByRole("dialog", { name: "Project defaults" })).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
 
     expect(updateProject).toHaveBeenCalledWith(projectWithUpdatedDefaults.id, {
       default_provider: "ollama",
       default_model: "qwen2.5-coder",
-      default_workspace_mode: "in_place",
+      default_workspace_mode: "ephemeral",
     });
   });
 

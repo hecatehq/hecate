@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "r
 
 import { useProjects } from "../../app/state/projects";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useSettings } from "../../app/state/settings";
 import {
   ApiError,
   createProjectAssignment,
@@ -24,6 +25,7 @@ import {
 } from "../../lib/api";
 import { formatAbsoluteTime } from "../../lib/format";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
+import { providerDisplayName } from "../../lib/provider-utils";
 import type {
   ProjectAssignmentRecord,
   ProjectActivityData,
@@ -177,6 +179,7 @@ const detailStyle: CSSProperties = {
 export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const projects = useProjects();
   const providersAndModels = useProvidersAndModels();
+  const settings = useSettings();
   const [selectedProjectID, setSelectedProjectID] = useState(projects.activeProjectID);
   const [renamingProjectID, setRenamingProjectID] = useState("");
   const [renameValue, setRenameValue] = useState("");
@@ -228,8 +231,33 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const roleByID = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
   const providerPresets = providersAndModels.state.providerPresets;
   const providerOptions = useMemo<ProviderOption[]>(() => {
+    const configuredProviders = settings.state.config?.providers ?? [];
+    if (configuredProviders.length > 0) {
+      return configuredProviders.map((provider) => {
+        const runtimeProvider = providersAndModels.state.providers.find(
+          (item) => item.name === provider.id,
+        );
+        const cloudUnconfigured = provider.kind === "cloud" && !provider.credential_configured;
+        return {
+          id: provider.id,
+          name: providerDisplayName(
+            provider.id,
+            configuredProviders,
+            providerPresets,
+            providersAndModels.state.providers,
+          ),
+          healthy: runtimeProvider?.healthy,
+          kind: provider.kind,
+          configured: provider.credential_configured,
+          disabledReason: cloudUnconfigured
+            ? `Add an API key for ${provider.name || provider.id} in Connections`
+            : undefined,
+        };
+      });
+    }
+
     return providersAndModels.state.providers
-      .filter((provider) => provider.healthy && provider.name)
+      .filter((provider) => provider.name)
       .map((provider) => {
         const preset = providerPresets.find((item) => item.id === provider.name);
         return {
@@ -243,7 +271,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
               provider.credential_state === "not_required"),
         };
       });
-  }, [providerPresets, providersAndModels.state.providers]);
+  }, [providerPresets, providersAndModels.state.providers, settings.state.config?.providers]);
 
   useEffect(() => {
     if (projects.state.projects.length === 0) {
@@ -1580,7 +1608,7 @@ function ProjectDefaultsModal({
   const [form, setForm] = useState<ProjectDefaultsForm>({
     provider: project.default_provider ?? "",
     model: project.default_model ?? "",
-    workspaceMode: project.default_workspace_mode ?? "in_place",
+    workspaceMode: project.default_workspace_mode || "in_place",
   });
   const scopedModels = useMemo(() => {
     if (!form.provider) return models;
@@ -1643,7 +1671,9 @@ function ProjectDefaultsModal({
               value={form.provider}
               onChange={handleProviderChange}
               options={providerOptions}
-              emptyLabel="select provider"
+              emptyLabel={
+                providerOptions.length === 0 ? "no providers configured" : "select provider"
+              }
             />
             <ModelPicker
               value={selectedModel}
@@ -1654,26 +1684,57 @@ function ProjectDefaultsModal({
             />
           </div>
         </div>
-        <label style={fieldStyle}>
+        <div style={fieldStyle}>
           <span style={fieldLabelStyle}>Workspace mode</span>
-          <select
-            className="input"
-            value={form.workspaceMode}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, workspaceMode: event.target.value }))
-            }
-          >
-            <option value="in_place">in_place</option>
-            <option value="persistent">persistent</option>
-            <option value="ephemeral">ephemeral</option>
-          </select>
-        </label>
+          <div style={{ position: "relative", width: "100%" }}>
+            <select
+              aria-label="Workspace mode"
+              className="input"
+              value={normalizeWorkspaceMode(form.workspaceMode)}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, workspaceMode: event.target.value }))
+              }
+              style={{
+                appearance: "none",
+                cursor: "pointer",
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                minHeight: 36,
+                paddingRight: 34,
+              }}
+            >
+              <option value="in_place">in_place</option>
+              <option value="persistent">persistent</option>
+              <option value="ephemeral">ephemeral</option>
+            </select>
+            <span
+              aria-hidden="true"
+              style={{
+                alignItems: "center",
+                color: "var(--t2)",
+                display: "inline-flex",
+                height: "100%",
+                pointerEvents: "none",
+                position: "absolute",
+                right: 11,
+                top: 0,
+              }}
+            >
+              <Icon d={Icons.chevD} size={12} />
+            </span>
+          </div>
+        </div>
         <div style={subtleTextStyle}>
           Native Hecate assignments copy these defaults when creating the backing task.
         </div>
       </form>
     </Modal>
   );
+}
+
+function normalizeWorkspaceMode(value: string) {
+  if (value === "persistent" || value === "ephemeral") return value;
+  return "in_place";
 }
 
 function RolesModal({

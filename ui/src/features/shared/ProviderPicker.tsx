@@ -248,6 +248,29 @@ export function ProviderPicker({
               {options.length > 0 && <div className="dropdown-divider" />}
             </>
           )}
+          {options.length === 0 && (
+            <div
+              className="dropdown-item"
+              role="option"
+              aria-disabled="true"
+              aria-selected="false"
+              style={{ cursor: "default", opacity: 0.7 }}
+            >
+              <Icon d={Icons.providers} size={13} />
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: 12,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  textAlign: "left",
+                }}
+              >
+                {emptyLabel}
+              </span>
+            </div>
+          )}
           {options.map((o) => {
             const disabled = !!o.disabledReason;
             // Key indicator only for cloud providers — local providers
