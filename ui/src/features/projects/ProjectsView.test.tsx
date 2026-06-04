@@ -613,7 +613,9 @@ describe("ProjectsView cockpit", () => {
     );
 
     expect(await screen.findByText("Activity Inbox")).toBeTruthy();
-    expect(screen.getByText("1 assignments across 1 work items")).toBeTruthy();
+    expect(
+      screen.getByText(/1 assignments across 1 work items; newest 20 per bucket/),
+    ).toBeTruthy();
     expect(screen.getAllByText("2 approval pending").length).toBeGreaterThan(0);
     expect(screen.getByText("handoff: Runtime notes")).toBeTruthy();
 

@@ -1550,18 +1550,15 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 
 	artifactsByAssignment, artifactsByWorkItem := groupProjectActivityArtifacts(artifacts)
 	items := make([]ProjectActivityItemResponse, 0, len(assignments))
-	for _, assignment := range assignments {
-		projected, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
-		if err != nil {
-			return ProjectActivityDataResponse{}, err
+	for _, workItem := range projectedWorkItems {
+		for _, projected := range workItem.Assignments {
+			activityArtifacts := artifactsByAssignment[projected.ID]
+			if len(activityArtifacts) == 0 {
+				activityArtifacts = artifactsByWorkItem[projected.WorkItemID]
+			}
+			role, _ := roleByID[projected.RoleID]
+			items = append(items, renderProjectActivityItem(workItem, projected, role, activityArtifacts))
 		}
-		workItem := projectedWorkItems[assignment.WorkItemID]
-		activityArtifacts := artifactsByAssignment[assignment.ID]
-		if len(activityArtifacts) == 0 {
-			activityArtifacts = artifactsByWorkItem[assignment.WorkItemID]
-		}
-		role, _ := roleByID[assignment.RoleID]
-		items = append(items, renderProjectActivityItem(workItem, projected, role, activityArtifacts))
 	}
 	sortProjectActivityItems(items)
 

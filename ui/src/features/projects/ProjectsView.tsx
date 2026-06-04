@@ -1188,6 +1188,7 @@ function ProjectActivityInbox({
     { id: "completed", label: "Completed", count: counts?.completed_count ?? 0 },
     { id: "recent", label: "Recent", count: counts?.recent_count ?? 0 },
   ];
+  const selectedTotal = tabs.find((tab) => tab.id === bucket)?.count ?? selectedItems.length;
 
   if (!project) {
     return null;
@@ -1202,7 +1203,7 @@ function ProjectActivityInbox({
             <div style={{ ...subtleTextStyle, marginTop: 3 }}>
               {loading && !activity
                 ? "Loading project activity…"
-                : `${counts?.assignment_count ?? 0} assignments across ${counts?.work_item_count ?? 0} work items`}
+                : `${counts?.assignment_count ?? 0} assignments across ${counts?.work_item_count ?? 0} work items; newest 20 per bucket`}
             </div>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1227,6 +1228,11 @@ function ProjectActivityInbox({
         )}
         {selectedItems.length > 0 && (
           <div style={{ display: "grid", gap: 8 }}>
+            {selectedTotal > selectedItems.length && (
+              <div style={subtleTextStyle}>
+                Showing {selectedItems.length} of {selectedTotal} {bucket} assignments.
+              </div>
+            )}
             {selectedItems.map((item) => {
               const workItem =
                 workItems.find((candidate) => candidate.id === item.work_item.id) ??
