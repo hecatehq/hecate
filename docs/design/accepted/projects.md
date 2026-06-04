@@ -251,6 +251,9 @@ The Projects UI should stay lightweight but operational:
   items, assignment launch, handoffs, and selected work detail. Timeline /
   Decision Log owns project story and durable decisions. Memory / Context owns
   saved entries, candidates, and context sources.
+- Treat the selected work item as one card. The work title, brief,
+  assignments, collaboration artifacts, and handoffs are one work coordination
+  object with internal sections, not separate dashboard panels.
 - Open Project Settings as the same right-side inspector pattern used by Chat
   settings, with the same right-panel width behavior. Do not use a modal for
   routine project defaults.

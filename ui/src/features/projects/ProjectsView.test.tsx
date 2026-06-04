@@ -602,8 +602,15 @@ describe("ProjectsView index", () => {
     const projectList = screen.getByRole("region", { name: "Projects" });
     const detail = screen.getByRole("region", { name: "Selected work item" });
     const workPanel = screen.getByRole("region", { name: "Work coordination" });
+    const selectedWorkCard = within(detail).getByRole("article", {
+      name: "Build cockpit UI work item",
+    });
     expect(within(projectList).queryByText("/Users/alice/dev/hecate")).toBeNull();
     expect(within(detail).getByText("/Users/alice/dev/hecate · qwen2.5-coder")).toBeTruthy();
+    expect(within(selectedWorkCard).getByText("Brief")).toBeTruthy();
+    expect(within(selectedWorkCard).getByText("Assignments")).toBeTruthy();
+    expect(within(selectedWorkCard).getByText("Collaboration Artifacts")).toBeTruthy();
+    expect(within(selectedWorkCard).getByText("Handoffs")).toBeTruthy();
     const headerActions = within(detail).getByLabelText("Project header actions");
     expect(headerActions).toBeTruthy();
     const actionLabels = within(headerActions)
