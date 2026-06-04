@@ -233,7 +233,7 @@ files without digging through transcript noise.
 
 ![Chats workspace with the Workspace changes panel open, file tree filtering, and a rich per-file diff](docs/screenshots/chat-workspace-diff.png)
 
-### Supervise external agents
+### Supervise External Agents
 
 External Agent sessions run through local ACP-compatible CLIs. Hecate supervises
 the session but does not proxy or pool those vendors' credentials.
@@ -245,7 +245,7 @@ Approvals surface as blocking operator prompts before gated actions can proceed.
 ![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
 
 See [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime/agent-runtime.md),
-and [External agent adapters](docs/runtime/external-agent-adapters.md)
+and [External Agents](docs/runtime/external-agents.md)
 for the deeper contracts.
 
 ## Project, Context, And Memory Flow
@@ -300,7 +300,7 @@ bucket that matches your job.
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Running Hecate locally             | [Desktop app](docs/operator/desktop-app.md), [Deployment](docs/operator/deployment.md), [Security](docs/operator/security.md), [Providers](docs/operator/providers.md)       |
 | Calling Hecate from a client       | [Runtime API](docs/runtime/runtime-api.md), [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime/agent-runtime.md), [Events](docs/runtime/events.md) |
-| Building coding-agent integrations | [External agent adapters](docs/runtime/external-agent-adapters.md), [MCP integration](docs/runtime/mcp.md), [Events](docs/runtime/events.md)                                 |
+| Building coding-agent integrations | [External Agents](docs/runtime/external-agents.md), [MCP integration](docs/runtime/mcp.md), [Events](docs/runtime/events.md)                                                 |
 | Changing the codebase              | [Architecture](docs/contributor/architecture.md), [Development](docs/contributor/development.md), [Release](docs/contributor/release.md), [docs-ai](docs-ai/README.md)       |
 | Planning future runtime behavior   | [Design records](docs/design/README.md), especially the proposal/accepted/candidate bucket before implementation starts.                                                     |
 

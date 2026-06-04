@@ -9,7 +9,7 @@ Implemented behavior lives in:
 - [Runtime API](../runtime/runtime-api.md)
 - [Agent runtime](../runtime/agent-runtime.md)
 - [Chat sessions](../runtime/chat-sessions.md)
-- [External agent adapters](accepted/external-agent-adapters.md)
+- [External Agent integrations](accepted/external-agent-integrations.md)
 - [Events](../runtime/events.md)
 - [Security](../operator/security.md)
 
@@ -57,7 +57,7 @@ for the context packet boundary.
 | Record                                                                            | Bucket      | Notes                                                                                                       |
 | --------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
 | [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)  | Accepted    | Hecate Chat, tools on/off segments, observed capability metadata, profiles, future detection.               |
-| [External agent adapters](accepted/external-agent-adapters.md)                    | Accepted    | Codex, Claude Code, Cursor Agent, Grok Build, ACP controls, approvals, readiness, diagnostics, diff review. |
+| [External Agent integrations](accepted/external-agent-integrations.md)            | Accepted    | Codex, Claude Code, Cursor Agent, Grok Build, ACP controls, approvals, readiness, diagnostics, diff review. |
 | [External Agent approval loop v1](implemented/external-agent-approval-loop-v1.md) | Implemented | Prompt-first approvals, durable grants, startup reconcile, UI review, telemetry.                            |
 
 ### Runtime Contracts
@@ -94,7 +94,7 @@ for the context packet boundary.
 | [LLM context window management](proposals/llm-context-window-management.md)                         | Proposal           | Projects, context, and memory |
 | [Workflow runbooks v0](proposals/workflow-runbooks-v0.md)                                           | Proposal           | Workflow runbooks             |
 | [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)                    | Accepted           | Agent and chat runtime        |
-| [External agent adapters](accepted/external-agent-adapters.md)                                      | Accepted           | Agent and chat runtime        |
+| [External Agent integrations](accepted/external-agent-integrations.md)                              | Accepted           | Agent and chat runtime        |
 | [External Agent approval loop v1](implemented/external-agent-approval-loop-v1.md)                   | Implemented record | Agent and chat runtime        |
 | [Agent event protocol v1](candidates/event-protocol-v1.md)                                          | Candidate          | Runtime contracts             |
 | [Artifact storage v1](candidates/artifact-storage-v1.md)                                            | Candidate          | Runtime contracts             |

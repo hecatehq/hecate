@@ -50,7 +50,7 @@ requirements after the baseline bridge are:
 Hecate originally had two chat-like surfaces:
 
 - **Model chat** for direct OpenAI-/Anthropic-shaped provider traffic.
-- **Agent Chat** for external coding-agent adapters.
+- **External Agent chat** for supervised external coding agents.
 
 That left a gap: Hecate already has a native `agent_loop` runtime with tools,
 approvals, artifacts, resumable runs, and telemetry, but there was no chat UX
@@ -171,7 +171,7 @@ sessions use `agent_id="hecate"`.
 
 Agent profiles are saved runtime configurations for Hecate Chat or an external
 agent. They should not be confused with presets, which are authoring-time
-templates, or with External Agent adapters, which are supervised subprocesses.
+templates, or with External Agent integrations, which are supervised subprocesses.
 
 A profile defines:
 

@@ -2,7 +2,7 @@
 
 > **Status:** proposed; not implemented.
 > **Current source of truth:** [Chat sessions](../../runtime/chat-sessions.md) and
-> [External agent adapters](../accepted/external-agent-adapters.md) for today's session
+> [External Agent integrations](../accepted/external-agent-integrations.md) for today's session
 > store and transcript model.
 > **Next action:** keep as-is until import work starts.
 

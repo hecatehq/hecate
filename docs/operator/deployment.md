@@ -139,10 +139,10 @@ Desktop app distinct from `docker run` / bare binary:
 
 Full state, footguns, and roadmap: [`desktop-app.md`](desktop-app.md).
 
-## External-agent startup knobs
+## External Agent startup knobs
 
 Web, Docker, tarball, and native-app launches use the same gateway env vars for
-chat sessions and external-agent adapters. The native app spawns the bundled
+chat sessions and External Agent integrations. The native app spawns the bundled
 `hecate` runtime in gateway mode with these env vars inherited from the app
 process; Docker reads them from `.env` / compose; bare binaries read the shell
 environment.
@@ -158,7 +158,7 @@ Managed launchers are small wrapper scripts around a local package runner such
 as `npx`; Hecate garbage-collects stale launcher names at startup. If you move
 Node/npm managers, restart Hecate and use `POST
 /hecate/v1/agent-adapters/{id}/refresh-launcher` to recreate the affected wrapper.
-Connections probes adapters when the workspace opens; the probe calls
+Connections probes External Agent integrations when the workspace opens; the probe calls
 `POST /hecate/v1/agent-adapters/{id}/probe`, which re-runs discovery and
 performs the ACP handshake so login/billing problems are visible before a chat
 fails.

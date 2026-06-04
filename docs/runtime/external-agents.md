@@ -1,4 +1,4 @@
-# External agents
+# External Agents
 
 Hecate can supervise external coding-agent CLIs from **Chats**. Today that means
 Codex, Claude Code, Cursor Agent, and Grok Build through local ACP sessions.
@@ -14,7 +14,7 @@ agent's native ACP session id. After restart, the next prompt asks the agent
 to `session/load` that native session when supported. If the adapter cannot load
 it, Hecate starts a fresh native session and keeps the Hecate transcript.
 
-## Supported external agents
+## Supported External Agents
 
 | External agent | How Hecate starts it                                                                                                      | Auth expected by the underlying agent                              |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |

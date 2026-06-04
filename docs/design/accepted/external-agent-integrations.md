@@ -1,7 +1,7 @@
-# External Agent Adapters — Accepted Design Record
+# External Agent Integrations — Accepted Design Record
 
 > **Status:** accepted; partially implemented alpha baseline.
-> **Current source of truth:** [External agent adapters](../../runtime/external-agent-adapters.md),
+> **Current source of truth:** [External Agents](../../runtime/external-agents.md),
 > [Chat sessions](../../runtime/chat-sessions.md), and [Runtime API](../../runtime/runtime-api.md).
 > **Next action:** keep improving adapter-specific structured mapping, patch
 > review UX, and convergence with task-runtime primitives.
@@ -261,7 +261,7 @@ Do not log prompts by default outside existing debug/redaction rules.
 
 ## Security And Policy
 
-External agent adapters are high-risk because they run third-party CLIs that may
+The External Agent adapter layer is high-risk because it runs third-party CLIs that may
 themselves execute tools.
 
 First-version safety rules:

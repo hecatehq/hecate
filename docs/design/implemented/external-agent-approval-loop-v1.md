@@ -3,7 +3,7 @@
 > **Status:** implemented record for alpha. Wire shape, persistence, SSE, UI,
 > grants management, telemetry, and migration docs have landed.
 > **Current source of truth:** [Runtime API](../../runtime/runtime-api.md),
-> [External agent adapters](../accepted/external-agent-adapters.md), and
+> [External Agent integrations](../accepted/external-agent-integrations.md), and
 > [Chat sessions](../../runtime/chat-sessions.md).
 > **Next action:** keep as design history unless the approval contract changes
 > before beta.
@@ -99,7 +99,7 @@ chat_approval
 ```
 
 A future "everything is a Task" convergence (see the Agent Chat → Tasks
-migration notes in [`external-agent-adapters.md`](../accepted/external-agent-adapters.md))
+migration notes in [`external-agent-integrations.md`](../accepted/external-agent-integrations.md))
 collapses this back into `task_approval` with a discriminator. v1 doesn't try
 to land that yet.
 
