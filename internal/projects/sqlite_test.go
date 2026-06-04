@@ -92,7 +92,7 @@ func TestSQLiteStore_ProjectRoundTrip(t *testing.T) {
 		item.Name = "Renamed"
 		item.Roots = []Root{{ID: "root_beta", Path: "/tmp/renamed", Active: true}}
 		item.DefaultRootID = "root_beta"
-		item.ContextSources = []ContextSource{{ID: "ctx_architecture", Path: "docs/architecture.md", Enabled: true}}
+		item.ContextSources = []ContextSource{{ID: "ctx_architecture", Path: "docs/contributor/architecture.md", Enabled: true}}
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
@@ -111,7 +111,7 @@ func TestSQLiteStore_ProjectRoundTrip(t *testing.T) {
 	if len(items) != 1 || items[0].ID != "proj_alpha" {
 		t.Fatalf("items = %+v, want one project", items)
 	}
-	if len(items[0].ContextSources) != 1 || items[0].ContextSources[0].Path != "docs/architecture.md" {
+	if len(items[0].ContextSources) != 1 || items[0].ContextSources[0].Path != "docs/contributor/architecture.md" {
 		t.Fatalf("listed context sources = %+v, want replaced source", items[0].ContextSources)
 	}
 

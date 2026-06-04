@@ -81,7 +81,7 @@ export type RuntimeHeaders = {
 // MCPCacheStatsResponse is the wire shape for GET /hecate/v1/system/mcp/cache.
 // `configured: false` means no cache is wired; the counters still
 // render as zeros so the UI can show a "no cache" cell instead of
-// error-handling a 4xx. See docs/mcp.md "Lifecycle and caching"
+// error-handling a 4xx. See docs/runtime/mcp.md "Lifecycle and caching"
 // for the underlying contract.
 export type MCPCacheStatsResponse = {
   object: string;

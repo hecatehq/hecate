@@ -35,14 +35,14 @@ After each logical step:
 4. New or updated tests match the local pattern — table-driven where the variant set is obvious, named `TestPackage_Behavior`.
 5. Docs updated in the same change (not as a follow-up):
 
-| Change                                     | Doc                                                                 |
-| ------------------------------------------ | ------------------------------------------------------------------- |
-| New env var                                | `.env.example` AND the relevant `docs/<feature>.md` env-var table   |
-| New API field                              | `docs/runtime-api.md` (or wherever the contract lives)              |
-| New event type                             | Event-protocol taxonomy check + `docs/events.md` with payload shape |
-| New built-in tool                          | `docs/agent-runtime.md` and/or `docs/mcp.md`                        |
-| New behavior on the api↔providers boundary | both sides' tests                                                   |
-| New isolation / sandbox capability         | `docs/sandbox.md`                                                   |
+| Change                                     | Doc                                                                         |
+| ------------------------------------------ | --------------------------------------------------------------------------- |
+| New env var                                | `.env.example` AND the relevant `docs/<feature>.md` env-var table           |
+| New API field                              | `docs/runtime/runtime-api.md` (or wherever the contract lives)              |
+| New event type                             | Event-protocol taxonomy check + `docs/runtime/events.md` with payload shape |
+| New built-in tool                          | `docs/runtime/agent-runtime.md` and/or `docs/runtime/mcp.md`                |
+| New behavior on the api↔providers boundary | both sides' tests                                                           |
+| New isolation / sandbox capability         | `docs/runtime/sandbox.md`                                                   |
 
 6. The related verification ladder has been run before creating or updating a
    PR. If a required command cannot run, the PR/update summary says why.

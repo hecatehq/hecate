@@ -17,7 +17,7 @@ How to write a plan when [`../core/workflow.md`](../core/workflow.md) says "stop
 2. **Constraints and assumptions** — bullets. Surface what the plan takes as given (existing code, conventions, performance, compatibility, operator model).
 3. **Options considered** — for non-trivial design choices, one to three options with concrete pros and cons. Tables work well here.
 4. **Recommendation** — one option called out. State the trade-off being accepted.
-5. **Acceptance criteria** — specific, verifiable. "The race suite passes; the new event appears in `docs/events.md`; the UI snapshot reflects the new prop" beats "tested and documented".
+5. **Acceptance criteria** — specific, verifiable. "The race suite passes; the new event appears in `docs/runtime/events.md`; the UI snapshot reflects the new prop" beats "tested and documented".
 6. **Risks and mitigations** — what could go wrong; what catches it.
 7. **Migration and rollback** — when relevant. Env knobs, schema changes, wire-shape compat, UI affordance toggles, rollback path.
 

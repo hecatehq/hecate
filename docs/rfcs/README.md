@@ -1,87 +1,14 @@
-# Hecate RFCs
+# Design Records Moved
 
-Design contracts in this directory are product and architecture notes. Some are
-active proposals, some are accepted alpha direction, and some are implemented
-records kept for context. They are not semver-backed API promises unless the
-implemented runtime docs say so.
+The old RFC index moved to [Design records](../design/).
 
-Implemented runtime behavior lives in the main docs:
+Use lifecycle buckets there instead of adding new records to `docs/design/`:
 
-- [Events](../events.md) — event names and payloads emitted today.
-- [Runtime API](../runtime-api.md) — current task/run/approval endpoints.
-- [Chat sessions](../chat-sessions.md) — current Hecate Chat and External
-  Agent session behavior.
-- [External agent adapters](../external-agent-adapters.md) — current Codex,
-  Claude Code, and Cursor operator flow.
+- [Proposals](../design/proposals/)
+- [Accepted](../design/accepted/)
+- [Candidates](../design/candidates/)
+- [Implemented](../design/implemented/)
+- [Parking lot](../design/parking-lot/)
+- [Audits](../design/audits/)
 
-## Status Labels
-
-| Status             | Meaning                                                                                  |
-| ------------------ | ---------------------------------------------------------------------------------------- |
-| Proposed           | Direction is written down, but implementation has not started.                           |
-| Accepted           | Direction is agreed for alpha, with implementation either partial or ongoing.            |
-| Candidate          | Some implementation exists, but the wire/payload shape is not stable.                    |
-| Implemented record | Work landed; the RFC remains as design history. Current behavior lives in the main docs. |
-| Parking lot        | Future or experimental ideas that should not drive implementation by themselves.         |
-
-## Accepted / In Progress
-
-| RFC                                                                     | Status                                                                                                                                                                                                                                                                                         | Next action                                                                                                        |
-| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| [Hecate Chat and model capabilities](hecate-chat-model-capabilities.md) | Accepted. Tools on/off segments, task-backed Hecate Chat turns, queued prompts, observed model capability metadata, and shared transcript primitives exist. The RFC still contains some "Hecate Agent" design-history wording; current UI/docs call this Hecate Chat with tools on.            | Implement workspace modes, named agent profiles, richer automatic capability detection, and broader e2e hardening. |
-| [External agent adapters](external-agent-adapters.md)                   | Accepted. Codex, Claude Code, Cursor Agent, readiness, guardrails, approvals, diagnostics, ACP controls, streaming, cancellation, and diff inspect/revert have alpha coverage.                                                                                                                 | Keep improving adapter-specific mapping, patch review UX, and convergence with task-runtime primitives.            |
-| [Projects](projects.md)                                                 | Accepted. The project store and CRUD API foundation exist with memory and SQLite backends. Chat sessions can be grouped by `project_id`, and chat context packets snapshot enabled project context-source metadata plus enabled project memory entries. Tasks and profiles are not linked yet. | Attach tasks to projects, then broaden project-scoped memory selection.                                            |
-
-## Projects, Context, And Memory Track
-
-These RFCs are intentionally small and layered:
-
-1. [Projects](projects.md) provide durable identity for a codebase or work area.
-2. Agent profiles describe reusable runtime behavior for Hecate Chat or an
-   external agent. Presets are templates that create or update profiles/project
-   defaults; they are not runtime identity.
-3. [Context assembly](context-assembly-and-injection-boundaries.md) turns chat,
-   project, profile, future memory, workspace, runtime, and collaboration
-   inputs into an inspectable context packet.
-4. [Agent memory](agent-memory.md) stores operator-approved durable context,
-   with project memory as the default shared scope.
-5. [Context window management](llm-context-window-management.md) fits that
-   packet into a model limit without changing trust labels or source authority.
-
-This ordering matters for project-team orchestration. Work-item briefs,
-handoffs, reviews, and decision notes should enter agent calls through context
-packets first; durable memory and automated summarization should come later so
-Hecate can always answer what each agent saw and why.
-
-## Active Proposals
-
-| RFC                                                                                       | Status                                                                                                                                                                                                                                                            | Next action                                                                                                |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [CLI structure](cli-structure.md)                                                         | Proposed. Bare `hecate` should become the terminal operator UI; runtime launch moves to `serve`.                                                                                                                                                                  | Land the structured command package, `hecate serve`, `hecate ui`, and `hecate mcp serve` first.            |
-| [Autoresearch](autoresearch.md)                                                           | Proposed. Bounded command/metric/check experiment loop for local code research; not implemented.                                                                                                                                                                  | Prototype a files-first companion runner against one conformance workflow before promoting to core.        |
-| [Migration CLI](migration-cli.md)                                                         | Proposed. No dedicated migration/rollback CLI exists yet.                                                                                                                                                                                                         | Design `hecate migrate` around the current SQLite migration packages.                                      |
-| [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md) | Proposed; partially implemented. Chat context packets now persist itemized visible metadata with trust labels and provenance, including enabled project memory entry snapshots, but Hecate does not yet assemble full prompt bodies, summaries, or token fitting. | Use itemized packets as the audit boundary before summarization or multi-agent project-team execution.     |
-| [Agent memory](agent-memory.md)                                                           | Proposed; partially implemented. Project-scoped structured memory entries exist with operator-driven CRUD, memory/SQLite storage parity, and visible context-packet inclusion. Global/profile memory and memory candidates remain future work.                    | Keep expanding memory only through explicit operator-controlled promotion and inspectable context packets. |
-| [LLM context window management](llm-context-window-management.md)                         | Proposed. Hecate still needs token estimation, context warnings/caps, and optional fitting policies.                                                                                                                                                              | Use context packets as the estimator input; keep trust decisions in context assembly.                      |
-| [Import external chat history](import-external-chat-history.md)                           | Proposed. Import from Claude Code and Codex transcripts is not implemented.                                                                                                                                                                                       | Keep as-is until import work starts.                                                                       |
-| [Embeddings](embeddings.md)                                                               | Proposed. OpenAI-compatible embeddings routing is not implemented.                                                                                                                                                                                                | Refresh provider/capability references before implementation.                                              |
-| [Provider response extensions](provider-response-extensions.md)                           | Proposed. Vendor-specific response extras are still not preserved end-to-end.                                                                                                                                                                                     | Use when adding Perplexity citations, DeepSeek/xAI reasoning content, or Gemini citation metadata.         |
-
-## Candidate Contracts
-
-| RFC                                             | Status                                                                                                                                       | Next action                                                                           |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [Agent event protocol v1](event-protocol-v1.md) | Candidate. The envelope exists for task-run event APIs; payload schemas are not stable.                                                      | Align event names/payloads with current task/chat artifacts before calling v1 stable. |
-| [Artifact storage v1](artifact-storage-v1.md)   | Candidate / partially superseded. Task artifacts and chat diff inspect/revert exist, but this RFC is broader than the shipped alpha surface. | Rewrite before exposing a standalone artifact API.                                    |
-
-## Implemented Records
-
-| RFC                                                                   | Status                                                                                                                                  | Next action                                                              |
-| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| [External Agent approval loop v1](external-agent-approval-loop-v1.md) | Implemented alpha baseline. Prompt-first approvals, REST/SSE events, durable grants, startup reconcile, UI review, and telemetry exist. | Keep as design history unless the approval contract changes before beta. |
-
-## Parking Lot
-
-| RFC                                                             | Status                                                                                                  | Next action                                                                    |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [Agent event protocol extensions](event-protocol-extensions.md) | Parking lot. Future event groups such as thinking blocks, sub-agents, multimodal output, and branching. | Promote individual ideas into a proposed RFC only when implementation is near. |
+This directory remains only as a short compatibility pointer for older links.

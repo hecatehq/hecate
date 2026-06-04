@@ -1,0 +1,345 @@
+# Context Assembly And Injection Boundaries
+
+> **Status:** proposed; partially implemented.
+> **Current source of truth:** [Chat sessions](../../runtime/chat-sessions.md),
+> [Agent runtime](../../runtime/agent-runtime.md), and [Security](../../operator/security.md) for
+> today's prompt, workspace, tool, and approval behavior.
+> **Next action:** enrich context-packet snapshots for Hecate Chat,
+> task-backed runs, and future project-team assignments before adding durable
+> memory, automatic context summarization, or autonomous multi-agent dispatch.
+
+Hecate is starting to grow several related ideas: projects, chat settings,
+system prompts, task-backed Hecate Chat turns, external-agent transcripts,
+workspace instructions, model capabilities, project-team work items,
+handoffs/reviews, future memory, external memory providers, and future context
+window management. Without a named assembly layer, these concepts blur together
+and invite two bad outcomes:
+
+- Memory becomes "whatever text we prepend to the prompt."
+- Context-window management becomes responsible for security decisions it
+  should not own.
+
+This design record introduces a small, explicit context assembly contract. Context
+assembly decides what information is eligible for a model call, how each piece
+is labelled, what trust boundary it crosses, and how the operator can inspect
+the final packet. Context-window management then decides how that packet fits
+inside a model limit. Agent memory becomes one durable input to the packet, not
+the packet itself. Multi-agent project orchestration should also route briefs,
+handoffs, reviews, and decisions through context packets so every agent
+assignment has a visible provenance chain.
+
+## Relationship To Adjacent Design Records
+
+| Concept                                                               | Owns                                                                                                                                   | Does not own                                                                                                          |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| [**Projects**](../accepted/projects.md)                               | Durable identity for a codebase/work area: defaults, memory scope, history grouping, trusted context sources.                          | Concrete sandbox/workspace execution or per-call prompt rendering.                                                    |
+| **Context assembly** (this RFC)                                       | Source collection, trust labels, injection boundaries, final context packet snapshot, "what did the model see?" UI.                    | Token fitting, summarization algorithms, long-term memory CRUD.                                                       |
+| [**Agent memory**](agent-memory.md)                                   | Durable operator-approved facts and preferences with scopes.                                                                           | Deciding whether an entry fits a model window or whether untrusted content should become memory.                      |
+| [**LLM context window management**](llm-context-window-management.md) | Token estimation, warning/cap thresholds, truncation, summarization, model limit lookup.                                               | Deciding whether a source is trusted, authoritative, or eligible.                                                     |
+| [**Workflow runbooks**](workflow-runbooks-v0.md)                      | Named task patterns that consume context packets, emit evidence artifacts, and propose memory candidates.                              | A separate prompt, memory, approval, artifact, or browser-state subsystem.                                            |
+| **Agent profiles**                                                    | Saved runtime configurations: agent/provider/model controls, tools, RTK, approvals, memory-source selection, and system prompt text.   | Durable project identity, memory storage, or prompt rendering by itself.                                              |
+| **Presets**                                                           | Templates for creating/updating project defaults or agent profiles.                                                                    | Runtime identity. Once applied, the resolved profile/settings are what matter.                                        |
+| **Prompt-injection defense**                                          | Enforced mostly by context assembly: source labels, authority boundaries, and no silent promotion from untrusted text to instructions. | Perfect detection of malicious text. Hecate should label and bound sources, not pretend it can classify every attack. |
+
+## Goals
+
+1. **Make context visible.** Operators can inspect the context packet used for a
+   chat message or task run: system instructions, workspace guidance, selected
+   files, memory entries, summaries, tool output, and untrusted external text.
+2. **Separate authority from evidence.** System instructions, operator-authored
+   memory, workspace docs, tool output, and imported external text are not
+   equivalent. The prompt renderer must preserve that distinction.
+3. **Create a stable input for token budgeting.** Context-window management
+   receives a resolved packet and can count, trim, or summarize it without
+   re-deciding security policy.
+4. **Support future memory safely.** Durable memory entries can be added to the
+   packet only when scoped and visible. Untrusted text cannot silently become
+   memory.
+5. **Preserve auditability.** A completed model call records enough context
+   metadata to answer "why did the model know that?" after the underlying
+   memory, settings, or files change.
+
+## Non-goals
+
+- **Full semantic retrieval.** Embeddings and vector search can suggest
+  candidate context later, but the first assembly layer is source/provenance
+  plumbing.
+- **Automatic memory extraction.** This RFC explicitly keeps memory writes
+  operator-approved. Project memory candidates may capture generated/runtime
+  text for review, but they are not included in context packets and do not
+  become durable memory until the operator promotes them. Auto-extraction needs
+  a separate review and eval story.
+- **Replacing sandbox or approval policy.** Prompt labelling reduces instruction
+  confusion; it does not replace tool sandboxing, approvals, network policy, or
+  workspace validation.
+- **External-agent private context control.** Codex, Claude Code, Cursor, and
+  Grok Build own their internal prompts and history. Hecate can show and label
+  the transcript and raw adapter output it receives, but cannot fully assemble
+  their private model context through ACP today.
+- **Hosted multi-user policy.** Hecate remains local-first and single-operator
+  shaped for this RFC.
+
+## Context Pipeline
+
+The proposed pipeline has five stages:
+
+```mermaid
+flowchart LR
+    A["Source discovery"] --> B["Trust classification"]
+    B --> C["Context packet snapshot"]
+    C --> D["Window management"]
+    D --> E["Provider prompt rendering"]
+```
+
+### 1. Source Discovery
+
+Candidate sources are collected from the active runtime surface:
+
+| Source                    | Examples                                                                                            |
+| ------------------------- | --------------------------------------------------------------------------------------------------- |
+| Chat state                | User and assistant messages, direct-model segment history, task-backed segment summaries.           |
+| Runtime state             | Task/run status, approvals, artifacts, changed files, prior tool output.                            |
+| Operator settings         | System prompt, tools on/off, RTK state, profile/preset choices when they exist.                     |
+| Project context           | `project_id`, project defaults, project instructions, saved project memory, trusted project docs.   |
+| Project work              | Future work-item briefs, assignment metadata, handoffs, reviews, decision notes, linked artifacts.  |
+| Workflow context          | Future workflow mode, runbook id/version, typed inputs, stop conditions, linked evidence artifacts. |
+| Agent profile context     | Profile-selected memory sources, adapter/model controls, profile instructions.                      |
+| Workspace context         | Concrete workspace path, `AGENTS.md`, `CLAUDE.md`, selected files, git diff, file tree snippets.    |
+| Memory                    | Future operator-authored memory entries selected by scope.                                          |
+| External memory providers | Future profile-selected memory sources normalized through Hecate memory service.                    |
+| External imports          | Future imported Codex/Claude transcripts, PR comments, issue text, web content, raw adapter output. |
+
+Discovery is allowed to over-collect candidates. Later stages decide inclusion.
+The current project API stores only project context-source metadata (`path`,
+`kind`, `title`, `enabled`). Chat message context packets already snapshot
+enabled project sources as provenance metadata for Hecate Chat, direct model
+turns, and External Agent turns. Context assembly is still the future layer
+that may resolve those sources through WorkspaceFS, label their contents, and
+decide whether they belong in a rendered prompt.
+
+Project assignment launch context V1 stays intentionally explicit and shallow:
+opening chat from an assignment pre-fills an editable Hecate Chat draft with
+project, work item, assignment, role, execution hints, defaults, and linked
+runtime ids, while native assignment starts place the same labelled pieces in
+the task prompt. Standalone native task runs still do not store a separate
+`ContextPacket`; the durable audit trail for those runs is the task prompt and
+system prompt until task-run context packets get their own storage path. The
+section and field vocabulary for this interim contract is captured in the
+shared test fixture
+[`launch-context-v1-contract.json`](../../../ui/src/test/fixtures/launch-context-v1-contract.json),
+which UI and backend tests both read to reduce drift between the client-side
+chat draft renderer and the server-side native task prompt renderer.
+
+### 2. Trust Classification
+
+Every context item gets a trust level before rendering:
+
+| Trust level          | Meaning                                                                                                          | Examples                                                        |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `system_instruction` | Highest authority. Hecate-authored runtime instructions and operator-authored system prompt.                     | Built-in tool rules, explicit chat system prompt.               |
+| `operator_memory`    | Durable facts or preferences intentionally saved by the operator.                                                | "Use conventional commits", "Prefer Go-first tooling".          |
+| `workspace_guidance` | Repository-local guidance. Trusted for this workspace, but still less authoritative than operator/system policy. | `AGENTS.md`, `CLAUDE.md`, repo docs selected by user.           |
+| `runtime_state`      | Hecate-observed state. Evidence, not instruction.                                                                | Run status, approvals, artifact metadata, changed files.        |
+| `tool_output`        | Output produced by tools. Evidence, not instruction.                                                             | `git status`, `go test`, stdout/stderr artifacts.               |
+| `generated_summary`  | Model-generated compression of older context. Evidence with lossy provenance.                                    | Conversation summary produced by a summarizer.                  |
+| `external_untrusted` | Text from outside the current operator/runtime trust boundary. Must be quoted/labelled as untrusted.             | PR comments, imported chat text, web pages, raw adapter output. |
+
+The renderer must never merge untrusted text into an instruction block. If a
+PR comment says "ignore previous instructions," it remains labelled as external
+evidence, not as a system message.
+
+### 3. Context Packet Snapshot
+
+The assembly output is a `ContextPacket`: a durable, inspectable description of
+what was prepared for a model or adapter call. The current implementation stores
+a packet on assistant chat messages, including execution mode, provider/model or
+adapter identity, workspace, system prompt presence, transcript count, legacy
+source metadata, and itemized visible metadata with trust labels, origins, and
+inclusion reasons. Enabled project memory entries are included as itemized
+`memory` entries with trust/provenance labels and body snapshots. Other source
+types still do not store full source bodies yet.
+
+Pending memory candidates are intentionally excluded from context packets. They
+are review artifacts, not operator-approved context. If the operator promotes a
+candidate, future packets may include the resulting project memory entry using
+the promoted entry's trust/provenance labels.
+
+Sketch:
+
+```go
+type ContextPacket struct {
+    ID          string
+    SessionID   string
+    MessageID   string
+    TaskID      string
+    RunID       string
+    CreatedAt   time.Time
+    ProjectID   string
+    Workspace   string
+    AgentProfile string
+    SourcePreset string
+    Provider    string
+    Model       string
+    ExecutionMode string // hecate_task | external_agent | workflow_run
+    Items       []ContextItem
+}
+
+type ContextItem struct {
+    ID              string
+    Kind            string // system_prompt | memory | workspace_doc | transcript | tool_output | summary | imported_text
+    TrustLevel      string
+    Origin          string // file path, memory id, run event id, import id, etc.
+    Title           string
+    Body            string // optional inline text; large bodies may be referenced
+    BodyRef         string // artifact/file/blob reference when not inlined
+    TokenEstimate   int
+    Included        bool
+    InclusionReason string
+    Redacted        bool
+}
+```
+
+Storage starts as a JSON column on chat messages. Task-run context lookup
+currently resolves the linked Hecate Chat assistant message packet when the run
+belongs to a task-backed chat segment; standalone task runs return no packet.
+The important part is that in-memory and SQLite chat storage backends expose the
+same packet data.
+
+### 4. Window Management
+
+Window management receives only the packet items marked `Included=true`. It can:
+
+- Estimate tokens for the full packet.
+- Warn or block before provider context errors.
+- Drop low-priority items according to policy.
+- Replace older transcript/tool output with generated summaries.
+
+It cannot promote an excluded source, remove trust labels, or rewrite untrusted
+text as an instruction. If it summarizes, the summary becomes a new
+`generated_summary` item that references the items it replaced.
+
+### 5. Provider Prompt Rendering
+
+Prompt rendering converts the packet into provider-specific wire messages.
+
+Recommended rendering order:
+
+1. Hecate runtime instructions.
+2. Operator system prompt / profile instructions.
+3. Project memory and profile-selected memory blocks.
+4. Workspace guidance block.
+5. Runtime state block.
+6. Transcript.
+7. Tool output and external evidence blocks, explicitly labelled.
+
+The exact provider message shape can differ: OpenAI-style `system` messages,
+Anthropic system blocks, or task-runtime prompt layers. The packet order and
+trust labels should remain stable.
+
+## Operator UX
+
+### Chat And Task Views
+
+Each model-backed message/run should expose a quiet "context" action:
+
+- Shows included items grouped by trust level.
+- Shows excluded candidates and why they were excluded when useful.
+- Links large items to artifacts/files instead of dumping huge text inline.
+- Shows token estimates once context-window management exists.
+
+This becomes the answer to "what did the model see?"
+
+### Connections / Settings
+
+Connections remains the right place for provider/model readiness and future
+model capabilities. Chat settings remains the right place for per-chat runtime
+choices. Memory management can live in either Connections, Projects, or a
+dedicated memory surface, but the active memory list must be visible from the
+chat context inspector. Agent profiles should make it clear whether project
+memory is injected into the current agent, visible only as operator notes, or
+disabled.
+
+## API Sketch
+
+Hecate-native endpoints remain under `/hecate/v1`.
+
+```
+GET /hecate/v1/chat/sessions/{session_id}/messages/{message_id}/context
+GET /hecate/v1/tasks/{task_id}/runs/{run_id}/context
+```
+
+Both return:
+
+```json
+{
+  "object": "context_packet",
+  "data": {
+    "id": "ctx_...",
+    "session_id": "chat_...",
+    "run_id": "run_...",
+    "items": []
+  }
+}
+```
+
+The initial implementation can omit standalone list/delete endpoints. Context
+packets are audit snapshots owned by their parent message/run.
+
+## Prompt-Injection Rules
+
+1. Untrusted external content is always labelled as untrusted evidence.
+2. Tool output is evidence, not instruction.
+3. Generated summaries are evidence, not instruction.
+4. Memory writes require explicit operator action.
+5. Workspace guidance can guide codebase behavior but cannot override Hecate
+   security policy, approvals, sandboxing, or operator system prompt.
+6. Context packet inspection must show labels that match the actual prompt
+   rendering.
+7. Any future automatic retrieval or import feature must preserve origin and
+   trust labels all the way to the rendered prompt.
+8. External memory provider results enter as labelled memory/context items via
+   the Hecate memory service, never as hidden agent instructions.
+
+## Implementation Plan
+
+| PR  | Scope                                                                                                                                        |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Landed: enrich chat-message packet types, assembly for direct-model, tools-on, and external-agent turns, plus context inspector API.         |
+| 2   | Landed for chat messages: persist itemized snapshots through memory and SQLite chat stores. Task-run lookup resolves linked chat packets.    |
+| 3   | Landed for chat messages: UI context inspector groups itemized packet data by trust level.                                                   |
+| 4   | Wire token estimates from the context-window RFC against packet items.                                                                       |
+| 5   | Landed for project memory: enabled entries appear as labelled chat packet items. Broader profile/surface memory selection remains future.    |
+| 6   | Landed for project handoffs: handoff records can carry explicit context refs and linked memory IDs, but they are not injected automatically. |
+
+The first packet work was intentionally small: no summarization, no vector
+retrieval. Project memory now uses the audit boundary, and structured handoffs
+can point at context that an operator may choose to carry forward. Broader
+context assembly and automatic injection remain explicit future work.
+
+## Test Plan
+
+- Unit tests for trust classification, renderer mapping, and source/item ordering.
+- API tests for chat-message and linked task-run context packet retrieval,
+  including missing standalone task-run packets.
+- SQLite/memory parity tests for packet persistence and itemized packet cloning.
+- UI tests for context inspector grouping, with legacy source fallback.
+- Prompt-injection tests where untrusted text tries to override system
+  instructions and remains labelled evidence.
+- Regression test that context-window truncation cannot move
+  `external_untrusted` text into an instruction slot.
+
+## Open Questions
+
+- Should the first packet snapshot store full inline bodies, body references,
+  or both? Recommendation: inline small text, reference artifacts/files for
+  large bodies.
+- Should context packet snapshots be retained forever with chat/task history or
+  pruned by retention? Recommendation: follow the parent chat/task retention
+  policy.
+- Should operators be able to manually pin context items before memory exists?
+  This is useful but may blur into memory. Recommendation: keep pinning out of
+  v1 and implement memory deliberately.
+- Should external-agent runs get a packet? Recommendation: yes, but only as a
+  projection of what Hecate knows: operator prompt, workspace, adapter settings,
+  ACP events, raw adapter output, and artifacts. Do not claim it is the
+  adapter's full internal model context.

@@ -3,7 +3,7 @@
 </h1>
 
 [![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases)
-[![Container](https://img.shields.io/badge/Container-ghcr.io-2496ED?logo=docker&logoColor=white)](docs/deployment.md#image-pinning)
+[![Container](https://img.shields.io/badge/Container-ghcr.io-2496ED?logo=docker&logoColor=white)](docs/operator/deployment.md#image-pinning)
 [![Test](https://github.com/hecatehq/hecate/actions/workflows/test.yml/badge.svg)](https://github.com/hecatehq/hecate/actions/workflows/test.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/hecatehq/hecate)](https://goreportcard.com/report/github.com/hecatehq/hecate)
 [![Go version](https://img.shields.io/github/go-mod/go-version/hecatehq/hecate)](go.mod)
@@ -15,7 +15,7 @@
   Route cloud/local models, run Hecate-owned tool agents, supervise Codex / Claude Code / Cursor Agent / Grok Build, and keep every decision observable.
 </p>
 
-> **Status: public alpha.** Gateway routing, provider onboarding, Hecate Chat, External Agent sessions, and native task runs are usable for alpha workflows. The desktop app is currently exercised on macOS; Linux and Windows bundles are built by CI but have not yet been manually tested. Workspace modes, agent profiles, and sandbox hardening are still evolving. Read [known limitations](docs/known-limitations.md) before depending on it.
+> **Status: public alpha.** Gateway routing, provider onboarding, Hecate Chat, External Agent sessions, and native task runs are usable for alpha workflows. The desktop app is currently exercised on macOS; Linux and Windows bundles are built by CI but have not yet been manually tested. Workspace modes, agent profiles, and sandbox hardening are still evolving. Read [known limitations](docs/operator/known-limitations.md) before depending on it.
 
 ## Table Of Contents
 
@@ -43,7 +43,7 @@ Hecate sits at that crossroads: one local runtime layer between clients, model p
 
 \*External agents use their own local CLIs, accounts, subscriptions, and billing.
 Hecate supervises the session, but does not proxy, pool, or bypass those
-credentials. See [External agent adapters](docs/external-agent-adapters.md).
+credentials. See [External agent adapters](docs/design/accepted/external-agent-adapters.md).
 
 ## Quick Start
 
@@ -71,7 +71,7 @@ Open the bundle and launch Hecate. The app starts the bundled Hecate runtime on 
 
 > **Desktop platform status:** macOS Apple Silicon is the only desktop bundle currently launch-tested by maintainers. Linux `.deb` / `.AppImage` and Windows `.msi` artifacts are produced by CI but have not yet been manually tested on real machines, so expect bugs. If you need reliability on Linux or Windows today, prefer Docker or the standalone binary tarballs.
 >
-> macOS release bundles are signed with a Developer ID Application certificate and notarized — first launch needs no Gatekeeper bypass. Fork builds or releases cut without the `APPLE_*` repo secrets remain unsigned and need **right-click → Open** on first launch. Windows bundles are not yet signed and will show SmartScreen warnings once they are tested. Full footguns and roadmap live in [docs/desktop-app.md](docs/desktop-app.md).
+> macOS release bundles are signed with a Developer ID Application certificate and notarized — first launch needs no Gatekeeper bypass. Fork builds or releases cut without the `APPLE_*` repo secrets remain unsigned and need **right-click → Open** on first launch. Windows bundles are not yet signed and will show SmartScreen warnings once they are tested. Full footguns and roadmap live in [docs/operator/desktop-app.md](docs/operator/desktop-app.md).
 >
 > Existing macOS installs from alpha.28 onward auto-update through the signed `https://hecate.sh/releases/alpha/latest.json` channel. Linux and Windows updater behavior is part of the still-untested desktop surface.
 
@@ -86,9 +86,9 @@ docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.
 
-> The container intentionally publishes only on `127.0.0.1`. Hecate is designed as a local-first operator console, not as a directly exposed network service. If you bind it beyond loopback, put your own access controls, firewall, or reverse proxy in front. See [Security](docs/security.md) for the current threat model.
+> The container intentionally publishes only on `127.0.0.1`. Hecate is designed as a local-first operator console, not as a directly exposed network service. If you bind it beyond loopback, put your own access controls, firewall, or reverse proxy in front. See [Security](docs/operator/security.md) for the current threat model.
 
-Pinned image tags, binary tarballs (linux/darwin × amd64/arm64), checksums, compose examples, and storage notes live in [`docs/deployment.md`](docs/deployment.md). Local development setup lives in [`docs/development.md`](docs/development.md).
+Pinned image tags, binary tarballs (linux/darwin × amd64/arm64), checksums, compose examples, and storage notes live in [`docs/operator/deployment.md`](docs/operator/deployment.md). Local development setup lives in [`docs/contributor/development.md`](docs/contributor/development.md).
 
 ### Add a provider
 
@@ -104,7 +104,7 @@ You can still configure providers manually from **Connections → Add provider**
 - Local providers need a running local server URL, usually the preset default.
 - Custom OpenAI-compatible endpoints can be added from the same modal when the preset catalog is not enough.
 
-After a provider is saved, Hecate discovers models and the Chats model picker becomes routable. The full preset catalog, env bootstrapping, custom-endpoint walk-through, and credential rotation live in [`docs/providers.md`](docs/providers.md).
+After a provider is saved, Hecate discovers models and the Chats model picker becomes routable. The full preset catalog, env bootstrapping, custom-endpoint walk-through, and credential rotation live in [`docs/operator/providers.md`](docs/operator/providers.md).
 
 ### Talk to it
 
@@ -133,7 +133,7 @@ External Agent approvals surface in Chats as actionable operator prompts before 
 
 The approval modal shows the adapter-provided action, available ACP choices, grant scope, and an optional audit note before the decision is persisted.
 
-Hecate Chat preserves runtime boundaries inside the transcript: tools-off turns keep route/cost/cache metadata, tools-on turns link to their backing Task/run, and every assistant turn can link to its trace. If a task-backed run is busy, the composer queues the next prompt locally for that chat and sends it when the run settles. The Tasks workspace remains canonical for full run history, advanced activity details, artifacts, retry/resume, and patch review. See [Chat sessions](docs/chat-sessions.md), [Agent runtime](docs/agent-runtime.md), and [External agent adapters](docs/external-agent-adapters.md) for the deeper contracts.
+Hecate Chat preserves runtime boundaries inside the transcript: tools-off turns keep route/cost/cache metadata, tools-on turns link to their backing Task/run, and every assistant turn can link to its trace. If a task-backed run is busy, the composer queues the next prompt locally for that chat and sends it when the run settles. The Tasks workspace remains canonical for full run history, advanced activity details, artifacts, retry/resume, and patch review. See [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime/agent-runtime.md), and [External agent adapters](docs/design/accepted/external-agent-adapters.md) for the deeper contracts.
 
 Chats can be renamed from the sidebar. The title is just operator-facing metadata, so renaming never changes the workspace, selected runtime, provider/model snapshots, or external-agent native session.
 
@@ -151,7 +151,7 @@ flowchart LR
     Hecate --> Telemetry["OpenTelemetry"]
 ```
 
-For deeper internals, read [docs/architecture.md](docs/architecture.md), [docs/runtime-api.md](docs/runtime-api.md), [docs/events.md](docs/events.md), and [docs/telemetry.md](docs/telemetry.md).
+For deeper internals, read [docs/contributor/architecture.md](docs/contributor/architecture.md), [docs/runtime/runtime-api.md](docs/runtime/runtime-api.md), [docs/runtime/events.md](docs/runtime/events.md), and [docs/runtime/telemetry.md](docs/runtime/telemetry.md).
 
 ## Operator UI
 
@@ -250,7 +250,7 @@ Stability stages:
 | Desktop app         | Early       | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. macOS Apple Silicon is the only launch-tested desktop path; Linux and Windows artifacts are CI-built but untested, so expect bugs. Windows signing is still pending.                                         |
 | Execution isolation | Early       | Per-call subprocess + env sanitisation + output cap + timeout, with `bwrap` / `sandbox-exec` where available. Not container-level isolation.                                                                                                                                                 |
 
-Read [docs/known-limitations.md](docs/known-limitations.md) before treating Hecate as production-stable.
+Read [docs/operator/known-limitations.md](docs/operator/known-limitations.md) before treating Hecate as production-stable.
 
 ## Documentation
 
@@ -258,29 +258,29 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 
 **Running Hecate**
 
-- [Deployment](docs/deployment.md) — Docker, image pinning, binary install, storage tiers, rate limits.
-- [Desktop app](docs/desktop-app.md) — native bundles, first-launch footguns, platform data dirs, roadmap.
-- [Providers](docs/providers.md) — preset catalog, OpenAI-compatible custom endpoints, credentials, health, circuit breaking.
-- [Known limitations](docs/known-limitations.md) — plain-language list of what's still alpha.
-- [Alpha-to-beta roadmap](docs/beta-roadmap.md) — core gates, UX polish order, cleanup/refactoring, and branch/release workflow.
+- [Deployment](docs/operator/deployment.md) — Docker, image pinning, binary install, storage tiers, rate limits.
+- [Desktop app](docs/operator/desktop-app.md) — native bundles, first-launch footguns, platform data dirs, roadmap.
+- [Providers](docs/operator/providers.md) — preset catalog, OpenAI-compatible custom endpoints, credentials, health, circuit breaking.
+- [Known limitations](docs/operator/known-limitations.md) — plain-language list of what's still alpha.
+- [Alpha-to-beta roadmap](docs/contributor/beta-roadmap.md) — core gates, UX polish order, cleanup/refactoring, and branch/release workflow.
 
 **Building against Hecate**
 
-- [Runtime API](docs/runtime-api.md) — task lifecycle, approvals, queue/lease execution, SSE streaming.
-- [Chat sessions](docs/chat-sessions.md) — Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queueing, and activity rendering.
-- [Agent runtime](docs/agent-runtime.md) — `agent_loop` loop mechanics, tools, stdout/stderr handling, cost ceilings, retry-from-turn.
-- [External agent adapters](docs/external-agent-adapters.md) — Hecate as an ACP client/operator: use Codex, Claude Code, Cursor Agent, and Grok Build from Chats.
-- [Events](docs/events.md) — every event type, payload shape, when each fires.
-- [MCP integration](docs/mcp.md) — Hecate as MCP server + attaching external MCP servers as tools.
+- [Runtime API](docs/runtime/runtime-api.md) — task lifecycle, approvals, queue/lease execution, SSE streaming.
+- [Chat sessions](docs/runtime/chat-sessions.md) — Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queueing, and activity rendering.
+- [Agent runtime](docs/runtime/agent-runtime.md) — `agent_loop` loop mechanics, tools, stdout/stderr handling, cost ceilings, retry-from-turn.
+- [External agent adapters](docs/design/accepted/external-agent-adapters.md) — Hecate as an ACP client/operator: use Codex, Claude Code, Cursor Agent, and Grok Build from Chats.
+- [Events](docs/runtime/events.md) — every event type, payload shape, when each fires.
+- [MCP integration](docs/runtime/mcp.md) — Hecate as MCP server + attaching external MCP servers as tools.
 
 **Observability and internals**
 
-- [Telemetry](docs/telemetry.md) — OTLP traces / metrics / logs, response headers, local trace view.
-- [Security](docs/security.md) — local-first threat model, workspace safety, approvals, secrets, and advisory handling.
-- [Architecture](docs/architecture.md) — model-routing request flow, task-runtime queue / lease / sandbox boundary.
-- [Development](docs/development.md) — source-build toolchain, local dev, website work, the test ladder, screenshot tooling.
-- [Release](docs/release.md) — cutting a tag, verification gate, recovery if CI fails.
-- [Alpha-to-beta roadmap](docs/beta-roadmap.md) — what must be true before the first beta tag.
+- [Telemetry](docs/runtime/telemetry.md) — OTLP traces / metrics / logs, response headers, local trace view.
+- [Security](docs/operator/security.md) — local-first threat model, workspace safety, approvals, secrets, and advisory handling.
+- [Architecture](docs/contributor/architecture.md) — model-routing request flow, task-runtime queue / lease / sandbox boundary.
+- [Development](docs/contributor/development.md) — source-build toolchain, local dev, website work, the test ladder, screenshot tooling.
+- [Release](docs/contributor/release.md) — cutting a tag, verification gate, recovery if CI fails.
+- [Alpha-to-beta roadmap](docs/contributor/beta-roadmap.md) — what must be true before the first beta tag.
 
 First-run environment knobs live in [`.env.example`](.env.example).
 

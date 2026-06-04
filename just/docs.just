@@ -21,8 +21,8 @@ check-mermaid:
 # sneaking back into docs, and release docs going missing.
 # Check docs for removed env-bootstrap surfaces.
 docs-env-check:
-	test -f docs/release.md
-	test -f docs/known-limitations.md
+	test -f docs/contributor/release.md
+	test -f docs/operator/known-limitations.md
 	! rg -n 'HECATE_POLICY_RULES_JSON|HECATE_PRICEBOOK_JSON|HECATE_PROVIDERS|HECATE_[A-Z0-9_]+_BACKEND|PROVIDER_[A-Z0-9_]+_(PROTOCOL|API_VERSION|TIMEOUT)' README.md docs .env.example internal/config e2e .github
 
 # Run lychee against tracked markdown and .mdc files to catch broken relative

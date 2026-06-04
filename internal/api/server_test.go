@@ -4083,7 +4083,7 @@ func TestUsageEventsReturnsRecentUsageEvents(t *testing.T) {
 func TestUsageEndpointsStayDocumented(t *testing.T) {
 	t.Parallel()
 
-	body, err := os.ReadFile(filepath.Join("..", "..", "docs", "runtime-api.md"))
+	body, err := os.ReadFile(filepath.Join("..", "..", "docs", "runtime", "runtime-api.md"))
 	if err != nil {
 		t.Fatalf("read runtime-api docs: %v", err)
 	}
@@ -4093,7 +4093,7 @@ func TestUsageEndpointsStayDocumented(t *testing.T) {
 		"GET /hecate/v1/usage/events",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("runtime-api.md missing %q", want)
+			t.Fatalf("docs/runtime/runtime-api.md missing %q", want)
 		}
 	}
 }

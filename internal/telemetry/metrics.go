@@ -478,7 +478,7 @@ func (m *AgentAdapterMetrics) RecordTerminalRPCUnsupported(ctx context.Context, 
 }
 
 // ---------------------------------------------------------------------------
-// AgentAdapterApprovalMetrics — see docs/rfcs/external-adapter-approvals-v1.md.
+// AgentAdapterApprovalMetrics — see docs/design/external-adapter-approvals-v1.md.
 // ---------------------------------------------------------------------------
 
 // AgentAdapterApprovalRequestRecord labels an incoming RequestPermission.

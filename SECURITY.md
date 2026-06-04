@@ -4,7 +4,7 @@ Hecate is public-alpha, local-first software. This file is the GitHub-facing
 security policy: what versions receive fixes, how to report vulnerabilities, and
 how dependency/code-scanning alerts are triaged.
 
-For the detailed operator security model, read [docs/security.md](docs/security.md).
+For the detailed operator security model, read [docs/operator/security.md](docs/operator/security.md).
 That document covers Hecate's runtime boundaries, workspace modes, approvals,
 secrets/local state, native app sidecars, and advisory-handling notes.
 

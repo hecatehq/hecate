@@ -271,7 +271,7 @@ const (
 	MetricAgentAdapterProbeTotal                  = "hecate.agent_adapter.probe"
 	MetricAgentAdapterTerminalRPCUnsupportedTotal = "hecate.agent_adapter.terminal_rpc_unsupported"
 
-	// External-adapter approval metrics — see docs/rfcs/external-adapter-approvals-v1.md.
+	// External-adapter approval metrics — see docs/design/external-adapter-approvals-v1.md.
 	MetricAgentAdapterApprovalRequestedTotal = "hecate.agent_adapter.approval.requested"
 	MetricAgentAdapterApprovalResolvedTotal  = "hecate.agent_adapter.approval.resolved"
 	MetricAgentAdapterApprovalDurationMS     = "hecate.agent_adapter.approval.duration"

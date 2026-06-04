@@ -12,7 +12,7 @@ provider credentials. Contributions land easier when they read like that.
   [`CLAUDE.md`](CLAUDE.md) only imports `AGENTS.md` for compatibility; tracked
   provider-specific directories such as `.claude/` and `.cursor/` are not used
   for repo guidance.
-- **Working without an AI assistant**: read [`AGENTS.md`](AGENTS.md) for the codebase map and runtime invariants, then [`docs/development.md`](docs/development.md) for local build / hot-reload / just recipes.
+- **Working without an AI assistant**: read [`AGENTS.md`](AGENTS.md) for the codebase map and runtime invariants, then [`docs/contributor/development.md`](docs/contributor/development.md) for local build / hot-reload / just recipes.
 
 The `docs-ai/` tree mirrors the operating loop:
 
@@ -73,7 +73,7 @@ Beta-scope work starts from current `master` on a feature/refactor/docs branch
 and lands through a reviewed PR. Do not implement beta features directly on
 `master`; reserve direct `master` commits for release mechanics or urgent tiny
 corrections that a maintainer explicitly requests. The current beta gate lives
-in [`docs/beta-roadmap.md`](docs/beta-roadmap.md).
+in [`docs/contributor/beta-roadmap.md`](docs/contributor/beta-roadmap.md).
 
 ## Repo policy
 
