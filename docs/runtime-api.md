@@ -1251,6 +1251,114 @@ assignments `completed` makes it `done`; all assignments `cancelled` makes it
 non-cancelled assignment, makes it `blocked`. Otherwise the stored work-item
 status is returned.
 
+#### `GET /hecate/v1/projects/{id}/activity`
+
+Returns a read-only project activity inbox for the operator cockpit. The
+response is bounded and deterministic: Hecate composes existing project work
+items, assignments, projected task/run execution summaries, linked chat/task
+identifiers, and recent collaboration artifact signals without mutating any
+project-work or task rows.
+
+The top-level envelope follows the Hecate-native convention:
+
+```json
+{
+  "object": "project_activity",
+  "data": {
+    "project_id": "proj_...",
+    "summary": {
+      "work_item_count": 3,
+      "assignment_count": 5,
+      "active_count": 1,
+      "blocked_count": 2,
+      "completed_count": 2,
+      "recent_count": 1
+    },
+    "buckets": {
+      "blocked": [
+        {
+          "id": "asgn_...",
+          "project_id": "proj_...",
+          "work_item": {
+            "id": "work_...",
+            "title": "Backend substrate",
+            "status": "running",
+            "priority": "high"
+          },
+          "assignment": {
+            "id": "asgn_...",
+            "project_id": "proj_...",
+            "work_item_id": "work_...",
+            "role_id": "software_developer",
+            "driver_kind": "hecate_task",
+            "status": "awaiting_approval",
+            "task_id": "task_...",
+            "run_id": "run_...",
+            "execution": {
+              "task_id": "task_...",
+              "run_id": "run_...",
+              "task_status": "running",
+              "run_status": "awaiting_approval",
+              "status": "awaiting_approval",
+              "pending_approval_count": 1
+            },
+            "created_at": "2026-06-03T12:00:00Z",
+            "updated_at": "2026-06-03T12:01:00Z"
+          },
+          "role": {
+            "id": "software_developer",
+            "project_id": "proj_...",
+            "name": "Software Developer",
+            "built_in": true
+          },
+          "status": "awaiting_approval",
+          "blocking_signal": "awaiting_approval",
+          "status_summary": "1 approval pending",
+          "linked_task_id": "task_...",
+          "linked_run_id": "run_...",
+          "artifact_summary": {
+            "count": 1,
+            "latest_kind": "handoff",
+            "latest_title": "Backend handoff",
+            "latest_at": "2026-06-03T12:03:00Z",
+            "assignment_id": "asgn_..."
+          },
+          "recent_artifacts": [
+            {
+              "id": "art_...",
+              "project_id": "proj_...",
+              "work_item_id": "work_...",
+              "assignment_id": "asgn_...",
+              "kind": "handoff",
+              "title": "Backend handoff",
+              "body": "Ready for review.",
+              "created_at": "2026-06-03T12:03:00Z",
+              "updated_at": "2026-06-03T12:03:00Z"
+            }
+          ],
+          "updated_at": "2026-06-03T12:03:00Z"
+        }
+      ],
+      "active": [],
+      "completed": [],
+      "recent": []
+    },
+    "recent": []
+  }
+}
+```
+
+`blocking_signal` is the compact V1 operator signal. Known values are
+`awaiting_approval`, `failed`, `not_started`, `running`, `completed`, and
+`stale_unknown`. `not_started` means a queued assignment has no linked task,
+run, or chat identifiers. `stale_unknown` covers missing linked task/run
+records, run-only links without enough task context, and unknown status values.
+Rows are sorted by most recent assignment/work/artifact update, then assignment
+ID. Each bucket is capped at 20 rows; `recent` mirrors
+`buckets.recent`. The example above leaves the mirrored recent arrays empty for
+brevity; real responses include the same item shape there when `recent_count`
+is non-zero.
+
 #### `GET /hecate/v1/projects/{id}/roles`
 
 Lists built-in roles plus custom roles for the project.

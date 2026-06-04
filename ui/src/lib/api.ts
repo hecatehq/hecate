@@ -54,6 +54,7 @@ import type {
   CreateProjectWorkItemPayload,
   ProjectAssignmentResponse,
   ProjectAssignmentsResponse,
+  ProjectActivityResponse,
   ProjectCollaborationArtifactsResponse,
   ProjectResponse,
   ProjectWorkItemsResponse,
@@ -328,6 +329,12 @@ export async function deleteProject(id: string): Promise<void> {
   return fetchJSON<void>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+}
+
+export async function getProjectActivity(projectID: string): Promise<ProjectActivityResponse> {
+  return fetchJSON<ProjectActivityResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/activity`,
+  );
 }
 
 export async function getProjectWorkRoles(projectID: string): Promise<ProjectWorkRolesResponse> {

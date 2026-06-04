@@ -12,6 +12,7 @@ import {
   deleteProjectAssignment,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
+  getProjectActivity,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
   getProjectWorkItem,
@@ -44,10 +45,35 @@ type LaunchContextContract = {
 
 const launchContextContract = launchContextContractRaw as LaunchContextContract;
 
+function emptyActivityData() {
+  return {
+    project_id: "",
+    summary: {
+      work_item_count: 0,
+      assignment_count: 0,
+      active_count: 0,
+      blocked_count: 0,
+      completed_count: 0,
+      recent_count: 0,
+    },
+    buckets: {
+      active: [],
+      blocked: [],
+      completed: [],
+      recent: [],
+    },
+    recent: [],
+  };
+}
+
 vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
   return {
     ...actual,
+    getProjectActivity: vi.fn(async () => ({
+      object: "project_activity",
+      data: emptyActivityData(),
+    })),
     getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
     getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
     getProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
@@ -143,6 +169,60 @@ const hecateAssignment: ProjectAssignmentRecord = {
 };
 
 function resetProjectWorkMocks() {
+  vi.mocked(getProjectActivity).mockResolvedValue({
+    object: "project_activity",
+    data: {
+      project_id: project.id,
+      summary: {
+        work_item_count: 1,
+        assignment_count: 1,
+        active_count: 0,
+        blocked_count: 1,
+        completed_count: 0,
+        recent_count: 1,
+      },
+      buckets: {
+        active: [],
+        blocked: [
+          {
+            id: hecateAssignment.id,
+            project_id: project.id,
+            work_item: {
+              id: workItem.id,
+              title: workItem.title,
+              status: "running",
+              priority: workItem.priority,
+            },
+            assignment: hecateAssignment,
+            role,
+            status: "awaiting_approval",
+            blocking_signal: "awaiting_approval",
+            status_summary: "2 approval pending",
+            linked_task_id: "task_1",
+            linked_run_id: "run_1",
+            artifact_summary: { count: 1, latest_kind: "handoff", latest_title: "Runtime notes" },
+            recent_artifacts: [
+              {
+                id: "art_1",
+                project_id: project.id,
+                work_item_id: workItem.id,
+                assignment_id: hecateAssignment.id,
+                kind: "handoff",
+                title: "Runtime notes",
+                body: "Approval is waiting.",
+                created_at: "2026-06-02T11:05:00Z",
+                updated_at: "2026-06-02T11:05:00Z",
+              },
+            ],
+            updated_at: "2026-06-02T11:05:00Z",
+          },
+        ],
+        completed: [],
+        recent: [],
+      },
+      recent: [],
+    },
+  });
   vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [role] });
   vi.mocked(getProjectWorkItems).mockResolvedValue({
     object: "project_work_items",
@@ -240,6 +320,7 @@ function expectLaunchContextContract(text: string) {
 
 afterEach(() => {
   window.localStorage.clear();
+  vi.mocked(getProjectActivity).mockReset();
   vi.mocked(getProjectWorkRoles).mockReset();
   vi.mocked(getProjectWorkItems).mockReset();
   vi.mocked(getProjectWorkItem).mockReset();
@@ -269,7 +350,7 @@ describe("ProjectsView index", () => {
     expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
     expect(screen.getByText("/Users/alice/dev/hecate")).toBeTruthy();
     expect(screen.getByText("ollama / qwen2.5-coder")).toBeTruthy();
-    expect(await screen.findByText("Build cockpit UI")).toBeTruthy();
+    expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
   });
 
   it("renders empty, loading, and error states for the project index", () => {
@@ -509,10 +590,115 @@ describe("ProjectsView cockpit", () => {
     expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
     const detail = screen.getByLabelText("Selected work item");
     expect(within(detail).getByText("Software developer")).toBeTruthy();
-    expect(within(detail).getByText("approval")).toBeTruthy();
-    expect(within(detail).getByText("2 approval pending")).toBeTruthy();
+    expect(within(detail).getAllByText("approval").length).toBeGreaterThan(0);
+    expect(within(detail).getAllByText("2 approval pending").length).toBeGreaterThan(0);
     expect(within(detail).getByText("4 steps")).toBeTruthy();
     expect(within(detail).getByText("ollama / qwen2.5-coder")).toBeTruthy();
+  });
+
+  it("renders project activity inbox states and actions", async () => {
+    resetProjectWorkMocks();
+    const onOpenTask = vi.fn();
+    const onOpenChat = vi.fn();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<ProjectsView onOpenTask={onOpenTask} onOpenChat={onOpenChat} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    expect(await screen.findByText("Activity Inbox")).toBeTruthy();
+    expect(screen.getByText("1 assignments across 1 work items")).toBeTruthy();
+    expect(screen.getAllByText("2 approval pending").length).toBeGreaterThan(0);
+    expect(screen.getByText("handoff: Runtime notes")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Task" }));
+    expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
+
+    await userEvent.click(screen.getByRole("button", { name: "Chat" }));
+    expect(onOpenChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectID: project.id,
+        model: "qwen2.5-coder",
+      }),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByRole("button", { name: "Open work item Build cockpit UI" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+  });
+
+  it("starts not-started assignments from the activity inbox", async () => {
+    resetProjectWorkMocks();
+    const notStartedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_not_started",
+      task_id: "",
+      run_id: "",
+      status: "queued",
+      execution: undefined,
+      started_at: undefined,
+    };
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: {
+        project_id: project.id,
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 0,
+          blocked_count: 1,
+          completed_count: 0,
+          recent_count: 1,
+        },
+        buckets: {
+          active: [],
+          blocked: [
+            {
+              id: notStartedAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "ready",
+                priority: workItem.priority,
+              },
+              assignment: notStartedAssignment,
+              role,
+              status: "queued",
+              blocking_signal: "not_started",
+              status_summary: "not started",
+              artifact_summary: { count: 0 },
+              updated_at: "2026-06-02T11:00:00Z",
+            },
+          ],
+          completed: [],
+          recent: [],
+        },
+        recent: [],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+
+    expect(startProjectAssignment).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      notStartedAssignment.id,
+    );
   });
 
   it("opens chat from an assignment using the projected model", async () => {

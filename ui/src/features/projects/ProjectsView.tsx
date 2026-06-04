@@ -10,6 +10,7 @@ import {
   deleteProjectAssignment,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
+  getProjectActivity,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
   getProjectWorkItem,
@@ -25,6 +26,8 @@ import { formatAbsoluteTime } from "../../lib/format";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import type {
   ProjectAssignmentRecord,
+  ProjectActivityData,
+  ProjectActivityItemRecord,
   ProjectCollaborationArtifactRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
@@ -67,6 +70,8 @@ type WorkItemSummary = {
   failedCount: number;
   completedCount: number;
 };
+
+type ProjectActivityBucketKey = "active" | "blocked" | "completed" | "recent";
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
 
@@ -201,6 +206,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [deleteAssignmentPending, setDeleteAssignmentPending] = useState(false);
   const [workItems, setWorkItems] = useState<ProjectWorkItemRecord[]>([]);
   const [workItemSummaries, setWorkItemSummaries] = useState<Record<string, WorkItemSummary>>({});
+  const [activity, setActivity] = useState<ProjectActivityData | null>(null);
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
   const [selectedWorkItem, setSelectedWorkItem] = useState<ProjectWorkItemRecord | null>(null);
@@ -261,6 +267,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setAssignmentErrors({});
     setWorkItems([]);
     setWorkItemSummaries({});
+    setActivity(null);
     if (!preferredWorkItemID) {
       setSelectedWorkItemID("");
       setSelectedWorkItem(null);
@@ -273,14 +280,16 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
     setWorkLoadState("loading");
     try {
-      const [rolesRes, workRes] = await Promise.all([
+      const [rolesRes, workRes, activityRes] = await Promise.all([
         getProjectWorkRoles(projectID),
         getProjectWorkItems(projectID),
+        getProjectActivity(projectID),
       ]);
       const nextRoles = rolesRes.data ?? [];
       const nextItems = workRes.data ?? [];
       setRoles(nextRoles);
       setWorkItems(nextItems);
+      setActivity(activityRes.data ?? null);
       setWorkItemSummaries(
         Object.fromEntries(
           nextItems.map((item) => [item.id, summarizeAssignments(item.assignments ?? [])] as const),
@@ -605,25 +614,26 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }
 
-  async function handleStartAssignment(assignment: ProjectAssignmentRecord) {
-    if (!selectedProjectID || !selectedWorkItemID) return;
+  async function handleStartAssignment(
+    assignment: ProjectAssignmentRecord,
+    workItemID = selectedWorkItemID,
+  ) {
+    if (!selectedProjectID || !workItemID) return;
     setStartingAssignmentID(assignment.id);
     setAssignmentErrors((current) => ({ ...current, [assignment.id]: "" }));
     try {
-      const res = await startProjectAssignment(
-        selectedProjectID,
-        selectedWorkItemID,
-        assignment.id,
-      );
+      const res = await startProjectAssignment(selectedProjectID, workItemID, assignment.id);
       setAssignments((current) => upsertAssignment(current, res.data));
-      await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
+      await loadWorkForProject(selectedProjectID, workItemID);
+      await loadWorkItemDetail(selectedProjectID, workItemID);
     } catch (error) {
       setAssignmentErrors((current) => ({
         ...current,
         [assignment.id]: errorMessage(error, "Failed to start assignment."),
       }));
       if (error instanceof ApiError && error.status === 409) {
-        await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
+        await loadWorkForProject(selectedProjectID, workItemID);
+        await loadWorkItemDetail(selectedProjectID, workItemID);
       }
     } finally {
       setStartingAssignmentID("");
@@ -738,6 +748,19 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       </section>
 
       <section style={detailStyle} aria-label="Selected work item">
+        <ProjectActivityInbox
+          activity={activity}
+          loading={workLoadState === "loading"}
+          onOpenChat={onOpenChat}
+          onOpenTask={onOpenTask}
+          onSelectWorkItem={setSelectedWorkItemID}
+          onStartAssignment={(assignment, workItemID) =>
+            void handleStartAssignment(assignment, workItemID)
+          }
+          project={selectedProject}
+          startingAssignmentID={startingAssignmentID}
+          workItems={workItems}
+        />
         <WorkItemDetail
           assignments={assignments}
           artifacts={artifacts}
@@ -1130,6 +1153,214 @@ function WorkItemRow({
         {summary && summary.failedCount > 0 && <span>{summary.failedCount} failed</span>}
         {summary && summary.completedCount > 0 && <span>{summary.completedCount} done</span>}
       </div>
+    </div>
+  );
+}
+
+function ProjectActivityInbox({
+  activity,
+  loading,
+  onOpenChat,
+  onOpenTask,
+  onSelectWorkItem,
+  onStartAssignment,
+  project,
+  startingAssignmentID,
+  workItems,
+}: {
+  activity: ProjectActivityData | null;
+  loading: boolean;
+  onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
+  onOpenTask?: (taskID: string, runID?: string) => void;
+  onSelectWorkItem: (workItemID: string) => void;
+  onStartAssignment: (assignment: ProjectAssignmentRecord, workItemID: string) => void;
+  project: ProjectRecord | null;
+  startingAssignmentID: string;
+  workItems: ProjectWorkItemRecord[];
+}) {
+  const [bucket, setBucket] = useState<ProjectActivityBucketKey>("blocked");
+  const counts = activity?.summary;
+  const buckets = activity?.buckets;
+  const selectedItems = buckets?.[bucket] ?? [];
+  const tabs: Array<{ id: ProjectActivityBucketKey; label: string; count: number }> = [
+    { id: "blocked", label: "Blocked", count: counts?.blocked_count ?? 0 },
+    { id: "active", label: "Active", count: counts?.active_count ?? 0 },
+    { id: "completed", label: "Completed", count: counts?.completed_count ?? 0 },
+    { id: "recent", label: "Recent", count: counts?.recent_count ?? 0 },
+  ];
+
+  if (!project) {
+    return null;
+  }
+
+  return (
+    <div style={{ padding: "16px 16px 0", display: "grid", gap: 10 }}>
+      <div style={panelStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <div>
+            <div style={sectionLabelStyle}>Activity Inbox</div>
+            <div style={{ ...subtleTextStyle, marginTop: 3 }}>
+              {loading && !activity
+                ? "Loading project activity…"
+                : `${counts?.assignment_count ?? 0} assignments across ${counts?.work_item_count ?? 0} work items`}
+            </div>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={bucket === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+                type="button"
+                onClick={() => setBucket(tab.id)}
+              >
+                {tab.label}
+                <span className="badge badge-muted">{tab.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {!activity && !loading && (
+          <div style={subtleTextStyle}>No activity is recorded for this project yet.</div>
+        )}
+        {activity && selectedItems.length === 0 && (
+          <div style={subtleTextStyle}>No {bucket} assignments for this project.</div>
+        )}
+        {selectedItems.length > 0 && (
+          <div style={{ display: "grid", gap: 8 }}>
+            {selectedItems.map((item) => {
+              const workItem =
+                workItems.find((candidate) => candidate.id === item.work_item.id) ??
+                projectActivityWorkItemToWorkItem(project.id, item.work_item);
+              const chatModel =
+                item.assignment.execution?.model ||
+                item.role.default_model ||
+                project.default_model ||
+                "";
+              return (
+                <ProjectActivityRow
+                  key={item.id}
+                  chatModel={chatModel}
+                  item={item}
+                  onOpenChat={
+                    project
+                      ? () =>
+                          onOpenChat?.(
+                            buildProjectAssignmentChatLaunchRequest({
+                              project,
+                              workItem,
+                              assignment: item.assignment,
+                              role: item.role,
+                            }),
+                          )
+                      : undefined
+                  }
+                  onOpenTask={onOpenTask}
+                  onSelectWorkItem={() => onSelectWorkItem(item.work_item.id)}
+                  onStart={() => onStartAssignment(item.assignment, item.work_item.id)}
+                  starting={startingAssignmentID === item.assignment.id}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectActivityRow({
+  chatModel,
+  item,
+  onOpenChat,
+  onOpenTask,
+  onSelectWorkItem,
+  onStart,
+  starting,
+}: {
+  chatModel: string;
+  item: ProjectActivityItemRecord;
+  onOpenChat?: () => void;
+  onOpenTask?: (taskID: string, runID?: string) => void;
+  onSelectWorkItem: () => void;
+  onStart: () => void;
+  starting: boolean;
+}) {
+  const signal = item.blocking_signal;
+  const taskID = item.linked_task_id || item.assignment.task_id || "";
+  const runID = item.linked_run_id || item.assignment.run_id || "";
+  const startable = item.assignment.driver_kind === "hecate_task" && signal === "not_started";
+  return (
+    <div style={activityRowStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <Badge status={signal} label={activitySignalLabel(signal)} />
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
+          {item.work_item.title}
+          <span style={{ color: "var(--t2)", fontWeight: 400 }}>
+            {" "}
+            / {item.role.name || item.assignment.role_id}
+          </span>
+        </div>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={onSelectWorkItem}>
+          Details
+        </button>
+        {taskID && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onOpenTask?.(taskID, runID)}
+            disabled={!onOpenTask}
+          >
+            <Icon d={Icons.tasks} size={12} />
+            Task
+          </button>
+        )}
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          onClick={onOpenChat}
+          disabled={!onOpenChat || !chatModel}
+          title={
+            chatModel ? `Open chat with ${chatModel}` : "Set project defaults before opening chat."
+          }
+        >
+          <Icon d={Icons.chat} size={12} />
+          Chat
+        </button>
+        {startable && (
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            onClick={onStart}
+            disabled={starting}
+          >
+            <Icon d={Icons.send} size={12} />
+            {starting ? "Starting…" : "Start"}
+          </button>
+        )}
+      </div>
+      <div style={{ ...metaLineStyle, marginTop: 7 }}>
+        <span>{item.status_summary}</span>
+        <span>{item.assignment.driver_kind}</span>
+        {taskID && <span>task {shortID(taskID)}</span>}
+        {runID && <span>run {shortID(runID)}</span>}
+        {item.linked_chat_id && <span>chat {shortID(item.linked_chat_id)}</span>}
+        {item.artifact_summary.count > 0 && (
+          <span>
+            {item.artifact_summary.count} artifact
+            {item.artifact_summary.count === 1 ? "" : "s"}
+          </span>
+        )}
+        {item.updated_at && <span>Updated {formatAbsoluteTime(item.updated_at)}</span>}
+      </div>
+      {item.recent_artifacts && item.recent_artifacts.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+          {item.recent_artifacts.map((artifact) => (
+            <span key={artifact.id} className="badge badge-muted">
+              {artifact.kind}: {artifact.title || artifact.id}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2545,6 +2776,41 @@ function defaultDriverForRole(role: ProjectWorkRoleRecord | null): string {
   return role?.default_driver_kind || "hecate_task";
 }
 
+function projectActivityWorkItemToWorkItem(
+  projectID: string,
+  item: ProjectActivityItemRecord["work_item"],
+): ProjectWorkItemRecord {
+  return {
+    id: item.id,
+    project_id: projectID,
+    title: item.title,
+    status: item.status,
+    priority: item.priority,
+    created_at: "",
+    updated_at: "",
+  };
+}
+
+function activitySignalLabel(signal: string): string {
+  switch (signal) {
+    case "awaiting_approval":
+      return "approval";
+    case "not_started":
+      return "not started";
+    case "stale_unknown":
+      return "unknown";
+    case "completed":
+      return "done";
+    default:
+      return signal.replaceAll("_", " ");
+  }
+}
+
+function shortID(id: string): string {
+  if (id.length <= 12) return id;
+  return id.slice(0, 10) + "...";
+}
+
 function upsertRole(items: ProjectWorkRoleRecord[], item: ProjectWorkRoleRecord) {
   const index = items.findIndex((current) => current.id === item.id);
   const next = index === -1 ? [item, ...items] : items.slice();
@@ -2686,6 +2952,11 @@ const assignmentStyle: CSSProperties = {
   background: "var(--bg2)",
   borderRadius: "var(--radius-sm)",
   padding: 10,
+};
+
+const activityRowStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  paddingTop: 9,
 };
 
 const artifactStyle: CSSProperties = {

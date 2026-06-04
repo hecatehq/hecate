@@ -244,8 +244,11 @@ persisted, trusted context-source metadata can be attached to a project, and
 chat sessions can carry `project_id`. Chat context packets snapshot enabled
 project context-source metadata as itemized provenance. Project work
 assignments can now start native Tasks linked back via `origin_kind` /
-`origin_id`; broader task `project_id` scoping, memory entries, profiles, and
-presets are not linked to `project_id` yet.
+`origin_id`, and `GET /hecate/v1/projects/{id}/activity` exposes a read-only
+project activity inbox over work items, assignments, linked task/run/chat ids,
+status signals, and recent collaboration artifacts. Broader task `project_id`
+scoping, memory entries, profiles, and presets are not linked to `project_id`
+yet.
 
 Persist `project_id` on:
 
@@ -275,7 +278,7 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 6. Add project-scoped memory.
 7. Add agent-profile memory-source selection.
 8. Move relevant defaults from ad hoc chat/task state into project defaults.
-9. Add project activity aggregation.
+9. Add project activity aggregation. Done for the read-only V1 inbox.
 10. Update docs, screenshots, and e2e coverage.
 
 ## Test Plan

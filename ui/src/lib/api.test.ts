@@ -20,6 +20,7 @@ import {
   getChatWorkspaceFiles,
   getChatApproval,
   getProjectAssignments,
+  getProjectActivity,
   getProjectCollaborationArtifacts,
   getProjectWorkItem,
   getProjectWorkItems,
@@ -258,10 +259,11 @@ describe("api client", () => {
 
   it("builds project work coordination requests", async () => {
     fetchMock.mockClear();
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 6; i += 1) {
       fetchMock.mockResolvedValueOnce(jsonResponse({ object: "ok", data: [] }));
     }
 
+    await getProjectActivity("proj/1");
     await getProjectWorkRoles("proj/1");
     await getProjectWorkItems("proj/1");
     await getProjectWorkItem("proj/1", "work/1");
@@ -270,26 +272,31 @@ describe("api client", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "/hecate/v1/projects/proj%2F1/roles",
+      "/hecate/v1/projects/proj%2F1/activity",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "/hecate/v1/projects/proj%2F1/work-items",
+      "/hecate/v1/projects/proj%2F1/roles",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      "/hecate/v1/projects/proj%2F1/work-items/work%2F1",
+      "/hecate/v1/projects/proj%2F1/work-items",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments",
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       5,
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
       "/hecate/v1/projects/proj%2F1/work-items/work%2F1/artifacts",
       expect.objectContaining({ method: "GET" }),
     );
