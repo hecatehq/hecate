@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <title>Hecate — Trivium solid wedges</title>
-  <g fill="currentColor">
-    <path d="M128 24 L138 130 L118 130 Z"></path>
-    <path d="M30 198 L126 138 L132 156 Z"></path>
-    <path d="M226 198 L130 138 L124 156 Z"></path>
-  </g>
-  <circle cx="128" cy="134" r="16" fill="currentColor"></circle>
-</svg>
