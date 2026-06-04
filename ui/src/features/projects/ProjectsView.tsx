@@ -5,20 +5,24 @@ import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import {
   ApiError,
   createProjectAssignment,
+  createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteProjectAssignment,
+  deleteProjectMemory,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
+  getProjectMemory,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
   startProjectAssignment,
   updateProject,
   updateProjectAssignment,
+  updateProjectMemory,
   updateProjectWorkRole,
   updateProjectWorkItem,
 } from "../../lib/api";
@@ -29,6 +33,7 @@ import type {
   ProjectActivityData,
   ProjectActivityItemRecord,
   ProjectCollaborationArtifactRecord,
+  ProjectMemoryRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
@@ -109,6 +114,15 @@ type ProjectDefaultsForm = {
   workspaceMode: string;
 };
 
+type MemoryForm = {
+  title: string;
+  body: string;
+  trustLabel: string;
+  sourceKind: string;
+  sourceID: string;
+  enabled: boolean;
+};
+
 type RoleForm = {
   id: string;
   name: string;
@@ -137,6 +151,21 @@ const ASSIGNMENT_STATUSES = [
   "completed",
   "failed",
   "cancelled",
+];
+const MEMORY_TRUST_LABELS = [
+  "operator_memory",
+  "generated_summary",
+  "handoff",
+  "external_untrusted",
+  "runtime_state",
+];
+const MEMORY_SOURCE_KINDS = [
+  "operator",
+  "generated_summary",
+  "handoff",
+  "project_launch_context",
+  "external_handoff",
+  "runtime_state",
 ];
 
 const shellStyle: CSSProperties = {
@@ -218,6 +247,13 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [detailError, setDetailError] = useState("");
   const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   const [startingAssignmentID, setStartingAssignmentID] = useState("");
+  const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryRecord[]>([]);
+  const [memoryLoadState, setMemoryLoadState] = useState<LoadState>("idle");
+  const [memoryError, setMemoryError] = useState("");
+  const [editingMemory, setEditingMemory] = useState<ProjectMemoryRecord | "new" | null>(null);
+  const [memoryPending, setMemoryPending] = useState(false);
+  const [deleteMemory, setDeleteMemory] = useState<ProjectMemoryRecord | null>(null);
+  const [deleteMemoryPending, setDeleteMemoryPending] = useState(false);
 
   const selectedProject = useMemo(
     () => projects.state.projects.find((project) => project.id === selectedProjectID) ?? null,
@@ -309,6 +345,24 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }, []);
 
+  const loadProjectMemory = useCallback(async (projectID: string) => {
+    setMemoryError("");
+    if (!projectID) {
+      setMemoryEntries([]);
+      setMemoryLoadState("idle");
+      return;
+    }
+    setMemoryLoadState("loading");
+    try {
+      const payload = await getProjectMemory(projectID, true);
+      setMemoryEntries(payload.data ?? []);
+      setMemoryLoadState("loaded");
+    } catch (error) {
+      setMemoryLoadState("error");
+      setMemoryError(errorMessage(error, "Failed to load project memory."));
+    }
+  }, []);
+
   const loadWorkItemDetail = useCallback(async (projectID: string, workItemID: string) => {
     setDetailError("");
     setAssignmentErrors({});
@@ -344,6 +398,10 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   useEffect(() => {
     void loadWorkForProject(selectedProjectID);
   }, [loadWorkForProject, selectedProjectID]);
+
+  useEffect(() => {
+    void loadProjectMemory(selectedProjectID);
+  }, [loadProjectMemory, selectedProjectID]);
 
   useEffect(() => {
     if (!selectedProjectID || !selectedWorkItemID) return;
@@ -403,6 +461,47 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       setDefaultsError(errorMessage(error, "Failed to update project defaults."));
     } finally {
       setDefaultsPending(false);
+    }
+  }
+
+  async function handleSaveMemory(form: MemoryForm) {
+    if (!selectedProjectID || !editingMemory) return;
+    const payload = {
+      title: form.title.trim(),
+      body: form.body.trim(),
+      trust_label: form.trustLabel.trim(),
+      source_kind: form.sourceKind.trim(),
+      source_id: form.sourceID.trim(),
+      enabled: form.enabled,
+    };
+    setMemoryPending(true);
+    setMemoryError("");
+    try {
+      const res =
+        editingMemory === "new"
+          ? await createProjectMemory(selectedProjectID, payload)
+          : await updateProjectMemory(selectedProjectID, editingMemory.id, payload);
+      setMemoryEntries((current) => upsertMemory(current, res.data));
+      setEditingMemory(null);
+    } catch (error) {
+      setMemoryError(errorMessage(error, "Failed to save project memory."));
+    } finally {
+      setMemoryPending(false);
+    }
+  }
+
+  async function confirmDeleteMemory() {
+    if (!selectedProjectID || !deleteMemory) return;
+    setDeleteMemoryPending(true);
+    setMemoryError("");
+    try {
+      await deleteProjectMemory(selectedProjectID, deleteMemory.id);
+      setMemoryEntries((current) => current.filter((item) => item.id !== deleteMemory.id));
+      setDeleteMemory(null);
+    } catch (error) {
+      setMemoryError(errorMessage(error, "Failed to delete project memory."));
+    } finally {
+      setDeleteMemoryPending(false);
     }
   }
 
@@ -762,6 +861,16 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           startingAssignmentID={startingAssignmentID}
           workItems={workItems}
         />
+        <ProjectMemoryPanel
+          entries={memoryEntries}
+          error={memoryError}
+          loading={memoryLoadState === "loading"}
+          onDelete={setDeleteMemory}
+          onEdit={setEditingMemory}
+          onNew={() => setEditingMemory("new")}
+          onRefresh={() => void loadProjectMemory(selectedProjectID)}
+          project={selectedProject}
+        />
         <WorkItemDetail
           assignments={assignments}
           artifacts={artifacts}
@@ -860,6 +969,16 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
         />
       )}
 
+      {editingMemory && (
+        <ProjectMemoryModal
+          entry={editingMemory === "new" ? null : editingMemory}
+          error={memoryError}
+          pending={memoryPending}
+          onClose={() => setEditingMemory(null)}
+          onSave={handleSaveMemory}
+        />
+      )}
+
       {pendingDeleteProject && (
         <ConfirmModal
           title="Delete project"
@@ -912,6 +1031,23 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
               </strong>
               . Linked tasks, runs, chats, and external-agent executions are not deleted or
               cancelled.
+            </>
+          }
+        />
+      )}
+
+      {deleteMemory && (
+        <ConfirmModal
+          title="Delete project memory"
+          danger
+          pending={deleteMemoryPending}
+          confirmLabel="Delete memory"
+          onClose={() => setDeleteMemory(null)}
+          onConfirm={confirmDeleteMemory}
+          message={
+            <>
+              Delete <strong>{deleteMemory.title}</strong>. Historical context packets that already
+              captured this memory stay unchanged.
             </>
           }
         />
@@ -1369,6 +1505,249 @@ function ProjectActivityRow({
         </div>
       )}
     </div>
+  );
+}
+
+function ProjectMemoryPanel({
+  entries,
+  error,
+  loading,
+  onDelete,
+  onEdit,
+  onNew,
+  onRefresh,
+  project,
+}: {
+  entries: ProjectMemoryRecord[];
+  error: string;
+  loading: boolean;
+  onDelete: (entry: ProjectMemoryRecord) => void;
+  onEdit: (entry: ProjectMemoryRecord) => void;
+  onNew: () => void;
+  onRefresh: () => void;
+  project: ProjectRecord | null;
+}) {
+  if (!project) return null;
+  const enabledCount = entries.filter((entry) => entry.enabled).length;
+  return (
+    <div style={{ padding: "12px 16px 0" }}>
+      <div style={panelStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <div>
+            <div style={sectionLabelStyle}>Memory / Context</div>
+            <div style={{ ...subtleTextStyle, marginTop: 3 }}>
+              {loading
+                ? "Loading project memory…"
+                : `${enabledCount} enabled / ${entries.length} saved entries`}
+            </div>
+          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-label="Refresh project memory"
+            title="Refresh"
+            onClick={onRefresh}
+            style={{ marginLeft: "auto" }}
+          >
+            <Icon d={Icons.refresh} size={12} />
+          </button>
+          <button className="btn btn-primary btn-sm" type="button" onClick={onNew}>
+            <Icon d={Icons.plus} size={12} />
+            Memory
+          </button>
+        </div>
+        {error && (
+          <div style={{ marginBottom: 10 }}>
+            <InlineError message={error} />
+          </div>
+        )}
+        <div style={{ ...subtleTextStyle, marginBottom: entries.length > 0 ? 10 : 0 }}>
+          Enabled entries appear in chat context packets with their trust label. Standalone native
+          task context still resolves only when linked to a Hecate Chat packet.
+        </div>
+        {entries.length === 0 && !loading ? (
+          <div style={subtleTextStyle}>No project memory entries saved yet.</div>
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {entries.map((entry) => (
+              <ProjectMemoryRow
+                key={entry.id}
+                entry={entry}
+                onDelete={() => onDelete(entry)}
+                onEdit={() => onEdit(entry)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectMemoryRow({
+  entry,
+  onDelete,
+  onEdit,
+}: {
+  entry: ProjectMemoryRecord;
+  onDelete: () => void;
+  onEdit: () => void;
+}) {
+  const source = formatMemorySource(entry);
+  return (
+    <div style={memoryEntryStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <span className={entry.enabled ? "badge badge-muted" : "badge badge-amber"}>
+          {entry.enabled ? "enabled" : "disabled"}
+        </span>
+        <span className="badge badge-muted">{entry.trust_label}</span>
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{entry.title}</div>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-label={`Edit memory ${entry.title}`}
+          onClick={onEdit}
+          title="Edit"
+        >
+          <Icon d={Icons.edit} size={12} />
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-label={`Delete memory ${entry.title}`}
+          onClick={onDelete}
+          title="Delete"
+          style={{ color: "var(--red)" }}
+        >
+          <Icon d={Icons.trash} size={12} />
+        </button>
+      </div>
+      <div style={memoryBodyStyle}>{entry.body}</div>
+      <div style={metaLineStyle}>
+        <span>{source}</span>
+        <span>Updated {formatAbsoluteTime(entry.updated_at)}</span>
+        <CopyableID text={entry.id} compact />
+      </div>
+    </div>
+  );
+}
+
+function ProjectMemoryModal({
+  entry,
+  error,
+  pending,
+  onClose,
+  onSave,
+}: {
+  entry: ProjectMemoryRecord | null;
+  error: string;
+  pending: boolean;
+  onClose: () => void;
+  onSave: (form: MemoryForm) => void | Promise<void>;
+}) {
+  const [form, setForm] = useState<MemoryForm>(() => memoryFormFromRecord(entry));
+  const valid = form.title.trim().length > 0 && form.body.trim().length > 0;
+  return (
+    <Modal
+      title={entry ? "Edit project memory" : "New project memory"}
+      onClose={onClose}
+      width={620}
+      footer={
+        <button
+          className="btn btn-primary"
+          type="button"
+          disabled={pending || !valid}
+          onClick={() => void onSave(form)}
+          style={{ width: "100%", justifyContent: "center" }}
+        >
+          {pending ? "Saving…" : entry ? "Save memory" : "Create memory"}
+        </button>
+      }
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (valid) void onSave(form);
+        }}
+        style={{ display: "grid", gap: 12 }}
+      >
+        {error && <InlineError message={error} />}
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Title</span>
+          <input
+            className="input"
+            autoFocus
+            value={form.title}
+            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
+          />
+        </label>
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Body</span>
+          <textarea
+            className="input"
+            value={form.body}
+            rows={7}
+            onChange={(event) => setForm((current) => ({ ...current, body: event.target.value }))}
+            style={{ resize: "vertical", minHeight: 150 }}
+          />
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Trust label</span>
+            <select
+              className="input"
+              value={form.trustLabel}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, trustLabel: event.target.value }))
+              }
+            >
+              {MEMORY_TRUST_LABELS.map((label) => (
+                <option key={label} value={label}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Source kind</span>
+            <select
+              className="input"
+              value={form.sourceKind}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, sourceKind: event.target.value }))
+              }
+            >
+              {MEMORY_SOURCE_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {kind}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Source ID</span>
+          <input
+            className="input"
+            value={form.sourceID}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, sourceID: event.target.value }))
+            }
+            placeholder="optional artifact, chat, message, or handoff id"
+          />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--t1)" }}>
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, enabled: event.target.checked }))
+            }
+          />
+          Enabled for project context packets
+        </label>
+      </form>
+    </Modal>
   );
 }
 
@@ -2633,6 +3012,22 @@ function rolePayloadFromForm(form: RoleForm) {
   };
 }
 
+function memoryFormFromRecord(entry: ProjectMemoryRecord | null): MemoryForm {
+  return {
+    title: entry?.title ?? "",
+    body: entry?.body ?? "",
+    trustLabel: entry?.trust_label ?? "operator_memory",
+    sourceKind: entry?.source_kind ?? "operator",
+    sourceID: entry?.source_id ?? "",
+    enabled: entry?.enabled ?? true,
+  };
+}
+
+function formatMemorySource(entry: ProjectMemoryRecord): string {
+  const sourceKind = entry.source_kind || "operator";
+  return entry.source_id ? `${sourceKind}:${entry.source_id}` : sourceKind;
+}
+
 function buildProjectAssignmentChatLaunchRequest({
   project,
   workItem,
@@ -2846,6 +3241,18 @@ function upsertProject(items: ProjectRecord[], item: ProjectRecord) {
   return next;
 }
 
+function upsertMemory(items: ProjectMemoryRecord[], item: ProjectMemoryRecord) {
+  const index = items.findIndex((current) => current.id === item.id);
+  const next = index === -1 ? [item, ...items] : items.slice();
+  if (index !== -1) {
+    next[index] = item;
+  }
+  return next.sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    return b.updated_at.localeCompare(a.updated_at) || a.title.localeCompare(b.title);
+  });
+}
+
 function upsertAssignment(items: ProjectAssignmentRecord[], item: ProjectAssignmentRecord) {
   const index = items.findIndex((current) => current.id === item.id);
   if (index === -1) return [item, ...items];
@@ -2969,4 +3376,18 @@ const activityRowStyle: CSSProperties = {
 const artifactStyle: CSSProperties = {
   borderTop: "1px solid var(--border)",
   paddingTop: 8,
+};
+
+const memoryEntryStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  paddingTop: 8,
+};
+
+const memoryBodyStyle: CSSProperties = {
+  marginTop: 6,
+  color: "var(--t1)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
 };

@@ -7,20 +7,24 @@ import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
 import { ProjectsProvider } from "../../app/state/projects";
 import {
   createProjectAssignment,
+  createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteProjectAssignment,
+  deleteProjectMemory,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
+  getProjectMemory,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
   startProjectAssignment,
   updateProject,
   updateProjectAssignment,
+  updateProjectMemory,
   updateProjectWorkRole,
   updateProjectWorkItem,
 } from "../../lib/api";
@@ -32,6 +36,7 @@ import launchContextContractRaw from "../../test/fixtures/launch-context-v1-cont
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type {
   ProjectAssignmentRecord,
+  ProjectMemoryRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
@@ -82,6 +87,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
       object: "project_collaboration_artifacts",
       data: [],
     })),
+    getProjectMemory: vi.fn(async () => ({ object: "project_memory", data: [] })),
+    createProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
+    updateProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
+    deleteProjectMemory: vi.fn(async () => undefined),
     startProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
     createProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
     createProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
@@ -168,6 +177,19 @@ const hecateAssignment: ProjectAssignmentRecord = {
   started_at: "2026-06-02T10:30:00Z",
 };
 
+const memoryEntry: ProjectMemoryRecord = {
+  id: "mem_1",
+  scope: "project",
+  project_id: project.id,
+  title: "Commit style",
+  body: "Use conventional commits.",
+  trust_label: "operator_memory",
+  source_kind: "operator",
+  enabled: true,
+  created_at: "2026-06-02T09:00:00Z",
+  updated_at: "2026-06-02T09:00:00Z",
+};
+
 function resetProjectWorkMocks() {
   vi.mocked(getProjectActivity).mockResolvedValue({
     object: "project_activity",
@@ -240,6 +262,16 @@ function resetProjectWorkMocks() {
     object: "project_collaboration_artifacts",
     data: [],
   });
+  vi.mocked(getProjectMemory).mockResolvedValue({ object: "project_memory", data: [] });
+  vi.mocked(createProjectMemory).mockResolvedValue({
+    object: "project_memory_entry",
+    data: { ...memoryEntry, id: "mem_new", title: "Review posture" },
+  });
+  vi.mocked(updateProjectMemory).mockResolvedValue({
+    object: "project_memory_entry",
+    data: { ...memoryEntry, body: "Prefer small commits.", updated_at: "2026-06-02T10:00:00Z" },
+  });
+  vi.mocked(deleteProjectMemory).mockResolvedValue(undefined);
   vi.mocked(startProjectAssignment).mockResolvedValue({
     object: "project_assignment",
     data: { ...hecateAssignment, status: "running" },
@@ -326,6 +358,10 @@ afterEach(() => {
   vi.mocked(getProjectWorkItem).mockReset();
   vi.mocked(getProjectAssignments).mockReset();
   vi.mocked(getProjectCollaborationArtifacts).mockReset();
+  vi.mocked(getProjectMemory).mockReset();
+  vi.mocked(createProjectMemory).mockReset();
+  vi.mocked(updateProjectMemory).mockReset();
+  vi.mocked(deleteProjectMemory).mockReset();
   vi.mocked(startProjectAssignment).mockReset();
   vi.mocked(createProjectWorkItem).mockReset();
   vi.mocked(createProjectAssignment).mockReset();
@@ -428,6 +464,55 @@ describe("ProjectsView cockpit", () => {
     });
     expect(actions.selectProject).toHaveBeenCalledWith(project.id);
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
+  });
+
+  it("manages project memory entries in the cockpit", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [memoryEntry],
+    });
+    const user = userEvent.setup();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Commit style")).toBeTruthy();
+    expect(screen.getByText("operator_memory")).toBeTruthy();
+    expect(screen.getByText("Use conventional commits.")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
+    fireEvent.change(screen.getByLabelText("Body"), {
+      target: { value: "Prefer small commits." },
+    });
+    await user.click(screen.getByRole("button", { name: "Save memory" }));
+    expect(updateProjectMemory).toHaveBeenCalledWith(project.id, memoryEntry.id, {
+      title: "Commit style",
+      body: "Prefer small commits.",
+      trust_label: "operator_memory",
+      source_kind: "operator",
+      source_id: "",
+      enabled: true,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Memory" }));
+    await user.type(screen.getByLabelText("Title"), "Review posture");
+    await user.type(screen.getByLabelText("Body"), "Keep generated summaries labelled.");
+    await user.click(screen.getByRole("button", { name: "Create memory" }));
+    expect(createProjectMemory).toHaveBeenCalledWith(project.id, {
+      title: "Review posture",
+      body: "Keep generated summaries labelled.",
+      trust_label: "operator_memory",
+      source_kind: "operator",
+      source_id: "",
+      enabled: true,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Delete memory Commit style" }));
+    await user.click(screen.getByRole("button", { name: "Delete memory" }));
+    expect(deleteProjectMemory).toHaveBeenCalledWith(project.id, memoryEntry.id);
   });
 
   it("keeps project work visible when activity loading fails", async () => {

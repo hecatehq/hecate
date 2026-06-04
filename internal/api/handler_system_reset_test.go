@@ -11,6 +11,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/storage"
@@ -76,6 +77,17 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	}); err != nil {
 		t.Fatalf("create project assignment: %v", err)
 	}
+	if _, err := handler.memory.Create(ctx, memory.Entry{
+		ID:         "mem_reset",
+		ProjectID:  project.Data.ID,
+		Title:      "Reset memory",
+		Body:       "Delete this with the project.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("create project memory: %v", err)
+	}
 	if _, err := handler.taskStore.CreateTask(ctx, types.Task{ID: "task_reset", Title: "Reset me", Status: "queued"}); err != nil {
 		t.Fatalf("create task: %v", err)
 	}
@@ -137,6 +149,13 @@ func TestSystemResetDataMemoryBackendDeletesStateAndClosesAgentSessions(t *testi
 	if len(workItems) != 0 {
 		t.Fatalf("project work after reset = %#v, want none", workItems)
 	}
+	memoryEntries, err := handler.memory.List(ctx, memory.Filter{ProjectID: project.Data.ID, IncludeDisabled: true})
+	if err != nil {
+		t.Fatalf("list project memory: %v", err)
+	}
+	if len(memoryEntries) != 0 {
+		t.Fatalf("project memory after reset = %#v, want none", memoryEntries)
+	}
 	tasks, err := handler.taskStore.ListTasks(ctx, taskstate.TaskFilter{})
 	if err != nil {
 		t.Fatalf("list tasks: %v", err)
@@ -196,6 +215,10 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteStore(projects): %v", err)
 	}
+	memoryStore, err := memory.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore(memory): %v", err)
+	}
 	projectWorkStore, err := projectwork.NewSQLiteStore(ctx, client)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore(projectwork): %v", err)
@@ -216,6 +239,7 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	handler := NewHandler(config.Config{}, logger, nil, cpStore, taskStore, nil, runtime)
 	handler.SetAgentChatStore(chatStore)
 	handler.SetProjectStore(projectStore)
+	handler.SetMemoryStore(memoryStore)
 	handler.SetProjectWorkStore(projectWorkStore)
 	handler.SetStateCleaner(client)
 	runner := &fakeAgentChatRunner{}
@@ -242,6 +266,17 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 		Title:     "SQLite work",
 	}); err != nil {
 		t.Fatalf("create project work: %v", err)
+	}
+	if _, err := memoryStore.Create(ctx, memory.Entry{
+		ID:         "mem_sqlite_reset",
+		ProjectID:  project.ID,
+		Title:      "SQLite memory",
+		Body:       "Delete this memory entry on reset.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("create project memory: %v", err)
 	}
 	if _, err := taskStore.CreateTask(ctx, types.Task{ID: "task_sqlite_reset", Title: "SQLite task", Status: "queued"}); err != nil {
 		t.Fatalf("create task: %v", err)
@@ -277,6 +312,7 @@ func TestSystemResetDataSQLiteBackendClearsRemainingRows(t *testing.T) {
 	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != "chat_sqlite_external" {
 		t.Fatalf("closed sessions = %#v, want sqlite external chat closed", runner.closedSessions)
 	}
+	assertSQLiteTableCount(t, client, client.QualifiedTable("memory_entries"), 0)
 	assertSQLiteTableCount(t, client, client.QualifiedTable("reset_scratch"), 0)
 }
 

@@ -242,13 +242,15 @@ stores, plus `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects`.
 This landed as a foundation plus chat grouping: project records and roots can be
 persisted, trusted context-source metadata can be attached to a project, and
 chat sessions can carry `project_id`. Chat context packets snapshot enabled
-project context-source metadata as itemized provenance. Project work
+project context-source metadata as itemized provenance. Project-scoped memory
+entries now persist as structured records with Markdown-compatible bodies and
+explicit trust/provenance labels; enabled entries are visible as chat
+context-packet items, but writes remain operator-driven. Project work
 assignments can now start native Tasks linked back via `origin_kind` /
 `origin_id`, and `GET /hecate/v1/projects/{id}/activity` exposes a read-only
 project activity inbox over work items, assignments, linked task/run/chat ids,
 status signals, and recent collaboration artifacts. Broader task `project_id`
-scoping, memory entries, profiles, and presets are not linked to `project_id`
-yet.
+scoping, profiles, and presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 

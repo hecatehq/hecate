@@ -301,6 +301,30 @@ type ProjectContextSourceResponseItem struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type ProjectMemoryResponse struct {
+	Object string                    `json:"object"`
+	Data   ProjectMemoryResponseItem `json:"data"`
+}
+
+type ProjectMemoryListResponse struct {
+	Object string                      `json:"object"`
+	Data   []ProjectMemoryResponseItem `json:"data"`
+}
+
+type ProjectMemoryResponseItem struct {
+	ID         string `json:"id"`
+	Scope      string `json:"scope"`
+	ProjectID  string `json:"project_id"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+	TrustLabel string `json:"trust_label"`
+	SourceKind string `json:"source_kind"`
+	SourceID   string `json:"source_id,omitempty"`
+	Enabled    bool   `json:"enabled"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
 type ProviderStatusResponse struct {
 	Object string                       `json:"object"`
 	Data   []ProviderStatusResponseItem `json:"data"`

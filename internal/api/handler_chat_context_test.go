@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -113,6 +114,90 @@ func TestChatContextPacketsIncludeEnabledProjectSources(t *testing.T) {
 				if item.Origin == "private.md" {
 					t.Fatalf("disabled project context item was included: %+v", item)
 				}
+			}
+		})
+	}
+}
+
+func TestChatContextPacketsIncludeEnabledProjectMemory(t *testing.T) {
+	ctx := context.Background()
+	memoryStore := memory.NewMemoryStore()
+	if _, err := memoryStore.Create(ctx, memory.Entry{
+		ID:         "mem_operator",
+		ProjectID:  "proj_1",
+		Title:      "Commit style",
+		Body:       "Use conventional commits.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create operator memory: %v", err)
+	}
+	if _, err := memoryStore.Create(ctx, memory.Entry{
+		ID:         "mem_generated",
+		ProjectID:  "proj_1",
+		Title:      "Handoff summary",
+		Body:       "Generated summary content.",
+		TrustLabel: "generated_summary",
+		SourceKind: "handoff",
+		SourceID:   "art_1",
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create generated memory: %v", err)
+	}
+	if _, err := memoryStore.Create(ctx, memory.Entry{
+		ID:        "mem_disabled",
+		ProjectID: "proj_1",
+		Title:     "Disabled",
+		Body:      "Do not include.",
+		Enabled:   false,
+	}); err != nil {
+		t.Fatalf("Create disabled memory: %v", err)
+	}
+	handler := &Handler{memory: memoryStore}
+	session := chat.Session{
+		ID:        "chat_1",
+		ProjectID: "proj_1",
+		Workspace: "/tmp/hecate",
+		Messages:  []chat.Message{{ID: "u1", Role: "user", Content: "first"}},
+	}
+
+	packets := []struct {
+		name   string
+		packet chat.ContextPacket
+	}{
+		{
+			name:   "direct model",
+			packet: handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", ""),
+		},
+		{
+			name:   "hecate task",
+			packet: handler.hecateTaskContextPacket(ctx, session, "ollama", "llama3.1:8b", "", false),
+		},
+		{
+			name:   "external agent",
+			packet: handler.externalAgentContextPacket(ctx, session, "Cursor Agent"),
+		},
+	}
+
+	for _, tc := range packets {
+		t.Run(tc.name, func(t *testing.T) {
+			operator := findContextItemByOrigin(tc.packet, "mem_operator")
+			if operator == nil {
+				t.Fatalf("operator memory item not found: %+v", tc.packet.Items)
+			}
+			if operator.TrustLevel != contextTrustOperatorMemory || operator.Body != "Use conventional commits." {
+				t.Fatalf("operator memory item = %+v, want operator_memory body snapshot", *operator)
+			}
+			generated := findContextItemByOrigin(tc.packet, "mem_generated")
+			if generated == nil {
+				t.Fatalf("generated memory item not found: %+v", tc.packet.Items)
+			}
+			if generated.TrustLevel != "generated_summary" || generated.Body != "Generated summary content." {
+				t.Fatalf("generated memory item = %+v, want generated_summary body snapshot", *generated)
+			}
+			if findContextItemByOrigin(tc.packet, "mem_disabled") != nil {
+				t.Fatalf("disabled memory was included: %+v", tc.packet.Items)
 			}
 		})
 	}
@@ -234,6 +319,60 @@ func TestChatMessageContextEndpointReturnsHistoricalSnapshotAfterProjectSourcesC
 		if item.Title == "README changed later" {
 			t.Fatalf("historical context packet was rewritten after project change: %+v", resp.Data.Items)
 		}
+	}
+}
+
+func TestChatMessageContextEndpointReturnsHistoricalSnapshotAfterProjectMemoryChange(t *testing.T) {
+	ctx := context.Background()
+	memoryStore := memory.NewMemoryStore()
+	if _, err := memoryStore.Create(ctx, memory.Entry{
+		ID:         "mem_1",
+		ProjectID:  "proj_1",
+		Title:      "Commit style",
+		Body:       "Use conventional commits.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create project memory: %v", err)
+	}
+	handler := &Handler{memory: memoryStore, agentChat: chat.NewMemoryStore()}
+	session := chat.Session{
+		ID:        "chat_1",
+		ProjectID: "proj_1",
+		Workspace: "/tmp/hecate",
+		Messages:  []chat.Message{{ID: "u1", Role: "user", Content: "first"}},
+	}
+	if _, err := handler.agentChat.Create(ctx, session); err != nil {
+		t.Fatalf("Create chat session: %v", err)
+	}
+	packet := handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", "")
+	if _, err := handler.agentChat.AppendMessage(ctx, session.ID, chat.Message{
+		ID:      "msg_1",
+		Role:    "assistant",
+		Content: "done",
+		Context: packet,
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if _, err := memoryStore.Update(ctx, "proj_1", "mem_1", func(entry *memory.Entry) {
+		entry.Title = "Changed later"
+		entry.Body = "Different text."
+		entry.Enabled = false
+	}); err != nil {
+		t.Fatalf("Update project memory: %v", err)
+	}
+	server := NewServer(slog.New(slog.NewJSONHandler(io.Discard, nil)), handler)
+	client := newAPITestClient(t, server)
+
+	resp := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/chat_1/messages/msg_1/context", "")
+
+	item := findRenderedContextItemByOrigin(resp.Data, "mem_1")
+	if item == nil {
+		t.Fatalf("memory context item not found: %+v", resp.Data.Items)
+	}
+	if item.Title != "Commit style" || item.Body != "Use conventional commits." || item.TrustLevel != contextTrustOperatorMemory {
+		t.Fatalf("historical memory item = %+v, want original body snapshot", *item)
 	}
 }
 
@@ -521,6 +660,24 @@ func findContextItem(packet chat.ContextPacket, kind string) *chat.ContextItem {
 	for i := range packet.Items {
 		if packet.Items[i].Kind == kind {
 			return &packet.Items[i]
+		}
+	}
+	return nil
+}
+
+func findContextItemByOrigin(packet chat.ContextPacket, origin string) *chat.ContextItem {
+	for idx := range packet.Items {
+		if packet.Items[idx].Origin == origin {
+			return &packet.Items[idx]
+		}
+	}
+	return nil
+}
+
+func findRenderedContextItemByOrigin(packet ChatContextPacketItem, origin string) *ChatContextItem {
+	for idx := range packet.Items {
+		if packet.Items[idx].Origin == origin {
+			return &packet.Items[idx]
 		}
 	}
 	return nil

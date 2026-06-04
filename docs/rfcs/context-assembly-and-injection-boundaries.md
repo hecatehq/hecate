@@ -150,7 +150,9 @@ what was prepared for a model or adapter call. The current implementation stores
 a packet on assistant chat messages, including execution mode, provider/model or
 adapter identity, workspace, system prompt presence, transcript count, legacy
 source metadata, and itemized visible metadata with trust labels, origins, and
-inclusion reasons. It does not store full source bodies yet.
+inclusion reasons. Enabled project memory entries are included as itemized
+`memory` entries with trust/provenance labels and body snapshots. Other source
+types still do not store full source bodies yet.
 
 Sketch:
 
@@ -296,10 +298,11 @@ packets are audit snapshots owned by their parent message/run.
 | 2   | Landed for chat messages: persist itemized snapshots through memory and SQLite chat stores. Task-run lookup resolves linked chat packets. |
 | 3   | Landed for chat messages: UI context inspector groups itemized packet data by trust level.                                                |
 | 4   | Wire token estimates from the context-window RFC against packet items.                                                                    |
-| 5   | Add agent-memory selection as a packet source after the memory store exists.                                                              |
+| 5   | Landed for project memory: enabled entries appear as labelled chat packet items. Broader profile/surface memory selection remains future. |
 
-The first PR is intentionally small: no memory, no summarization, no vector
-retrieval. Just create the audit boundary.
+The first packet work was intentionally small: no summarization, no vector
+retrieval. Project memory now uses the audit boundary, while broader context
+assembly remains explicit future work.
 
 ## Test Plan
 

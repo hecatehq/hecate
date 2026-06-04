@@ -17,6 +17,7 @@ import (
 	"github.com/hecatehq/hecate/internal/controlplane"
 	"github.com/hecatehq/hecate/internal/gateway"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/profiler"
@@ -42,6 +43,7 @@ type Handler struct {
 	tracer                   profiler.Tracer
 	agentChat                chat.Store
 	projects                 projects.Store
+	memory                   memory.Store
 	projectWork              projectwork.Store
 	agentChatRunner          agentadapters.Runner
 	agentChatLive            *agentChatLive
@@ -309,6 +311,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		rateLimiter:         rl,
 		agentChat:           chat.NewMemoryStore(),
 		projects:            projects.NewMemoryStore(),
+		memory:              memory.NewMemoryStore(),
 		projectWork:         projectwork.NewMemoryStore(),
 		agentChatRunner:     agentChatRunner,
 		agentChatLive:       agentChatLive,
@@ -380,6 +383,13 @@ func (h *Handler) SetProjectStore(store projects.Store) {
 		return
 	}
 	h.projects = store
+}
+
+func (h *Handler) SetMemoryStore(store memory.Store) {
+	if store == nil {
+		return
+	}
+	h.memory = store
 }
 
 func (h *Handler) SetProjectWorkStore(store projectwork.Store) {
