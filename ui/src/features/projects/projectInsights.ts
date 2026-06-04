@@ -12,7 +12,7 @@ import type {
   ProjectWorkRoleRecord,
 } from "../../types/project";
 
-export type ProjectActivityBucketKey = "active" | "blocked" | "completed" | "recent";
+export type ProjectActivityBucketKey = "all" | "active" | "blocked" | "completed" | "recent";
 
 export type ProjectTimelineItemKind =
   | "assignment"

@@ -581,12 +581,12 @@ describe("ProjectsView index", () => {
       wrapper: directWrapper({ projects: [project] }),
     });
 
-    expect(await screen.findByText("Activity Inbox")).toBeTruthy();
+    expect(await screen.findByText("Work Queue")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Collapsed projects panel" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Project work items" })).toBeNull();
     const workPanel = screen.getByRole("region", { name: "Work coordination" });
     expect(workPanel).toBeTruthy();
-    expect(screen.getByText("No work items")).toBeTruthy();
+    expect(screen.getByText("No work items for this project.")).toBeTruthy();
     expect(within(workPanel).getByRole("button", { name: "Work" })).toBeTruthy();
   });
 
@@ -621,7 +621,7 @@ describe("ProjectsView index", () => {
     expect(actionLabels.slice(1)).toEqual(["Roles", "Project settings", "Refresh project work"]);
     expect(within(detail).queryByText("Cockpit")).toBeNull();
     expect(within(workPanel).getByRole("button", { name: "Work" })).toBeTruthy();
-    expect(within(workPanel).getByText("Work Items")).toBeTruthy();
+    expect(within(workPanel).getByText("Work Queue")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Project work items" })).toBeNull();
 
     await openProjectAttentionMenu();
@@ -643,7 +643,7 @@ describe("ProjectsView index", () => {
     expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
     const workspace = screen.getByRole("region", { name: "Project workspace" });
     const tabs = within(workspace).getByRole("tablist", { name: "Project workspace views" });
-    expect(screen.getByRole("region", { name: "Activity inbox" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Work queue" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Project attention/ })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Needs attention" })).toBeNull();
     expect(screen.queryByRole("complementary", { name: "Project continuity" })).toBeNull();
@@ -963,7 +963,7 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
     expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
-    expect(screen.getByText("No activity is recorded for this project yet.")).toBeTruthy();
+    expect(screen.getByText("Work Queue")).toBeTruthy();
     expect(screen.queryByText("activity failed")).toBeNull();
   });
 
@@ -1149,15 +1149,17 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    expect(await screen.findByText("Activity Inbox")).toBeTruthy();
-    expect(screen.getByText(/1 assignments across 1 work items/)).toBeTruthy();
-    expect(screen.getAllByText("2 approval pending").length).toBeGreaterThan(0);
-    expect(screen.getByText("handoff: Runtime notes")).toBeTruthy();
+    expect(await screen.findByText("Work Queue")).toBeTruthy();
+    expect(screen.getByText(/1 work item · 1 assignments/)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
+    const queue = screen.getByLabelText("Work queue");
+    expect(within(queue).getAllByText("2 approval pending").length).toBeGreaterThan(0);
+    expect(within(queue).getByText("handoff: Runtime notes")).toBeTruthy();
 
-    await userEvent.click(screen.getByRole("button", { name: "Task" }));
+    await userEvent.click(within(queue).getByRole("button", { name: "Task" }));
     expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
 
-    await userEvent.click(screen.getByRole("button", { name: "Chat" }));
+    await userEvent.click(within(queue).getByRole("button", { name: "Chat" }));
     expect(onOpenChat).toHaveBeenCalledWith(
       expect.objectContaining({
         projectID: project.id,
@@ -1166,10 +1168,7 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Details" }));
-    expect(screen.getByRole("button", { name: "Open work item Build cockpit UI" })).toHaveAttribute(
-      "aria-current",
-      "true",
-    );
+    expect(screen.getByRole("article", { name: "Build cockpit UI work item" })).toBeTruthy();
   });
 
   it("renders a project timeline from activity, decisions, artifacts, and memory", async () => {
@@ -1485,10 +1484,11 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await screen.findByText("Activity Inbox");
+    await screen.findByText("Work Queue");
     expect(screen.queryByText("Project Health")).toBeNull();
 
-    const activity = screen.getByLabelText("Activity inbox");
+    await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
+    const activity = screen.getByLabelText("Work queue");
     expect(within(activity).getByText(/2 approval pending/i)).toBeTruthy();
     const health = await openProjectAttentionMenu();
     expect(within(health).queryByText(/Approval waiting: Build cockpit UI/i)).toBeNull();
@@ -1643,8 +1643,9 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await screen.findByText("Activity Inbox");
-    const activity = screen.getByLabelText("Activity inbox");
+    await screen.findByText("Work Queue");
+    await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
+    const activity = screen.getByLabelText("Work queue");
     expect(within(activity).getByText("execution failed")).toBeTruthy();
     const health = await openProjectAttentionMenu();
     expect(within(health).queryByText(/Execution needs review: Build cockpit UI/i)).toBeNull();
@@ -1812,7 +1813,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await screen.findByText("Activity Inbox");
+    await screen.findByText("Work Queue");
     const health = await openProjectAttentionMenu();
     expect(within(health).getByText(/Pending handoff: Build cockpit UI/i)).toBeTruthy();
     expect(within(health).getByText(/QA handoff/i)).toBeTruthy();
@@ -1884,9 +1885,11 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    expect(await screen.findByText("No blocked assignments for this project.")).toBeTruthy();
-    const inbox = screen.getByText("Activity Inbox").closest("div");
+    expect(await screen.findByText("Work Queue")).toBeTruthy();
+    const inbox = screen.getByText("Work Queue").closest("div");
     expect(inbox).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
+    expect(await screen.findByText("No blocked assignments for this project.")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Show active assignments" }));
 
     await waitFor(() => {
@@ -1920,7 +1923,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await screen.findByText("Activity Inbox");
+    await screen.findByText("Work Queue");
     const health = await openProjectAttentionMenu();
     expect(within(health).getByText("Provider/model defaults missing")).toBeTruthy();
     expect(within(health).getByText("No project memory or context sources enabled")).toBeTruthy();
@@ -2009,7 +2012,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await screen.findByText("Activity Inbox");
+    await screen.findByText("Work Queue");
     const health = await openProjectAttentionMenu();
     expect(within(health).getByText(/Stale or unknown assignment: Build cockpit UI/i)).toBeTruthy();
     expect(within(health).getByText(/linked run missing/i)).toBeTruthy();
@@ -2108,7 +2111,7 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await screen.findByText("Activity Inbox");
+    await screen.findByText("Work Queue");
     const health = await openProjectAttentionMenu();
     expect(within(health).getByText("No project attention items detected.")).toBeTruthy();
   });
@@ -2170,12 +2173,14 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    await screen.findByText("Activity Inbox");
-    const activity = screen.getByLabelText("Activity inbox");
+    await screen.findByText("Work Queue");
+    await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
+    const activity = screen.getByLabelText("Work queue");
+    expect(within(activity).getAllByText("not started").length).toBeGreaterThan(0);
     await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
     const timeline = screen.getByLabelText("Project timeline");
-    expect(within(activity).getAllByText("not started").length).toBeGreaterThan(0);
     expect(within(timeline).queryByText("not started")).toBeNull();
+    await openProjectWorkspaceTab(/Work Coordination/);
 
     await userEvent.click(await screen.findByRole("button", { name: "Start" }));
 

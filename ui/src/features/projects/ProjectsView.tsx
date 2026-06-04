@@ -321,7 +321,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [workItems, setWorkItems] = useState<ProjectWorkItemRecord[]>([]);
   const [workItemSummaries, setWorkItemSummaries] = useState<Record<string, WorkItemSummary>>({});
   const [activity, setActivity] = useState<ProjectActivityData | null>(null);
-  const [activityBucket, setActivityBucket] = useState<ProjectActivityBucketKey>("blocked");
+  const [activityBucket, setActivityBucket] = useState<ProjectActivityBucketKey>("all");
   const [workspaceTab, setWorkspaceTab] = useState<ProjectWorkspaceTab>("work");
   const [roles, setRoles] = useState<ProjectWorkRoleRecord[]>([]);
   const [selectedWorkItemID, setSelectedWorkItemID] = useState("");
@@ -1199,22 +1199,6 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
         <div style={projectMainBodyStyle}>
           <section style={detailStyle} aria-label="Selected work item">
             <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
-              <ProjectActivityInbox
-                activity={activity}
-                bucket={activityBucket}
-                loading={workLoadState === "loading"}
-                onBucketChange={setActivityBucket}
-                onOpenChat={onOpenChat}
-                onOpenTask={onOpenTask}
-                onSelectWorkItem={setSelectedWorkItemID}
-                onStartAssignment={(assignment, workItemID) =>
-                  void handleStartAssignment(assignment, workItemID)
-                }
-                project={selectedProject}
-                startingAssignmentID={startingAssignmentID}
-                workItems={workItems}
-              />
-
               <section style={domainSectionStyle} aria-label="Project workspace">
                 <ProjectWorkspaceTabs
                   activeTab={workspaceTab}
@@ -1252,50 +1236,24 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                       className="project-work-coordination-grid"
                       style={workCoordinationGridStyle}
                     >
-                      <div style={workItemsPanelStyle}>
-                        <div style={sectionLabelStyle}>Work Items</div>
-                        <div style={{ ...subtleTextStyle, marginTop: 3, marginBottom: 10 }}>
-                          Select the project outcome to coordinate.
-                        </div>
-                        {!selectedProject && (
-                          <EmptyBlock
-                            title="Select a project"
-                            detail="Project work appears after opening a project."
-                          />
-                        )}
-                        {selectedProject &&
-                          workLoadState === "loading" &&
-                          workItems.length === 0 && (
-                            <EmptyBlock
-                              title="Loading work..."
-                              detail="Reading roles, work items, and assignments."
-                            />
-                          )}
-                        {selectedProject &&
-                          workLoadState !== "loading" &&
-                          workItems.length === 0 && (
-                            <EmptyBlock
-                              title="No work items"
-                              detail="Create work to coordinate assignments, handoffs, and artifacts."
-                            />
-                          )}
-                        {workItems.length > 0 && (
-                          <div style={workItemListStyle}>
-                            {workItems.map((item) => (
-                              <WorkItemRow
-                                key={item.id}
-                                active={item.id === selectedWorkItemID}
-                                item={item}
-                                summary={workItemSummaries[item.id]}
-                                role={
-                                  item.owner_role_id ? roleByID.get(item.owner_role_id) : undefined
-                                }
-                                onSelect={() => setSelectedWorkItemID(item.id)}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <ProjectActivityInbox
+                        activity={activity}
+                        bucket={activityBucket}
+                        loading={workLoadState === "loading"}
+                        onBucketChange={setActivityBucket}
+                        onOpenChat={onOpenChat}
+                        onOpenTask={onOpenTask}
+                        onSelectWorkItem={setSelectedWorkItemID}
+                        onStartAssignment={(assignment, workItemID) =>
+                          void handleStartAssignment(assignment, workItemID)
+                        }
+                        project={selectedProject}
+                        roleByID={roleByID}
+                        selectedWorkItemID={selectedWorkItemID}
+                        startingAssignmentID={startingAssignmentID}
+                        workItemSummaries={workItemSummaries}
+                        workItems={workItems}
+                      />
                       <div style={workDetailColumnStyle}>
                         {hasWorkItemDetail ? (
                           <WorkItemDetail
@@ -1910,7 +1868,7 @@ function WorkItemRow({
         padding: "11px 12px",
         borderBottom: "1px solid var(--border)",
         borderLeft: active ? "2px solid var(--teal)" : "2px solid transparent",
-        background: active ? "var(--bg1)" : "transparent",
+        background: active ? "var(--bg2)" : "transparent",
         cursor: "pointer",
       }}
     >
@@ -2099,7 +2057,10 @@ function ProjectActivityInbox({
   onSelectWorkItem,
   onStartAssignment,
   project,
+  roleByID,
+  selectedWorkItemID,
   startingAssignmentID,
+  workItemSummaries,
   workItems,
 }: {
   activity: ProjectActivityData | null;
@@ -2111,15 +2072,22 @@ function ProjectActivityInbox({
   onSelectWorkItem: (workItemID: string) => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord, workItemID: string) => void;
   project: ProjectRecord | null;
+  roleByID: Map<string, ProjectWorkRoleRecord>;
+  selectedWorkItemID: string;
   startingAssignmentID: string;
+  workItemSummaries: Record<string, WorkItemSummary>;
   workItems: ProjectWorkItemRecord[];
 }) {
   const counts = activity?.summary;
   const buckets = activity?.buckets;
-  const selectedItems = buckets?.[bucket] ?? [];
-  const selectedTotal = projectActivityBucketCount(activity, bucket) ?? selectedItems.length;
+  const showingAll = bucket === "all";
+  const selectedItems = showingAll ? [] : (buckets?.[bucket] ?? []);
+  const selectedTotal = showingAll
+    ? workItems.length
+    : (projectActivityBucketCount(activity, bucket) ?? selectedItems.length);
   const bucketLabel = projectActivityBucketLabel(bucket);
   const tabs: Array<{ id: ProjectActivityBucketKey; label: string; count: number }> = [
+    { id: "all", label: "All", count: workItems.length },
     { id: "blocked", label: "Blocked", count: counts?.blocked_count ?? 0 },
     { id: "active", label: "Active", count: counts?.active_count ?? 0 },
     { id: "completed", label: "Completed", count: counts?.completed_count ?? 0 },
@@ -2131,15 +2099,15 @@ function ProjectActivityInbox({
   }
 
   return (
-    <section aria-label="Activity inbox">
+    <section aria-label="Work queue">
       <div style={panelStyle}>
         <div style={activityInboxHeaderStyle}>
           <SectionHeader
-            title="Activity Inbox"
+            title="Work Queue"
             detail={
-              loading && !activity
-                ? "Loading project activity..."
-                : `${counts?.assignment_count ?? 0} assignments across ${counts?.work_item_count ?? 0} work items`
+              loading && workItems.length === 0 && !activity
+                ? "Loading project work..."
+                : `${workItems.length} work item${workItems.length === 1 ? "" : "s"} · ${counts?.assignment_count ?? 0} assignments`
             }
           />
           <div style={activityHeaderTabsStyle}>
@@ -2148,7 +2116,11 @@ function ProjectActivityInbox({
                 key={tab.id}
                 className={bucket === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
                 type="button"
-                aria-label={`Show ${tab.label.toLowerCase()} assignments`}
+                aria-label={
+                  tab.id === "all"
+                    ? "Show all work items"
+                    : `Show ${tab.label.toLowerCase()} assignments`
+                }
                 onClick={() => onBucketChange(tab.id)}
               >
                 {tab.label}
@@ -2158,17 +2130,36 @@ function ProjectActivityInbox({
           </div>
         </div>
         <div style={{ ...subtleTextStyle, marginBottom: 10 }}>
-          {counts
-            ? `${selectedTotal} ${bucketLabel.toLowerCase()} in this view`
-            : "Newest 20 per activity bucket"}
+          {showingAll
+            ? "Select a work item, or filter by assignment activity."
+            : counts
+              ? `${selectedTotal} ${bucketLabel.toLowerCase()} in this view`
+              : "Newest 20 per activity bucket"}
         </div>
-        {!activity && !loading && (
+        {showingAll && workItems.length === 0 && !loading && (
+          <div style={subtleTextStyle}>No work items for this project.</div>
+        )}
+        {showingAll && workItems.length > 0 && (
+          <div style={workItemListStyle}>
+            {workItems.map((item) => (
+              <WorkItemRow
+                key={item.id}
+                active={item.id === selectedWorkItemID}
+                item={item}
+                summary={workItemSummaries[item.id]}
+                role={item.owner_role_id ? roleByID.get(item.owner_role_id) : undefined}
+                onSelect={() => onSelectWorkItem(item.id)}
+              />
+            ))}
+          </div>
+        )}
+        {!showingAll && !activity && !loading && (
           <div style={subtleTextStyle}>No activity is recorded for this project yet.</div>
         )}
-        {activity && selectedItems.length === 0 && (
+        {!showingAll && activity && selectedItems.length === 0 && (
           <div style={subtleTextStyle}>No {bucket} assignments for this project.</div>
         )}
-        {selectedItems.length > 0 && (
+        {!showingAll && selectedItems.length > 0 && (
           <div style={{ display: "grid", gap: 8 }}>
             {selectedTotal > selectedItems.length && (
               <div style={subtleTextStyle}>
@@ -2486,6 +2477,8 @@ function ProjectDecisionRow({
 
 function projectActivityBucketLabel(bucket: ProjectActivityBucketKey): string {
   switch (bucket) {
+    case "all":
+      return "All";
     case "active":
       return "Active";
     case "completed":
@@ -2505,6 +2498,8 @@ function projectActivityBucketCount(
   const summary = activity?.summary;
   if (!summary) return undefined;
   switch (bucket) {
+    case "all":
+      return summary.work_item_count;
     case "active":
       return summary.active_count;
     case "completed":
@@ -5326,18 +5321,10 @@ const workCoordinationGridStyle: CSSProperties = {
   minWidth: 0,
 };
 
-const workItemsPanelStyle: CSSProperties = {
-  border: "1px solid var(--border)",
-  background: "var(--bg1)",
-  borderRadius: "var(--radius-sm)",
-  minWidth: 0,
-  padding: 10,
-};
-
 const workItemListStyle: CSSProperties = {
   borderTop: "1px solid var(--border)",
   display: "grid",
-  margin: "0 -10px -10px",
+  margin: "0 -12px -12px",
   maxHeight: 520,
   overflowY: "auto",
 };

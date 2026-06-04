@@ -248,7 +248,9 @@ The Projects UI should stay lightweight but operational:
   actionable rows, not a second health dashboard.
 - Keep the cockpit workspace tabbed by operator intent: Work Coordination,
   Timeline / Decision Log, and Memory / Context. Work Coordination owns work
-  items, assignment launch, handoffs, and selected work detail. Timeline /
+  items, assignment launch, handoffs, and selected work detail. It should use
+  one Work Queue with All / activity filters instead of separate Activity Inbox
+  and Work Items lists. Timeline /
   Decision Log owns project story and durable decisions. Memory / Context owns
   saved entries, candidates, and context sources.
 - Treat the selected work item as one card. The work title, brief,
