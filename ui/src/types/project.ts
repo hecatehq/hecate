@@ -228,6 +228,76 @@ export type ProjectCollaborationArtifactRecord = {
   updated_at: string;
 };
 
+export type ProjectActivitySignal =
+  | "awaiting_approval"
+  | "failed"
+  | "not_started"
+  | "running"
+  | "completed"
+  | "stale_unknown"
+  | (string & {});
+
+export type ProjectActivityWorkItemRecord = {
+  id: string;
+  title: string;
+  status: ProjectWorkItemStatus | string;
+  priority: ProjectWorkItemPriority | string;
+};
+
+export type ProjectActivityArtifactSummary = {
+  count: number;
+  latest_kind?: string;
+  latest_title?: string;
+  latest_at?: string;
+  assignment_id?: string;
+};
+
+export type ProjectActivityItemRecord = {
+  id: string;
+  project_id: string;
+  work_item: ProjectActivityWorkItemRecord;
+  assignment: ProjectAssignmentRecord;
+  role: ProjectWorkRoleRecord;
+  status: ProjectAssignmentStatus | string;
+  blocking_signal: ProjectActivitySignal;
+  status_summary: string;
+  linked_task_id?: string;
+  linked_run_id?: string;
+  linked_chat_id?: string;
+  linked_message_id?: string;
+  recent_artifacts?: ProjectCollaborationArtifactRecord[];
+  artifact_summary: ProjectActivityArtifactSummary;
+  updated_at: string;
+};
+
+export type ProjectActivitySummary = {
+  work_item_count: number;
+  assignment_count: number;
+  active_count: number;
+  blocked_count: number;
+  completed_count: number;
+  recent_count: number;
+};
+
+export type ProjectActivityBuckets = {
+  active: ProjectActivityItemRecord[];
+  blocked: ProjectActivityItemRecord[];
+  completed: ProjectActivityItemRecord[];
+  recent: ProjectActivityItemRecord[];
+};
+
+export type ProjectActivityData = {
+  project_id: string;
+  summary: ProjectActivitySummary;
+  buckets: ProjectActivityBuckets;
+  recent: ProjectActivityItemRecord[];
+};
+
+export type ProjectActivityResponse = {
+  object: string;
+  data: ProjectActivityData;
+};
+
 export type ProjectWorkRolesResponse = {
   object: string;
   data: ProjectWorkRoleRecord[];

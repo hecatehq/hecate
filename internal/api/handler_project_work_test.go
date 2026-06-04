@@ -914,6 +914,74 @@ func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
+	t.Parallel()
+	for _, backend := range []string{"memory", "sqlite"} {
+		backend := backend
+		t.Run(backend, func(t *testing.T) {
+			t.Parallel()
+			handler, server := newProjectWorkProjectionTestServer(t, backend)
+			seedProjectWorkProjectionTest(t, handler)
+
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/activity", nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("activity status = %d body=%s, want 200", rec.Code, rec.Body.String())
+			}
+			var response ProjectActivityEnvelope
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode activity: %v", err)
+			}
+			if response.Object != "project_activity" || response.Data.ProjectID != "proj_projection" {
+				t.Fatalf("activity envelope = %+v, want project_activity for project", response)
+			}
+			if response.Data.Summary.WorkItemCount == 0 || response.Data.Summary.AssignmentCount == 0 {
+				t.Fatalf("activity summary = %+v, want work and assignment counts", response.Data.Summary)
+			}
+
+			awaiting := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_awaiting")
+			if awaiting.BlockingSignal != "awaiting_approval" || awaiting.Assignment.Execution == nil || awaiting.Assignment.Execution.PendingApprovalCount != 1 {
+				t.Fatalf("awaiting activity = %+v, want approval blocking signal", awaiting)
+			}
+			if awaiting.WorkItem.Status != projectwork.WorkItemStatusRunning || awaiting.Role.Name != "Projection engineer" {
+				t.Fatalf("awaiting context = %+v, want projected work item and role", awaiting)
+			}
+
+			failed := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_failed")
+			if failed.BlockingSignal != "failed" || failed.StatusSummary != "model failed" {
+				t.Fatalf("failed activity = %+v, want failed signal and compact error", failed)
+			}
+
+			missing := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_missing")
+			if missing.BlockingSignal != "stale_unknown" || missing.LinkedTaskID == "" {
+				t.Fatalf("missing activity = %+v, want stale/unknown with linked task id", missing)
+			}
+
+			runOnly := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_run_only")
+			if runOnly.BlockingSignal != "stale_unknown" || runOnly.LinkedRunID != "run_without_task" {
+				t.Fatalf("run-only activity = %+v, want stale/unknown with linked run id", runOnly)
+			}
+
+			notStarted := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_not_started")
+			if notStarted.BlockingSignal != "not_started" || notStarted.LinkedTaskID != "" || notStarted.LinkedRunID != "" {
+				t.Fatalf("not-started activity = %+v, want not_started without linked runtime ids", notStarted)
+			}
+			if notStarted.ArtifactSummary.Count != 1 || notStarted.ArtifactSummary.AssignmentID != "" {
+				t.Fatalf("not-started artifact summary = %+v, want work-item artifact without assignment attribution", notStarted.ArtifactSummary)
+			}
+
+			completed := findProjectActivityItemForTest(t, response.Data.Buckets.Completed, "asgn_completed")
+			if completed.BlockingSignal != "completed" || completed.ArtifactSummary.Count != 1 || completed.ArtifactSummary.LatestTitle != "Completion handoff" || completed.ArtifactSummary.AssignmentID != "asgn_completed" {
+				t.Fatalf("completed activity = %+v, want artifact signal", completed)
+			}
+
+			if len(response.Data.Recent) == 0 || len(response.Data.Buckets.Recent) != len(response.Data.Recent) {
+				t.Fatalf("recent activity = %+v buckets=%+v, want mirrored recent list", response.Data.Recent, response.Data.Buckets.Recent)
+			}
+		})
+	}
+}
+
 type failingCreateTaskStore struct {
 	taskstate.Store
 }
@@ -1062,6 +1130,7 @@ func seedProjectWorkProjectionTest(t *testing.T, handler *Handler) {
 		seedProjectWorkProjectionCase(t, handler, tc.workID, tc.assignmentID, tc.assignmentStatus, tc.runStatus, tc.runStartedAt, tc.runFinishedAt, tc.assignmentUpdated, tc.lastError, tc.approvalPending, tc.missing)
 	}
 	seedProjectWorkRunOnlyProjectionCase(t, handler)
+	seedProjectWorkNotStartedProjectionCase(t, handler)
 	seedProjectWorkProjectionCase(t, handler, "work_mixed", "asgn_mixed_completed", "", "completed", base.Add(12*time.Minute), base.Add(13*time.Minute), time.Time{}, "", false, false)
 	seedProjectWorkProjectionCase(t, handler, "work_mixed", "asgn_mixed_failed", "", "failed", base.Add(14*time.Minute), base.Add(15*time.Minute), time.Time{}, "review failed", false, false)
 }
@@ -1087,6 +1156,43 @@ func seedProjectWorkRunOnlyProjectionCase(t *testing.T, handler *Handler) {
 		RunID:      "run_without_task",
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_run_only): %v", err)
+	}
+}
+
+func seedProjectWorkNotStartedProjectionCase(t *testing.T, handler *Handler) {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_not_started",
+		ProjectID: "proj_projection",
+		Title:     "work_not_started",
+		Status:    projectwork.WorkItemStatusReady,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem(work_not_started): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:         "asgn_not_started",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_not_started",
+		RoleID:     "role_projection",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusQueued,
+		CreatedAt:  time.Date(2026, 6, 3, 11, 58, 0, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 6, 3, 11, 58, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_not_started): %v", err)
+	}
+	if _, err := handler.projectWork.CreateArtifact(ctx, projectwork.CollaborationArtifact{
+		ID:         "art_work_not_started",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_not_started",
+		Kind:       projectwork.ArtifactKindHandoff,
+		Title:      "Work-item handoff",
+		Body:       "Shared at the work-item level.",
+		CreatedAt:  time.Date(2026, 6, 3, 11, 58, 30, 0, time.UTC),
+		UpdatedAt:  time.Date(2026, 6, 3, 11, 58, 30, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("CreateArtifact(work_not_started): %v", err)
 	}
 }
 
@@ -1173,6 +1279,21 @@ func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assig
 			t.Fatalf("CreateApproval(%s): %v", assignmentID, err)
 		}
 	}
+	if assignmentID == "asgn_completed" {
+		if _, err := handler.projectWork.CreateArtifact(ctx, projectwork.CollaborationArtifact{
+			ID:           "art_" + assignmentID,
+			ProjectID:    "proj_projection",
+			WorkItemID:   workID,
+			AssignmentID: assignmentID,
+			Kind:         projectwork.ArtifactKindHandoff,
+			Title:        "Completion handoff",
+			Body:         "Ready for review.",
+			CreatedAt:    runFinishedAt.Add(time.Minute),
+			UpdatedAt:    runFinishedAt.Add(time.Minute),
+		}); err != nil {
+			t.Fatalf("CreateArtifact(%s): %v", assignmentID, err)
+		}
+	}
 }
 
 func getProjectWorkAssignmentForTest(t *testing.T, server http.Handler, workID, assignmentID string) ProjectWorkAssignmentResponse {
@@ -1251,6 +1372,17 @@ func assertStoredProjectWorkAssignmentStatusForTest(t *testing.T, handler *Handl
 		}
 	}
 	t.Fatalf("stored assignment %s not found in %+v", assignmentID, assignments)
+}
+
+func findProjectActivityItemForTest(t *testing.T, items []ProjectActivityItemResponse, assignmentID string) ProjectActivityItemResponse {
+	t.Helper()
+	for _, item := range items {
+		if item.Assignment.ID == assignmentID {
+			return item
+		}
+	}
+	t.Fatalf("activity assignment %s not found in %+v", assignmentID, items)
+	return ProjectActivityItemResponse{}
 }
 
 func boolToInt(value bool) int {

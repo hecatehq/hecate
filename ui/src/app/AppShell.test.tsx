@@ -10,6 +10,7 @@ import {
 import { withRuntimeConsole } from "../test/runtime-console-render";
 import {
   getProjectAssignments,
+  getProjectActivity,
   getProjectCollaborationArtifacts,
   getProjectWorkItem,
   getProjectWorkItems,
@@ -30,6 +31,10 @@ vi.mock("../lib/api", async (importOriginal) => {
   };
   return {
     ...actual,
+    getProjectActivity: vi.fn(async () => ({
+      object: "project_activity",
+      data: emptyActivityData(),
+    })),
     getProjectWorkRoles: vi.fn(async () => ({ object: "project_roles", data: [] })),
     getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
     getProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: emptyWorkItem })),
@@ -41,6 +46,27 @@ vi.mock("../lib/api", async (importOriginal) => {
   };
 });
 
+function emptyActivityData() {
+  return {
+    project_id: "",
+    summary: {
+      work_item_count: 0,
+      assignment_count: 0,
+      active_count: 0,
+      blocked_count: 0,
+      completed_count: 0,
+      recent_count: 0,
+    },
+    buckets: {
+      active: [],
+      blocked: [],
+      completed: [],
+      recent: [],
+    },
+    recent: [],
+  };
+}
+
 function resetProjectWorkMocks() {
   const emptyWorkItem: ProjectWorkItemRecord = {
     id: "",
@@ -51,6 +77,10 @@ function resetProjectWorkMocks() {
     created_at: "",
     updated_at: "",
   };
+  vi.mocked(getProjectActivity).mockResolvedValue({
+    object: "project_activity",
+    data: emptyActivityData(),
+  });
   vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_roles", data: [] });
   vi.mocked(getProjectWorkItems).mockResolvedValue({ object: "project_work_items", data: [] });
   vi.mocked(getProjectWorkItem).mockResolvedValue({
