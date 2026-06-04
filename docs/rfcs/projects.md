@@ -163,7 +163,8 @@ Memory layers:
 | Chat/session memory | Session-local | One chat/session            | Never auto-promoted          |
 | Current context     | Per request   | One model/agent call        | Not memory                   |
 
-This keeps short-lived conversation facts out of project memory unless the operator or assistant explicitly saves them.
+This keeps short-lived conversation facts out of project memory unless the
+operator explicitly saves them or promotes a pending memory candidate.
 
 Agent profiles decide whether project memory is used for a given agent. For
 example, a Hecate Chat profile can inject project memory into the provider
@@ -245,7 +246,10 @@ chat sessions can carry `project_id`. Chat context packets snapshot enabled
 project context-source metadata as itemized provenance. Project-scoped memory
 entries now persist as structured records with Markdown-compatible bodies and
 explicit trust/provenance labels; enabled entries are visible as chat
-context-packet items, but writes remain operator-driven. Project work
+context-packet items, but writes remain operator-driven. Memory candidates now
+provide a project-scoped review queue for generated/chat/task output;
+candidates are `pending`, `promoted`, or `rejected` and do not become durable
+memory until the operator promotes them with any edits. Project work
 assignments can now start native Tasks linked back via `origin_kind` /
 `origin_id`, and `GET /hecate/v1/projects/{id}/activity` exposes a read-only
 project activity inbox over work items, assignments, linked task/run/chat ids,

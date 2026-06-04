@@ -311,6 +311,16 @@ type ProjectMemoryListResponse struct {
 	Data   []ProjectMemoryResponseItem `json:"data"`
 }
 
+type ProjectMemoryCandidateResponse struct {
+	Object string                             `json:"object"`
+	Data   ProjectMemoryCandidateResponseItem `json:"data"`
+}
+
+type ProjectMemoryCandidateListResponse struct {
+	Object string                               `json:"object"`
+	Data   []ProjectMemoryCandidateResponseItem `json:"data"`
+}
+
 type ProjectMemoryResponseItem struct {
 	ID         string `json:"id"`
 	Scope      string `json:"scope"`
@@ -323,6 +333,30 @@ type ProjectMemoryResponseItem struct {
 	Enabled    bool   `json:"enabled"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
+}
+
+type ProjectMemoryCandidateSourceRefResponseItem struct {
+	Kind  string `json:"kind"`
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+	URL   string `json:"url,omitempty"`
+}
+
+type ProjectMemoryCandidateResponseItem struct {
+	ID                  string                                        `json:"id"`
+	ProjectID           string                                        `json:"project_id"`
+	Title               string                                        `json:"title"`
+	Body                string                                        `json:"body"`
+	SuggestedKind       string                                        `json:"suggested_kind,omitempty"`
+	SuggestedTrustLabel string                                        `json:"suggested_trust_label"`
+	SuggestedSourceKind string                                        `json:"suggested_source_kind"`
+	SuggestedSourceID   string                                        `json:"suggested_source_id,omitempty"`
+	SourceRefs          []ProjectMemoryCandidateSourceRefResponseItem `json:"source_refs,omitempty"`
+	Status              string                                        `json:"status"`
+	StatusReason        string                                        `json:"status_reason,omitempty"`
+	PromotedMemoryID    string                                        `json:"promoted_memory_id,omitempty"`
+	CreatedAt           string                                        `json:"created_at"`
+	UpdatedAt           string                                        `json:"updated_at"`
 }
 
 type ProviderStatusResponse struct {

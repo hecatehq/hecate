@@ -22,9 +22,12 @@ import {
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
   getProjectMemory,
+  getProjectMemoryCandidates,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
+  promoteProjectMemoryCandidate,
+  rejectProjectMemoryCandidate,
   startProjectAssignment,
   updateProject,
   updateProjectAssignment,
@@ -42,6 +45,7 @@ import launchContextContractRaw from "../../test/fixtures/launch-context-v1-cont
 import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type {
   ProjectAssignmentRecord,
+  ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
@@ -95,6 +99,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
     })),
     getProjectHandoffs: vi.fn(async () => ({ object: "project_handoffs", data: [] })),
     getProjectMemory: vi.fn(async () => ({ object: "project_memory", data: [] })),
+    getProjectMemoryCandidates: vi.fn(async () => ({
+      object: "project_memory_candidates",
+      data: [],
+    })),
     createProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
     updateProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
     updateProjectHandoffStatus: vi.fn(async () => ({ object: "project_handoff", data: null })),
@@ -102,6 +110,14 @@ vi.mock("../../lib/api", async (importOriginal) => {
     createProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
     updateProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
     deleteProjectMemory: vi.fn(async () => undefined),
+    promoteProjectMemoryCandidate: vi.fn(async () => ({
+      object: "project_memory_candidate",
+      data: null,
+    })),
+    rejectProjectMemoryCandidate: vi.fn(async () => ({
+      object: "project_memory_candidate",
+      data: null,
+    })),
     startProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
     createProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
     createProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
@@ -201,6 +217,21 @@ const memoryEntry: ProjectMemoryRecord = {
   updated_at: "2026-06-02T09:00:00Z",
 };
 
+const memoryCandidate: ProjectMemoryCandidateRecord = {
+  id: "memcand_1",
+  project_id: project.id,
+  title: "Generated summary",
+  body: "Keep generated content lower trust until reviewed.",
+  suggested_kind: "note",
+  suggested_trust_label: "generated_summary",
+  suggested_source_kind: "task_output",
+  suggested_source_id: "run_1",
+  source_refs: [{ kind: "task_run", id: "run_1", title: "Implementation run" }],
+  status: "pending",
+  created_at: "2026-06-02T12:00:00Z",
+  updated_at: "2026-06-02T12:00:00Z",
+};
+
 function resetProjectWorkMocks() {
   vi.mocked(getProjectActivity).mockResolvedValue({
     object: "project_activity",
@@ -279,6 +310,10 @@ function resetProjectWorkMocks() {
     data: [],
   });
   vi.mocked(getProjectMemory).mockResolvedValue({ object: "project_memory", data: [] });
+  vi.mocked(getProjectMemoryCandidates).mockResolvedValue({
+    object: "project_memory_candidates",
+    data: [],
+  });
   vi.mocked(createProjectHandoff).mockResolvedValue({
     object: "project_handoff",
     data: {
@@ -341,6 +376,14 @@ function resetProjectWorkMocks() {
     data: { ...memoryEntry, body: "Prefer small commits.", updated_at: "2026-06-02T10:00:00Z" },
   });
   vi.mocked(deleteProjectMemory).mockResolvedValue(undefined);
+  vi.mocked(promoteProjectMemoryCandidate).mockResolvedValue({
+    object: "project_memory_candidate",
+    data: { ...memoryCandidate, status: "promoted", promoted_memory_id: "mem_promoted" },
+  });
+  vi.mocked(rejectProjectMemoryCandidate).mockResolvedValue({
+    object: "project_memory_candidate",
+    data: { ...memoryCandidate, status: "rejected" },
+  });
   vi.mocked(startProjectAssignment).mockResolvedValue({
     object: "project_assignment",
     data: { ...hecateAssignment, status: "running" },
@@ -431,6 +474,7 @@ afterEach(() => {
   vi.mocked(getProjectCollaborationArtifacts).mockReset();
   vi.mocked(getProjectHandoffs).mockReset();
   vi.mocked(getProjectMemory).mockReset();
+  vi.mocked(getProjectMemoryCandidates).mockReset();
   vi.mocked(createProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoffStatus).mockReset();
@@ -438,6 +482,8 @@ afterEach(() => {
   vi.mocked(createProjectMemory).mockReset();
   vi.mocked(updateProjectMemory).mockReset();
   vi.mocked(deleteProjectMemory).mockReset();
+  vi.mocked(promoteProjectMemoryCandidate).mockReset();
+  vi.mocked(rejectProjectMemoryCandidate).mockReset();
   vi.mocked(startProjectAssignment).mockReset();
   vi.mocked(createProjectWorkItem).mockReset();
   vi.mocked(createProjectAssignment).mockReset();
@@ -589,6 +635,74 @@ describe("ProjectsView cockpit", () => {
     await user.click(screen.getByRole("button", { name: "Delete memory Commit style" }));
     await user.click(screen.getByRole("button", { name: "Delete memory" }));
     expect(deleteProjectMemory).toHaveBeenCalledWith(project.id, memoryEntry.id);
+  });
+
+  it("reviews project memory candidates before promotion", async () => {
+    resetProjectWorkMocks();
+    const rejectCandidate: ProjectMemoryCandidateRecord = {
+      ...memoryCandidate,
+      id: "memcand_2",
+      title: "Temporary note",
+      body: "Maybe skip verification.",
+    };
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [],
+    });
+    vi.mocked(getProjectMemoryCandidates)
+      .mockResolvedValueOnce({
+        object: "project_memory_candidates",
+        data: [memoryCandidate, rejectCandidate],
+      })
+      .mockResolvedValue({
+        object: "project_memory_candidates",
+        data: [],
+      });
+    vi.mocked(promoteProjectMemoryCandidate).mockResolvedValue({
+      object: "project_memory_candidate",
+      data: { ...memoryCandidate, status: "promoted", promoted_memory_id: "mem_promoted" },
+    });
+    vi.mocked(rejectProjectMemoryCandidate).mockResolvedValue({
+      object: "project_memory_candidate",
+      data: { ...rejectCandidate, status: "rejected" },
+    });
+
+    const user = userEvent.setup();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Generated summary")).toBeTruthy();
+    expect(screen.getByText("Temporary note")).toBeTruthy();
+    expect(screen.getAllByText("generated_summary").length).toBeGreaterThan(0);
+
+    await user.click(
+      screen.getByRole("button", { name: "Reject memory candidate Temporary note" }),
+    );
+    expect(rejectProjectMemoryCandidate).toHaveBeenCalledWith(project.id, "memcand_2", {});
+
+    await user.click(
+      screen.getByRole("button", { name: "Promote memory candidate Generated summary" }),
+    );
+    expect(screen.getByRole("button", { name: "Promote memory" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Trust label"), {
+      target: { value: "operator_memory" },
+    });
+    fireEvent.change(screen.getByLabelText("Source kind"), {
+      target: { value: "operator" },
+    });
+    await user.click(screen.getByRole("button", { name: "Promote memory" }));
+
+    expect(promoteProjectMemoryCandidate).toHaveBeenCalledWith(project.id, memoryCandidate.id, {
+      title: "Generated summary",
+      body: "Keep generated content lower trust until reviewed.",
+      trust_label: "operator_memory",
+      source_kind: "operator",
+      source_id: "run_1",
+      enabled: true,
+    });
   });
 
   it("resets the project memory editor when switching entries", async () => {

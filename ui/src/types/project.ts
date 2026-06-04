@@ -62,6 +62,30 @@ export type ProjectMemoryRecord = {
   updated_at: string;
 };
 
+export type ProjectMemoryCandidateSourceRefRecord = {
+  kind: string;
+  id: string;
+  title?: string;
+  url?: string;
+};
+
+export type ProjectMemoryCandidateRecord = {
+  id: string;
+  project_id: string;
+  title: string;
+  body: string;
+  suggested_kind?: string;
+  suggested_trust_label: string;
+  suggested_source_kind: string;
+  suggested_source_id?: string;
+  source_refs?: ProjectMemoryCandidateSourceRefRecord[];
+  status: "pending" | "promoted" | "rejected" | (string & {});
+  status_reason?: string;
+  promoted_memory_id?: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ProjectMemoryResponse = {
   object: string;
   data: ProjectMemoryRecord;
@@ -70,6 +94,16 @@ export type ProjectMemoryResponse = {
 export type ProjectMemoryListResponse = {
   object: string;
   data: ProjectMemoryRecord[];
+};
+
+export type ProjectMemoryCandidateResponse = {
+  object: string;
+  data: ProjectMemoryCandidateRecord;
+};
+
+export type ProjectMemoryCandidateListResponse = {
+  object: string;
+  data: ProjectMemoryCandidateRecord[];
 };
 
 export type CreateProjectMemoryPayload = {
@@ -82,6 +116,29 @@ export type CreateProjectMemoryPayload = {
 };
 
 export type UpdateProjectMemoryPayload = Partial<CreateProjectMemoryPayload>;
+
+export type CreateProjectMemoryCandidatePayload = {
+  title: string;
+  body: string;
+  suggested_kind?: string;
+  suggested_trust_label?: string;
+  suggested_source_kind?: string;
+  suggested_source_id?: string;
+  source_refs?: ProjectMemoryCandidateSourceRefRecord[];
+};
+
+export type PromoteProjectMemoryCandidatePayload = {
+  title?: string;
+  body?: string;
+  trust_label?: string;
+  source_kind?: string;
+  source_id?: string;
+  enabled?: boolean;
+};
+
+export type RejectProjectMemoryCandidatePayload = {
+  reason?: string;
+};
 
 export type ProjectRootPayload = {
   id?: string;

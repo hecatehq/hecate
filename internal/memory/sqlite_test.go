@@ -239,3 +239,106 @@ func TestSQLiteStore_RejectsNilClient(t *testing.T) {
 		t.Fatal("expected error for nil client")
 	}
 }
+
+func TestSQLiteStore_CandidateRoundTrip(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	created, err := store.CreateCandidate(ctx, Candidate{
+		ID:                  "memcand_alpha",
+		ProjectID:           "proj_alpha",
+		Title:               "Candidate",
+		Body:                "Promote only after review.",
+		SuggestedKind:       "note",
+		SuggestedTrustLabel: TrustLabelGenerated,
+		SuggestedSourceKind: "task_output",
+		SuggestedSourceID:   "run_1",
+		SourceRefs: []CandidateSourceRef{
+			{Kind: "task_run", ID: "run_1", Title: "Run 1"},
+			{Kind: "chat_message", ID: "msg_1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+	if created.Status != CandidateStatusPending {
+		t.Fatalf("created status = %q, want pending", created.Status)
+	}
+
+	got, ok, err := store.GetCandidate(ctx, "proj_alpha", "memcand_alpha")
+	if err != nil || !ok {
+		t.Fatalf("GetCandidate ok=%v err=%v, want candidate", ok, err)
+	}
+	if len(got.SourceRefs) != 2 || got.SourceRefs[0].ID != "run_1" || got.SourceRefs[1].ID != "msg_1" {
+		t.Fatalf("source refs = %+v, want persisted refs", got.SourceRefs)
+	}
+
+	updated, err := store.UpdateCandidate(ctx, "proj_alpha", "memcand_alpha", func(item *Candidate) {
+		item.Status = CandidateStatusRejected
+		item.StatusReason = "Too speculative"
+	})
+	if err != nil {
+		t.Fatalf("UpdateCandidate: %v", err)
+	}
+	if updated.Status != CandidateStatusRejected || updated.StatusReason != "Too speculative" {
+		t.Fatalf("updated candidate = %+v, want rejected reason", updated)
+	}
+
+	pending, err := store.ListCandidates(ctx, CandidateFilter{ProjectID: "proj_alpha", Status: CandidateStatusPending})
+	if err != nil {
+		t.Fatalf("ListCandidates pending: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending candidates = %+v, want none", pending)
+	}
+	all, err := store.ListCandidates(ctx, CandidateFilter{ProjectID: "proj_alpha"})
+	if err != nil {
+		t.Fatalf("ListCandidates all: %v", err)
+	}
+	if len(all) != 1 || all[0].Status != CandidateStatusRejected {
+		t.Fatalf("all candidates = %+v, want rejected candidate", all)
+	}
+}
+
+func TestSQLiteStore_CandidatesPersistAcrossReopen(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "memory.db")
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        dbPath,
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient: %v", err)
+	}
+	store, err := NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	if _, err := store.CreateCandidate(ctx, Candidate{ID: "memcand_alpha", ProjectID: "proj_alpha", Title: "Alpha", Body: "Body"}); err != nil {
+		t.Fatalf("CreateCandidate: %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close first client: %v", err)
+	}
+
+	reopenedClient, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        dbPath,
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteClient reopen: %v", err)
+	}
+	t.Cleanup(func() { _ = reopenedClient.Close() })
+	reopened, err := NewSQLiteStore(ctx, reopenedClient)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore reopen: %v", err)
+	}
+	got, ok, err := reopened.GetCandidate(ctx, "proj_alpha", "memcand_alpha")
+	if err != nil || !ok {
+		t.Fatalf("GetCandidate reopened ok=%v err=%v, want candidate", ok, err)
+	}
+	if got.Status != CandidateStatusPending || got.SuggestedTrustLabel != TrustLabelGenerated {
+		t.Fatalf("reopened candidate = %+v, want pending generated defaults", got)
+	}
+}

@@ -25,7 +25,9 @@ profiles choose which memory sources and scopes a given agent uses. Context
 assembly remains the enforcement layer that decides what enters a specific
 model or adapter call. Project-team orchestration should use context packets
 for work-item briefs, handoffs, reviews, and decision notes before promoting any
-fact into durable memory.
+fact into durable memory. Generated or runtime-derived text may be stored as a
+project memory candidate, but it remains outside durable memory and outside
+context injection until the operator explicitly promotes it.
 
 ## Relationship To Context
 
@@ -145,10 +147,10 @@ preset is applied, the resolved profile settings control memory activation.
 Project memory should be the default durable scope. Chat/session memory is for
 short-lived continuity and notes inside one conversation. If something learned
 in a chat should persist for the project, the operator should explicitly save
-it to project memory. In UI language, "project memory notes" are structured
-`MemoryEntry` records scoped to a project. Their `body` can contain
-Markdown-compatible text, but Markdown files are not the default storage format
-or source of truth.
+it to project memory, or review and promote a pending memory candidate. In UI
+language, "project memory notes" are structured `MemoryEntry` records scoped to
+a project. Their `body` can contain Markdown-compatible text, but Markdown
+files are not the default storage format or source of truth.
 
 ## External Memory Providers
 
@@ -208,6 +210,14 @@ Enabled entries are added to chat context packets as itemized `memory` context
 items using the entry's trust/provenance labels. Global, chat, profile,
 surface, composite, external-provider, and `/active` selection surfaces remain
 future work.
+
+Project memory candidates are also project-scoped and mirrored across memory
+and SQLite backends. They live under
+`/hecate/v1/projects/{project_id}/memory/candidates`, carry suggested
+trust/provenance fields plus source references, and move through `pending`,
+`promoted`, or `rejected`. Candidate creation is not a memory write: only the
+promote endpoint creates a durable `MemoryEntry`, and that promotion accepts
+operator edits before saving.
 
 It is logically related to chats but not owned by chat sessions.
 

@@ -118,6 +118,11 @@ func (h *Handler) resetProjects(ctx context.Context) (int, error) {
 				return deleted, err
 			}
 		}
+		if h.memoryCandidates != nil {
+			if _, err := h.memoryCandidates.DeleteCandidatesByProjectID(ctx, item.ID); err != nil {
+				return deleted, err
+			}
+		}
 		if err := h.projects.Delete(ctx, item.ID); err != nil {
 			if errors.Is(err, projects.ErrNotFound) {
 				continue
