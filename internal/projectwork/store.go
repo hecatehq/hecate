@@ -44,14 +44,18 @@ var (
 )
 
 type AgentRoleProfile struct {
-	ID           string
-	ProjectID    string
-	Name         string
-	Description  string
-	Instructions string
-	BuiltIn      bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                  string
+	ProjectID           string
+	Name                string
+	Description         string
+	Instructions        string
+	DefaultDriverKind   string
+	DefaultProvider     string
+	DefaultModel        string
+	DefaultAgentProfile string
+	BuiltIn             bool
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type WorkItem struct {
@@ -545,6 +549,10 @@ func normalizeRole(role AgentRoleProfile, now time.Time) AgentRoleProfile {
 	role.Name = strings.TrimSpace(role.Name)
 	role.Description = strings.TrimSpace(role.Description)
 	role.Instructions = strings.TrimSpace(role.Instructions)
+	role.DefaultDriverKind = strings.TrimSpace(role.DefaultDriverKind)
+	role.DefaultProvider = strings.TrimSpace(role.DefaultProvider)
+	role.DefaultModel = strings.TrimSpace(role.DefaultModel)
+	role.DefaultAgentProfile = strings.TrimSpace(role.DefaultAgentProfile)
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -644,6 +652,9 @@ func validateRole(role AgentRoleProfile) error {
 	}
 	if role.Name == "" {
 		return fmt.Errorf("%w: role name is required", ErrInvalid)
+	}
+	if role.DefaultDriverKind != "" && !validAssignmentDriverKind(role.DefaultDriverKind) {
+		return fmt.Errorf("%w: unsupported role default_driver_kind %q", ErrInvalid, role.DefaultDriverKind)
 	}
 	return nil
 }

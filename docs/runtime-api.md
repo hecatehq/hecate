@@ -1269,6 +1269,10 @@ Lists built-in roles plus custom roles for the project.
       "name": "Release captain",
       "description": "Coordinates release work.",
       "instructions": "Keep release notes current.",
+      "default_driver_kind": "hecate_task",
+      "default_provider": "ollama",
+      "default_model": "ministral-3:latest",
+      "default_agent_profile": "implementation",
       "built_in": false,
       "created_at": "2026-06-03T12:00:00Z",
       "updated_at": "2026-06-03T12:00:00Z"
@@ -1281,13 +1285,23 @@ Lists built-in roles plus custom roles for the project.
 
 Creates a custom role. `name` is required. `id` is optional; Hecate generates a
 `role_...` ID when omitted. Built-in role IDs cannot be created, updated, or
-deleted as custom roles.
+deleted as custom roles. Role defaults are execution hints: `default_driver_kind`
+can seed new assignment driver kind, and `default_provider`, `default_model`,
+and `default_agent_profile` can seed native task/chat launches before project
+defaults are used. Provider, model, and profile hints are stored as supplied
+and are not validated against the live provider catalog when the role is saved;
+stale or unroutable values fail later when an assignment or chat launch uses
+them.
 
 ```json
 {
   "name": "Release captain",
   "description": "Coordinates release work.",
-  "instructions": "Keep release notes current."
+  "instructions": "Keep release notes current.",
+  "default_driver_kind": "hecate_task",
+  "default_provider": "ollama",
+  "default_model": "ministral-3:latest",
+  "default_agent_profile": "implementation"
 }
 ```
 
@@ -1295,8 +1309,8 @@ Returns `{ "object": "project_role", "data": { ... } }`.
 
 #### `PATCH /hecate/v1/projects/{id}/roles/{role_id}`
 
-Updates a custom role's `name`, `description`, or `instructions`. Built-in
-roles return `409 conflict`.
+Updates a custom role's `name`, `description`, `instructions`, or role default
+execution hints. Built-in roles return `409 conflict`.
 
 #### `DELETE /hecate/v1/projects/{id}/roles/{role_id}`
 
@@ -1438,8 +1452,11 @@ Starting verifies that the project, work item, assignment, and role exist, then
 creates a normal Task with `execution_kind="agent_loop"`,
 `origin_kind="project_work_item"`, and `origin_id` set to the work item ID. The
 task title, prompt, and system prompt are composed from the work item brief,
-role profile, and project defaults. Project default provider/model/workspace
-settings are copied onto the task when configured. The workspace root must
+role instructions, and project defaults. Role default provider/model/profile
+override project defaults for the backing task when configured; project
+provider/model/workspace settings remain the fallback. Provider and model
+defaults are route hints, so catalog/routing validation happens during task
+start instead of role save. The workspace root must
 resolve to an absolute existing project root before a task is created; missing
 or defaultless roots return `400 invalid_request`. A missing model returns
 `422 model_not_configured`.

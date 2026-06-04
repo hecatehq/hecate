@@ -19,16 +19,24 @@ import (
 )
 
 type createProjectWorkRoleRequest struct {
-	ID           string `json:"id,omitempty"`
-	Name         string `json:"name"`
-	Description  string `json:"description,omitempty"`
-	Instructions string `json:"instructions,omitempty"`
+	ID                  string `json:"id,omitempty"`
+	Name                string `json:"name"`
+	Description         string `json:"description,omitempty"`
+	Instructions        string `json:"instructions,omitempty"`
+	DefaultDriverKind   string `json:"default_driver_kind,omitempty"`
+	DefaultProvider     string `json:"default_provider,omitempty"`
+	DefaultModel        string `json:"default_model,omitempty"`
+	DefaultAgentProfile string `json:"default_agent_profile,omitempty"`
 }
 
 type updateProjectWorkRoleRequest struct {
-	Name         *string `json:"name,omitempty"`
-	Description  *string `json:"description,omitempty"`
-	Instructions *string `json:"instructions,omitempty"`
+	Name                *string `json:"name,omitempty"`
+	Description         *string `json:"description,omitempty"`
+	Instructions        *string `json:"instructions,omitempty"`
+	DefaultDriverKind   *string `json:"default_driver_kind,omitempty"`
+	DefaultProvider     *string `json:"default_provider,omitempty"`
+	DefaultModel        *string `json:"default_model,omitempty"`
+	DefaultAgentProfile *string `json:"default_agent_profile,omitempty"`
 }
 
 type createProjectWorkItemRequest struct {
@@ -96,14 +104,18 @@ type ProjectWorkRolesResponse struct {
 }
 
 type ProjectWorkRoleResponse struct {
-	ID           string `json:"id"`
-	ProjectID    string `json:"project_id"`
-	Name         string `json:"name"`
-	Description  string `json:"description,omitempty"`
-	Instructions string `json:"instructions,omitempty"`
-	BuiltIn      bool   `json:"built_in"`
-	CreatedAt    string `json:"created_at,omitempty"`
-	UpdatedAt    string `json:"updated_at,omitempty"`
+	ID                  string `json:"id"`
+	ProjectID           string `json:"project_id"`
+	Name                string `json:"name"`
+	Description         string `json:"description,omitempty"`
+	Instructions        string `json:"instructions,omitempty"`
+	DefaultDriverKind   string `json:"default_driver_kind,omitempty"`
+	DefaultProvider     string `json:"default_provider,omitempty"`
+	DefaultModel        string `json:"default_model,omitempty"`
+	DefaultAgentProfile string `json:"default_agent_profile,omitempty"`
+	BuiltIn             bool   `json:"built_in"`
+	CreatedAt           string `json:"created_at,omitempty"`
+	UpdatedAt           string `json:"updated_at,omitempty"`
 }
 
 type ProjectWorkRoleEnvelope struct {
@@ -237,11 +249,15 @@ func (h *Handler) HandleCreateProjectWorkRole(w http.ResponseWriter, r *http.Req
 		id = newOpaqueTaskResourceID("role")
 	}
 	role, err := h.projectWork.CreateRole(r.Context(), projectwork.AgentRoleProfile{
-		ID:           id,
-		ProjectID:    projectID,
-		Name:         req.Name,
-		Description:  req.Description,
-		Instructions: req.Instructions,
+		ID:                  id,
+		ProjectID:           projectID,
+		Name:                req.Name,
+		Description:         req.Description,
+		Instructions:        req.Instructions,
+		DefaultDriverKind:   req.DefaultDriverKind,
+		DefaultProvider:     req.DefaultProvider,
+		DefaultModel:        req.DefaultModel,
+		DefaultAgentProfile: req.DefaultAgentProfile,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -267,6 +283,18 @@ func (h *Handler) HandleUpdateProjectWorkRole(w http.ResponseWriter, r *http.Req
 		}
 		if req.Instructions != nil {
 			item.Instructions = *req.Instructions
+		}
+		if req.DefaultDriverKind != nil {
+			item.DefaultDriverKind = *req.DefaultDriverKind
+		}
+		if req.DefaultProvider != nil {
+			item.DefaultProvider = *req.DefaultProvider
+		}
+		if req.DefaultModel != nil {
+			item.DefaultModel = *req.DefaultModel
+		}
+		if req.DefaultAgentProfile != nil {
+			item.DefaultAgentProfile = *req.DefaultAgentProfile
 		}
 	})
 	if !writeProjectWorkError(w, err) {
@@ -462,12 +490,21 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if id == "" {
 		id = newOpaqueTaskResourceID("asgn")
 	}
+	driverKind := strings.TrimSpace(req.DriverKind)
+	if driverKind == "" {
+		if role, ok, err := h.loadProjectWorkRole(r.Context(), projectID, req.RoleID); err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		} else if ok {
+			driverKind = role.DefaultDriverKind
+		}
+	}
 	item, err := h.projectWork.CreateAssignment(r.Context(), projectwork.Assignment{
 		ID:                id,
 		ProjectID:         projectID,
 		WorkItemID:        workItemID,
 		RoleID:            req.RoleID,
-		DriverKind:        req.DriverKind,
+		DriverKind:        driverKind,
 		Status:            req.Status,
 		TaskID:            req.TaskID,
 		RunID:             req.RunID,
@@ -654,11 +691,13 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
-	requestedModel := strings.TrimSpace(firstNonEmpty(project.DefaultModel, h.config.Router.DefaultModel))
+	requestedProvider := strings.TrimSpace(firstNonEmpty(role.DefaultProvider, project.DefaultProvider))
+	requestedModel := strings.TrimSpace(firstNonEmpty(role.DefaultModel, project.DefaultModel, h.config.Router.DefaultModel))
 	if requestedModel == "" {
 		WriteError(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, "project assignment start requires a default model")
 		return
 	}
+	executionProfile := strings.TrimSpace(firstNonEmpty(role.DefaultAgentProfile, project.DefaultAgentProfile, "project_assignment"))
 
 	taskID := newTaskID()
 	claimRejected := false
@@ -687,7 +726,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	task, err := h.createProjectAssignmentTask(ctx, taskID, project, workItem, assignment, role, workingDirectory, workspaceMode, requestedModel)
+	task, err := h.createProjectAssignmentTask(ctx, taskID, project, workItem, assignment, role, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile)
 	if err != nil {
 		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
 			if item.TaskID == taskID && item.RunID == "" {
@@ -871,7 +910,7 @@ func selectProjectAssignmentRoot(project projects.Project) (projects.Root, bool)
 	return projects.Root{}, false
 }
 
-func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, workspaceMode, requestedModel string) (types.Task, error) {
+func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile string) (types.Task, error) {
 	now := time.Now().UTC()
 	task := types.Task{
 		ID:                 taskID,
@@ -879,7 +918,7 @@ func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string
 		Prompt:             projectAssignmentPrompt(project, workItem, assignment, role),
 		SystemPrompt:       projectAssignmentSystemPrompt(project, role),
 		ExecutionKind:      "agent_loop",
-		ExecutionProfile:   "project_assignment",
+		ExecutionProfile:   executionProfile,
 		OriginKind:         "project_work_item",
 		OriginID:           workItem.ID,
 		WorkspaceMode:      workspaceMode,
@@ -887,7 +926,7 @@ func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string
 		SandboxAllowedRoot: workingDirectory,
 		Status:             "queued",
 		Priority:           firstNonEmpty(workItem.Priority, "normal"),
-		RequestedProvider:  strings.TrimSpace(project.DefaultProvider),
+		RequestedProvider:  requestedProvider,
 		RequestedModel:     requestedModel,
 		CreatedAt:          now,
 		UpdatedAt:          now,
@@ -1380,14 +1419,18 @@ func projectWorkItemStatusFromAssignments(storedStatus string, assignments []Pro
 
 func renderProjectWorkRole(item projectwork.AgentRoleProfile) ProjectWorkRoleResponse {
 	return ProjectWorkRoleResponse{
-		ID:           item.ID,
-		ProjectID:    item.ProjectID,
-		Name:         item.Name,
-		Description:  item.Description,
-		Instructions: item.Instructions,
-		BuiltIn:      item.BuiltIn,
-		CreatedAt:    formatOptionalTime(item.CreatedAt),
-		UpdatedAt:    formatOptionalTime(item.UpdatedAt),
+		ID:                  item.ID,
+		ProjectID:           item.ProjectID,
+		Name:                item.Name,
+		Description:         item.Description,
+		Instructions:        item.Instructions,
+		DefaultDriverKind:   item.DefaultDriverKind,
+		DefaultProvider:     item.DefaultProvider,
+		DefaultModel:        item.DefaultModel,
+		DefaultAgentProfile: item.DefaultAgentProfile,
+		BuiltIn:             item.BuiltIn,
+		CreatedAt:           formatOptionalTime(item.CreatedAt),
+		UpdatedAt:           formatOptionalTime(item.UpdatedAt),
 	}
 }
 

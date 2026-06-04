@@ -7,8 +7,10 @@ import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
 import { ProjectsProvider } from "../../app/state/projects";
 import {
   createProjectAssignment,
+  createProjectWorkRole,
   createProjectWorkItem,
   deleteProjectAssignment,
+  deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
@@ -18,6 +20,7 @@ import {
   startProjectAssignment,
   updateProject,
   updateProjectAssignment,
+  updateProjectWorkRole,
   updateProjectWorkItem,
 } from "../../lib/api";
 import {
@@ -48,6 +51,9 @@ vi.mock("../../lib/api", async (importOriginal) => {
     startProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
     createProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
     createProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
+    createProjectWorkRole: vi.fn(async () => ({ object: "project_role", data: null })),
+    updateProjectWorkRole: vi.fn(async () => ({ object: "project_role", data: null })),
+    deleteProjectWorkRole: vi.fn(async () => undefined),
     updateProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
     deleteProjectWorkItem: vi.fn(async () => undefined),
     updateProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
@@ -152,6 +158,29 @@ function resetProjectWorkMocks() {
     object: "project_assignment",
     data: { ...hecateAssignment, id: "asgn_new", status: "queued", execution: undefined },
   });
+  vi.mocked(createProjectWorkRole).mockResolvedValue({
+    object: "project_role",
+    data: {
+      id: "role_frontend_custom",
+      project_id: "proj_1",
+      name: "Frontend implementer",
+      built_in: false,
+    },
+  });
+  vi.mocked(updateProjectWorkRole).mockResolvedValue({
+    object: "project_role",
+    data: {
+      id: "role_frontend_custom",
+      project_id: "proj_1",
+      name: "Frontend implementer",
+      default_driver_kind: "external_agent",
+      default_provider: "anthropic",
+      default_model: "claude-sonnet-4",
+      default_agent_profile: "safe_external_review",
+      built_in: false,
+    },
+  });
+  vi.mocked(deleteProjectWorkRole).mockResolvedValue(undefined);
   vi.mocked(updateProjectWorkItem).mockResolvedValue({
     object: "project_work_item",
     data: { ...workItem, title: "Edited cockpit UI", status: "review", priority: "urgent" },
@@ -193,6 +222,9 @@ afterEach(() => {
   vi.mocked(startProjectAssignment).mockReset();
   vi.mocked(createProjectWorkItem).mockReset();
   vi.mocked(createProjectAssignment).mockReset();
+  vi.mocked(createProjectWorkRole).mockReset();
+  vi.mocked(updateProjectWorkRole).mockReset();
+  vi.mocked(deleteProjectWorkRole).mockReset();
   vi.mocked(updateProjectWorkItem).mockReset();
   vi.mocked(deleteProjectWorkItem).mockReset();
   vi.mocked(updateProjectAssignment).mockReset();
@@ -572,6 +604,88 @@ describe("ProjectsView cockpit", () => {
       role_id: "software_developer",
       driver_kind: "external_agent",
     });
+  });
+
+  it("uses a role default driver when adding assignments", async () => {
+    const externalRole: ProjectWorkRoleRecord = {
+      id: "role_external",
+      project_id: project.id,
+      name: "External reviewer",
+      default_driver_kind: "external_agent",
+      built_in: false,
+    };
+    resetProjectWorkMocks();
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [role, externalRole],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Assignment" }));
+    fireEvent.change(screen.getByLabelText("Role"), {
+      target: { value: "role_external" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
+
+    expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
+      role_id: "role_external",
+      driver_kind: "external_agent",
+    });
+  });
+
+  it("creates custom roles with execution defaults", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Roles" }));
+    const dialog = screen.getByRole("dialog", { name: "Project roles" });
+    await userEvent.click(within(dialog).getByRole("button", { name: /New custom role/i }));
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
+      target: { value: "Frontend implementer" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Description"), {
+      target: { value: "Builds UI" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Instructions"), {
+      target: { value: "Use existing UI primitives." },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Default driver"), {
+      target: { value: "hecate_task" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Default profile"), {
+      target: { value: "implementation" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Default provider"), {
+      target: { value: "ollama" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Default model"), {
+      target: { value: "ministral-3:latest" },
+    });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create role" }));
+
+    expect(createProjectWorkRole).toHaveBeenCalledWith(project.id, {
+      name: "Frontend implementer",
+      description: "Builds UI",
+      instructions: "Use existing UI primitives.",
+      default_driver_kind: "hecate_task",
+      default_provider: "ollama",
+      default_model: "ministral-3:latest",
+      default_agent_profile: "implementation",
+    });
+    await waitFor(() => {
+      expect(within(dialog).getByRole("button", { name: "Save role" })).toBeTruthy();
+    });
+    expect(within(dialog).getByRole("button", { name: "Delete role" })).toBeTruthy();
   });
 
   it("edits and deletes assignments from the selected work item", async () => {

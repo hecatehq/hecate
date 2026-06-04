@@ -50,6 +50,7 @@ import type { RetentionRunResponse, RetentionRunsResponse } from "../types/reten
 import type {
   CreateProjectPayload,
   CreateProjectAssignmentPayload,
+  CreateProjectWorkRolePayload,
   CreateProjectWorkItemPayload,
   ProjectAssignmentResponse,
   ProjectAssignmentsResponse,
@@ -57,10 +58,12 @@ import type {
   ProjectResponse,
   ProjectWorkItemsResponse,
   ProjectWorkItemResponse,
+  ProjectWorkRoleResponse,
   ProjectWorkRolesResponse,
   ProjectsResponse,
   UpdateProjectAssignmentPayload,
   UpdateProjectPayload,
+  UpdateProjectWorkRolePayload,
   UpdateProjectWorkItemPayload,
 } from "../types/project";
 
@@ -330,6 +333,34 @@ export async function deleteProject(id: string): Promise<void> {
 export async function getProjectWorkRoles(projectID: string): Promise<ProjectWorkRolesResponse> {
   return fetchJSON<ProjectWorkRolesResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/roles`,
+  );
+}
+
+export async function createProjectWorkRole(
+  projectID: string,
+  payload: CreateProjectWorkRolePayload,
+): Promise<ProjectWorkRoleResponse> {
+  return fetchJSON<ProjectWorkRoleResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/roles`,
+    { method: "POST", body: payload },
+  );
+}
+
+export async function updateProjectWorkRole(
+  projectID: string,
+  roleID: string,
+  payload: UpdateProjectWorkRolePayload,
+): Promise<ProjectWorkRoleResponse> {
+  return fetchJSON<ProjectWorkRoleResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/roles/${encodeURIComponent(roleID)}`,
+    { method: "PATCH", body: payload },
+  );
+}
+
+export async function deleteProjectWorkRole(projectID: string, roleID: string): Promise<void> {
+  return fetchJSON<void>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/roles/${encodeURIComponent(roleID)}`,
+    { method: "DELETE" },
   );
 }
 

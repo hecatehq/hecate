@@ -5,10 +5,12 @@ import {
   cancelChatApproval,
   chatCompletions,
   createProjectAssignment,
+  createProjectWorkRole,
   createProjectWorkItem,
   deleteChatGrant,
   deletePolicyRule,
   deleteProjectAssignment,
+  deleteProjectWorkRole,
   deleteProjectWorkItem,
   discoverLocalProviders,
   dispatchChatStreamEvent,
@@ -44,6 +46,7 @@ import {
   updateChatSession,
   updateProject,
   updateProjectAssignment,
+  updateProjectWorkRole,
   updateProjectWorkItem,
   type ApiError,
 } from "./api";
@@ -352,6 +355,66 @@ describe("api client", () => {
           driver_kind: "hecate_task",
         }),
       }),
+    );
+  });
+
+  it("creates, updates, and deletes project roles with execution defaults", async () => {
+    fetchMock.mockClear();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ object: "project_role", data: { id: "role/1" } }))
+      .mockResolvedValueOnce(jsonResponse({ object: "project_role", data: { id: "role/1" } }))
+      .mockResolvedValueOnce(jsonResponse(null));
+
+    await createProjectWorkRole("proj/1", {
+      name: "Frontend implementer",
+      description: "Builds UI",
+      instructions: "Use existing UI primitives.",
+      default_driver_kind: "hecate_task",
+      default_provider: "ollama",
+      default_model: "ministral-3:latest",
+      default_agent_profile: "implementation",
+    });
+    await updateProjectWorkRole("proj/1", "role/1", {
+      default_driver_kind: "external_agent",
+      default_provider: "anthropic",
+      default_model: "claude-sonnet-4",
+      default_agent_profile: "safe_external_review",
+    });
+    await deleteProjectWorkRole("proj/1", "role/1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/hecate/v1/projects/proj%2F1/roles",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "Frontend implementer",
+          description: "Builds UI",
+          instructions: "Use existing UI primitives.",
+          default_driver_kind: "hecate_task",
+          default_provider: "ollama",
+          default_model: "ministral-3:latest",
+          default_agent_profile: "implementation",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/hecate/v1/projects/proj%2F1/roles/role%2F1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          default_driver_kind: "external_agent",
+          default_provider: "anthropic",
+          default_model: "claude-sonnet-4",
+          default_agent_profile: "safe_external_review",
+        }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/hecate/v1/projects/proj%2F1/roles/role%2F1",
+      expect.objectContaining({ method: "DELETE" }),
     );
   });
 
