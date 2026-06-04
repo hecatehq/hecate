@@ -235,7 +235,7 @@ export type ProjectActivitySignal =
   | "running"
   | "completed"
   | "stale_unknown"
-  | string;
+  | (string & {});
 
 export type ProjectActivityWorkItemRecord = {
   id: string;

@@ -280,16 +280,17 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
     setWorkLoadState("loading");
     try {
+      const activityLoad = getProjectActivity(projectID).catch(() => null);
       const [rolesRes, workRes, activityRes] = await Promise.all([
         getProjectWorkRoles(projectID),
         getProjectWorkItems(projectID),
-        getProjectActivity(projectID),
+        activityLoad,
       ]);
       const nextRoles = rolesRes.data ?? [];
       const nextItems = workRes.data ?? [];
       setRoles(nextRoles);
       setWorkItems(nextItems);
-      setActivity(activityRes.data ?? null);
+      setActivity(activityRes?.data ?? null);
       setWorkItemSummaries(
         Object.fromEntries(
           nextItems.map((item) => [item.id, summarizeAssignments(item.assignments ?? [])] as const),

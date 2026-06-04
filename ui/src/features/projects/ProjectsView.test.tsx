@@ -430,6 +430,21 @@ describe("ProjectsView cockpit", () => {
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
   });
 
+  it("keeps project work visible when activity loading fails", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectActivity).mockRejectedValueOnce(new Error("activity failed"));
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
+    expect(screen.getByText("No activity is recorded for this project yet.")).toBeTruthy();
+    expect(screen.queryByText("activity failed")).toBeNull();
+  });
+
   it("clears stale work item selection before switching projects", async () => {
     resetProjectWorkMocks();
     const secondProject: ProjectRecord = {
