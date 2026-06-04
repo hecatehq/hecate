@@ -529,41 +529,6 @@ describe("ProjectsView index", () => {
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
   });
 
-  it("collapses and restores the projects panel", async () => {
-    resetProjectWorkMocks();
-    const user = userEvent.setup();
-    window.localStorage.setItem("hecate.project", project.id);
-    const view = render(<ProjectsView />, {
-      wrapper: directWrapper({ projects: [project] }),
-    });
-
-    expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Collapse projects panel" }));
-
-    const collapsedPanel = screen.getByRole("region", { name: "Collapsed projects panel" });
-    expect(collapsedPanel.style.width).toBe("220px");
-    expect(screen.getByRole("button", { name: "Expand projects panel" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Active project Hecate" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open project Hecate" })).toBeNull();
-    expect(window.localStorage.getItem("hecate.projects.panel_collapsed")).toBe("1");
-
-    await user.click(screen.getByRole("button", { name: "Expand projects panel" }));
-
-    expect(screen.getByRole("region", { name: "Projects" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
-    expect(window.localStorage.getItem("hecate.projects.panel_collapsed")).toBeNull();
-
-    window.localStorage.setItem("hecate.projects.panel_collapsed", "1");
-    view.unmount();
-    render(<ProjectsView />, {
-      wrapper: directWrapper({ projects: [project] }),
-    });
-
-    expect(screen.getByRole("region", { name: "Collapsed projects panel" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open project Hecate" })).toBeNull();
-  });
-
   it("keeps work coordination in the cockpit when the selected project has no work", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectActivity).mockResolvedValue({
@@ -575,14 +540,14 @@ describe("ProjectsView index", () => {
       data: [],
     });
     window.localStorage.setItem("hecate.project", project.id);
-    window.localStorage.setItem("hecate.projects.panel_collapsed", "1");
 
     render(<ProjectsView />, {
       wrapper: directWrapper({ projects: [project] }),
     });
 
     expect(await screen.findByText("Work Queue")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Collapsed projects panel" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Projects" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Collapse projects panel" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Project work items" })).toBeNull();
     const workPanel = screen.getByRole("region", { name: "Work coordination" });
     expect(workPanel).toBeTruthy();

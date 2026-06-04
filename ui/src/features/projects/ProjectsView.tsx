@@ -224,7 +224,6 @@ const MEMORY_SOURCE_KINDS = [
   "runtime_state",
 ];
 
-const PROJECTS_PANEL_COLLAPSED_STORAGE_KEY = "hecate.projects.panel_collapsed";
 const PROJECTS_LIST_PANEL_WIDTH = 220;
 
 const shellStyle: CSSProperties = {
@@ -241,18 +240,6 @@ const sidePanelStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   minHeight: 0,
-  flexShrink: 0,
-};
-
-const collapsedSidePanelStyle: CSSProperties = {
-  width: PROJECTS_LIST_PANEL_WIDTH,
-  borderRight: "1px solid var(--border)",
-  background: "var(--bg1)",
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-  minHeight: 0,
-  padding: 8,
   flexShrink: 0,
 };
 
@@ -288,9 +275,6 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const providersAndModels = useProvidersAndModels();
   const settings = useSettings();
   const [selectedProjectID, setSelectedProjectID] = useState(projects.activeProjectID);
-  const [projectsPanelCollapsed, setProjectsPanelCollapsed] = useState(() =>
-    readProjectsPanelCollapsedPreference(),
-  );
   const [renamingProjectID, setRenamingProjectID] = useState("");
   const [renameValue, setRenameValue] = useState("");
   const [deleteProjectID, setDeleteProjectID] = useState("");
@@ -557,10 +541,6 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   useEffect(() => {
     void loadProjectMemory(selectedProjectID);
   }, [loadProjectMemory, selectedProjectID]);
-
-  useEffect(() => {
-    writeProjectsPanelCollapsedPreference(projectsPanelCollapsed);
-  }, [projectsPanelCollapsed]);
 
   useEffect(() => {
     if (!selectedProjectID || !selectedWorkItemID) return;
@@ -1066,104 +1046,54 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
 
   return (
     <div style={shellStyle}>
-      <section
-        style={projectsPanelCollapsed ? collapsedSidePanelStyle : sidePanelStyle}
-        aria-label={projectsPanelCollapsed ? "Collapsed projects panel" : "Projects"}
-      >
-        {projectsPanelCollapsed ? (
-          <>
-            <div style={collapsedPanelHeaderStyle}>
-              <div>
-                <div style={sectionLabelStyle}>Projects</div>
-                <div style={subtleTextStyle}>{projects.state.projects.length} records</div>
-              </div>
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                aria-label="Expand projects panel"
-                title="Expand projects panel"
-                style={collapsedPanelButtonStyle}
-                onClick={() => setProjectsPanelCollapsed(false)}
-              >
-                <Icon d={Icons.chevR} size={14} />
-              </button>
-            </div>
-            {selectedProject && (
-              <button
-                className="btn btn-ghost btn-sm"
-                type="button"
-                aria-label={`Active project ${selectedProject.name}`}
-                title={selectedProject.name}
-                style={collapsedProjectMarkerStyle}
-                onClick={() => setProjectsPanelCollapsed(false)}
-              >
-                <span style={collapsedProjectNameStyle}>{selectedProject.name}</span>
-              </button>
-            )}
-          </>
-        ) : (
-          <>
-            <div style={topbarStyle}>
-              <div>
-                <div style={sectionLabelStyle}>Projects</div>
-                <div style={subtleTextStyle}>{projects.state.projects.length} records</div>
-              </div>
-              <div style={topbarActionsStyle}>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  type="button"
-                  aria-label="Collapse projects panel"
-                  title="Collapse projects panel"
-                  onClick={() => setProjectsPanelCollapsed(true)}
-                >
-                  <Icon d={Icons.chevL} size={13} />
-                </button>
-                <button
-                  className="btn btn-primary btn-sm"
-                  type="button"
-                  onClick={() => void projects.actions.createProjectFromFolder()}
-                >
-                  <Icon d={Icons.folder} size={13} />
-                  Add
-                </button>
-              </div>
-            </div>
-            {projects.state.error && (
-              <div style={{ padding: 10 }}>
-                <InlineError message={projects.state.error} />
-              </div>
-            )}
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-              {projects.state.loading && projects.state.projects.length === 0 && (
-                <EmptyBlock
-                  title="Loading projects…"
-                  detail="Checking the local project catalog."
-                />
-              )}
-              {!projects.state.loading && projects.state.projects.length === 0 && (
-                <EmptyBlock
-                  title="No projects yet"
-                  detail="Add a workspace folder to create the first durable project record."
-                />
-              )}
-              {projects.state.projects.map((project) => (
-                <ProjectIndexRow
-                  key={project.id}
-                  active={project.id === selectedProjectID}
-                  project={project}
-                  renaming={renamingProjectID === project.id}
-                  renameValue={renameValue}
-                  onRenameChange={setRenameValue}
-                  onRenameCancel={() => setRenamingProjectID("")}
-                  onRenameCommit={() => void commitRename(project)}
-                  onRenameStart={() => startRename(project)}
-                  onDelete={() => setDeleteProjectID(project.id)}
-                  onOpen={() => openProject(project.id)}
-                />
-              ))}
-            </div>
-          </>
+      <section style={sidePanelStyle} aria-label="Projects">
+        <div style={topbarStyle}>
+          <div>
+            <div style={sectionLabelStyle}>Projects</div>
+            <div style={subtleTextStyle}>{projects.state.projects.length} records</div>
+          </div>
+          <div style={topbarActionsStyle}>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={() => void projects.actions.createProjectFromFolder()}
+            >
+              <Icon d={Icons.folder} size={13} />
+              Add
+            </button>
+          </div>
+        </div>
+        {projects.state.error && (
+          <div style={{ padding: 10 }}>
+            <InlineError message={projects.state.error} />
+          </div>
         )}
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          {projects.state.loading && projects.state.projects.length === 0 && (
+            <EmptyBlock title="Loading projects…" detail="Checking the local project catalog." />
+          )}
+          {!projects.state.loading && projects.state.projects.length === 0 && (
+            <EmptyBlock
+              title="No projects yet"
+              detail="Add a workspace folder to create the first durable project record."
+            />
+          )}
+          {projects.state.projects.map((project) => (
+            <ProjectIndexRow
+              key={project.id}
+              active={project.id === selectedProjectID}
+              project={project}
+              renaming={renamingProjectID === project.id}
+              renameValue={renameValue}
+              onRenameChange={setRenameValue}
+              onRenameCancel={() => setRenamingProjectID("")}
+              onRenameCommit={() => void commitRename(project)}
+              onRenameStart={() => startRename(project)}
+              onDelete={() => setDeleteProjectID(project.id)}
+              onOpen={() => openProject(project.id)}
+            />
+          ))}
+        </div>
       </section>
 
       <div style={projectMainStyle}>
@@ -4974,28 +4904,6 @@ function upsertHandoff(items: ProjectHandoffRecord[], item: ProjectHandoffRecord
   });
 }
 
-function readProjectsPanelCollapsedPreference(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(PROJECTS_PANEL_COLLAPSED_STORAGE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeProjectsPanelCollapsedPreference(collapsed: boolean) {
-  if (typeof window === "undefined") return;
-  try {
-    if (collapsed) {
-      window.localStorage.setItem(PROJECTS_PANEL_COLLAPSED_STORAGE_KEY, "1");
-    } else {
-      window.localStorage.removeItem(PROJECTS_PANEL_COLLAPSED_STORAGE_KEY);
-    }
-  } catch {
-    // Layout persistence should never block the operator console.
-  }
-}
-
 function readStoredRightPanelWidth(): number {
   try {
     const value = Number.parseInt(localStorage.getItem(RIGHT_PANEL_WIDTH_KEY) ?? "", 10);
@@ -5077,30 +4985,6 @@ const topbarActionsStyle: CSSProperties = {
   gap: 6,
 };
 
-const collapsedPanelButtonStyle: CSSProperties = {
-  height: 30,
-  width: 30,
-  padding: 0,
-};
-
-const collapsedPanelHeaderStyle: CSSProperties = {
-  alignItems: "center",
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 8,
-  padding: "6px 2px 8px",
-};
-
-const collapsedProjectMarkerStyle: CSSProperties = {
-  border: "1px solid var(--border)",
-  justifyContent: "flex-start",
-  color: "var(--t0)",
-  fontWeight: 700,
-  minHeight: 34,
-  padding: "0 10px",
-  width: "100%",
-};
-
 const sectionLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 10,
@@ -5116,11 +5000,6 @@ const titleStyle: CSSProperties = {
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
-};
-
-const collapsedProjectNameStyle: CSSProperties = {
-  ...titleStyle,
-  minWidth: 0,
 };
 
 const subtleTextStyle: CSSProperties = {
