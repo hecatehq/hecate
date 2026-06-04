@@ -76,6 +76,10 @@ func (h *Handler) HandleCreateProjectMemoryEntry(w http.ResponseWriter, r *http.
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	if errors.Is(err, memory.ErrAlreadyExists) {
+		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return
+	}
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return

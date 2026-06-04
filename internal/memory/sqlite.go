@@ -67,6 +67,11 @@ func (s *SQLiteStore) Create(ctx context.Context, entry Entry) (Entry, error) {
 	if err := validateEntry(entry); err != nil {
 		return Entry{}, err
 	}
+	if _, ok, err := s.Get(ctx, entry.ProjectID, entry.ID); err != nil {
+		return Entry{}, err
+	} else if ok {
+		return Entry{}, ErrAlreadyExists
+	}
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (
 	id, scope, project_id, title, body, trust_label, source_kind, source_id,

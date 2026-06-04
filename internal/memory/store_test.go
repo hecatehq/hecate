@@ -140,6 +140,25 @@ func TestMemoryStore_Validation(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_RejectsDuplicateID(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	if _, err := store.Create(ctx, Entry{ID: "mem_alpha", ProjectID: "proj_alpha", Title: "Alpha", Body: "Body"}); err != nil {
+		t.Fatalf("Create first entry: %v", err)
+	}
+	if _, err := store.Create(ctx, Entry{ID: "mem_alpha", ProjectID: "proj_alpha", Title: "Duplicate", Body: "Body"}); !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("Create duplicate error = %v, want ErrAlreadyExists", err)
+	}
+	got, ok, err := store.Get(ctx, "proj_alpha", "mem_alpha")
+	if err != nil || !ok {
+		t.Fatalf("Get original ok=%v err=%v, want entry", ok, err)
+	}
+	if got.Title != "Alpha" {
+		t.Fatalf("duplicate create replaced original title = %q, want Alpha", got.Title)
+	}
+}
+
 func TestMemoryStore_UpdateRejectsImmutableFields(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

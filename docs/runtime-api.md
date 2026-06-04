@@ -1245,7 +1245,8 @@ GET /hecate/v1/projects/proj_.../memory?include_disabled=true
 
 Creates a project memory entry. `title` and `body` are required. `trust_label`
 defaults to `operator_memory`, `source_kind` defaults to `operator`, and
-`enabled` defaults to `true`.
+`enabled` defaults to `true`. A duplicate generated entry id returns
+`409 conflict`.
 
 ```json
 POST /hecate/v1/projects/proj_.../memory

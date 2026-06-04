@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("memory entry not found")
-	ErrInvalid  = errors.New("invalid memory entry")
+	ErrNotFound      = errors.New("memory entry not found")
+	ErrAlreadyExists = errors.New("memory entry already exists")
+	ErrInvalid       = errors.New("invalid memory entry")
 )
 
 const (
@@ -69,6 +70,9 @@ func (s *MemoryStore) Create(_ context.Context, entry Entry) (Entry, error) {
 	entry = normalizeEntry(entry, time.Now().UTC())
 	if err := validateEntry(entry); err != nil {
 		return Entry{}, err
+	}
+	if _, ok := s.entries[entry.ID]; ok {
+		return Entry{}, ErrAlreadyExists
 	}
 	s.entries[entry.ID] = entry
 	return entry, nil

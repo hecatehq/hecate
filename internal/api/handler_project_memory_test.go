@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -262,6 +263,36 @@ func TestProjectMemoryAPI_ProjectDeleteRemovesMemory(t *testing.T) {
 	}
 }
 
+func TestProjectMemoryAPI_CreateDuplicateMapsToConflict(t *testing.T) {
+	t.Parallel()
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	if _, err := projectStore.Create(t.Context(), projects.Project{ID: "proj_conflict", Name: "Conflict"}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	handler.SetProjectStore(projectStore)
+	handler.SetMemoryStore(conflictMemoryStore{})
+	server := NewServer(quietLogger(), handler)
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_conflict/memory", bytes.NewReader([]byte(`{"title":"T","body":"B"}`))))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("create duplicate status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Error.Type != errCodeConflict {
+		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeConflict)
+	}
+}
+
 func createMemoryTestProject(t *testing.T, server http.Handler, name string) ProjectResponse {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -274,4 +305,34 @@ func createMemoryTestProject(t *testing.T, server http.Handler, name string) Pro
 		t.Fatalf("decode project response: %v", err)
 	}
 	return created
+}
+
+type conflictMemoryStore struct{}
+
+func (conflictMemoryStore) Backend() string {
+	return "memory"
+}
+
+func (conflictMemoryStore) Create(context.Context, memory.Entry) (memory.Entry, error) {
+	return memory.Entry{}, memory.ErrAlreadyExists
+}
+
+func (conflictMemoryStore) Get(context.Context, string, string) (memory.Entry, bool, error) {
+	return memory.Entry{}, false, nil
+}
+
+func (conflictMemoryStore) List(context.Context, memory.Filter) ([]memory.Entry, error) {
+	return nil, nil
+}
+
+func (conflictMemoryStore) Update(context.Context, string, string, func(*memory.Entry)) (memory.Entry, error) {
+	return memory.Entry{}, memory.ErrNotFound
+}
+
+func (conflictMemoryStore) Delete(context.Context, string, string) error {
+	return memory.ErrNotFound
+}
+
+func (conflictMemoryStore) DeleteByProjectID(context.Context, string) (int, error) {
+	return 0, nil
 }
