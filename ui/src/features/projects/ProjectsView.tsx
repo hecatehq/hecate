@@ -971,6 +971,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
 
       {editingMemory && (
         <ProjectMemoryModal
+          key={editingMemory === "new" ? "new" : editingMemory.id}
           entry={editingMemory === "new" ? null : editingMemory}
           error={memoryError}
           pending={memoryPending}

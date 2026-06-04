@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/storage"
+	modernsqlite "modernc.org/sqlite"
 )
 
 type SQLiteStore struct {
@@ -67,7 +68,7 @@ func (s *SQLiteStore) Create(ctx context.Context, entry Entry) (Entry, error) {
 	if err := validateEntry(entry); err != nil {
 		return Entry{}, err
 	}
-	if _, ok, err := s.Get(ctx, entry.ProjectID, entry.ID); err != nil {
+	if ok, err := s.idExists(ctx, entry.ID); err != nil {
 		return Entry{}, err
 	} else if ok {
 		return Entry{}, ErrAlreadyExists
@@ -89,9 +90,24 @@ INSERT INTO %s (
 		formatTime(entry.CreatedAt),
 		formatTime(entry.UpdatedAt),
 	); err != nil {
+		if isSQLiteConstraintError(err) {
+			return Entry{}, ErrAlreadyExists
+		}
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+func (s *SQLiteStore) idExists(ctx context.Context, id string) (bool, error) {
+	var found string
+	err := s.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT id FROM %s WHERE id = ?`, s.entries), strings.TrimSpace(id)).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *SQLiteStore) Get(ctx context.Context, projectID, id string) (Entry, bool, error) {
@@ -266,6 +282,14 @@ func scanEntry(scanner entryScanner) (Entry, error) {
 		return Entry{}, err
 	}
 	return entry, nil
+}
+
+func isSQLiteConstraintError(err error) bool {
+	var sqliteErr *modernsqlite.Error
+	if !errors.As(err, &sqliteErr) {
+		return false
+	}
+	return sqliteErr.Code()&0xff == 19
 }
 
 func boolToDB(value bool) int {

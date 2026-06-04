@@ -170,8 +170,10 @@ func TestSQLiteStore_RejectsDuplicateID(t *testing.T) {
 	if _, err := store.Create(ctx, Entry{ID: "mem_alpha", ProjectID: "proj_alpha", Title: "Alpha", Body: "Body"}); err != nil {
 		t.Fatalf("Create first entry: %v", err)
 	}
-	if _, err := store.Create(ctx, Entry{ID: "mem_alpha", ProjectID: "proj_alpha", Title: "Duplicate", Body: "Body"}); !errors.Is(err, ErrAlreadyExists) {
-		t.Fatalf("Create duplicate error = %v, want ErrAlreadyExists", err)
+	for _, projectID := range []string{"proj_alpha", "proj_beta"} {
+		if _, err := store.Create(ctx, Entry{ID: "mem_alpha", ProjectID: projectID, Title: "Duplicate", Body: "Body"}); !errors.Is(err, ErrAlreadyExists) {
+			t.Fatalf("Create duplicate in %s error = %v, want ErrAlreadyExists", projectID, err)
+		}
 	}
 	got, ok, err := store.Get(ctx, "proj_alpha", "mem_alpha")
 	if err != nil || !ok {
@@ -179,6 +181,31 @@ func TestSQLiteStore_RejectsDuplicateID(t *testing.T) {
 	}
 	if got.Title != "Alpha" {
 		t.Fatalf("duplicate create replaced original title = %q, want Alpha", got.Title)
+	}
+}
+
+func TestSQLiteStore_ConstraintErrorDetection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := newSQLiteTestStore(t)
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO `+store.entries+` (
+		id, scope, project_id, title, body, trust_label, source_kind,
+		source_id, enabled, created_at, updated_at
+	) VALUES ('mem_alpha', 'project', 'proj_alpha', 'Alpha', 'Body',
+		'operator_memory', 'operator', '', 1,
+		'2026-06-04T10:00:00Z', '2026-06-04T10:00:00Z'
+	)`); err != nil {
+		t.Fatalf("insert first row: %v", err)
+	}
+	_, err := store.db.ExecContext(ctx, `INSERT INTO `+store.entries+` (
+		id, scope, project_id, title, body, trust_label, source_kind,
+		source_id, enabled, created_at, updated_at
+	) VALUES ('mem_alpha', 'project', 'proj_beta', 'Duplicate', 'Body',
+		'operator_memory', 'operator', '', 1,
+		'2026-06-04T10:00:00Z', '2026-06-04T10:00:00Z'
+	)`)
+	if !isSQLiteConstraintError(err) {
+		t.Fatalf("isSQLiteConstraintError(%v) = false, want true", err)
 	}
 }
 

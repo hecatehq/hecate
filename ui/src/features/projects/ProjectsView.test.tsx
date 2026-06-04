@@ -515,6 +515,38 @@ describe("ProjectsView cockpit", () => {
     expect(deleteProjectMemory).toHaveBeenCalledWith(project.id, memoryEntry.id);
   });
 
+  it("resets the project memory editor when switching entries", async () => {
+    resetProjectWorkMocks();
+    const generatedEntry: ProjectMemoryRecord = {
+      ...memoryEntry,
+      id: "mem_2",
+      title: "Generated handoff",
+      body: "Summarize cautiously.",
+      trust_label: "generated_summary",
+      source_kind: "handoff",
+    };
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [memoryEntry, generatedEntry],
+    });
+    const user = userEvent.setup();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Commit style")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
+    expect(screen.getByLabelText("Title")).toHaveValue("Commit style");
+    expect(screen.getByLabelText("Body")).toHaveValue("Use conventional commits.");
+
+    await user.click(screen.getByRole("button", { name: "Edit memory Generated handoff" }));
+
+    expect(screen.getByLabelText("Title")).toHaveValue("Generated handoff");
+    expect(screen.getByLabelText("Body")).toHaveValue("Summarize cautiously.");
+  });
+
   it("keeps project work visible when activity loading fails", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectActivity).mockRejectedValueOnce(new Error("activity failed"));
