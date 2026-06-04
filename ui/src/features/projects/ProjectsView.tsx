@@ -93,6 +93,31 @@ type ProjectActivityBucketKey = "active" | "blocked" | "completed" | "recent";
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
 
+type ProjectTimelineItemKind =
+  | "assignment"
+  | "artifact"
+  | "decision"
+  | "handoff"
+  | "memory"
+  | "memory_candidate";
+
+type ProjectTimelineItem = {
+  id: string;
+  kind: ProjectTimelineItemKind;
+  title: string;
+  summary: string;
+  actor: string;
+  source: string;
+  timestamp: string;
+  status?: string;
+  workItemID?: string;
+  taskID?: string;
+  runID?: string;
+  chatID?: string;
+  memoryEntry?: ProjectMemoryRecord;
+  assignment?: ProjectAssignmentRecord;
+};
+
 type NewWorkItemForm = {
   title: string;
   brief: string;
@@ -435,7 +460,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     try {
       const [memoryPayload, candidatePayload] = await Promise.all([
         getProjectMemory(projectID, true),
-        getProjectMemoryCandidates(projectID),
+        getProjectMemoryCandidates(projectID, true),
       ]);
       setMemoryEntries(memoryPayload.data ?? []);
       setMemoryCandidates(candidatePayload.data ?? []);
@@ -1096,6 +1121,20 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       </section>
 
       <section style={detailStyle} aria-label="Selected work item">
+        <ProjectTimelinePanel
+          activity={activity}
+          artifacts={artifacts}
+          handoffs={handoffs}
+          memoryCandidates={memoryCandidates}
+          memoryEntries={memoryEntries}
+          onEditMemory={setEditingMemory}
+          onOpenChat={onOpenChat}
+          onOpenTask={onOpenTask}
+          onSelectWorkItem={setSelectedWorkItemID}
+          project={selectedProject}
+          roles={roles}
+          workItems={workItems}
+        />
         <ProjectActivityInbox
           activity={activity}
           loading={workLoadState === "loading"}
@@ -1698,6 +1737,270 @@ function ProjectActivityInbox({
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectTimelinePanel({
+  activity,
+  artifacts,
+  handoffs,
+  memoryCandidates,
+  memoryEntries,
+  onEditMemory,
+  onOpenChat,
+  onOpenTask,
+  onSelectWorkItem,
+  project,
+  roles,
+  workItems,
+}: {
+  activity: ProjectActivityData | null;
+  artifacts: ProjectCollaborationArtifactRecord[];
+  handoffs: ProjectHandoffRecord[];
+  memoryCandidates: ProjectMemoryCandidateRecord[];
+  memoryEntries: ProjectMemoryRecord[];
+  onEditMemory: (entry: ProjectMemoryRecord) => void;
+  onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
+  onOpenTask?: (taskID: string, runID?: string) => void;
+  onSelectWorkItem: (workItemID: string) => void;
+  project: ProjectRecord | null;
+  roles: ProjectWorkRoleRecord[];
+  workItems: ProjectWorkItemRecord[];
+}) {
+  const timeline = useMemo(
+    () =>
+      project
+        ? buildProjectTimelineItems({
+            activity,
+            artifacts,
+            handoffs,
+            memoryCandidates,
+            memoryEntries,
+            project,
+            roles,
+            workItems,
+          })
+        : [],
+    [activity, artifacts, handoffs, memoryCandidates, memoryEntries, project, roles, workItems],
+  );
+  const decisions = timeline.filter((item) => item.kind === "decision");
+  const timelineLimit = 12;
+  const decisionLimit = 5;
+  const visibleTimeline = timeline.slice(0, timelineLimit);
+  const visibleDecisions = decisions.slice(0, decisionLimit);
+  if (!project) return null;
+
+  return (
+    <div style={{ padding: "16px 16px 0" }}>
+      <div style={panelStyle}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+          <div>
+            <div style={sectionLabelStyle}>Timeline / Decision Log</div>
+            <div style={{ ...subtleTextStyle, marginTop: 3 }}>
+              {timeline.length} project story item{timeline.length === 1 ? "" : "s"} from activity,
+              memory, and collaboration artifacts.
+            </div>
+          </div>
+          <span className="badge badge-muted" style={{ marginLeft: "auto" }}>
+            {decisions.length} decision{decisions.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <div style={timelineGridStyle}>
+          <section aria-label="Project timeline" style={{ minWidth: 0 }}>
+            <div style={{ ...sectionLabelStyle, color: "var(--t2)", marginBottom: 8 }}>
+              Project Timeline
+            </div>
+            {timeline.length === 0 ? (
+              <div style={subtleTextStyle}>
+                No timeline entries yet. Assignments, memory changes, and collaboration artifacts
+                will appear here.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 9 }}>
+                {timeline.length > visibleTimeline.length ? (
+                  <div style={subtleTextStyle}>
+                    Showing {visibleTimeline.length} of {timeline.length} story items.
+                  </div>
+                ) : null}
+                {visibleTimeline.map((item) => (
+                  <ProjectTimelineRow
+                    key={item.id}
+                    item={item}
+                    onEditMemory={onEditMemory}
+                    onOpenChat={onOpenChat}
+                    onOpenTask={onOpenTask}
+                    onSelectWorkItem={onSelectWorkItem}
+                    project={project}
+                    roles={roles}
+                    workItems={workItems}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+          <section aria-label="Decision log" style={decisionLogStyle}>
+            <div style={{ ...sectionLabelStyle, color: "var(--t2)", marginBottom: 8 }}>
+              Decisions
+            </div>
+            {decisions.length === 0 ? (
+              <div style={subtleTextStyle}>
+                No explicit decision notes yet. Existing decision_note artifacts will be collected
+                here without creating durable decisions automatically.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {decisions.length > visibleDecisions.length ? (
+                  <div style={subtleTextStyle}>
+                    Showing {visibleDecisions.length} of {decisions.length} decisions.
+                  </div>
+                ) : null}
+                {visibleDecisions.map((item) => (
+                  <ProjectDecisionRow
+                    key={item.id}
+                    item={item}
+                    onSelectWorkItem={onSelectWorkItem}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectTimelineRow({
+  item,
+  onEditMemory,
+  onOpenChat,
+  onOpenTask,
+  onSelectWorkItem,
+  project,
+  roles,
+  workItems,
+}: {
+  item: ProjectTimelineItem;
+  onEditMemory: (entry: ProjectMemoryRecord) => void;
+  onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
+  onOpenTask?: (taskID: string, runID?: string) => void;
+  onSelectWorkItem: (workItemID: string) => void;
+  project: ProjectRecord;
+  roles: ProjectWorkRoleRecord[];
+  workItems: ProjectWorkItemRecord[];
+}) {
+  const workItem =
+    item.workItemID && workItems.find((candidate) => candidate.id === item.workItemID);
+  const role =
+    item.assignment && roles.find((candidate) => candidate.id === item.assignment?.role_id);
+  const chatRequest =
+    item.assignment && workItem
+      ? buildProjectAssignmentChatLaunchRequest({
+          project,
+          workItem,
+          assignment: item.assignment,
+          role: role ?? null,
+        })
+      : null;
+  const memoryEntry = item.memoryEntry;
+  return (
+    <div style={timelineItemStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <span className={timelineBadgeClass(item)}>{timelineKindLabel(item.kind)}</span>
+        {item.status && <Badge status={item.status} label={activitySignalLabel(item.status)} />}
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{item.title}</div>
+        {item.workItemID && (
+          <button
+            aria-label={`Show timeline details for ${item.title}`}
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onSelectWorkItem(item.workItemID ?? "")}
+          >
+            Details
+          </button>
+        )}
+        {item.taskID && (
+          <button
+            aria-label={`Open timeline task ${shortID(item.taskID)}`}
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onOpenTask?.(item.taskID ?? "", item.runID)}
+            disabled={!onOpenTask}
+            title="Open task"
+          >
+            <Icon d={Icons.tasks} size={12} />
+            Task
+          </button>
+        )}
+        {chatRequest && (
+          <button
+            aria-label={`Open timeline chat for ${item.title}`}
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onOpenChat?.(chatRequest)}
+            disabled={!onOpenChat || !chatRequest.model}
+            title={
+              chatRequest.model
+                ? `Open chat with ${chatRequest.model}`
+                : "Set project defaults before opening chat."
+            }
+          >
+            <Icon d={Icons.chat} size={12} />
+            Chat
+          </button>
+        )}
+        {memoryEntry && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onEditMemory(memoryEntry)}
+          >
+            <Icon d={Icons.edit} size={12} />
+            Inspect
+          </button>
+        )}
+      </div>
+      {item.summary && <div style={timelineSummaryStyle}>{item.summary}</div>}
+      <div style={metaLineStyle}>
+        {item.actor && <span>{item.actor}</span>}
+        {item.source && <span>{item.source}</span>}
+        {item.runID && <span>run {shortID(item.runID)}</span>}
+        {item.chatID && <span>chat {shortID(item.chatID)}</span>}
+        {item.timestamp && <span>{formatAbsoluteTime(item.timestamp)}</span>}
+      </div>
+    </div>
+  );
+}
+
+function ProjectDecisionRow({
+  item,
+  onSelectWorkItem,
+}: {
+  item: ProjectTimelineItem;
+  onSelectWorkItem: (workItemID: string) => void;
+}) {
+  return (
+    <div style={decisionItemStyle}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0 }}>
+        <span className="badge badge-amber">decision_note</span>
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{item.title}</div>
+        {item.workItemID && (
+          <button
+            aria-label={`Show decision details for ${item.title}`}
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onSelectWorkItem(item.workItemID ?? "")}
+          >
+            Details
+          </button>
+        )}
+      </div>
+      {item.summary && <div style={timelineSummaryStyle}>{item.summary}</div>}
+      <div style={metaLineStyle}>
+        {item.actor && <span>{item.actor}</span>}
+        {item.timestamp && <span>{formatAbsoluteTime(item.timestamp)}</span>}
       </div>
     </div>
   );
@@ -3756,6 +4059,189 @@ function EmptyBlock({ title, detail }: { title: string; detail: string }) {
   );
 }
 
+function buildProjectTimelineItems({
+  activity,
+  artifacts,
+  handoffs,
+  memoryCandidates,
+  memoryEntries,
+  project,
+  roles,
+  workItems,
+}: {
+  activity: ProjectActivityData | null;
+  artifacts: ProjectCollaborationArtifactRecord[];
+  handoffs: ProjectHandoffRecord[];
+  memoryCandidates: ProjectMemoryCandidateRecord[];
+  memoryEntries: ProjectMemoryRecord[];
+  project: ProjectRecord;
+  roles: ProjectWorkRoleRecord[];
+  workItems: ProjectWorkItemRecord[];
+}): ProjectTimelineItem[] {
+  const items = new Map<string, ProjectTimelineItem>();
+  const roleByID = new Map(roles.map((role) => [role.id, role]));
+  const workByID = new Map(workItems.map((item) => [item.id, item]));
+  for (const activityItem of projectActivityItems(activity)) {
+    const workItem =
+      workByID.get(activityItem.work_item.id) ??
+      projectActivityWorkItemToWorkItem(project.id, activityItem.work_item);
+    const role = roleByID.get(activityItem.assignment.role_id) ?? activityItem.role;
+    const taskID = activityItem.linked_task_id || activityItem.assignment.task_id || "";
+    const runID = activityItem.linked_run_id || activityItem.assignment.run_id || "";
+    setTimelineItem(items, {
+      id: `assignment:${activityItem.assignment.id}`,
+      kind: "assignment",
+      title: workItem.title,
+      summary: activityItem.status_summary,
+      actor: `role ${role?.name || activityItem.assignment.role_id}`,
+      source: activityItem.assignment.driver_kind,
+      timestamp: activityItem.updated_at || activityItem.assignment.updated_at,
+      status: activityItem.blocking_signal,
+      workItemID: workItem.id,
+      taskID,
+      runID,
+      chatID: activityItem.linked_chat_id || activityItem.assignment.chat_session_id,
+      assignment: activityItem.assignment,
+    });
+    for (const artifact of activityItem.recent_artifacts ?? []) {
+      addTimelineArtifact(items, artifact, workItem.title);
+    }
+    for (const handoff of activityItem.recent_handoffs ?? []) {
+      addTimelineHandoff(items, handoff, workItem.title);
+    }
+  }
+  for (const artifact of artifacts) {
+    const workTitle = workByID.get(artifact.work_item_id)?.title ?? "";
+    addTimelineArtifact(items, artifact, workTitle);
+  }
+  for (const handoff of handoffs) {
+    const workTitle = workByID.get(handoff.work_item_id)?.title ?? "";
+    addTimelineHandoff(items, handoff, workTitle);
+  }
+  for (const entry of memoryEntries) {
+    setTimelineItem(items, {
+      id: `memory:${entry.id}`,
+      kind: "memory",
+      title: `Context memory: ${entry.title}`,
+      summary: `${entry.enabled ? "Enabled" : "Disabled"} project memory entry`,
+      actor: entry.source_kind || "operator",
+      source: `${entry.trust_label}${entry.enabled ? "" : " / disabled"}`,
+      timestamp: entry.updated_at || entry.created_at,
+      status: entry.enabled ? "completed" : "stale_unknown",
+      memoryEntry: entry,
+    });
+  }
+  for (const candidate of memoryCandidates) {
+    setTimelineItem(items, {
+      id: `memory_candidate:${candidate.id}`,
+      kind: "memory_candidate",
+      title: `Memory candidate: ${candidate.title}`,
+      summary: candidate.body,
+      actor: candidate.suggested_source_kind || "generated",
+      source: `${candidate.suggested_trust_label} / ${candidate.status}`,
+      timestamp: candidate.updated_at || candidate.created_at,
+      status: candidate.status === "pending" ? "awaiting_approval" : candidate.status,
+    });
+  }
+  return Array.from(items.values()).sort(compareTimelineItems);
+}
+
+function projectActivityItems(activity: ProjectActivityData | null): ProjectActivityItemRecord[] {
+  if (!activity) return [];
+  return [
+    ...activity.buckets.blocked,
+    ...activity.buckets.active,
+    ...activity.buckets.completed,
+    ...activity.buckets.recent,
+    ...(activity.recent ?? []),
+  ];
+}
+
+function addTimelineArtifact(
+  items: Map<string, ProjectTimelineItem>,
+  artifact: ProjectCollaborationArtifactRecord,
+  workTitle: string,
+) {
+  const title = artifact.title || artifact.id;
+  setTimelineItem(items, {
+    id: `artifact:${artifact.id}`,
+    kind: artifact.kind === "decision_note" ? "decision" : "artifact",
+    title,
+    summary: artifact.body,
+    actor: artifact.author_role_id || "project",
+    source: workTitle ? `${artifact.kind} / ${workTitle}` : artifact.kind,
+    timestamp: artifact.updated_at || artifact.created_at,
+    workItemID: artifact.work_item_id,
+  });
+}
+
+function addTimelineHandoff(
+  items: Map<string, ProjectTimelineItem>,
+  handoff: ProjectHandoffRecord,
+  workTitle: string,
+) {
+  setTimelineItem(items, {
+    id: `handoff:${handoff.id}`,
+    kind: "handoff",
+    title: handoff.title || handoff.id,
+    summary: handoff.summary || handoff.recommended_next_action,
+    actor: handoff.created_by_role_id || "handoff",
+    source: workTitle ? `${handoff.status} / ${workTitle}` : handoff.status,
+    timestamp: handoff.updated_at || handoff.created_at,
+    status: handoff.status,
+    workItemID: handoff.work_item_id,
+    taskID: "",
+    runID: handoff.source_run_id,
+    chatID: handoff.source_chat_session_id,
+  });
+}
+
+function setTimelineItem(items: Map<string, ProjectTimelineItem>, item: ProjectTimelineItem) {
+  const current = items.get(item.id);
+  if (!current || compareTimelineItems(item, current) < 0) {
+    items.set(item.id, item);
+  }
+}
+
+function compareTimelineItems(left: ProjectTimelineItem, right: ProjectTimelineItem): number {
+  const leftTime = Date.parse(left.timestamp || "");
+  const rightTime = Date.parse(right.timestamp || "");
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+  if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) {
+    return Number.isFinite(leftTime) ? -1 : 1;
+  }
+  return left.id.localeCompare(right.id);
+}
+
+function timelineKindLabel(kind: ProjectTimelineItemKind): string {
+  switch (kind) {
+    case "assignment":
+      return "assignment";
+    case "decision":
+      return "decision";
+    case "handoff":
+      return "handoff";
+    case "memory":
+      return "memory";
+    case "memory_candidate":
+      return "memory candidate";
+    case "artifact":
+      return "artifact";
+  }
+}
+
+function timelineBadgeClass(item: ProjectTimelineItem): string {
+  if (item.kind === "decision") return "badge badge-amber";
+  if (item.kind === "handoff" && item.status === "pending") return "badge badge-amber";
+  if (item.kind === "memory_candidate" && item.status === "awaiting_approval") {
+    return "badge badge-amber";
+  }
+  if (item.kind === "memory" && item.status === "stale_unknown") return "badge badge-amber";
+  return "badge badge-muted";
+}
+
 function summarizeAssignments(assignments: ProjectAssignmentRecord[]): WorkItemSummary {
   return assignments.reduce<WorkItemSummary>(
     (summary, assignment) => {
@@ -4249,6 +4735,44 @@ const assignmentStyle: CSSProperties = {
 const activityRowStyle: CSSProperties = {
   borderTop: "1px solid var(--border)",
   paddingTop: 9,
+};
+
+const timelineGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) minmax(220px, 32%)",
+  gap: 14,
+  alignItems: "start",
+};
+
+const timelineItemStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  paddingTop: 9,
+  minWidth: 0,
+};
+
+const timelineSummaryStyle: CSSProperties = {
+  marginTop: 6,
+  color: "var(--t1)",
+  fontSize: 12,
+  lineHeight: 1.45,
+  whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
+  display: "-webkit-box",
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+};
+
+const decisionLogStyle: CSSProperties = {
+  borderLeft: "1px solid var(--border)",
+  paddingLeft: 14,
+  minWidth: 0,
+};
+
+const decisionItemStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  paddingTop: 8,
+  minWidth: 0,
 };
 
 const artifactStyle: CSSProperties = {

@@ -260,8 +260,11 @@ recommended next action text, linked artifact IDs, linked memory IDs, context
 refs, provenance labels, and `pending` / `accepted` / `superseded` /
 `dismissed` status. A handoff may help the operator create or start a follow-up
 assignment, but the handoff record itself does not dispatch another agent.
-Broader task `project_id` scoping, profiles, and presets are not linked to
-`project_id` yet.
+The Projects UI also derives a compact project timeline / decision log from
+activity rows, structured handoffs, collaboration artifacts, project memory
+entries, and memory candidates; explicit decisions are only shown when existing
+`decision_note` artifacts are present. Broader task `project_id` scoping,
+profiles, and presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 

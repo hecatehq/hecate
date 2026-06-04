@@ -602,7 +602,7 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
     expect(await screen.findByText("Commit style")).toBeTruthy();
-    expect(screen.getByText("operator_memory")).toBeTruthy();
+    expect(screen.getAllByText("operator_memory").length).toBeGreaterThan(0);
     expect(screen.getByText("Use conventional commits.")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Edit memory Commit style" }));
@@ -1013,6 +1013,306 @@ describe("ProjectsView cockpit", () => {
     );
   });
 
+  it("renders a project timeline from activity, decisions, artifacts, and memory", async () => {
+    resetProjectWorkMocks();
+    const onOpenTask = vi.fn();
+    const onOpenChat = vi.fn();
+    vi.mocked(getProjectMemory).mockResolvedValue({
+      object: "project_memory",
+      data: [
+        {
+          ...memoryEntry,
+          updated_at: "2026-06-02T10:58:00Z",
+        },
+      ],
+    });
+    vi.mocked(getProjectMemoryCandidates).mockResolvedValue({
+      object: "project_memory_candidates",
+      data: [
+        {
+          ...memoryCandidate,
+          updated_at: "2026-06-02T11:08:00Z",
+        },
+        {
+          ...memoryCandidate,
+          id: "memcand_promoted",
+          title: "Promoted convention",
+          body: "Promoted into durable project memory.",
+          status: "promoted",
+          promoted_memory_id: "mem_promoted",
+          created_at: "2026-06-02T10:57:00Z",
+          updated_at: "2026-06-02T10:57:00Z",
+        },
+        {
+          ...memoryCandidate,
+          id: "memcand_rejected",
+          title: "Rejected guess",
+          body: "Rejected before it became durable memory.",
+          status: "rejected",
+          status_reason: "Too speculative.",
+          created_at: "2026-06-02T10:56:00Z",
+          updated_at: "2026-06-02T10:56:00Z",
+        },
+      ],
+    });
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: {
+        project_id: project.id,
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 0,
+          blocked_count: 1,
+          completed_count: 0,
+          recent_count: 1,
+        },
+        buckets: {
+          active: [],
+          blocked: [
+            {
+              id: hecateAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "running",
+                priority: workItem.priority,
+              },
+              assignment: hecateAssignment,
+              role,
+              status: "awaiting_approval",
+              blocking_signal: "awaiting_approval",
+              status_summary: "2 approval pending",
+              linked_task_id: "task_1",
+              linked_run_id: "run_1",
+              artifact_summary: {
+                count: 2,
+                latest_kind: "decision_note",
+                latest_title: "Release gate",
+                latest_at: "2026-06-02T11:10:00Z",
+              },
+              handoff_summary: {
+                count: 1,
+                pending_count: 1,
+                latest_status: "pending",
+                latest_title: "QA handoff",
+                latest_at: "2026-06-02T11:07:00Z",
+                target_role_id: "reviewer_qa",
+              },
+              recent_artifacts: [
+                {
+                  id: "art_decision",
+                  project_id: project.id,
+                  work_item_id: workItem.id,
+                  assignment_id: hecateAssignment.id,
+                  kind: "decision_note",
+                  title: "Release gate",
+                  body: "Ship only after UI checks pass.",
+                  author_role_id: "reviewer",
+                  created_at: "2026-06-02T11:10:00Z",
+                  updated_at: "2026-06-02T11:10:00Z",
+                },
+                {
+                  id: "art_handoff",
+                  project_id: project.id,
+                  work_item_id: workItem.id,
+                  assignment_id: hecateAssignment.id,
+                  kind: "handoff",
+                  title: "Runtime notes",
+                  body: "Approval is waiting.",
+                  created_at: "2026-06-02T11:05:00Z",
+                  updated_at: "2026-06-02T11:05:00Z",
+                },
+              ],
+              recent_handoffs: [
+                {
+                  id: "handoff_1",
+                  project_id: project.id,
+                  work_item_id: workItem.id,
+                  source_assignment_id: hecateAssignment.id,
+                  source_run_id: "run_1",
+                  title: "QA handoff",
+                  summary: "Ready for QA handoff.",
+                  recommended_next_action: "Create a QA assignment.",
+                  target_role_id: "reviewer_qa",
+                  status: "pending",
+                  provenance_kind: "agent_draft",
+                  trust_label: "operator_reviewed",
+                  created_by_role_id: "software_developer",
+                  created_at: "2026-06-02T11:07:00Z",
+                  updated_at: "2026-06-02T11:07:00Z",
+                  status_changed_at: "2026-06-02T11:07:00Z",
+                },
+              ],
+              updated_at: "2026-06-02T11:00:00Z",
+            },
+          ],
+          completed: [],
+          recent: [],
+        },
+        recent: [],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<ProjectsView onOpenTask={onOpenTask} onOpenChat={onOpenChat} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    expect(await screen.findByText("Timeline / Decision Log")).toBeTruthy();
+    await waitFor(() => {
+      expect(getProjectMemoryCandidates).toHaveBeenCalledWith(project.id, true);
+    });
+    const timeline = screen.getByLabelText("Project timeline");
+    await waitFor(() => {
+      expect(within(timeline).getByText("Release gate")).toBeTruthy();
+    });
+    expect(within(timeline).getByText("Ship only after UI checks pass.")).toBeTruthy();
+    expect(within(timeline).getByText("Memory candidate: Generated summary")).toBeTruthy();
+    expect(within(timeline).getByText("Memory candidate: Promoted convention")).toBeTruthy();
+    expect(within(timeline).getByText("Memory candidate: Rejected guess")).toBeTruthy();
+    expect(within(timeline).getByText("QA handoff")).toBeTruthy();
+    expect(within(timeline).getByText("Ready for QA handoff.")).toBeTruthy();
+    expect(within(timeline).getByText("Runtime notes")).toBeTruthy();
+    expect(within(timeline).getByText("Context memory: Commit style")).toBeTruthy();
+    const story = timeline.textContent ?? "";
+    expect(story.indexOf("Release gate")).toBeLessThan(
+      story.indexOf("Memory candidate: Generated summary"),
+    );
+    expect(story.indexOf("Memory candidate: Generated summary")).toBeLessThan(
+      story.indexOf("QA handoff"),
+    );
+    expect(story.indexOf("QA handoff")).toBeLessThan(story.indexOf("Runtime notes"));
+    expect(story.indexOf("Runtime notes")).toBeLessThan(
+      story.indexOf("Context memory: Commit style"),
+    );
+
+    const decisionLog = screen.getByLabelText("Decision log");
+    expect(within(decisionLog).getByText("Release gate")).toBeTruthy();
+    expect(within(decisionLog).getByText("reviewer")).toBeTruthy();
+
+    await userEvent.click(
+      within(timeline).getByRole("button", { name: /Open timeline task task_1/ }),
+    );
+    expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
+
+    await userEvent.click(
+      within(timeline).getByRole("button", { name: /Open timeline chat for Build cockpit UI/ }),
+    );
+    expect(onOpenChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectID: project.id,
+        model: "qwen2.5-coder",
+      }),
+    );
+  });
+
+  it("shows compact counts when timeline and decisions are truncated", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectMemoryCandidates).mockResolvedValue({
+      object: "project_memory_candidates",
+      data: Array.from({ length: 6 }, (_, index) => ({
+        ...memoryCandidate,
+        id: `memcand_${index + 1}`,
+        title: `Candidate ${index + 1}`,
+        body: `Candidate body ${index + 1}.`,
+        updated_at: `2026-06-02T11:${20 + index}:00Z`,
+      })),
+    });
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: {
+        project_id: project.id,
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 0,
+          blocked_count: 1,
+          completed_count: 0,
+          recent_count: 1,
+        },
+        buckets: {
+          active: [],
+          blocked: [
+            {
+              id: hecateAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "running",
+                priority: workItem.priority,
+              },
+              assignment: hecateAssignment,
+              role,
+              status: "awaiting_approval",
+              blocking_signal: "awaiting_approval",
+              status_summary: "2 approval pending",
+              linked_task_id: "task_1",
+              linked_run_id: "run_1",
+              artifact_summary: {
+                count: 6,
+                latest_kind: "decision_note",
+                latest_title: "Release decision 6",
+                latest_at: "2026-06-02T11:16:00Z",
+              },
+              handoff_summary: { count: 0 },
+              recent_artifacts: Array.from({ length: 6 }, (_, index) => ({
+                id: `art_decision_${index + 1}`,
+                project_id: project.id,
+                work_item_id: workItem.id,
+                assignment_id: hecateAssignment.id,
+                kind: "decision_note",
+                title: `Release decision ${index + 1}`,
+                body: `Decision body ${index + 1}.`,
+                created_at: `2026-06-02T11:${10 + index}:00Z`,
+                updated_at: `2026-06-02T11:${10 + index}:00Z`,
+              })),
+              updated_at: "2026-06-02T11:00:00Z",
+            },
+          ],
+          completed: [],
+          recent: [],
+        },
+        recent: [],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Timeline / Decision Log")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText("Showing 12 of 13 story items.")).toBeTruthy();
+    });
+    expect(screen.getByText("Showing 5 of 6 decisions.")).toBeTruthy();
+  });
+
+  it("keeps the decision log explicit when no decision artifacts exist", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    expect(await screen.findByText("Timeline / Decision Log")).toBeTruthy();
+    expect(
+      screen.getByText(/No explicit decision notes yet. Existing decision_note artifacts/),
+    ).toBeTruthy();
+  });
+
   it("starts not-started assignments from the activity inbox", async () => {
     resetProjectWorkMocks();
     const notStartedAssignment: ProjectAssignmentRecord = {
@@ -1352,7 +1652,9 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
     const detail = screen.getByLabelText("Selected work item");
-    expect(await within(detail).findByText("QA handoff")).toBeTruthy();
+    await waitFor(() => {
+      expect(within(detail).getAllByText("QA handoff").length).toBeGreaterThan(0);
+    });
     await userEvent.click(within(detail).getByRole("button", { name: "Target assignment" }));
 
     await waitFor(() => {
