@@ -301,6 +301,25 @@ This label is intentional. It tells the model that memory is durable operator
 context, while keeping it distinct from Hecate runtime instructions and
 workspace guidance.
 
+## Workflow Memory Candidates
+
+[Workflow runbooks](workflow-runbooks-v0.md) may propose project memory
+candidates when a completed workflow finds a reusable lesson. The workflow does
+not write durable memory directly. It emits a candidate with source provenance,
+evidence artifact ids, and a suggested trust/provenance label, then the
+operator decides whether to edit, promote, reject, or ignore it.
+
+Examples:
+
+- A `qa` workflow learns that a project needs `just dev` before browser checks.
+- A `ship` workflow records that desktop release notes must change when Tauri
+  files change.
+- An `investigate` workflow identifies a recurring diagnostic command that
+  should be remembered for this project.
+
+Pending workflow candidates remain review artifacts. They are excluded from
+context packets until the operator promotes them into project memory.
+
 ## UI Placement
 
 Memory should be visible from two places:

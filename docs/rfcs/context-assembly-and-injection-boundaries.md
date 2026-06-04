@@ -36,6 +36,7 @@ assignment has a visible provenance chain.
 | **Context assembly** (this RFC)                                       | Source collection, trust labels, injection boundaries, final context packet snapshot, "what did the model see?" UI.                    | Token fitting, summarization algorithms, long-term memory CRUD.                                                       |
 | [**Agent memory**](agent-memory.md)                                   | Durable operator-approved facts and preferences with scopes.                                                                           | Deciding whether an entry fits a model window or whether untrusted content should become memory.                      |
 | [**LLM context window management**](llm-context-window-management.md) | Token estimation, warning/cap thresholds, truncation, summarization, model limit lookup.                                               | Deciding whether a source is trusted, authoritative, or eligible.                                                     |
+| [**Workflow runbooks**](workflow-runbooks-v0.md)                      | Named task patterns that consume context packets, emit evidence artifacts, and propose memory candidates.                              | A separate prompt, memory, approval, artifact, or browser-state subsystem.                                             |
 | **Agent profiles**                                                    | Saved runtime configurations: agent/provider/model controls, tools, RTK, approvals, memory-source selection, and system prompt text.   | Durable project identity, memory storage, or prompt rendering by itself.                                              |
 | **Presets**                                                           | Templates for creating/updating project defaults or agent profiles.                                                                    | Runtime identity. Once applied, the resolved profile/settings are what matter.                                        |
 | **Prompt-injection defense**                                          | Enforced mostly by context assembly: source labels, authority boundaries, and no silent promotion from untrusted text to instructions. | Perfect detection of malicious text. Hecate should label and bound sources, not pretend it can classify every attack. |
@@ -101,6 +102,7 @@ Candidate sources are collected from the active runtime surface:
 | Operator settings         | System prompt, tools on/off, RTK state, profile/preset choices when they exist.                     |
 | Project context           | `project_id`, project defaults, project instructions, saved project memory, trusted project docs.   |
 | Project work              | Future work-item briefs, assignment metadata, handoffs, reviews, decision notes, linked artifacts.  |
+| Workflow context          | Future workflow mode, runbook id/version, typed inputs, stop conditions, linked evidence artifacts. |
 | Agent profile context     | Profile-selected memory sources, adapter/model controls, profile instructions.                      |
 | Workspace context         | Concrete workspace path, `AGENTS.md`, `CLAUDE.md`, selected files, git diff, file tree snippets.    |
 | Memory                    | Future operator-authored memory entries selected by scope.                                          |
@@ -178,7 +180,7 @@ type ContextPacket struct {
     SourcePreset string
     Provider    string
     Model       string
-    ExecutionMode string // hecate_task | external_agent
+    ExecutionMode string // hecate_task | external_agent | workflow_run
     Items       []ContextItem
 }
 
