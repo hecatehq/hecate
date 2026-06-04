@@ -11,7 +11,10 @@ For each pass, ask:
 3. **Architecture fit.** Does it respect the rings (`pkg/types/` → `internal/api/` → `internal/providers/`, with imports inward only)? Does it mirror the storage tier rule (memory + sqlite)? Does it duplicate what should be shared, or share what should be duplicated (the api↔providers parallel-struct rule)?
 4. **Test coverage.** Does it test the seam? The error path? The cross-boundary wire shape? For UI: data-to-UI transformation and conditional rendering of critical states? Streaming wire shape? Storage scoping?
 5. **Security risk.** Local-only assumptions; loopback/same-origin behavior; sandbox boundary; SSRF guards on `http_request`; secrets in env vs in code.
-6. **Operational risk.** Env-var changes (synced to `.env.example` and `docs/<feature>.md`?); schema migrations across storage tiers; retention worker impact; OTel surface; log volume.
+6. **Operational risk.** Env-var changes (synced to `.env.example` and the
+   relevant page under `docs/operator/`, `docs/runtime/`, `docs/contributor/`,
+   or `docs/design/`?); schema migrations across storage tiers; retention
+   worker impact; OTel surface; log volume.
 7. **Follow-ups.** What's left? What's known to be incomplete? What needs a separate change?
 
 ## Output format

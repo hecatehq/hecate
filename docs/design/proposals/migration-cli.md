@@ -22,7 +22,7 @@ binary, start it back up, and if anything looks wrong, swap the
 file back. That works but it's manual, error-prone, and doesn't
 surface what changed during the upgrade.
 
-This RFC scopes the smallest CLI that closes both gaps without
+This design record scopes the smallest CLI that closes both gaps without
 inventing a parallel migration system.
 
 ## What exists today
@@ -80,7 +80,7 @@ In rough priority order:
    destructive migration without redesign.
 5. **Restore from backup.** The mirror of (1).
 
-What operators do NOT need (out of scope for this RFC):
+What operators do NOT need (out of scope for this design record):
 
 - Down-migrations / per-table rollback. Hecate's pattern is
   additive-only; rollback = restore from backup. Trying to walk
@@ -251,7 +251,7 @@ the existing connection setup.
 
 ## Rollback model
 
-This RFC does NOT propose down-migrations. Rollback in Hecate is:
+This design record does NOT propose down-migrations. Rollback in Hecate is:
 
 1. `hecate migrate snapshot` before the upgrade.
 2. Pull and start the new binary.
@@ -301,7 +301,7 @@ incremental improvements after that.
   the gateway runs migrate implicitly on first store use, scattered
   across nine packages. Centralizing into one boot-time call (and
   letting `migrate apply` be that call) is cleaner but expands this
-  RFC's scope.
+  design record's scope.
 - **Granularity of snapshot.** A single SQLite file is the simplest
   snapshot unit. Per-package snapshots ("just the providers
   config") are a natural follow-up but introduce cross-table
@@ -345,7 +345,7 @@ incremental improvements after that.
 
 ## Acceptance criteria
 
-When this RFC is implemented, the following are all true:
+When this design record is implemented, the following are all true:
 
 - An operator can run `hecate migrate snapshot` against a live
   gateway and get a consistent, restorable backup.

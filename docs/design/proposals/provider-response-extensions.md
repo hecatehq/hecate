@@ -263,7 +263,7 @@ when there's a second consumer.
 
 ## Acceptance criteria
 
-When this RFC is implemented end-to-end, the following are true:
+When this design record is implemented end-to-end, the following are true:
 
 - A Perplexity-backed `/v1/chat/completions` response carries
   `citations` and `search_results` end-to-end through the api wire,
@@ -287,7 +287,7 @@ When this RFC is implemented end-to-end, the following are true:
   rather than a separate interface; design when streaming is in scope.
 - Whether `Usage.ReasoningTokens` should be surfaced separately from
   completion tokens. Today the answer is "treat as completion"; a
-  separate RFC would be needed for provider-specific cost reporting.
+  separate design record would be needed for provider-specific cost reporting.
 - Whether to surface the `safety_ratings` Gemini returns. Useful for
   content moderation but no cross-provider equivalent. Park until a
   second safety-rating provider arrives.

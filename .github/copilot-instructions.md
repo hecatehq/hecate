@@ -1,9 +1,9 @@
 # Hecate Copilot Instructions
 
-Hecate is an open-source local AI runtime console. It routes OpenAI- and
-Anthropic-shaped traffic to upstream providers, runs queued `agent_loop` tasks
-behind policy and approval gates, supervises ACP coding agents, and emits
-OpenTelemetry traces.
+Hecate is an open-source local AI operations console for supervised agent work.
+It combines a model gateway, Hecate Chat, queued `agent_loop` tasks, External
+Agent supervision, projects, memory, approvals, artifacts, usage, and
+OpenTelemetry traces into one operator surface.
 
 This file is a GitHub Copilot adapter shim. The canonical provider-neutral
 guidance lives in `AGENTS.md` and `docs-ai/`; read those before changing code.

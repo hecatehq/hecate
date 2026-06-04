@@ -1,6 +1,19 @@
 # Project context
 
-Hecate is an open-source local AI runtime console. The main Go runtime runs the local HTTP service, embeds the React operator UI, routes OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Hecate is local-first, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did Hecate just decide, why, what did it cost, what happens on the next failure, and where is the trace.
+Hecate is an open-source local AI operations console for supervised agent work.
+The main Go runtime runs the local HTTP service, embeds the React operator UI,
+routes OpenAI- and Anthropic-shaped client traffic to upstream LLM providers,
+runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises
+external coding-agent adapters from Chats, manages projects, context, memory
+candidates, approvals, artifacts, usage, and emits OpenTelemetry traces for
+everything it does. Hecate is local-first in the operational sense: the runtime
+and UI run on the operator's machine, Hecate-owned state is local
+(memory / sqlite), and the gateway binds to 127.0.0.1 by default. It is not
+local-only; it can route to cloud providers and supervise external
+coding-agent CLIs with their own accounts. Every endpoint, config knob, and
+error message exists to answer five operator questions: what did Hecate just
+decide, why, what did it cost, what happens on the next failure, and where is
+the trace.
 
 Hecate's own boundary is the runtime/control plane: projects, chats, tasks,
 providers, supervised external agents, approvals, tool policy, storage, and
@@ -112,7 +125,7 @@ code, not as a follow-up. Don't restate their content here — link and move on.
 | How do I configure a provider? What providers are supported?                  | [`docs/operator/providers.md`](../../docs/operator/providers.md)                                                                                                                                 |
 | How do I configure MCP? What tools does the server expose?                    | [`docs/runtime/mcp.md`](../../docs/runtime/mcp.md)                                                                                                                                               |
 | How do Hecate Chat segments and model capabilities work?                      | [`docs/runtime/chat-sessions.md`](../../docs/runtime/chat-sessions.md), [`docs/design/accepted/hecate-chat-model-capabilities.md`](../../docs/design/accepted/hecate-chat-model-capabilities.md) |
-| How do external-agent adapters work?                                          | [`docs/runtime/external-agent-adapters.md`](../../docs/design/accepted/external-agent-adapters.md)                                                                                               |
+| How do external-agent adapters work?                                          | [`docs/runtime/external-agent-adapters.md`](../../docs/runtime/external-agent-adapters.md)                                                                                                       |
 | How do I deploy? What are the Compose profiles?                               | [`docs/operator/deployment.md`](../../docs/operator/deployment.md)                                                                                                                               |
 | How do I build and test locally? What does `[skip ci]` mean?                  | [`docs/contributor/development.md`](../../docs/contributor/development.md)                                                                                                                       |
 | What sandbox isolation layers are shipped? How do namespaces work?            | [`docs/runtime/sandbox.md`](../../docs/runtime/sandbox.md)                                                                                                                                       |

@@ -1,4 +1,4 @@
-# Agent Event Protocol — v1 Candidate (RFC)
+# Agent Event Protocol — v1 Candidate (design record)
 
 > **Status:** candidate. The v1 envelope is implemented for task-run event list
 > and cross-run event endpoints; payload schemas are not stable yet.
@@ -19,7 +19,7 @@ context.
 
 ## Scope and stability
 
-This RFC covers **agent-runtime runs** only: `agent_loop`, shell, git, and file
+This design record covers **agent-runtime runs** only: `agent_loop`, shell, git, and file
 runs that already have a `run_id`. It does not define the event contract for
 ad-hoc chat completions that are not represented as runtime runs. If Hecate
 later wants chat completions on this protocol, the chat path should first mint a
@@ -27,11 +27,11 @@ run-like execution id or use a separate chat-event protocol.
 
 The frontend-safe v1 candidate is deliberately smaller than the full design:
 
-| Status                     | Event groups                                                                                                                                              |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Candidate core             | `run.*`, `turn.*`, `assistant.text_*`, `assistant.final_answer`, generic `tool.*`, `tool.shell.*`, `approval.*`, `cost.*`, `policy.*`, `error.*`, `gap.*` |
-| Depends on artifact RFC    | `artifact.*`, `tool.edit.*`, `tool.multi_edit.*`, artifact ids on terminal tool events                                                                    |
-| Experimental / not v1 core | `assistant.thinking_*`, streamed tool-input deltas, sub-agent fan-out, multi-modal output, conversation branching                                         |
+| Status                            | Event groups                                                                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate core                    | `run.*`, `turn.*`, `assistant.text_*`, `assistant.final_answer`, generic `tool.*`, `tool.shell.*`, `approval.*`, `cost.*`, `policy.*`, `error.*`, `gap.*` |
+| Depends on artifact design record | `artifact.*`, `tool.edit.*`, `tool.multi_edit.*`, artifact ids on terminal tool events                                                                    |
+| Experimental / not v1 core        | `assistant.thinking_*`, streamed tool-input deltas, sub-agent fan-out, multi-modal output, conversation branching                                         |
 
 Frontend work should only depend on the **candidate core** until the
 implementation ships golden fixtures and contract tests. Experimental events may
@@ -52,7 +52,7 @@ the API boundary. The agent loop emits `turn.started`,
 `assistant.text_complete`, `assistant.tool_call_proposed`, and
 `assistant.final_answer`; the shell executor emits the first typed tool slice
 (`tool.invoked`, `tool.started`, `tool.shell.*`, and terminal `tool.*` events).
-Some candidate-core payloads remain RFC-only until their runtime emitters land.
+Some candidate-core payloads remain design-record-only until their runtime emitters land.
 
 Before this document can be called v1 stable:
 
@@ -61,7 +61,7 @@ Before this document can be called v1 stable:
 - JSON Schema or generated Go/TypeScript types must exist for the envelope and
   candidate-core event payloads.
 - Golden event fixtures must be checked in and used by web/CLI/ACP tests.
-- The artifact-storage RFC must be at least candidate-stable before `artifact.*`
+- The artifact-storage design record must be at least candidate-stable before `artifact.*`
   events are promoted into v1 core.
 
 ## Why a typed protocol
@@ -97,17 +97,17 @@ Every event on the wire is a single JSON object:
 }
 ```
 
-| Field            | Type         | Notes                                                                                                  |
-| ---------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
-| `schema_version` | string       | Currently `"1"`. Bumped on breaking changes; additive changes within `1.x` add fields without bumping. |
-| `event_id`       | ULID         | Globally unique. Sortable by creation. Stable across replay.                                           |
-| `run_id`         | ULID         | Always present for this protocol. Anchors the event to a single agent-runtime run.                     |
-| `task_id`        | ULID         | Present when the run belongs to a task.                                                                |
-| `session_id`     | ULID         | Present when the run belongs to a chat session.                                                        |
-| `sequence`       | uint64       | Monotonic per `run_id`. Starts at 0. Resumable streams use this as the cursor.                         |
-| `occurred_at`    | RFC3339 nano | Server clock. Not user-trustworthy; use `sequence` for ordering.                                       |
-| `type`           | string       | Dotted name. See taxonomy below. Always lowercase, snake_case segments.                                |
-| `data`           | object       | Type-specific payload. Always an object, never null. May be `{}` for events with no payload.           |
+| Field            | Type                       | Notes                                                                                                  |
+| ---------------- | -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `schema_version` | string                     | Currently `"1"`. Bumped on breaking changes; additive changes within `1.x` add fields without bumping. |
+| `event_id`       | ULID                       | Globally unique. Sortable by creation. Stable across replay.                                           |
+| `run_id`         | ULID                       | Always present for this protocol. Anchors the event to a single agent-runtime run.                     |
+| `task_id`        | ULID                       | Present when the run belongs to a task.                                                                |
+| `session_id`     | ULID                       | Present when the run belongs to a chat session.                                                        |
+| `sequence`       | uint64                     | Monotonic per `run_id`. Starts at 0. Resumable streams use this as the cursor.                         |
+| `occurred_at`    | **design record3339** nano | Server clock. Not user-trustworthy; use `sequence` for ordering.                                       |
+| `type`           | string                     | Dotted name. See taxonomy below. Always lowercase, snake_case segments.                                |
+| `data`           | object                     | Type-specific payload. Always an object, never null. May be `{}` for events with no payload.           |
 
 ### Wire transport
 
@@ -858,7 +858,7 @@ Streamed tool input, reasoning/thinking blocks, sub-agent fan-out, multi-modal
 output, conversation branching, and approval write-side transport are outside
 the v1 candidate core. They live in
 [`event-protocol-extensions.md`](../parking-lot/event-protocol-extensions.md) until they
-earn a separate RFC or graduate into a later protocol version.
+earn a separate design record or graduate into a later protocol version.
 
 ## Implementation status
 
@@ -899,7 +899,7 @@ When the remaining candidate-core work is implemented:
 
 ## Next steps
 
-1. **Land this doc** as a draft RFC. Review the candidate-core vs experimental split before implementation starts.
+1. **Land this doc** as a draft design record. Review the candidate-core vs experimental split before implementation starts.
 2. **Prototype the envelope + a single tool family** (`tool.shell.*`) end-to-end in a feature branch. Wire one CLI command to consume it, end-to-end.
 3. **Generate schemas/types + golden fixtures** for the candidate core.
 4. **Land artifact storage separately** before promoting `artifact.*` or edit

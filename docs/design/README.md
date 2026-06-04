@@ -22,14 +22,10 @@ Implemented behavior lives in:
 | [Candidates](candidates/)   | Some implementation exists, but the wire/payload shape is not stable.                      |
 | [Implemented](implemented/) | Work landed; the record remains as design history. Current behavior lives in runtime docs. |
 | [Parking lot](parking-lot/) | Future or experimental ideas that should not drive implementation by themselves.           |
-| [Audits](audits/)           | Historical reviews of design-record accuracy.                                              |
 
 Use the path as a signal. If a record moves from `proposals/` to `accepted/`,
 or from `accepted/` to `implemented/`, update this index and the record header
 in the same change.
-
-Some older records still say "RFC" in their body text. Treat that as historical
-wording. The lifecycle bucket and this index are the source of truth for status.
 
 ## Architecture Tracks
 
@@ -109,4 +105,3 @@ for the context packet boundary.
 | [Import external chat history](proposals/import-external-chat-history.md)                           | Proposal           | Future research               |
 | [Embeddings](proposals/embeddings.md)                                                               | Proposal           | Future research               |
 | [Agent event protocol extensions](parking-lot/event-protocol-extensions.md)                         | Parking lot        | Future research               |
-| [Design audit, 2026-05-17](audits/AUDIT-2026-05-17.md)                                              | Historical audit   | Maintenance                   |

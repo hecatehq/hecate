@@ -22,7 +22,10 @@ Anything with a CI/CD, environment, deploy, or migration footprint:
 ## Surfaces to check
 
 - **CI/CD.** Which workflow files run? Will `paths-ignore` skip this change accidentally? Does the change need a `[skip ci]` marker, or does it require CI to actually run?
-- **Environment.** New env vars must land in `.env.example` AND the relevant `docs/<feature>.md` env-var table — same change, not as a follow-up. Stale env-var docs cause more on-call pages than missing features.
+- **Environment.** New env vars must land in `.env.example` AND the relevant
+  `docs/operator/`, `docs/runtime/`, `docs/contributor/`, or `docs/design/`
+  page — same change, not as a follow-up. Stale env-var docs cause more
+  on-call pages than missing features.
 - **Config compatibility.** Does an old config still boot? If not, that's a breaking change — needs a migration note in the commit body.
 - **Schema migrations.** Which storage tiers are affected? Memory is rebuilt on boot (fine). SQLite needs a forward-compatible migration and roll-forward considerations. The retention worker subsystems (`traces`, `usage_events`, `audit`, `provider_history`, `turn_events`, `chat_approvals`) must keep mirroring.
 - **Deploy and release risk.** Is this safe to roll out behind a flag? Does it need a flag at all? What's the blast radius if it misbehaves?
@@ -35,7 +38,9 @@ Anything with a CI/CD, environment, deploy, or migration footprint:
 1. **Surfaces affected.** Env, schema, CI, observability — name each one explicitly.
 2. **Rollout risk.** Blast radius if this misbehaves; blocking vs non-blocking; flag-gateable or not.
 3. **Rollback path.** Can this revert cleanly? If a schema change is involved, is the rollback documented?
-4. **Doc updates required.** `.env.example`, `docs/<feature>.md`, `docs/runtime/events.md`, `docs/runtime/runtime-api.md` — whichever apply.
+4. **Doc updates required.** `.env.example`, the relevant page under
+   `docs/operator/`, `docs/runtime/`, `docs/contributor/`, or `docs/design/`,
+   `docs/runtime/events.md`, `docs/runtime/runtime-api.md` — whichever apply.
 5. **Draft release-note line.** When relevant.
 
 ## Bias

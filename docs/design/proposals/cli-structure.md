@@ -45,7 +45,7 @@ matches the product:
 - Add a clear browser-UI launcher: `hecate ui`.
 - Keep protocol surfaces under noun + `serve` (`hecate mcp serve`).
 - Reserve root auth verbs (`login`, `logout`, `whoami`) for Hecate/operator
-  identity without designing external-agent auth in this RFC.
+  identity without designing external-agent auth in this design record.
 - Keep command parsing and presentation separate from runtime behavior so the
   command tree can grow without spreading CLI concerns through `internal/`.
 - Cross-distribution feature parity: every command works in Hecate Desktop,
@@ -85,7 +85,7 @@ hecate logout                  # FUTURE
 hecate whoami [flags]          # FUTURE
 hecate mcp serve               # MCP server over stdio
 hecate acp serve               # FUTURE: ACP server over stdio (reserved)
-hecate migrate <sub>           # per migration-cli.md RFC
+hecate migrate <sub>           # per migration-cli.md design record
 hecate version                 # print version; --version / -v aliases
 hecate help [topic]            # usage
 ```
@@ -218,7 +218,7 @@ hecate agent login claude-code
 hecate agent logout grok-build
 ```
 
-That future surface is out of scope for this RFC.
+That future surface is out of scope for this design record.
 
 ### Future additive surfaces
 
@@ -248,7 +248,7 @@ errors to stderr.
 + args: ["mcp", "serve"]
 ```
 
-Hecate is pre-1.0, so this RFC does not require a compatibility shim for
+Hecate is pre-1.0, so this design record does not require a compatibility shim for
 `mcp-server`.
 
 ### `hecate acp serve` — reserved, not implemented
@@ -258,7 +258,7 @@ backend for external clients like Zed). Today Hecate is an ACP **client**
 ([`internal/agentadapters`](../../../internal/agentadapters/)); the inverse
 direction does not yet exist.
 
-Invoking `hecate acp serve` until that RFC lands prints:
+Invoking `hecate acp serve` until that design record lands prints:
 
 ```text
 hecate acp serve: not implemented yet.
@@ -269,7 +269,7 @@ Exit code 2.
 
 ### `hecate migrate <sub>`
 
-Per the existing [`migration-cli.md`](migration-cli.md) RFC. This RFC's only
+Per the existing [`migration-cli.md`](migration-cli.md) design record. This design record's only
 contribution is establishing the command tree and naming convention.
 
 ### `hecate version` / `--version` / `-v`
@@ -365,7 +365,7 @@ Release note:
 > `hecate serve` to start the runtime process. MCP server configs should use
 > `hecate mcp serve` instead of `hecate mcp-server`.
 
-## Implications for the migration-cli RFC
+## Implications for the migration-cli design record
 
 [`migration-cli.md`](migration-cli.md) is unblocked but unchanged in its core
 design. Add a cross-reference near the top:
@@ -383,7 +383,7 @@ design. Add a cross-reference near the top:
 3. **Should `hecate serve --ui` also exist?** Recommendation: maybe later as
    convenience, but keep `hecate ui --start` as the primary human path.
 4. **Should root auth commands land as stubs or wait?** Recommendation: reserve
-   the names in the RFC, but implement only when Hecate/operator auth exists.
+   the names in the design record, but implement only when Hecate/operator auth exists.
 
 ## Risks
 
@@ -392,7 +392,7 @@ design. Add a cross-reference near the top:
   runtime process."
 - **TUI surface creep.** Mitigation: TUI v1 is a control panel, not a second
   full frontend.
-- **Command tree creep.** Mitigation: the RFC's verb inventory is the initial
+- **Command tree creep.** Mitigation: the design record's verb inventory is the initial
   contract; new root verbs need their own rationale.
 - **Browser opener variance.** `xdg-open` differs across Linux distros. If
   launch fails, print the URL and exit with a clear message.

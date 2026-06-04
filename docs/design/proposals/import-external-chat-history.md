@@ -19,7 +19,7 @@ supervision surface for _new_ agent work has to flip back to `grep
 -r ~/.claude/projects` to look up _old_ work. Two surfaces, two
 mental models, two sets of paste-into-issue ergonomics.
 
-This RFC scopes a one-shot import (not live mirroring), the schema
+This design record scopes a one-shot import (not live mirroring), the schema
 mapping, and the smallest UI surface that makes imported transcripts
 useful without confusing them with live sessions.
 
@@ -51,7 +51,7 @@ In rough priority order:
 
 ## Non-goals (v1)
 
-- **Live mirroring or watch-mode.** v1 is one-shot. A future RFC
+- **Live mirroring or watch-mode.** v1 is one-shot. A future design record
   could add an inotify/FSEvents watcher that ingests new sessions
   as they finish, but the cost/value isn't there yet — operators
   who _want_ live supervision should run the agent through
@@ -65,7 +65,7 @@ In rough priority order:
   external CLI's tool loop, sandbox, approval policy, and provider
   credentials are _not_ Hecate's. Forking imported transcripts
   into a live session is a separate feature, possibly a separate
-  RFC, possibly never.
+  design record, possibly never.
 - **Cross-tool merging.** A Claude Code session and a Codex session
   that happened to discuss the same workspace stay separate
   records. Reconciling them is a UI search problem, not an import
@@ -99,7 +99,7 @@ In rough priority order:
   `chat_sessions` and `chat_messages` tables as live
   sessions. Activities are kept on the message row in the existing
   `activities` JSON column — no separate activities table exists
-  today and this RFC does not add one. A small set of columns gets
+  today and this design record does not add one. A small set of columns gets
   added to `chat_sessions`; no parallel schema.
 
 ## Source formats
@@ -226,7 +226,7 @@ Why a partial index: live sessions leave `source_tool=''`, so the
 new uniqueness constraint only covers rows written by the import
 path. `chat_sessions` does not currently have a unique
 constraint on `(adapter_id, native_session_id)` for live sessions,
-and this RFC does not propose adding one — live sessions can
+and this design record does not propose adding one — live sessions can
 plausibly share that pair across reconnects, while imported rows
 are derived from immutable on-disk files where the pair is stable.
 
@@ -381,7 +381,7 @@ Phases 1–2 are the meaningful unit; 3–5 are mechanical follow-ups.
   (full operator instructions, plus the inserted skills, plus the
   model card). Storing them verbatim per session bloats the DB by
   ~10 MB per 100 sessions. Options: (a) verbatim, (b) hash + dedupe
-  table, (c) drop. (b) is the right answer; the agent-memory RFC
+  table, (c) drop. (b) is the right answer; the agent-memory design record
   needs the same primitive. Gate v1 on (a) and follow up.
 - **PII / secret scrubbing.** Imported transcripts may contain API
   keys, paths, credentials the operator pasted into Claude Code. Do
@@ -412,14 +412,14 @@ Phases 1–2 are the meaningful unit; 3–5 are mechanical follow-ups.
   `ensureSessionColumn` pattern. No data rewrite. Old code reads
   the new columns and ignores them (default-empty); new code reads
   them and treats `source_tool != ""` rows as imported.
-- Rollback: per the [migration-cli](migration-cli.md) RFC,
+- Rollback: per the [migration-cli](migration-cli.md) design record,
   Hecate's recovery path for additive migrations is restore from
   snapshot, not down-migration. There's nothing destructive to
   undo. If the operator restores a snapshot taken before the
   import columns were added, the new columns simply re-appear
   on next startup; any imported rows in a rolled-back snapshot
   are orphaned read-only records (no resume path code exists in
-  the rolled-back binary because it was built before this RFC).
+  the rolled-back binary because it was built before this design record).
 
 ## Out of scope but worth noting
 

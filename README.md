@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate — Local AI Runtime Console" width="720">
+  <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate - Local AI Operations Console" width="720">
 </h1>
 
 [![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases)
@@ -11,46 +11,133 @@
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
 <p align="center">
-  <strong>Local-first AI runtime console.</strong><br>
-  Route cloud/local models, run Hecate-owned tool agents, supervise Codex / Claude Code / Cursor Agent / Grok Build, and keep every decision observable.
+  <strong>Local AI operations console for supervised agent work.</strong><br>
+  Run Hecate on your machine between AI clients, model providers, coding agents,
+  and workspace tools so every action is routed, approved, traced, and reviewable.
 </p>
 
-> **Status: public alpha.** Gateway routing, provider onboarding, Hecate Chat, External Agent sessions, and native task runs are usable for alpha workflows. The desktop app is currently exercised on macOS; Linux and Windows bundles are built by CI but have not yet been manually tested. Workspace modes, agent profiles, and sandbox hardening are still evolving. Read [known limitations](docs/operator/known-limitations.md) before depending on it.
+> **Status: public alpha.** Hecate is useful today for model-provider routing,
+> Hecate Chat, External Agent sessions, project-scoped work, approvals,
+> artifacts, usage, and observability. It is not production-stable
+> infrastructure yet: workflow runbooks, richer agent profiles, browser QA, and
+> sandbox hardening are still design or early-alpha work. Read
+> [known limitations](docs/operator/known-limitations.md) before depending on it.
 
-## Table Of Contents
+## Contents
 
-- [Why Hecate](#why-hecate)
+- [What Hecate Is](#what-hecate-is)
+- [System Shape](#system-shape)
+- [Current Capabilities](#current-capabilities)
 - [Quick Start](#quick-start)
-- [Architecture](#architecture)
-- [Operator UI](#operator-ui)
-- [What Works Today](#what-works-today)
-- [Documentation](#documentation)
+- [Use The Console](#use-the-console)
+- [Project, Context, And Memory Flow](#project-context-and-memory-flow)
+- [Architecture And Docs](#architecture-and-docs)
+- [Status And Roadmap](#status-and-roadmap)
 - [Contributing](#contributing)
 - [License](#license)
 
-## Why Hecate
+## What Hecate Is
 
-AI systems are becoming more than model calls. A useful agent now chooses between cloud and local models, calls tools, edits files, retries flaky providers, spends real money, and leaves behind a trail operators need to understand.
+Hecate is a local AI operations console for running and supervising AI work. It
+combines a model gateway, chat workspace, task runtime, external-agent console,
+project context and memory, approval gates, artifacts, usage, and OpenTelemetry
+traces into one operator surface.
 
-Hecate sits at that crossroads: one local runtime layer between clients, model providers, coding-agent CLIs, and the tools that touch your machine.
+Hecate is local-first in the operational sense: the runtime and UI run on your
+machine, Hecate-owned state is stored locally, and the gateway binds to loopback
+by default. It is not local-only: you can route to cloud providers and supervise
+external coding-agent CLIs that use their own accounts.
 
-| What you get                         | Why it matters                                                                                                                                                                                           |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Gateway for cloud + local models** | OpenAI, Anthropic, DeepSeek, Gemini, Groq, Mistral, Perplexity, Together AI, xAI, Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, and custom OpenAI-compatible endpoints behind one local API. |
-| **Hecate Chat**                      | Use one transcript for direct model turns and tools-on task-backed agent turns with approvals, artifacts, streamed activity, and trace links.                                                            |
-| **External Agent console\***         | Supervise Codex, Claude Code, Cursor Agent, and Grok Build as local ACP sessions with readiness checks, approvals, adapter diagnostics, and Git diff inspect/revert.                                     |
-| **Operator-grade control**           | Token usage, reported cost, rate limits, routing reports, provider health, task approvals, and OpenTelemetry are on the hot path.                                                                        |
+The short version:
 
-\*External agents use their own local CLIs, accounts, subscriptions, and billing.
-Hecate supervises the session, but does not proxy, pool, or bypass those
-credentials. See [External agent adapters](docs/design/accepted/external-agent-adapters.md).
+- **Gateway:** one local API for OpenAI-compatible Chat Completions,
+  Anthropic-shaped Messages, model discovery, failover, rate limits, provider
+  health, and usage visibility.
+- **Console:** a React operator UI for Chats, Connections, Tasks, Projects,
+  Usage, Observability, and Settings.
+- **Runtime:** queued task runs, tool-calling `agent_loop`, approvals,
+  per-call sandbox policy, artifacts, retries, resumes, and event streams.
+- **External Agent supervision:** long-lived local ACP sessions for coding-agent
+  CLIs, with readiness checks, approvals, adapter diagnostics, and Git diff
+  review.
+- **Project memory and context:** durable project identity, project-scoped
+  memory, context packet snapshots, work records, handoffs, and explicit memory
+  promotion.
+- **Evidence:** traces, route reports, task artifacts, diffs, logs, screenshots
+  where available, and final run output close to the decision that produced it.
+
+The product goal is not just to make model calls. It is to give the operator a
+single place to understand what AI work is happening, what context it used, what
+it changed, what it cost, what needs approval, and where the evidence lives.
+
+## System Shape
+
+```mermaid
+flowchart TB
+    Operator["Operator"] --> Console["Hecate operations console<br/>Chats · Projects · Tasks · Observability"]
+    APIClients["Compatible API clients<br/>SDKs · tools · local apps"] --> Gateway["Model gateway"]
+
+    subgraph Runtime["Local Hecate runtime"]
+        Console
+        Gateway
+        Projects["Projects · context packets · memory"]
+        Tasks["Task runtime<br/>queue · agent_loop · retry/resume"]
+        Approvals["Approval gates"]
+        Artifacts["Artifacts · diffs · reports"]
+        Events["Run events · route reports · traces"]
+        Adapters["External Agent supervisor<br/>ACP sessions"]
+    end
+
+    Gateway --> Providers["Cloud + local providers"]
+    Console --> Projects
+    Console --> Tasks
+    Console --> Adapters
+    Console --> Gateway
+    Tasks --> Approvals
+    Tasks --> Artifacts
+    Tasks --> Events
+    Tasks --> Tools["Sandboxed local tools"]
+    Adapters --> ExternalCLIs["Local agent CLIs<br/>their own accounts + billing"]
+    Projects --> Tasks
+    Gateway --> Events
+```
+
+The runtime is deliberately boring in the good way: request handling, routing,
+task execution, approvals, artifacts, and telemetry are all ordinary local
+subsystems with memory and SQLite storage parity where persistence matters.
+
+## Current Capabilities
+
+| Surface            | What works today                                                                                                                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Model gateway**  | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, provider health, failover, retry, usage events, and custom OpenAI-compatible endpoints.                                                                       |
+| **Connections**    | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health checks, credentials, external-agent readiness, and durable approval grants.                                                                                 |
+| **Chats**          | Direct model turns, tools-on task-backed turns, queued prompts, task/run/trace links, inline approvals, context packet snapshots, project-aware history, and workspace changes with rich per-file diffs.                                                         |
+| **Projects**       | Durable project identity, roots, context-source metadata, project activity, work items, assignments, handoffs, project memory entries, and memory candidates that require explicit operator promotion.                                                           |
+| **Tasks**          | Native `agent_loop` runs, queue/lease execution, blocking approvals, streamed activity, artifacts, retry/resume, stale-run recovery, and MCP tool integration.                                                                                                   |
+| **External Agent** | Supervised local ACP sessions for Codex, Claude Code, Cursor Agent, and Grok Build, including readiness/version checks, prompt-first approvals, adapter diagnostics, cancellation, and Git diff inspect/revert. External agents keep their own accounts/billing. |
+| **Observability**  | OpenTelemetry traces/metrics/logs, response trace headers, local trace view, route reports, runtime stats, timing, token usage, and provider-reported cost where available.                                                                                      |
+| **Desktop app**    | Native bundles run the Hecate runtime as a sidecar. macOS Apple Silicon is launch-tested; Linux and Windows bundles are CI-built but still experimental.                                                                                                         |
+| **Sandbox policy** | WorkspaceFS boundaries, ProcessRunner/GitRunner seams, env sanitisation, output caps, timeouts, and `bwrap` / `sandbox-exec` wrappers where available. This is not container-level isolation.                                                                    |
+
+Design direction that is not yet a runtime contract:
+
+- Named workflow modes such as `review`, `investigate`, `qa`, `ship`,
+  `security-audit`, and `design-review`.
+- Browser-backed QA evidence and design review.
+- Richer agent profiles and preset workflows.
+- Broader context-window management and external memory provider selection.
+- A first-class workflow/runbook API if the v0 experiments prove valuable.
 
 ## Quick Start
+
+Choose the path that matches how you want to run Hecate.
 
 | Path                        | Best for                                                                                           |
 | --------------------------- | -------------------------------------------------------------------------------------------------- |
 | [Desktop app](#desktop-app) | macOS personal use on your laptop. No terminal, no Docker. Linux/Windows bundles are experimental. |
 | [Docker](#docker)           | Local container, scripted local deploys, and the safer Linux/Windows alpha path today.             |
+| [From source](#from-source) | Contributors and local development.                                                                |
 
 ### Desktop app
 
@@ -67,15 +154,18 @@ versioned GitHub Release assets below:
 
 <!-- desktop-release-links:end -->
 
-Open the bundle and launch Hecate. The app starts the bundled Hecate runtime on a private loopback port, waits for it to become healthy, and opens the operator UI automatically. State lives in the platform data dir (`~/Library/Application Support/sh.hecate.app/` on macOS, `%APPDATA%\sh.hecate.app\` on Windows, `~/.local/share/sh.hecate.app/` on Linux).
+Open the bundle and launch Hecate. The app starts the bundled runtime on a
+private loopback port, waits for it to become healthy, and opens the operator UI
+automatically. State lives in the platform data dir:
 
-> **Desktop platform status:** macOS Apple Silicon is the only desktop bundle currently launch-tested by maintainers. Linux `.deb` / `.AppImage` and Windows `.msi` artifacts are produced by CI but have not yet been manually tested on real machines, so expect bugs. If you need reliability on Linux or Windows today, prefer Docker or the standalone binary tarballs.
->
-> macOS release bundles are signed with a Developer ID Application certificate and notarized — first launch needs no Gatekeeper bypass. Fork builds or releases cut without the `APPLE_*` repo secrets remain unsigned and need **right-click → Open** on first launch. Windows bundles are not yet signed and will show SmartScreen warnings once they are tested. Full footguns and roadmap live in [docs/operator/desktop-app.md](docs/operator/desktop-app.md).
->
-> Existing macOS installs from alpha.28 onward auto-update through the signed `https://hecate.sh/releases/alpha/latest.json` channel. Linux and Windows updater behavior is part of the still-untested desktop surface.
+- macOS: `~/Library/Application Support/sh.hecate.app/`
+- Windows: `%APPDATA%\sh.hecate.app\`
+- Linux: `~/.local/share/sh.hecate.app/`
 
-Skip to [Add a provider](#add-a-provider) once it's running.
+macOS release bundles are signed and notarized. Linux and Windows bundles are
+published by CI but have not yet had the same manual launch coverage. The
+desktop status, updater behavior, signing notes, and footguns live in
+[Desktop app](docs/operator/desktop-app.md).
 
 ### Docker
 
@@ -84,209 +174,187 @@ docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
   ghcr.io/hecatehq/hecate:0.1.0-alpha.45
 ```
 
-Open `http://127.0.0.1:8765`. The UI loads with no further setup.
+Open `http://127.0.0.1:8765`.
 
-> The container intentionally publishes only on `127.0.0.1`. Hecate is designed as a local-first operator console, not as a directly exposed network service. If you bind it beyond loopback, put your own access controls, firewall, or reverse proxy in front. See [Security](docs/operator/security.md) for the current threat model.
+The container intentionally publishes only on `127.0.0.1`. If you bind it
+beyond loopback, put your own access control, firewall, or reverse proxy in
+front. See [Security](docs/operator/security.md) for the current threat model.
 
-Pinned image tags, binary tarballs (linux/darwin × amd64/arm64), checksums, compose examples, and storage notes live in [`docs/operator/deployment.md`](docs/operator/deployment.md). Local development setup lives in [`docs/contributor/development.md`](docs/contributor/development.md).
+Pinned image tags, binary tarballs, checksums, compose examples, storage notes,
+and lost-token recovery live in [Deployment](docs/operator/deployment.md).
+
+### From source
+
+```bash
+just dev
+```
+
+Local development requires Go, Bun, and the repo toolchain described in
+[Development](docs/contributor/development.md). First-run environment knobs live
+in [`.env.example`](.env.example).
+
+## Use The Console
 
 ### Add a provider
 
-On first boot, Chats is already available. If Hecate detects a local runtime such as Ollama or LM Studio, the model chat setup can be one click: keep the detected runtimes selected, choose **Add selected**, and Hecate adds those local endpoints with the preset defaults. Use **Open Connections** from the same card when you want the full provider setup screen instead.
+On first boot, Chats is available immediately. If Hecate detects a local runtime
+such as Ollama or LM Studio, the first-run card can add it in one click. For
+manual setup, open **Connections -> Add provider**.
 
-![Chats first-run state — detected local providers and one-click Add selected setup](docs/screenshots/chat-empty.png)
+![Chats first-run state with detected local providers and one-click setup](docs/screenshots/chat-empty.png)
 
-Chats starts with a setup-first empty state: detected local runtimes can be added in one click, with Connections available from the same setup card for manual provider setup.
+Cloud providers need an API key. Local providers need a running local server
+URL, usually the preset default. Custom OpenAI-compatible endpoints can be added
+from the same modal when the preset catalog is not enough.
 
-You can still configure providers manually from **Connections → Add provider**:
+After a provider is saved, Hecate discovers models and the Chats picker becomes
+routable. The full provider catalog, env bootstrapping, custom-endpoint
+walk-through, and credential rotation live in
+[Providers](docs/operator/providers.md).
 
-- Cloud providers need an API key.
-- Local providers need a running local server URL, usually the preset default.
-- Custom OpenAI-compatible endpoints can be added from the same modal when the preset catalog is not enough.
+### Chat with or without tools
 
-After a provider is saved, Hecate discovers models and the Chats model picker becomes routable. The full preset catalog, env bootstrapping, custom-endpoint walk-through, and credential rotation live in [`docs/operator/providers.md`](docs/operator/providers.md).
+Hecate Chat keeps direct model turns and tools-on task-backed turns in one
+transcript. Tools off sends through the gateway. Tools on uses the task runtime
+with approvals, artifacts, sandbox policy, and traces.
 
-### Talk to it
+![Hecate Chat transcript with direct turns, task-backed turns, run links, trace links, and activity details](docs/screenshots/chat.png)
 
-Chats is the primary day-to-day surface. It explains missing setup before you send a request, then keeps the common flows in one place:
-
-- **Hecate Chat** — choose a provider/model and use the per-chat **tools on/off** switch. Tools off is direct model chat through the gateway; tools on uses Hecate's task runtime with approvals, artifacts, per-call sandboxing, and OpenTelemetry. If a selected model becomes stale because provider discovery changed, Chats blocks send and shows the provider route, discovered-model count, health, and repair steps before the request leaves your machine.
-- **External Agent** — select Codex, Claude Code, Cursor Agent, or Grok Build, choose a workspace, and supervise a local ACP session.
-
-![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)
-
-Hecate Chat keeps direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
-
-![Chats workspace with the Workspace changes panel open, file tree filtering, and a rich per-file diff](docs/screenshots/chat-workspace-diff.png)
-
-Workspace changes live beside the chat as session context: review the current Git diff with rich per-file diffs and line numbers, copy the full patch or a single file patch, and discard selected files without digging through transcript noise.
+If the selected model cannot call tools, Hecate keeps the chat usable as direct
+model chat and makes the tools-unavailable state visible.
 
 ![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
 
-If the selected model is known not to support tool-calling, Hecate keeps the chat usable as direct model chat and shows the tools-unavailable state in the header instead of failing the prompt.
+### Review workspace changes
+
+Workspace changes sit beside the chat as session context. You can inspect the
+current Git diff, filter changed files, copy patches, and discard selected
+files without digging through transcript noise.
+
+![Chats workspace with the Workspace changes panel open, file tree filtering, and a rich per-file diff](docs/screenshots/chat-workspace-diff.png)
+
+### Supervise external agents
+
+External Agent sessions run through local ACP-compatible CLIs. Hecate supervises
+the session but does not proxy or pool those vendors' credentials.
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 
-External Agent approvals surface in Chats as actionable operator prompts before Codex, Claude Code, Cursor Agent, or Grok Build can apply gated actions.
+Approvals surface as blocking operator prompts before gated actions can proceed.
 
 ![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
 
-The approval modal shows the adapter-provided action, available ACP choices, grant scope, and an optional audit note before the decision is persisted.
+See [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime/agent-runtime.md),
+and [External agent adapters](docs/runtime/external-agent-adapters.md)
+for the deeper contracts.
 
-Hecate Chat preserves runtime boundaries inside the transcript: tools-off turns keep route/cost/cache metadata, tools-on turns link to their backing Task/run, and every assistant turn can link to its trace. If a task-backed run is busy, the composer queues the next prompt locally for that chat and sends it when the run settles. The Tasks workspace remains canonical for full run history, advanced activity details, artifacts, retry/resume, and patch review. See [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime/agent-runtime.md), and [External agent adapters](docs/design/accepted/external-agent-adapters.md) for the deeper contracts.
+## Project, Context, And Memory Flow
 
-Chats can be renamed from the sidebar. The title is just operator-facing metadata, so renaming never changes the workspace, selected runtime, provider/model snapshots, or external-agent native session.
-
-## Architecture
-
-The main `hecate` process owns the local UI/API, model routing, and task runtime. External agents are separate local CLIs supervised from Chats.
+The newer Hecate shape starts with projects. A project is the durable local
+identity for a codebase or work area. A workspace is the concrete filesystem
+root used by a chat, task, or external-agent session.
 
 ```mermaid
 flowchart LR
-    Clients["UI + compatible API clients"] --> Hecate["hecate process<br/>routing · tasks · approvals"]
-    Hecate --> Models["model providers"]
-    Hecate --> Tools["sandboxed tools"]
-    Hecate --> Agents["external agent CLIs<br/>Codex · Claude Code · Cursor Agent · Grok Build"]
-    Agents --> Accounts["their vendor accounts"]
-    Hecate --> Telemetry["OpenTelemetry"]
+    Project["Project<br/>stable local identity"] --> Roots["Workspace roots"]
+    Project --> Sources["Context sources<br/>repo guidance · selected docs"]
+    Project --> Memory["Project memory<br/>operator-approved entries"]
+    Project --> Work["Work items · assignments · handoffs"]
+
+    Roots --> Session["Chat · task · external-agent session"]
+    Sources --> Packet["Context packet snapshot"]
+    Memory --> Packet
+    Work --> Packet
+    Session --> Packet
+    Packet --> Call["Model or adapter call"]
+
+    Session --> Artifacts["Artifacts · diffs · traces · reports"]
+    Artifacts --> Candidates["Memory candidates"]
+    Candidates --> Approval["Operator review"]
+    Approval --> Memory
 ```
 
-For deeper internals, read [docs/contributor/architecture.md](docs/contributor/architecture.md), [docs/runtime/runtime-api.md](docs/runtime/runtime-api.md), [docs/runtime/events.md](docs/runtime/events.md), and [docs/runtime/telemetry.md](docs/runtime/telemetry.md).
+Important boundaries:
 
-## Operator UI
+- Context packets snapshot what Hecate assembled for a call. They are audit
+  evidence, not durable memory by themselves.
+- Project memory is explicit operator-approved context. Hecate does not write
+  memory automatically.
+- Memory candidates can be proposed by chats, tasks, handoffs, or future
+  workflows. They stay out of context until the operator promotes them.
+- External-agent private memory stays outside Hecate unless the operator imports
+  or writes Hecate memory explicitly.
 
-The embedded UI is a runtime console for the operator.
+Read the implemented contract in [Runtime API](docs/runtime/runtime-api.md#project-endpoints),
+then the design records for [Projects](docs/design/accepted/projects.md),
+[Context assembly](docs/design/proposals/context-assembly-and-injection-boundaries.md),
+[Agent memory](docs/design/proposals/agent-memory.md), and
+[Workflow runbooks v0](docs/design/proposals/workflow-runbooks-v0.md).
 
-| Workspace         | Job                                                                                                                                                                   |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Chats**         | Hecate Chat with per-chat tools on/off, External Agent sessions, queued prompts, task/trace/run links, timing, usage, and workspace changes with rich per-file diffs. |
-| **Connections**   | Model-provider credentials, local/cloud presets, model discovery, routing readiness, external-agent readiness, and durable approval grants.                           |
-| **Tasks**         | Native `agent_loop` runs, approvals, retries, resumes, streamed output, artifacts, and full run history.                                                              |
-| **Observability** | Request history, route candidates, skip reasons, failover, usage, traces, metrics, logs, and local trace events.                                                      |
-| **Usage**         | Cloud-provider tokens, known provider-reported cost, and adapter-reported external-agent usage.                                                                       |
-| **Settings**      | Local data cleanup. Provider credentials, model capabilities, and external-agent setup live in Connections.                                                           |
+## Architecture And Docs
 
-<details>
-<summary>Various UI screenshots</summary>
+The full docs index lives at [docs/README.md](docs/README.md). Start with the
+bucket that matches your job.
 
-![Empty Connections view — Add provider CTA](docs/screenshots/connections-empty.png)
+| You are...                         | Start here                                                                                                                                                                   |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Running Hecate locally             | [Desktop app](docs/operator/desktop-app.md), [Deployment](docs/operator/deployment.md), [Security](docs/operator/security.md), [Providers](docs/operator/providers.md)       |
+| Calling Hecate from a client       | [Runtime API](docs/runtime/runtime-api.md), [Chat sessions](docs/runtime/chat-sessions.md), [Agent runtime](docs/runtime/agent-runtime.md), [Events](docs/runtime/events.md) |
+| Building coding-agent integrations | [External agent adapters](docs/runtime/external-agent-adapters.md), [MCP integration](docs/runtime/mcp.md), [Events](docs/runtime/events.md)                                 |
+| Changing the codebase              | [Architecture](docs/contributor/architecture.md), [Development](docs/contributor/development.md), [Release](docs/contributor/release.md), [docs-ai](docs-ai/README.md)       |
+| Planning future runtime behavior   | [Design records](docs/design/README.md), especially the proposal/accepted/candidate bucket before implementation starts.                                                     |
 
-Connections owns setup: when no providers exist, the empty state points directly to the provider catalog instead of leaving Chats to fail later.
+Runtime references:
 
-![Add provider modal — local preset catalog with detected runtime status](docs/screenshots/connections-add-provider.png)
+- [Runtime API](docs/runtime/runtime-api.md) - Hecate-native endpoints, task
+  lifecycle, approvals, streaming, projects, memory, work items, and handoffs.
+- [Agent runtime](docs/runtime/agent-runtime.md) - `agent_loop`, tools, costs,
+  retry-from-turn, stdout/stderr, and system prompt layers.
+- [Chat sessions](docs/runtime/chat-sessions.md) - transcript segments, direct
+  turns, task-backed turns, queued prompts, context packets, and External Agent
+  chats.
+- [Events](docs/runtime/events.md) - run-event names, payloads, and SSE replay.
+- [Telemetry](docs/runtime/telemetry.md) - OpenTelemetry spans, metrics, logs,
+  trace headers, local trace view, and retention.
+- [Sandbox](docs/runtime/sandbox.md) - subprocess boundaries, policy
+  validation, env sanitisation, output caps, timeouts, and OS wrappers.
 
-The Add provider flow groups cloud and local presets, showing detected local runtimes and the defaults Hecate will use.
+Operator guides:
 
-![Connections workspace — configured cloud and local providers with health, endpoint, credentials, and models](docs/screenshots/connections.png)
+- [Providers](docs/operator/providers.md) - provider presets, custom endpoints,
+  credentials, model discovery, health, and circuit breaking.
+- [Security](docs/operator/security.md) - local-first threat model, workspace
+  safety, approvals, secrets, and advisory handling.
+- [Known limitations](docs/operator/known-limitations.md) - the plain-language
+  alpha boundary.
 
-Configured providers show health, endpoint, credential state, model discovery, routing readiness, and repair actions in one place.
+## Status And Roadmap
 
-![Connections workspace — adapter readiness checks and durable approval grants](docs/screenshots/connections-external-agents.png)
+Hecate is public-alpha software. The fastest-moving areas are project-scoped
+work, memory/context visibility, External Agent ergonomics, desktop packaging,
+workflow runbook experiments, and sandbox hardening.
 
-External-agent readiness, Claude Code/Codex/Cursor Agent setup state, and durable approval grants are managed from the same Connections surface.
+Near-term design direction:
 
-![Chats setup state — project-scoped sidebar, detected local providers, and one-click Add selected setup](docs/screenshots/chat-empty.png)
+1. Keep projects, context packets, memory, artifacts, approvals, and traces as
+   the shared substrate for all agent work.
+2. Prototype one report-only `qa` workflow using existing task runs before
+   adding a standalone workflow engine.
+3. Start browser support with conservative evidence capture and explicit state
+   isolation.
+4. Promote successful workflow lessons only as memory candidates with
+   provenance and operator approval.
 
-Chats starts from a project-aware shell with setup-aware onboarding: local runtimes can be added quickly, or you can jump back to Connections for manual provider setup.
-
-![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)
-
-Hecate Chat keeps project-scoped direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
-
-![Chats workspace with the Workspace changes panel open, file tree filtering, and a rich per-file diff](docs/screenshots/chat-workspace-diff.png)
-
-Workspace changes stay in the side panel instead of the transcript: inspect changed files, expand rich per-file diffs with line numbers, copy patches, or discard selected paths from the active workspace.
-
-![Hecate Chat with a selected model that cannot call tools, falling back to direct chat](docs/screenshots/chat-tools-fallback.png)
-
-Models without tool-calling support still work for ordinary chat: Hecate falls back to direct model turns and keeps that state visible in the header.
-
-![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
-
-External Agent approvals surface in Chats as actionable operator prompts before Codex, Claude Code, Cursor Agent, or Grok Build can apply gated actions.
-
-![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
-
-The approval modal shows the adapter-provided action, available ACP choices, grant scope, and an optional audit note before the decision is persisted.
-
-![Tasks workspace — run timeline with failed-tool diagnostics, stdout/stderr previews, and artifacts](docs/screenshots/tasks.png)
-
-Tasks remains the deep-debug view for native `agent_loop` runs: timelines, failed tools, stdout/stderr, artifacts, approvals, retry, and resume.
-
-![Observability view — request history and route-report drilldown](docs/screenshots/observe.png)
-
-Observability answers “what happened?” with recent requests, route status, trace timing, event flow, and the selected request’s runtime details.
-
-![Usage workspace — cloud token usage and reported cost where available](docs/screenshots/usage.png)
-
-Usage is intentionally narrow: cloud-provider tokens and known provider-reported cost where Hecate controls or observes the provider call.
-
-![Settings — cleanup controls and last-run history](docs/screenshots/settings.png)
-
-Settings stays small; cleanup controls are separated from provider, adapter, and model-capability setup, which live in Connections.
-
-</details>
-
-## What Works Today
-
-Hecate is public-alpha software. Model routing, Hecate Chat, and the native task runtime are usable for alpha workflows; workspace modes, agent profiles, desktop signing, and sandbox hardening are intentionally still evolving.
-
-Stability stages:
-
-- **Alpha-ready**: coherent enough for normal alpha use with known caveats.
-- **Implemented**: core mechanism exists, but product polish/hardening is still needed.
-- **Early**: works in some paths, but still rough or incomplete.
-- **Not shipped**: planned, not available.
-
-| Area                | State       | Notes                                                                                                                                                                                                                                                                                        |
-| ------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Model routing       | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints.                                                                                                                                |
-| Connections         | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics.                                                                                                                        |
-| Hecate Chat         | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, inline task approvals, and workspace changes with rich per-file diffs. Workspace modes and agent profiles are still future work. |
-| External Agent      | Alpha-ready | Codex, Claude Code, Cursor Agent, and Grok Build discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, adapter diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses.                                              |
-| Task runtime        | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing.                                                                                                                 |
-| Observability       | Alpha-ready | OTLP traces/metrics/logs, response trace headers, local trace view, route reports, timing buckets, and runtime stats.                                                                                                                                                                        |
-| Storage             | Alpha-ready | Memory or SQLite per subsystem; SQLite persists chat/task/provider state. Pending approval reconciliation runs on startup.                                                                                                                                                                   |
-| Desktop app         | Early       | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. macOS Apple Silicon is the only launch-tested desktop path; Linux and Windows artifacts are CI-built but untested, so expect bugs. Windows signing is still pending.                                         |
-| Execution isolation | Early       | Per-call subprocess + env sanitisation + output cap + timeout, with `bwrap` / `sandbox-exec` where available. Not container-level isolation.                                                                                                                                                 |
-
-Read [docs/operator/known-limitations.md](docs/operator/known-limitations.md) before treating Hecate as production-stable.
-
-## Documentation
-
-Full index lives at [`docs/README.md`](docs/README.md), organized by reader role. The most-reached-for pages:
-
-**Running Hecate**
-
-- [Deployment](docs/operator/deployment.md) — Docker, image pinning, binary install, storage tiers, rate limits.
-- [Desktop app](docs/operator/desktop-app.md) — native bundles, first-launch footguns, platform data dirs, roadmap.
-- [Providers](docs/operator/providers.md) — preset catalog, OpenAI-compatible custom endpoints, credentials, health, circuit breaking.
-- [Known limitations](docs/operator/known-limitations.md) — plain-language list of what's still alpha.
-- [Alpha-to-beta roadmap](docs/contributor/beta-roadmap.md) — core gates, UX polish order, cleanup/refactoring, and branch/release workflow.
-
-**Building against Hecate**
-
-- [Runtime API](docs/runtime/runtime-api.md) — task lifecycle, approvals, queue/lease execution, SSE streaming.
-- [Chat sessions](docs/runtime/chat-sessions.md) — Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queueing, and activity rendering.
-- [Agent runtime](docs/runtime/agent-runtime.md) — `agent_loop` loop mechanics, tools, stdout/stderr handling, cost ceilings, retry-from-turn.
-- [External agent adapters](docs/design/accepted/external-agent-adapters.md) — Hecate as an ACP client/operator: use Codex, Claude Code, Cursor Agent, and Grok Build from Chats.
-- [Events](docs/runtime/events.md) — every event type, payload shape, when each fires.
-- [MCP integration](docs/runtime/mcp.md) — Hecate as MCP server + attaching external MCP servers as tools.
-
-**Observability and internals**
-
-- [Telemetry](docs/runtime/telemetry.md) — OTLP traces / metrics / logs, response headers, local trace view.
-- [Security](docs/operator/security.md) — local-first threat model, workspace safety, approvals, secrets, and advisory handling.
-- [Architecture](docs/contributor/architecture.md) — model-routing request flow, task-runtime queue / lease / sandbox boundary.
-- [Development](docs/contributor/development.md) — source-build toolchain, local dev, website work, the test ladder, screenshot tooling.
-- [Release](docs/contributor/release.md) — cutting a tag, verification gate, recovery if CI fails.
-- [Alpha-to-beta roadmap](docs/contributor/beta-roadmap.md) — what must be true before the first beta tag.
-
-First-run environment knobs live in [`.env.example`](.env.example).
+The broader alpha-to-beta gate lives in
+[Beta roadmap](docs/contributor/beta-roadmap.md). Proposed, accepted,
+candidate, implemented, and parked design records live in
+[Design records](docs/design/README.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). If you work with an AI assistant, start with [AGENTS.md](AGENTS.md); the vendor-neutral agent instruction layer lives in [docs-ai/](docs-ai/README.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). If you work with an AI assistant, start
+with [AGENTS.md](AGENTS.md); the provider-neutral guidance layer lives in
+[docs-ai](docs-ai/README.md).
 
 ## License
 

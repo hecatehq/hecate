@@ -14,7 +14,7 @@ provider as a provider-specific 4xx, often after the operator has waited for a
 run to start. Hecate should be able to warn, explain, and eventually compress
 or block before the provider rejects the request.
 
-This RFC owns **fitting already-assembled context into a model window**. It does
+This design record owns **fitting already-assembled context into a model window**. It does
 not decide which sources are trusted or eligible. That belongs to
 [context assembly](context-assembly-and-injection-boundaries.md).
 
@@ -58,7 +58,7 @@ flowchart LR
   for warnings and Hecate-side caps. Exact vendor count APIs can be added later
   only where they are cheap and useful.
 - **Automatic memory retrieval.** Memory selection happens before this stage.
-- **Cost enforcement.** Hecate records usage for visibility; this RFC is about
+- **Cost enforcement.** Hecate records usage for visibility; this design record is about
   model capability limits, not spend controls.
 
 ## Token Estimation

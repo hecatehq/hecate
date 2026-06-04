@@ -3,7 +3,7 @@
 > **Status:** parking lot; not implemented; not stable.
 > **Current source of truth:** [Events](../../runtime/events.md) and
 > [Agent event protocol v1](../candidates/event-protocol-v1.md).
-> **Next action:** promote individual ideas into a proposed RFC only when
+> **Next action:** promote individual ideas into a proposed design record only when
 > implementation is near. Do not build frontend contracts against this file.
 
 This file holds event-protocol ideas that are probably useful, but not safe to

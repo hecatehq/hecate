@@ -49,7 +49,7 @@ These are existing Hecate capabilities Autoresearch can build on:
 | Telemetry and traces      | [`Runner.startTaskWithOptions`](../../../internal/orchestrator/runner.go#L584)                                                                                      | Trace IDs and spans surfaced through existing run/task records.                                                  |
 | Artifact persistence      | [`Runner.persistOutputArtifacts`](../../../internal/orchestrator/runner.go#L910), [`Runner.gitSummaryArtifact`](../../../internal/orchestrator/runner.go#L928)      | Storing logs, patches, summaries, and replay material.                                                           |
 | Blocking approvals        | [`Runner.startTaskWithOptions`](../../../internal/orchestrator/runner.go#L674), [`Runner.pendingApprovalsForRun`](../../../internal/orchestrator/runner.go#L962)    | Human checkpoints before privileged execution or finalization.                                                   |
-| Context packet direction  | [Context assembly RFC](context-assembly-and-injection-boundaries.md)                                                                                                | Future "what did the agent see?" snapshots and memory candidate provenance.                                      |
+| Context packet direction  | [Context assembly design record](context-assembly-and-injection-boundaries.md)                                                                                      | Future "what did the agent see?" snapshots and memory candidate provenance.                                      |
 
 Assumptions:
 
@@ -128,7 +128,7 @@ runtime concepts but do not replace them.
 | `ArtifactRef`     | Pointer to patch, log, summary, metric, replay, or report artifact.                           | Can map to `TaskArtifact` when execution uses Hecate task runtime.                                       |
 | `TraceRef`        | Trace/run/request identifiers for observability.                                              | Existing trace IDs, run IDs, task IDs, and request IDs.                                                  |
 | `ApprovalRequest` | Human decision before finalization or risky actions.                                          | Existing task approvals if core-integrated; CLI prompt or UI approval in companion v0.                   |
-| `MemoryCandidate` | Proposed durable memory entry with provenance.                                                | Future memory RFC input; never written automatically.                                                    |
+| `MemoryCandidate` | Proposed durable memory entry with provenance.                                                | Future memory design record input; never written automatically.                                          |
 
 Sketch:
 

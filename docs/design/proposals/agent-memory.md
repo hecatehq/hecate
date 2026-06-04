@@ -15,7 +15,7 @@ that should survive across Hecate Chat sessions, external-agent chats, and
 task-backed runs. Today those facts live either in the global system prompt, in
 workspace docs, in external-agent-specific settings, or in the operator's head.
 
-This RFC defines Hecate memory as **operator-approved durable context**. It is
+This design record defines Hecate memory as **operator-approved durable context**. It is
 not automatic transcript mining, not a vector search system, and not a vendor
 memory feature. Memory entries are visible, scoped, editable, and included in a
 model call only through the context assembly pipeline.
@@ -74,7 +74,7 @@ flowchart LR
 - **Automatic extraction from chats.** No "I noticed this, so I remembered it"
   behavior in v1.
 - **Semantic recall or vector retrieval.** Exact scope matching first. Embedding
-  search can become a later retrieval RFC.
+  search can become a later retrieval design record.
 - **Owning external-agent private memory.** Codex, Claude Code, Cursor, and
   Grok Build have their own memory/settings layers. Hecate can provide project
   memory to an external-agent session through supported prompt/config surfaces,
