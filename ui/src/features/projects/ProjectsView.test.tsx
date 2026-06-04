@@ -1210,6 +1210,7 @@ describe("ProjectsView cockpit", () => {
           summary: "Ready for review.",
           recommended_next_action: "Create a QA assignment.",
           target_role_id: "reviewer_qa",
+          target_work_item_id: "work_followup",
           status: "pending",
           provenance_kind: "agent_draft",
           trust_label: "operator_reviewed",
@@ -1221,7 +1222,13 @@ describe("ProjectsView cockpit", () => {
     });
     vi.mocked(createProjectAssignment).mockResolvedValueOnce({
       object: "project_assignment",
-      data: { ...hecateAssignment, id: "asgn_new", role_id: "reviewer_qa", status: "queued" },
+      data: {
+        ...hecateAssignment,
+        id: "asgn_new",
+        work_item_id: "work_followup",
+        role_id: "reviewer_qa",
+        status: "queued",
+      },
     });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
@@ -1235,7 +1242,7 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(within(detail).getByRole("button", { name: "Target assignment" }));
 
     await waitFor(() => {
-      expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
+      expect(createProjectAssignment).toHaveBeenCalledWith(project.id, "work_followup", {
         role_id: "reviewer_qa",
         driver_kind: "hecate_task",
       });

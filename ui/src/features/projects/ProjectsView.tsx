@@ -848,14 +848,18 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     if (!selectedProjectID || !selectedWorkItemID) return;
     const roleID = (handoff.target_role_id || "software_developer").trim();
     if (!roleID) return;
+    const targetWorkItemID = (handoff.target_work_item_id || selectedWorkItemID).trim();
+    if (!targetWorkItemID) return;
     setHandoffActionID(handoff.id);
     setHandoffError("");
     try {
-      const assignment = await createProjectAssignment(selectedProjectID, selectedWorkItemID, {
+      const assignment = await createProjectAssignment(selectedProjectID, targetWorkItemID, {
         role_id: roleID,
         driver_kind: "hecate_task",
       });
-      setAssignments((current) => upsertAssignment(current, assignment.data));
+      if (targetWorkItemID === selectedWorkItemID) {
+        setAssignments((current) => upsertAssignment(current, assignment.data));
+      }
       const updated = await updateProjectHandoff(
         selectedProjectID,
         selectedWorkItemID,

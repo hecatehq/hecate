@@ -1071,6 +1071,14 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 			if completed.BlockingSignal != "completed" || completed.ArtifactSummary.Count != 1 || completed.ArtifactSummary.LatestTitle != "Completion handoff" || completed.ArtifactSummary.AssignmentID != "asgn_completed" {
 				t.Fatalf("completed activity = %+v, want artifact signal", completed)
 			}
+			if completed.HandoffSummary.Count != 1 || completed.HandoffSummary.LatestTitle != "Review follow-up" {
+				t.Fatalf("completed handoff summary = %+v, want source assignment handoff signal", completed.HandoffSummary)
+			}
+
+			queued := findProjectActivityItemForTest(t, response.Data.Buckets.Active, "asgn_queued")
+			if queued.HandoffSummary.Count != 1 || queued.HandoffSummary.LatestTitle != "Review follow-up" || queued.HandoffSummary.TargetWorkItem != "work_queued" {
+				t.Fatalf("target handoff summary = %+v, want target assignment handoff signal", queued.HandoffSummary)
+			}
 
 			if len(response.Data.Recent) == 0 || len(response.Data.Buckets.Recent) != len(response.Data.Recent) {
 				t.Fatalf("recent activity = %+v buckets=%+v, want mirrored recent list", response.Data.Recent, response.Data.Buckets.Recent)
@@ -1389,6 +1397,21 @@ func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assig
 			UpdatedAt:    runFinishedAt.Add(time.Minute),
 		}); err != nil {
 			t.Fatalf("CreateArtifact(%s): %v", assignmentID, err)
+		}
+		if _, err := handler.projectWork.CreateHandoff(ctx, projectwork.Handoff{
+			ID:                    "handoff_review_followup",
+			ProjectID:             "proj_projection",
+			WorkItemID:            workID,
+			SourceAssignmentID:    assignmentID,
+			TargetAssignmentID:    "asgn_queued",
+			TargetWorkItemID:      "work_queued",
+			Title:                 "Review follow-up",
+			Summary:               "Implementation is ready for queue review.",
+			RecommendedNextAction: "Review the queued follow-up assignment.",
+			CreatedAt:             runFinishedAt.Add(2 * time.Minute),
+			UpdatedAt:             runFinishedAt.Add(2 * time.Minute),
+		}); err != nil {
+			t.Fatalf("CreateHandoff(%s): %v", assignmentID, err)
 		}
 	}
 }

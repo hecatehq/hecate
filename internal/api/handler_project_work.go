@@ -2017,11 +2017,18 @@ func groupProjectActivityHandoffs(handoffs []projectwork.Handoff) (map[string][]
 	byAssignment := make(map[string][]projectwork.Handoff)
 	byWorkItem := make(map[string][]projectwork.Handoff)
 	for _, handoff := range handoffs {
+		attached := false
 		if handoff.SourceAssignmentID != "" {
 			byAssignment[handoff.SourceAssignmentID] = append(byAssignment[handoff.SourceAssignmentID], handoff)
-			continue
+			attached = true
 		}
-		byWorkItem[handoff.WorkItemID] = append(byWorkItem[handoff.WorkItemID], handoff)
+		if handoff.TargetAssignmentID != "" && handoff.TargetAssignmentID != handoff.SourceAssignmentID {
+			byAssignment[handoff.TargetAssignmentID] = append(byAssignment[handoff.TargetAssignmentID], handoff)
+			attached = true
+		}
+		if !attached {
+			byWorkItem[handoff.WorkItemID] = append(byWorkItem[handoff.WorkItemID], handoff)
+		}
 	}
 	return byAssignment, byWorkItem
 }
