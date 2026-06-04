@@ -70,7 +70,13 @@ type WorkspaceDefinition = {
 
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
 type TraceFocusRequest = { requestID: string; nonce: number };
-type ProjectChatRequest = { projectID: string; provider?: string; model?: string };
+type ProjectChatRequest = {
+  projectID: string;
+  provider?: string;
+  model?: string;
+  title?: string;
+  draft?: string;
+};
 
 // Icon paths match the design handoff
 const IC = {
@@ -319,6 +325,8 @@ function AuthenticatedShell({
       projectID: request.projectID,
       provider: request.provider,
       model: request.model,
+      title: request.title,
+      draft: request.draft,
     });
     onSelectWorkspace("chats");
   }

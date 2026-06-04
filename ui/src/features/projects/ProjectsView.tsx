@@ -49,8 +49,16 @@ import {
 } from "../shared/ui";
 
 type Props = {
-  onOpenChat?: (request: { projectID: string; provider?: string; model?: string }) => void;
+  onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
+};
+
+export type ProjectAssignmentChatLaunchRequest = {
+  projectID: string;
+  provider?: string;
+  model?: string;
+  title?: string;
+  draft?: string;
 };
 
 type WorkItemSummary = {
@@ -1156,7 +1164,7 @@ function WorkItemDetail({
   onDeleteWorkItem: (item: ProjectWorkItemRecord) => void;
   onEditAssignment: (assignment: ProjectAssignmentRecord) => void;
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
-  onOpenChat?: (request: { projectID: string; provider?: string; model?: string }) => void;
+  onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onRefresh: () => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
@@ -1266,19 +1274,14 @@ function WorkItemDetail({
                 onOpenChat={
                   project
                     ? () =>
-                        onOpenChat?.({
-                          projectID: project.id,
-                          provider:
-                            assignment.execution?.provider ||
-                            roleByID.get(assignment.role_id)?.default_provider ||
-                            project.default_provider ||
-                            "",
-                          model:
-                            assignment.execution?.model ||
-                            roleByID.get(assignment.role_id)?.default_model ||
-                            project.default_model ||
-                            "",
-                        })
+                        onOpenChat?.(
+                          buildProjectAssignmentChatLaunchRequest({
+                            project,
+                            workItem,
+                            assignment,
+                            role: roleByID.get(assignment.role_id) ?? null,
+                          }),
+                        )
                     : undefined
                 }
                 onOpenTask={onOpenTask}
@@ -2390,6 +2393,139 @@ function rolePayloadFromForm(form: RoleForm) {
     default_model: form.defaultModel.trim(),
     default_agent_profile: form.defaultAgentProfile.trim(),
   };
+}
+
+function buildProjectAssignmentChatLaunchRequest({
+  project,
+  workItem,
+  assignment,
+  role,
+}: {
+  project: ProjectRecord;
+  workItem: ProjectWorkItemRecord;
+  assignment: ProjectAssignmentRecord;
+  role: ProjectWorkRoleRecord | null;
+}): ProjectAssignmentChatLaunchRequest {
+  const provider =
+    assignment.execution?.provider || role?.default_provider || project.default_provider || "";
+  const model = assignment.execution?.model || role?.default_model || project.default_model || "";
+  const title = [workItem.title, role?.name]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(" - ");
+  return {
+    projectID: project.id,
+    provider,
+    model,
+    title: title || "Project assignment chat",
+    draft: projectAssignmentLaunchDraft({
+      project,
+      workItem,
+      assignment,
+      role,
+      provider,
+      model,
+    }),
+  };
+}
+
+function projectAssignmentLaunchDraft({
+  project,
+  workItem,
+  assignment,
+  role,
+  provider,
+  model,
+}: {
+  project: ProjectRecord;
+  workItem: ProjectWorkItemRecord;
+  assignment: ProjectAssignmentRecord;
+  role: ProjectWorkRoleRecord | null;
+  provider: string;
+  model: string;
+}): string {
+  const resolvedDriver = firstNonEmpty(
+    assignment.driver_kind,
+    role?.default_driver_kind,
+    "hecate_task",
+  );
+  const resolvedProfile = firstNonEmpty(role?.default_agent_profile, project.default_agent_profile);
+  const lines = [
+    "Launch context",
+    "",
+    `Project: ${labelWithID(project.name, project.id)}`,
+    "",
+    "Work item:",
+    `- Title: ${firstNonEmpty(workItem.title, workItem.id)}`,
+    `- Brief: ${firstNonEmpty(workItem.brief, "No brief recorded.")}`,
+    `- Status: ${firstNonEmpty(workItem.status, "unknown")}`,
+    `- Priority: ${firstNonEmpty(workItem.priority, "normal")}`,
+    "",
+    "Assignment:",
+    `- ID: ${assignment.id}`,
+    `- Status: ${firstNonEmpty(assignment.execution?.status, assignment.status, "queued")}`,
+    `- Driver: ${resolvedDriver}`,
+    "",
+    "Role:",
+    `- Name: ${firstNonEmpty(role?.name, assignment.role_id)}`,
+    `- Description: ${firstNonEmpty(role?.description, "No description recorded.")}`,
+    `- Instructions: ${firstNonEmpty(role?.instructions, "No role instructions recorded.")}`,
+    "",
+    "Execution hints:",
+    `- Driver: ${resolvedDriver}`,
+    `- Provider: ${firstNonEmpty(provider, "auto")}`,
+    `- Model: ${firstNonEmpty(model, "project/runtime default")}`,
+    `- Profile: ${firstNonEmpty(resolvedProfile, "none")}`,
+    `- Role defaults: ${formatHintList([
+      ["driver", role?.default_driver_kind],
+      ["provider", role?.default_provider],
+      ["model", role?.default_model],
+      ["profile", role?.default_agent_profile],
+    ])}`,
+    `- Project defaults: ${formatHintList([
+      ["provider", project.default_provider],
+      ["model", project.default_model],
+      ["profile", project.default_agent_profile],
+      ["workspace_mode", project.default_workspace_mode],
+    ])}`,
+  ];
+  const linkedIDs = formatHintList([
+    ["task", assignment.execution?.task_id || assignment.task_id],
+    ["run", assignment.execution?.run_id || assignment.run_id],
+    ["chat", assignment.chat_session_id],
+    ["message", assignment.message_id],
+    ["context", assignment.context_snapshot_id],
+  ]);
+  if (linkedIDs !== "none") {
+    lines.push("", "Linked runtime ids:", `- ${linkedIDs}`);
+  }
+  lines.push("", "Request:", "- ");
+  return lines.join("\n");
+}
+
+function firstNonEmpty(...values: Array<string | undefined | null>): string {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+function labelWithID(label: string | undefined, id: string): string {
+  const cleanLabel = label?.trim();
+  const cleanID = id.trim();
+  if (cleanLabel && cleanID) return `${cleanLabel} (${cleanID})`;
+  return cleanLabel || cleanID;
+}
+
+function formatHintList(items: Array<[string, string | undefined | null]>): string {
+  const parts = items
+    .map(([label, value]) => {
+      const trimmed = value?.trim();
+      return trimmed ? `${label}=${trimmed}` : "";
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : "none";
 }
 
 function defaultDriverForRole(role: ProjectWorkRoleRecord | null): string {

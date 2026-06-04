@@ -1030,8 +1030,11 @@ compact command-output preference, and trusted context-source metadata.
 The project catalog implementation is intentionally lightweight:
 `GET`/`POST`/`PATCH`/`DELETE /hecate/v1/projects` work, and
 `HECATE_BACKEND=sqlite` persists them. Chat sessions can carry an optional
-`project_id` so the operator UI can group history by project. Projects can
-also remember context-source metadata (`path`, `kind`, `title`, and whether the
+`project_id` so the operator UI can group history by project. Opening chat from
+a project-work assignment creates a project-scoped Hecate Chat session and
+pre-fills the editable composer with a concise launch-context draft; the draft
+is not submitted automatically. Projects can also remember context-source
+metadata (`path`, `kind`, `title`, and whether the
 source is enabled). Chat message context packets include enabled sources as
 itemized `workspace_guidance` metadata for inspection, but Hecate does not
 inject those files into prompts yet. Project work-coordination endpoints can
@@ -1451,9 +1454,10 @@ the stored assignment driver.
 Starting verifies that the project, work item, assignment, and role exist, then
 creates a normal Task with `execution_kind="agent_loop"`,
 `origin_kind="project_work_item"`, and `origin_id` set to the work item ID. The
-task title, prompt, and system prompt are composed from the work item brief,
-role instructions, and project defaults. Role default provider/model/profile
-override project defaults for the backing task when configured; project
+task title, prompt, and system prompt are composed from a visible launch-context
+block covering project, work item, assignment, role, execution hints, role
+defaults, and project defaults. Role default provider/model/profile override
+project defaults for the backing task when configured; project
 provider/model/workspace settings remain the fallback. Provider and model
 defaults are route hints, so catalog/routing validation happens during task
 start instead of role save. The workspace root must
@@ -1655,6 +1659,13 @@ configured providers that expose the selected model.
 or Hecate returns `404 not_found`. Project-scoped sessions are still normal
 chat sessions, but deleting the project later deletes those project-scoped
 transcripts as part of the project cleanup.
+
+`title` is optional session metadata. The Projects UI uses it when launching a
+chat from a project-work assignment so the empty chat shell is named after the
+work item and role before the first turn. The launch-context draft itself lives
+only in the client composer until the operator edits and submits it through
+`POST /hecate/v1/chat/sessions/{id}/messages`; creating the session does not
+create a user message or run.
 
 For Hecate Chat sessions, `rtk_enabled` records the chat's command-output
 compaction preference. It is only applied when a future turn runs through the

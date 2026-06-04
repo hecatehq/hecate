@@ -112,6 +112,14 @@ turns, and External Agent turns. Context assembly is still the future layer
 that may resolve those sources through WorkspaceFS, label their contents, and
 decide whether they belong in a rendered prompt.
 
+Project assignment launch context V1 stays intentionally explicit and shallow:
+opening chat from an assignment pre-fills an editable Hecate Chat draft with
+project, work item, assignment, role, execution hints, defaults, and linked
+runtime ids, while native assignment starts place the same labelled pieces in
+the task prompt. Standalone native task runs still do not store a separate
+`ContextPacket`; the durable audit trail for those runs is the task prompt and
+system prompt until task-run context packets get their own storage path.
+
 ### 2. Trust Classification
 
 Every context item gets a trust level before rendering:
