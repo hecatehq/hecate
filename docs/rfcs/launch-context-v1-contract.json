@@ -1,0 +1,25 @@
+{
+  "version": "project_assignment_launch_context.v1",
+  "sections": [
+    "Launch context",
+    "Project",
+    "Work item",
+    "Assignment",
+    "Role",
+    "Execution hints",
+    "Request"
+  ],
+  "fields": {
+    "work_item": ["Title", "Brief", "Status", "Priority"],
+    "assignment": ["ID", "Status", "Driver"],
+    "role": ["Name", "Description", "Instructions"],
+    "execution_hints": [
+      "Driver",
+      "Provider",
+      "Model",
+      "Profile",
+      "Role defaults",
+      "Project defaults"
+    ]
+  }
+}

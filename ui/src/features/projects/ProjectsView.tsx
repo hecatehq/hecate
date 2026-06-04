@@ -2457,7 +2457,7 @@ function projectAssignmentLaunchDraft({
     "",
     "Work item:",
     `- Title: ${firstNonEmpty(workItem.title, workItem.id)}`,
-    `- Brief: ${firstNonEmpty(workItem.brief, "No brief recorded.")}`,
+    formatLaunchContextBullet("Brief", firstNonEmpty(workItem.brief, "No brief recorded.")),
     `- Status: ${firstNonEmpty(workItem.status, "unknown")}`,
     `- Priority: ${firstNonEmpty(workItem.priority, "normal")}`,
     "",
@@ -2468,8 +2468,14 @@ function projectAssignmentLaunchDraft({
     "",
     "Role:",
     `- Name: ${firstNonEmpty(role?.name, assignment.role_id)}`,
-    `- Description: ${firstNonEmpty(role?.description, "No description recorded.")}`,
-    `- Instructions: ${firstNonEmpty(role?.instructions, "No role instructions recorded.")}`,
+    formatLaunchContextBullet(
+      "Description",
+      firstNonEmpty(role?.description, "No description recorded."),
+    ),
+    formatLaunchContextBullet(
+      "Instructions",
+      firstNonEmpty(role?.instructions, "No role instructions recorded."),
+    ),
     "",
     "Execution hints:",
     `- Driver: ${resolvedDriver}`,
@@ -2526,6 +2532,13 @@ function formatHintList(items: Array<[string, string | undefined | null]>): stri
     })
     .filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : "none";
+}
+
+function formatLaunchContextBullet(label: string, value: string): string {
+  const lines = value.replaceAll("\r\n", "\n").replaceAll("\r", "\n").split("\n");
+  const [firstLine = "", ...rest] = lines;
+  const continuation = rest.map((line) => `  ${line}`).join("\n");
+  return continuation ? `- ${label}: ${firstLine}\n${continuation}` : `- ${label}: ${firstLine}`;
 }
 
 function defaultDriverForRole(role: ProjectWorkRoleRecord | null): string {

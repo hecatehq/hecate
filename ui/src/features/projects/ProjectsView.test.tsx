@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import launchContextContractRaw from "../../../../docs/rfcs/launch-context-v1-contract.json";
 import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
 import { ProjectsProvider } from "../../app/state/projects";
 import {
@@ -35,6 +36,13 @@ import type {
   ProjectWorkRoleRecord,
 } from "../../types/project";
 import { ProjectsView } from "./ProjectsView";
+
+type LaunchContextContract = {
+  sections: string[];
+  fields: Record<string, string[]>;
+};
+
+const launchContextContract = launchContextContractRaw as LaunchContextContract;
 
 vi.mock("../../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
@@ -216,6 +224,18 @@ function directWrapper(initialState: Parameters<typeof ProjectsProvider>[0]["ini
       </ProvidersAndModelsProvider>
     );
   };
+}
+
+function expectLaunchContextContract(text: string) {
+  const sectionLabels = launchContextContract.sections.map((section) =>
+    section === "Project" ? "Project:" : section,
+  );
+  for (const section of sectionLabels) {
+    expect(text).toContain(section);
+  }
+  for (const field of Object.values(launchContextContract.fields).flat()) {
+    expect(text).toContain(`- ${field}:`);
+  }
 }
 
 afterEach(() => {
@@ -521,6 +541,7 @@ describe("ProjectsView cockpit", () => {
       }),
     );
     const request = onOpenChat.mock.calls[0]?.[0];
+    expectLaunchContextContract(request.draft);
     expect(request.draft).toContain("Launch context");
     expect(request.draft).toContain("Project: Hecate (proj_1)");
     expect(request.draft).toContain("- Title: Build cockpit UI");
@@ -535,6 +556,54 @@ describe("ProjectsView cockpit", () => {
     expect(request.draft).toContain("Linked runtime ids:");
     expect(request.draft).toContain("task=task_1, run=run_1");
     expect(request.draft).toContain("Request:\n- ");
+  });
+
+  it("indents multiline launch-context values in assignment chat drafts", async () => {
+    resetProjectWorkMocks();
+    const multilineRole: ProjectWorkRoleRecord = {
+      ...role,
+      description: "Owns implementation work.\nCoordinates with review.",
+      instructions: "Keep changes reviewable.\nCall out risks.",
+    };
+    const multilineWorkItem: ProjectWorkItemRecord = {
+      ...workItem,
+      brief: "Expose project work and native starts.\nKeep the first launch editable.",
+    };
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [multilineRole],
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...multilineWorkItem, assignments: [hecateAssignment] }],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: multilineWorkItem,
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const onOpenChat = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<ProjectsView onOpenChat={onOpenChat} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+
+    const request = onOpenChat.mock.calls[0]?.[0];
+    expect(request.draft).toContain(
+      "- Brief: Expose project work and native starts.\n  Keep the first launch editable.",
+    );
+    expect(request.draft).toContain(
+      "- Description: Owns implementation work.\n  Coordinates with review.",
+    );
+    expect(request.draft).toContain("- Instructions: Keep changes reviewable.\n  Call out risks.");
   });
 
   it("opens chat from an assignment using role defaults when no run is linked", async () => {

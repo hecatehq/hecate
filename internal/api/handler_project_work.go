@@ -960,7 +960,7 @@ func projectAssignmentPrompt(project projects.Project, workItem projectwork.Work
 		strings.Join([]string{
 			"Work item:",
 			"- Title: " + firstNonEmpty(workItem.Title, workItem.ID),
-			"- Brief: " + firstNonEmpty(workItem.Brief, "No brief recorded."),
+			launchContextBullet("Brief", firstNonEmpty(workItem.Brief, "No brief recorded.")),
 			"- Status: " + firstNonEmpty(workItem.Status, "unknown"),
 			"- Priority: " + firstNonEmpty(workItem.Priority, "normal"),
 		}, "\n"),
@@ -973,8 +973,8 @@ func projectAssignmentPrompt(project projects.Project, workItem projectwork.Work
 		strings.Join([]string{
 			"Role:",
 			"- Name: " + firstNonEmpty(role.Name, assignment.RoleID),
-			"- Description: " + firstNonEmpty(role.Description, "No description recorded."),
-			"- Instructions: " + firstNonEmpty(role.Instructions, "No role instructions recorded."),
+			launchContextBullet("Description", firstNonEmpty(role.Description, "No description recorded.")),
+			launchContextBullet("Instructions", firstNonEmpty(role.Instructions, "No role instructions recorded.")),
 		}, "\n"),
 		strings.Join([]string{
 			"Execution hints:",
@@ -1040,6 +1040,17 @@ func labelWithID(label, id string) string {
 		return label + " (" + id + ")"
 	}
 	return firstNonEmpty(label, id)
+}
+
+func launchContextBullet(label, value string) string {
+	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\r", "\n"), "\n")
+	if len(lines) == 0 {
+		return "- " + label + ": "
+	}
+	if len(lines) == 1 {
+		return "- " + label + ": " + lines[0]
+	}
+	return "- " + label + ": " + lines[0] + "\n  " + strings.Join(lines[1:], "\n  ")
 }
 
 func projectWorkAssignmentStatusFromRun(status string) string {
