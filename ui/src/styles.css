@@ -214,7 +214,7 @@ textarea {
 }
 
 .project-work-coordination-grid {
-  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
 }
 
 .project-attention-item:hover,

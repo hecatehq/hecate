@@ -1119,16 +1119,21 @@ describe("ProjectsView cockpit", () => {
     );
 
     expect(await screen.findByText("Work Queue")).toBeTruthy();
-    expect(screen.getByText(/1 work item · 1 assignments/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Show all work items" })).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
     const queue = screen.getByLabelText("Work queue");
-    expect(within(queue).getAllByText("2 approval pending").length).toBeGreaterThan(0);
-    expect(within(queue).getByText("handoff: Runtime notes")).toBeTruthy();
+    expect(
+      within(queue).getByRole("button", { name: "Open work item Build cockpit UI" }),
+    ).toBeTruthy();
+    expect(within(queue).getByText("1 assignment")).toBeTruthy();
 
-    await userEvent.click(within(queue).getByRole("button", { name: "Task" }));
+    const detail = screen.getByRole("region", { name: "Selected work item" });
+    expect(within(detail).getAllByText("2 approval pending").length).toBeGreaterThan(0);
+
+    await userEvent.click(within(detail).getByRole("button", { name: "Open task" }));
     expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
 
-    await userEvent.click(within(queue).getByRole("button", { name: "Chat" }));
+    await userEvent.click(within(detail).getByRole("button", { name: "Open chat" }));
     expect(onOpenChat).toHaveBeenCalledWith(
       expect.objectContaining({
         projectID: project.id,
@@ -1136,7 +1141,9 @@ describe("ProjectsView cockpit", () => {
       }),
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "Details" }));
+    await userEvent.click(
+      within(queue).getByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
     expect(screen.getByRole("article", { name: "Build cockpit UI work item" })).toBeTruthy();
   });
 
@@ -1458,7 +1465,9 @@ describe("ProjectsView cockpit", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
     const activity = screen.getByLabelText("Work queue");
-    expect(within(activity).getByText(/2 approval pending/i)).toBeTruthy();
+    expect(
+      within(activity).getByRole("button", { name: "Open work item Build cockpit UI" }),
+    ).toBeTruthy();
     const health = await openProjectAttentionMenu();
     expect(within(health).queryByText(/Approval waiting: Build cockpit UI/i)).toBeNull();
     expect(within(health).getByText("No project attention items detected.")).toBeTruthy();
@@ -1615,7 +1624,9 @@ describe("ProjectsView cockpit", () => {
     await screen.findByText("Work Queue");
     await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
     const activity = screen.getByLabelText("Work queue");
-    expect(within(activity).getByText("execution failed")).toBeTruthy();
+    expect(
+      within(activity).getByRole("button", { name: "Open work item Build cockpit UI" }),
+    ).toBeTruthy();
     const health = await openProjectAttentionMenu();
     expect(within(health).queryByText(/Execution needs review: Build cockpit UI/i)).toBeNull();
     expect(within(health).getByText(/Stale or unknown assignment: Build cockpit UI/i)).toBeTruthy();
@@ -1862,7 +1873,11 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(screen.getByRole("button", { name: "Show active assignments" }));
 
     await waitFor(() => {
-      expect(screen.getAllByText("run live now").length).toBeGreaterThan(0);
+      expect(
+        within(screen.getByLabelText("Work queue")).getByRole("button", {
+          name: "Open work item Build cockpit UI",
+        }),
+      ).toBeTruthy();
     });
   });
 
@@ -1988,7 +2003,7 @@ describe("ProjectsView cockpit", () => {
 
     await userEvent.click(within(health).getByRole("button", { name: "View blocked" }));
     await waitFor(() => {
-      expect(screen.getAllByText("linked run missing").length).toBeGreaterThan(1);
+      expect(screen.getByText("linked run missing")).toBeTruthy();
     });
   });
 
@@ -2135,6 +2150,14 @@ describe("ProjectsView cockpit", () => {
         recent: [],
       },
     });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [notStartedAssignment] }],
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [notStartedAssignment],
+    });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -2145,7 +2168,9 @@ describe("ProjectsView cockpit", () => {
     await screen.findByText("Work Queue");
     await userEvent.click(screen.getByRole("button", { name: "Show blocked assignments" }));
     const activity = screen.getByLabelText("Work queue");
-    expect(within(activity).getAllByText("not started").length).toBeGreaterThan(0);
+    expect(
+      within(activity).getByRole("button", { name: "Open work item Build cockpit UI" }),
+    ).toBeTruthy();
     await openProjectWorkspaceTab(/Timeline \/ Decision Log/);
     const timeline = screen.getByLabelText("Project timeline");
     expect(within(timeline).queryByText("not started")).toBeNull();

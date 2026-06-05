@@ -277,6 +277,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [selectedProjectID, setSelectedProjectID] = useState(projects.activeProjectID);
   const [renamingProjectID, setRenamingProjectID] = useState("");
   const [renameValue, setRenameValue] = useState("");
+  const [hoveredProjectID, setHoveredProjectID] = useState("");
   const [deleteProjectID, setDeleteProjectID] = useState("");
   const [deletePending, setDeletePending] = useState(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
@@ -1049,7 +1050,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       <section style={sidePanelStyle} aria-label="Projects">
         <div style={topbarStyle}>
           <div>
-            <div style={sectionLabelStyle}>Projects</div>
+            <div style={sidebarSectionLabelStyle}>Projects</div>
             <div style={subtleTextStyle}>{projects.state.projects.length} records</div>
           </div>
           <div style={topbarActionsStyle}>
@@ -1085,6 +1086,10 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
               project={project}
               renaming={renamingProjectID === project.id}
               renameValue={renameValue}
+              actionsVisible={hoveredProjectID === project.id}
+              onInteractionChange={(active) => {
+                setHoveredProjectID(active ? project.id : "");
+              }}
               onRenameChange={setRenameValue}
               onRenameCancel={() => setRenamingProjectID("")}
               onRenameCommit={() => void commitRename(project)}
@@ -1139,28 +1144,36 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                 />
                 {workspaceTab === "work" && (
                   <section style={projectTabPanelStyle} aria-label="Work coordination">
-                    <SectionHeader
-                      title="Work Coordination"
-                      detail={
-                        workLoadState === "loading"
-                          ? "Loading project work..."
-                          : `${workItems.length} work item${workItems.length === 1 ? "" : "s"}`
-                      }
-                      actions={
-                        <button
-                          className="btn btn-primary btn-sm"
-                          type="button"
-                          onClick={() => {
-                            setNewWorkError("");
-                            setNewWorkModalOpen(true);
-                          }}
-                          disabled={!selectedProject}
-                        >
-                          <Icon d={Icons.plus} size={13} />
-                          Work
-                        </button>
-                      }
-                    />
+                    <section aria-label="Work activity" style={workActivityPanelStyle}>
+                      <SectionHeader
+                        title="Work Queue"
+                        detail={
+                          workLoadState === "loading" && workItems.length === 0
+                            ? "Loading project work..."
+                            : undefined
+                        }
+                        actions={
+                          <button
+                            className="btn btn-primary btn-sm"
+                            type="button"
+                            onClick={() => {
+                              setNewWorkError("");
+                              setNewWorkModalOpen(true);
+                            }}
+                            disabled={!selectedProject}
+                          >
+                            <Icon d={Icons.plus} size={13} />
+                            Work
+                          </button>
+                        }
+                      />
+                      <ProjectActivityBucketTabs
+                        activity={activity}
+                        bucket={activityBucket}
+                        onBucketChange={setActivityBucket}
+                        workItemCount={workItems.length}
+                      />
+                    </section>
                     {workError && <InlineError message={workError} />}
                     <div
                       className="project-work-coordination-grid"
@@ -1170,17 +1183,10 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                         activity={activity}
                         bucket={activityBucket}
                         loading={workLoadState === "loading"}
-                        onBucketChange={setActivityBucket}
-                        onOpenChat={onOpenChat}
-                        onOpenTask={onOpenTask}
                         onSelectWorkItem={setSelectedWorkItemID}
-                        onStartAssignment={(assignment, workItemID) =>
-                          void handleStartAssignment(assignment, workItemID)
-                        }
                         project={selectedProject}
                         roleByID={roleByID}
                         selectedWorkItemID={selectedWorkItemID}
-                        startingAssignmentID={startingAssignmentID}
                         workItemSummaries={workItemSummaries}
                         workItems={workItems}
                       />
@@ -1467,10 +1473,12 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
 }
 
 function ProjectIndexRow({
+  actionsVisible,
   active,
   project,
   renaming,
   renameValue,
+  onInteractionChange,
   onRenameChange,
   onRenameCancel,
   onRenameCommit,
@@ -1478,10 +1486,12 @@ function ProjectIndexRow({
   onDelete,
   onOpen,
 }: {
+  actionsVisible: boolean;
   active: boolean;
   project: ProjectRecord;
   renaming: boolean;
   renameValue: string;
+  onInteractionChange: (active: boolean) => void;
   onRenameChange: (value: string) => void;
   onRenameCancel: () => void;
   onRenameCommit: () => void;
@@ -1496,19 +1506,29 @@ function ProjectIndexRow({
       tabIndex={0}
       aria-current={active ? "true" : undefined}
       aria-label={`Open project ${project.name}`}
+      onBlur={(event) => {
+        const nextFocus = event.relatedTarget;
+        if (!(nextFocus instanceof Node) || !event.currentTarget.contains(nextFocus)) {
+          onInteractionChange(false);
+        }
+      }}
       onClick={onOpen}
+      onFocus={() => onInteractionChange(true)}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         onOpen();
       }}
+      onMouseEnter={() => onInteractionChange(true)}
+      onMouseLeave={() => onInteractionChange(false)}
       style={{
-        padding: "10px 12px",
+        padding: "8px 12px",
         borderBottom: "1px solid var(--border)",
         borderLeft: active ? "2px solid var(--teal)" : "2px solid transparent",
-        background: active ? "var(--bg2)" : "transparent",
+        background: active ? "var(--teal-bg)" : "transparent",
         cursor: "pointer",
+        transition: "background 0.1s",
       }}
     >
       {renaming ? (
@@ -1537,36 +1557,48 @@ function ProjectIndexRow({
         </form>
       ) : (
         <>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{project.name}</div>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              aria-label={`Rename project ${project.name}`}
-              title="Rename"
-              onClick={(event) => {
-                event.stopPropagation();
-                onRenameStart();
+          <div style={projectIndexTitleRowStyle}>
+            <div
+              style={{
+                ...projectIndexTitleStyle,
+                color: active ? "var(--t0)" : "var(--t1)",
+                fontWeight: active ? 500 : 400,
               }}
             >
-              <Icon d={Icons.edit} size={12} />
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              aria-label={`Delete project ${project.name}`}
-              title="Delete"
-              onClick={(event) => {
-                event.stopPropagation();
-                onDelete();
-              }}
-              style={{ color: "var(--red)" }}
-            >
-              <Icon d={Icons.trash} size={12} />
-            </button>
+              {project.name}
+            </div>
+            <div style={{ ...projectIndexActionsStyle, opacity: actionsVisible ? 1 : 0 }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                aria-label={`Rename project ${project.name}`}
+                title="Rename"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRenameStart();
+                }}
+                style={projectIndexActionButtonStyle}
+              >
+                <Icon d={Icons.edit} size={10} />
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                aria-label={`Delete project ${project.name}`}
+                title="Delete"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete();
+                }}
+                style={{ ...projectIndexActionButtonStyle, color: "var(--red)" }}
+              >
+                <Icon d={Icons.trash} size={10} />
+              </button>
+            </div>
           </div>
-          <div style={metaLineStyle}>
-            <span title={formatAbsoluteTime(project.updated_at)}>Updated {updated}</span>
+          <div style={projectIndexMetaStyle}>
+            <Icon d={Icons.folder} size={12} />
+            <span>Updated {updated}</span>
           </div>
         </>
       )}
@@ -1981,102 +2013,64 @@ function ProjectActivityInbox({
   activity,
   bucket,
   loading,
-  onBucketChange,
-  onOpenChat,
-  onOpenTask,
   onSelectWorkItem,
-  onStartAssignment,
   project,
   roleByID,
   selectedWorkItemID,
-  startingAssignmentID,
   workItemSummaries,
   workItems,
 }: {
   activity: ProjectActivityData | null;
   bucket: ProjectActivityBucketKey;
   loading: boolean;
-  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
-  onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
-  onOpenTask?: (taskID: string, runID?: string) => void;
   onSelectWorkItem: (workItemID: string) => void;
-  onStartAssignment: (assignment: ProjectAssignmentRecord, workItemID: string) => void;
   project: ProjectRecord | null;
   roleByID: Map<string, ProjectWorkRoleRecord>;
   selectedWorkItemID: string;
-  startingAssignmentID: string;
   workItemSummaries: Record<string, WorkItemSummary>;
   workItems: ProjectWorkItemRecord[];
 }) {
-  const counts = activity?.summary;
   const buckets = activity?.buckets;
   const showingAll = bucket === "all";
   const selectedItems = showingAll ? [] : (buckets?.[bucket] ?? []);
-  const selectedTotal = showingAll
-    ? workItems.length
-    : (projectActivityBucketCount(activity, bucket) ?? selectedItems.length);
-  const bucketLabel = projectActivityBucketLabel(bucket);
-  const tabs: Array<{ id: ProjectActivityBucketKey; label: string; count: number }> = [
-    { id: "all", label: "All", count: workItems.length },
-    { id: "blocked", label: "Blocked", count: counts?.blocked_count ?? 0 },
-    { id: "active", label: "Active", count: counts?.active_count ?? 0 },
-    { id: "completed", label: "Completed", count: counts?.completed_count ?? 0 },
-    { id: "recent", label: "Recent", count: counts?.recent_count ?? 0 },
-  ];
 
   if (!project) {
     return null;
   }
 
+  const selectedWorkItems = showingAll
+    ? workItems
+    : uniqueActivityWorkItems(project.id, selectedItems, workItems);
+
   return (
     <section aria-label="Work queue">
       <div style={panelStyle}>
-        <div style={activityInboxHeaderStyle}>
+        <div style={workItemListHeaderStyle}>
           <SectionHeader
-            title="Work Queue"
+            title="Work Items"
             detail={
-              loading && workItems.length === 0 && !activity
-                ? "Loading project work..."
-                : `${workItems.length} work item${workItems.length === 1 ? "" : "s"} · ${counts?.assignment_count ?? 0} assignments`
+              loading && workItems.length === 0 && !activity ? "Loading project work..." : undefined
             }
           />
-          <div style={activityHeaderTabsStyle}>
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                className={bucket === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
-                type="button"
-                aria-label={
-                  tab.id === "all"
-                    ? "Show all work items"
-                    : `Show ${tab.label.toLowerCase()} assignments`
-                }
-                onClick={() => onBucketChange(tab.id)}
-              >
-                {tab.label}
-                <span className="badge badge-muted">{tab.count}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-        <div style={{ ...subtleTextStyle, marginBottom: 10 }}>
-          {showingAll
-            ? "Select a work item, or filter by assignment activity."
-            : counts
-              ? `${selectedTotal} ${bucketLabel.toLowerCase()} in this view`
-              : "Newest 20 per activity bucket"}
         </div>
         {showingAll && workItems.length === 0 && !loading && (
           <div style={subtleTextStyle}>No work items for this project.</div>
         )}
-        {showingAll && workItems.length > 0 && (
+        {selectedWorkItems.length > 0 && (
           <div style={workItemListStyle}>
-            {workItems.map((item) => (
+            {selectedWorkItems.map((item) => (
               <WorkItemRow
                 key={item.id}
                 active={item.id === selectedWorkItemID}
                 item={item}
-                summary={workItemSummaries[item.id]}
+                summary={
+                  workItemSummaries[item.id] ??
+                  summarizeAssignments(
+                    selectedItems
+                      .filter((activityItem) => activityItem.work_item.id === item.id)
+                      .map((activityItem) => activityItem.assignment),
+                  )
+                }
                 role={item.owner_role_id ? roleByID.get(item.owner_role_id) : undefined}
                 onSelect={() => onSelectWorkItem(item.id)}
               />
@@ -2089,52 +2083,69 @@ function ProjectActivityInbox({
         {!showingAll && activity && selectedItems.length === 0 && (
           <div style={subtleTextStyle}>No {bucket} assignments for this project.</div>
         )}
-        {!showingAll && selectedItems.length > 0 && (
-          <div style={{ display: "grid", gap: 8 }}>
-            {selectedTotal > selectedItems.length && (
-              <div style={subtleTextStyle}>
-                Showing {selectedItems.length} of {selectedTotal} {bucket} assignments.
-              </div>
-            )}
-            {selectedItems.map((item) => {
-              const workItem =
-                workItems.find((candidate) => candidate.id === item.work_item.id) ??
-                projectActivityWorkItemToWorkItem(project.id, item.work_item);
-              const chatModel =
-                item.assignment.execution?.model ||
-                item.role.default_model ||
-                project.default_model ||
-                "";
-              return (
-                <ProjectActivityRow
-                  key={item.id}
-                  chatModel={chatModel}
-                  item={item}
-                  onOpenChat={
-                    project
-                      ? () =>
-                          onOpenChat?.(
-                            buildProjectAssignmentChatLaunchRequest({
-                              project,
-                              workItem,
-                              assignment: item.assignment,
-                              role: item.role,
-                            }),
-                          )
-                      : undefined
-                  }
-                  onOpenTask={onOpenTask}
-                  onSelectWorkItem={() => onSelectWorkItem(item.work_item.id)}
-                  onStart={() => onStartAssignment(item.assignment, item.work_item.id)}
-                  starting={startingAssignmentID === item.assignment.id}
-                />
-              );
-            })}
-          </div>
-        )}
       </div>
     </section>
   );
+}
+
+function ProjectActivityBucketTabs({
+  activity,
+  bucket,
+  onBucketChange,
+  workItemCount,
+}: {
+  activity: ProjectActivityData | null;
+  bucket: ProjectActivityBucketKey;
+  onBucketChange: (bucket: ProjectActivityBucketKey) => void;
+  workItemCount: number;
+}) {
+  const counts = activity?.summary;
+  const tabs: Array<{ id: ProjectActivityBucketKey; label: string; count: number }> = [
+    { id: "all", label: "All", count: workItemCount },
+    { id: "blocked", label: "Blocked", count: counts?.blocked_count ?? 0 },
+    { id: "active", label: "Active", count: counts?.active_count ?? 0 },
+    { id: "completed", label: "Completed", count: counts?.completed_count ?? 0 },
+    { id: "recent", label: "Recent", count: counts?.recent_count ?? 0 },
+  ];
+
+  return (
+    <div style={activityHeaderTabsStyle} aria-label="Work activity filters">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          className={bucket === tab.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+          type="button"
+          aria-label={
+            tab.id === "all" ? "Show all work items" : `Show ${tab.label.toLowerCase()} assignments`
+          }
+          onClick={() => onBucketChange(tab.id)}
+          style={activityBucketButtonStyle}
+        >
+          {tab.label}
+          <span className="badge badge-muted">{tab.count}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function uniqueActivityWorkItems(
+  projectID: string,
+  items: ProjectActivityItemRecord[],
+  loadedWorkItems: ProjectWorkItemRecord[],
+): ProjectWorkItemRecord[] {
+  const loadedByID = new Map(loadedWorkItems.map((item) => [item.id, item]));
+  const seen = new Set<string>();
+  const out: ProjectWorkItemRecord[] = [];
+  for (const item of items) {
+    if (seen.has(item.work_item.id)) continue;
+    seen.add(item.work_item.id);
+    out.push(
+      loadedByID.get(item.work_item.id) ??
+        projectActivityWorkItemToWorkItem(projectID, item.work_item),
+    );
+  }
+  return out;
 }
 
 function ProjectTimelinePanel({
@@ -2401,156 +2412,6 @@ function ProjectDecisionRow({
         {item.actor && <span>{item.actor}</span>}
         {item.timestamp && <span>{formatAbsoluteTime(item.timestamp)}</span>}
       </div>
-    </div>
-  );
-}
-
-function projectActivityBucketLabel(bucket: ProjectActivityBucketKey): string {
-  switch (bucket) {
-    case "all":
-      return "All";
-    case "active":
-      return "Active";
-    case "completed":
-      return "Completed";
-    case "recent":
-      return "Recent";
-    case "blocked":
-    default:
-      return "Blocked";
-  }
-}
-
-function projectActivityBucketCount(
-  activity: ProjectActivityData | null,
-  bucket: ProjectActivityBucketKey,
-): number | undefined {
-  const summary = activity?.summary;
-  if (!summary) return undefined;
-  switch (bucket) {
-    case "all":
-      return summary.work_item_count;
-    case "active":
-      return summary.active_count;
-    case "completed":
-      return summary.completed_count;
-    case "recent":
-      return summary.recent_count;
-    case "blocked":
-    default:
-      return summary.blocked_count;
-  }
-}
-
-function ProjectActivityRow({
-  chatModel,
-  item,
-  onOpenChat,
-  onOpenTask,
-  onSelectWorkItem,
-  onStart,
-  starting,
-}: {
-  chatModel: string;
-  item: ProjectActivityItemRecord;
-  onOpenChat?: () => void;
-  onOpenTask?: (taskID: string, runID?: string) => void;
-  onSelectWorkItem: () => void;
-  onStart: () => void;
-  starting: boolean;
-}) {
-  const signal = item.blocking_signal;
-  const taskID = item.linked_task_id || item.assignment.task_id || "";
-  const runID = item.linked_run_id || item.assignment.run_id || "";
-  const startable = item.assignment.driver_kind === "hecate_task" && signal === "not_started";
-  const handoffCount = item.handoff_summary?.count ?? 0;
-  return (
-    <div style={activityRowStyle}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-        <Badge status={signal} label={activitySignalLabel(signal)} />
-        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>
-          {item.work_item.title}
-          <span style={{ color: "var(--t2)", fontWeight: 400 }}>
-            {" "}
-            / {item.role.name || item.assignment.role_id}
-          </span>
-        </div>
-        <button className="btn btn-ghost btn-sm" type="button" onClick={onSelectWorkItem}>
-          Details
-        </button>
-        {taskID && (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onOpenTask?.(taskID, runID)}
-            disabled={!onOpenTask}
-          >
-            <Icon d={Icons.tasks} size={12} />
-            Task
-          </button>
-        )}
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          onClick={onOpenChat}
-          disabled={!onOpenChat || !chatModel}
-          title={
-            chatModel ? `Open chat with ${chatModel}` : "Set project defaults before opening chat."
-          }
-        >
-          <Icon d={Icons.chat} size={12} />
-          Chat
-        </button>
-        {startable && (
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            onClick={onStart}
-            disabled={starting}
-          >
-            <Icon d={Icons.send} size={12} />
-            {starting ? "Starting…" : "Start"}
-          </button>
-        )}
-      </div>
-      <div style={{ ...metaLineStyle, marginTop: 7 }}>
-        <span>{item.status_summary}</span>
-        <span>{item.assignment.driver_kind}</span>
-        {taskID && <span>task {shortID(taskID)}</span>}
-        {runID && <span>run {shortID(runID)}</span>}
-        {item.linked_chat_id && <span>chat {shortID(item.linked_chat_id)}</span>}
-        {item.artifact_summary.count > 0 && (
-          <span>
-            {item.artifact_summary.count} artifact
-            {item.artifact_summary.count === 1 ? "" : "s"}
-          </span>
-        )}
-        {handoffCount > 0 && (
-          <span>
-            {handoffCount} handoff
-            {handoffCount === 1 ? "" : "s"}
-          </span>
-        )}
-        {item.updated_at && <span>Updated {formatAbsoluteTime(item.updated_at)}</span>}
-      </div>
-      {item.recent_artifacts && item.recent_artifacts.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
-          {item.recent_artifacts.map((artifact) => (
-            <span key={artifact.id} className="badge badge-muted">
-              {artifact.kind}: {artifact.title || artifact.id}
-            </span>
-          ))}
-        </div>
-      )}
-      {item.recent_handoffs && item.recent_handoffs.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
-          {item.recent_handoffs.map((handoff) => (
-            <span key={handoff.id} className="badge badge-muted">
-              {handoff.status}: {handoff.title || handoff.id}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -2960,53 +2821,50 @@ function WorkItemDetail({
       <article style={workItemCardStyle} aria-label={`${workItem.title} work item`}>
         <div style={workItemDetailHeaderStyle}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={sectionLabelStyle}>Work item</div>
-            <h2 style={{ margin: "4px 0 8px", fontSize: 18, color: "var(--t0)" }}>
-              {workItem.title}
-            </h2>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <h2 style={workItemTitleStyle}>{workItem.title}</h2>
+            <div style={workItemMetaStyle}>
               <Badge status={workItem.status} label={workStatusLabel(workItem.status)} />
               <span className="badge badge-muted">{workItem.priority}</span>
-              <span className="badge badge-muted">
-                Updated {formatAbsoluteTime(workItem.updated_at)}
+              <span title={formatAbsoluteTime(workItem.updated_at)}>
+                Updated {formatProjectRowRelativeTime(workItem.updated_at)}
               </span>
+              {workItem.owner_role_id && (
+                <span>
+                  Owner {roleByID.get(workItem.owner_role_id)?.name ?? workItem.owner_role_id}
+                </span>
+              )}
             </div>
           </div>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onEditWorkItem(workItem)}
-          >
-            <Icon d={Icons.edit} size={13} />
-            Edit
-          </button>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onDeleteWorkItem(workItem)}
-            style={{ color: "var(--red)" }}
-          >
-            <Icon d={Icons.trash} size={13} />
-            Delete
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={onRefresh}>
-            <Icon d={Icons.refresh} size={13} />
-            Refresh
-          </button>
+          <div style={workItemHeaderActionsStyle}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onEditWorkItem(workItem)}
+            >
+              <Icon d={Icons.edit} size={13} />
+              Edit
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onDeleteWorkItem(workItem)}
+              style={{ color: "var(--red)" }}
+            >
+              <Icon d={Icons.trash} size={13} />
+              Delete
+            </button>
+            <button className="btn btn-ghost btn-sm" type="button" onClick={onRefresh}>
+              <Icon d={Icons.refresh} size={13} />
+              Refresh
+            </button>
+          </div>
         </div>
         {detailError && <InlineError message={detailError} />}
-        <section style={workItemCardSectionStyle}>
+        <section style={workItemBriefSectionStyle}>
           <div style={sectionLabelStyle}>Brief</div>
-          <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--t1)", lineHeight: 1.55 }}>
-            {workItem.brief || "No brief recorded."}
-          </p>
-          <div style={{ ...metaLineStyle, marginTop: 10 }}>
+          <p style={workItemBriefTextStyle}>{workItem.brief || "No brief recorded."}</p>
+          <div style={{ ...metaLineStyle, marginTop: 8 }}>
             <span>Created {formatAbsoluteTime(workItem.created_at)}</span>
-            {workItem.owner_role_id && (
-              <span>
-                Owner {roleByID.get(workItem.owner_role_id)?.name ?? workItem.owner_role_id}
-              </span>
-            )}
             {workItem.reviewer_role_ids && workItem.reviewer_role_ids.length > 0 && (
               <span>
                 {workItem.reviewer_role_ids.length} reviewer role
@@ -3016,7 +2874,7 @@ function WorkItemDetail({
           </div>
         </section>
         <section style={workItemCardSectionStyle}>
-          <div style={panelHeaderStyle}>
+          <div style={workItemSectionHeaderStyle}>
             <div style={sectionLabelStyle}>Assignments</div>
             <span className="badge badge-muted">{assignments.length}</span>
             <button
@@ -3030,7 +2888,7 @@ function WorkItemDetail({
             </button>
           </div>
           {assignments.length === 0 ? (
-            <div style={subtleTextStyle}>No assignments recorded for this work item.</div>
+            <div style={subtleTextStyle}>No assignments recorded yet.</div>
           ) : (
             <div style={{ display: "grid", gap: 10 }}>
               {assignments.map((assignment) => (
@@ -3069,7 +2927,7 @@ function WorkItemDetail({
           )}
         </section>
         <section style={workItemCardSectionStyle}>
-          <div style={panelHeaderStyle}>
+          <div style={workItemSectionHeaderStyle}>
             <div style={sectionLabelStyle}>Collaboration Artifacts</div>
             <span className="badge badge-muted">{artifacts.length}</span>
           </div>
@@ -3092,7 +2950,7 @@ function WorkItemDetail({
           )}
         </section>
         <section style={workItemCardSectionStyle}>
-          <div style={panelHeaderStyle}>
+          <div style={workItemSectionHeaderStyle}>
             <div style={sectionLabelStyle}>Handoffs</div>
             <span className="badge badge-muted">{handoffs.length}</span>
             <button
@@ -3107,7 +2965,7 @@ function WorkItemDetail({
           </div>
           {handoffError && <InlineError message={handoffError} />}
           {handoffs.length === 0 ? (
-            <div style={subtleTextStyle}>No structured handoffs recorded for this work item.</div>
+            <div style={subtleTextStyle}>No structured handoffs recorded yet.</div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
               {handoffs.map((handoff) => (
@@ -4985,6 +4843,54 @@ const topbarActionsStyle: CSSProperties = {
   gap: 6,
 };
 
+const projectIndexTitleRowStyle: CSSProperties = {
+  alignItems: "center",
+  display: "flex",
+  gap: 7,
+  minHeight: 22,
+  minWidth: 0,
+};
+
+const projectIndexTitleStyle: CSSProperties = {
+  flex: 1,
+  fontSize: 12,
+  lineHeight: "18px",
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+};
+
+const projectIndexActionsStyle: CSSProperties = {
+  display: "flex",
+  flexShrink: 0,
+  gap: 1,
+  transition: "opacity 0.15s",
+};
+
+const projectIndexActionButtonStyle: CSSProperties = {
+  padding: "1px 3px",
+};
+
+const projectIndexMetaStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--t3)",
+  display: "flex",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  gap: 6,
+  marginTop: 1,
+  minWidth: 0,
+};
+
+const sidebarSectionLabelStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+};
+
 const sectionLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 10,
@@ -5175,16 +5081,26 @@ const cockpitWorkspaceStyle: CSSProperties = {
 
 const projectWorkspaceTabsStyle: CSSProperties = {
   alignItems: "center",
-  borderBottom: "1px solid var(--border)",
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 6,
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: 11,
+  boxSizing: "border-box",
+  display: "grid",
+  gap: 2,
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  justifySelf: "start",
+  maxWidth: "min(100%, 560px)",
   minWidth: 0,
-  paddingBottom: 8,
+  overflow: "hidden",
+  padding: 2,
+  width: "100%",
 };
 
 const projectWorkspaceTabButtonStyle: CSSProperties = {
+  justifyContent: "center",
   minHeight: 32,
+  minWidth: 0,
+  whiteSpace: "nowrap",
 };
 
 const projectTabPanelStyle: CSSProperties = {
@@ -5193,10 +5109,21 @@ const projectTabPanelStyle: CSSProperties = {
   minWidth: 0,
 };
 
+const workActivityPanelStyle: CSSProperties = {
+  ...panelStyle,
+  display: "grid",
+  gap: 10,
+};
+
 const workCoordinationGridStyle: CSSProperties = {
   display: "grid",
   gap: 14,
   alignItems: "start",
+  minWidth: 0,
+};
+
+const workItemListHeaderStyle: CSSProperties = {
+  marginBottom: 10,
   minWidth: 0,
 };
 
@@ -5233,15 +5160,59 @@ const workItemCardStyle: CSSProperties = {
   maxWidth: "100%",
   minWidth: 0,
   overflow: "hidden",
-  padding: 12,
+  padding: "14px 14px 12px",
 };
 
 const workItemDetailHeaderStyle: CSSProperties = {
   alignItems: "flex-start",
+  display: "grid",
+  gap: 12,
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  minWidth: 0,
+};
+
+const workItemTitleStyle: CSSProperties = {
+  color: "var(--t0)",
+  fontSize: 18,
+  lineHeight: 1.2,
+  margin: 0,
+  minWidth: 0,
+  overflowWrap: "anywhere",
+};
+
+const workItemMetaStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--t3)",
   display: "flex",
   flexWrap: "wrap",
-  gap: 12,
+  fontSize: 11,
+  gap: 7,
+  marginTop: 10,
   minWidth: 0,
+};
+
+const workItemHeaderActionsStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+  justifyContent: "flex-end",
+  minWidth: 0,
+};
+
+const workItemBriefSectionStyle: CSSProperties = {
+  borderTop: "1px solid var(--border)",
+  marginTop: 14,
+  minWidth: 0,
+  paddingTop: 12,
+};
+
+const workItemBriefTextStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 13,
+  lineHeight: 1.5,
+  margin: "8px 0 0",
+  maxWidth: 860,
+  overflowWrap: "anywhere",
 };
 
 const workItemCardSectionStyle: CSSProperties = {
@@ -5251,7 +5222,7 @@ const workItemCardSectionStyle: CSSProperties = {
   paddingTop: 12,
 };
 
-const panelHeaderStyle: CSSProperties = {
+const workItemSectionHeaderStyle: CSSProperties = {
   alignItems: "center",
   display: "flex",
   flexWrap: "wrap",
@@ -5265,11 +5236,6 @@ const assignmentStyle: CSSProperties = {
   background: "var(--bg2)",
   borderRadius: "var(--radius-sm)",
   padding: 10,
-};
-
-const activityRowStyle: CSSProperties = {
-  borderTop: "1px solid var(--border)",
-  paddingTop: 9,
 };
 
 const timelineGridStyle: CSSProperties = {
@@ -5350,16 +5316,15 @@ const healthAttentionStyle: CSSProperties = {
 
 const activityHeaderTabsStyle: CSSProperties = {
   display: "flex",
-  gap: 6,
   flexWrap: "wrap",
+  gap: 6,
   minWidth: 0,
 };
 
-const activityInboxHeaderStyle: CSSProperties = {
-  display: "grid",
-  gap: 10,
-  marginBottom: 10,
-  minWidth: 0,
+const activityBucketButtonStyle: CSSProperties = {
+  justifyContent: "center",
+  minHeight: 34,
+  minWidth: 92,
 };
 
 const artifactStyle: CSSProperties = {
