@@ -562,6 +562,40 @@ func TestRenderChatContextPacketIncludesItems(t *testing.T) {
 	}
 }
 
+func TestNormalizeContextPacketDoesNotMutateInput(t *testing.T) {
+	packet := chat.ContextPacket{
+		ID: "ctx_1",
+		Refs: &chat.ContextRefs{
+			SessionID: "chat_1",
+		},
+		Items: []chat.ContextItem{{
+			Kind:       "task_runtime",
+			TrustLevel: contextTrustRuntimeState,
+			Origin:     "runtime:task",
+			Title:      "Task runtime",
+			Included:   true,
+		}},
+	}
+
+	normalized := normalizeContextPacket(packet, chat.ContextRefs{
+		SessionID: "chat_1",
+		RunID:     "run_1",
+	})
+
+	if packet.Refs == nil || packet.Refs.RunID != "" {
+		t.Fatalf("input packet refs mutated to %+v, want original run_id to stay empty", packet.Refs)
+	}
+	if packet.Items[0].Section != "" {
+		t.Fatalf("input packet item section mutated to %q, want empty section", packet.Items[0].Section)
+	}
+	if normalized.Refs == nil || normalized.Refs.RunID != "run_1" {
+		t.Fatalf("normalized refs = %+v, want run_1", normalized.Refs)
+	}
+	if normalized.Items[0].Section != contextSectionRuntime {
+		t.Fatalf("normalized item section = %q, want %q", normalized.Items[0].Section, contextSectionRuntime)
+	}
+}
+
 func TestChatContextPacketSourceOrdering(t *testing.T) {
 	ctx := context.Background()
 	handler := &Handler{projects: newContextPacketProjectStore(t, ctx)}

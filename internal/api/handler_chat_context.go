@@ -790,6 +790,7 @@ func projectContextSourceKind(kind string) string {
 }
 
 func normalizeContextPacket(packet chat.ContextPacket, refs chat.ContextRefs) chat.ContextPacket {
+	packet = cloneContextPacket(packet)
 	if packet.Refs == nil && !contextRefsEmpty(refs) {
 		packet.Refs = &chat.ContextRefs{}
 	}
@@ -810,6 +811,20 @@ func normalizeContextPacket(packet chat.ContextPacket, refs chat.ContextRefs) ch
 		if strings.TrimSpace(packet.Items[idx].Section) == "" {
 			packet.Items[idx].Section = defaultContextItemSection(packet.Items[idx].Kind)
 		}
+	}
+	return packet
+}
+
+func cloneContextPacket(packet chat.ContextPacket) chat.ContextPacket {
+	if packet.Refs != nil {
+		refs := *packet.Refs
+		packet.Refs = &refs
+	}
+	if len(packet.Sources) > 0 {
+		packet.Sources = append([]chat.ContextSource(nil), packet.Sources...)
+	}
+	if len(packet.Items) > 0 {
+		packet.Items = append([]chat.ContextItem(nil), packet.Items...)
 	}
 	return packet
 }
