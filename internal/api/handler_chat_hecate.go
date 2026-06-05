@@ -136,6 +136,13 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	h.agentChatLive.publishSession(updated)
 
 	contextPacket := h.hecateTaskContextPacket(r.Context(), session, messageSnapshot.Provider, messageSnapshot.Model, strings.TrimSpace(req.SystemPrompt), forceNewTask)
+	contextPacket.ID = newChatID("ctx")
+	contextPacket = normalizeContextPacket(contextPacket, chat.ContextRefs{
+		SessionID: session.ID,
+		MessageID: assistantID,
+		TaskID:    messageSnapshot.TaskID,
+		ProjectID: session.ProjectID,
+	})
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: messageSnapshot.ExecutionMode,
@@ -166,7 +173,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	}
 	h.agentChatLive.publishSession(updated)
 
-	task, run, err := h.startOrContinueHecateAgentRun(runCtx, session, content, strings.TrimSpace(req.SystemPrompt), forceNewTask)
+	task, run, err := h.startOrContinueHecateAgentRun(runCtx, session, content, strings.TrimSpace(req.SystemPrompt), forceNewTask, contextPacket)
 	if err != nil {
 		completedAt := time.Now().UTC()
 		trace.Record(telemetry.EventAgentChatRunFailed, hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
@@ -217,6 +224,13 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		message.Provider = messageSnapshot.Provider
 		message.Model = messageSnapshot.Model
 		message.Capabilities = messageSnapshot.Capabilities
+		message.Context = normalizeContextPacket(message.Context, chat.ContextRefs{
+			SessionID: session.ID,
+			MessageID: assistantID,
+			TaskID:    task.ID,
+			RunID:     run.ID,
+			ProjectID: session.ProjectID,
+		})
 		message.Activities = mergeChatActivity(message.Activities, newHecateAgentRunActivity(task.ID, run.ID, run.Status))
 	})
 	if err == nil {
@@ -404,7 +418,7 @@ func isHecateTaskToolsOnMessage(message chat.Message) bool {
 	return message.ToolsEnabled
 }
 
-func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session chat.Session, prompt, systemPrompt string, forceNewTask bool) (types.Task, types.TaskRun, error) {
+func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session chat.Session, prompt, systemPrompt string, forceNewTask bool, contextPacket chat.ContextPacket) (types.Task, types.TaskRun, error) {
 	if h.taskStore == nil || h.taskRunner == nil {
 		return types.Task{}, types.TaskRun{}, fmt.Errorf("task runtime is not configured")
 	}
@@ -438,7 +452,14 @@ func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session cha
 		if err != nil {
 			return types.Task{}, types.TaskRun{}, err
 		}
-		result, err := h.taskRunner.StartTask(ctx, task, newOpaqueTaskResourceID)
+		result, err := h.taskRunner.StartTaskWithRunInitializer(ctx, task, newOpaqueTaskResourceID, func(run *types.TaskRun) {
+			run.ContextPacket = marshalContextPacket(normalizeContextPacket(contextPacket, chat.ContextRefs{
+				SessionID: session.ID,
+				TaskID:    task.ID,
+				RunID:     run.ID,
+				ProjectID: session.ProjectID,
+			}))
+		})
 		if err != nil {
 			return types.Task{}, types.TaskRun{}, err
 		}
@@ -459,7 +480,14 @@ func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session cha
 	if !found {
 		return types.Task{}, types.TaskRun{}, fmt.Errorf("latest task run %q not found", session.LatestRunID)
 	}
-	result, err := h.taskRunner.ContinueAgentTask(ctx, task, run, prompt, newOpaqueTaskResourceID)
+	result, err := h.taskRunner.ContinueAgentTaskWithRunInitializer(ctx, task, run, prompt, newOpaqueTaskResourceID, func(nextRun *types.TaskRun) {
+		nextRun.ContextPacket = marshalContextPacket(normalizeContextPacket(contextPacket, chat.ContextRefs{
+			SessionID: session.ID,
+			TaskID:    task.ID,
+			RunID:     nextRun.ID,
+			ProjectID: session.ProjectID,
+		}))
+	})
 	if err != nil {
 		return types.Task{}, types.TaskRun{}, err
 	}
@@ -502,6 +530,12 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 				message.RequestID = firstNonEmpty(run.RequestID, message.RequestID)
 				message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
 				message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
+				message.Context = normalizeContextPacket(message.Context, chat.ContextRefs{
+					SessionID: sessionID,
+					MessageID: messageID,
+					TaskID:    taskID,
+					RunID:     run.ID,
+				})
 				message.Status = agentChatStatusFromTaskRun(run.Status)
 				if liveContent != "" {
 					message.Content = liveContent

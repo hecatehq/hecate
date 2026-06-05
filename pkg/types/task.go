@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Task struct {
 	ID     string
@@ -168,6 +171,7 @@ type TaskRun struct {
 	RootSpanID         string
 	OtelStatusCode     string
 	OtelStatusMessage  string
+	ContextPacket      json.RawMessage
 }
 
 type TaskStep struct {

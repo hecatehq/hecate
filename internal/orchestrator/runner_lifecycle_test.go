@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"testing"
@@ -355,5 +356,149 @@ func TestRunner_FileExecutor_FullLifecycle(t *testing.T) {
 			t.Fatalf("sequence %d after %d for %s; want strictly increasing", e.Sequence, prev, e.EventType)
 		}
 		prev = e.Sequence
+	}
+}
+
+func TestResumeTaskCarriesForwardContextPacket(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{QueueWorkers: 0},
+	)
+
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:               "task-resume-context",
+		Title:            "resume context",
+		Prompt:           "resume me",
+		ExecutionKind:    "stub",
+		WorkingDirectory: t.TempDir(),
+		Status:           "completed",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	run := types.TaskRun{
+		ID:         "run-resume-source",
+		TaskID:     task.ID,
+		Number:     1,
+		Status:     "completed",
+		StartedAt:  now,
+		FinishedAt: now,
+		ContextPacket: json.RawMessage(`{
+			"id":"ctx_old",
+			"refs":{"session_id":"chat_1","run_id":"run-resume-source"},
+			"items":[{"kind":"transcript","trust_level":"runtime_state","origin":"chat.transcript","title":"Chat transcript","included":true}]
+		}`),
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	result, err := runner.ResumeTask(ctx, task, run, "operator_resume", defaultResourceID)
+	if err != nil {
+		t.Fatalf("ResumeTask: %v", err)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, result.Run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun(%q) found=%v err=%v", result.Run.ID, found, err)
+	}
+	assertCopiedRunContextPacket(t, stored.ContextPacket, task.ID, result.Run.ID)
+}
+
+func TestRetryTaskFromTurnCarriesForwardContextPacket(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{QueueWorkers: 0},
+	)
+
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:               "task-retry-context",
+		Title:            "retry context",
+		Prompt:           "retry me",
+		ExecutionKind:    "stub",
+		WorkingDirectory: t.TempDir(),
+		Status:           "completed",
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	run := types.TaskRun{
+		ID:         "run-retry-source",
+		TaskID:     task.ID,
+		Number:     1,
+		Status:     "completed",
+		StartedAt:  now,
+		FinishedAt: now,
+		ContextPacket: json.RawMessage(`{
+			"id":"ctx_old_retry",
+			"refs":{"session_id":"chat_2","run_id":"run-retry-source"},
+			"items":[{"kind":"transcript","trust_level":"runtime_state","origin":"chat.transcript","title":"Chat transcript","included":true}]
+		}`),
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := store.CreateArtifact(ctx, types.TaskArtifact{
+		ID:          "artifact-conversation",
+		TaskID:      task.ID,
+		RunID:       run.ID,
+		Kind:        "agent_conversation",
+		StorageKind: "inline",
+		ContentText: `[{"role":"user","content":"hello"},{"role":"assistant","content":"done"}]`,
+		Status:      "ready",
+		CreatedAt:   now,
+	}); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+
+	result, err := runner.RetryTaskFromTurn(ctx, task, run, 1, "operator_retry", defaultResourceID)
+	if err != nil {
+		t.Fatalf("RetryTaskFromTurn: %v", err)
+	}
+	stored, found, err := store.GetRun(ctx, task.ID, result.Run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun(%q) found=%v err=%v", result.Run.ID, found, err)
+	}
+	assertCopiedRunContextPacket(t, stored.ContextPacket, task.ID, result.Run.ID)
+}
+
+func assertCopiedRunContextPacket(t *testing.T, raw json.RawMessage, taskID, runID string) {
+	t.Helper()
+	if len(raw) == 0 {
+		t.Fatal("ContextPacket empty, want copied packet")
+	}
+	var packet map[string]any
+	if err := json.Unmarshal(raw, &packet); err != nil {
+		t.Fatalf("Unmarshal ContextPacket: %v", err)
+	}
+	if got, _ := packet["id"].(string); got == "" || got == "ctx_old" || got == "ctx_old_retry" {
+		t.Fatalf("packet id = %q, want fresh context snapshot id", got)
+	}
+	refs, _ := packet["refs"].(map[string]any)
+	if refs == nil {
+		t.Fatalf("packet refs = nil, want task/run refs")
+	}
+	if got, _ := refs["task_id"].(string); got != taskID {
+		t.Fatalf("refs.task_id = %q, want %q", got, taskID)
+	}
+	if got, _ := refs["run_id"].(string); got != runID {
+		t.Fatalf("refs.run_id = %q, want %q", got, runID)
 	}
 }

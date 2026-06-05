@@ -138,6 +138,7 @@ func renderChatContextPacket(packet chat.ContextPacket) *ChatContextPacketItem {
 	items := make([]ChatContextItem, 0, len(packet.Items))
 	for _, item := range packet.Items {
 		items = append(items, ChatContextItem{
+			Section:         item.Section,
 			Kind:            item.Kind,
 			TrustLevel:      item.TrustLevel,
 			Origin:          item.Origin,
@@ -148,14 +149,30 @@ func renderChatContextPacket(packet chat.ContextPacket) *ChatContextPacketItem {
 			InclusionReason: item.InclusionReason,
 		})
 	}
+	var refs *ChatContextRefsItem
+	if packet.Refs != nil {
+		refs = &ChatContextRefsItem{
+			SessionID:    packet.Refs.SessionID,
+			MessageID:    packet.Refs.MessageID,
+			TaskID:       packet.Refs.TaskID,
+			RunID:        packet.Refs.RunID,
+			ProjectID:    packet.Refs.ProjectID,
+			WorkItemID:   packet.Refs.WorkItemID,
+			AssignmentID: packet.Refs.AssignmentID,
+			RoleID:       packet.Refs.RoleID,
+		}
+	}
 	return &ChatContextPacketItem{
+		ID:                   packet.ID,
 		Version:              packet.Version,
 		ExecutionMode:        packet.ExecutionMode,
 		Provider:             packet.Provider,
 		Model:                packet.Model,
+		ExecutionProfile:     packet.ExecutionProfile,
 		Workspace:            packet.Workspace,
 		SystemPromptIncluded: packet.SystemPromptIncluded,
 		MessageCount:         packet.MessageCount,
+		Refs:                 refs,
 		Sources:              sources,
 		Items:                items,
 	}

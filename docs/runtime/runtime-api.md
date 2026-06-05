@@ -234,10 +234,12 @@ applied, revert returns `409 conflict`, leaves the workspace unchanged, and keep
 the patch artifact in `applied`.
 
 `GET /hecate/v1/tasks/{id}/runs/{run_id}/context` returns the context packet
-snapshot for a task run when the run is linked to a Hecate Chat assistant
-message. Today task runs do not own a separate context-packet store; the
-endpoint resolves the already persisted chat message packet for task-backed
-Hecate Chat runs and returns `404 not_found` when no linked packet exists.
+snapshot for a task run. Hecate first returns a run-owned packet when the run
+persisted one directly, then falls back to a linked Hecate Chat assistant
+message packet for task-backed chat runs. Native project-assignment starts now
+persist a run-owned packet, and resume/retry chains carry the latest stored
+packet forward onto the new run with updated task/run refs. Older or unrelated
+runs can still return `404 not_found` when no stored or linked packet exists.
 
 ## Approval endpoints
 
@@ -1754,6 +1756,14 @@ Deletes the assignment metadata record and collaboration artifacts attached to
 that assignment. It does not delete or cancel a linked Task, Run, Chat session,
 or external-agent execution.
 
+#### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/context`
+
+Returns the best available context packet for the assignment. Hecate resolves
+linked Task/Run packets first, then falls back to a linked Chat
+`chat_session_id` + `message_id` packet when present. Unstarted assignments,
+legacy rows without either link, or older runs that predate snapshots return
+`404 not_found`.
+
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/start`
 
 Starts a native Hecate assignment. V1 supports only assignments whose
@@ -1784,8 +1794,10 @@ or defaultless roots return `400 invalid_request`. A missing model returns
 
 The endpoint then starts the task through the canonical task runner, so normal
 task approvals, queueing, run events, artifacts, and SSE inspection apply. On
-success it updates the assignment with `task_id`, latest `run_id`, status, and
-timestamps, and returns the updated assignment:
+success it also persists a structured context packet on the created run, updates
+`context_snapshot_id` to that packet id, then updates the assignment with
+`task_id`, latest `run_id`, status, and timestamps before returning the updated
+assignment:
 
 ```json
 {
@@ -1799,6 +1811,7 @@ timestamps, and returns the updated assignment:
     "status": "queued",
     "task_id": "task_...",
     "run_id": "run_...",
+    "context_snapshot_id": "ctx_...",
     "execution": {
       "task_id": "task_...",
       "run_id": "run_...",
@@ -2478,14 +2491,27 @@ GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../context
 {
   "object": "context_packet",
   "data": {
+    "id": "ctx_...",
     "version": "chat.context.v1",
     "execution_mode": "hecate_task",
     "provider": "ollama",
     "model": "llama3.1:8b",
+    "execution_profile": "chat_agent",
     "workspace": "/workspace/hecate",
     "system_prompt_included": true,
     "message_count": 3,
+    "refs": {
+      "session_id": "chat_...",
+      "message_id": "msg_...",
+      "project_id": "proj_..."
+    },
     "sources": [
+      {
+        "kind": "project",
+        "label": "Hecate",
+        "detail": "proj_...",
+        "trust": "project"
+      },
       {
         "kind": "transcript",
         "label": "Chat transcript",
@@ -2495,6 +2521,16 @@ GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../context
     ],
     "items": [
       {
+        "section": "project",
+        "kind": "project",
+        "trust_level": "runtime_state",
+        "origin": "proj_...",
+        "title": "Hecate",
+        "included": true,
+        "inclusion_reason": "Project linked to this chat session"
+      },
+      {
+        "section": "runtime",
         "kind": "transcript",
         "trust_level": "runtime_state",
         "origin": "chat.transcript",
@@ -2509,10 +2545,31 @@ GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../context
 ```
 
 Existing top-level fields and `sources` remain for older clients. Newer clients
-should prefer `items` for trust-labelled, provenance-aware inspection. Current
-packets intentionally snapshot visible metadata only; they do not store full
-system prompts, raw transcript text, file contents, or external-agent private
-prompt packing.
+should prefer `items` plus `refs` for trust-labelled, provenance-aware
+inspection. Each item carries a stable `section` value so later inspectors can
+group without inferring from `kind`. Current packets intentionally snapshot
+visible metadata only; they do not store full system prompts, raw transcript
+text, file contents, or external-agent private prompt packing.
+
+Section values currently used by the runtime are:
+
+- `instructions` for system-prompt and instruction-layer metadata
+- `memory` for project memory entries
+- `workspace` for the selected workspace path
+- `project` for project identity metadata
+- `project_work` for work-item, assignment, role, execution-hint, handoff, and artifact-reference metadata
+- `sources` for enabled project context-source metadata such as `workspace_doc` and `project_notes`
+- `runtime` for transcript counts, task-runtime metadata, and external-agent session metadata
+
+`included=true` means the item was part of the prepared context for that
+message or run. `included=false` means the item is related inspectable metadata
+that V1 did not inject into the runtime context. Native project-assignment
+packets currently use `included=false` for project memory, project sources,
+handoffs, and artifact refs.
+
+Legacy packets can omit `id`, `execution_profile`, `refs`, or `section`. The
+server backfills obvious request-scoped refs and default sections where it can,
+but clients should render missing fields defensively.
 
 ### `GET /hecate/v1/chat/sessions/{id}/messages/{message_id}/files`
 
