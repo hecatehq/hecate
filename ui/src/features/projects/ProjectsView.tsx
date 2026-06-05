@@ -5352,12 +5352,12 @@ const activityHeaderTabsStyle: CSSProperties = {
   display: "flex",
   gap: 6,
   flexWrap: "wrap",
+  minWidth: 0,
 };
 
 const activityInboxHeaderStyle: CSSProperties = {
   display: "grid",
   gap: 10,
-  gridTemplateColumns: "minmax(0, 1fr) auto",
   marginBottom: 10,
   minWidth: 0,
 };
