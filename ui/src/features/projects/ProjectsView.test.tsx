@@ -540,6 +540,7 @@ describe("ProjectsView index", () => {
       data: [],
     });
     window.localStorage.setItem("hecate.project", project.id);
+    window.localStorage.setItem("hecate.projects.panel_collapsed", "1");
 
     render(<ProjectsView />, {
       wrapper: directWrapper({ projects: [project] }),
@@ -547,7 +548,10 @@ describe("ProjectsView index", () => {
 
     expect(await screen.findByText("Work Queue")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Projects" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Collapse projects panel" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Expand projects panel" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Collapsed projects panel" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Project work items" })).toBeNull();
     const workPanel = screen.getByRole("region", { name: "Work coordination" });
     expect(workPanel).toBeTruthy();
