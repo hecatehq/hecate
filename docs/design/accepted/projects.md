@@ -246,6 +246,9 @@ The Projects UI should stay lightweight but operational:
   header owns project identity plus global actions: Needs Attention, Roles,
   Project Settings, and refresh. Needs Attention is a compact dropdown of
   actionable rows, not a second health dashboard.
+- Keep the Projects index as a fixed left panel for now. Do not add a collapsed
+  mini-rail or persist a collapsed Projects state until the operator workflow
+  calls for a clearer navigation pattern.
 - Keep the cockpit workspace tabbed by operator intent: Work Coordination,
   Timeline / Decision Log, and Memory / Context. Work Coordination owns work
   items, assignment launch, handoffs, and selected work detail. It should use
