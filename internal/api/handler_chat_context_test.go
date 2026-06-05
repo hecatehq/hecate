@@ -281,6 +281,26 @@ func TestChatMessageContextEndpointReturnsPacket(t *testing.T) {
 	}
 }
 
+func TestChatMessageContextEndpointReturnsNotFoundWithoutStoredPacket(t *testing.T) {
+	ctx := context.Background()
+	chatStore := chat.NewMemoryStore()
+	if _, err := chatStore.Create(ctx, chat.Session{ID: "chat_1", Title: "Context test"}); err != nil {
+		t.Fatalf("Create chat session: %v", err)
+	}
+	if _, err := chatStore.AppendMessage(ctx, "chat_1", chat.Message{
+		ID:      "msg_user",
+		Role:    "user",
+		Content: "hello",
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	handler := &Handler{agentChat: chatStore}
+	server := NewServer(slog.New(slog.NewJSONHandler(io.Discard, nil)), handler)
+	client := newAPITestClient(t, server)
+
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/chat/sessions/chat_1/messages/msg_user/context", "")
+}
+
 func TestChatMessageContextEndpointReturnsHistoricalSnapshotAfterProjectSourcesChange(t *testing.T) {
 	ctx := context.Background()
 	projectStore := newContextPacketProjectStore(t, ctx)
@@ -505,11 +525,18 @@ func TestTaskRunContextEndpointReturnsNotFoundForStandaloneRun(t *testing.T) {
 
 func TestRenderChatContextPacketIncludesItems(t *testing.T) {
 	packet := chat.ContextPacket{
+		ID:            "ctx_1",
 		Version:       chatContextPacketVersion,
 		ExecutionMode: chat.ExecutionModeExternalAgent,
 		Workspace:     "/tmp/hecate",
 		MessageCount:  2,
+		Refs: &chat.ContextRefs{
+			SessionID: "chat_1",
+			MessageID: "msg_1",
+			RunID:     "run_1",
+		},
 		Items: []chat.ContextItem{{
+			Section:         contextSectionRuntime,
 			Kind:            "external_agent_session",
 			TrustLevel:      contextTrustRuntimeState,
 			Origin:          "adapter:Cursor Agent",
@@ -526,8 +553,11 @@ func TestRenderChatContextPacketIncludesItems(t *testing.T) {
 	if rendered == nil {
 		t.Fatal("renderChatContextPacket returned nil, want packet")
 	}
+	if rendered.ID != "ctx_1" || rendered.Refs == nil || rendered.Refs.SessionID != "chat_1" || rendered.Refs.RunID != "run_1" {
+		t.Fatalf("rendered packet ids/refs = %+v, want ctx_1 with refs", rendered)
+	}
 	assertRenderedContextItem(t, *rendered, "external_agent_session", contextTrustRuntimeState, "adapter:Cursor Agent")
-	if rendered.Items[0].BodyRef != "adapter_session" || rendered.Items[0].InclusionReason != "Visible external-agent metadata" {
+	if rendered.Items[0].Section != contextSectionRuntime || rendered.Items[0].BodyRef != "adapter_session" || rendered.Items[0].InclusionReason != "Visible external-agent metadata" {
 		t.Fatalf("rendered context item missing fields: %+v", rendered.Items[0])
 	}
 }
@@ -550,17 +580,17 @@ func TestChatContextPacketSourceOrdering(t *testing.T) {
 		{
 			name: "direct model",
 			got:  sourceKinds(handler.directModelContextPacket(ctx, session, "ollama", "llama3.1:8b", "system")),
-			want: []string{"system_prompt", "workspace", "workspace_doc", "project_notes", "transcript"},
+			want: []string{"project", "system_prompt", "workspace", "workspace_doc", "project_notes", "transcript"},
 		},
 		{
 			name: "hecate task",
 			got:  sourceKinds(handler.hecateTaskContextPacket(ctx, session, "ollama", "llama3.1:8b", "system", false)),
-			want: []string{"system_prompt", "workspace", "workspace_doc", "project_notes", "transcript", "task_runtime"},
+			want: []string{"project", "system_prompt", "workspace", "workspace_doc", "project_notes", "transcript", "task_runtime"},
 		},
 		{
 			name: "external agent",
 			got:  sourceKinds(handler.externalAgentContextPacket(ctx, session, "Cursor Agent")),
-			want: []string{"workspace", "workspace_doc", "project_notes", "transcript", "adapter_session"},
+			want: []string{"project", "workspace", "workspace_doc", "project_notes", "transcript", "adapter_session"},
 		},
 	}
 

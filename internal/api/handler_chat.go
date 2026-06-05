@@ -821,6 +821,14 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 	trace.Record(telemetry.EventAgentChatRunStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
 		telemetry.AttrHecateRunStatus: "running",
 	}))
+	contextPacket := h.externalAgentContextPacket(r.Context(), session, adapter.Name)
+	contextPacket.ID = newChatID("ctx")
+	contextPacket = normalizeContextPacket(contextPacket, chat.ContextRefs{
+		SessionID: session.ID,
+		MessageID: assistantID,
+		RunID:     runID,
+		ProjectID: session.ProjectID,
+	})
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: chat.ExecutionModeExternalAgent,
@@ -836,7 +844,7 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		Status:        "running",
 		CostMode:      adapter.CostMode,
 		Workspace:     session.Workspace,
-		Context:       h.externalAgentContextPacket(r.Context(), session, adapter.Name),
+		Context:       contextPacket,
 		CreatedAt:     time.Now().UTC(),
 		StartedAt:     startedAt,
 		Activities: []chat.Activity{
@@ -1034,6 +1042,12 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		if result.DiffStat != "" {
 			message.Activities = append(message.Activities, newChatActivity("files_changed", "completed", "Files changed", result.DiffStat))
 		}
+		message.Context = normalizeContextPacket(message.Context, chat.ContextRefs{
+			SessionID: session.ID,
+			MessageID: assistantID,
+			RunID:     runID,
+			ProjectID: session.ProjectID,
+		})
 		message.Activities = append(message.Activities, newChatActivity(status, status, finalChatActivityTitle(status), errorText))
 	})
 	if err != nil {
@@ -1173,6 +1187,13 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 
 	history := agentChatModelHistory(session, strings.TrimSpace(req.SystemPrompt), content)
 	contextPacket := h.directModelContextPacket(r.Context(), session, provider, model, strings.TrimSpace(req.SystemPrompt))
+	contextPacket.ID = newChatID("ctx")
+	contextPacket = normalizeContextPacket(contextPacket, chat.ContextRefs{
+		SessionID: session.ID,
+		MessageID: assistantID,
+		RunID:     runID,
+		ProjectID: session.ProjectID,
+	})
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: chat.ExecutionModeHecateTask,
@@ -1249,6 +1270,12 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 				ContextUsed: result.Metadata.TotalTokens,
 			}
 		}
+		message.Context = normalizeContextPacket(message.Context, chat.ContextRefs{
+			SessionID: session.ID,
+			MessageID: assistantID,
+			RunID:     message.RunID,
+			ProjectID: session.ProjectID,
+		})
 		message.Activities = append(message.Activities, newChatActivity(status, status, finalChatActivityTitle(status), errorText))
 	})
 	if err != nil {

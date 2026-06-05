@@ -152,9 +152,10 @@ type StartTaskResult struct {
 }
 
 type startTaskOptions struct {
-	ResumeFromRun *types.TaskRun
-	ResumeReason  string
-	AppendPrompt  string
+	ResumeFromRun  *types.TaskRun
+	ResumeReason   string
+	AppendPrompt   string
+	RunInitializer func(*types.TaskRun)
 	// RetryFromTurn, when > 0, signals the new run should resume from
 	// the source run's conversation truncated to right before turn N.
 	// Used by the retry-from-turn-N code path; ignored when
@@ -427,6 +428,10 @@ func (r *Runner) StartTask(ctx context.Context, task types.Task, idgen func(pref
 	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{})
 }
 
+func (r *Runner) StartTaskWithRunInitializer(ctx context.Context, task types.Task, idgen func(prefix string) string, init func(*types.TaskRun)) (*StartTaskResult, error) {
+	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{RunInitializer: init})
+}
+
 func (r *Runner) ResumeTask(ctx context.Context, task types.Task, run types.TaskRun, reason string, idgen func(prefix string) string) (*StartTaskResult, error) {
 	if !types.IsTerminalTaskRunStatus(run.Status) {
 		return nil, fmt.Errorf("task run %q is not resumable", run.ID)
@@ -438,6 +443,14 @@ func (r *Runner) ResumeTask(ctx context.Context, task types.Task, run types.Task
 }
 
 func (r *Runner) ContinueAgentTask(ctx context.Context, task types.Task, run types.TaskRun, prompt string, idgen func(prefix string) string) (*StartTaskResult, error) {
+	return r.continueAgentTaskWithOptions(ctx, task, run, prompt, idgen, startTaskOptions{})
+}
+
+func (r *Runner) ContinueAgentTaskWithRunInitializer(ctx context.Context, task types.Task, run types.TaskRun, prompt string, idgen func(prefix string) string, init func(*types.TaskRun)) (*StartTaskResult, error) {
+	return r.continueAgentTaskWithOptions(ctx, task, run, prompt, idgen, startTaskOptions{RunInitializer: init})
+}
+
+func (r *Runner) continueAgentTaskWithOptions(ctx context.Context, task types.Task, run types.TaskRun, prompt string, idgen func(prefix string) string, options startTaskOptions) (*StartTaskResult, error) {
 	if task.ExecutionKind != "agent_loop" {
 		return nil, fmt.Errorf("task %q is not an agent_loop task", task.ID)
 	}
@@ -469,11 +482,10 @@ func (r *Runner) ContinueAgentTask(ctx context.Context, task types.Task, run typ
 			return nil, fmt.Errorf("task run %q has no agent_conversation artifact to continue", run.ID)
 		}
 	}
-	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{
-		ResumeFromRun: &run,
-		ResumeReason:  "session_prompt",
-		AppendPrompt:  prompt,
-	})
+	options.ResumeFromRun = &run
+	options.ResumeReason = "session_prompt"
+	options.AppendPrompt = prompt
+	return r.startTaskWithOptions(ctx, task, idgen, options)
 }
 
 // RetryTaskFromTurn creates a new run that re-issues turn N of the
@@ -611,6 +623,12 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 			return nil, err
 		}
 	}
+	if options.ResumeFromRun != nil && len(run.ContextPacket) == 0 && len(options.ResumeFromRun.ContextPacket) > 0 {
+		run.ContextPacket = cloneRunContextPacketForNewRun(options.ResumeFromRun.ContextPacket, task.ID, run.ID, idgen)
+	}
+	if options.RunInitializer != nil {
+		options.RunInitializer(&run)
+	}
 	run, err = r.store.CreateRun(ctx, run)
 	if err != nil {
 		recordOrchestratorRunFailed(trace, task.ID, run.ID, "run_create_failed", err)
@@ -676,6 +694,34 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		TraceID: trace.TraceID,
 		SpanID:  trace.RootSpanID(),
 	}, nil
+}
+
+func cloneRunContextPacketForNewRun(raw json.RawMessage, taskID, runID string, idgen func(string) string) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	var packet map[string]any
+	if err := json.Unmarshal(raw, &packet); err != nil {
+		return append(json.RawMessage(nil), raw...)
+	}
+	if len(packet) == 0 {
+		return append(json.RawMessage(nil), raw...)
+	}
+	if idgen != nil {
+		packet["id"] = idgen("ctx")
+	}
+	refs, _ := packet["refs"].(map[string]any)
+	if refs == nil {
+		refs = map[string]any{}
+	}
+	refs["task_id"] = taskID
+	refs["run_id"] = runID
+	packet["refs"] = refs
+	updated, err := json.Marshal(packet)
+	if err != nil {
+		return append(json.RawMessage(nil), raw...)
+	}
+	return updated
 }
 
 func (r *Runner) CancelRun(ctx context.Context, task types.Task, runID string, reason string) (types.TaskRun, error) {

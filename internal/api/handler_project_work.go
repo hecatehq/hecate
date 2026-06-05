@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -868,6 +869,10 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	executionProfile := strings.TrimSpace(firstNonEmpty(role.DefaultAgentProfile, project.DefaultAgentProfile, "project_assignment"))
+	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workingDirectory, requestedProvider, requestedModel, executionProfile)
+	if contextPacket.ID == "" {
+		contextPacket.ID = newChatID("ctx")
+	}
 
 	taskID := newTaskID()
 	claimRejected := false
@@ -913,8 +918,19 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task could not be created for assignment %s: %s", assignment.ID, err.Error()))
 		return
 	}
+	contextPacket.Refs.TaskID = task.ID
 
-	result, err := h.taskRunner.StartTask(ctx, task, newOpaqueTaskResourceID)
+	result, err := h.taskRunner.StartTaskWithRunInitializer(ctx, task, newOpaqueTaskResourceID, func(run *types.TaskRun) {
+		contextPacket.Refs.RunID = run.ID
+		run.ContextPacket = marshalContextPacket(normalizeContextPacket(contextPacket, chat.ContextRefs{
+			TaskID:       task.ID,
+			RunID:        run.ID,
+			ProjectID:    project.ID,
+			WorkItemID:   workItem.ID,
+			AssignmentID: assignment.ID,
+			RoleID:       role.ID,
+		}))
+	})
 	if err != nil {
 		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
 			item.TaskID = task.ID
@@ -941,6 +957,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	assignment, err = h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
 		item.TaskID = result.Task.ID
 		item.RunID = result.Run.ID
+		item.ContextSnapshotID = contextPacket.ID
 		item.Status = projectWorkAssignmentStatusFromRun(result.Run.Status)
 		if item.StartedAt.IsZero() {
 			item.StartedAt = time.Now().UTC()

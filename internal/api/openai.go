@@ -790,15 +790,29 @@ type ChatMessageItem struct {
 }
 
 type ChatContextPacketItem struct {
+	ID                   string                  `json:"id,omitempty"`
 	Version              string                  `json:"version,omitempty"`
 	ExecutionMode        string                  `json:"execution_mode,omitempty"`
 	Provider             string                  `json:"provider,omitempty"`
 	Model                string                  `json:"model,omitempty"`
+	ExecutionProfile     string                  `json:"execution_profile,omitempty"`
 	Workspace            string                  `json:"workspace,omitempty"`
 	SystemPromptIncluded bool                    `json:"system_prompt_included,omitempty"`
 	MessageCount         int                     `json:"message_count,omitempty"`
+	Refs                 *ChatContextRefsItem    `json:"refs,omitempty"`
 	Sources              []ChatContextSourceItem `json:"sources,omitempty"`
 	Items                []ChatContextItem       `json:"items,omitempty"`
+}
+
+type ChatContextRefsItem struct {
+	SessionID    string `json:"session_id,omitempty"`
+	MessageID    string `json:"message_id,omitempty"`
+	TaskID       string `json:"task_id,omitempty"`
+	RunID        string `json:"run_id,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	WorkItemID   string `json:"work_item_id,omitempty"`
+	AssignmentID string `json:"assignment_id,omitempty"`
+	RoleID       string `json:"role_id,omitempty"`
 }
 
 type ChatContextSourceItem struct {
@@ -809,6 +823,7 @@ type ChatContextSourceItem struct {
 }
 
 type ChatContextItem struct {
+	Section         string `json:"section,omitempty"`
 	Kind            string `json:"kind"`
 	TrustLevel      string `json:"trust_level"`
 	Origin          string `json:"origin"`

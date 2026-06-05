@@ -105,15 +105,29 @@ type Activity struct {
 }
 
 type ContextPacket struct {
+	ID                   string          `json:"id,omitempty"`
 	Version              string          `json:"version,omitempty"`
 	ExecutionMode        string          `json:"execution_mode,omitempty"`
 	Provider             string          `json:"provider,omitempty"`
 	Model                string          `json:"model,omitempty"`
+	ExecutionProfile     string          `json:"execution_profile,omitempty"`
 	Workspace            string          `json:"workspace,omitempty"`
 	SystemPromptIncluded bool            `json:"system_prompt_included,omitempty"`
 	MessageCount         int             `json:"message_count,omitempty"`
+	Refs                 *ContextRefs    `json:"refs,omitempty"`
 	Sources              []ContextSource `json:"sources,omitempty"`
 	Items                []ContextItem   `json:"items,omitempty"`
+}
+
+type ContextRefs struct {
+	SessionID    string `json:"session_id,omitempty"`
+	MessageID    string `json:"message_id,omitempty"`
+	TaskID       string `json:"task_id,omitempty"`
+	RunID        string `json:"run_id,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	WorkItemID   string `json:"work_item_id,omitempty"`
+	AssignmentID string `json:"assignment_id,omitempty"`
+	RoleID       string `json:"role_id,omitempty"`
 }
 
 type ContextSource struct {
@@ -124,6 +138,7 @@ type ContextSource struct {
 }
 
 type ContextItem struct {
+	Section         string `json:"section,omitempty"`
 	Kind            string `json:"kind"`
 	TrustLevel      string `json:"trust_level"`
 	Origin          string `json:"origin"`

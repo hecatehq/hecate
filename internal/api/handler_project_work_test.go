@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -556,6 +558,165 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	}
 	if _, found, err := handler.taskStore.GetRun(t.Context(), task.ID, assignment.Data.RunID); err != nil || !found {
 		t.Fatalf("GetRun(%q) found=%v err=%v, want run", assignment.Data.RunID, found, err)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentPersistsInspectableContextPacket(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.ContextSources = []projects.ContextSource{{
+			ID:      "ctx_readme",
+			Kind:    "doc",
+			Title:   "README",
+			Path:    "README.md",
+			Enabled: true,
+		}}
+	}); err != nil {
+		t.Fatalf("Update project context sources: %v", err)
+	}
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:         "mem_backend",
+		ProjectID:  "proj_start",
+		Title:      "Backend preference",
+		Body:       "Prefer Go-first changes.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create project memory: %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(t.Context(), projectwork.Assignment{
+		ID:         "asgn_pm",
+		ProjectID:  "proj_start",
+		WorkItemID: "work_start",
+		RoleID:     "product_manager",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("Create source assignment: %v", err)
+	}
+	if _, err := handler.projectWork.CreateArtifact(t.Context(), projectwork.CollaborationArtifact{
+		ID:         "art_brief",
+		ProjectID:  "proj_start",
+		WorkItemID: "work_start",
+		Kind:       projectwork.ArtifactKindBrief,
+		Title:      "Operator brief",
+		Body:       "Do the backend slice only.",
+	}); err != nil {
+		t.Fatalf("Create artifact: %v", err)
+	}
+	if _, err := handler.projectWork.CreateHandoff(t.Context(), projectwork.Handoff{
+		ID:                    "handoff_review",
+		ProjectID:             "proj_start",
+		WorkItemID:            "work_start",
+		SourceAssignmentID:    "asgn_pm",
+		TargetRoleID:          "role_backend",
+		Title:                 "Backend handoff",
+		Summary:               "Focus on the runtime contract.",
+		RecommendedNextAction: "Start the native assignment and verify the packet.",
+		TrustLabel:            "operator_reviewed",
+		CreatedByRoleID:       "product_manager",
+	}); err != nil {
+		t.Fatalf("Create handoff: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	if assignment.Data.ContextSnapshotID == "" {
+		t.Fatalf("context_snapshot_id = %q, want persisted packet id", assignment.Data.ContextSnapshotID)
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	if packetResp.Data.ID != assignment.Data.ContextSnapshotID {
+		t.Fatalf("task run context id = %q, want %q", packetResp.Data.ID, assignment.Data.ContextSnapshotID)
+	}
+	if packetResp.Data.ExecutionProfile != "implementation" {
+		t.Fatalf("execution_profile = %q, want implementation", packetResp.Data.ExecutionProfile)
+	}
+	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != "proj_start" || packetResp.Data.Refs.WorkItemID != "work_start" || packetResp.Data.Refs.AssignmentID != "asgn_start" || packetResp.Data.Refs.RoleID != "role_backend" {
+		t.Fatalf("packet refs = %+v, want project/work/assignment/role refs", packetResp.Data.Refs)
+	}
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "mem_backend"); item == nil || item.Included || item.Section != contextSectionMemory {
+		t.Fatalf("memory item = %+v, want excluded memory section item", item)
+	}
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "README.md"); item == nil || item.Included || item.Section != contextSectionSources {
+		t.Fatalf("context source item = %+v, want excluded sources section item", item)
+	}
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "handoff_review"); item == nil || item.Included || item.Section != contextSectionProjectWork {
+		t.Fatalf("handoff item = %+v, want excluded project_work section item", item)
+	}
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "art_brief"); item == nil || item.Included || item.Section != contextSectionProjectWork {
+		t.Fatalf("artifact item = %+v, want excluded project_work section item", item)
+	}
+	if item := findRenderedContextItemByOrigin(packetResp.Data, "project_assignment.execution_hints"); item == nil || !item.Included || item.Section != contextSectionProjectWork {
+		t.Fatalf("execution hints item = %+v, want included project_work item", item)
+	}
+
+	assignmentPacket := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/context", "")
+	if assignmentPacket.Data.ID != assignment.Data.ContextSnapshotID {
+		t.Fatalf("assignment context id = %q, want %q", assignmentPacket.Data.ID, assignment.Data.ContextSnapshotID)
+	}
+}
+
+func TestProjectWorkAPI_AssignmentContextFallsBackToLinkedChatPacket(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Driver: projectwork.AssignmentDriverExternalAgent,
+		Status: projectwork.AssignmentStatusCompleted,
+	})
+	if _, err := handler.agentChat.Create(t.Context(), chat.Session{ID: "chat_linked", ProjectID: "proj_start"}); err != nil {
+		t.Fatalf("Create chat session: %v", err)
+	}
+	packet := normalizeContextPacket(chat.ContextPacket{
+		ID:            "ctx_linked",
+		Version:       chatContextPacketVersion,
+		ExecutionMode: chat.ExecutionModeExternalAgent,
+		Items: []chat.ContextItem{{
+			Kind:            "external_agent_session",
+			TrustLevel:      contextTrustRuntimeState,
+			Origin:          "adapter:Codex",
+			Title:           "Codex ACP session",
+			Included:        true,
+			InclusionReason: "Visible external-agent metadata for this turn",
+		}},
+	}, chat.ContextRefs{
+		SessionID: "chat_linked",
+		MessageID: "msg_linked",
+		ProjectID: "proj_start",
+	})
+	if _, err := handler.agentChat.AppendMessage(t.Context(), "chat_linked", chat.Message{
+		ID:      "msg_linked",
+		Role:    "assistant",
+		Content: "done",
+		Context: packet,
+	}); err != nil {
+		t.Fatalf("Append linked message: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateAssignment(t.Context(), "proj_start", "asgn_start", func(item *projectwork.Assignment) {
+		item.ChatSessionID = "chat_linked"
+		item.MessageID = "msg_linked"
+	}); err != nil {
+		t.Fatalf("Update assignment links: %v", err)
+	}
+
+	resp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/context", "")
+	if resp.Data.ID != "ctx_linked" || resp.Data.Refs == nil || resp.Data.Refs.SessionID != "chat_linked" || resp.Data.Refs.MessageID != "msg_linked" {
+		t.Fatalf("assignment chat fallback packet = %+v, want linked chat refs", resp.Data)
 	}
 }
 
