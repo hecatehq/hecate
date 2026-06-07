@@ -9,6 +9,7 @@ import type {
 import { formatDurationMs } from "../../lib/format";
 import { CodeBlock } from "../shared/Atoms";
 import { BrandAvatar } from "../shared/BrandAvatar";
+import { ContextInspectorDetails, contextPacketEmpty } from "../shared/ContextInspector";
 import { DiffViewer } from "../shared/DiffViewer";
 import { Icon, Icons } from "../shared/Icons";
 import { DiffStatList, TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
@@ -317,7 +318,7 @@ export function TranscriptMessageRow({
             <AgentTiming timing={agentTiming} />
           )}
           {isAssistant && contextPacket && !contextPacketEmpty(contextPacket) && (
-            <ContextInspector packet={contextPacket} />
+            <ContextInspectorDetails packet={contextPacket} />
           )}
           {isAssistant && agentUsage && !agentUsageEmpty(agentUsage) && (
             <AgentUsage usage={agentUsage} />
@@ -858,200 +859,6 @@ function AgentUsage({ usage }: { usage: ChatUsageRecord }) {
   );
 }
 
-function ContextInspector({ packet }: { packet: ChatContextPacketRecord }) {
-  const modelLabel = [packet.provider, packet.model].filter(Boolean).join(" · ");
-  const sources = packet.sources ?? [];
-  const itemGroups = groupContextItemsByTrust(packet.items ?? []);
-  const summaryParts = [
-    "what the agent saw",
-    packet.message_count
-      ? `${packet.message_count} message${packet.message_count === 1 ? "" : "s"}`
-      : "",
-    modelLabel,
-  ].filter(Boolean);
-  return (
-    <details style={{ marginTop: 8 }}>
-      <summary
-        style={{
-          color: "var(--t3)",
-          cursor: "pointer",
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          lineHeight: 1.6,
-        }}
-      >
-        {summaryParts.join(" · ")}
-      </summary>
-      <div
-        style={{
-          background: "var(--bg1)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-sm)",
-          display: "grid",
-          gap: 6,
-          marginTop: 6,
-          padding: "8px 9px",
-        }}
-      >
-        {packet.execution_mode && (
-          <ContextRow label="mode" value={humanExecutionMode(packet.execution_mode)} />
-        )}
-        {packet.workspace && <ContextRow label="workspace" value={packet.workspace} />}
-        {itemGroups.length > 0 && (
-          <div style={{ display: "grid", gap: 7 }}>
-            {itemGroups.map((group) => (
-              <ContextItemGroup key={group.trustLevel} group={group} />
-            ))}
-          </div>
-        )}
-        {itemGroups.length === 0 && sources.length > 0 && (
-          <div style={{ display: "grid", gap: 5 }}>
-            {sources.map((source, index) => (
-              <ContextSourceRow key={`${source.kind}-${source.label}-${index}`} source={source} />
-            ))}
-          </div>
-        )}
-      </div>
-    </details>
-  );
-}
-
-type ContextItemGroupRecord = {
-  trustLevel: string;
-  items: NonNullable<ChatContextPacketRecord["items"]>;
-};
-
-function ContextItemGroup({ group }: { group: ContextItemGroupRecord }) {
-  return (
-    <div
-      style={{
-        borderTop: "1px solid var(--border)",
-        display: "grid",
-        gap: 5,
-        paddingTop: 6,
-      }}
-    >
-      <div
-        style={{
-          color: "var(--t3)",
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          textTransform: "uppercase",
-        }}
-      >
-        {humanTrustLevel(group.trustLevel)}
-      </div>
-      <div style={{ display: "grid", gap: 6 }}>
-        {group.items.map((item, index) => (
-          <ContextItemRow key={`${item.kind}-${item.origin}-${index}`} item={item} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ContextItemRow({ item }: { item: NonNullable<ChatContextPacketRecord["items"]>[number] }) {
-  const detail = [item.origin, item.included ? "" : "excluded"].filter(Boolean).join(" · ");
-  const body = item.body?.trim() || item.inclusion_reason?.trim() || item.body_ref?.trim();
-  return (
-    <div style={{ display: "grid", gap: 2 }}>
-      <div style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-        {item.title || item.kind}
-      </div>
-      {detail && (
-        <div
-          style={{
-            color: "var(--t3)",
-            fontSize: 10,
-            lineHeight: 1.5,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-          title={detail}
-        >
-          {detail}
-        </div>
-      )}
-      {body && (
-        <div
-          style={{
-            color: "var(--t2)",
-            fontSize: 10,
-            lineHeight: 1.5,
-          }}
-        >
-          {body}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ContextRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "96px minmax(0, 1fr)", gap: 8 }}>
-      <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-        {label}
-      </span>
-      <span
-        style={{
-          color: "var(--t1)",
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
-        title={value}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function ContextSourceRow({
-  source,
-}: {
-  source: NonNullable<ChatContextPacketRecord["sources"]>[number];
-}) {
-  const detail = source.detail?.trim();
-  const label = source.label || source.kind;
-  const trust = source.trust ? ` · ${source.trust}` : "";
-  return (
-    <div
-      style={{
-        borderTop: "1px solid var(--border)",
-        display: "grid",
-        gap: 2,
-        paddingTop: 5,
-      }}
-    >
-      <div style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-        {label}
-        <span style={{ color: "var(--t3)" }}>{trust}</span>
-      </div>
-      {detail && (
-        <div
-          style={{
-            color: "var(--t3)",
-            fontSize: 10,
-            lineHeight: 1.5,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-          title={detail}
-        >
-          {detail}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function AgentTiming({ timing }: { timing: ChatTimingRecord }) {
   const bottleneck =
     timing.bottleneck && timing.bottleneck_ms
@@ -1098,68 +905,6 @@ function AgentTiming({ timing }: { timing: ChatTimingRecord }) {
       {counts && <span>{counts}</span>}
     </div>
   );
-}
-
-function contextPacketEmpty(packet: ChatContextPacketRecord): boolean {
-  return (
-    !packet.version &&
-    !packet.execution_mode &&
-    !packet.provider &&
-    !packet.model &&
-    !packet.workspace &&
-    !packet.system_prompt_included &&
-    !packet.message_count &&
-    (packet.sources ?? []).length === 0 &&
-    (packet.items ?? []).length === 0
-  );
-}
-
-function groupContextItemsByTrust(
-  items: NonNullable<ChatContextPacketRecord["items"]>,
-): ContextItemGroupRecord[] {
-  const groups = new Map<string, NonNullable<ChatContextPacketRecord["items"]>>();
-  for (const item of items) {
-    const trustLevel = item.trust_level || "runtime_state";
-    const group = groups.get(trustLevel) ?? [];
-    group.push(item);
-    groups.set(trustLevel, group);
-  }
-  return Array.from(groups.entries()).map(([trustLevel, groupItems]) => ({
-    trustLevel,
-    items: groupItems,
-  }));
-}
-
-function humanExecutionMode(mode: string): string {
-  switch (mode) {
-    case "external_agent":
-      return "External agent";
-    case "hecate_task":
-      return "Hecate task runtime";
-    default:
-      return mode;
-  }
-}
-
-function humanTrustLevel(level: string): string {
-  switch (level) {
-    case "system_instruction":
-      return "System instruction";
-    case "operator_memory":
-      return "Operator memory";
-    case "workspace_guidance":
-      return "Workspace guidance";
-    case "runtime_state":
-      return "Runtime state";
-    case "tool_output":
-      return "Tool output";
-    case "generated_summary":
-      return "Generated summary";
-    case "external_untrusted":
-      return "External untrusted";
-    default:
-      return level.replaceAll("_", " ");
-  }
 }
 
 function agentTimingEmpty(timing: ChatTimingRecord): boolean {

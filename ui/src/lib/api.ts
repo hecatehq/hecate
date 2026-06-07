@@ -7,6 +7,7 @@ import type {
   SystemResetDataResponse,
 } from "../types/runtime";
 import type { ModelResponse } from "../types/model";
+import type { ContextPacketResponse } from "../types/context";
 import type {
   ConfiguredStateResponse,
   LocalProviderDiscoveryResponse,
@@ -561,6 +562,16 @@ export async function startProjectAssignment(
   );
 }
 
+export async function getProjectAssignmentContext(
+  projectID: string,
+  workItemID: string,
+  assignmentID: string,
+): Promise<ContextPacketResponse> {
+  return fetchJSON<ContextPacketResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments/${encodeURIComponent(assignmentID)}/context`,
+  );
+}
+
 export async function getProjectCollaborationArtifacts(
   projectID: string,
   workItemID: string,
@@ -670,6 +681,15 @@ export async function createChatMessage(
   return fetchJSON<ChatSessionResponse>(
     `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/messages`,
     { method: "POST", body },
+  );
+}
+
+export async function getChatMessageContext(
+  sessionID: string,
+  messageID: string,
+): Promise<ContextPacketResponse> {
+  return fetchJSON<ContextPacketResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/context`,
   );
 }
 
@@ -1123,6 +1143,15 @@ export async function getTaskRunEvents(
 ): Promise<TaskRunEventsResponse> {
   return fetchJSON<TaskRunEventsResponse>(
     `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/events?after_sequence=${encodeURIComponent(String(afterSequence))}`,
+  );
+}
+
+export async function getTaskRunContext(
+  taskID: string,
+  runID: string,
+): Promise<ContextPacketResponse> {
+  return fetchJSON<ContextPacketResponse>(
+    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/context`,
   );
 }
 

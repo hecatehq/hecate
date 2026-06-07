@@ -487,6 +487,7 @@ describe("TranscriptMessageRow", () => {
       ],
       items: [
         {
+          section: "instructions",
           kind: "system_prompt",
           trust_level: "system_instruction",
           origin: "task.system_prompt",
@@ -496,6 +497,7 @@ describe("TranscriptMessageRow", () => {
           inclusion_reason: "Configured for this turn",
         },
         {
+          section: "workspace",
           kind: "workspace",
           trust_level: "workspace_guidance",
           origin: "/tmp/hecate",
@@ -513,11 +515,14 @@ describe("TranscriptMessageRow", () => {
 
     await user.click(summary);
 
-    expect(screen.getByText("Hecate task runtime")).toBeInTheDocument();
-    expect(screen.getAllByText("/tmp/hecate")).toHaveLength(2);
-    expect(screen.getByText("System instruction")).toBeInTheDocument();
-    expect(screen.getByText("Workspace guidance")).toBeInTheDocument();
-    expect(screen.getByText("System prompt")).toBeInTheDocument();
+    expect(screen.getByText("Launch summary")).toBeInTheDocument();
+    expect(screen.getByText("Instructions")).toBeInTheDocument();
+    expect(screen.getAllByText("Workspace").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Hecate task runtime").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("/tmp/hecate")).toHaveLength(1);
+    expect(screen.getByText("system instruction")).toBeInTheDocument();
+    expect(screen.getByText("workspace guidance")).toBeInTheDocument();
+    expect(screen.getAllByText("System prompt").length).toBeGreaterThan(0);
     expect(screen.getByText("Configured for this turn")).toBeInTheDocument();
   });
 
@@ -541,6 +546,7 @@ describe("TranscriptMessageRow", () => {
     const summary = screen.getByText(/what the agent saw · 2 messages/);
     await user.click(summary);
 
+    expect(screen.getByText("Legacy sources")).toBeInTheDocument();
     expect(screen.getByText("Cursor Agent ACP session")).toBeInTheDocument();
     expect(
       screen.getByText("The adapter owns model packing inside its native session"),

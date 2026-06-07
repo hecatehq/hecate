@@ -18,6 +18,7 @@ import {
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
+  getProjectAssignmentContext,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
@@ -103,6 +104,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
     getProjectWorkItems: vi.fn(async () => ({ object: "project_work_items", data: [] })),
     getProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
     getProjectAssignments: vi.fn(async () => ({ object: "project_assignments", data: [] })),
+    getProjectAssignmentContext: vi.fn(async () => ({ object: "context_packet", data: null })),
     getProjectCollaborationArtifacts: vi.fn(async () => ({
       object: "project_collaboration_artifacts",
       data: [],
@@ -311,6 +313,32 @@ function resetProjectWorkMocks() {
     object: "project_assignments",
     data: [hecateAssignment],
   });
+  vi.mocked(getProjectAssignmentContext).mockResolvedValue({
+    object: "context_packet",
+    data: {
+      id: "ctx_assignment_1",
+      execution_mode: "hecate_task",
+      provider: "ollama",
+      model: "qwen2.5-coder",
+      execution_profile: "implementation",
+      refs: {
+        project_id: project.id,
+        work_item_id: workItem.id,
+        assignment_id: hecateAssignment.id,
+      },
+      items: [
+        {
+          section: "project_work",
+          kind: "work_item",
+          trust_level: "runtime_state",
+          origin: workItem.id,
+          title: workItem.title,
+          body: workItem.brief,
+          included: true,
+        },
+      ],
+    },
+  });
   vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
     object: "project_collaboration_artifacts",
     data: [],
@@ -481,6 +509,7 @@ afterEach(() => {
   vi.mocked(getProjectWorkItems).mockReset();
   vi.mocked(getProjectWorkItem).mockReset();
   vi.mocked(getProjectAssignments).mockReset();
+  vi.mocked(getProjectAssignmentContext).mockReset();
   vi.mocked(getProjectCollaborationArtifacts).mockReset();
   vi.mocked(getProjectHandoffs).mockReset();
   vi.mocked(getProjectMemory).mockReset();
@@ -1132,6 +1161,16 @@ describe("ProjectsView cockpit", () => {
 
     await userEvent.click(within(detail).getByRole("button", { name: "Open task" }));
     expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
+
+    await userEvent.click(within(detail).getByRole("button", { name: "Inspect context" }));
+    expect(getProjectAssignmentContext).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      hecateAssignment.id,
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Assignment asgn_1 context" });
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByText("Expose project work and native starts.")).toBeTruthy();
 
     await userEvent.click(within(detail).getByRole("button", { name: "Open chat" }));
     expect(onOpenChat).toHaveBeenCalledWith(

@@ -9,6 +9,7 @@ import {
   getProviders,
   getTaskApprovals,
   getTaskRunArtifacts,
+  getTaskRunContext,
   getTaskRunEvents,
   getTaskRuns,
   getTaskRunSteps,
@@ -614,6 +615,11 @@ export function TasksView({
           }
           onApplyPatch={(artifactID) => void handleApplyPatch(artifactID)}
           onRevertPatch={(artifactID) => void handleRevertPatch(artifactID)}
+          loadContext={
+            selectedTaskID && selectedRunID
+              ? async () => (await getTaskRunContext(selectedTaskID, selectedRunID)).data
+              : null
+          }
           onOpenTrace={onOpenTrace}
         />
       ) : (
