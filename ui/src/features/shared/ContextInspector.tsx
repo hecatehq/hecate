@@ -290,10 +290,10 @@ function ContextSummary({ packet }: { packet: ContextPacketRecord }) {
       ? packet.system_prompt_included
         ? "Included"
         : "Not included"
-      : "Unknown";
+      : "Not captured";
   const messageCountValue =
     typeof packet.message_count === "number"
-      ? `${packet.message_count} message${packet.message_count === 1 ? "" : "s"}`
+      ? `${packet.message_count} chat message${packet.message_count === 1 ? "" : "s"} in scope`
       : "—";
 
   return (
@@ -373,8 +373,11 @@ function ContextSectionGroup({ group }: { group: ContextSectionGroupRecord }) {
 }
 
 function ContextItemRow({ item }: { item: ContextPacketItemRecord }) {
-  const detail = [item.origin, item.body_ref].filter(Boolean).join(" · ");
-  const note = item.body?.trim() || item.inclusion_reason?.trim();
+  const detail =
+    item.body_ref && item.body_ref !== item.origin
+      ? [item.origin, item.body_ref].filter(Boolean).join(" · ")
+      : item.origin;
+  const note = humanContextNote(item);
   return (
     <div
       style={{
@@ -474,6 +477,14 @@ function contextInspectorSummary(packet: ContextPacketRecord): string {
     modelLabel,
   ].filter(Boolean);
   return summaryParts.join(" · ");
+}
+
+function humanContextNote(item: ContextPacketItemRecord): string {
+  const note = item.body?.trim() || item.inclusion_reason?.trim() || "";
+  if (item.kind === "transcript" && note === "Current user message") {
+    return "Current turn input";
+  }
+  return note;
 }
 
 function groupContextItemsBySection(items: ContextPacketItemRecord[]): ContextSectionGroupRecord[] {
