@@ -529,12 +529,14 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getAllByText("Workspace").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Hecate task runtime").length).toBeGreaterThan(0);
     expect(screen.getAllByText("/tmp/hecate")).toHaveLength(2);
+    expect(screen.queryByText("/tmp/hecate · /tmp/hecate")).toBeNull();
     expect(screen.getByText("Not captured")).toBeInTheDocument();
     expect(screen.getByText("3 chat messages in scope")).toBeInTheDocument();
     expect(screen.getByText("system instruction")).toBeInTheDocument();
     expect(screen.getByText("workspace guidance")).toBeInTheDocument();
     expect(screen.getAllByText("System prompt").length).toBeGreaterThan(0);
     expect(screen.getByText("Current turn input")).toBeInTheDocument();
+    expect(screen.queryByText("Current user message")).toBeNull();
     expect(screen.getByText("Configured for this turn")).toBeInTheDocument();
   });
 
