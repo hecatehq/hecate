@@ -8,8 +8,9 @@ import (
 )
 
 type TaskFilter struct {
-	Status string
-	Limit  int
+	Status    string
+	ProjectID *string
+	Limit     int
 }
 
 type ArtifactFilter struct {

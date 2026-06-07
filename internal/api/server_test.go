@@ -33,6 +33,7 @@ import (
 	"github.com/hecatehq/hecate/internal/mcp"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/ratelimit"
 	"github.com/hecatehq/hecate/internal/retention"
@@ -4103,10 +4104,17 @@ func TestTasksCreateListAndGet(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	project, err := apiHandler.projects.Create(context.Background(), projects.Project{
+		ID:   "proj_ui",
+		Name: "UI",
+	})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
 	handler := NewServer(logger, apiHandler)
 	tasks := newTaskTestClient(t, handler)
 
-	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Upgrade TypeScript","prompt":"Upgrade the UI workspace to TypeScript 7 beta.","repo":"hecate","base_branch":"main","workspace_mode":"ephemeral","requested_model":"gpt-5.4-mini","requested_provider":"openai","budget_micros_usd":500000}`)
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Upgrade TypeScript","prompt":"Upgrade the UI workspace to TypeScript 7 beta.","project_id":"proj_ui","repo":"hecate","base_branch":"main","workspace_mode":"ephemeral","requested_model":"gpt-5.4-mini","requested_provider":"openai","budget_micros_usd":500000}`)
 	if created.Object != "task" {
 		t.Fatalf("object = %q, want task", created.Object)
 	}
@@ -4119,6 +4127,9 @@ func TestTasksCreateListAndGet(t *testing.T) {
 	if created.Data.Repo != "hecate" {
 		t.Fatalf("repo = %q, want hecate", created.Data.Repo)
 	}
+	if created.Data.ProjectID != project.ID {
+		t.Fatalf("project_id = %q, want %q", created.Data.ProjectID, project.ID)
+	}
 
 	listed := mustTaskRequestJSON[TasksResponse](tasks, http.MethodGet, "/hecate/v1/tasks?limit=10", "")
 	if listed.Object != "tasks" {
@@ -4130,6 +4141,19 @@ func TestTasksCreateListAndGet(t *testing.T) {
 	if listed.Data[0].ID != created.Data.ID {
 		t.Fatalf("listed task id = %q, want %q", listed.Data[0].ID, created.Data.ID)
 	}
+	if listed.Data[0].ProjectID != project.ID {
+		t.Fatalf("listed project_id = %q, want %q", listed.Data[0].ProjectID, project.ID)
+	}
+
+	projectListed := mustTaskRequestJSON[TasksResponse](tasks, http.MethodGet, "/hecate/v1/tasks?limit=10&project_id=proj_ui", "")
+	if len(projectListed.Data) != 1 || projectListed.Data[0].ID != created.Data.ID {
+		t.Fatalf("project-scoped tasks = %#v, want only created task", projectListed.Data)
+	}
+
+	unprojectedListed := mustTaskRequestJSON[TasksResponse](tasks, http.MethodGet, "/hecate/v1/tasks?limit=10&project_id=", "")
+	if len(unprojectedListed.Data) != 0 {
+		t.Fatalf("unprojected task list = %#v, want none", unprojectedListed.Data)
+	}
 
 	fetched := mustTaskRequestJSON[TaskResponse](tasks, http.MethodGet, "/hecate/v1/tasks/"+created.Data.ID, "")
 	if fetched.Data.ID != created.Data.ID {
@@ -4137,6 +4161,9 @@ func TestTasksCreateListAndGet(t *testing.T) {
 	}
 	if fetched.Data.Prompt != "Upgrade the UI workspace to TypeScript 7 beta." {
 		t.Fatalf("prompt = %q, want original prompt", fetched.Data.Prompt)
+	}
+	if fetched.Data.ProjectID != project.ID {
+		t.Fatalf("fetched project_id = %q, want %q", fetched.Data.ProjectID, project.ID)
 	}
 
 	startRecorder := tasks.mustRequest(http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/start", "")

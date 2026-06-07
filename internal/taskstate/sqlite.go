@@ -105,6 +105,14 @@ func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]types
 		args = append(args, filter.Status)
 		where = append(where, "status = ?")
 	}
+	if filter.ProjectID != nil {
+		if *filter.ProjectID == "" {
+			where = append(where, "json_extract(payload, '$.ProjectID') IS NULL OR json_extract(payload, '$.ProjectID') = ''")
+		} else {
+			args = append(args, *filter.ProjectID)
+			where = append(where, "json_extract(payload, '$.ProjectID') = ?")
+		}
+	}
 	limitSQL := ""
 	if filter.Limit > 0 {
 		args = append(args, filter.Limit)

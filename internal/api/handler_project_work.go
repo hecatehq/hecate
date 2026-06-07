@@ -1103,6 +1103,7 @@ func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string
 		ID:                 taskID,
 		Title:              projectAssignmentTaskTitle(workItem, role),
 		Prompt:             projectAssignmentPrompt(project, workItem, assignment, role),
+		ProjectID:          project.ID,
 		SystemPrompt:       projectAssignmentSystemPrompt(project, role),
 		ExecutionKind:      "agent_loop",
 		ExecutionProfile:   executionProfile,

@@ -75,6 +75,9 @@ func (s *MemoryStore) ListTasks(_ context.Context, filter TaskFilter) ([]types.T
 		if filter.Status != "" && task.Status != filter.Status {
 			continue
 		}
+		if filter.ProjectID != nil && task.ProjectID != *filter.ProjectID {
+			continue
+		}
 		items = append(items, task)
 	}
 	sort.Slice(items, func(i, j int) bool {

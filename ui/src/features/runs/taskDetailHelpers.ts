@@ -321,11 +321,13 @@ export function taskActivityTitle(item: TaskActivityRecord): string {
       if (item.status === "rejected" || item.status === "denied") return "Approval rejected";
       return "Approval";
     case "artifact":
+      if ((item.kind ?? "").trim() === "agent_conversation") return "Agent conversation";
+      if (isOutputArtifactActivity(item)) return "Output";
       return "Artifact";
     case "changed_files":
       return "Changed files";
     case "final_answer":
-      return "Final answer artifact";
+      return "Final answer";
     case "patch":
       return "Patch";
     case "tool_call":

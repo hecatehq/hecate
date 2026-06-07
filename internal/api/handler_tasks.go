@@ -80,12 +80,27 @@ func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 	if priority == "" {
 		priority = "normal"
 	}
+	projectID := strings.TrimSpace(req.ProjectID)
+	if projectID != "" {
+		if h.projects == nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project store is not configured")
+			return
+		}
+		if _, ok, err := h.projects.Get(ctx, projectID); err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		} else if !ok {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project not found")
+			return
+		}
+	}
 
 	now := time.Now().UTC()
 	task := types.Task{
 		ID:                 newTaskID(),
 		Title:              title,
 		Prompt:             prompt,
+		ProjectID:          projectID,
 		SystemPrompt:       strings.TrimSpace(req.SystemPrompt),
 		ExecutionProfile:   strings.TrimSpace(req.ExecutionProfile),
 		Repo:               strings.TrimSpace(req.Repo),
@@ -194,6 +209,13 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 	filter := taskstate.TaskFilter{
 		Status: strings.TrimSpace(r.URL.Query().Get("status")),
 		Limit:  limit,
+	}
+	if rawProjectIDs, ok := r.URL.Query()["project_id"]; ok {
+		projectID := strings.TrimSpace("")
+		if len(rawProjectIDs) > 0 {
+			projectID = strings.TrimSpace(rawProjectIDs[0])
+		}
+		filter.ProjectID = &projectID
 	}
 	result, err := h.taskStore.ListTasks(ctx, filter)
 	if err != nil {
@@ -706,6 +728,7 @@ func renderTaskItem(task types.Task) TaskItem {
 		ID:                 task.ID,
 		Title:              task.Title,
 		Prompt:             task.Prompt,
+		ProjectID:          task.ProjectID,
 		SystemPrompt:       task.SystemPrompt,
 		ExecutionProfile:   task.ExecutionProfile,
 		OriginKind:         task.OriginKind,

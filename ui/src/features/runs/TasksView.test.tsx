@@ -42,6 +42,7 @@ const task: TaskRecord = {
   id: "task_1",
   title: "Review project cockpit",
   prompt: "Review project cockpit",
+  project_id: "",
   status: "completed",
   execution_kind: "agent_loop",
   latest_run_id: "run_1",
@@ -159,6 +160,91 @@ describe("TasksView empty state", () => {
         "/workspace/default",
       );
     });
+  });
+
+  it("loads tasks scoped to the active project", async () => {
+    const project: ProjectRecord = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [],
+      created_at: "2026-05-29T00:00:00Z",
+      updated_at: "2026-05-29T00:00:00Z",
+    };
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      projects: [project],
+      activeProjectID: project.id,
+    });
+
+    render(withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await waitFor(() => {
+      expect(vi.mocked(getTasks)).toHaveBeenCalledWith(30, project.id);
+    });
+  });
+
+  it("switches the visible task list when the selected project changes", async () => {
+    const projectA: ProjectRecord = {
+      id: "proj_a",
+      name: "Alpha",
+      roots: [],
+      created_at: "2026-05-29T00:00:00Z",
+      updated_at: "2026-05-29T00:00:00Z",
+    };
+    const projectB: ProjectRecord = {
+      id: "proj_b",
+      name: "Beta",
+      roots: [],
+      created_at: "2026-05-29T00:00:00Z",
+      updated_at: "2026-05-29T00:00:00Z",
+    };
+    const alphaTask: TaskRecord = {
+      ...task,
+      id: "task_alpha",
+      title: "Alpha task",
+      prompt: "Alpha task",
+      project_id: projectA.id,
+      latest_run_id: "",
+    };
+    const betaTask: TaskRecord = {
+      ...task,
+      id: "task_beta",
+      title: "Beta task",
+      prompt: "Beta task",
+      project_id: projectB.id,
+      latest_run_id: "",
+    };
+    vi.mocked(getTasks).mockImplementation(async (_limit, projectID) => {
+      if (projectID === projectA.id) return { object: "list", data: [alphaTask] };
+      if (projectID === projectB.id) return { object: "list", data: [betaTask] };
+      return { object: "list", data: [] };
+    });
+    vi.mocked(getTaskRuns).mockResolvedValue({ object: "list", data: [] });
+
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      projects: [projectA, projectB],
+      activeProjectID: projectA.id,
+    });
+
+    render(withRuntimeConsole(<TasksView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Task Alpha task" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Project Alpha" }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Project Beta" })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Project Beta" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(getTasks)).toHaveBeenCalledWith(30, projectB.id);
+      expect(screen.getByRole("button", { name: "Task Beta task" })).toBeTruthy();
+    });
+
+    expect(screen.queryByRole("button", { name: "Task Alpha task" })).toBeNull();
   });
 });
 

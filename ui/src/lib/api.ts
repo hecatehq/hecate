@@ -206,6 +206,7 @@ export type CreateChatMessagePayload = {
 export type CreateTaskPayload = {
   title?: string;
   prompt: string;
+  project_id?: string;
   execution_kind?: string;
   shell_command?: string;
   git_command?: string;
@@ -1067,8 +1068,12 @@ export async function getRetentionRuns(limit = 10): Promise<RetentionRunsRespons
   );
 }
 
-export async function getTasks(limit = 20): Promise<TasksResponse> {
-  return fetchJSON<TasksResponse>(`${HECATE_API}/tasks?limit=${encodeURIComponent(String(limit))}`);
+export async function getTasks(limit = 20, projectID?: string | null): Promise<TasksResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (projectID !== undefined && projectID !== null) {
+    params.set("project_id", projectID);
+  }
+  return fetchJSON<TasksResponse>(`${HECATE_API}/tasks?${params.toString()}`);
 }
 
 export async function createTask(payload: CreateTaskPayload): Promise<TaskResponse> {

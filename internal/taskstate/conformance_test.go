@@ -292,6 +292,53 @@ func runStoreListTasksFilterAndLimit(t *testing.T, store Store) {
 	if len(statused) != 2 {
 		t.Fatalf("ListTasks status len = %d, want 2", len(statused))
 	}
+
+	projectID := "proj_a"
+	projectScoped, err := store.ListTasks(ctx, TaskFilter{ProjectID: &projectID})
+	if err != nil {
+		t.Fatalf("ListTasks(project_id): %v", err)
+	}
+	if len(projectScoped) != 0 {
+		t.Fatalf("ListTasks project_id len = %d, want 0 before project-linked fixtures", len(projectScoped))
+	}
+
+	for i, spec := range []struct {
+		id        string
+		projectID string
+		ts        time.Time
+	}{
+		{"t-proj-1", "proj_a", now.Add(1 * time.Minute)},
+		{"t-proj-2", "proj_b", now.Add(2 * time.Minute)},
+		{"t-none", "", now.Add(3 * time.Minute)},
+	} {
+		_, err := store.CreateTask(ctx, types.Task{
+			ID:        spec.id,
+			Status:    "queued",
+			ProjectID: spec.projectID,
+			CreatedAt: spec.ts,
+			UpdatedAt: spec.ts,
+		})
+		if err != nil {
+			t.Fatalf("CreateTask(project[%d]): %v", i, err)
+		}
+	}
+
+	projectScoped, err = store.ListTasks(ctx, TaskFilter{ProjectID: &projectID})
+	if err != nil {
+		t.Fatalf("ListTasks(project_id scoped): %v", err)
+	}
+	if len(projectScoped) != 1 || projectScoped[0].ID != "t-proj-1" {
+		t.Fatalf("ListTasks project scope = %#v, want only t-proj-1", projectScoped)
+	}
+
+	noProjectID := ""
+	unprojected, err := store.ListTasks(ctx, TaskFilter{ProjectID: &noProjectID})
+	if err != nil {
+		t.Fatalf("ListTasks(project_id empty): %v", err)
+	}
+	if len(unprojected) == 0 || unprojected[0].ID != "t-none" {
+		t.Fatalf("ListTasks unprojected = %#v, want t-none first", unprojected)
+	}
 }
 
 func runStoreApprovalRoundTrip(t *testing.T, store Store) {
