@@ -89,15 +89,15 @@ type RunEvidenceRecord struct {
 
 Candidate `Kind` values:
 
-| Kind                 | Subject                                                 |
-| -------------------- | ------------------------------------------------------- |
-| `run_event`          | Persisted `TaskRunEvent` canonical JSON.                |
-| `approval_requested` | `TaskApproval` request body and policy reason.          |
-| `approval_resolved`  | Approval decision, operator, note, and resolved time.   |
-| `artifact_created`   | Artifact metadata plus content hash.                    |
-| `artifact_reverted`  | Revert metadata plus before/after content hashes.       |
-| `grant_created`      | External-agent durable grant scope and expiry.          |
-| `grant_revoked`      | Revocation reason and parent grant reference.           |
+| Kind                 | Subject                                                  |
+| -------------------- | -------------------------------------------------------- |
+| `run_event`          | Persisted `TaskRunEvent` canonical JSON.                 |
+| `approval_requested` | `TaskApproval` request body and policy reason.           |
+| `approval_resolved`  | Approval decision, operator, note, and resolved time.    |
+| `artifact_created`   | Artifact metadata plus content hash.                     |
+| `artifact_reverted`  | Revert metadata plus before/after content hashes.        |
+| `grant_created`      | External-agent durable grant scope and expiry.           |
+| `grant_revoked`      | Revocation reason and parent grant reference.            |
 | `context_snapshot`   | Context packet metadata and item hashes, not raw secret. |
 
 The chain should be deterministic over canonical JSON. Store the hash and
@@ -194,11 +194,11 @@ changing active project memory immediately.
 
 States:
 
-| State       | Meaning                                                             |
-| ----------- | ------------------------------------------------------------------- |
-| `draft`     | Candidate exists only for review or the current run.                |
-| `active`    | Candidate is included in an experimental context packet.            |
-| `merged`    | Operator promoted it into durable memory.                           |
+| State       | Meaning                                                              |
+| ----------- | -------------------------------------------------------------------- |
+| `draft`     | Candidate exists only for review or the current run.                 |
+| `active`    | Candidate is included in an experimental context packet.             |
+| `merged`    | Operator promoted it into durable memory.                            |
 | `discarded` | Operator rejected it; future context assembly ignores it by default. |
 
 Memory branches should reuse the existing memory-candidate promotion posture:

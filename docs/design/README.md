@@ -92,7 +92,7 @@ for the context packet boundary.
 | [Projects](accepted/projects.md)                                                                    | Accepted           | Projects, context, and memory |
 | [Context assembly and injection boundaries](proposals/context-assembly-and-injection-boundaries.md) | Proposal; partial  | Projects, context, and memory |
 | [Agent memory](proposals/agent-memory.md)                                                           | Proposal; partial  | Projects, context, and memory |
-| [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)                    | Proposal           | Projects, context, and memory |
+| [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)                   | Proposal           | Projects, context, and memory |
 | [LLM context window management](proposals/llm-context-window-management.md)                         | Proposal           | Projects, context, and memory |
 | [Workflow runbooks v0](proposals/workflow-runbooks-v0.md)                                           | Proposal           | Workflow runbooks             |
 | [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)                    | Accepted           | Agent and chat runtime        |
