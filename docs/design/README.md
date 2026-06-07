@@ -36,7 +36,8 @@ Read these in order:
 1. [Projects](accepted/projects.md)
 2. [Context assembly and injection boundaries](proposals/context-assembly-and-injection-boundaries.md)
 3. [Agent memory](proposals/agent-memory.md)
-4. [LLM context window management](proposals/llm-context-window-management.md)
+4. [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)
+5. [LLM context window management](proposals/llm-context-window-management.md)
 
 The invariant: projects provide identity, context assembly decides what enters
 a model or adapter call, memory is operator-approved durable context, and window
@@ -91,6 +92,7 @@ for the context packet boundary.
 | [Projects](accepted/projects.md)                                                                    | Accepted           | Projects, context, and memory |
 | [Context assembly and injection boundaries](proposals/context-assembly-and-injection-boundaries.md) | Proposal; partial  | Projects, context, and memory |
 | [Agent memory](proposals/agent-memory.md)                                                           | Proposal; partial  | Projects, context, and memory |
+| [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)                    | Proposal           | Projects, context, and memory |
 | [LLM context window management](proposals/llm-context-window-management.md)                         | Proposal           | Projects, context, and memory |
 | [Workflow runbooks v0](proposals/workflow-runbooks-v0.md)                                           | Proposal           | Workflow runbooks             |
 | [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)                    | Accepted           | Agent and chat runtime        |
