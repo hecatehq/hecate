@@ -2551,6 +2551,14 @@ group without inferring from `kind`. Current packets intentionally snapshot
 visible metadata only; they do not store full system prompts, raw transcript
 text, file contents, or external-agent private prompt packing.
 
+Operator UI note: the current React console renders these packets as a compact
+"what the agent saw" inspector. Chats expose it inline on assistant transcript
+rows; Task Detail and Project assignment detail expose it behind an
+`Inspect context` modal. The UI groups rows by `section`, keeps trust labels on
+each item, falls back to legacy `sources` when `items` are absent, and uses
+operator-facing copy such as `Not captured` when a snapshot does not expose the
+full system prompt text.
+
 Section values currently used by the runtime are:
 
 - `instructions` for system-prompt and instruction-layer metadata
