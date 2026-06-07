@@ -74,7 +74,8 @@ export function ContextInspectorModalTrigger({
     if (!open || !loadRef.current) return;
     let cancelled = false;
     setState({ status: "loading" });
-    loadRef.current()
+    loadRef
+      .current()
       .then((packet) => {
         if (cancelled) return;
         setState({ status: "ready", packet });
