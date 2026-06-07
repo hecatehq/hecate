@@ -1368,7 +1368,10 @@ function RuntimeActivity({ activity }: { activity: TaskActivityRecord[] }) {
     [activity],
   );
   const activityByID = new Map(visibleActivity.map((item) => [item.id, item]));
-  const outputArtifacts = useMemo(() => buildOutputActivityIndex(visibleActivity), [visibleActivity]);
+  const outputArtifacts = useMemo(
+    () => buildOutputActivityIndex(visibleActivity),
+    [visibleActivity],
+  );
   const rows = visibleActivity.map(taskActivityToTranscriptActivity);
   return (
     <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>

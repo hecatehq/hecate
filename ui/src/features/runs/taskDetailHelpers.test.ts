@@ -615,7 +615,11 @@ describe("taskActivityTitle", () => {
     ).toBe("Output");
     expect(
       taskActivityTitle(
-        activity({ type: "artifact", title: "agent-conversation.json", kind: "agent_conversation" }),
+        activity({
+          type: "artifact",
+          title: "agent-conversation.json",
+          kind: "agent_conversation",
+        }),
       ),
     ).toBe("Agent conversation");
     expect(taskActivityTitle(activity({ type: "changed_files" }))).toBe("Changed files");
