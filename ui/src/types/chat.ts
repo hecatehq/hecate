@@ -1,4 +1,10 @@
 import type { ModelCapabilitiesRecord } from "./model";
+import type {
+  ContextPacketItemRecord,
+  ContextPacketRecord,
+  ContextPacketRefsRecord,
+  ContextPacketSourceRecord,
+} from "./context";
 
 // PersistedContentBlock mirrors the Hecate-extension wire shape used to
 // persist Anthropic-aware content (thinking, tool_use, image with
@@ -78,35 +84,10 @@ export type ChatMessageRecord = {
   context_packet?: ChatContextPacketRecord;
 };
 
-export type ChatContextPacketRecord = {
-  version?: string;
-  execution_mode?: string;
-  provider?: string;
-  model?: string;
-  workspace?: string;
-  system_prompt_included?: boolean;
-  message_count?: number;
-  sources?: ChatContextSourceRecord[];
-  items?: ChatContextItemRecord[];
-};
-
-export type ChatContextSourceRecord = {
-  kind: string;
-  label: string;
-  detail?: string;
-  trust?: string;
-};
-
-export type ChatContextItemRecord = {
-  kind: string;
-  trust_level: string;
-  origin: string;
-  title: string;
-  body?: string;
-  body_ref?: string;
-  included: boolean;
-  inclusion_reason?: string;
-};
+export type ChatContextPacketRecord = ContextPacketRecord;
+export type ChatContextRefsRecord = ContextPacketRefsRecord;
+export type ChatContextSourceRecord = ContextPacketSourceRecord;
+export type ChatContextItemRecord = ContextPacketItemRecord;
 
 export type ChatSegmentRecord = {
   id: string;

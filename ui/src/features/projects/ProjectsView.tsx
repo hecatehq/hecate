@@ -23,6 +23,7 @@ import {
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
+  getProjectAssignmentContext,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
@@ -46,6 +47,7 @@ import { formatAbsoluteTime } from "../../lib/format";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { ChatRightPanel } from "../chats/ChatRightPanel";
+import { ContextInspectorModalTrigger } from "../shared/ContextInspector";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
 import {
   activitySignalLabel,
@@ -76,6 +78,7 @@ import type {
 } from "../../types/project";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderPresetRecord } from "../../types/provider";
+import type { ContextPacketRecord } from "../../types/context";
 import {
   Badge,
   ConfirmModal,
@@ -2921,6 +2924,18 @@ function WorkItemDetail({
                   onStart={() => onStartAssignment(assignment)}
                   role={roleByID.get(assignment.role_id)}
                   starting={startingAssignmentID === assignment.id}
+                  loadContext={
+                    project
+                      ? async () =>
+                          (
+                            await getProjectAssignmentContext(
+                              project.id,
+                              workItem.id,
+                              assignment.id,
+                            )
+                          ).data
+                      : null
+                  }
                 />
               ))}
             </div>
@@ -4151,6 +4166,7 @@ function AssignmentRow({
   assignment,
   chatModel,
   error,
+  loadContext,
   onDelete,
   onEdit,
   onOpenChat,
@@ -4162,6 +4178,7 @@ function AssignmentRow({
   assignment: ProjectAssignmentRecord;
   chatModel: string;
   error: string;
+  loadContext?: (() => Promise<ContextPacketRecord>) | null;
   onDelete: () => void;
   onEdit: () => void;
   onOpenChat?: () => void;
@@ -4239,6 +4256,14 @@ function AssignmentRow({
             Open task
           </button>
         )}
+        <ContextInspectorModalTrigger
+          buttonLabel="Inspect context"
+          buttonTitle="Inspect the best available stored context snapshot for this assignment."
+          loadPacket={loadContext}
+          modalTitle={`Assignment ${assignment.id} context`}
+          resourceKey={assignment.id}
+          unavailableDetail="This assignment does not have a stored context packet yet. Unstarted assignments, legacy rows, and older linked runs can legitimately return no snapshot."
+        />
         <button
           className="btn btn-ghost btn-sm"
           type="button"

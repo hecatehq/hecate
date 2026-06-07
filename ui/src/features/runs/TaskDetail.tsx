@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ContextPacketRecord } from "../../types/context";
 import type {
   TaskActivityRecord,
   TaskApprovalRecord,
@@ -15,6 +16,7 @@ import {
   formatMicrosUSD,
 } from "../../lib/format";
 import { providerDisplayName } from "../../lib/provider-utils";
+import { ContextInspectorModalTrigger } from "../shared/ContextInspector";
 import { Badge, BrandAvatar, CopyableID, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { DiffViewer } from "../shared/DiffViewer";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
@@ -386,6 +388,7 @@ type Props = {
   onResumeRaisingCeiling: (budgetMicrosUSD: number) => void;
   onApplyPatch: (artifactID: string) => void;
   onRevertPatch: (artifactID: string) => void;
+  loadContext?: (() => Promise<ContextPacketRecord>) | null;
   // onOpenTrace opens the Observability drawer pre-targeted on the
   // run's request_id. Surfaced as a clickable Request ID in the run
   // metadata grid when both the callback and the run.request_id are
@@ -419,6 +422,7 @@ export function TaskDetail({
   onResumeRaisingCeiling,
   onApplyPatch,
   onRevertPatch,
+  loadContext,
   onOpenTrace,
 }: Props) {
   const termRef = useRef<HTMLDivElement>(null);
@@ -624,6 +628,16 @@ export function TaskDetail({
           >
             <Icon d={Icons.refresh} size={13} />
           </button>
+          {run && (
+            <ContextInspectorModalTrigger
+              buttonLabel="Inspect context"
+              buttonTitle="Inspect the stored context snapshot for this run."
+              loadPacket={loadContext}
+              modalTitle={`Run #${run.number} context`}
+              resourceKey={run.id}
+              unavailableDetail="This run has no stored context snapshot yet. Older runs may predate context persistence, and unrelated runs may have no linked chat packet to fall back to."
+            />
+          )}
         </div>
       </div>
 

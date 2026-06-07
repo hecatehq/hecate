@@ -19,11 +19,13 @@ import {
   deleteProjectWorkItem,
   discoverLocalProviders,
   dispatchChatStreamEvent,
+  getChatMessageContext,
   getChatMessageFileDiff,
   getChatWorkspaceDiff,
   getChatWorkspaceFileDiff,
   getChatWorkspaceFiles,
   getChatApproval,
+  getProjectAssignmentContext,
   getProjectAssignments,
   getProjectActivity,
   getProjectCollaborationArtifacts,
@@ -36,6 +38,7 @@ import {
   getUsageEvents,
   getUsageSummary,
   getSession,
+  getTaskRunContext,
   getTrace,
   listChatApprovals,
   listChatGrants,
@@ -533,6 +536,20 @@ describe("api client", () => {
         body: JSON.stringify({ driver_kind: "hecate_task" }),
       }),
     );
+  });
+
+  it("fetches project assignment context snapshots", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ object: "context_packet", data: { id: "ctx_1", version: "chat.context.v1" } }),
+    );
+
+    const result = await getProjectAssignmentContext("proj/1", "work/1", "asgn/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments/asgn%2F1/context",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result.data.id).toBe("ctx_1");
   });
 
   it("creates project work items and assignments", async () => {
@@ -1275,6 +1292,23 @@ describe("api client", () => {
   });
 
   describe("chat changed-file endpoints", () => {
+    it("fetches a stored context packet for a chat message", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "context_packet",
+          data: { id: "ctx_2", version: "chat.context.v1" },
+        }),
+      );
+
+      const result = await getChatMessageContext("s 1", "m/1");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/chat/sessions/s%201/messages/m%2F1/context",
+        expect.anything(),
+      );
+      expect(result.data.id).toBe("ctx_2");
+    });
+
     it("lists changed files for an agent message", async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
@@ -1441,6 +1475,20 @@ describe("api client", () => {
       expect(result.data.reverted).toBe(true);
       expect(result.data.files[0]?.path).toBe("README.md");
     });
+  });
+
+  it("fetches task run context snapshots", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ object: "context_packet", data: { id: "ctx_3", version: "chat.context.v1" } }),
+    );
+
+    const result = await getTaskRunContext("task/1", "run/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/tasks/task%2F1/runs/run%2F1/context",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result.data.id).toBe("ctx_3");
   });
 
   // ─── Agent-chat SSE dispatch ───────────────────────────────────────────────

@@ -2,7 +2,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../../lib/api";
 import { TaskDetail } from "./TaskDetail";
+import type { ContextPacketRecord } from "../../types/context";
 import type {
   TaskActivityRecord,
   TaskArtifactRecord,
@@ -197,6 +199,51 @@ describe("TaskDetail run picker", () => {
     const { render } = setup({ runs: [], run: null });
     render();
     expect(screen.queryByRole("button", { name: /select run/i })).toBeNull();
+  });
+
+  it("opens a context inspector for the selected run", async () => {
+    const loadContext = vi.fn<() => Promise<ContextPacketRecord>>().mockResolvedValue({
+      id: "ctx_run_1",
+      execution_mode: "hecate_task",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      execution_profile: "chat_agent",
+      refs: { task_id: "task-1", run_id: "run-1" },
+      items: [
+        {
+          section: "runtime",
+          kind: "task_runtime",
+          trust_level: "runtime_state",
+          origin: "hecate.task_runtime",
+          title: "Hecate task runtime",
+          body: "Continuing the existing task-backed agent loop",
+          included: true,
+        },
+      ],
+    });
+    const { render, user } = setup({ loadContext });
+    render();
+
+    await user.click(screen.getByRole("button", { name: "Inspect context" }));
+
+    expect(loadContext).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Run #1 context")).toBeInTheDocument();
+    expect(screen.getByText("Linked refs")).toBeInTheDocument();
+    expect(screen.getAllByText("Hecate task runtime").length).toBeGreaterThan(0);
+    expect(screen.getByText("chat_agent")).toBeInTheDocument();
+  });
+
+  it("shows an unavailable state when the run has no stored context snapshot", async () => {
+    const loadContext = vi
+      .fn<() => Promise<ContextPacketRecord>>()
+      .mockRejectedValue(new ApiError("not found", 404));
+    const { render, user } = setup({ loadContext });
+    render();
+
+    await user.click(screen.getByRole("button", { name: "Inspect context" }));
+
+    expect(await screen.findByText("Context snapshot unavailable")).toBeInTheDocument();
+    expect(screen.getByText(/Older runs may predate context persistence/i)).toBeInTheDocument();
   });
 });
 
