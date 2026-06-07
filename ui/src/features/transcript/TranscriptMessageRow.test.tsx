@@ -506,6 +506,15 @@ describe("TranscriptMessageRow", () => {
           included: true,
           inclusion_reason: "Workspace path selected",
         },
+        {
+          section: "runtime",
+          kind: "transcript",
+          trust_level: "runtime_state",
+          origin: "chat.transcript",
+          title: "Chat transcript",
+          body: "Current user message",
+          included: true,
+        },
       ],
     };
 
@@ -519,10 +528,13 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText("Instructions")).toBeInTheDocument();
     expect(screen.getAllByText("Workspace").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Hecate task runtime").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("/tmp/hecate")).toHaveLength(1);
+    expect(screen.getAllByText("/tmp/hecate")).toHaveLength(2);
+    expect(screen.getByText("Not captured")).toBeInTheDocument();
+    expect(screen.getByText("3 chat messages in scope")).toBeInTheDocument();
     expect(screen.getByText("system instruction")).toBeInTheDocument();
     expect(screen.getByText("workspace guidance")).toBeInTheDocument();
     expect(screen.getAllByText("System prompt").length).toBeGreaterThan(0);
+    expect(screen.getByText("Current turn input")).toBeInTheDocument();
     expect(screen.getByText("Configured for this turn")).toBeInTheDocument();
   });
 
