@@ -2,6 +2,7 @@ export type TaskRecord = {
   id: string;
   title: string;
   prompt: string;
+  project_id?: string;
   // Per-task agent_loop system prompt — narrowest layer in the
   // composition (global → workspace CLAUDE.md/AGENTS.md → this).
   system_prompt?: string;

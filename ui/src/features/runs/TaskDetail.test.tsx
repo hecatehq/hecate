@@ -233,6 +233,69 @@ describe("TaskDetail run picker", () => {
     expect(screen.getByText("chat_agent")).toBeInTheDocument();
   });
 
+  it("does not refetch or flicker when the parent rerenders with a new loadContext identity", async () => {
+    const loadContext = vi.fn<() => Promise<ContextPacketRecord>>().mockResolvedValue({
+      id: "ctx_run_1",
+      execution_mode: "hecate_task",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      execution_profile: "chat_agent",
+      refs: { task_id: "task-1", run_id: "run-1" },
+      items: [
+        {
+          section: "runtime",
+          kind: "task_runtime",
+          trust_level: "runtime_state",
+          origin: "hecate.task_runtime",
+          title: "Hecate task runtime",
+          body: "Continuing the existing task-backed agent loop",
+          included: true,
+        },
+      ],
+    });
+    const task = makeTask();
+    const run = makeRun();
+    const baseProps: React.ComponentProps<typeof TaskDetail> = {
+      task,
+      run,
+      runs: [run],
+      selectedRunID: run.id,
+      events: [],
+      steps: [],
+      artifacts: [],
+      activity: [],
+      approvals: [],
+      streamTurnCosts: new Map(),
+      streamState: "live",
+      busyAction: "",
+      notice: null,
+      onSelectRun: vi.fn(),
+      onResolveApproval: vi.fn(),
+      onCancelRun: vi.fn(),
+      onRetryRun: vi.fn(),
+      onResumeRun: vi.fn(),
+      onRefresh: vi.fn(),
+      onRetryFromTurn: vi.fn(),
+      onResumeRaisingCeiling: vi.fn(),
+      onApplyPatch: vi.fn(),
+      onRevertPatch: vi.fn(),
+    };
+    const user = userEvent.setup();
+    const view = render(<TaskDetail {...baseProps} loadContext={() => loadContext()} />);
+
+    await user.click(screen.getByRole("button", { name: "Inspect context" }));
+
+    expect(await screen.findByText("Run #1 context")).toBeInTheDocument();
+    expect(loadContext).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Loading context snapshot…")).toBeNull();
+
+    view.rerender(<TaskDetail {...baseProps} loadContext={() => loadContext()} />);
+
+    expect(loadContext).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Loading context snapshot…")).toBeNull();
+    expect(screen.getByText("Run #1 context")).toBeInTheDocument();
+  });
+
   it("shows an unavailable state when the run has no stored context snapshot", async () => {
     const loadContext = vi
       .fn<() => Promise<ContextPacketRecord>>()
@@ -346,6 +409,14 @@ describe("TaskDetail runtime activity and patches", () => {
           path: "agent-final-answer.txt",
           status: "ready",
         }),
+        makeActivity({
+          id: "activity-conversation",
+          type: "artifact",
+          title: "agent-conversation.json",
+          kind: "agent_conversation",
+          path: "agent-conversation.json",
+          status: "ready",
+        }),
       ],
     });
     render();
@@ -354,8 +425,8 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("Artifacts · 2 items")).toBeTruthy();
     expect(screen.getAllByText("Workspace diff snapshot").length).toBeGreaterThan(0);
     expect(screen.getAllByText("git-changes.json").length).toBeGreaterThan(0);
-    expect(screen.getByText("Final answer artifact")).toBeTruthy();
     expect(screen.getAllByText("agent-final-answer.txt").length).toBeGreaterThan(0);
+    expect(screen.queryByText("agent-conversation.json")).toBeNull();
 
     await user.click(screen.getAllByText("Advanced")[0]);
     expect(screen.getByText("step-git")).toBeTruthy();
@@ -378,6 +449,26 @@ describe("TaskDetail runtime activity and patches", () => {
 
     expect(screen.getAllByText("file-0.ts").length).toBeGreaterThan(0);
     expect(screen.getAllByText("file-12.ts").length).toBeGreaterThan(0);
+  });
+
+  it("hides agent conversation artifacts from runtime activity because the conversation renders separately", () => {
+    const { render } = setup({
+      activity: [
+        makeActivity({
+          id: "activity-conversation",
+          type: "artifact",
+          title: "agent-conversation.json",
+          kind: "agent_conversation",
+          path: "agent-conversation.json",
+          status: "ready",
+        }),
+      ],
+    });
+    render();
+
+    expect(screen.getByText(/Runtime activity/i)).toBeTruthy();
+    expect(screen.queryByText("Agent conversation")).toBeNull();
+    expect(screen.queryByText("agent-conversation.json")).toBeNull();
   });
 
   it("renders task approval rows without leaking internal agent-loop markers", async () => {
@@ -781,6 +872,30 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.getByText(/Run created/i)).toBeTruthy();
     expect(screen.getByText(/Queued/i)).toBeTruthy();
     expect(screen.getByText(/Completed/i)).toBeTruthy();
+  });
+
+  it("renders timeline rows as sequence, then time, then status", () => {
+    const events: TaskRunEventRecord[] = [
+      makeEvent({
+        event_id: "evt_01HX0000000000000000000999",
+        sequence: 1,
+        type: "run.created",
+        occurred_at: "2026-04-27T17:00:00Z",
+      }),
+    ];
+    const { render } = setup({ events });
+    render();
+
+    const sequence = screen.getByText("#1");
+    const row = sequence.parentElement as HTMLDivElement | null;
+    expect(row).toBeTruthy();
+    const cells = row ? Array.from(row.children) : [];
+
+    expect(cells).toHaveLength(3);
+    expect(cells[0]?.textContent).toContain("#1");
+    expect(cells[1]?.textContent).toMatch(/[:]/);
+    expect(cells[1]?.textContent).not.toContain("Run created");
+    expect(cells[2]?.textContent).toContain("Run created");
   });
 
   it("hides snapshot sync events and renders compact operator labels", () => {

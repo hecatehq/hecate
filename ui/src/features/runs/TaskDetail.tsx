@@ -844,7 +844,7 @@ export function TaskDetail({
                       key={event.event_id || `${event.sequence}-${event.type}`}
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "64px minmax(132px, auto) minmax(0, 1fr)",
+                        gridTemplateColumns: "64px minmax(116px, auto) minmax(0, 1fr)",
                         gap: 10,
                         alignItems: "start",
                       }}
@@ -854,19 +854,20 @@ export function TaskDetail({
                       >
                         #{event.sequence}
                       </div>
-                      <span style={{ minWidth: 0 }} title={meta.label}>
-                        <Badge status={meta.tone} label={meta.label} />
-                      </span>
+                      <div
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 11,
+                          color: "var(--t2)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {event.occurred_at ? formatLocaleTime(event.occurred_at) : "streamed"}
+                      </div>
                       <div style={{ minWidth: 0 }}>
-                        <div
-                          style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: 11,
-                            color: "var(--t2)",
-                          }}
-                        >
-                          {event.occurred_at ? formatLocaleTime(event.occurred_at) : "streamed"}
-                        </div>
+                        <span style={{ minWidth: 0 }} title={meta.label}>
+                          <Badge status={meta.tone} label={meta.label} />
+                        </span>
                         {(() => {
                           const note = describeRunEventNote(event);
                           return note ? (
@@ -1359,9 +1360,16 @@ function StepRowTitle({ step }: { step: TaskStepRecord }) {
 }
 
 function RuntimeActivity({ activity }: { activity: TaskActivityRecord[] }) {
-  const activityByID = new Map(activity.map((item) => [item.id, item]));
-  const outputArtifacts = useMemo(() => buildOutputActivityIndex(activity), [activity]);
-  const rows = activity.map(taskActivityToTranscriptActivity);
+  const visibleActivity = useMemo(
+    () =>
+      activity.filter(
+        (item) => !(item.type === "artifact" && (item.kind ?? "").trim() === "agent_conversation"),
+      ),
+    [activity],
+  );
+  const activityByID = new Map(visibleActivity.map((item) => [item.id, item]));
+  const outputArtifacts = useMemo(() => buildOutputActivityIndex(visibleActivity), [visibleActivity]);
+  const rows = visibleActivity.map(taskActivityToTranscriptActivity);
   return (
     <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
       <div className="kicker" style={{ marginBottom: 8 }}>

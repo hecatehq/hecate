@@ -610,8 +610,16 @@ describe("taskActivityTitle", () => {
 
   it("renders the canonical type label for artifact / changed_files / final_answer / patch", () => {
     expect(taskActivityTitle(activity({ type: "artifact" }))).toBe("Artifact");
+    expect(
+      taskActivityTitle(activity({ type: "artifact", title: "git-stdout.txt", kind: "stdout" })),
+    ).toBe("Output");
+    expect(
+      taskActivityTitle(
+        activity({ type: "artifact", title: "agent-conversation.json", kind: "agent_conversation" }),
+      ),
+    ).toBe("Agent conversation");
     expect(taskActivityTitle(activity({ type: "changed_files" }))).toBe("Changed files");
-    expect(taskActivityTitle(activity({ type: "final_answer" }))).toBe("Final answer artifact");
+    expect(taskActivityTitle(activity({ type: "final_answer" }))).toBe("Final answer");
     expect(taskActivityTitle(activity({ type: "patch" }))).toBe("Patch");
   });
 

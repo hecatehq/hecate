@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ApiError } from "../../lib/api";
 import type {
@@ -59,6 +59,11 @@ export function ContextInspectorModalTrigger({
   const [open, setOpen] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [state, setState] = useState<RemoteState>({ status: "idle" });
+  const loadRef = useRef(loadPacket);
+  const unavailableDetailRef = useRef(unavailableDetail);
+
+  loadRef.current = loadPacket;
+  unavailableDetailRef.current = unavailableDetail;
 
   useEffect(() => {
     setReloadNonce(0);
@@ -66,10 +71,10 @@ export function ContextInspectorModalTrigger({
   }, [resourceKey]);
 
   useEffect(() => {
-    if (!open || !loadPacket) return;
+    if (!open || !loadRef.current) return;
     let cancelled = false;
     setState({ status: "loading" });
-    loadPacket()
+    loadRef.current()
       .then((packet) => {
         if (cancelled) return;
         setState({ status: "ready", packet });
@@ -77,7 +82,7 @@ export function ContextInspectorModalTrigger({
       .catch((error) => {
         if (cancelled) return;
         if (error instanceof ApiError && error.status === 404) {
-          setState({ status: "unavailable", detail: unavailableDetail });
+          setState({ status: "unavailable", detail: unavailableDetailRef.current });
           return;
         }
         setState({
@@ -88,7 +93,7 @@ export function ContextInspectorModalTrigger({
     return () => {
       cancelled = true;
     };
-  }, [loadPacket, open, reloadNonce, resourceKey, unavailableDetail]);
+  }, [open, reloadNonce, resourceKey]);
 
   const canInspect = Boolean(loadPacket);
   return (

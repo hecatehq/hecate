@@ -9,6 +9,10 @@ type Task struct {
 	ID     string
 	Title  string
 	Prompt string
+	// ProjectID links the task to an operator project when it was
+	// created from a project-scoped surface (manual Tasks, Hecate Chat,
+	// or project assignments). Empty means the task is unscoped.
+	ProjectID string
 	// SystemPrompt is the per-task agent system prompt. When set, it
 	// becomes the narrowest layer in the composition: global default →
 	// workspace CLAUDE.md/AGENTS.md → this. Concatenated, broadest

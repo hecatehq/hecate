@@ -134,6 +134,7 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 
 - `execution_kind` — one of `shell`, `git`, `file`, `agent_loop`
 - `prompt` — the user-facing prompt; required for `agent_loop`, optional description for the others
+- `project_id` — optional owning project id. Empty / omitted creates an unprojected task; `GET /hecate/v1/tasks?project_id=` lists only unprojected tasks
 - `system_prompt` — per-task agent prompt (narrowest of the three-layer composition); `agent_loop` only
 - `shell_command` / `git_command` / `file_path` / `file_content` / `file_operation` — execution-kind-specific
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
@@ -163,7 +164,7 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 ## Lifecycle endpoints
 
 - `POST /hecate/v1/tasks`
-- `GET /hecate/v1/tasks`
+- `GET /hecate/v1/tasks` — optional `project_id` query scopes the list. Pass an empty value (`?project_id=`) for unprojected tasks only.
 - `GET /hecate/v1/tasks/{id}`
 - `DELETE /hecate/v1/tasks/{id}`
 - `POST /hecate/v1/tasks/{id}/start` — returns `422 model_not_configured` when an `agent_loop` task has no `requested_model` set. No run is created.

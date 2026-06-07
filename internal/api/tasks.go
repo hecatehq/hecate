@@ -5,6 +5,9 @@ import "github.com/hecatehq/hecate/internal/eventprotocol"
 type CreateTaskRequest struct {
 	Title  string `json:"title"`
 	Prompt string `json:"prompt"`
+	// ProjectID links a manually-created task to the selected project.
+	// Empty / omitted creates an unprojected task.
+	ProjectID string `json:"project_id,omitempty"`
 	// SystemPrompt is the per-task system prompt for agent_loop runs.
 	// It's the narrowest layer in the four-level composition (global
 	// → tenant → workspace CLAUDE.md/AGENTS.md → this).
@@ -186,6 +189,7 @@ type TaskItem struct {
 	ID                 string `json:"id"`
 	Title              string `json:"title"`
 	Prompt             string `json:"prompt"`
+	ProjectID          string `json:"project_id,omitempty"`
 	SystemPrompt       string `json:"system_prompt,omitempty"`
 	ExecutionProfile   string `json:"execution_profile,omitempty"`
 	OriginKind         string `json:"origin_kind,omitempty"`

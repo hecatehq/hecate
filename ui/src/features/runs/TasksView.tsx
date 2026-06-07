@@ -130,6 +130,7 @@ export function TasksView({
   useEnsureProviderPresetsLoaded();
   const providerPresets = useProvidersAndModels().state.providerPresets;
   const projects = useProjects();
+  const activeProjectID = projects.activeProjectID;
   const defaultTaskWorkspace = projectDefaultWorkspace(projects.activeProject);
 
   const streamCursorRef = useRef(0);
@@ -199,11 +200,15 @@ export function TasksView({
   );
 
   const loadTasks = useCallback(
-    async (preferredTaskID = "", preferredRunID = "") => {
+    async (
+      preferredTaskID = "",
+      preferredRunID = "",
+      projectID: string | null = activeProjectID,
+    ) => {
       // single-user: always authenticated
       setLoading(true);
       try {
-        const res = await getTasks(30);
+        const res = await getTasks(30, projectID);
         const nextTasks = res.data ?? [];
         setTasks(nextTasks);
         const currentTaskID = selectedTaskIDRef.current;
@@ -224,12 +229,12 @@ export function TasksView({
         setLoading(false);
       }
     },
-    [loadTaskDetail],
+    [activeProjectID, loadTaskDetail],
   );
 
   useEffect(() => {
     void loadTasks();
-  }, [loadTasks]);
+  }, [activeProjectID, loadTasks]);
 
   useEffect(() => {
     if (!focusRequest?.taskID) return;
@@ -547,10 +552,13 @@ export function TasksView({
   async function handleCreateTask(payload: CreateTaskPayload) {
     setBusyAction("create");
     try {
-      const created = await createTask(payload);
+      const created = await createTask({
+        ...payload,
+        project_id: activeProjectID || undefined,
+      });
       const started = await startTask(created.data.id);
       setNewTaskOpen(false);
-      await loadTasks(created.data.id, started.data.id);
+      await loadTasks(created.data.id, started.data.id, activeProjectID);
     } catch (err) {
       setNotice({
         tone: "error",
@@ -570,7 +578,7 @@ export function TasksView({
         busyAction={busyAction}
         projectScope={
           <ProjectScopePanel
-            noProjectDetail="Tasks stay ungrouped."
+            noProjectDetail="Unprojected tasks only."
             emptyHint="Add a folder when you want task defaults and workspace context."
             deleteMessage={(project) => (
               <>
@@ -578,6 +586,9 @@ export function TasksView({
                 project context and its defaults are removed.
               </>
             )}
+            onProjectSelected={(projectID) => {
+              void loadTasks("", "", projectID);
+            }}
           />
         }
         onSelect={(id) => void handleSelectTask(id)}

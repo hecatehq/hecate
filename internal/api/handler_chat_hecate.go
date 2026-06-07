@@ -432,6 +432,7 @@ func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session cha
 			ID:                 newTaskID(),
 			Title:              title,
 			Prompt:             prompt,
+			ProjectID:          session.ProjectID,
 			SystemPrompt:       strings.TrimSpace(systemPrompt),
 			ExecutionKind:      "agent_loop",
 			ExecutionProfile:   "chat_agent",
