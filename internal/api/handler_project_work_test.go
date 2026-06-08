@@ -798,6 +798,49 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsMissingProfileWarning(t *testing
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentKeepsExplicitModelEqualToRouterDefault(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	handler.config.Router.DefaultModel = "qwen2.5-coder"
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverHecateTask,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:        "prof_project",
+		Name:      "Project profile",
+		Surface:   agentprofiles.SurfaceHecateTask,
+		ModelHint: "claude-sonnet-4",
+	}); err != nil {
+		t.Fatalf("Create project profile: %v", err)
+	}
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.DefaultAgentProfile = "prof_project"
+		project.DefaultModel = "qwen2.5-coder"
+	}); err != nil {
+		t.Fatalf("Update project defaults: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+	}
+	if task.RequestedModel != "qwen2.5-coder" {
+		t.Fatalf("task requested model = %q, want explicit project default", task.RequestedModel)
+	}
+}
+
 func TestProjectWorkAPI_AssignmentContextFallsBackToLinkedChatPacket(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
