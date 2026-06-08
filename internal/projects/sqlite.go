@@ -84,12 +84,31 @@ CREATE TABLE IF NOT EXISTS %s (
 	title TEXT NOT NULL DEFAULT '',
 	path TEXT NOT NULL,
 	enabled INTEGER NOT NULL DEFAULT 1,
+	format TEXT NOT NULL DEFAULT '',
+	scope TEXT NOT NULL DEFAULT '',
+	trust_label TEXT NOT NULL DEFAULT '',
+	source_category TEXT NOT NULL DEFAULT '',
+	metadata TEXT NOT NULL DEFAULT '{}',
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	PRIMARY KEY(project_id, id),
 	FOREIGN KEY(project_id) REFERENCES %s(id) ON DELETE CASCADE
 )`, s.sourcesTbl, s.projectsTbl)); err != nil {
 		return fmt.Errorf("create project context sources table: %w", err)
+	}
+	for _, column := range []struct {
+		name string
+		ddl  string
+	}{
+		{"format", "TEXT NOT NULL DEFAULT ''"},
+		{"scope", "TEXT NOT NULL DEFAULT ''"},
+		{"trust_label", "TEXT NOT NULL DEFAULT ''"},
+		{"source_category", "TEXT NOT NULL DEFAULT ''"},
+		{"metadata", "TEXT NOT NULL DEFAULT '{}'"},
+	} {
+		if err := s.addColumnIfMissing(ctx, s.sourcesTbl, column.name, column.ddl); err != nil {
+			return fmt.Errorf("migrate project context source column %s: %w", column.name, err)
+		}
 	}
 	rootsProjectIndex := strings.Trim(s.rootsTbl, `"`) + "_project_idx"
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (project_id)`, rootsProjectIndex, s.rootsTbl)); err != nil {
@@ -100,6 +119,32 @@ CREATE TABLE IF NOT EXISTS %s (
 		return fmt.Errorf("create project context sources project index: %w", err)
 	}
 	return nil
+}
+
+func (s *SQLiteStore) addColumnIfMissing(ctx context.Context, table, column, ddl string) error {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, ddl))
+	return err
 }
 
 func (s *SQLiteStore) Create(ctx context.Context, project Project) (Project, error) {
@@ -381,13 +426,19 @@ func (s *SQLiteStore) upsertProjectContextSources(ctx context.Context, tx *sql.T
 	for _, source := range project.ContextSources {
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (
-	id, project_id, kind, title, path, enabled, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	id, project_id, kind, title, path, enabled, format, scope, trust_label,
+	source_category, metadata, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(project_id, id) DO UPDATE SET
 	kind = excluded.kind,
 	title = excluded.title,
 	path = excluded.path,
 	enabled = excluded.enabled,
+	format = excluded.format,
+	scope = excluded.scope,
+	trust_label = excluded.trust_label,
+	source_category = excluded.source_category,
+	metadata = excluded.metadata,
 	updated_at = excluded.updated_at`, s.sourcesTbl),
 			source.ID,
 			project.ID,
@@ -395,6 +446,11 @@ ON CONFLICT(project_id, id) DO UPDATE SET
 			source.Title,
 			source.Path,
 			boolToDB(source.Enabled),
+			source.Format,
+			source.Scope,
+			source.TrustLabel,
+			source.SourceCategory,
+			encodeContextMetadata(source.Metadata),
 			formatTime(source.CreatedAt),
 			formatTime(source.UpdatedAt),
 		); err != nil {
@@ -519,7 +575,7 @@ ORDER BY active DESC, path ASC, id ASC`, s.rootsTbl), projectID)
 
 func (s *SQLiteStore) loadContextSourcesWith(ctx context.Context, q sqliteQuerier, projectID string) ([]ContextSource, error) {
 	rows, err := q.QueryContext(ctx, fmt.Sprintf(`
-SELECT id, kind, title, path, enabled, created_at, updated_at
+SELECT id, kind, title, path, enabled, format, scope, trust_label, source_category, metadata, created_at, updated_at
 FROM %s
 WHERE project_id = ?
 ORDER BY enabled DESC, path ASC, id ASC`, s.sourcesTbl), projectID)
@@ -531,6 +587,7 @@ ORDER BY enabled DESC, path ASC, id ASC`, s.sourcesTbl), projectID)
 	for rows.Next() {
 		var source ContextSource
 		var enabled int
+		var metadataRaw string
 		var createdAt, updatedAt string
 		if err := rows.Scan(
 			&source.ID,
@@ -538,12 +595,18 @@ ORDER BY enabled DESC, path ASC, id ASC`, s.sourcesTbl), projectID)
 			&source.Title,
 			&source.Path,
 			&enabled,
+			&source.Format,
+			&source.Scope,
+			&source.TrustLabel,
+			&source.SourceCategory,
+			&metadataRaw,
 			&createdAt,
 			&updatedAt,
 		); err != nil {
 			return nil, err
 		}
 		source.Enabled = enabled != 0
+		source.Metadata = decodeContextMetadata(metadataRaw)
 		var err error
 		if source.CreatedAt, err = parseTime(createdAt); err != nil {
 			return nil, err

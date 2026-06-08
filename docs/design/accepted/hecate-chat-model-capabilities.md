@@ -3,8 +3,8 @@
 > **Status:** accepted; partially implemented alpha direction.
 > **Current source of truth:** [Chat sessions](../../runtime/chat-sessions.md),
 > [Agent runtime](../../runtime/agent-runtime.md), and [Runtime API](../../runtime/runtime-api.md).
-> **Next action:** implement workspace modes, named agent profiles, automatic
-> capability probes, and broader e2e hardening.
+> **Next action:** wire workspace modes and named agent profiles into Hecate
+> Chat setup, implement automatic capability probes, and broaden e2e hardening.
 >
 > **Terminology note:** this design record was written while "Hecate Agent" was the
 > proposed product label for Hecate-owned tools-on chat. Current UI and
@@ -42,7 +42,7 @@ requirements after the baseline bridge are:
 - streamed assistant text for task-backed Hecate Agent turns _(implemented)_
 - local composer queueing while a backing task is busy _(implemented)_
 - task workspace modes exposed in Hecate Chat setup
-- named agent profiles
+- named agent profiles consumed by Hecate Chat setup
 - richer automatic capability detection with visible status
 
 ## Why
@@ -455,7 +455,8 @@ Done in the core bridge:
 Still required for a complete Hecate Chat tools-on experience:
 
 - workspace modes in the chat setup
-- named agent profiles
+- named agent profiles in the chat setup; profile Core/API exists, but Chat
+  does not yet select or snapshot a named chat profile
 - automatic capability probing
 - broader e2e/product hardening around workspace modes, profiles, automatic
   capability detection, and mixed long-running sessions

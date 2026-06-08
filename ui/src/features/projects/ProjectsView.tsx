@@ -14,6 +14,7 @@ import {
   ApiError,
   createProjectAssignment,
   createProjectHandoff,
+  discoverProjectContextSources,
   createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
@@ -23,6 +24,7 @@ import {
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   getProjectActivity,
+  getAgentProfiles,
   getProjectAssignmentContext,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
@@ -66,6 +68,7 @@ import type {
   ProjectActivityItemRecord,
   ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
+  ProjectContextSourceRecord,
   CreateProjectHandoffPayload,
   ProjectHandoffRecord,
   ProjectMemoryRecord,
@@ -76,6 +79,7 @@ import type {
   UpdateProjectPayload,
   UpdateProjectWorkItemPayload,
 } from "../../types/project";
+import type { AgentProfileRecord } from "../../types/agent-profile";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderPresetRecord } from "../../types/provider";
 import type { ContextPacketRecord } from "../../types/context";
@@ -166,6 +170,7 @@ type HandoffForm = {
 type ProjectDefaultsForm = {
   provider: string;
   model: string;
+  defaultAgentProfile: string;
   workspaceMode: string;
 };
 
@@ -334,6 +339,9 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   }
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryRecord[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<ProjectMemoryCandidateRecord[]>([]);
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfileRecord[]>([]);
+  const [agentProfilesError, setAgentProfilesError] = useState("");
+  const [discoveringContext, setDiscoveringContext] = useState(false);
   const [memoryLoadState, setMemoryLoadState] = useState<LoadState>("idle");
   const [memoryError, setMemoryError] = useState("");
   const [editingMemory, setEditingMemory] = useState<ProjectMemoryRecord | "new" | null>(null);
@@ -349,6 +357,22 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     () => projects.state.projects.find((project) => project.id === selectedProjectID) ?? null,
     [projects.state.projects, selectedProjectID],
   );
+  useEffect(() => {
+    let cancelled = false;
+    getAgentProfiles()
+      .then((payload) => {
+        if (cancelled) return;
+        setAgentProfiles(payload.data ?? []);
+        setAgentProfilesError("");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setAgentProfilesError(errorMessage(error, "Failed to load agent profiles."));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const pendingDeleteProject =
     projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
   const roleByID = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
@@ -594,6 +618,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     const patch: UpdateProjectPayload = {
       default_provider: form.provider.trim(),
       default_model: form.model.trim(),
+      default_agent_profile: form.defaultAgentProfile.trim(),
       default_workspace_mode: form.workspaceMode.trim(),
     };
     try {
@@ -604,6 +629,20 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       setDefaultsError(errorMessage(error, "Failed to update project defaults."));
     } finally {
       setDefaultsPending(false);
+    }
+  }
+
+  async function handleDiscoverContextSources() {
+    if (!selectedProjectID) return;
+    setDiscoveringContext(true);
+    setMemoryError("");
+    try {
+      const payload = await discoverProjectContextSources(selectedProjectID);
+      projects.actions.setProjects((current) => upsertProject(current, payload.data));
+    } catch (error) {
+      setMemoryError(errorMessage(error, "Failed to discover workspace guidance."));
+    } finally {
+      setDiscoveringContext(false);
     }
   }
 
@@ -1272,9 +1311,11 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                 {workspaceTab === "memory" && (
                   <ProjectMemoryPanel
                     candidates={memoryCandidates}
+                    discoveringContext={discoveringContext}
                     entries={memoryEntries}
                     error={memoryError}
                     loading={memoryLoadState === "loading"}
+                    onDiscoverContextSources={handleDiscoverContextSources}
                     onPromoteCandidate={setPromotingCandidate}
                     onRejectCandidate={handleRejectCandidate}
                     onDelete={setDeleteMemory}
@@ -1296,6 +1337,8 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
               onWidthChange={updateRightPanelWidth}
             >
               <ProjectSettingsPanel
+                agentProfiles={agentProfiles}
+                agentProfilesError={agentProfilesError}
                 error={defaultsError}
                 models={providersAndModels.state.models}
                 pending={defaultsPending}
@@ -1310,6 +1353,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
 
         {selectedProject && rolesModalOpen && (
           <RolesModal
+            agentProfiles={agentProfiles}
             error={rolesError}
             pending={rolesPending}
             roles={roles}
@@ -2421,9 +2465,11 @@ function ProjectDecisionRow({
 
 function ProjectMemoryPanel({
   candidates,
+  discoveringContext,
   entries,
   error,
   loading,
+  onDiscoverContextSources,
   onPromoteCandidate,
   onRejectCandidate,
   onDelete,
@@ -2434,9 +2480,11 @@ function ProjectMemoryPanel({
   rejectingCandidateID,
 }: {
   candidates: ProjectMemoryCandidateRecord[];
+  discoveringContext: boolean;
   entries: ProjectMemoryRecord[];
   error: string;
   loading: boolean;
+  onDiscoverContextSources: () => void;
   onPromoteCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
   onRejectCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
   onDelete: (entry: ProjectMemoryRecord) => void;
@@ -2449,6 +2497,7 @@ function ProjectMemoryPanel({
   if (!project) return null;
   const enabledCount = entries.filter((entry) => entry.enabled).length;
   const pendingCount = candidates.filter((candidate) => candidate.status === "pending").length;
+  const contextSources = project.context_sources ?? [];
   return (
     <div>
       <div style={panelStyle}>
@@ -2471,6 +2520,15 @@ function ProjectMemoryPanel({
           >
             <Icon d={Icons.refresh} size={12} />
           </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            disabled={discoveringContext}
+            onClick={onDiscoverContextSources}
+          >
+            <Icon d={Icons.search} size={12} />
+            {discoveringContext ? "Discovering…" : "Discover"}
+          </button>
           <button className="btn btn-primary btn-sm" type="button" onClick={onNew}>
             <Icon d={Icons.plus} size={12} />
             Memory
@@ -2481,6 +2539,14 @@ function ProjectMemoryPanel({
             <InlineError message={error} />
           </div>
         )}
+        <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+          <div style={sectionLabelStyle}>Workspace guidance</div>
+          {contextSources.length === 0 ? (
+            <div style={subtleTextStyle}>No context sources discovered or configured yet.</div>
+          ) : (
+            contextSources.map((source) => <ProjectContextSourceRow key={source.id} source={source} />)
+          )}
+        </div>
         {candidates.length > 0 && (
           <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
             <div style={sectionLabelStyle}>Candidates</div>
@@ -2509,6 +2575,33 @@ function ProjectMemoryPanel({
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectContextSourceRow({ source }: { source: ProjectContextSourceRecord }) {
+  const host = source.metadata?.host;
+  return (
+    <div style={memoryEntryStyle}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <span
+          className={
+            source.kind === "workspace_instruction" ? "badge badge-green" : "badge badge-muted"
+          }
+        >
+          {source.kind}
+        </span>
+        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{source.title || source.path}</div>
+        <span className={source.enabled ? "badge badge-muted" : "badge badge-amber"}>
+          {source.enabled ? "enabled" : "disabled"}
+        </span>
+      </div>
+      <div style={metaLineStyle}>
+        <span>{source.path}</span>
+        {source.format && <span>{source.format}</span>}
+        {source.scope && <span>{source.scope}</span>}
+        {host && <span>{host}</span>}
       </div>
     </div>
   );
@@ -3007,6 +3100,8 @@ function WorkItemDetail({
 }
 
 function ProjectSettingsPanel({
+  agentProfiles,
+  agentProfilesError,
   error,
   models,
   pending,
@@ -3015,6 +3110,8 @@ function ProjectSettingsPanel({
   project,
   onSave,
 }: {
+  agentProfiles: AgentProfileRecord[];
+  agentProfilesError: string;
   error: string;
   models: ModelRecord[];
   pending: boolean;
@@ -3026,6 +3123,7 @@ function ProjectSettingsPanel({
   const [form, setForm] = useState<ProjectDefaultsForm>({
     provider: project.default_provider ?? "",
     model: project.default_model ?? "",
+    defaultAgentProfile: project.default_agent_profile ?? "",
     workspaceMode: project.default_workspace_mode || "in_place",
   });
   const scopedModels = useMemo(() => {
@@ -3036,6 +3134,10 @@ function ProjectSettingsPanel({
     if (form.model) return form.model;
     return defaultModelID(scopedModels);
   }, [form.model, scopedModels]);
+  const selectedProfile = useMemo(
+    () => agentProfiles.find((profile) => profile.id === form.defaultAgentProfile) ?? null,
+    [agentProfiles, form.defaultAgentProfile],
+  );
 
   function handleProviderChange(provider: string) {
     setForm((current) => {
@@ -3104,6 +3206,7 @@ function ProjectSettingsPanel({
           style={{ display: "grid", gap: 14 }}
         >
           {error && <InlineError message={error} />}
+          {agentProfilesError && <InlineError message={agentProfilesError} />}
           <ProjectSettingsSection title="Assignment defaults">
             <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
               Native Hecate assignments copy these defaults when creating the backing task.
@@ -3128,6 +3231,29 @@ function ProjectSettingsPanel({
                     showProvider={!form.provider}
                   />
                 </div>
+              </div>
+              <div style={fieldStyle}>
+                <span style={fieldLabelStyle}>Agent profile</span>
+                <select
+                  aria-label="Default agent profile"
+                  className="input"
+                  value={form.defaultAgentProfile}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      defaultAgentProfile: event.target.value,
+                    }))
+                  }
+                  style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
+                >
+                  <option value="">built-in project_assignment</option>
+                  {agentProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name || profile.id} ({profile.id})
+                    </option>
+                  ))}
+                </select>
+                <ProfilePosturePreview profile={selectedProfile} />
               </div>
               <div style={fieldStyle}>
                 <span style={fieldLabelStyle}>Workspace mode</span>
@@ -3222,12 +3348,41 @@ function ProjectSettingsSection({ title, children }: { title: string; children: 
   );
 }
 
+function ProfilePosturePreview({ profile }: { profile: AgentProfileRecord | null }) {
+  if (!profile) {
+    return (
+      <div style={{ ...subtleTextStyle, marginTop: 4 }}>
+        Uses the built-in project_assignment posture until a saved profile is selected.
+      </div>
+    );
+  }
+  const details = [
+    profile.surface,
+    profile.execution_profile ? `profile ${profile.execution_profile}` : "",
+    profile.provider_hint || profile.model_hint
+      ? `hints ${[profile.provider_hint, profile.model_hint].filter(Boolean).join("/")}`
+      : "",
+    `tools ${profile.tools_enabled ? "on" : "off"}`,
+    `writes ${profile.writes_allowed ? "on" : "off"}`,
+    `network ${profile.network_allowed ? "on" : "off"}`,
+    `approval ${profile.approval_policy}`,
+    `memory ${profile.project_memory_policy}`,
+    `sources ${profile.context_source_policy}`,
+  ].filter(Boolean);
+  return (
+    <div style={{ ...subtleTextStyle, marginTop: 4 }}>
+      {details.join(" · ")}
+    </div>
+  );
+}
+
 function normalizeWorkspaceMode(value: string) {
   if (value === "persistent" || value === "ephemeral") return value;
   return "in_place";
 }
 
 function RolesModal({
+  agentProfiles,
   error,
   pending,
   roles,
@@ -3236,6 +3391,7 @@ function RolesModal({
   onDelete,
   onUpdate,
 }: {
+  agentProfiles: AgentProfileRecord[];
   error: string;
   pending: boolean;
   roles: ProjectWorkRoleRecord[];
@@ -3428,18 +3584,24 @@ function RolesModal({
             </label>
             <label style={fieldStyle}>
               <span style={fieldLabelStyle}>Default profile</span>
-              <input
+              <select
                 className="input"
                 value={form.defaultAgentProfile}
                 disabled={editingBuiltIn}
-                placeholder="implementation"
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
                     defaultAgentProfile: event.target.value,
                   }))
                 }
-              />
+              >
+                <option value="">inherit project default</option>
+                {agentProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name || profile.id} ({profile.id})
+                  </option>
+                ))}
+              </select>
             </label>
             <label style={fieldStyle}>
               <span style={fieldLabelStyle}>Default provider</span>

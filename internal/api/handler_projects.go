@@ -21,11 +21,16 @@ type projectRootRequest struct {
 }
 
 type projectContextSourceRequest struct {
-	ID      string `json:"id,omitempty"`
-	Kind    string `json:"kind,omitempty"`
-	Title   string `json:"title,omitempty"`
-	Path    string `json:"path"`
-	Enabled *bool  `json:"enabled,omitempty"`
+	ID             string            `json:"id,omitempty"`
+	Kind           string            `json:"kind,omitempty"`
+	Title          string            `json:"title,omitempty"`
+	Path           string            `json:"path"`
+	Enabled        *bool             `json:"enabled,omitempty"`
+	Format         string            `json:"format,omitempty"`
+	Scope          string            `json:"scope,omitempty"`
+	TrustLabel     string            `json:"trust_label,omitempty"`
+	SourceCategory string            `json:"source_category,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
 type createProjectRequest struct {
@@ -391,11 +396,16 @@ func contextSourcesFromRequest(req []projectContextSourceRequest) ([]projects.Co
 			enabled = *item.Enabled
 		}
 		sources = append(sources, projects.ContextSource{
-			ID:      strings.TrimSpace(item.ID),
-			Kind:    strings.TrimSpace(item.Kind),
-			Title:   strings.TrimSpace(item.Title),
-			Path:    path,
-			Enabled: enabled,
+			ID:             strings.TrimSpace(item.ID),
+			Kind:           strings.TrimSpace(item.Kind),
+			Title:          strings.TrimSpace(item.Title),
+			Path:           path,
+			Enabled:        enabled,
+			Format:         strings.TrimSpace(item.Format),
+			Scope:          strings.TrimSpace(item.Scope),
+			TrustLabel:     strings.TrimSpace(item.TrustLabel),
+			SourceCategory: strings.TrimSpace(item.SourceCategory),
+			Metadata:       item.Metadata,
 		})
 	}
 	return sources, nil
@@ -470,13 +480,18 @@ func renderProject(project projects.Project) ProjectResponseItem {
 	contextSources := make([]ProjectContextSourceResponseItem, 0, len(project.ContextSources))
 	for _, source := range project.ContextSources {
 		contextSources = append(contextSources, ProjectContextSourceResponseItem{
-			ID:        source.ID,
-			Kind:      source.Kind,
-			Title:     source.Title,
-			Path:      source.Path,
-			Enabled:   source.Enabled,
-			CreatedAt: formatOptionalTime(source.CreatedAt),
-			UpdatedAt: formatOptionalTime(source.UpdatedAt),
+			ID:             source.ID,
+			Kind:           source.Kind,
+			Title:          source.Title,
+			Path:           source.Path,
+			Enabled:        source.Enabled,
+			Format:         source.Format,
+			Scope:          source.Scope,
+			TrustLabel:     source.TrustLabel,
+			SourceCategory: source.SourceCategory,
+			Metadata:       cloneProjectContextMetadata(source.Metadata),
+			CreatedAt:      formatOptionalTime(source.CreatedAt),
+			UpdatedAt:      formatOptionalTime(source.UpdatedAt),
 		})
 	}
 	return ProjectResponseItem{
@@ -497,6 +512,17 @@ func renderProject(project projects.Project) ProjectResponseItem {
 		UpdatedAt:                formatOptionalTime(project.UpdatedAt),
 		LastOpenedAt:             formatOptionalTime(project.LastOpenedAt),
 	}
+}
+
+func cloneProjectContextMetadata(items map[string]string) map[string]string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(items))
+	for key, value := range items {
+		out[key] = value
+	}
+	return out
 }
 
 func cloneBool(value *bool) *bool {

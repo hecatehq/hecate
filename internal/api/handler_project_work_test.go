@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
@@ -669,6 +670,131 @@ func TestProjectWorkAPI_StartAssignmentPersistsInspectableContextPacket(t *testi
 	assignmentPacket := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/context", "")
 	if assignmentPacket.Data.ID != assignment.Data.ContextSnapshotID {
 		t.Fatalf("assignment context id = %q, want %q", assignmentPacket.Data.ID, assignment.Data.ContextSnapshotID)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverHecateTask,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                  "prof_role",
+		Name:                "Role profile",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ProviderHint:        "anthropic",
+		ModelHint:           "claude-sonnet-4",
+		ExecutionProfile:    "role_profile",
+		ToolsEnabled:        true,
+		WritesAllowed:       true,
+		NetworkAllowed:      false,
+		ApprovalPolicy:      agentprofiles.ApprovalRequire,
+		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
+		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
+		SkillIDs:            []string{"backend", "review"},
+	}); err != nil {
+		t.Fatalf("Create role profile: %v", err)
+	}
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:               "prof_project",
+		Name:             "Project profile",
+		Surface:          agentprofiles.SurfaceHecateTask,
+		ModelHint:        "qwen2.5-coder",
+		ExecutionProfile: "project_profile",
+	}); err != nil {
+		t.Fatalf("Create project profile: %v", err)
+	}
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.DefaultAgentProfile = "prof_project"
+		project.DefaultProvider = ""
+		project.DefaultModel = ""
+	}); err != nil {
+		t.Fatalf("Update project defaults: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultAgentProfile = "prof_role"
+	}); err != nil {
+		t.Fatalf("Update role defaults: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+	}
+	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.ExecutionProfile != "role_profile" {
+		t.Fatalf("task provider/model/profile = %q/%q/%q, want role profile hints", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	if packetResp.Data.ExecutionProfile != "role_profile" {
+		t.Fatalf("packet execution_profile = %q, want role_profile", packetResp.Data.ExecutionProfile)
+	}
+	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_role")
+	if profileItem == nil || !profileItem.Included || profileItem.Section != contextSectionProfile {
+		t.Fatalf("profile item = %+v, want included profile section item", profileItem)
+	}
+	for _, want := range []string{
+		"ID: prof_role",
+		"Source: role_default",
+		"Provider hint: anthropic",
+		"Model hint: claude-sonnet-4",
+		"Execution profile: role_profile",
+		"Skills: backend, review",
+	} {
+		if !strings.Contains(profileItem.Body, want) {
+			t.Fatalf("profile body = %q, want %q", profileItem.Body, want)
+		}
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentSnapshotsMissingProfileWarning(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverHecateTask,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.DefaultAgentProfile = "prof_missing"
+	}); err != nil {
+		t.Fatalf("Update project profile: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_missing")
+	if profileItem == nil || profileItem.Included || profileItem.Section != contextSectionProfile {
+		t.Fatalf("profile item = %+v, want excluded missing profile item", profileItem)
+	}
+	if !strings.Contains(profileItem.Body, "profile \"prof_missing\" was not found") {
+		t.Fatalf("profile body = %q, want missing profile warning", profileItem.Body)
+	}
+	warning := findRenderedContextItemByKind(packetResp.Data, "profile_warning")
+	if warning == nil || warning.Included || !strings.Contains(warning.Body, "profile \"prof_missing\" was not found") {
+		t.Fatalf("profile warning = %+v, want excluded warning item", warning)
 	}
 }
 

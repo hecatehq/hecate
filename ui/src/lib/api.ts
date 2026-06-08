@@ -16,6 +16,12 @@ import type {
 } from "../types/provider";
 import type { AgentAdapterProbeResponse, AgentAdapterResponse } from "../types/agent-adapter";
 import type {
+  AgentProfileResponse,
+  AgentProfilesResponse,
+  CreateAgentProfilePayload,
+  UpdateAgentProfilePayload,
+} from "../types/agent-profile";
+import type {
   ChatApprovalRequestedEvent,
   ChatApprovalResolvedEvent,
   ChatApprovalResponse,
@@ -571,6 +577,42 @@ export async function getProjectAssignmentContext(
   return fetchJSON<ContextPacketResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments/${encodeURIComponent(assignmentID)}/context`,
   );
+}
+
+export async function discoverProjectContextSources(projectID: string): Promise<ProjectResponse> {
+  return fetchJSON<ProjectResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/context-sources/discover`,
+    { method: "POST", body: {} },
+  );
+}
+
+export async function getAgentProfiles(): Promise<AgentProfilesResponse> {
+  return fetchJSON<AgentProfilesResponse>(`${HECATE_API}/agent-profiles`);
+}
+
+export async function createAgentProfile(
+  payload: CreateAgentProfilePayload,
+): Promise<AgentProfileResponse> {
+  return fetchJSON<AgentProfileResponse>(`${HECATE_API}/agent-profiles`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function updateAgentProfile(
+  id: string,
+  payload: UpdateAgentProfilePayload,
+): Promise<AgentProfileResponse> {
+  return fetchJSON<AgentProfileResponse>(`${HECATE_API}/agent-profiles/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: payload,
+  });
+}
+
+export async function deleteAgentProfile(id: string): Promise<void> {
+  return fetchJSON<void>(`${HECATE_API}/agent-profiles/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getProjectCollaborationArtifacts(

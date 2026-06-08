@@ -5,9 +5,9 @@
 Current source of truth: [Agent runtime](../../runtime/agent-runtime.md), [Chat sessions](../../runtime/chat-sessions.md), [Architecture](../../contributor/architecture.md)
 
 Next action: make Projects the operational cockpit for project-scoped agent
-teams: finish task/run project linkage, wire agent profiles into defaults and
-memory-source selection, and harden the activity/health/timeline UI with
-end-to-end project journeys.
+teams: add profile-management UI, finish profile-driven memory/source
+selection, and harden the activity/health/timeline UI with end-to-end project
+journeys.
 
 ## Summary
 
@@ -334,7 +334,8 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 7. Add agent-profile memory-source selection.
 8. Move relevant defaults from ad hoc chat/task state into project defaults.
    Partial: provider, model, workspace mode, and agent profile defaults are
-   project defaults; profile-driven activation remains future.
+   project defaults; assignment starts resolve role/project/fallback profiles,
+   but profile-driven memory/source activation remains future.
 9. Add project activity aggregation. Done for the read-only V1 inbox.
 10. Add structured handoffs. Done for memory + SQLite store parity, API, UI
     actions, and activity projection signals.
@@ -348,9 +349,9 @@ The next project-orchestration slices are:
 
 1. Finish durable task/run project linkage so native tasks, project assignments,
    and chat-origin work all expose the same `project_id` boundary.
-2. Wire agent profiles into project defaults and memory-source selection so a
-   role/assignment can launch with a known provider/model/profile/context
-   posture instead of only a provider/model/workspace default.
+2. Add a profile-management UI and finish profile-driven memory/source
+   selection. Role/project defaults already resolve into assignment-start
+   provider/model/profile/context posture.
 3. Add focused end-to-end project journeys: create project, set defaults, add
    memory, create work item, create/start assignment, resolve approval or
    failure, inspect activity health, and follow a handoff.

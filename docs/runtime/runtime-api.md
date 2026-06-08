@@ -115,6 +115,7 @@ object when available.
 - [Runtime backend and queue configuration](#runtime-backend-and-queue-configuration)
 - [Usage endpoints](#usage-endpoints)
 - [Health and discovery endpoints](#health-and-discovery-endpoints)
+- [Agent profile endpoints](#agent-profile-endpoints)
 - [Project endpoints](#project-endpoints)
 - [Chat session endpoints](#chat-session-endpoints)
 - [Rate-limit headers on chat / messages](#rate-limit-headers-on-chat--messages)
@@ -436,7 +437,7 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
-`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
+`POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
 
 ```json
 → 200
@@ -445,6 +446,7 @@ Tool names come back un-namespaced — the operator wants to see what the upstre
   "data": {
     "projects_deleted": 1,
     "project_work_rows_deleted": 3,
+    "agent_profiles_deleted": 1,
     "chat_sessions_deleted": 2,
     "tasks_deleted": 1,
     "providers_deleted": 1,
@@ -1024,6 +1026,72 @@ Status codes:
 - `409 conflict` when the adapter is not managed or the launcher cannot be
   recreated.
 
+## Agent profile endpoints
+
+Agent profiles are reusable runtime postures for project work, Hecate Chat,
+task-backed runs, and external-agent launches. They describe defaults and
+constraints such as instructions, surface, provider/model hints, tool/write/
+network posture, approval policy, project-memory policy, context-source
+policy, skill ids, and external-agent options. In this release, `skill_ids` are
+unresolved references for operators and future launch code; Hecate does not
+install or execute skills from an agent profile.
+
+Profile responses use the normal Hecate envelope:
+
+```json
+GET /hecate/v1/agent-profiles
+→ 200
+{
+  "object": "agent_profiles",
+  "data": [
+    {
+      "id": "prof_...",
+      "name": "Backend implementer",
+      "description": "Go runtime work",
+      "instructions": "Prefer narrow, tested patches.",
+      "surface": "hecate_task",
+      "provider_hint": "anthropic",
+      "model_hint": "claude-sonnet-4",
+      "execution_profile": "implementation",
+      "tools_enabled": true,
+      "writes_allowed": true,
+      "network_allowed": false,
+      "approval_policy": "require",
+      "project_memory_policy": "visible_only",
+      "context_source_policy": "include_enabled",
+      "skill_ids": ["backend", "providers"],
+      "external_agent_kind": "codex",
+      "external_agent_options": { "effort": "high" },
+      "created_at": "2026-06-08T12:00:00Z",
+      "updated_at": "2026-06-08T12:00:00Z"
+    }
+  ]
+}
+```
+
+Supported endpoints:
+
+- `GET /hecate/v1/agent-profiles`
+- `POST /hecate/v1/agent-profiles`
+- `GET /hecate/v1/agent-profiles/{id}`
+- `PATCH /hecate/v1/agent-profiles/{id}`
+- `DELETE /hecate/v1/agent-profiles/{id}`
+
+Enums:
+
+| Field                   | Values                                                        |
+| ----------------------- | ------------------------------------------------------------- |
+| `surface`               | `hecate_chat`, `hecate_task`, `external_agent`, `any`         |
+| `approval_policy`       | `inherit`, `require`, `block`, `allow`                        |
+| `project_memory_policy` | `inherit`, `include`, `visible_only`, `exclude`               |
+| `context_source_policy` | `inherit`, `include_enabled`, `visible_only`, `exclude`       |
+
+Project assignment starts resolve profiles in this order: role default,
+project default, built-in `project_assignment` fallback. The start path
+snapshots the resolved profile, provider/model hints, execution profile,
+memory policy, context-source policy, skill ids, and warnings into the task/run
+context packet.
+
 ## Project endpoints
 
 Projects are the durable Hecate identity for a codebase or work area. A project
@@ -1038,10 +1106,11 @@ The project catalog implementation is intentionally lightweight:
 a project-work assignment creates a project-scoped Hecate Chat session and
 pre-fills the editable composer with a concise launch-context draft; the draft
 is not submitted automatically. Projects can also remember context-source
-metadata (`path`, `kind`, `title`, and whether the
-source is enabled). Chat message context packets include enabled sources as
-itemized `workspace_guidance` metadata for inspection, but Hecate does not
-inject those files into prompts yet. Project work-coordination endpoints can
+metadata (`path`, `kind`, `title`, `format`, `scope`, `trust_label`,
+`source_category`, arbitrary string metadata, and whether the source is
+enabled). Chat message context packets include enabled sources as itemized
+`workspace_guidance` metadata for inspection, but Hecate does not inject those
+files into prompts yet. Project work-coordination endpoints can
 persist roles, work items, assignments, and collaboration artifacts under a
 project. Assignments may record links to existing task runs or chat messages,
 but creating an assignment does not start a task, open a chat, inject context,
@@ -1054,8 +1123,7 @@ Markdown-compatible `body` text; they are not Markdown files, and they are
 written only through explicit operator API/UI actions. Enabled project memory
 entries appear as itemized chat context-packet metadata with their
 `trust_label`, but Hecate still does not perform automatic memory extraction,
-embeddings, retrieval ranking, or source-content injection. Profiles, presets,
-and source-content injection are not linked to `project_id` yet.
+embeddings, retrieval ranking, or source-content injection.
 
 ### `GET /hecate/v1/projects`
 
@@ -1090,6 +1158,11 @@ GET /hecate/v1/projects
           "title": "README",
           "path": "README.md",
           "enabled": true,
+          "format": "",
+          "scope": "",
+          "trust_label": "",
+          "source_category": "",
+          "metadata": {},
           "created_at": "2026-05-20T12:00:00Z",
           "updated_at": "2026-05-20T12:00:00Z"
         }
@@ -1138,7 +1211,8 @@ POST /hecate/v1/projects
       "kind": "doc",
       "title": "README",
       "path": "README.md",
-      "enabled": true
+      "enabled": true,
+      "metadata": {}
     }
   ],
   "default_provider": "ollama",
@@ -1186,6 +1260,49 @@ PATCH /hecate/v1/projects/proj_...
   "name": "Hecate runtime",
   "last_opened_at": "2026-05-20T12:45:00Z",
   "default_compact_tool_output": true
+}
+```
+
+### `POST /hecate/v1/projects/{id}/context-sources/discover`
+
+Discovers workspace guidance metadata from active absolute project roots and
+merges it into `context_sources`. Discovery is an explicit operator action: it
+does not read discovered file bodies into prompts and does not change Hecate
+policy, approvals, sandboxing, or profile settings.
+
+V1 enables portable `AGENTS.md` sources as `kind=workspace_instruction`,
+`format=agents_md`, and `trust_label=workspace_guidance`. Host-specific files
+are labelled for visibility but remain metadata-only: `CLAUDE.md`,
+`.claude/CLAUDE.md`, `GEMINI.md`, `.cursor/rules`, `.github/instructions`,
+`.devin/rules`, `.windsurf/rules`, and `.gemini/commands`.
+
+Discovery skips common vendor/build directories such as `.git`, `node_modules`,
+`vendor`, `dist`, `build`, `.next`, `.turbo`, `.cache`, `target`, and
+`coverage`. Existing sources are matched by `(kind,path)` so operator disabled
+state and source IDs are preserved on rediscovery.
+
+```json
+POST /hecate/v1/projects/proj_.../context-sources/discover
+→ 200
+{
+  "object": "project",
+  "data": {
+    "id": "proj_...",
+    "context_sources": [
+      {
+        "id": "ctxsrc_...",
+        "kind": "workspace_instruction",
+        "title": "AGENTS.md",
+        "path": "AGENTS.md",
+        "enabled": true,
+        "format": "agents_md",
+        "scope": "workspace",
+        "trust_label": "workspace_guidance",
+        "source_category": "workspace_guidance",
+        "metadata": { "root_id": "root_..." }
+      }
+    ]
+  }
 }
 ```
 

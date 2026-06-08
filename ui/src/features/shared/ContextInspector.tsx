@@ -27,6 +27,7 @@ type RemoteState =
   | { status: "error"; detail: string };
 
 const sectionOrder = [
+  "profile",
   "instructions",
   "project",
   "project_work",
@@ -535,6 +536,8 @@ function humanExecutionMode(mode: string): string {
 
 function humanSectionLabel(section: string): string {
   switch (section) {
+    case "profile":
+      return "Profile";
     case "instructions":
       return "Instructions";
     case "project":
@@ -544,7 +547,7 @@ function humanSectionLabel(section: string): string {
     case "memory":
       return "Memory";
     case "sources":
-      return "Context sources";
+      return "Project sources";
     case "workspace":
       return "Workspace";
     case "runtime":

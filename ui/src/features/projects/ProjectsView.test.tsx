@@ -17,7 +17,9 @@ import {
   deleteProjectMemory,
   deleteProjectWorkRole,
   deleteProjectWorkItem,
+  discoverProjectContextSources,
   getProjectActivity,
+  getAgentProfiles,
   getProjectAssignmentContext,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
@@ -115,6 +117,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
       object: "project_memory_candidates",
       data: [],
     })),
+    getAgentProfiles: vi.fn(async () => ({ object: "agent_profiles", data: [] })),
     createProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
     updateProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
     updateProjectHandoffStatus: vi.fn(async () => ({ object: "project_handoff", data: null })),
@@ -141,6 +144,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
     updateProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
     deleteProjectAssignment: vi.fn(async () => undefined),
     updateProject: vi.fn(async () => ({ object: "project", data: null })),
+    discoverProjectContextSources: vi.fn(async () => ({ object: "project", data: null })),
   };
 });
 
@@ -352,6 +356,32 @@ function resetProjectWorkMocks() {
     object: "project_memory_candidates",
     data: [],
   });
+  vi.mocked(getAgentProfiles).mockResolvedValue({
+    object: "agent_profiles",
+    data: [
+      {
+        id: "implementation",
+        name: "Implementation",
+        description: "Build project assignments",
+        instructions: "",
+        surface: "hecate_task",
+        provider_hint: "",
+        model_hint: "",
+        execution_profile: "implementation",
+        tools_enabled: true,
+        writes_allowed: true,
+        network_allowed: false,
+        approval_policy: "inherit",
+        project_memory_policy: "visible_only",
+        context_source_policy: "include_enabled",
+        skill_ids: [],
+        external_agent_kind: "",
+        external_agent_options: {},
+        created_at: "2026-06-04T10:00:00Z",
+        updated_at: "2026-06-04T10:00:00Z",
+      },
+    ],
+  });
   vi.mocked(createProjectHandoff).mockResolvedValue({
     object: "project_handoff",
     data: {
@@ -476,6 +506,10 @@ function resetProjectWorkMocks() {
       default_workspace_mode: "in_place",
     },
   });
+  vi.mocked(discoverProjectContextSources).mockResolvedValue({
+    object: "project",
+    data: project,
+  });
 }
 
 function directWrapper(initialState: Parameters<typeof ProjectsProvider>[0]["initialState"]) {
@@ -514,6 +548,7 @@ afterEach(() => {
   vi.mocked(getProjectHandoffs).mockReset();
   vi.mocked(getProjectMemory).mockReset();
   vi.mocked(getProjectMemoryCandidates).mockReset();
+  vi.mocked(getAgentProfiles).mockReset();
   vi.mocked(createProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoffStatus).mockReset();
@@ -534,6 +569,7 @@ afterEach(() => {
   vi.mocked(updateProjectAssignment).mockReset();
   vi.mocked(deleteProjectAssignment).mockReset();
   vi.mocked(updateProject).mockReset();
+  vi.mocked(discoverProjectContextSources).mockReset();
 });
 
 describe("ProjectsView index", () => {
@@ -791,6 +827,47 @@ describe("ProjectsView cockpit", () => {
     await user.click(screen.getByRole("button", { name: "Delete memory Commit style" }));
     await user.click(screen.getByRole("button", { name: "Delete memory" }));
     expect(deleteProjectMemory).toHaveBeenCalledWith(project.id, memoryEntry.id);
+  });
+
+  it("discovers workspace guidance sources from the memory context panel", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(discoverProjectContextSources).mockResolvedValue({
+      object: "project",
+      data: {
+        ...project,
+        context_sources: [
+          {
+            id: "ctx_agents",
+            kind: "workspace_instruction",
+            title: "AGENTS.md",
+            path: "AGENTS.md",
+            enabled: true,
+            format: "agents_md",
+            scope: "workspace",
+            trust_label: "workspace_guidance",
+            source_category: "workspace_guidance",
+            metadata: { host: "portable" },
+            created_at: "2026-06-08T10:00:00Z",
+            updated_at: "2026-06-08T10:00:00Z",
+          },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await openProjectWorkspaceTab(/Memory \/ Context/);
+    await user.click(screen.getByRole("button", { name: "Discover" }));
+
+    expect(discoverProjectContextSources).toHaveBeenCalledWith(project.id);
+    expect((await screen.findAllByText("AGENTS.md")).length).toBeGreaterThan(0);
+    expect(screen.getByText("workspace_instruction")).toBeTruthy();
+    expect(screen.getByText("agents_md")).toBeTruthy();
+    expect(screen.getAllByText("workspace").length).toBeGreaterThan(0);
   });
 
   it("reviews project memory candidates before promotion", async () => {
@@ -2722,6 +2799,7 @@ describe("ProjectsView cockpit", () => {
     expect(updateProject).toHaveBeenCalledWith(projectWithUpdatedDefaults.id, {
       default_provider: "ollama",
       default_model: "qwen2.5-coder",
+      default_agent_profile: "",
       default_workspace_mode: "ephemeral",
     });
   });

@@ -19,11 +19,13 @@ const chatContextPacketVersion = "chat.context.v1"
 const (
 	contextTrustSystemInstruction = "system_instruction"
 	contextTrustOperatorMemory    = "operator_memory"
+	contextTrustProject           = "project"
 	contextTrustWorkspaceGuidance = "workspace_guidance"
 	contextTrustRuntimeState      = "runtime_state"
 )
 
 const (
+	contextSectionProfile      = "profile"
 	contextSectionInstructions = "instructions"
 	contextSectionMemory       = "memory"
 	contextSectionWorkspace    = "workspace"
@@ -399,7 +401,7 @@ func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.S
 	return packet
 }
 
-func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string) chat.ContextPacket {
+func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string, profile resolvedAgentProfile) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, workingDirectory)
 	packet.ID = newChatID("ctx")
 	packet.ExecutionProfile = strings.TrimSpace(executionProfile)
@@ -490,6 +492,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 		Included:        true,
 		InclusionReason: "Included in the native project assignment launch context",
 	})
+	appendResolvedAgentProfile(&packet, profile)
 	if packet.SystemPromptIncluded {
 		appendContextPacketSourceWithSection(&packet, contextSectionInstructions, chat.ContextSource{
 			Kind:   "system_prompt",
@@ -561,11 +564,12 @@ func projectContextSourcesFromProject(project projects.Project) []chat.ContextSo
 		if label == "" {
 			continue
 		}
+		trust := firstNonEmptyString(strings.TrimSpace(source.TrustLabel), contextTrustProject)
 		sources = append(sources, chat.ContextSource{
 			Kind:   projectContextSourceKind(source.Kind),
 			Label:  label,
 			Detail: strings.TrimSpace(source.Path),
-			Trust:  "project",
+			Trust:  trust,
 		})
 	}
 	return sources
@@ -676,6 +680,70 @@ func appendProjectContextSourcesWithInclusion(packet *chat.ContextPacket, source
 	}
 }
 
+func appendResolvedAgentProfile(packet *chat.ContextPacket, profile resolvedAgentProfile) {
+	if strings.TrimSpace(profile.ID) == "" {
+		return
+	}
+	body := []string{
+		"ID: " + profile.ID,
+		"Name: " + firstNonEmptyString(profile.Name, profile.ID),
+		"Source: " + firstNonEmptyString(profile.Source, "unknown"),
+		"Surface: " + firstNonEmptyString(profile.Surface, "any"),
+		"Execution profile: " + firstNonEmptyString(profile.ExecutionProfile, profile.ID),
+		"Provider hint: " + firstNonEmptyString(profile.ProviderHint, "inherit"),
+		"Model hint: " + firstNonEmptyString(profile.ModelHint, "inherit"),
+		"Tools enabled: " + boolLabel(profile.ToolsEnabled),
+		"Writes allowed: " + boolLabel(profile.WritesAllowed),
+		"Network allowed: " + boolLabel(profile.NetworkAllowed),
+		"Approval policy: " + firstNonEmptyString(profile.ApprovalPolicy, "inherit"),
+		"Project memory policy: " + firstNonEmptyString(profile.ProjectMemoryPolicy, "inherit"),
+		"Context source policy: " + firstNonEmptyString(profile.ContextSourcePolicy, "inherit"),
+	}
+	if len(profile.SkillIDs) > 0 {
+		body = append(body, "Skills: "+strings.Join(profile.SkillIDs, ", "))
+	}
+	if len(profile.Warnings) > 0 {
+		body = append(body, "Warnings: "+strings.Join(profile.Warnings, " "))
+	}
+	appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
+		Kind:   "agent_profile",
+		Label:  firstNonEmptyString(profile.Name, profile.ID),
+		Detail: profile.ID,
+		Trust:  contextTrustRuntimeState,
+	}, chat.ContextItem{
+		Kind:            "agent_profile",
+		TrustLevel:      contextTrustRuntimeState,
+		Origin:          profile.ID,
+		Title:           firstNonEmptyString(profile.Name, profile.ID),
+		Body:            strings.Join(body, "\n"),
+		Included:        !profile.Missing,
+		InclusionReason: firstNonEmptyString(profile.Source, "resolved profile"),
+	})
+	for _, warning := range profile.Warnings {
+		appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
+			Kind:   "profile_warning",
+			Label:  "Profile warning",
+			Detail: profile.ID,
+			Trust:  contextTrustRuntimeState,
+		}, chat.ContextItem{
+			Kind:            "profile_warning",
+			TrustLevel:      contextTrustRuntimeState,
+			Origin:          profile.ID,
+			Title:           "Profile warning",
+			Body:            warning,
+			Included:        false,
+			InclusionReason: "Profile resolution warning",
+		})
+	}
+}
+
+func boolLabel(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
+}
+
 func appendProjectAssignmentHandoffs(packet *chat.ContextPacket, items []projectwork.Handoff, included bool, reason string) {
 	for _, item := range items {
 		trust := firstNonEmptyString(strings.TrimSpace(item.TrustLabel), contextTrustRuntimeState)
@@ -784,6 +852,8 @@ func projectContextSourceKind(kind string) string {
 		// Operator-configured docs should render beside native workspace
 		// sources; other project kinds stay namespaced to avoid collisions.
 		return "workspace_doc"
+	case "workspace_instruction", "host_instruction", "path_instruction", "host_rule", "host_command", "host_agent_definition":
+		return kind
 	default:
 		return "project_" + strings.NewReplacer(" ", "_", "-", "_").Replace(kind)
 	}

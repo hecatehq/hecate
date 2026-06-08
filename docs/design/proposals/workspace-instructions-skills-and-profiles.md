@@ -1,13 +1,14 @@
 # Workspace Instructions, Skills, And Profiles
 
-> **Status:** proposed.
+> **Status:** proposal; Agent Profiles V1 core and workspace-guidance discovery
+> are partially implemented.
 > **Current source of truth:** [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md),
 > [Agent memory](agent-memory.md), [Projects](../accepted/projects.md), and
 > [Runtime API](../../runtime/runtime-api.md) for today's context-packet,
 > memory, project, and task behavior.
-> **Next action:** implement Agent Profiles V1 core with room for skill
-> references, then add workspace-instruction discovery and local skill registry
-> support as separate slices.
+> **Next action:** add profile-management UI and profile skill/source
+> resolution. Local skill registry support and source-content injection remain
+> separate later slices.
 
 Hecate needs a clean vocabulary for several things that are easy to blur:
 workspace `AGENTS.md` files, other Markdown instruction files, reusable
@@ -15,8 +16,8 @@ workspace `AGENTS.md` files, other Markdown instruction files, reusable
 They are all "context" in the broad sense, but they have different authority,
 lifecycle, safety, and UI needs.
 
-This proposal defines the layering Hecate should use before implementing Agent
-Profiles V1, Skills V1, and planner/runbook features.
+This proposal defines the layering Hecate should use while finishing Agent
+Profiles V1 and before implementing Skills V1 and planner/runbook features.
 
 ## External Alignment
 
@@ -364,27 +365,29 @@ but the operator approves before anything is created or started.
 
 Recommended sequence:
 
-1. **Agent Profiles V1 Core**
+1. **Agent Profiles V1 Core** — partially implemented.
    - Profile store with memory/SQLite parity.
    - CRUD/list API.
    - Resolution helper with explicit/role/project/fallback order.
    - `skill_ids` as unresolved references or best-effort metadata.
    - Context packet fields for resolved profile metadata.
 
-2. **Skills Registry V1 Core**
+2. **Workspace Instructions V1 Core** — partially implemented.
+   - Discover `AGENTS.md` and nested `AGENTS.md` under project workspace roots.
+   - Save/refresh them as project context-source metadata.
+   - Label host-specific files as metadata-only context sources.
+   - Future: include relevant Hecate-owned instruction content in context packets
+     after explicit injection policy is designed.
+   - Future: label external-agent behavior as "available to adapter" or "not
+     injected" when Hecate does not own the adapter prompt.
+
+3. **Skills Registry V1 Core**
    - Built-in skill registry.
    - Project-local `.hecate/skills/*/SKILL.md` discovery.
    - Frontmatter validation.
    - List/get API.
    - Trust/source labels.
    - No script execution or remote install.
-
-3. **Workspace Instructions V1 Core**
-   - Discover `AGENTS.md` and nested `AGENTS.md` under project workspace roots.
-   - Save/refresh them as project context-source metadata.
-   - Include relevant Hecate-owned instruction content in context packets.
-   - Label external-agent behavior as "available to adapter" or "not injected"
-     when Hecate does not own the adapter prompt.
 
 4. **Profile Skill Resolution**
    - Resolve `skill_ids` to active skill metadata.

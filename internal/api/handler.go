@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
@@ -46,6 +47,7 @@ type Handler struct {
 	memory                   memory.Store
 	memoryCandidates         memory.CandidateStore
 	projectWork              projectwork.Store
+	agentProfiles            agentprofiles.Store
 	agentChatRunner          agentadapters.Runner
 	agentChatLive            *agentChatLive
 	agentChatIdleSweepCancel context.CancelFunc
@@ -316,6 +318,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		memory:              memoryStore,
 		memoryCandidates:    memoryStore,
 		projectWork:         projectwork.NewMemoryStore(),
+		agentProfiles:       agentprofiles.NewMemoryStore(),
 		agentChatRunner:     agentChatRunner,
 		agentChatLive:       agentChatLive,
 		orchestratorMetrics: orchestratorMetrics,
@@ -405,6 +408,13 @@ func (h *Handler) SetProjectWorkStore(store projectwork.Store) {
 		return
 	}
 	h.projectWork = store
+}
+
+func (h *Handler) SetAgentProfileStore(store agentprofiles.Store) {
+	if store == nil {
+		return
+	}
+	h.agentProfiles = store
 }
 
 func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {

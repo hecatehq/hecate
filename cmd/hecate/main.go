@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/api"
 	"github.com/hecatehq/hecate/internal/bootstrap"
 	"github.com/hecatehq/hecate/internal/catalog"
@@ -200,6 +201,7 @@ func runServe() {
 	projectStore := buildProjectStore(cfg, logger, sqliteClient)
 	memoryStore := buildMemoryStore(cfg, logger, sqliteClient)
 	projectWorkStore := buildProjectWorkStore(cfg, logger, sqliteClient)
+	agentProfileStore := buildAgentProfileStore(cfg, logger, sqliteClient)
 	// Approval state follows HECATE_BACKEND so chat transcripts, grants,
 	// and pending approval rows move together across memory/sqlite modes.
 	// Startup reconcile fires before the gateway accepts any request:
@@ -270,6 +272,7 @@ func runServe() {
 	handler.SetProjectStore(projectStore)
 	handler.SetMemoryStore(memoryStore)
 	handler.SetProjectWorkStore(projectWorkStore)
+	handler.SetAgentProfileStore(agentProfileStore)
 	handler.SetAgentApprovalStore(approvalStore)
 	handler.SetStateCleaner(sqliteClient)
 	// Wire the cipher into the handler and its underlying runner so MCP
@@ -749,6 +752,20 @@ func buildProjectWorkStore(cfg config.Config, logger *slog.Logger, sqliteClient 
 		return store
 	default:
 		return projectwork.NewMemoryStore()
+	}
+}
+
+func buildAgentProfileStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) agentprofiles.Store {
+	switch cfg.Projects.Backend {
+	case "sqlite":
+		store, err := agentprofiles.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("agent profile store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return agentprofiles.NewMemoryStore()
 	}
 }
 
