@@ -864,15 +864,16 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	requestedProvider := strings.TrimSpace(firstNonEmpty(role.DefaultProvider, project.DefaultProvider))
-	requestedModel := strings.TrimSpace(firstNonEmpty(role.DefaultModel, project.DefaultModel, h.config.Router.DefaultModel))
+	requestedModel := strings.TrimSpace(firstNonEmpty(role.DefaultModel, project.DefaultModel))
 	profile := h.resolveProjectAssignmentProfile(ctx, role, project)
 	executionProfile := strings.TrimSpace(firstNonEmpty(profile.ExecutionProfile, role.DefaultAgentProfile, project.DefaultAgentProfile, "project_assignment"))
 	if profile.ProviderHint != "" && requestedProvider == "" {
 		requestedProvider = profile.ProviderHint
 	}
-	if profile.ModelHint != "" && (requestedModel == "" || requestedModel == h.config.Router.DefaultModel) {
+	if profile.ModelHint != "" && requestedModel == "" {
 		requestedModel = profile.ModelHint
 	}
+	requestedModel = strings.TrimSpace(firstNonEmpty(requestedModel, h.config.Router.DefaultModel))
 	if requestedModel == "" {
 		WriteError(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, "project assignment start requires a default model")
 		return
