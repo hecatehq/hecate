@@ -208,7 +208,18 @@ export function buildProjectHealthSummary(
   const memoryCandidateSummary = summarizeProjectMemoryCandidates(memoryCandidates);
   const handoffSummary = summarizeProjectHandoffs(activityItems);
   const missingDefaults = Boolean(project && (!project.default_provider || !project.default_model));
+  const missingProjectRoot = Boolean(
+    project && (project.roots ?? []).filter((root) => root.active !== false && root.path).length === 0,
+  );
   const attention: ProjectHealthAttention[] = [];
+  if (missingProjectRoot && project) {
+    attention.push({
+      id: `${project.id}:root`,
+      title: "No project root configured",
+      detail: "Assignment starts need an active local workspace root for files, tools, and guidance discovery.",
+      status: "stale_unknown",
+    });
+  }
   if (missingDefaults && project) {
     attention.push({
       id: `${project.id}:defaults`,

@@ -73,6 +73,7 @@ func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/projects/{id}", handler.HandleProject)
 	mux.HandleFunc("PATCH /hecate/v1/projects/{id}", handler.HandleUpdateProject)
 	mux.HandleFunc("DELETE /hecate/v1/projects/{id}", handler.HandleDeleteProject)
+	mux.HandleFunc("POST /hecate/v1/projects/{id}/context-sources/discover", handler.HandleDiscoverProjectContextSources)
 	mux.HandleFunc("GET /hecate/v1/projects/{id}/memory", handler.HandleProjectMemoryEntries)
 	mux.HandleFunc("POST /hecate/v1/projects/{id}/memory", handler.HandleCreateProjectMemoryEntry)
 	mux.HandleFunc("GET /hecate/v1/projects/{id}/memory/candidates", handler.HandleProjectMemoryCandidates)
@@ -110,6 +111,11 @@ func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
 func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
 	// External-agent adapters and agent-chat sessions are Hecate-native state:
 	// approvals, grants, launcher refresh, diffs, and session streams.
+	mux.HandleFunc("GET /hecate/v1/agent-profiles", handler.HandleAgentProfiles)
+	mux.HandleFunc("POST /hecate/v1/agent-profiles", handler.HandleCreateAgentProfile)
+	mux.HandleFunc("GET /hecate/v1/agent-profiles/{id}", handler.HandleAgentProfile)
+	mux.HandleFunc("PATCH /hecate/v1/agent-profiles/{id}", handler.HandleUpdateAgentProfile)
+	mux.HandleFunc("DELETE /hecate/v1/agent-profiles/{id}", handler.HandleDeleteAgentProfile)
 	mux.HandleFunc("GET /hecate/v1/agent-adapters", handler.HandleAgentAdapters)
 	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/probe", handler.HandleAgentAdapterProbe)
 	mux.HandleFunc("POST /hecate/v1/agent-adapters/{id}/refresh-launcher", handler.HandleAgentAdapterRefreshLauncher)

@@ -2,6 +2,7 @@ package projects
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -46,13 +47,18 @@ type Root struct {
 }
 
 type ContextSource struct {
-	ID        string
-	Kind      string
-	Title     string
-	Path      string
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             string
+	Kind           string
+	Title          string
+	Path           string
+	Enabled        bool
+	Format         string
+	Scope          string
+	TrustLabel     string
+	SourceCategory string
+	Metadata       map[string]string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type Store interface {
@@ -213,6 +219,11 @@ func normalizeContextSource(source ContextSource, now time.Time) ContextSource {
 	source.Kind = strings.TrimSpace(source.Kind)
 	source.Title = strings.TrimSpace(source.Title)
 	source.Path = strings.TrimSpace(source.Path)
+	source.Format = strings.TrimSpace(source.Format)
+	source.Scope = strings.TrimSpace(source.Scope)
+	source.TrustLabel = strings.TrimSpace(source.TrustLabel)
+	source.SourceCategory = strings.TrimSpace(source.SourceCategory)
+	source.Metadata = normalizeStringMap(source.Metadata)
 	if source.Kind == "" {
 		source.Kind = "doc"
 	}
@@ -318,6 +329,11 @@ func contextSourceMetadataEqual(next, previous ContextSource) bool {
 		strings.TrimSpace(next.Path) == strings.TrimSpace(previous.Path) &&
 		normalizeContextSourceKind(next.Kind) == normalizeContextSourceKind(previous.Kind) &&
 		strings.TrimSpace(next.Title) == strings.TrimSpace(previous.Title) &&
+		strings.TrimSpace(next.Format) == strings.TrimSpace(previous.Format) &&
+		strings.TrimSpace(next.Scope) == strings.TrimSpace(previous.Scope) &&
+		strings.TrimSpace(next.TrustLabel) == strings.TrimSpace(previous.TrustLabel) &&
+		strings.TrimSpace(next.SourceCategory) == strings.TrimSpace(previous.SourceCategory) &&
+		stringMapsEqual(next.Metadata, previous.Metadata) &&
 		next.Enabled == previous.Enabled
 }
 
@@ -394,6 +410,9 @@ func hasRootID(roots []Root, id string) bool {
 func cloneProject(project Project) Project {
 	project.Roots = append([]Root(nil), project.Roots...)
 	project.ContextSources = append([]ContextSource(nil), project.ContextSources...)
+	for idx := range project.ContextSources {
+		project.ContextSources[idx].Metadata = cloneStringMap(project.ContextSources[idx].Metadata)
+	}
 	project.DefaultToolsEnabled = cloneBoolPtr(project.DefaultToolsEnabled)
 	project.DefaultCompactToolOutput = cloneBoolPtr(project.DefaultCompactToolOutput)
 	return project
@@ -405,6 +424,70 @@ func cloneBoolPtr(value *bool) *bool {
 	}
 	copied := *value
 	return &copied
+}
+
+func normalizeStringMap(items map[string]string) map[string]string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(items))
+	for key, value := range items {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cloneStringMap(items map[string]string) map[string]string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(items))
+	for key, value := range items {
+		out[key] = value
+	}
+	return out
+}
+
+func stringMapsEqual(left, right map[string]string) bool {
+	left = normalizeStringMap(left)
+	right = normalizeStringMap(right)
+	if len(left) != len(right) {
+		return false
+	}
+	for key, leftValue := range left {
+		if right[key] != leftValue {
+			return false
+		}
+	}
+	return true
+}
+
+func encodeContextMetadata(metadata map[string]string) string {
+	metadata = normalizeStringMap(metadata)
+	if len(metadata) == 0 {
+		return "{}"
+	}
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
+}
+
+func decodeContextMetadata(raw string) map[string]string {
+	var out map[string]string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return normalizeStringMap(out)
 }
 
 func sortProjects(items []Project) {

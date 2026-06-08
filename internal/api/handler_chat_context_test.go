@@ -747,6 +747,15 @@ func findRenderedContextItemByOrigin(packet ChatContextPacketItem, origin string
 	return nil
 }
 
+func findRenderedContextItemByKind(packet ChatContextPacketItem, kind string) *ChatContextItem {
+	for idx := range packet.Items {
+		if packet.Items[idx].Kind == kind {
+			return &packet.Items[idx]
+		}
+	}
+	return nil
+}
+
 func sourceKinds(packet chat.ContextPacket) []string {
 	kinds := make([]string, 0, len(packet.Sources))
 	for _, source := range packet.Sources {

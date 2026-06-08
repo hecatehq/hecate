@@ -15,6 +15,11 @@ export type ProjectContextSourceRecord = {
   title?: string;
   path: string;
   enabled: boolean;
+  format?: string;
+  scope?: string;
+  trust_label?: string;
+  source_category?: string;
+  metadata?: Record<string, string>;
   created_at: string;
   updated_at: string;
 };
@@ -155,6 +160,11 @@ export type ProjectContextSourcePayload = {
   title?: string;
   path: string;
   enabled?: boolean;
+  format?: string;
+  scope?: string;
+  trust_label?: string;
+  source_category?: string;
+  metadata?: Record<string, string>;
 };
 
 export type CreateProjectPayload = {

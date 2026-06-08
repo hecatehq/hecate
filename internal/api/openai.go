@@ -261,6 +261,77 @@ type ProjectResponse struct {
 	Data   ProjectResponseItem `json:"data"`
 }
 
+type AgentProfileResponse struct {
+	Object string                   `json:"object"`
+	Data   AgentProfileResponseItem `json:"data"`
+}
+
+type AgentProfilesResponse struct {
+	Object string                     `json:"object"`
+	Data   []AgentProfileResponseItem `json:"data"`
+}
+
+type AgentProfileResponseItem struct {
+	ID                   string            `json:"id"`
+	Name                 string            `json:"name"`
+	Description          string            `json:"description,omitempty"`
+	Instructions         string            `json:"instructions,omitempty"`
+	Surface              string            `json:"surface"`
+	ProviderHint         string            `json:"provider_hint,omitempty"`
+	ModelHint            string            `json:"model_hint,omitempty"`
+	ExecutionProfile     string            `json:"execution_profile,omitempty"`
+	ToolsEnabled         bool              `json:"tools_enabled"`
+	WritesAllowed        bool              `json:"writes_allowed"`
+	NetworkAllowed       bool              `json:"network_allowed"`
+	ApprovalPolicy       string            `json:"approval_policy"`
+	ProjectMemoryPolicy  string            `json:"project_memory_policy"`
+	ContextSourcePolicy  string            `json:"context_source_policy"`
+	SkillIDs             []string          `json:"skill_ids,omitempty"`
+	ExternalAgentKind    string            `json:"external_agent_kind,omitempty"`
+	ExternalAgentOptions map[string]string `json:"external_agent_options,omitempty"`
+	CreatedAt            string            `json:"created_at,omitempty"`
+	UpdatedAt            string            `json:"updated_at,omitempty"`
+}
+
+type CreateAgentProfileRequest struct {
+	ID                   string            `json:"id,omitempty"`
+	Name                 string            `json:"name"`
+	Description          string            `json:"description,omitempty"`
+	Instructions         string            `json:"instructions,omitempty"`
+	Surface              string            `json:"surface,omitempty"`
+	ProviderHint         string            `json:"provider_hint,omitempty"`
+	ModelHint            string            `json:"model_hint,omitempty"`
+	ExecutionProfile     string            `json:"execution_profile,omitempty"`
+	ToolsEnabled         bool              `json:"tools_enabled,omitempty"`
+	WritesAllowed        bool              `json:"writes_allowed,omitempty"`
+	NetworkAllowed       bool              `json:"network_allowed,omitempty"`
+	ApprovalPolicy       string            `json:"approval_policy,omitempty"`
+	ProjectMemoryPolicy  string            `json:"project_memory_policy,omitempty"`
+	ContextSourcePolicy  string            `json:"context_source_policy,omitempty"`
+	SkillIDs             []string          `json:"skill_ids,omitempty"`
+	ExternalAgentKind    string            `json:"external_agent_kind,omitempty"`
+	ExternalAgentOptions map[string]string `json:"external_agent_options,omitempty"`
+}
+
+type UpdateAgentProfileRequest struct {
+	Name                 *string           `json:"name,omitempty"`
+	Description          *string           `json:"description,omitempty"`
+	Instructions         *string           `json:"instructions,omitempty"`
+	Surface              *string           `json:"surface,omitempty"`
+	ProviderHint         *string           `json:"provider_hint,omitempty"`
+	ModelHint            *string           `json:"model_hint,omitempty"`
+	ExecutionProfile     *string           `json:"execution_profile,omitempty"`
+	ToolsEnabled         *bool             `json:"tools_enabled,omitempty"`
+	WritesAllowed        *bool             `json:"writes_allowed,omitempty"`
+	NetworkAllowed       *bool             `json:"network_allowed,omitempty"`
+	ApprovalPolicy       *string           `json:"approval_policy,omitempty"`
+	ProjectMemoryPolicy  *string           `json:"project_memory_policy,omitempty"`
+	ContextSourcePolicy  *string           `json:"context_source_policy,omitempty"`
+	SkillIDs             []string          `json:"skill_ids,omitempty"`
+	ExternalAgentKind    *string           `json:"external_agent_kind,omitempty"`
+	ExternalAgentOptions map[string]string `json:"external_agent_options,omitempty"`
+}
+
 type ProjectResponseItem struct {
 	ID                       string                             `json:"id"`
 	Name                     string                             `json:"name"`
@@ -292,13 +363,18 @@ type ProjectRootResponseItem struct {
 }
 
 type ProjectContextSourceResponseItem struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Title     string `json:"title,omitempty"`
-	Path      string `json:"path"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID             string            `json:"id"`
+	Kind           string            `json:"kind"`
+	Title          string            `json:"title,omitempty"`
+	Path           string            `json:"path"`
+	Enabled        bool              `json:"enabled"`
+	Format         string            `json:"format,omitempty"`
+	Scope          string            `json:"scope,omitempty"`
+	TrustLabel     string            `json:"trust_label,omitempty"`
+	SourceCategory string            `json:"source_category,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	CreatedAt      string            `json:"created_at"`
+	UpdatedAt      string            `json:"updated_at"`
 }
 
 type ProjectMemoryResponse struct {
@@ -1087,6 +1163,7 @@ type SystemResetDataResponse struct {
 type SystemResetDataResponseItem struct {
 	ProjectsDeleted            int `json:"projects_deleted"`
 	ProjectWorkRowsDeleted     int `json:"project_work_rows_deleted"`
+	AgentProfilesDeleted       int `json:"agent_profiles_deleted"`
 	ChatSessionsDeleted        int `json:"chat_sessions_deleted"`
 	TasksDeleted               int `json:"tasks_deleted"`
 	ProvidersDeleted           int `json:"providers_deleted"`

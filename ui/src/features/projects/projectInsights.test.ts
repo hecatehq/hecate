@@ -9,6 +9,25 @@ import type {
 } from "../../types/project";
 
 describe("projectInsights", () => {
+  it("calls out projects without an active root", () => {
+    const project = {
+      id: "proj_no_root",
+      name: "Project",
+      roots: [],
+      default_provider: "openai",
+      default_model: "gpt-4.1",
+      context_sources: [],
+      created_at: "2026-06-04T10:00:00Z",
+      updated_at: "2026-06-04T10:00:00Z",
+    } satisfies ProjectRecord;
+
+    const health = buildProjectHealthSummary(project, null, [], [], []);
+
+    expect(health.attention.some((item) => item.title === "No project root configured")).toBe(
+      true,
+    );
+  });
+
   it("labels handoff health metrics as recent when they come from bounded activity handoffs", () => {
     const project = {
       id: "proj_1",

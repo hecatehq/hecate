@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -864,12 +865,19 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	}
 	requestedProvider := strings.TrimSpace(firstNonEmpty(role.DefaultProvider, project.DefaultProvider))
 	requestedModel := strings.TrimSpace(firstNonEmpty(role.DefaultModel, project.DefaultModel, h.config.Router.DefaultModel))
+	profile := h.resolveProjectAssignmentProfile(ctx, role, project)
+	executionProfile := strings.TrimSpace(firstNonEmpty(profile.ExecutionProfile, role.DefaultAgentProfile, project.DefaultAgentProfile, "project_assignment"))
+	if profile.ProviderHint != "" && requestedProvider == "" {
+		requestedProvider = profile.ProviderHint
+	}
+	if profile.ModelHint != "" && (requestedModel == "" || requestedModel == h.config.Router.DefaultModel) {
+		requestedModel = profile.ModelHint
+	}
 	if requestedModel == "" {
 		WriteError(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, "project assignment start requires a default model")
 		return
 	}
-	executionProfile := strings.TrimSpace(firstNonEmpty(role.DefaultAgentProfile, project.DefaultAgentProfile, "project_assignment"))
-	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workingDirectory, requestedProvider, requestedModel, executionProfile)
+	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workingDirectory, requestedProvider, requestedModel, executionProfile, profile)
 	if contextPacket.ID == "" {
 		contextPacket.ID = newChatID("ctx")
 	}
@@ -1204,6 +1212,87 @@ func projectAssignmentSystemPrompt(project projects.Project, role projectwork.Ag
 type assignmentHint struct {
 	label string
 	value string
+}
+
+type resolvedAgentProfile struct {
+	ID                  string
+	Name                string
+	Source              string
+	Missing             bool
+	Surface             string
+	ProviderHint        string
+	ModelHint           string
+	ExecutionProfile    string
+	ToolsEnabled        bool
+	WritesAllowed       bool
+	NetworkAllowed      bool
+	ApprovalPolicy      string
+	ProjectMemoryPolicy string
+	ContextSourcePolicy string
+	SkillIDs            []string
+	Warnings            []string
+}
+
+func (h *Handler) resolveProjectAssignmentProfile(ctx context.Context, role projectwork.AgentRoleProfile, project projects.Project) resolvedAgentProfile {
+	for _, candidate := range []struct {
+		id     string
+		source string
+	}{
+		{strings.TrimSpace(role.DefaultAgentProfile), "role_default"},
+		{strings.TrimSpace(project.DefaultAgentProfile), "project_default"},
+	} {
+		if candidate.id == "" {
+			continue
+		}
+		if h != nil && h.agentProfiles != nil {
+			profile, ok, err := h.agentProfiles.Get(ctx, candidate.id)
+			if err == nil && ok {
+				return resolvedProfileFromStore(profile, candidate.source)
+			}
+		}
+		return resolvedAgentProfile{
+			ID:                  candidate.id,
+			Name:                candidate.id,
+			Source:              candidate.source,
+			Missing:             true,
+			ExecutionProfile:    candidate.id,
+			ApprovalPolicy:      agentprofiles.ApprovalInherit,
+			ProjectMemoryPolicy: agentprofiles.MemoryInherit,
+			ContextSourcePolicy: agentprofiles.ContextInherit,
+			Warnings:            []string{fmt.Sprintf("Referenced agent profile %q was not found; using stored profile id as execution_profile hint.", candidate.id)},
+		}
+	}
+	return resolvedAgentProfile{
+		ID:                  "project_assignment",
+		Name:                "Project Assignment",
+		Source:              "built_in_fallback",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ExecutionProfile:    "project_assignment",
+		ToolsEnabled:        true,
+		WritesAllowed:       true,
+		ApprovalPolicy:      agentprofiles.ApprovalInherit,
+		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
+		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
+	}
+}
+
+func resolvedProfileFromStore(profile agentprofiles.Profile, source string) resolvedAgentProfile {
+	return resolvedAgentProfile{
+		ID:                  profile.ID,
+		Name:                profile.Name,
+		Source:              source,
+		Surface:             profile.Surface,
+		ProviderHint:        profile.ProviderHint,
+		ModelHint:           profile.ModelHint,
+		ExecutionProfile:    firstNonEmptyString(profile.ExecutionProfile, profile.ID),
+		ToolsEnabled:        profile.ToolsEnabled,
+		WritesAllowed:       profile.WritesAllowed,
+		NetworkAllowed:      profile.NetworkAllowed,
+		ApprovalPolicy:      profile.ApprovalPolicy,
+		ProjectMemoryPolicy: profile.ProjectMemoryPolicy,
+		ContextSourcePolicy: profile.ContextSourcePolicy,
+		SkillIDs:            append([]string(nil), profile.SkillIDs...),
+	}
 }
 
 func formatAssignmentHints(items []assignmentHint) string {
