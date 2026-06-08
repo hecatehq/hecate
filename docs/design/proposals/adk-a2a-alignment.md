@@ -60,15 +60,15 @@ Facts, accessed 2026-06-08:
 
 Hecate already separates the pieces that ADK and A2A tend to bundle together:
 
-| Hecate concept | Current role | ADK / A2A alignment |
-| -------------- | ------------ | ------------------- |
-| Model provider | OpenAI, Anthropic, Ollama, LM Studio, and compatible backends answer LLM calls. | Keep separate. ADK and A2A agents are not model providers. |
-| Native runtime | `agent_loop` runs Hecate-owned tool loops with approvals, artifacts, events, cost accounting, and sandboxed tool calls. | Borrow ADK concepts for profiles, workflow graphs, and evaluation; do not replace this runtime. |
-| Agent adapter | ACP-backed Codex, Claude Code, Cursor Agent, Grok Build, and future opaque coding agents. | A remote A2A agent can become another External Agent target. |
-| Protocol adapter | ACP, MCP, OpenAI-compatible HTTP, Anthropic Messages. | A2A belongs here. |
-| MCP | Hecate as an MCP server and as an MCP client for external tools. | Keep MCP as the agent-to-tool/control-plane protocol. A2A should not displace MCP. |
-| Agent profile | Saved runtime posture: model/provider hints, tools, approvals, skills, memory/context activation, and system/profile instructions. | Align profile fields with ADK's agent/tool/session vocabulary where useful. |
-| Runbook | Named workflow pattern with inputs, evidence, approvals, and stop conditions. | Borrow ADK graph/workflow and evaluation ideas as Hecate-native runbooks. |
+| Hecate concept   | Current role                                                                                                                       | ADK / A2A alignment                                                                             |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Model provider   | OpenAI, Anthropic, Ollama, LM Studio, and compatible backends answer LLM calls.                                                    | Keep separate. ADK and A2A agents are not model providers.                                      |
+| Native runtime   | `agent_loop` runs Hecate-owned tool loops with approvals, artifacts, events, cost accounting, and sandboxed tool calls.            | Borrow ADK concepts for profiles, workflow graphs, and evaluation; do not replace this runtime. |
+| Agent adapter    | ACP-backed Codex, Claude Code, Cursor Agent, Grok Build, and future opaque coding agents.                                          | A remote A2A agent can become another External Agent target.                                    |
+| Protocol adapter | ACP, MCP, OpenAI-compatible HTTP, Anthropic Messages.                                                                              | A2A belongs here.                                                                               |
+| MCP              | Hecate as an MCP server and as an MCP client for external tools.                                                                   | Keep MCP as the agent-to-tool/control-plane protocol. A2A should not displace MCP.              |
+| Agent profile    | Saved runtime posture: model/provider hints, tools, approvals, skills, memory/context activation, and system/profile instructions. | Align profile fields with ADK's agent/tool/session vocabulary where useful.                     |
+| Runbook          | Named workflow pattern with inputs, evidence, approvals, and stop conditions.                                                      | Borrow ADK graph/workflow and evaluation ideas as Hecate-native runbooks.                       |
 
 This keeps the accepted external-agent distinction intact: providers answer LLM
 calls, agent adapters drive coding-agent loops, and protocol adapters define
@@ -87,17 +87,17 @@ Hecate-specific storage and API shapes.
 
 Suggested mapping:
 
-| ADK concept | Hecate-native shape |
-| ----------- | ------------------- |
-| Agent | Hecate agent profile, Hecate-owned `agent_loop`, or External Agent adapter depending on context. |
-| Tool | Built-in task tool or namespaced MCP tool. |
-| Runner | Orchestrator plus task runner. |
-| Session | Chat session, task context, or External Agent native session metadata. |
-| State | Context packet, run state, session metadata, and runtime records. |
-| Memory | Operator-approved Hecate memory scoped by project/profile. |
-| Artifact | Hecate task artifact, chat diff artifact, or future portable artifact storage record. |
-| Workflow / graph | Hecate runbook steps and evidence requirements. |
-| Evaluation | Hecate replay/eval suites for `agent_loop`, chat, and External Agent turns. |
+| ADK concept      | Hecate-native shape                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| Agent            | Hecate agent profile, Hecate-owned `agent_loop`, or External Agent adapter depending on context. |
+| Tool             | Built-in task tool or namespaced MCP tool.                                                       |
+| Runner           | Orchestrator plus task runner.                                                                   |
+| Session          | Chat session, task context, or External Agent native session metadata.                           |
+| State            | Context packet, run state, session metadata, and runtime records.                                |
+| Memory           | Operator-approved Hecate memory scoped by project/profile.                                       |
+| Artifact         | Hecate task artifact, chat diff artifact, or future portable artifact storage record.            |
+| Workflow / graph | Hecate runbook steps and evidence requirements.                                                  |
+| Evaluation       | Hecate replay/eval suites for `agent_loop`, chat, and External Agent turns.                      |
 
 ### Agent Profiles
 
@@ -189,14 +189,14 @@ APIs and stores.
 
 Candidate method mapping:
 
-| A2A method | Hecate behavior |
-| ---------- | --------------- |
-| `SendMessage` | Create or continue a Hecate task/chat turn and return either a message or a task snapshot. |
-| `SendStreamingMessage` | Start the same work and project existing task/chat SSE updates into A2A stream events. |
-| `GetTask` | Return a run/task snapshot using A2A task state and artifact shapes. |
-| `ListTasks` | Return recent Hecate runs/tasks scoped by context or status. |
-| `CancelTask` | Cancel the mapped Hecate run. |
-| `SubscribeToTask` | Reattach to a non-terminal run stream using Hecate's replayable event sequence. |
+| A2A method             | Hecate behavior                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `SendMessage`          | Create or continue a Hecate task/chat turn and return either a message or a task snapshot. |
+| `SendStreamingMessage` | Start the same work and project existing task/chat SSE updates into A2A stream events.     |
+| `GetTask`              | Return a run/task snapshot using A2A task state and artifact shapes.                       |
+| `ListTasks`            | Return recent Hecate runs/tasks scoped by context or status.                               |
+| `CancelTask`           | Cancel the mapped Hecate run.                                                              |
+| `SubscribeToTask`      | Reattach to a non-terminal run stream using Hecate's replayable event sequence.            |
 
 V1 should skip A2A push notifications. Webhook callbacks introduce SSRF,
 authentication, replay, and lifecycle concerns that Hecate does not need for
@@ -259,31 +259,31 @@ Do not adopt an SDK if it forces:
 A2A's lifecycle should map to Hecate without pretending the two models are the
 same.
 
-| A2A concept | Hecate mapping |
-| ----------- | -------------- |
-| Agent Card | Hecate capability document for local/authenticated clients, or remote External Agent descriptor when consumed. |
-| AgentSkill | Hecate actions such as create task, continue chat, inspect run, cancel run, resolve approval, inspect traces. |
-| `contextId` | Hecate chat session id, project-scoped conversation id, or future task context id. |
-| `taskId` | Prefer Hecate run id for protocol identity; include Hecate task id as metadata. |
-| Task | A snapshot of one unit of work. Terminal A2A tasks are immutable; Hecate retries/follow-ups should produce new A2A task ids. |
-| Message | Chat or task turn message. |
-| Part | Hecate content block or artifact part. |
-| Artifact | Hecate task artifact, final answer, stdout/stderr artifact, file/diff artifact, or future portable artifact record. |
-| `input-required` | Hecate `awaiting_approval` or explicit clarification-needed state, depending on source. |
-| `auth-required` | Provider, adapter, MCP, or remote-agent auth failure surfaced as a stable state/error. |
-| SSE stream | Existing task-run or chat-session SSE projected into A2A `TaskStatusUpdateEvent` and `TaskArtifactUpdateEvent`. |
+| A2A concept      | Hecate mapping                                                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Agent Card       | Hecate capability document for local/authenticated clients, or remote External Agent descriptor when consumed.               |
+| AgentSkill       | Hecate actions such as create task, continue chat, inspect run, cancel run, resolve approval, inspect traces.                |
+| `contextId`      | Hecate chat session id, project-scoped conversation id, or future task context id.                                           |
+| `taskId`         | Prefer Hecate run id for protocol identity; include Hecate task id as metadata.                                              |
+| Task             | A snapshot of one unit of work. Terminal A2A tasks are immutable; Hecate retries/follow-ups should produce new A2A task ids. |
+| Message          | Chat or task turn message.                                                                                                   |
+| Part             | Hecate content block or artifact part.                                                                                       |
+| Artifact         | Hecate task artifact, final answer, stdout/stderr artifact, file/diff artifact, or future portable artifact record.          |
+| `input-required` | Hecate `awaiting_approval` or explicit clarification-needed state, depending on source.                                      |
+| `auth-required`  | Provider, adapter, MCP, or remote-agent auth failure surfaced as a stable state/error.                                       |
+| SSE stream       | Existing task-run or chat-session SSE projected into A2A `TaskStatusUpdateEvent` and `TaskArtifactUpdateEvent`.              |
 
 Status mapping sketch:
 
-| Hecate status | A2A task state |
-| ------------- | -------------- |
-| `queued` | submitted / working |
-| `running` | working |
-| `awaiting_approval` | input-required |
-| `completed` | completed |
-| `cancelled` | canceled |
-| `failed` | failed |
-| approval rejected | rejected |
+| Hecate status       | A2A task state      |
+| ------------------- | ------------------- |
+| `queued`            | submitted / working |
+| `running`           | working             |
+| `awaiting_approval` | input-required      |
+| `completed`         | completed           |
+| `cancelled`         | canceled            |
+| `failed`            | failed              |
+| approval rejected   | rejected            |
 
 The exact enum spelling should follow the current A2A SDK/spec at
 implementation time.

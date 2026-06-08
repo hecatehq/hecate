@@ -2544,7 +2544,9 @@ function ProjectMemoryPanel({
           {contextSources.length === 0 ? (
             <div style={subtleTextStyle}>No context sources discovered or configured yet.</div>
           ) : (
-            contextSources.map((source) => <ProjectContextSourceRow key={source.id} source={source} />)
+            contextSources.map((source) => (
+              <ProjectContextSourceRow key={source.id} source={source} />
+            ))
           )}
         </div>
         {candidates.length > 0 && (
@@ -3369,11 +3371,7 @@ function ProfilePosturePreview({ profile }: { profile: AgentProfileRecord | null
     `memory ${profile.project_memory_policy}`,
     `sources ${profile.context_source_policy}`,
   ].filter(Boolean);
-  return (
-    <div style={{ ...subtleTextStyle, marginTop: 4 }}>
-      {details.join(" · ")}
-    </div>
-  );
+  return <div style={{ ...subtleTextStyle, marginTop: 4 }}>{details.join(" · ")}</div>;
 }
 
 function normalizeWorkspaceMode(value: string) {

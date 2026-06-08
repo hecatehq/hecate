@@ -14,12 +14,7 @@ export type AgentProfileRecord = {
   network_allowed: boolean;
   approval_policy: "inherit" | "require" | "block" | "allow" | string;
   project_memory_policy: "inherit" | "include" | "visible_only" | "exclude" | string;
-  context_source_policy:
-    | "inherit"
-    | "include_enabled"
-    | "visible_only"
-    | "exclude"
-    | string;
+  context_source_policy: "inherit" | "include_enabled" | "visible_only" | "exclude" | string;
   skill_ids?: string[];
   external_agent_kind?: string;
   external_agent_options?: Record<string, string>;

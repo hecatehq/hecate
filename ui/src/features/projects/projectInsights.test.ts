@@ -23,9 +23,7 @@ describe("projectInsights", () => {
 
     const health = buildProjectHealthSummary(project, null, [], [], []);
 
-    expect(health.attention.some((item) => item.title === "No project root configured")).toBe(
-      true,
-    );
+    expect(health.attention.some((item) => item.title === "No project root configured")).toBe(true);
   });
 
   it("labels handoff health metrics as recent when they come from bounded activity handoffs", () => {
