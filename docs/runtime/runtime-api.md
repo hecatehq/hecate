@@ -1079,12 +1079,12 @@ Supported endpoints:
 
 Enums:
 
-| Field                   | Values                                                        |
-| ----------------------- | ------------------------------------------------------------- |
-| `surface`               | `hecate_chat`, `hecate_task`, `external_agent`, `any`         |
-| `approval_policy`       | `inherit`, `require`, `block`, `allow`                        |
-| `project_memory_policy` | `inherit`, `include`, `visible_only`, `exclude`               |
-| `context_source_policy` | `inherit`, `include_enabled`, `visible_only`, `exclude`       |
+| Field                   | Values                                                  |
+| ----------------------- | ------------------------------------------------------- |
+| `surface`               | `hecate_chat`, `hecate_task`, `external_agent`, `any`   |
+| `approval_policy`       | `inherit`, `require`, `block`, `allow`                  |
+| `project_memory_policy` | `inherit`, `include`, `visible_only`, `exclude`         |
+| `context_source_policy` | `inherit`, `include_enabled`, `visible_only`, `exclude` |
 
 Project assignment starts resolve profiles in this order: role default,
 project default, built-in `project_assignment` fallback. The start path
