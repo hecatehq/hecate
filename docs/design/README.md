@@ -68,6 +68,7 @@ before implementing Agent Profiles V1, skill registry support, or workspace
 | --------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
 | [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)  | Accepted    | Hecate Chat, tools on/off segments, observed capability metadata, profiles, future detection.               |
 | [External Agent integrations](accepted/external-agent-integrations.md)            | Accepted    | Codex, Claude Code, Cursor Agent, Grok Build, ACP controls, approvals, readiness, diagnostics, diff review. |
+| [ADK and A2A alignment](proposals/adk-a2a-alignment.md)                           | Proposal    | ADK concepts as design input, A2A as a future protocol adapter for Hecate and remote agents.                |
 | [External Agent approval loop v1](implemented/external-agent-approval-loop-v1.md) | Implemented | Prompt-first approvals, durable grants, startup reconcile, UI review, telemetry.                            |
 
 ### Runtime Contracts
@@ -107,6 +108,7 @@ before implementing Agent Profiles V1, skill registry support, or workspace
 | [Workflow runbooks v0](proposals/workflow-runbooks-v0.md)                                               | Proposal           | Workflow runbooks             |
 | [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)                        | Accepted           | Agent and chat runtime        |
 | [External Agent integrations](accepted/external-agent-integrations.md)                                  | Accepted           | Agent and chat runtime        |
+| [ADK and A2A alignment](proposals/adk-a2a-alignment.md)                                                 | Proposal           | Agent and chat runtime        |
 | [External Agent approval loop v1](implemented/external-agent-approval-loop-v1.md)                       | Implemented record | Agent and chat runtime        |
 | [Agent event protocol v1](candidates/event-protocol-v1.md)                                              | Candidate          | Runtime contracts             |
 | [Artifact storage v1](candidates/artifact-storage-v1.md)                                                | Candidate          | Runtime contracts             |
