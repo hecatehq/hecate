@@ -405,7 +405,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, workingDirectory)
 	packet.ID = newChatID("ctx")
 	packet.ExecutionProfile = strings.TrimSpace(executionProfile)
-	packet.SystemPromptIncluded = strings.TrimSpace(projectAssignmentSystemPrompt(project, role)) != ""
+	packet.SystemPromptIncluded = strings.TrimSpace(projectAssignmentSystemPrompt(project, role, profile)) != ""
 	packet.Refs = &chat.ContextRefs{
 		TaskID:       strings.TrimSpace(assignment.TaskID),
 		RunID:        strings.TrimSpace(assignment.RunID),
@@ -698,6 +698,9 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile resolvedAgen
 		"Approval policy: " + firstNonEmptyString(profile.ApprovalPolicy, "inherit"),
 		"Project memory policy: " + firstNonEmptyString(profile.ProjectMemoryPolicy, "inherit"),
 		"Context source policy: " + firstNonEmptyString(profile.ContextSourcePolicy, "inherit"),
+	}
+	if instructions := strings.TrimSpace(profile.Instructions); instructions != "" && !profile.Missing {
+		body = append(body, "Instructions:\n"+instructions)
 	}
 	if len(profile.SkillIDs) > 0 {
 		body = append(body, "Skills: "+strings.Join(profile.SkillIDs, ", "))

@@ -865,7 +865,11 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	}
 	requestedProvider := strings.TrimSpace(firstNonEmpty(role.DefaultProvider, project.DefaultProvider))
 	requestedModel := strings.TrimSpace(firstNonEmpty(role.DefaultModel, project.DefaultModel))
-	profile := h.resolveProjectAssignmentProfile(ctx, role, project)
+	profile, err := h.resolveProjectAssignmentProfile(ctx, role, project)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
 	executionProfile := strings.TrimSpace(firstNonEmpty(profile.ExecutionProfile, role.DefaultAgentProfile, project.DefaultAgentProfile, "project_assignment"))
 	if profile.ProviderHint != "" && requestedProvider == "" {
 		requestedProvider = profile.ProviderHint
@@ -910,7 +914,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	task, err := h.createProjectAssignmentTask(ctx, taskID, project, workItem, assignment, role, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile)
+	task, err := h.createProjectAssignmentTask(ctx, taskID, project, workItem, assignment, role, profile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile)
 	if err != nil {
 		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
 			if item.TaskID == taskID && item.RunID == "" {
@@ -1106,14 +1110,14 @@ func selectProjectAssignmentRoot(project projects.Project) (projects.Root, bool)
 	return projects.Root{}, false
 }
 
-func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile string) (types.Task, error) {
+func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, profile resolvedAgentProfile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile string) (types.Task, error) {
 	now := time.Now().UTC()
 	task := types.Task{
 		ID:                 taskID,
 		Title:              projectAssignmentTaskTitle(workItem, role),
 		Prompt:             projectAssignmentPrompt(project, workItem, assignment, role),
 		ProjectID:          project.ID,
-		SystemPrompt:       projectAssignmentSystemPrompt(project, role),
+		SystemPrompt:       projectAssignmentSystemPrompt(project, role, profile),
 		ExecutionKind:      "agent_loop",
 		ExecutionProfile:   executionProfile,
 		OriginKind:         "project_work_item",
@@ -1197,10 +1201,13 @@ func projectAssignmentPrompt(project projects.Project, workItem projectwork.Work
 	return strings.Join(sections, "\n\n")
 }
 
-func projectAssignmentSystemPrompt(project projects.Project, role projectwork.AgentRoleProfile) string {
+func projectAssignmentSystemPrompt(project projects.Project, role projectwork.AgentRoleProfile, profile resolvedAgentProfile) string {
 	var parts []string
 	if prompt := strings.TrimSpace(project.DefaultSystemPrompt); prompt != "" {
 		parts = append(parts, "Project system prompt:\n"+prompt)
+	}
+	if instructions := strings.TrimSpace(profile.Instructions); instructions != "" && !profile.Missing {
+		parts = append(parts, "Agent profile instructions:\n"+instructions)
 	}
 	if instructions := strings.TrimSpace(role.Instructions); instructions != "" {
 		parts = append(parts, "Role instructions:\n"+instructions)
@@ -1219,6 +1226,7 @@ type resolvedAgentProfile struct {
 	ID                  string
 	Name                string
 	Source              string
+	Instructions        string
 	Missing             bool
 	Surface             string
 	ProviderHint        string
@@ -1234,7 +1242,7 @@ type resolvedAgentProfile struct {
 	Warnings            []string
 }
 
-func (h *Handler) resolveProjectAssignmentProfile(ctx context.Context, role projectwork.AgentRoleProfile, project projects.Project) resolvedAgentProfile {
+func (h *Handler) resolveProjectAssignmentProfile(ctx context.Context, role projectwork.AgentRoleProfile, project projects.Project) (resolvedAgentProfile, error) {
 	for _, candidate := range []struct {
 		id     string
 		source string
@@ -1247,8 +1255,11 @@ func (h *Handler) resolveProjectAssignmentProfile(ctx context.Context, role proj
 		}
 		if h != nil && h.agentProfiles != nil {
 			profile, ok, err := h.agentProfiles.Get(ctx, candidate.id)
-			if err == nil && ok {
-				return resolvedProfileFromStore(profile, candidate.source)
+			if err != nil {
+				return resolvedAgentProfile{}, err
+			}
+			if ok {
+				return resolvedProfileFromStore(profile, candidate.source), nil
 			}
 		}
 		return resolvedAgentProfile{
@@ -1261,7 +1272,7 @@ func (h *Handler) resolveProjectAssignmentProfile(ctx context.Context, role proj
 			ProjectMemoryPolicy: agentprofiles.MemoryInherit,
 			ContextSourcePolicy: agentprofiles.ContextInherit,
 			Warnings:            []string{fmt.Sprintf("Referenced agent profile %q was not found; using stored profile id as execution_profile hint.", candidate.id)},
-		}
+		}, nil
 	}
 	return resolvedAgentProfile{
 		ID:                  "project_assignment",
@@ -1274,7 +1285,7 @@ func (h *Handler) resolveProjectAssignmentProfile(ctx context.Context, role proj
 		ApprovalPolicy:      agentprofiles.ApprovalInherit,
 		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
 		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
-	}
+	}, nil
 }
 
 func resolvedProfileFromStore(profile agentprofiles.Profile, source string) resolvedAgentProfile {
@@ -1282,6 +1293,7 @@ func resolvedProfileFromStore(profile agentprofiles.Profile, source string) reso
 		ID:                  profile.ID,
 		Name:                profile.Name,
 		Source:              source,
+		Instructions:        profile.Instructions,
 		Surface:             profile.Surface,
 		ProviderHint:        profile.ProviderHint,
 		ModelHint:           profile.ModelHint,

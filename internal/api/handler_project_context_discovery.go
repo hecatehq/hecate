@@ -139,6 +139,11 @@ func classifyInstructionSource(rel, rootID string) (projects.ContextSource, bool
 		source.Format = "cursor_rule"
 		source.Scope = "metadata_only"
 		source.Metadata["host"] = "cursor"
+	case lower == ".github/copilot-instructions.md":
+		source.Kind = "host_instruction"
+		source.Format = "copilot_instruction"
+		source.Scope = "metadata_only"
+		source.Metadata["host"] = "github_copilot"
 	case strings.HasPrefix(lower, ".github/instructions/") && strings.HasSuffix(lower, ".instructions.md"):
 		source.Kind = "path_instruction"
 		source.Format = "copilot_instruction"
@@ -169,9 +174,26 @@ func mergeDiscoveredContextSources(existing, discovered []projects.ContextSource
 	byKey := make(map[string]projects.ContextSource, len(existing)+len(discovered))
 	order := make([]string, 0, len(existing)+len(discovered))
 	add := func(source projects.ContextSource) {
-		key := strings.TrimSpace(source.Kind) + "\x00" + strings.TrimSpace(source.Path)
-		if key == "\x00" {
+		key := contextSourceMergeKey(source)
+		if key == "\x00\x00" {
 			return
+		}
+		if _, ok := byKey[key]; !ok {
+			legacyKey := contextSourceLegacyMergeKey(source)
+			if legacyKey != key {
+				if previous, ok := byKey[legacyKey]; ok {
+					delete(byKey, legacyKey)
+					for i, item := range order {
+						if item == legacyKey {
+							order[i] = key
+							break
+						}
+					}
+					source.ID = firstNonEmptyString(previous.ID, source.ID)
+					source.Enabled = previous.Enabled
+					source.CreatedAt = previous.CreatedAt
+				}
+			}
 		}
 		if previous, ok := byKey[key]; ok {
 			source.ID = firstNonEmptyString(previous.ID, source.ID)
@@ -193,6 +215,18 @@ func mergeDiscoveredContextSources(existing, discovered []projects.ContextSource
 		out = append(out, byKey[key])
 	}
 	return out
+}
+
+func contextSourceMergeKey(source projects.ContextSource) string {
+	rootID := ""
+	if source.Metadata != nil {
+		rootID = strings.TrimSpace(source.Metadata["root_id"])
+	}
+	return contextSourceLegacyMergeKey(source) + "\x00" + rootID
+}
+
+func contextSourceLegacyMergeKey(source projects.ContextSource) string {
+	return strings.TrimSpace(source.Kind) + "\x00" + strings.TrimSpace(source.Path)
 }
 
 func instructionScopeForPath(rel string) string {

@@ -2804,6 +2804,68 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
+  it("preserves inherited project model defaults when saving settings", async () => {
+    resetProjectWorkMocks();
+    const projectWithInheritedModel = {
+      ...project,
+      default_provider: "ollama",
+      default_model: undefined,
+    };
+    window.localStorage.setItem("hecate.project", projectWithInheritedModel.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [projectWithInheritedModel],
+      activeProjectID: projectWithInheritedModel.id,
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            credential_configured: false,
+          },
+        ],
+        policy_rules: [],
+        events: [],
+      },
+      providerPresets: [
+        {
+          id: "ollama",
+          name: "Ollama",
+          kind: "local",
+          protocol: "openai",
+          base_url: "http://127.0.0.1:11434/v1",
+        },
+      ],
+      models: [
+        {
+          id: "qwen2.5-coder",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", default: true },
+        },
+      ],
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
+    expect(
+      screen.getByRole("button", { name: /Model picker: inherit runtime default/i }),
+    ).toBeTruthy();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Workspace mode" }), [
+      "ephemeral",
+    ]);
+    await userEvent.click(screen.getByRole("button", { name: "Save defaults" }));
+
+    expect(updateProject).toHaveBeenCalledWith(projectWithInheritedModel.id, {
+      default_provider: "ollama",
+      default_model: "",
+      default_agent_profile: "",
+      default_workspace_mode: "ephemeral",
+    });
+  });
+
   it("starts native Hecate assignments and refreshes detail state", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
