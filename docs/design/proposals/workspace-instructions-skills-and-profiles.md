@@ -1,0 +1,436 @@
+# Workspace Instructions, Skills, And Profiles
+
+> **Status:** proposed.
+> **Current source of truth:** [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md),
+> [Agent memory](agent-memory.md), [Projects](../accepted/projects.md), and
+> [Runtime API](../../runtime/runtime-api.md) for today's context-packet,
+> memory, project, and task behavior.
+> **Next action:** implement Agent Profiles V1 core with room for skill
+> references, then add workspace-instruction discovery and local skill registry
+> support as separate slices.
+
+Hecate needs a clean vocabulary for several things that are easy to blur:
+workspace `AGENTS.md` files, other Markdown instruction files, reusable
+`SKILL.md` packages, agent profiles, presets, memory, and workflow runbooks.
+They are all "context" in the broad sense, but they have different authority,
+lifecycle, safety, and UI needs.
+
+This proposal defines the layering Hecate should use before implementing Agent
+Profiles V1, Skills V1, and planner/runbook features.
+
+## External Alignment
+
+Facts, accessed 2026-06-08:
+
+- Codex documents `AGENTS.md` as its project-instruction surface and includes
+  feature-flagged hierarchy/precedence behavior for nested agent guidance.
+  Source: <https://github.com/openai/codex/blob/main/docs/agents_md.md>.
+- Claude Code skills use a skill folder with `SKILL.md`, optional supporting
+  resources, and progressive disclosure. Claude Code also supports an
+  `allowed-tools` frontmatter field that can grant tool access while the skill
+  is active. Source: <https://docs.claude.com/en/docs/claude-code/skills>.
+- Claude Code memory/instruction files include organization, user, and project
+  `CLAUDE.md` locations, including project `./CLAUDE.md` and
+  `./.claude/CLAUDE.md`. Source:
+  <https://docs.claude.com/en/docs/claude-code/memory>.
+- Microsoft Agent Skills search configured paths recursively for `SKILL.md`
+  files, validate format/resources, and expose loading/resource/script tools to
+  agents. Source:
+  <https://learn.microsoft.com/en-us/agent-framework/agents/skills>.
+- skills.sh documents a public skill ecosystem around downloadable `SKILL.md`
+  packages and warns that registry quality/security cannot be guaranteed.
+  Source: <https://skills.sh/docs>.
+- OpenCode discovers skills from `.opencode/skills`, `.claude/skills`, and
+  `.agents/skills` at project and global levels, and recognizes only
+  `name`, `description`, `license`, `compatibility`, and `metadata`
+  frontmatter fields. Source: <https://dev.opencode.ai/docs/skills>.
+- GitHub Copilot repository custom instructions include
+  `.github/copilot-instructions.md`, path-specific
+  `.github/instructions/**/*.instructions.md`, and agent-instruction files such
+  as `AGENTS.md`, `CLAUDE.md`, or `GEMINI.md`, with partial feature support.
+  Source:
+  <https://docs.github.com/en/copilot/concepts/prompting/response-customization>.
+- VS Code/Copilot custom instructions explicitly recommends `AGENTS.md` when
+  multiple AI agents share a workspace, supports nested `AGENTS.md`
+  experimentally, and also detects `CLAUDE.md` locations. Source:
+  <https://code.visualstudio.com/docs/agent-customization/custom-instructions>.
+- Gemini CLI uses `GEMINI.md` as hierarchical memory/instructions and loads
+  custom slash commands from user/project `.gemini/commands/*.toml` sources.
+  Source:
+  <https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/commands.md>.
+- Windsurf/Cascade separates Memories, Rules, Workflows, and Skills; it
+  recommends durable reusable knowledge be stored as Rules or `AGENTS.md`, and
+  currently prefers `.devin/rules/*.md` with legacy `.windsurf/rules/*.md`
+  fallback. Source: <https://docs.windsurf.com/windsurf/cascade/memories>.
+- Cursor rules live in `.cursor/rules` and act as project-scoped guidance, not
+  reusable procedure packages. Source:
+  <https://docs.cursor.com/context/rules-for-ai>.
+
+Hecate should align with the `SKILL.md` package shape for portability, but not
+inherit host-specific permission semantics. In Hecate, a skill can suggest or
+require capabilities, but profile, policy, sandbox, and approvals decide what
+is actually allowed.
+
+The cross-ecosystem lesson is:
+
+```text
+AGENTS.md is the best portable workspace-instruction target.
+SKILL.md is the best portable reusable-skill target.
+Host-specific files should be compatibility sources with labels, not Hecate's
+source of truth.
+```
+
+## Concept Stack
+
+| Concept                   | Owns                                                                                                                                                | Does not own                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Workspace instructions    | Repo/workspace-authored guidance such as `AGENTS.md`, nested `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, and similar.                                | Durable operator memory, reusable procedures, model/provider/tool posture.                |
+| Project context sources   | Operator-selected files/docs/source metadata attached to a Hecate project.                                                                          | Prompt rendering or authority decisions by themselves.                                    |
+| Skills                    | Reusable procedures or capability guidance packaged as `SKILL.md` plus optional references/templates/scripts.                                       | Tool grants, sandbox bypasses, durable memory, project identity, or autonomous execution. |
+| Agent profiles            | Saved runtime posture: model/provider hints, tool policy, memory/context activation, skills, approvals, adapter hints, system/profile instructions. | Project identity, durable memory storage, or a concrete workflow instance.                |
+| Presets                   | Authoring-time templates for creating/updating projects, profiles, or runbooks.                                                                     | Runtime identity after they are applied.                                                  |
+| Runbooks / workflow modes | Concrete workflow patterns such as `review`, `qa`, `ship`, or `investigate`, including inputs, evidence, approvals, and stop conditions.            | General-purpose agent identity, memory, or separate execution runtime.                    |
+| Memory                    | Operator-approved durable facts/preferences and generated candidates awaiting approval.                                                             | Workspace documentation, skill instructions, or automatic transcript mining.              |
+
+Short version:
+
+```text
+Workspace instructions tell an agent what this workspace expects.
+Skills tell an agent how to perform a reusable procedure.
+Profiles choose the runtime posture and which skills/context are active.
+Runbooks define a concrete workflow execution.
+Memory carries operator-approved durable knowledge.
+```
+
+## Workspace Instructions
+
+Workspace instructions are local files owned by the workspace/repository. They
+should be first-class in Hecate because external coding agents already rely on
+them and operators expect `AGENTS.md` to matter.
+
+Initial discovery targets:
+
+```text
+AGENTS.md
+*/AGENTS.md
+GEMINI.md
+CLAUDE.md
+.claude/CLAUDE.md
+CLAUDE.local.md
+.github/copilot-instructions.md
+.github/instructions/*.instructions.md
+.devin/rules/*.md
+.windsurf/rules/*.md
+.cursor/rules/*.mdc
+.gemini/commands/*.toml
+.opencode/AGENTS.md
+```
+
+V1 should prioritize root and nested `AGENTS.md`. Host-specific formats should
+be discovered and labelled before Hecate tries to interpret their full rule or
+command semantics.
+
+Recommended source classification:
+
+| Source pattern                                   | Hecate kind             | V1 behavior                                                                |
+| ------------------------------------------------ | ----------------------- | -------------------------------------------------------------------------- |
+| `AGENTS.md`, nested `AGENTS.md`                  | `workspace_instruction` | Highest-priority portable workspace guidance.                              |
+| `CLAUDE.md`, `.claude/CLAUDE.md`, local variants | `host_instruction`      | Detect and label as Claude-compatible; include only when enabled.          |
+| `GEMINI.md`                                      | `host_instruction`      | Detect and label as Gemini-compatible hierarchical memory/instructions.    |
+| `.github/copilot-instructions.md`                | `host_instruction`      | Detect and label as Copilot repository-wide instructions.                  |
+| `.github/instructions/*.instructions.md`         | `path_instruction`      | Parse only simple `applyTo`/path metadata in V1; otherwise metadata-only.  |
+| `.cursor/rules/*`                                | `host_rule`             | Detect as Cursor rules; do not assume Hecate understands activation modes. |
+| `.devin/rules/*`, `.windsurf/rules/*`            | `host_rule`             | Detect as Windsurf/Devin rules; preserve activation metadata if available. |
+| `.gemini/commands/*.toml`                        | `host_command`          | Metadata only in V1; not injected as standing instructions by default.     |
+| Host custom agents such as `.github/agents/*`    | `host_agent_definition` | Metadata only; Hecate profiles remain separate.                            |
+
+Discovery rules:
+
+- Bound discovery to configured workspace roots.
+- Root `AGENTS.md` applies broadly.
+- Nested `AGENTS.md` applies to matching path prefixes.
+- For broad project work, include root instructions and any operator-selected
+  nested instructions.
+- For path-scoped work, include the root-to-leaf instruction chain for the
+  relevant paths.
+- Do not crawl huge trees blindly. Use bounded depth, ignore common vendor/build
+  directories, and prefer explicit project context-source metadata once saved.
+
+Context packet representation:
+
+```json
+{
+  "kind": "workspace_instruction",
+  "section": "instructions",
+  "title": "AGENTS.md",
+  "origin": "AGENTS.md",
+  "trust_label": "workspace_guidance",
+  "included": true,
+  "metadata": {
+    "format": "agents_md",
+    "scope": "workspace",
+    "applies_to": ["."]
+  }
+}
+```
+
+External-agent boundary:
+
+- Hecate should detect and show relevant workspace instructions in Context
+  Inspector.
+- If an external adapter already loads `AGENTS.md`, Hecate should label the
+  source as available or likely adapter-loaded instead of injecting duplicate
+  full text.
+- If an adapter supports launch preambles/config, Hecate may include a short
+  operator-visible note pointing the agent to workspace instructions.
+- Hecate should not read or rewrite an external agent's private memory/settings.
+
+Policy rule: workspace instructions never override Hecate policy, sandbox,
+approvals, or operator settings. If they conflict, Hecate policy wins and the
+inspector should show the conflict where possible.
+
+## Skills
+
+Skills are reusable procedures/capabilities. They should align with the
+emerging `SKILL.md` folder shape:
+
+```text
+<skill-id>/
+  SKILL.md
+  references/
+  scripts/
+  templates/
+  examples/
+  assets/
+```
+
+Hecate V1 should support built-in skills plus project-local skills:
+
+```text
+.hecate/skills/<skill-id>/SKILL.md
+```
+
+Better alignment target:
+
+```text
+.hecate/skills/<skill-id>/SKILL.md       # Hecate-native source of truth
+.agents/skills/<skill-id>/SKILL.md       # cross-agent compatibility candidate
+.claude/skills/<skill-id>/SKILL.md       # Claude-compatible import candidate
+.opencode/skills/<skill-id>/SKILL.md     # OpenCode-compatible import candidate
+~/.agents/skills/<skill-id>/SKILL.md     # future user-global import candidate
+~/.claude/skills/<skill-id>/SKILL.md     # future user-global import candidate
+```
+
+V1 should enable `.hecate/skills` first. `.agents/skills` is the most plausible
+future cross-agent compatibility path because it is not named after a single
+host. Compatibility scanning for `.claude/skills`, `.opencode/skills`, or
+global skill directories should be explicit opt-in, because those skills can
+carry host-specific assumptions or permission fields.
+
+Common frontmatter:
+
+```yaml
+id: diff-aware-review
+name: Diff-aware Review
+description: Review changed files for regressions, risks, and missing tests.
+version: 0.1.0
+tags:
+  - review
+  - qa
+```
+
+Optional Hecate metadata:
+
+```yaml
+hecate:
+  surfaces:
+    - hecate_task
+    - external_agent
+  invocation:
+    default: profile_selected
+    user_invocable: true
+    model_invocable: false
+  suggested_tools:
+    - git.diff
+    - file.read
+  required_permissions:
+    writes: false
+    network: false
+  max_context_tokens: 4000
+```
+
+Security boundary:
+
+```text
+skill suggested tools != granted tools
+```
+
+Skills may declare suggested tools or required capabilities. Hecate can warn
+when a profile does not satisfy them. Skills must not grant tool access,
+silently approve actions, bypass workspace validation, execute scripts, or write
+memory. Profile/policy/approval layers own authority.
+
+V1 non-goals:
+
+- Remote install from skills.sh or any registry.
+- Automatic enabling of third-party skills.
+- Script execution from skills.
+- Marketplace/search UX.
+- Skill-provided tool grants.
+- Model-invoked skills that change runtime permissions.
+- Treating host-specific command files as Hecate skills without conversion.
+
+Hecate should still record compatibility metadata, including unknown
+frontmatter fields, but unknown fields must not become behavior.
+
+## Agent Profiles
+
+Agent profiles are the next core substrate. They turn loose profile strings
+into saved runtime posture that projects, roles, chats, assignments, and future
+external-agent launches can resolve consistently.
+
+Minimal profile shape:
+
+```go
+type AgentProfile struct {
+    ID          string
+    Name        string
+    Description string
+    Instructions string
+    Surface     string // hecate_task | hecate_chat | external_agent | any
+
+    ProviderHint string
+    ModelHint    string
+    ExecutionProfile string
+
+    ToolsEnabled bool
+    WritesAllowed bool
+    NetworkAllowed bool
+    ApprovalPolicy string // inherit | require | block | allow
+
+    ProjectMemoryPolicy string // inherit | include | visible_only | exclude
+    ContextSourcePolicy string // inherit | include_enabled | visible_only | exclude
+    SkillIDs []string
+
+    ExternalAgentKind string
+    ExternalAgentOptions map[string]string
+
+    CreatedAt time.Time
+    UpdatedAt time.Time
+}
+```
+
+Resolution order:
+
+```text
+explicit launch override
+→ assignment role default
+→ project default
+→ built-in fallback profile
+```
+
+Resolution output should be snapshotted into context packets:
+
+- selected profile id
+- effective profile fields
+- active skill ids and resolution status
+- active memory/context policies
+- missing/disabled skill warnings
+- permission conflicts such as read-only profile versus skill requesting writes
+
+Profiles can reference skills, but profiles are not skills. A profile answers
+"how should this agent run?" A skill answers "what reusable procedure is
+available?" A runbook answers "what workflow is being executed?"
+
+## Runbooks And Planner
+
+Runbooks should build on profiles and skills after they exist. A runbook can
+require compatible profiles/skills, evidence artifacts, approvals, and stop
+conditions:
+
+```text
+Runbook "review"
+  compatible profiles: reviewer, security-reviewer
+  required skills: diff-aware-review
+  permissions: read-only
+  required artifacts: final report
+```
+
+Planner UI should come later as a draft surface. It can propose work items,
+roles, assignments, profiles, skills, handoff expectations, and context bundles,
+but the operator approves before anything is created or started.
+
+## What Hecate Needs
+
+Recommended sequence:
+
+1. **Agent Profiles V1 Core**
+   - Profile store with memory/SQLite parity.
+   - CRUD/list API.
+   - Resolution helper with explicit/role/project/fallback order.
+   - `skill_ids` as unresolved references or best-effort metadata.
+   - Context packet fields for resolved profile metadata.
+
+2. **Skills Registry V1 Core**
+   - Built-in skill registry.
+   - Project-local `.hecate/skills/*/SKILL.md` discovery.
+   - Frontmatter validation.
+   - List/get API.
+   - Trust/source labels.
+   - No script execution or remote install.
+
+3. **Workspace Instructions V1 Core**
+   - Discover `AGENTS.md` and nested `AGENTS.md` under project workspace roots.
+   - Save/refresh them as project context-source metadata.
+   - Include relevant Hecate-owned instruction content in context packets.
+   - Label external-agent behavior as "available to adapter" or "not injected"
+     when Hecate does not own the adapter prompt.
+
+4. **Profile Skill Resolution**
+   - Resolve `skill_ids` to active skill metadata.
+   - Add active/skipped skills to context packets.
+   - Warn on missing, disabled, incompatible, or permission-conflicting skills.
+
+5. **UI**
+   - Profile editor.
+   - Skill list/detail and skill picker.
+   - Workspace instruction source list.
+   - Context Inspector sections for instructions, skills, profile, memory, and
+     runbook/workflow context.
+
+6. **Runbooks V0**
+   - Start with one report-only `review` or `qa` workflow that uses profiles,
+     skills, existing task runs, artifacts, approvals, and memory candidates.
+
+## Context Inspector Sections
+
+The UI should keep these separate:
+
+| Section              | Examples                                                         |
+| -------------------- | ---------------------------------------------------------------- |
+| Profile              | selected/effective profile, model/provider/tool posture          |
+| Instructions         | `AGENTS.md`, nested `AGENTS.md`, host-specific instruction files |
+| Skills               | selected `SKILL.md` packages, included/skipped state             |
+| Project docs/sources | operator-selected docs and context-source metadata               |
+| Memory               | operator-approved project memory entries                         |
+| Work context         | work item, assignment, handoff, review, artifact refs            |
+| Runtime evidence     | task/run status, approvals, tool output, route reports           |
+| Runbook/workflow     | workflow mode, runbook id/version, typed inputs, stop rules      |
+
+This separation is the main product value: the operator can tell whether the
+agent followed workspace instructions, used a skill, relied on durable memory,
+or merely saw generated/runtime evidence.
+
+## Open Questions
+
+- Should `.hecate/skills` live under each workspace root, under project config,
+  or both?
+- Should Hecate support global user-local skills before project-local skills?
+- What is the minimum built-in skill set: `code-review`, `diff-aware-qa`,
+  `investigate`, `handoff`, `release-check`?
+- Should compatibility import from `.claude/skills` be read-only preview first?
+- How should conflicting nested `AGENTS.md` files be shown when a task touches
+  multiple directories?
+- Should skill bodies be included in context by default, or only skill summary
+  plus on-demand references until a runbook/profile requests full instructions?
+- What lockfile/hash model is needed before remote skill install is allowed?

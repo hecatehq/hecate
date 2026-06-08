@@ -36,8 +36,9 @@ Read these in order:
 1. [Projects](accepted/projects.md)
 2. [Context assembly and injection boundaries](proposals/context-assembly-and-injection-boundaries.md)
 3. [Agent memory](proposals/agent-memory.md)
-4. [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)
-5. [LLM context window management](proposals/llm-context-window-management.md)
+4. [Workspace instructions, skills, and profiles](proposals/workspace-instructions-skills-and-profiles.md)
+5. [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)
+6. [LLM context window management](proposals/llm-context-window-management.md)
 
 The invariant: projects provide identity, context assembly decides what enters
 a model or adapter call, memory is operator-approved durable context, and window
@@ -52,6 +53,14 @@ Start with [Workflow runbooks v0](proposals/workflow-runbooks-v0.md), then read
 [Agent memory](proposals/agent-memory.md) for the memory-candidate promotion
 flow and [Context assembly](proposals/context-assembly-and-injection-boundaries.md)
 for the context packet boundary.
+
+### Workspace Instructions, Skills, And Profiles
+
+Workspace instructions, reusable skills, agent profiles, presets, and runbooks
+are deliberately separate concepts. Start with
+[Workspace instructions, skills, and profiles](proposals/workspace-instructions-skills-and-profiles.md)
+before implementing Agent Profiles V1, skill registry support, or workspace
+`AGENTS.md` discovery.
 
 ### Agent And Chat Runtime
 
@@ -87,23 +96,24 @@ for the context packet boundary.
 
 ## Full Catalog
 
-| Record                                                                                              | Bucket             | Track                         |
-| --------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------- |
-| [Projects](accepted/projects.md)                                                                    | Accepted           | Projects, context, and memory |
-| [Context assembly and injection boundaries](proposals/context-assembly-and-injection-boundaries.md) | Proposal; partial  | Projects, context, and memory |
-| [Agent memory](proposals/agent-memory.md)                                                           | Proposal; partial  | Projects, context, and memory |
-| [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)                   | Proposal           | Projects, context, and memory |
-| [LLM context window management](proposals/llm-context-window-management.md)                         | Proposal           | Projects, context, and memory |
-| [Workflow runbooks v0](proposals/workflow-runbooks-v0.md)                                           | Proposal           | Workflow runbooks             |
-| [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)                    | Accepted           | Agent and chat runtime        |
-| [External Agent integrations](accepted/external-agent-integrations.md)                              | Accepted           | Agent and chat runtime        |
-| [External Agent approval loop v1](implemented/external-agent-approval-loop-v1.md)                   | Implemented record | Agent and chat runtime        |
-| [Agent event protocol v1](candidates/event-protocol-v1.md)                                          | Candidate          | Runtime contracts             |
-| [Artifact storage v1](candidates/artifact-storage-v1.md)                                            | Candidate          | Runtime contracts             |
-| [CLI structure](proposals/cli-structure.md)                                                         | Proposal           | Platform and CLI              |
-| [Migration CLI](proposals/migration-cli.md)                                                         | Proposal           | Platform and CLI              |
-| [Provider response extensions](proposals/provider-response-extensions.md)                           | Proposal           | Platform and CLI              |
-| [Autoresearch](proposals/autoresearch.md)                                                           | Proposal           | Future research               |
-| [Import external chat history](proposals/import-external-chat-history.md)                           | Proposal           | Future research               |
-| [Embeddings](proposals/embeddings.md)                                                               | Proposal           | Future research               |
-| [Agent event protocol extensions](parking-lot/event-protocol-extensions.md)                         | Parking lot        | Future research               |
+| Record                                                                                                  | Bucket             | Track                         |
+| ------------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------- |
+| [Projects](accepted/projects.md)                                                                        | Accepted           | Projects, context, and memory |
+| [Context assembly and injection boundaries](proposals/context-assembly-and-injection-boundaries.md)     | Proposal; partial  | Projects, context, and memory |
+| [Agent memory](proposals/agent-memory.md)                                                               | Proposal; partial  | Projects, context, and memory |
+| [Workspace instructions, skills, and profiles](proposals/workspace-instructions-skills-and-profiles.md) | Proposal           | Projects, context, and memory |
+| [Run evidence and portable memory](proposals/run-evidence-and-portable-memory.md)                       | Proposal           | Projects, context, and memory |
+| [LLM context window management](proposals/llm-context-window-management.md)                             | Proposal           | Projects, context, and memory |
+| [Workflow runbooks v0](proposals/workflow-runbooks-v0.md)                                               | Proposal           | Workflow runbooks             |
+| [Hecate Chat and model capabilities](accepted/hecate-chat-model-capabilities.md)                        | Accepted           | Agent and chat runtime        |
+| [External Agent integrations](accepted/external-agent-integrations.md)                                  | Accepted           | Agent and chat runtime        |
+| [External Agent approval loop v1](implemented/external-agent-approval-loop-v1.md)                       | Implemented record | Agent and chat runtime        |
+| [Agent event protocol v1](candidates/event-protocol-v1.md)                                              | Candidate          | Runtime contracts             |
+| [Artifact storage v1](candidates/artifact-storage-v1.md)                                                | Candidate          | Runtime contracts             |
+| [CLI structure](proposals/cli-structure.md)                                                             | Proposal           | Platform and CLI              |
+| [Migration CLI](proposals/migration-cli.md)                                                             | Proposal           | Platform and CLI              |
+| [Provider response extensions](proposals/provider-response-extensions.md)                               | Proposal           | Platform and CLI              |
+| [Autoresearch](proposals/autoresearch.md)                                                               | Proposal           | Future research               |
+| [Import external chat history](proposals/import-external-chat-history.md)                               | Proposal           | Future research               |
+| [Embeddings](proposals/embeddings.md)                                                                   | Proposal           | Future research               |
+| [Agent event protocol extensions](parking-lot/event-protocol-extensions.md)                             | Parking lot        | Future research               |
