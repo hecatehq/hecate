@@ -20,6 +20,7 @@ func TestProjectContextDiscovery_FindsWorkspaceGuidanceMetadata(t *testing.T) {
 	writeDiscoveryFile(t, root, "internal/api/AGENTS.md")
 	writeDiscoveryFile(t, root, "CLAUDE.md")
 	writeDiscoveryFile(t, root, ".cursor/rules/backend.mdc")
+	writeDiscoveryFile(t, root, ".github/copilot-instructions.md")
 	writeDiscoveryFile(t, root, ".github/instructions/go.instructions.md")
 	writeDiscoveryFile(t, root, "vendor/AGENTS.md")
 	writeDiscoveryFile(t, root, "node_modules/pkg/AGENTS.md")
@@ -75,11 +76,58 @@ func TestProjectContextDiscovery_FindsWorkspaceGuidanceMetadata(t *testing.T) {
 	if got := sources[".cursor/rules/backend.mdc"]; got.Kind != "host_rule" || got.Metadata["host"] != "cursor" || got.Scope != "metadata_only" {
 		t.Fatalf("Cursor source = %+v, want metadata-only host rule", got)
 	}
+	if got := sources[".github/copilot-instructions.md"]; got.Kind != "host_instruction" || got.Metadata["host"] != "github_copilot" || got.Scope != "metadata_only" {
+		t.Fatalf("Copilot source = %+v, want metadata-only host instruction", got)
+	}
 	if _, ok := sources["vendor/AGENTS.md"]; ok {
 		t.Fatalf("vendor AGENTS.md was discovered: %+v", sources["vendor/AGENTS.md"])
 	}
 	if _, ok := sources["node_modules/pkg/AGENTS.md"]; ok {
 		t.Fatalf("node_modules AGENTS.md was discovered: %+v", sources["node_modules/pkg/AGENTS.md"])
+	}
+}
+
+func TestProjectContextDiscovery_KeepsSamePathSourcesFromDifferentRoots(t *testing.T) {
+	t.Parallel()
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	writeDiscoveryFile(t, rootA, "AGENTS.md")
+	writeDiscoveryFile(t, rootB, "AGENTS.md")
+
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+
+	if _, err := projectStore.Create(t.Context(), projects.Project{
+		ID:   "proj_multi_root",
+		Name: "Multi-root",
+		Roots: []projects.Root{
+			{ID: "root_a", Path: rootA, Kind: "local", Active: true},
+			{ID: "root_b", Path: rootB, Kind: "local", Active: true},
+		},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_multi_root/context-sources/discover", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("discover status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var resp ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode discovery response: %v", err)
+	}
+
+	roots := make(map[string]bool)
+	for _, source := range resp.Data.ContextSources {
+		if source.Path == "AGENTS.md" && source.Kind == "workspace_instruction" {
+			roots[source.Metadata["root_id"]] = true
+		}
+	}
+	if !roots["root_a"] || !roots["root_b"] || len(roots) != 2 {
+		t.Fatalf("discovered AGENTS roots = %+v, want root_a and root_b", roots)
 	}
 }
 

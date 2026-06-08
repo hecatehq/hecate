@@ -685,6 +685,7 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
 		ID:                  "prof_role",
 		Name:                "Role profile",
+		Instructions:        "Use the profile-specific review checklist.",
 		Surface:             agentprofiles.SurfaceHecateTask,
 		ProviderHint:        "anthropic",
 		ModelHint:           "claude-sonnet-4",
@@ -737,6 +738,9 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.ExecutionProfile != "role_profile" {
 		t.Fatalf("task provider/model/profile = %q/%q/%q, want role profile hints", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
 	}
+	if !strings.Contains(task.SystemPrompt, "Agent profile instructions:\nUse the profile-specific review checklist.") {
+		t.Fatalf("task system prompt = %q, want profile instructions", task.SystemPrompt)
+	}
 
 	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
 	if packetResp.Data.ExecutionProfile != "role_profile" {
@@ -752,6 +756,7 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 		"Provider hint: anthropic",
 		"Model hint: claude-sonnet-4",
 		"Execution profile: role_profile",
+		"Instructions:\nUse the profile-specific review checklist.",
 		"Skills: backend, review",
 	} {
 		if !strings.Contains(profileItem.Body, want) {
@@ -798,6 +803,29 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsMissingProfileWarning(t *testing
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentReturnsErrorWhenProfileStoreFails(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverHecateTask,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.DefaultAgentProfile = "prof_project"
+	}); err != nil {
+		t.Fatalf("Update project profile: %v", err)
+	}
+	handler.SetAgentProfileStore(failingAgentProfileStore{err: errors.New("profile store unavailable")})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("start assignment status = %d body=%s, want 500", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentKeepsExplicitModelEqualToRouterDefault(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -838,6 +866,54 @@ func TestProjectWorkAPI_StartAssignmentKeepsExplicitModelEqualToRouterDefault(t 
 	}
 	if task.RequestedModel != "qwen2.5-coder" {
 		t.Fatalf("task requested model = %q, want explicit project default", task.RequestedModel)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentKeepsExplicitRoleModelEqualToRouterDefault(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	handler.config.Router.DefaultModel = "qwen2.5-coder"
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverHecateTask,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:        "prof_role",
+		Name:      "Role profile",
+		Surface:   agentprofiles.SurfaceHecateTask,
+		ModelHint: "claude-sonnet-4",
+	}); err != nil {
+		t.Fatalf("Create role profile: %v", err)
+	}
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.DefaultModel = ""
+	}); err != nil {
+		t.Fatalf("Update project defaults: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultAgentProfile = "prof_role"
+		role.DefaultModel = "qwen2.5-coder"
+	}); err != nil {
+		t.Fatalf("Update role defaults: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+	}
+	if task.RequestedModel != "qwen2.5-coder" {
+		t.Fatalf("task requested model = %q, want explicit role default", task.RequestedModel)
 	}
 }
 
@@ -1423,6 +1499,32 @@ type failingCreateTaskStore struct {
 
 func (s failingCreateTaskStore) CreateTask(context.Context, types.Task) (types.Task, error) {
 	return types.Task{}, errors.New("create task failed")
+}
+
+type failingAgentProfileStore struct {
+	err error
+}
+
+func (s failingAgentProfileStore) Backend() string { return "failing" }
+
+func (s failingAgentProfileStore) Create(context.Context, agentprofiles.Profile) (agentprofiles.Profile, error) {
+	return agentprofiles.Profile{}, s.err
+}
+
+func (s failingAgentProfileStore) Get(context.Context, string) (agentprofiles.Profile, bool, error) {
+	return agentprofiles.Profile{}, false, s.err
+}
+
+func (s failingAgentProfileStore) List(context.Context) ([]agentprofiles.Profile, error) {
+	return nil, s.err
+}
+
+func (s failingAgentProfileStore) Update(context.Context, string, func(*agentprofiles.Profile)) (agentprofiles.Profile, error) {
+	return agentprofiles.Profile{}, s.err
+}
+
+func (s failingAgentProfileStore) Delete(context.Context, string) error {
+	return s.err
 }
 
 type projectWorkAssignmentStartSeed struct {

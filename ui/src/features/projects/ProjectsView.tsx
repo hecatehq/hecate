@@ -3132,10 +3132,6 @@ function ProjectSettingsPanel({
     if (!form.provider) return models;
     return models.filter((model) => model.metadata?.provider === form.provider);
   }, [form.provider, models]);
-  const selectedModel = useMemo(() => {
-    if (form.model) return form.model;
-    return defaultModelID(scopedModels);
-  }, [form.model, scopedModels]);
   const selectedProfile = useMemo(
     () => agentProfiles.find((profile) => profile.id === form.defaultAgentProfile) ?? null,
     [agentProfiles, form.defaultAgentProfile],
@@ -3155,11 +3151,11 @@ function ProjectSettingsPanel({
       return {
         ...current,
         provider,
-        model: modelStillValid ? current.model : defaultModelID(nextModels),
+        model: modelStillValid ? current.model : "",
       };
     });
   }
-  const submitForm = () => onSave({ ...form, model: selectedModel });
+  const submitForm = () => onSave(form);
 
   const workspace = projectDefaultWorkspace(project);
 
@@ -3226,10 +3222,12 @@ function ProjectSettingsPanel({
                     }
                   />
                   <ModelPicker
-                    value={selectedModel}
+                    value={form.model}
                     onChange={(model) => setForm((current) => ({ ...current, model }))}
                     models={scopedModels}
                     presets={providerPresets}
+                    includeAll
+                    allLabel="inherit runtime default"
                     showProvider={!form.provider}
                   />
                 </div>
@@ -4627,10 +4625,6 @@ function summarizeAssignments(assignments: ProjectAssignmentRecord[]): WorkItemS
     },
     { assignmentCount: 0, activeCount: 0, failedCount: 0, completedCount: 0 },
   );
-}
-
-function defaultModelID(models: ModelRecord[]): string {
-  return models.find((model) => model.metadata?.default)?.id || models[0]?.id || "";
 }
 
 function emptyRoleForm(): RoleForm {
