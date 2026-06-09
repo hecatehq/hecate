@@ -1124,6 +1124,8 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	// Create-then-detect-loss-then-cleanup: if another starter won the assignment
+	// update race, discard the prepared native session before returning conflict.
 	if assignment.ChatSessionID != session.ID {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
 		_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
