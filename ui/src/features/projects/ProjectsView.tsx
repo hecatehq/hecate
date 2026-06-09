@@ -1027,12 +1027,14 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     if (!roleID) return;
     const targetWorkItemID = (handoff.target_work_item_id || selectedWorkItemID).trim();
     if (!targetWorkItemID) return;
+    const targetRole = roleByID.get(roleID);
+    const driverKind = targetRole?.default_driver_kind || "hecate_task";
     setHandoffActionID(handoff.id);
     setHandoffError("");
     try {
       const assignment = await createProjectAssignment(selectedProjectID, targetWorkItemID, {
         role_id: roleID,
-        driver_kind: "hecate_task",
+        driver_kind: driverKind,
       });
       if (targetWorkItemID === selectedWorkItemID) {
         setAssignments((current) => upsertAssignment(current, assignment.data));
@@ -4638,6 +4640,7 @@ function ProjectHandoffRow({
     (assignment?.driver_kind === "hecate_task" || assignment?.driver_kind === "external_agent") &&
     (assignment.execution?.status || assignment.status) === "queued";
   const canCreateAssignment = !assignment && handoff.status !== "dismissed";
+  const sourceRefs = handoffSourceRefs(handoff);
   return (
     <div style={artifactStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -4673,6 +4676,11 @@ function ProjectHandoffRow({
         <span>{handoff.trust_label}</span>
         {handoff.updated_at && <span>Updated {formatAbsoluteTime(handoff.updated_at)}</span>}
       </div>
+      {sourceRefs.length > 0 && (
+        <div style={{ ...subtleTextStyle, marginTop: 7 }}>
+          Source refs: {sourceRefs.join(" · ")}
+        </div>
+      )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
         {handoff.status === "pending" && (
           <>
@@ -4713,7 +4721,7 @@ function ProjectHandoffRow({
             disabled={actionPending}
           >
             <Icon d={Icons.plus} size={12} />
-            Target assignment
+            Create follow-up assignment
           </button>
         )}
         {assignment && (
@@ -4872,6 +4880,23 @@ function linkedChatStatusTitle(linkedChat: NonNullable<ProjectActivityItemRecord
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+function handoffSourceRefs(handoff: ProjectHandoffRecord): string[] {
+  const refs = [
+    ["assignment", handoff.source_assignment_id],
+    ["run", handoff.source_run_id],
+    ["chat", handoff.source_chat_session_id],
+    ["message", handoff.source_message_id],
+  ]
+    .map(([label, value]) => (value ? `${label} ${shortID(value)}` : ""))
+    .filter(Boolean);
+  for (const ref of handoff.context_refs ?? []) {
+    if (ref && !refs.some((item) => item.endsWith(shortID(ref)))) {
+      refs.push(`context ${shortID(ref)}`);
+    }
+  }
+  return refs;
 }
 
 function memoryFormFromRecord(entry: ProjectMemoryRecord | null): MemoryForm {

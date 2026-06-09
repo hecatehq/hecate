@@ -2065,6 +2065,13 @@ required. `status` defaults to `pending`, `provenance_kind` defaults to
 assignment IDs, if supplied, must belong to the same work item. Linked artifact
 IDs, memory IDs, and context refs are stored as references only; creating a
 handoff does not write memory, inject context, start a task, or open a chat.
+The Projects UI can use a handoff's target role/work-item hints to create a
+queued follow-up assignment. That operation remains operator-controlled: the UI
+creates the assignment, records `target_assignment_id` on the handoff, and marks
+the handoff accepted, but it does not start the assignment automatically. Source
+assignment/run/chat/message/context refs remain on the handoff as provenance
+rather than being copied into the new assignment as if they were the new
+assignment's own execution links.
 
 ```json
 {
