@@ -3073,7 +3073,10 @@ function WorkItemDetail({
                   onOpenTask={onOpenTask}
                   onStart={() => onStartAssignment(assignment)}
                   onCreateHandoff={() =>
-                    onAddHandoffFromAssignment(assignment, activityByAssignmentID.get(assignment.id))
+                    onAddHandoffFromAssignment(
+                      assignment,
+                      activityByAssignmentID.get(assignment.id),
+                    )
                   }
                   role={roleByID.get(assignment.role_id)}
                   starting={startingAssignmentID === assignment.id}

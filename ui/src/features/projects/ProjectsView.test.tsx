@@ -1361,14 +1361,14 @@ describe("ProjectsView cockpit", () => {
     const linkedAssignment: ProjectAssignmentRecord = {
       ...hecateAssignment,
       driver_kind: "external_agent",
-	      status: "running",
-	      task_id: "",
-	      run_id: "",
-	      chat_session_id: "chat_external_1",
-	      message_id: "",
-	      context_snapshot_id: "ctx_external_1",
-	      execution: undefined,
-	    };
+      status: "running",
+      task_id: "",
+      run_id: "",
+      chat_session_id: "chat_external_1",
+      message_id: "",
+      context_snapshot_id: "ctx_external_1",
+      execution: undefined,
+    };
     vi.mocked(getProjectActivity).mockResolvedValue({
       object: "project_activity",
       data: {
