@@ -202,6 +202,15 @@ func (h *Handler) contextPacketForProjectAssignment(ctx context.Context, assignm
 			}
 		}
 	}
+	if len(assignment.ContextPacket) > 0 {
+		var packet chat.ContextPacket
+		if err := json.Unmarshal(assignment.ContextPacket, &packet); err != nil {
+			return chat.ContextPacket{}, false, fmt.Errorf("decode project assignment context packet: %w", err)
+		}
+		if !packet.Empty() {
+			return packet, true, nil
+		}
+	}
 	if h == nil || h.agentChat == nil || strings.TrimSpace(assignment.ChatSessionID) == "" || strings.TrimSpace(assignment.MessageID) == "" {
 		return chat.ContextPacket{}, false, nil
 	}
@@ -403,6 +412,11 @@ func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.S
 
 func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string, profile resolvedAgentProfile) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, workingDirectory)
+	driverKind := firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask)
+	includedReason := "Included in the native project assignment launch context"
+	if driverKind == projectwork.AssignmentDriverExternalAgent {
+		includedReason = "Included in the external-agent assignment launch context"
+	}
 	packet.ID = newChatID("ctx")
 	packet.ExecutionProfile = strings.TrimSpace(executionProfile)
 	packet.SystemPromptIncluded = strings.TrimSpace(projectAssignmentSystemPrompt(project, role, profile)) != ""
@@ -415,7 +429,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 		RoleID:       strings.TrimSpace(role.ID),
 	}
 
-	appendProjectSummary(&packet, &project, true, "Included in the native project assignment launch context")
+	appendProjectSummary(&packet, &project, true, includedReason)
 	appendContextPacketSourceWithSection(&packet, contextSectionProjectWork, chat.ContextSource{
 		Kind:   "work_item",
 		Label:  firstNonEmptyString(strings.TrimSpace(workItem.Title), strings.TrimSpace(workItem.ID)),
@@ -428,21 +442,21 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 		Title:           firstNonEmptyString(strings.TrimSpace(workItem.Title), strings.TrimSpace(workItem.ID)),
 		Body:            firstNonEmptyString(strings.TrimSpace(workItem.Brief), "No brief recorded."),
 		Included:        true,
-		InclusionReason: "Included in the native project assignment launch context",
+		InclusionReason: includedReason,
 	})
 	appendContextPacketSourceWithSection(&packet, contextSectionProjectWork, chat.ContextSource{
 		Kind:   "assignment",
 		Label:  firstNonEmptyString(strings.TrimSpace(assignment.ID), "Assignment"),
-		Detail: firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask),
+		Detail: driverKind,
 		Trust:  "runtime",
 	}, chat.ContextItem{
 		Kind:            "assignment",
 		TrustLevel:      contextTrustRuntimeState,
 		Origin:          strings.TrimSpace(assignment.ID),
 		Title:           "Assignment",
-		Body:            fmt.Sprintf("Status: %s\nDriver: %s", firstNonEmptyString(strings.TrimSpace(assignment.Status), projectwork.AssignmentStatusQueued), firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask)),
+		Body:            fmt.Sprintf("Status: %s\nDriver: %s", firstNonEmptyString(strings.TrimSpace(assignment.Status), projectwork.AssignmentStatusQueued), driverKind),
 		Included:        true,
-		InclusionReason: "Included in the native project assignment launch context",
+		InclusionReason: includedReason,
 	})
 	appendContextPacketSourceWithSection(&packet, contextSectionProjectWork, chat.ContextSource{
 		Kind:   "role",
@@ -459,7 +473,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 			"Instructions: " + firstNonEmptyString(strings.TrimSpace(role.Instructions), "No role instructions recorded."),
 		}, "\n"),
 		Included:        true,
-		InclusionReason: "Included in the native project assignment launch context",
+		InclusionReason: includedReason,
 	})
 	appendContextPacketSourceWithSection(&packet, contextSectionProjectWork, chat.ContextSource{
 		Kind:   "execution_hints",
@@ -472,7 +486,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 		Origin:     "project_assignment.execution_hints",
 		Title:      "Execution hints",
 		Body: strings.Join([]string{
-			"Driver: " + firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask),
+			"Driver: " + driverKind,
 			"Provider: " + firstNonEmptyString(strings.TrimSpace(provider), "auto"),
 			"Model: " + firstNonEmptyString(strings.TrimSpace(model), "project/runtime default"),
 			"Profile: " + firstNonEmptyString(strings.TrimSpace(executionProfile), "none"),
@@ -490,23 +504,31 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 			}),
 		}, "\n"),
 		Included:        true,
-		InclusionReason: "Included in the native project assignment launch context",
+		InclusionReason: includedReason,
 	})
 	appendResolvedAgentProfile(&packet, profile)
 	if packet.SystemPromptIncluded {
+		promptOrigin := "task.system_prompt"
+		promptBodyRef := "task_system_prompt"
+		promptReason := "Stored on the native assignment task"
+		if driverKind == projectwork.AssignmentDriverExternalAgent {
+			promptOrigin = "external_agent.assignment_instructions"
+			promptBodyRef = "external_agent_assignment_instructions"
+			promptReason = "Stored on the external-agent assignment context packet"
+		}
 		appendContextPacketSourceWithSection(&packet, contextSectionInstructions, chat.ContextSource{
 			Kind:   "system_prompt",
 			Label:  "System prompt",
-			Detail: "Stored on the native assignment task",
+			Detail: promptReason,
 			Trust:  "system",
 		}, chat.ContextItem{
 			Kind:            "system_prompt",
 			TrustLevel:      contextTrustSystemInstruction,
-			Origin:          "task.system_prompt",
+			Origin:          promptOrigin,
 			Title:           "System prompt",
-			BodyRef:         "task_system_prompt",
+			BodyRef:         promptBodyRef,
 			Included:        true,
-			InclusionReason: "Stored on the native assignment task",
+			InclusionReason: promptReason,
 		})
 	}
 	if strings.TrimSpace(workingDirectory) != "" {
@@ -522,13 +544,13 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 			Title:           "Workspace",
 			BodyRef:         strings.TrimSpace(workingDirectory),
 			Included:        true,
-			InclusionReason: "Selected as the native assignment workspace",
+			InclusionReason: "Selected as the project assignment workspace",
 		})
 	}
-	appendProjectMemoryWithInclusion(&packet, h.enabledProjectMemoryEntries(ctx, project.ID), false, "Stored project memory is not injected into native project assignment launch context v1")
-	appendProjectContextSourcesWithInclusion(&packet, projectContextSourcesFromProject(project), false, "Stored project sources are not injected into native project assignment launch context v1")
-	appendProjectAssignmentHandoffs(&packet, h.assignmentRelevantHandoffs(ctx, assignment, role.ID), false, "Handoff references are inspectable metadata only in native project assignment launch context v1")
-	appendProjectAssignmentArtifacts(&packet, h.assignmentRelevantArtifacts(ctx, assignment), false, "Artifact references are inspectable metadata only in native project assignment launch context v1")
+	appendProjectMemoryWithInclusion(&packet, h.enabledProjectMemoryEntries(ctx, project.ID), false, "Stored project memory is not injected into project assignment launch context v1")
+	appendProjectContextSourcesWithInclusion(&packet, projectContextSourcesFromProject(project), false, "Stored project sources are not injected into project assignment launch context v1")
+	appendProjectAssignmentHandoffs(&packet, h.assignmentRelevantHandoffs(ctx, assignment, role.ID), false, "Handoff references are inspectable metadata only in project assignment launch context v1")
+	appendProjectAssignmentArtifacts(&packet, h.assignmentRelevantArtifacts(ctx, assignment), false, "Artifact references are inspectable metadata only in project assignment launch context v1")
 	return packet
 }
 
@@ -704,6 +726,9 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile resolvedAgen
 	}
 	if len(profile.SkillIDs) > 0 {
 		body = append(body, "Skills: "+strings.Join(profile.SkillIDs, ", "))
+	}
+	if externalAgent := strings.TrimSpace(profile.ExternalAgentKind); externalAgent != "" {
+		body = append(body, "External agent: "+externalAgent)
 	}
 	if len(profile.Warnings) > 0 {
 		body = append(body, "Warnings: "+strings.Join(profile.Warnings, " "))

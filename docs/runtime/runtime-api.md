@@ -1499,8 +1499,10 @@ reviewer_qa
 Supported work-item statuses are `backlog`, `ready`, `running`, `review`,
 `blocked`, `done`, and `cancelled`. Supported assignment statuses are `queued`,
 `running`, `awaiting_approval`, `completed`, `failed`, and `cancelled`.
-Supported assignment driver kinds are `hecate_task` and `external_agent`, but
-native assignment start V1 only dispatches `hecate_task`.
+Supported assignment driver kinds are `hecate_task` and `external_agent`.
+Assignment start dispatches `hecate_task` assignments through the native task
+runtime and prepares `external_agent` assignments as supervised External Agent
+chat sessions.
 Supported collaboration artifact kinds are `brief`, `handoff`, `review`, and
 `decision_note`.
 Supported structured handoff statuses are `pending`, `accepted`, `superseded`,
@@ -1877,18 +1879,16 @@ or external-agent execution.
 #### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/context`
 
 Returns the best available context packet for the assignment. Hecate resolves
-linked Task/Run packets first, then falls back to a linked Chat
-`chat_session_id` + `message_id` packet when present. Unstarted assignments,
-legacy rows without either link, or older runs that predate snapshots return
+linked Task/Run packets first, then falls back to the assignment-stored packet
+created by an External Agent start, then to a linked Chat `chat_session_id` +
+`message_id` packet when present. Unstarted assignments, legacy rows without a
+stored packet or execution link, or older runs that predate snapshots return
 `404 not_found`.
 
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/start`
 
-Starts a native Hecate assignment. V1 supports only assignments whose
-`driver_kind` is `hecate_task`; `external_agent` assignments return
-`409 conflict` and must still be run through the external-agent chat/session
-surface. The request body is optional. When present, `driver_kind` must match
-the stored assignment driver.
+Starts a project assignment through its stored driver. The request body is
+optional. When present, `driver_kind` must match the stored assignment driver.
 
 ```json
 {
@@ -1896,7 +1896,8 @@ the stored assignment driver.
 }
 ```
 
-Starting verifies that the project, work item, assignment, and role exist, then
+For `driver_kind="hecate_task"`, starting verifies that the project, work item,
+assignment, and role exist, then
 creates a normal Task with `execution_kind="agent_loop"`,
 `origin_kind="project_work_item"`, and `origin_id` set to the work item ID. The
 task title, prompt, and system prompt are composed from a visible launch-context
@@ -1937,6 +1938,35 @@ assignment:
       "run_status": "queued",
       "status": "queued"
     },
+    "created_at": "2026-06-03T12:00:00Z",
+    "updated_at": "2026-06-03T12:00:01Z",
+    "started_at": "2026-06-03T12:00:01Z"
+  }
+}
+```
+
+For `driver_kind="external_agent"`, starting prepares a supervised External
+Agent chat session without sending the assignment prompt. The resolved Agent
+Profile must name an `external_agent_kind` such as `codex`, `claude_code`,
+`cursor_agent`, or `grok_build`; profile `external_agent_options` may set
+Hecate-owned launch controls for that adapter. Hecate validates the project
+workspace root, creates and prepares the chat session through the External Agent
+supervisor, stores a project assignment context packet on the assignment, and
+links `chat_session_id` plus `context_snapshot_id`. `task_id`, `run_id`, and
+`message_id` remain empty until the operator sends a turn in the linked chat.
+
+```json
+{
+  "object": "project_assignment",
+  "data": {
+    "id": "asgn_...",
+    "project_id": "proj_...",
+    "work_item_id": "work_...",
+    "role_id": "software_developer",
+    "driver_kind": "external_agent",
+    "status": "running",
+    "chat_session_id": "chat_...",
+    "context_snapshot_id": "ctx_...",
     "created_at": "2026-06-03T12:00:00Z",
     "updated_at": "2026-06-03T12:00:01Z",
     "started_at": "2026-06-03T12:00:01Z"

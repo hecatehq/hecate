@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
@@ -765,6 +766,126 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	}
 }
 
+func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	runner := &fakeAgentChatRunner{nativeSessionID: "native_project_external"}
+	handler.SetAgentChatRunner(runner)
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverExternalAgent,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                  "prof_external",
+		Name:                "External implementer",
+		Instructions:        "Use the linked project context before editing.",
+		Surface:             agentprofiles.SurfaceExternalAgent,
+		ExecutionProfile:    "external_implementation",
+		ExternalAgentKind:   "codex",
+		ApprovalPolicy:      agentprofiles.ApprovalRequire,
+		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
+		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
+		SkillIDs:            []string{"project-handoff"},
+	}); err != nil {
+		t.Fatalf("Create external profile: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultAgentProfile = "prof_external"
+	}); err != nil {
+		t.Fatalf("Update role profile: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	if assignment.Data.ChatSessionID == "" || assignment.Data.ContextSnapshotID == "" {
+		t.Fatalf("assignment links = chat %q context %q, want linked session and context", assignment.Data.ChatSessionID, assignment.Data.ContextSnapshotID)
+	}
+	if assignment.Data.TaskID != "" || assignment.Data.RunID != "" || assignment.Data.MessageID != "" {
+		t.Fatalf("assignment task/run/message links = %q/%q/%q, want no task run or dispatched message", assignment.Data.TaskID, assignment.Data.RunID, assignment.Data.MessageID)
+	}
+	if assignment.Data.Status != projectwork.AssignmentStatusRunning {
+		t.Fatalf("assignment status = %q, want running", assignment.Data.Status)
+	}
+	if len(runner.prepareRequests) != 1 {
+		t.Fatalf("prepare requests = %d, want 1", len(runner.prepareRequests))
+	}
+	if len(runner.runRequests) != 0 {
+		t.Fatalf("run requests = %d, want no automatic external-agent turn", len(runner.runRequests))
+	}
+	prepare := runner.prepareRequests[0]
+	resolvedWorkspace, err := agentadapters.ValidateWorkspace(workspace)
+	if err != nil {
+		t.Fatalf("ValidateWorkspace: %v", err)
+	}
+	if prepare.AdapterID != "codex" || prepare.SessionID != assignment.Data.ChatSessionID || prepare.Workspace != resolvedWorkspace {
+		t.Fatalf("prepare request = %+v, want codex session in workspace", prepare)
+	}
+	session, ok, err := handler.agentChat.Get(t.Context(), assignment.Data.ChatSessionID)
+	if err != nil || !ok {
+		t.Fatalf("Get chat session found=%v err=%v, want linked session", ok, err)
+	}
+	if session.AgentID != "codex" || session.DriverKind != agentadapters.DriverKindACP || session.NativeSessionID != "native_project_external" || session.ProjectID != "proj_start" {
+		t.Fatalf("session = %+v, want prepared codex project session", session)
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/context", "")
+	if packetResp.Data.ID != assignment.Data.ContextSnapshotID {
+		t.Fatalf("assignment context id = %q, want %q", packetResp.Data.ID, assignment.Data.ContextSnapshotID)
+	}
+	if packetResp.Data.ExecutionMode != chat.ExecutionModeExternalAgent || packetResp.Data.Refs == nil || packetResp.Data.Refs.SessionID != assignment.Data.ChatSessionID {
+		t.Fatalf("packet execution/refs = %q/%+v, want external agent session refs", packetResp.Data.ExecutionMode, packetResp.Data.Refs)
+	}
+	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_external")
+	if profileItem == nil || profileItem.Section != contextSectionProfile || !strings.Contains(profileItem.Body, "External agent: codex") {
+		t.Fatalf("profile item = %+v, want external profile metadata", profileItem)
+	}
+}
+
+func TestProjectWorkAPI_StartExternalAgentAssignmentRejectsUnsupportedProfileOptions(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	runner := &fakeAgentChatRunner{}
+	handler.SetAgentChatRunner(runner)
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           t.TempDir(),
+		Driver:              projectwork.AssignmentDriverExternalAgent,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                   "prof_external_bad_options",
+		Name:                 "External implementer",
+		Surface:              agentprofiles.SurfaceExternalAgent,
+		ExecutionProfile:     "external_implementation",
+		ExternalAgentKind:    "codex",
+		ExternalAgentOptions: map[string]string{"unsupported": "value"},
+	}); err != nil {
+		t.Fatalf("Create external profile: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultAgentProfile = "prof_external_bad_options"
+	}); err != nil {
+		t.Fatalf("Update role profile: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("start assignment status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	if len(runner.prepareRequests) != 0 || len(runner.runRequests) != 0 {
+		t.Fatalf("external agent requests = prepare %d run %d, want none when profile launch options are invalid", len(runner.prepareRequests), len(runner.runRequests))
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentSnapshotsMissingProfileWarning(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -1100,9 +1221,10 @@ func TestProjectWorkAPI_StartAssignmentRejectsMissingWorkspaceRoot(t *testing.T)
 	}
 }
 
-func TestProjectWorkAPI_StartAssignmentRejectsUnsupportedDriver(t *testing.T) {
+func TestProjectWorkAPI_StartExternalAgentAssignmentRequiresProfileKind(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
+	handler.SetAgentChatRunner(&fakeAgentChatRunner{})
 	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
 		Workspace: t.TempDir(),
 		Driver:    projectwork.AssignmentDriverExternalAgent,
@@ -1110,8 +1232,8 @@ func TestProjectWorkAPI_StartAssignmentRejectsUnsupportedDriver(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("start external assignment status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("start external assignment status = %d body=%s, want 422", rec.Code, rec.Body.String())
 	}
 }
 

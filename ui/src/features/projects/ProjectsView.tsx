@@ -106,6 +106,7 @@ const DEFAULT_RIGHT_PANEL_WIDTH = 380;
 
 export type ProjectAssignmentChatLaunchRequest = {
   projectID: string;
+  chatSessionID?: string;
   provider?: string;
   model?: string;
   title?: string;
@@ -1066,7 +1067,12 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setStartingAssignmentID(assignment.id);
     setAssignmentErrors((current) => ({ ...current, [assignment.id]: "" }));
     try {
-      const res = await startProjectAssignment(selectedProjectID, workItemID, assignment.id);
+      const res = await startProjectAssignment(
+        selectedProjectID,
+        workItemID,
+        assignment.id,
+        assignment.driver_kind || "hecate_task",
+      );
       setAssignments((current) => upsertAssignment(current, res.data));
       await loadWorkForProject(selectedProjectID, workItemID);
       await loadWorkItemDetail(selectedProjectID, workItemID);
@@ -3006,12 +3012,17 @@ function WorkItemDetail({
                     project
                       ? () =>
                           onOpenChat?.(
-                            buildProjectAssignmentChatLaunchRequest({
-                              project,
-                              workItem,
-                              assignment,
-                              role: roleByID.get(assignment.role_id) ?? null,
-                            }),
+                            assignment.chat_session_id
+                              ? {
+                                  projectID: project.id,
+                                  chatSessionID: assignment.chat_session_id,
+                                }
+                              : buildProjectAssignmentChatLaunchRequest({
+                                  project,
+                                  workItem,
+                                  assignment,
+                                  role: roleByID.get(assignment.role_id) ?? null,
+                                }),
                           )
                       : undefined
                   }
@@ -4348,8 +4359,11 @@ function AssignmentRow({
   const execution = assignment.execution;
   const taskID = execution?.task_id || assignment.task_id || "";
   const runID = execution?.run_id || assignment.run_id || "";
+  const chatSessionID = assignment.chat_session_id || "";
   const projectedStatus = execution?.status || assignment.status;
-  const startable = assignment.driver_kind === "hecate_task" && projectedStatus === "queued";
+  const startable =
+    (assignment.driver_kind === "hecate_task" || assignment.driver_kind === "external_agent") &&
+    projectedStatus === "queued";
   const external = assignment.driver_kind === "external_agent";
   const startedAt = execution?.started_at || assignment.started_at;
   const finishedAt = execution?.finished_at || assignment.completed_at;
@@ -4391,10 +4405,10 @@ function AssignmentRow({
             {starting ? "Starting…" : "Start"}
           </button>
         )}
-        {external && (
+        {external && !startable && !assignment.chat_session_id && (
           <span
             style={subtleTextStyle}
-            title="External assignment execution is not implemented yet."
+            title="Start this assignment to prepare a supervised External Agent chat session."
           >
             Start in Chats
           </span>
@@ -4426,9 +4440,13 @@ function AssignmentRow({
           className="btn btn-ghost btn-sm"
           type="button"
           onClick={onOpenChat}
-          disabled={!onOpenChat || !chatModel}
+          disabled={!onOpenChat || (!chatSessionID && !chatModel)}
           title={
-            chatModel ? `Open chat with ${chatModel}` : "Set project defaults before opening chat."
+            chatSessionID
+              ? "Open linked External Agent chat"
+              : chatModel
+                ? `Open chat with ${chatModel}`
+                : "Set project defaults before opening chat."
           }
         >
           <Icon d={Icons.chat} size={12} />

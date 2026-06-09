@@ -279,6 +279,13 @@ the ACP native session, workspace, or agent selection.
 Hecate-owned chats are different: their provider/model selection can change
 between direct model turns and new task-backed segments in one transcript.
 
+Project assignments can also prepare External Agent sessions. Starting a
+`driver_kind="external_agent"` assignment from Projects creates and prepares the
+linked External Agent chat session, records assignment/profile/workspace context,
+and stores the session link on the assignment. It does not send the assignment
+prompt automatically; the operator stays in control of the first turn from the
+linked chat.
+
 Hecate validates the workspace before creating a session, sanitizes the
 environment passed to the ACP agent process, applies timeout/cancel behavior,
 captures ACP updates with an output cap, and records Git diff / diff stat after

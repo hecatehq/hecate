@@ -124,6 +124,7 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 				TaskID:            "task_123",
 				RunID:             "run_123",
 				ContextSnapshotID: "ctx_123",
+				ContextPacket:     []byte(`{"id":"ctx_123","version":"chat.context.v1"}`),
 			})
 			if err != nil {
 				t.Fatalf("CreateAssignment: %v", err)
@@ -134,18 +135,25 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if assignment.DriverKind != AssignmentDriverHecateTask {
 				t.Fatalf("assignment driver_kind = %q, want hecate_task", assignment.DriverKind)
 			}
+			if string(assignment.ContextPacket) != `{"id":"ctx_123","version":"chat.context.v1"}` {
+				t.Fatalf("assignment context packet = %s, want stored packet", string(assignment.ContextPacket))
+			}
 
 			startedAt := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
 			updatedAssignment, err := store.UpdateAssignment(ctx, "proj_alpha", "asgn_impl", func(item *Assignment) {
 				item.DriverKind = AssignmentDriverExternalAgent
 				item.Status = AssignmentStatusRunning
 				item.StartedAt = startedAt
+				item.ContextPacket = []byte(`{"id":"ctx_456","version":"chat.context.v1"}`)
 			})
 			if err != nil {
 				t.Fatalf("UpdateAssignment: %v", err)
 			}
 			if updatedAssignment.DriverKind != AssignmentDriverExternalAgent || updatedAssignment.Status != AssignmentStatusRunning || !updatedAssignment.StartedAt.Equal(startedAt) {
 				t.Fatalf("updated assignment = %+v, want running with start time", updatedAssignment)
+			}
+			if string(updatedAssignment.ContextPacket) != `{"id":"ctx_456","version":"chat.context.v1"}` {
+				t.Fatalf("updated assignment context packet = %s, want updated packet", string(updatedAssignment.ContextPacket))
 			}
 			if _, err := store.UpdateAssignment(ctx, "proj_alpha", "asgn_impl", func(item *Assignment) {
 				item.DriverKind = "unsupported"
