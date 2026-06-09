@@ -453,7 +453,10 @@ function isAdapterContextReadFailure(activity: ChatActivityRecord): boolean {
 }
 
 function toolDetailHasOutput(activity: ChatActivityRecord): boolean {
-  return Boolean(capturedToolOutput(activity));
+  return (
+    Boolean(capturedToolOutput(activity)) ||
+    /\boutput(?:\s+captured)?\s*(?::|·)/i.test(activity.detail ?? "")
+  );
 }
 
 function hasFailureLikeToolOutput(activity: ChatActivityRecord): boolean {
