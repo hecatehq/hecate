@@ -325,12 +325,43 @@ function resetProjectWorkMocks() {
       provider: "ollama",
       model: "qwen2.5-coder",
       execution_profile: "implementation",
+      workspace: "/tmp/hecate-project",
       refs: {
         project_id: project.id,
         work_item_id: workItem.id,
         assignment_id: hecateAssignment.id,
+        task_id: "task_1",
+        run_id: "run_1",
       },
       items: [
+        {
+          section: "profile",
+          kind: "agent_profile",
+          trust_level: "runtime_state",
+          origin: "implementation",
+          title: "Implementation profile",
+          body: "Tools enabled. Writes allowed.",
+          included: true,
+        },
+        {
+          section: "memory",
+          kind: "memory",
+          trust_level: "operator_memory",
+          origin: "mem_backend",
+          title: "Backend preference",
+          body: "Prefer Go-first changes.",
+          included: false,
+          inclusion_reason: "Visible to operator, not injected into assignment launch context.",
+        },
+        {
+          section: "sources",
+          kind: "workspace_instruction",
+          trust_level: "workspace_guidance",
+          origin: "AGENTS.md",
+          title: "Workspace instructions",
+          body: "Discovered project guidance.",
+          included: false,
+        },
         {
           section: "project_work",
           kind: "work_item",
@@ -338,6 +369,15 @@ function resetProjectWorkMocks() {
           origin: workItem.id,
           title: workItem.title,
           body: workItem.brief,
+          included: true,
+        },
+        {
+          section: "runtime",
+          kind: "trace",
+          trust_level: "runtime_state",
+          origin: "run_1",
+          title: "Run evidence",
+          body: "Trace and run identifiers captured.",
           included: true,
         },
       ],
@@ -1247,6 +1287,13 @@ describe("ProjectsView cockpit", () => {
     );
     const dialog = await screen.findByRole("dialog", { name: "Assignment asgn_1 context" });
     expect(dialog).toBeTruthy();
+    expect(within(dialog).getByText("Profile")).toBeTruthy();
+    expect(within(dialog).getByText("Memory")).toBeTruthy();
+    expect(within(dialog).getByText("Project sources")).toBeTruthy();
+    expect(within(dialog).getByText("Work context")).toBeTruthy();
+    expect(within(dialog).getByText("Runtime evidence")).toBeTruthy();
+    expect(within(dialog).getByText("Task")).toBeTruthy();
+    expect(within(dialog).getByText("task_1")).toBeTruthy();
     expect(within(dialog).getByText("Expose project work and native starts.")).toBeTruthy();
 
     await userEvent.click(within(detail).getByRole("button", { name: "Open chat" }));
