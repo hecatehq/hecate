@@ -2713,6 +2713,7 @@ function ProjectMemoryCandidateRow({
   pendingReject: boolean;
 }) {
   const source = formatCandidateSource(candidate);
+  const sourceRefs = formatCandidateSourceRefs(candidate);
   const pending = candidate.status === "pending";
   return (
     <div style={memoryEntryStyle}>
@@ -2753,6 +2754,11 @@ function ProjectMemoryCandidateRow({
         <span>Suggested {formatAbsoluteTime(candidate.created_at)}</span>
         <CopyableID text={candidate.id} compact />
       </div>
+      {sourceRefs.length > 0 && (
+        <div style={{ ...subtleTextStyle, marginTop: 6 }}>
+          Source refs: {sourceRefs.join(" · ")}
+        </div>
+      )}
     </div>
   );
 }
@@ -2777,6 +2783,7 @@ function ProjectMemoryModal({
   );
   const valid = form.title.trim().length > 0 && form.body.trim().length > 0;
   const isCandidate = Boolean(candidate);
+  const candidateSourceRefs = candidate ? formatCandidateSourceRefs(candidate) : [];
   return (
     <Modal
       title={
@@ -2814,6 +2821,30 @@ function ProjectMemoryModal({
         style={{ display: "grid", gap: 12 }}
       >
         {error && <InlineError message={error} />}
+        {candidate && (
+          <div
+            style={{
+              background: "var(--bg2)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              display: "grid",
+              gap: 6,
+              padding: "9px 10px",
+            }}
+          >
+            <div style={sectionLabelStyle}>Candidate provenance</div>
+            <div style={metaLineStyle}>
+              <span>{formatCandidateSource(candidate)}</span>
+              <span>{candidate.suggested_trust_label}</span>
+              <span>{candidate.status}</span>
+            </div>
+            {candidateSourceRefs.length > 0 && (
+              <div style={{ ...subtleTextStyle }}>
+                Source refs: {candidateSourceRefs.join(" · ")}
+              </div>
+            )}
+          </div>
+        )}
         <label style={fieldStyle}>
           <span style={fieldLabelStyle}>Title</span>
           <input
@@ -4938,6 +4969,16 @@ function formatCandidateSource(candidate: ProjectMemoryCandidateRecord): string 
   return candidate.suggested_source_id
     ? `${sourceKind}:${candidate.suggested_source_id}`
     : sourceKind;
+}
+
+function formatCandidateSourceRefs(candidate: ProjectMemoryCandidateRecord): string[] {
+  return (candidate.source_refs ?? [])
+    .map((ref) => {
+      const label = ref.title || (ref.id ? shortID(ref.id) : ref.url || "");
+      if (!label) return ref.kind;
+      return `${ref.kind} ${label}`;
+    })
+    .filter(Boolean);
 }
 
 function buildProjectAssignmentChatLaunchRequest({

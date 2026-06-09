@@ -1419,6 +1419,12 @@ Lists pending memory candidates by default. Pass `include_resolved=true` to
 include promoted and rejected candidates, or `status=pending|promoted|rejected`
 to filter explicitly.
 
+Candidates are review artifacts, not durable memory. Operators should inspect
+the candidate body, suggested trust/source fields, and `source_refs` before
+promotion. `source_refs` point back to evidence such as task runs, handoffs,
+chat messages, or artifacts so the UI can show where the candidate came from
+without injecting unapproved text into future context packets.
+
 ```json
 GET /hecate/v1/projects/proj_.../memory/candidates
 → 200
@@ -1457,6 +1463,8 @@ Promotes a pending candidate into a durable project memory entry. The request
 may include edited `title`, `body`, `trust_label`, `source_kind`, `source_id`,
 and `enabled`; omitted fields use the candidate's suggested values. Promotion
 sets the candidate status to `promoted` and records `promoted_memory_id`.
+Only the created memory entry participates in future project-memory context
+selection; the candidate remains a provenance/audit record.
 Promoting an already-promoted candidate is idempotent when the linked
 `promoted_memory_id` still exists and returns the existing promoted candidate.
 Promoting a rejected candidate returns `409 conflict`.
