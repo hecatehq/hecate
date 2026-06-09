@@ -2782,6 +2782,20 @@ describe("ProjectsView cockpit", () => {
 
   it("creates target assignments from handoffs without starting them", async () => {
     resetProjectWorkMocks();
+    const qaRole: ProjectWorkRoleRecord = {
+      id: "reviewer_qa",
+      project_id: project.id,
+      name: "QA reviewer",
+      default_driver_kind: "external_agent",
+      default_provider: "anthropic",
+      default_model: "claude-sonnet-4",
+      default_agent_profile: "qa_external",
+      built_in: false,
+    };
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [role, qaRole],
+    });
     vi.mocked(getProjectHandoffs).mockResolvedValue({
       object: "project_handoffs",
       data: [
@@ -2789,11 +2803,16 @@ describe("ProjectsView cockpit", () => {
           id: "handoff_1",
           project_id: project.id,
           work_item_id: workItem.id,
+          source_assignment_id: "asgn_1",
+          source_run_id: "run_1",
+          source_chat_session_id: "chat_1",
+          source_message_id: "msg_1",
           title: "QA handoff",
           summary: "Ready for review.",
           recommended_next_action: "Create a QA assignment.",
           target_role_id: "reviewer_qa",
           target_work_item_id: "work_followup",
+          context_refs: ["ctx_1"],
           status: "pending",
           provenance_kind: "agent_draft",
           trust_label: "operator_reviewed",
@@ -2810,6 +2829,7 @@ describe("ProjectsView cockpit", () => {
         id: "asgn_new",
         work_item_id: "work_followup",
         role_id: "reviewer_qa",
+        driver_kind: "external_agent",
         status: "queued",
       },
     });
@@ -2824,12 +2844,17 @@ describe("ProjectsView cockpit", () => {
     await waitFor(() => {
       expect(within(detail).getAllByText("QA handoff").length).toBeGreaterThan(0);
     });
-    await userEvent.click(within(detail).getByRole("button", { name: "Target assignment" }));
+    expect(within(detail).getByText(/Source refs: assignment asgn_1/)).toBeTruthy();
+    expect(within(detail).getByText(/chat chat_1/)).toBeTruthy();
+    expect(within(detail).getByText(/context ctx_1/)).toBeTruthy();
+    await userEvent.click(
+      within(detail).getByRole("button", { name: "Create follow-up assignment" }),
+    );
 
     await waitFor(() => {
       expect(createProjectAssignment).toHaveBeenCalledWith(project.id, "work_followup", {
         role_id: "reviewer_qa",
-        driver_kind: "hecate_task",
+        driver_kind: "external_agent",
       });
     });
     expect(updateProjectHandoff).toHaveBeenCalledWith(
