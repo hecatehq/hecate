@@ -1,0 +1,224 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/config"
+	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projectassistant"
+	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectwork"
+)
+
+type projectAssistantProposalResponse struct {
+	Object string                    `json:"object"`
+	Data   projectassistant.Proposal `json:"data"`
+}
+
+type projectAssistantApplyResponse struct {
+	Object string                       `json:"object"`
+	Data   projectassistant.ApplyResult `json:"data"`
+}
+
+type projectAssistantErrorResponse struct {
+	Error struct {
+		Type              string                       `json:"type"`
+		Message           string                       `json:"message"`
+		FailedActionIndex int                          `json:"failed_action_index"`
+		PartialResult     projectassistant.ApplyResult `json:"partial_result"`
+	} `json:"error"`
+}
+
+func newProjectAssistantTestServer() http.Handler {
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetAgentChatStore(chat.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	return NewServer(quietLogger(), handler)
+}
+
+func TestProjectAssistantAPI_ProposeRejectsUnknownActionKind(t *testing.T) {
+	t.Parallel()
+	server := newProjectAssistantTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/propose", strings.NewReader(`{
+		"actions":[{"kind":"rewrite_the_world","patch":{"name":"bad"}}]
+	}`)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("propose status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "unknown project assistant action kind") {
+		t.Fatalf("propose body = %s, want unknown action error", rec.Body.String())
+	}
+}
+
+func TestProjectAssistantAPI_ProposeAndApplyCreateProject(t *testing.T) {
+	t.Parallel()
+	server := newProjectAssistantTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/propose", bytes.NewReader([]byte(`{
+		"id":"pa_api",
+		"title":"Create API project",
+		"summary":"Create a project from a typed assistant action.",
+		"actions":[{
+			"kind":"create_project",
+			"reason":"Operator asked for a new project.",
+			"patch":{
+				"id":"proj_api",
+				"name":"API Project",
+				"description":"Created through Project Assistant",
+				"workspace_path":"/tmp/hecate-api-project",
+				"workspace_kind":"git"
+			}
+		}]
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("propose status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var proposed projectAssistantProposalResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposed); err != nil {
+		t.Fatalf("decode propose response: %v", err)
+	}
+	if proposed.Object != "project_assistant.proposal" || proposed.Data.ID != "pa_api" {
+		t.Fatalf("propose response = %+v, want project assistant proposal envelope", proposed)
+	}
+	if !proposed.Data.RequiresConfirmation {
+		t.Fatalf("requires_confirmation = false, want true")
+	}
+	if len(proposed.Data.Actions) != 1 || proposed.Data.Actions[0].Kind != projectassistant.ActionCreateProject {
+		t.Fatalf("proposal actions = %+v, want create_project action", proposed.Data.Actions)
+	}
+
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposed.Data})
+	if err != nil {
+		t.Fatalf("marshal apply body: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unconfirmed apply status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+
+	applyBody, err = json.Marshal(map[string]any{"proposal": proposed.Data, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal confirmed apply body: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("confirmed apply status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var applied projectAssistantApplyResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &applied); err != nil {
+		t.Fatalf("decode apply response: %v", err)
+	}
+	if applied.Object != "project_assistant.apply_result" || !applied.Data.Applied || applied.Data.ProposalID != "pa_api" {
+		t.Fatalf("apply response = %+v, want applied project assistant result", applied)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_api", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get project status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &project); err != nil {
+		t.Fatalf("decode project response: %v", err)
+	}
+	if project.Data.Name != "API Project" || project.Data.Description != "Created through Project Assistant" {
+		t.Fatalf("project = %+v, want assistant-created metadata", project.Data)
+	}
+	if len(project.Data.Roots) != 1 {
+		t.Fatalf("roots = %+v, want generated workspace root", project.Data.Roots)
+	}
+	root := project.Data.Roots[0]
+	if root.Path != "/tmp/hecate-api-project" || root.Kind != "git" || !root.Active || project.Data.DefaultRootID != root.ID {
+		t.Fatalf("root = %+v default_root_id=%q, want generated default workspace root", root, project.Data.DefaultRootID)
+	}
+}
+
+func TestProjectAssistantAPI_ApplyPartialFailureIncludesProgress(t *testing.T) {
+	t.Parallel()
+	server := newProjectAssistantTestServer()
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_partial_api",
+		Title:                "Partial apply",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind:  projectassistant.ActionCreateProject,
+				Patch: json.RawMessage(`{"id":"proj_partial_api","name":"Partial API"}`),
+			},
+			{
+				Kind: projectassistant.ActionCreateWorkItem,
+				Patch: json.RawMessage(`{
+					"id":"work_missing_project",
+					"project_id":"proj_missing_api",
+					"title":"Cannot create yet"
+				}`),
+			},
+		},
+	}
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposal, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal apply body: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("partial apply status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	var payload projectAssistantErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode partial apply error: %v", err)
+	}
+	if payload.Error.Type != errCodeNotFound || payload.Error.FailedActionIndex != 1 {
+		t.Fatalf("error = %+v, want not_found at action index 1", payload.Error)
+	}
+	partial := payload.Error.PartialResult
+	if partial.ProposalID != "pa_partial_api" || partial.Applied || len(partial.Actions) != 1 {
+		t.Fatalf("partial_result = %+v, want one unapplied partial result", partial)
+	}
+	if partial.Actions[0].Kind != projectassistant.ActionCreateProject || partial.Actions[0].ID != "proj_partial_api" {
+		t.Fatalf("partial action = %+v, want created project action", partial.Actions[0])
+	}
+}
+
+func TestProjectAssistantAPI_RepeatedApplyConflicts(t *testing.T) {
+	t.Parallel()
+	server := newProjectAssistantTestServer()
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_repeat_api",
+		Title:                "Create once",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{{
+			Kind:  projectassistant.ActionCreateProject,
+			Patch: json.RawMessage(`{"id":"proj_repeat_api","name":"Repeat"}`),
+		}},
+	}
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposal, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal apply body: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first apply status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("second apply status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+}

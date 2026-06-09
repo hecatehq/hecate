@@ -1,0 +1,795 @@
+package projectassistant
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/storage"
+)
+
+type assistantFixture struct {
+	service          *Service
+	projects         projects.Store
+	chats            chat.Store
+	work             projectwork.Store
+	memoryEntries    memory.Store
+	memoryCandidates memory.CandidateStore
+}
+
+type assistantFixtureBuilder struct {
+	name  string
+	build func(t *testing.T) assistantFixture
+}
+
+func TestService_ProposeRejectsUnknownActionKind(t *testing.T) {
+	t.Parallel()
+	fixture := newMemoryAssistantFixture(t)
+
+	_, err := fixture.service.Propose(context.Background(), ProposalInput{
+		Actions: []Action{{Kind: "rewrite_the_world", Patch: rawPatch(t, map[string]string{"name": "bad"})}},
+	})
+	if !errors.Is(err, ErrUnknownActionKind) {
+		t.Fatalf("Propose err = %v, want ErrUnknownActionKind", err)
+	}
+}
+
+func TestService_ApplyRequiresConfirmation(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			proposal := Proposal{
+				ID:                   "pa_confirm",
+				Title:                "Create project",
+				RequiresConfirmation: true,
+				Actions: []Action{{
+					Kind:  ActionCreateProject,
+					Patch: rawPatch(t, map[string]string{"id": "proj_confirm", "name": "Confirm me"}),
+				}},
+			}
+
+			_, err := fixture.service.Apply(ctx, proposal, false)
+			if !errors.Is(err, ErrConfirmationRequired) {
+				t.Fatalf("Apply err = %v, want ErrConfirmationRequired", err)
+			}
+			items, err := fixture.projects.List(ctx)
+			if err != nil {
+				t.Fatalf("list projects: %v", err)
+			}
+			if len(items) != 0 {
+				t.Fatalf("projects = %+v, want none after unconfirmed apply", items)
+			}
+		})
+	}
+}
+
+func TestService_ApplyCreateAndUpdateProjectAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			toolsEnabled := true
+			compactToolOutput := true
+
+			proposal := Proposal{
+				ID:                   "pa_project",
+				Title:                "Project setup",
+				RequiresConfirmation: true,
+				Actions: []Action{
+					{
+						Kind: ActionCreateProject,
+						Patch: rawPatch(t, map[string]any{
+							"id":          "proj_alpha",
+							"name":        "Alpha",
+							"description": "main",
+							"roots": []map[string]any{{
+								"id":   "root_a",
+								"path": filepath.Join(t.TempDir(), "alpha"),
+								"kind": "local",
+							}},
+						}),
+					},
+					{
+						Kind:   ActionAttachProjectRoot,
+						Target: map[string]string{"project_id": "proj_alpha"},
+						Patch: rawPatch(t, map[string]any{
+							"id":   "root_b",
+							"path": filepath.Join(t.TempDir(), "beta"),
+							"kind": "local",
+						}),
+					},
+					{
+						Kind:   ActionSetProjectDefaults,
+						Target: map[string]string{"project_id": "proj_alpha"},
+						Patch: rawPatch(t, map[string]any{
+							"default_root_id":             "root_b",
+							"default_provider":            "ollama",
+							"default_model":               "llama3.1:8b",
+							"default_agent_profile":       "reviewer",
+							"default_tools_enabled":       toolsEnabled,
+							"default_workspace_mode":      "worktree",
+							"default_system_prompt":       "Stay crisp.",
+							"default_compact_tool_output": compactToolOutput,
+						}),
+					},
+					{
+						Kind:   ActionRemoveProjectRoot,
+						Target: map[string]string{"project_id": "proj_alpha", "root_id": "root_a"},
+					},
+				},
+			}
+
+			result, err := fixture.service.Apply(ctx, proposal, true)
+			if err != nil {
+				t.Fatalf("Apply setup: %v", err)
+			}
+			if !result.Applied || len(result.Actions) != len(proposal.Actions) {
+				t.Fatalf("result = %+v, want all actions applied", result)
+			}
+			project, ok, err := fixture.projects.Get(ctx, "proj_alpha")
+			if err != nil {
+				t.Fatalf("get project: %v", err)
+			}
+			if !ok {
+				t.Fatal("project not found after apply")
+			}
+			if project.Name != "Alpha" || project.Description != "main" {
+				t.Fatalf("project metadata = %+v, want created metadata", project)
+			}
+			if len(project.Roots) != 1 || project.Roots[0].ID != "root_b" {
+				t.Fatalf("project roots = %+v, want only root_b", project.Roots)
+			}
+			if project.DefaultRootID != "root_b" ||
+				project.DefaultProvider != "ollama" ||
+				project.DefaultModel != "llama3.1:8b" ||
+				project.DefaultAgentProfile != "reviewer" ||
+				project.DefaultWorkspaceMode != "worktree" ||
+				project.DefaultSystemPrompt != "Stay crisp." {
+				t.Fatalf("project defaults = %+v, want applied defaults", project)
+			}
+			if project.DefaultToolsEnabled == nil || !*project.DefaultToolsEnabled {
+				t.Fatalf("default tools enabled = %v, want true", project.DefaultToolsEnabled)
+			}
+			if project.DefaultCompactToolOutput == nil || !*project.DefaultCompactToolOutput {
+				t.Fatalf("default compact output = %v, want true", project.DefaultCompactToolOutput)
+			}
+
+			name := "Renamed"
+			description := "Updated"
+			_, err = fixture.service.Apply(ctx, Proposal{
+				ID:                   "pa_project_update",
+				RequiresConfirmation: true,
+				Actions: []Action{{
+					Kind:   ActionUpdateProject,
+					Target: map[string]string{"project_id": "proj_alpha"},
+					Patch:  rawPatch(t, map[string]any{"name": name, "description": description}),
+				}},
+			}, true)
+			if err != nil {
+				t.Fatalf("Apply update: %v", err)
+			}
+			project, ok, err = fixture.projects.Get(ctx, "proj_alpha")
+			if err != nil || !ok {
+				t.Fatalf("get updated project ok=%v err=%v", ok, err)
+			}
+			if project.Name != name || project.Description != description {
+				t.Fatalf("updated project = %+v, want renamed/updated", project)
+			}
+		})
+	}
+}
+
+func TestService_ApplyCreateProjectWorkspacePathAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			workspacePath := filepath.Join(t.TempDir(), "workspace")
+
+			_, err := fixture.service.Apply(ctx, Proposal{
+				ID:                   "pa_workspace_project",
+				RequiresConfirmation: true,
+				Actions: []Action{{
+					Kind: ActionCreateProject,
+					Patch: rawPatch(t, map[string]any{
+						"id":             "proj_workspace",
+						"name":           "Workspace",
+						"workspace_path": workspacePath,
+						"workspace_kind": "git",
+					}),
+				}},
+			}, true)
+			if err != nil {
+				t.Fatalf("Apply create workspace project: %v", err)
+			}
+
+			project, ok, err := fixture.projects.Get(ctx, "proj_workspace")
+			if err != nil || !ok {
+				t.Fatalf("get project ok=%v err=%v", ok, err)
+			}
+			if len(project.Roots) != 1 {
+				t.Fatalf("roots = %+v, want one generated workspace root", project.Roots)
+			}
+			root := project.Roots[0]
+			if root.ID == "" || root.Path != workspacePath || root.Kind != "git" || !root.Active {
+				t.Fatalf("root = %+v, want active git workspace root at %q", root, workspacePath)
+			}
+			if project.DefaultRootID != root.ID {
+				t.Fatalf("default_root_id = %q, want generated root id %q", project.DefaultRootID, root.ID)
+			}
+		})
+	}
+}
+
+func TestService_ApplyCreateProjectWithoutWorkspaceAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+
+			_, err := fixture.service.Apply(ctx, Proposal{
+				ID:                   "pa_no_workspace_project",
+				RequiresConfirmation: true,
+				Actions: []Action{{
+					Kind: ActionCreateProject,
+					Patch: rawPatch(t, map[string]string{
+						"id":   "proj_no_workspace",
+						"name": "No workspace",
+					}),
+				}},
+			}, true)
+			if err != nil {
+				t.Fatalf("Apply create workspace-less project: %v", err)
+			}
+
+			project, ok, err := fixture.projects.Get(ctx, "proj_no_workspace")
+			if err != nil || !ok {
+				t.Fatalf("get project ok=%v err=%v", ok, err)
+			}
+			if len(project.Roots) != 0 || project.DefaultRootID != "" {
+				t.Fatalf("project = %+v, want workspace-less project", project)
+			}
+		})
+	}
+}
+
+func TestService_ApplyCreateProjectRejectsWorkspacePathWithRoots(t *testing.T) {
+	t.Parallel()
+	fixture := newMemoryAssistantFixture(t)
+
+	_, err := fixture.service.Apply(context.Background(), Proposal{
+		ID:                   "pa_workspace_conflict",
+		RequiresConfirmation: true,
+		Actions: []Action{{
+			Kind: ActionCreateProject,
+			Patch: rawPatch(t, map[string]any{
+				"id":             "proj_workspace_conflict",
+				"name":           "Broken",
+				"workspace_path": filepath.Join(t.TempDir(), "workspace"),
+				"roots": []map[string]string{{
+					"path": filepath.Join(t.TempDir(), "other"),
+				}},
+			}),
+		}},
+	}, true)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Apply err = %v, want ErrInvalid", err)
+	}
+	if !strings.Contains(err.Error(), "workspace_path cannot be combined with roots") {
+		t.Fatalf("Apply err = %v, want workspace_path conflict", err)
+	}
+}
+
+func TestService_ApplyRevalidatesStaleTargets(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+
+			cases := []struct {
+				name   string
+				action Action
+			}{
+				{
+					name: "missing project",
+					action: Action{
+						Kind:   ActionSetProjectDefaults,
+						Target: map[string]string{"project_id": "proj_missing"},
+						Patch:  rawPatch(t, map[string]string{"default_model": "llama3.1:8b"}),
+					},
+				},
+				{
+					name: "missing root",
+					action: Action{
+						Kind:   ActionRemoveProjectRoot,
+						Target: map[string]string{"project_id": project.ID, "root_id": "root_missing"},
+					},
+				},
+				{
+					name: "missing default root",
+					action: Action{
+						Kind:   ActionSetProjectDefaults,
+						Target: map[string]string{"project_id": project.ID},
+						Patch:  rawPatch(t, map[string]string{"default_root_id": "root_missing"}),
+					},
+				},
+				{
+					name: "missing chat",
+					action: Action{
+						Kind:   ActionMoveChatSession,
+						Target: map[string]string{"chat_session_id": "chat_missing"},
+						Patch:  rawPatch(t, map[string]string{"project_id": project.ID}),
+					},
+				},
+			}
+
+			for idx, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					_, err := fixture.service.Apply(ctx, Proposal{
+						ID:                   fmt.Sprintf("pa_stale_%d", idx),
+						RequiresConfirmation: true,
+						Actions:              []Action{tc.action},
+					}, true)
+					if !errors.Is(err, ErrNotFound) {
+						t.Fatalf("Apply err = %v, want ErrNotFound", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestService_ApplyMoveChatSessionUpdatesOnlyTarget(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			createTestChatSession(t, ctx, fixture.chats, "chat_a")
+			createTestChatSession(t, ctx, fixture.chats, "chat_b")
+
+			_, err := fixture.service.Apply(ctx, Proposal{
+				ID:                   "pa_move_chat",
+				RequiresConfirmation: true,
+				Actions: []Action{{
+					Kind:   ActionMoveChatSession,
+					Target: map[string]string{"chat_session_id": "chat_a"},
+					Patch:  rawPatch(t, map[string]string{"project_id": project.ID}),
+				}},
+			}, true)
+			if err != nil {
+				t.Fatalf("Apply move chat: %v", err)
+			}
+
+			chatA, ok, err := fixture.chats.Get(ctx, "chat_a")
+			if err != nil || !ok {
+				t.Fatalf("get chat_a ok=%v err=%v", ok, err)
+			}
+			chatB, ok, err := fixture.chats.Get(ctx, "chat_b")
+			if err != nil || !ok {
+				t.Fatalf("get chat_b ok=%v err=%v", ok, err)
+			}
+			if chatA.ProjectID != project.ID {
+				t.Fatalf("chat_a project = %q, want %q", chatA.ProjectID, project.ID)
+			}
+			if chatB.ProjectID != "" {
+				t.Fatalf("chat_b project = %q, want unchanged empty project", chatB.ProjectID)
+			}
+		})
+	}
+}
+
+func TestService_ApplyCreatesProjectWorkRecords(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+
+			_, err := fixture.service.Apply(ctx, Proposal{
+				ID:                   "pa_project_work",
+				RequiresConfirmation: true,
+				Actions: []Action{
+					{
+						Kind: ActionCreateWorkItem,
+						Patch: rawPatch(t, map[string]any{
+							"id":         "work_a",
+							"project_id": project.ID,
+							"title":      "Build assistant",
+							"brief":      "Create typed project assistant actions.",
+						}),
+					},
+					{
+						Kind: ActionCreateAssignment,
+						Patch: rawPatch(t, map[string]any{
+							"id":           "asgn_a",
+							"project_id":   project.ID,
+							"work_item_id": "work_a",
+							"role_id":      "software_developer",
+							"driver_kind":  projectwork.AssignmentDriverHecateTask,
+							"task_id":      "task_a",
+						}),
+					},
+					{
+						Kind: ActionCreateHandoff,
+						Patch: rawPatch(t, map[string]any{
+							"id":                      "handoff_a",
+							"project_id":              project.ID,
+							"work_item_id":            "work_a",
+							"title":                   "Continue implementation",
+							"summary":                 "Project assistant core is ready for UI.",
+							"recommended_next_action": "Add project cockpit cards.",
+						}),
+					},
+				},
+			}, true)
+			if err != nil {
+				t.Fatalf("Apply project work: %v", err)
+			}
+
+			item, ok, err := fixture.work.GetWorkItem(ctx, project.ID, "work_a")
+			if err != nil || !ok {
+				t.Fatalf("get work item ok=%v err=%v", ok, err)
+			}
+			if item.Title != "Build assistant" || item.Status != projectwork.WorkItemStatusBacklog {
+				t.Fatalf("work item = %+v, want backlog item", item)
+			}
+			assignments, err := fixture.work.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: project.ID, WorkItemID: "work_a"})
+			if err != nil {
+				t.Fatalf("list assignments: %v", err)
+			}
+			if len(assignments) != 1 || assignments[0].ID != "asgn_a" || assignments[0].Status != projectwork.AssignmentStatusQueued {
+				t.Fatalf("assignments = %+v, want queued assignment", assignments)
+			}
+			handoffs, err := fixture.work.ListHandoffs(ctx, projectwork.HandoffFilter{ProjectID: project.ID, WorkItemID: "work_a"})
+			if err != nil {
+				t.Fatalf("list handoffs: %v", err)
+			}
+			if len(handoffs) != 1 || handoffs[0].ID != "handoff_a" || handoffs[0].Status != projectwork.HandoffStatusPending {
+				t.Fatalf("handoffs = %+v, want pending handoff", handoffs)
+			}
+		})
+	}
+}
+
+func TestService_ApplyCreatesMemoryCandidateOnly(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+
+			_, err := fixture.service.Apply(ctx, Proposal{
+				ID:                   "pa_memory_candidate",
+				RequiresConfirmation: true,
+				Actions: []Action{{
+					Kind: ActionCreateMemoryCandidate,
+					Patch: rawPatch(t, map[string]any{
+						"id":             "memcand_a",
+						"project_id":     project.ID,
+						"title":          "Project assistant decision",
+						"body":           "Project Assistant creates candidates, not durable entries.",
+						"suggested_kind": "decision",
+					}),
+				}},
+			}, true)
+			if err != nil {
+				t.Fatalf("Apply memory candidate: %v", err)
+			}
+
+			candidates, err := fixture.memoryCandidates.ListCandidates(ctx, memory.CandidateFilter{
+				ProjectID: project.ID,
+				Status:    memory.CandidateStatusPending,
+			})
+			if err != nil {
+				t.Fatalf("list candidates: %v", err)
+			}
+			if len(candidates) != 1 || candidates[0].ID != "memcand_a" {
+				t.Fatalf("candidates = %+v, want one pending candidate", candidates)
+			}
+			entries, err := fixture.memoryEntries.List(ctx, memory.Filter{ProjectID: project.ID, IncludeDisabled: true})
+			if err != nil {
+				t.Fatalf("list memory entries: %v", err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("memory entries = %+v, want no durable entries", entries)
+			}
+		})
+	}
+}
+
+func TestService_ApplyRepeatedProposalConflicts(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			proposal := Proposal{
+				ID:                   "pa_repeat",
+				RequiresConfirmation: true,
+				Actions: []Action{{
+					Kind:  ActionCreateProject,
+					Patch: rawPatch(t, map[string]string{"id": "proj_repeat", "name": "Repeat"}),
+				}},
+			}
+
+			if _, err := fixture.service.Apply(ctx, proposal, true); err != nil {
+				t.Fatalf("first Apply: %v", err)
+			}
+			_, err := fixture.service.Apply(ctx, proposal, true)
+			if !errors.Is(err, ErrConflict) {
+				t.Fatalf("second Apply err = %v, want ErrConflict", err)
+			}
+		})
+	}
+}
+
+func TestService_ApplyPartialFailureReturnsProgressAndResumesAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			proposal := Proposal{
+				ID:                   "pa_partial_resume",
+				RequiresConfirmation: true,
+				Actions: []Action{
+					{
+						Kind:  ActionCreateProject,
+						Patch: rawPatch(t, map[string]string{"id": "proj_partial", "name": "Partial"}),
+					},
+					{
+						Kind: ActionCreateWorkItem,
+						Patch: rawPatch(t, map[string]string{
+							"id":         "work_after_retry",
+							"project_id": "proj_after_retry",
+							"title":      "Resume after missing project",
+						}),
+					},
+				},
+			}
+
+			result, err := fixture.service.Apply(ctx, proposal, true)
+			if !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Apply err = %v, want ErrNotFound", err)
+			}
+			var applyErr *ApplyError
+			if !errors.As(err, &applyErr) {
+				t.Fatalf("Apply err = %T %v, want ApplyError", err, err)
+			}
+			if applyErr.FailedActionIndex != 1 {
+				t.Fatalf("failed_action_index = %d, want 1", applyErr.FailedActionIndex)
+			}
+			if result.Applied || len(result.Actions) != 1 || result.Actions[0].ID != "proj_partial" {
+				t.Fatalf("partial result = %+v, want first action only", result)
+			}
+			if applyErr.Result.ProposalID != result.ProposalID || len(applyErr.Result.Actions) != len(result.Actions) {
+				t.Fatalf("apply error result = %+v, want returned partial result %+v", applyErr.Result, result)
+			}
+			if _, ok, err := fixture.projects.Get(ctx, "proj_partial"); err != nil || !ok {
+				t.Fatalf("get partially-created project ok=%v err=%v", ok, err)
+			}
+
+			if _, err := fixture.projects.Create(ctx, projects.Project{ID: "proj_after_retry", Name: "After retry"}); err != nil {
+				t.Fatalf("create missing project before retry: %v", err)
+			}
+			result, err = fixture.service.Apply(ctx, proposal, true)
+			if err != nil {
+				t.Fatalf("retry Apply: %v", err)
+			}
+			if !result.Applied || len(result.Actions) != 2 {
+				t.Fatalf("retry result = %+v, want both actions applied", result)
+			}
+			item, ok, err := fixture.work.GetWorkItem(ctx, "proj_after_retry", "work_after_retry")
+			if err != nil || !ok {
+				t.Fatalf("get work item ok=%v err=%v", ok, err)
+			}
+			if item.Title != "Resume after missing project" {
+				t.Fatalf("work item title = %q, want resumed action title", item.Title)
+			}
+
+			projectsAfterRetry, err := fixture.projects.List(ctx)
+			if err != nil {
+				t.Fatalf("list projects: %v", err)
+			}
+			var partialProjectCount int
+			for _, project := range projectsAfterRetry {
+				if project.ID == "proj_partial" {
+					partialProjectCount++
+				}
+			}
+			if partialProjectCount != 1 {
+				t.Fatalf("proj_partial count = %d, want one non-duplicated project", partialProjectCount)
+			}
+		})
+	}
+}
+
+func TestService_ApplyChangedProposalAfterPartialFailureConflictsAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			proposal := Proposal{
+				ID:                   "pa_partial_changed",
+				RequiresConfirmation: true,
+				Actions: []Action{
+					{
+						Kind:  ActionCreateProject,
+						Patch: rawPatch(t, map[string]string{"id": "proj_partial_changed", "name": "Partial"}),
+					},
+					{
+						Kind: ActionCreateWorkItem,
+						Patch: rawPatch(t, map[string]string{
+							"id":         "work_changed",
+							"project_id": "proj_missing_changed",
+							"title":      "Original title",
+						}),
+					},
+				},
+			}
+			if _, err := fixture.service.Apply(ctx, proposal, true); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Apply err = %v, want ErrNotFound", err)
+			}
+
+			changed := proposal
+			changed.Actions = cloneActions(proposal.Actions)
+			changed.Actions[1].Patch = rawPatch(t, map[string]string{
+				"id":         "work_changed",
+				"project_id": "proj_missing_changed",
+				"title":      "Changed title",
+			})
+			_, err := fixture.service.Apply(ctx, changed, true)
+			if !errors.Is(err, ErrConflict) {
+				t.Fatalf("changed Apply err = %v, want ErrConflict", err)
+			}
+		})
+	}
+}
+
+func assistantFixtureBuilders() []assistantFixtureBuilder {
+	return []assistantFixtureBuilder{
+		{name: "memory", build: newMemoryAssistantFixture},
+		{name: "sqlite", build: newSQLiteAssistantFixture},
+	}
+}
+
+func newMemoryAssistantFixture(t *testing.T) assistantFixture {
+	t.Helper()
+	projectStore := projects.NewMemoryStore()
+	chatStore := chat.NewMemoryStore()
+	workStore := projectwork.NewMemoryStore()
+	memoryStore := memory.NewMemoryStore()
+	return assistantFixture{
+		service:          projectassistantService(projectStore, chatStore, workStore, memoryStore),
+		projects:         projectStore,
+		chats:            chatStore,
+		work:             workStore,
+		memoryEntries:    memoryStore,
+		memoryCandidates: memoryStore,
+	}
+}
+
+func newSQLiteAssistantFixture(t *testing.T) assistantFixture {
+	t.Helper()
+	ctx := context.Background()
+	client, err := storage.NewSQLiteClient(ctx, storage.SQLiteConfig{
+		Path:        filepath.Join(t.TempDir(), "hecate.db"),
+		TablePrefix: "test",
+	})
+	if err != nil {
+		t.Fatalf("new sqlite client: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Fatalf("close sqlite client: %v", err)
+		}
+	})
+	projectStore, err := projects.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("new project sqlite store: %v", err)
+	}
+	chatStore, err := chat.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("new chat sqlite store: %v", err)
+	}
+	workStore, err := projectwork.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("new project work sqlite store: %v", err)
+	}
+	memoryStore, err := memory.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("new memory sqlite store: %v", err)
+	}
+	return assistantFixture{
+		service:          projectassistantService(projectStore, chatStore, workStore, memoryStore),
+		projects:         projectStore,
+		chats:            chatStore,
+		work:             workStore,
+		memoryEntries:    memoryStore,
+		memoryCandidates: memoryStore,
+	}
+}
+
+func projectassistantService(projectStore projects.Store, chatStore chat.Store, workStore projectwork.Store, memoryStore memory.CandidateStore) *Service {
+	return NewService(Stores{
+		Projects:         projectStore,
+		Chats:            chatStore,
+		Work:             workStore,
+		MemoryCandidates: memoryStore,
+	}, sequenceIDGenerator())
+}
+
+func sequenceIDGenerator() IDGenerator {
+	var seq int
+	return func(prefix string) string {
+		seq++
+		return fmt.Sprintf("%s_%02d", prefix, seq)
+	}
+}
+
+func rawPatch(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	payload, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal patch: %v", err)
+	}
+	return payload
+}
+
+func createTestProject(t *testing.T, ctx context.Context, store projects.Store) projects.Project {
+	t.Helper()
+	project, err := store.Create(ctx, projects.Project{
+		ID:   "proj_alpha",
+		Name: "Alpha",
+		Roots: []projects.Root{{
+			ID:     "root_a",
+			Path:   filepath.Join(t.TempDir(), "alpha"),
+			Kind:   "local",
+			Active: true,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	return project
+}
+
+func createTestChatSession(t *testing.T, ctx context.Context, store chat.Store, id string) chat.Session {
+	t.Helper()
+	session, err := store.Create(ctx, chat.Session{ID: id, Title: id})
+	if err != nil {
+		t.Fatalf("create chat session %q: %v", id, err)
+	}
+	return session
+}

@@ -36,6 +36,8 @@ type projectContextSourceRequest struct {
 type createProjectRequest struct {
 	Name                     string                        `json:"name"`
 	Description              string                        `json:"description,omitempty"`
+	WorkspacePath            string                        `json:"workspace_path,omitempty"`
+	WorkspaceKind            string                        `json:"workspace_kind,omitempty"`
 	Roots                    []projectRootRequest          `json:"roots,omitempty"`
 	ContextSources           []projectContextSourceRequest `json:"context_sources,omitempty"`
 	DefaultRootID            string                        `json:"default_root_id,omitempty"`
@@ -340,6 +342,23 @@ func projectFromCreateRequest(req createProjectRequest) (projects.Project, error
 	roots, err := rootsFromRequest(req.Roots)
 	if err != nil {
 		return projects.Project{}, err
+	}
+	workspacePath := strings.TrimSpace(req.WorkspacePath)
+	workspaceKind := strings.TrimSpace(req.WorkspaceKind)
+	if workspacePath != "" {
+		if len(roots) > 0 {
+			return projects.Project{}, errors.New("workspace_path cannot be combined with roots")
+		}
+		if strings.TrimSpace(req.DefaultRootID) != "" {
+			return projects.Project{}, errors.New("default_root_id cannot be supplied with workspace_path")
+		}
+		roots = []projects.Root{{
+			Path:   workspacePath,
+			Kind:   workspaceKind,
+			Active: true,
+		}}
+	} else if workspaceKind != "" {
+		return projects.Project{}, errors.New("workspace_kind requires workspace_path")
 	}
 	contextSources, err := contextSourcesFromRequest(req.ContextSources)
 	if err != nil {
