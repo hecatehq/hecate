@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
@@ -847,6 +848,89 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_external")
 	if profileItem == nil || profileItem.Section != contextSectionProfile || !strings.Contains(profileItem.Body, "External agent: codex") {
 		t.Fatalf("profile item = %+v, want external profile metadata", profileItem)
+	}
+}
+
+func TestProjectWorkAPI_StartExternalAgentAssignmentConcurrentRequestsCreateOneChat(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	runner := newConcurrentProjectExternalPrepareRunner()
+	handler.SetAgentChatRunner(runner)
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverExternalAgent,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                "prof_external",
+		Name:              "External implementer",
+		Surface:           agentprofiles.SurfaceExternalAgent,
+		ExternalAgentKind: "claude_code",
+	}); err != nil {
+		t.Fatalf("Create external profile: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultAgentProfile = "prof_external"
+	}); err != nil {
+		t.Fatalf("Update role profile: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	statuses := make(chan int, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
+			statuses <- rec.Code
+		}()
+	}
+	released := false
+	defer func() {
+		if !released {
+			close(runner.releasePrepare)
+		}
+	}()
+	for range 2 {
+		select {
+		case <-runner.prepareStarted:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for concurrent external-agent prepares")
+		}
+	}
+	close(runner.releasePrepare)
+	released = true
+	wg.Wait()
+	close(statuses)
+
+	counts := map[int]int{}
+	for status := range statuses {
+		counts[status]++
+	}
+	if counts[http.StatusOK] != 1 || counts[http.StatusConflict] != 1 {
+		t.Fatalf("concurrent external start statuses = %+v, want one 200 and one 409", counts)
+	}
+	sessions, err := handler.agentChat.List(t.Context())
+	if err != nil {
+		t.Fatalf("List chats: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("chat session count = %d, want one surviving linked chat: %+v", len(sessions), sessions)
+	}
+	assignments, err := handler.projectWork.ListAssignments(t.Context(), projectwork.AssignmentFilter{ProjectID: "proj_start", WorkItemID: "work_start"})
+	if err != nil {
+		t.Fatalf("ListAssignments: %v", err)
+	}
+	if len(assignments) != 1 || assignments[0].ChatSessionID != sessions[0].ID {
+		t.Fatalf("assignment/chat link = %+v / %+v, want one linked surviving chat", assignments, sessions)
+	}
+	if got := runner.prepareCount(); got != 2 {
+		t.Fatalf("prepare requests = %d, want both requests to reach prepare", got)
+	}
+	if got := runner.closedCount(); got != 1 {
+		t.Fatalf("closed sessions = %d, want losing prepared chat closed", got)
 	}
 }
 
@@ -2255,6 +2339,70 @@ func assertStoredProjectWorkAssignmentStatusForTest(t *testing.T, handler *Handl
 		}
 	}
 	t.Fatalf("stored assignment %s not found in %+v", assignmentID, assignments)
+}
+
+type concurrentProjectExternalPrepareRunner struct {
+	mu              sync.Mutex
+	prepareStarted  chan struct{}
+	releasePrepare  chan struct{}
+	prepareRequests []agentadapters.PrepareSessionRequest
+	closedSessions  []string
+}
+
+func newConcurrentProjectExternalPrepareRunner() *concurrentProjectExternalPrepareRunner {
+	return &concurrentProjectExternalPrepareRunner{
+		prepareStarted: make(chan struct{}, 2),
+		releasePrepare: make(chan struct{}),
+	}
+}
+
+func (r *concurrentProjectExternalPrepareRunner) PrepareSession(ctx context.Context, req agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
+	r.mu.Lock()
+	r.prepareRequests = append(r.prepareRequests, req)
+	r.mu.Unlock()
+	r.prepareStarted <- struct{}{}
+	select {
+	case <-r.releasePrepare:
+	case <-ctx.Done():
+		return agentadapters.PrepareSessionResult{}, ctx.Err()
+	}
+	adapter, _ := agentadapters.BuiltInByID(req.AdapterID)
+	return agentadapters.PrepareSessionResult{
+		Adapter:         adapter,
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_" + req.SessionID,
+	}, nil
+}
+
+func (r *concurrentProjectExternalPrepareRunner) Run(_ context.Context, _ agentadapters.RunRequest) (agentadapters.RunResult, error) {
+	return agentadapters.RunResult{}, nil
+}
+
+func (r *concurrentProjectExternalPrepareRunner) SetSessionConfigOption(_ context.Context, _ agentadapters.SetSessionConfigOptionRequest) (agentadapters.SetSessionConfigOptionResult, error) {
+	return agentadapters.SetSessionConfigOptionResult{ConfigOptions: []agentcontrols.ConfigOption{}}, nil
+}
+
+func (r *concurrentProjectExternalPrepareRunner) CloseSession(_ context.Context, sessionID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.closedSessions = append(r.closedSessions, sessionID)
+	return nil
+}
+
+func (r *concurrentProjectExternalPrepareRunner) Shutdown(context.Context) error {
+	return nil
+}
+
+func (r *concurrentProjectExternalPrepareRunner) prepareCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.prepareRequests)
+}
+
+func (r *concurrentProjectExternalPrepareRunner) closedCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.closedSessions)
 }
 
 func findProjectActivityItemForTest(t *testing.T, items []ProjectActivityItemResponse, assignmentID string) ProjectActivityItemResponse {
