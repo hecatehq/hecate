@@ -29,12 +29,12 @@ type RemoteState =
 const sectionOrder = [
   "profile",
   "instructions",
-  "project",
-  "project_work",
   "memory",
   "sources",
-  "workspace",
+  "project_work",
   "runtime",
+  "project",
+  "workspace",
 ] as const;
 
 const refOrder: Array<[keyof ContextPacketRefsRecord, string]> = [
@@ -543,7 +543,7 @@ function humanSectionLabel(section: string): string {
     case "project":
       return "Project";
     case "project_work":
-      return "Launch context";
+      return "Work context";
     case "memory":
       return "Memory";
     case "sources":
@@ -551,7 +551,7 @@ function humanSectionLabel(section: string): string {
     case "workspace":
       return "Workspace";
     case "runtime":
-      return "Runtime";
+      return "Runtime evidence";
     default:
       return section.replaceAll("_", " ");
   }
