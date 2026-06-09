@@ -1577,6 +1577,11 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 				t.Fatalf("failed activity = %+v, want failed signal and compact error", failed)
 			}
 
+			cancelled := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_cancelled")
+			if cancelled.BlockingSignal != "cancelled" || cancelled.StatusSummary != "cancelled" {
+				t.Fatalf("cancelled activity = %+v, want cancelled signal without chat-specific summary", cancelled)
+			}
+
 			missing := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_missing")
 			if missing.BlockingSignal != "stale_unknown" || missing.LinkedTaskID == "" {
 				t.Fatalf("missing activity = %+v, want stale/unknown with linked task id", missing)
@@ -1606,6 +1611,29 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 			queued := findProjectActivityItemForTest(t, response.Data.Buckets.Active, "asgn_queued")
 			if queued.HandoffSummary.Count != 1 || queued.HandoffSummary.LatestTitle != "Review follow-up" || queued.HandoffSummary.TargetWorkItem != "work_queued" {
 				t.Fatalf("target handoff summary = %+v, want target assignment handoff signal", queued.HandoffSummary)
+			}
+
+			external := findProjectActivityItemForTest(t, allProjectActivityItemsForTest(response.Data), "asgn_external_chat")
+			if external.LinkedChat == nil || external.LinkedChat.ID != "chat_external_projection" || external.LinkedChat.LatestMessageID != "msg_external_done" {
+				t.Fatalf("external linked chat = %+v, want chat summary with latest message", external.LinkedChat)
+			}
+			if external.BlockingSignal != "running" || external.StatusSummary != "linked chat · running · assistant completed · 2 messages" {
+				t.Fatalf("external activity = %+v, want linked chat running summary", external)
+			}
+
+			missingChat := findProjectActivityItemForTest(t, allProjectActivityItemsForTest(response.Data), "asgn_missing_chat")
+			if missingChat.LinkedChat == nil || !missingChat.LinkedChat.Missing || missingChat.BlockingSignal != "stale_unknown" || missingChat.StatusSummary != "linked chat missing" {
+				t.Fatalf("missing chat activity = %+v, want stale linked chat signal", missingChat)
+			}
+
+			preparedChat := findProjectActivityItemForTest(t, allProjectActivityItemsForTest(response.Data), "asgn_prepared_chat")
+			if preparedChat.BlockingSignal != "running" || preparedChat.LinkedChat == nil || preparedChat.LinkedChat.Status != "idle" {
+				t.Fatalf("prepared chat activity = %+v, want idle linked chat treated as running assignment", preparedChat)
+			}
+
+			failedChat := findProjectActivityItemForTest(t, allProjectActivityItemsForTest(response.Data), "asgn_failed_chat")
+			if failedChat.BlockingSignal != "failed" || failedChat.StatusSummary != "adapter auth failed" {
+				t.Fatalf("failed chat activity = %+v, want linked chat error surfaced", failedChat)
 			}
 
 			if len(response.Data.Recent) == 0 || len(response.Data.Buckets.Recent) != len(response.Data.Recent) {
@@ -1790,8 +1818,123 @@ func seedProjectWorkProjectionTest(t *testing.T, handler *Handler) {
 	}
 	seedProjectWorkRunOnlyProjectionCase(t, handler)
 	seedProjectWorkNotStartedProjectionCase(t, handler)
+	seedProjectWorkExternalChatProjectionCase(t, handler)
 	seedProjectWorkProjectionCase(t, handler, "work_mixed", "asgn_mixed_completed", "", "completed", base.Add(12*time.Minute), base.Add(13*time.Minute), time.Time{}, "", false, false)
 	seedProjectWorkProjectionCase(t, handler, "work_mixed", "asgn_mixed_failed", "", "failed", base.Add(14*time.Minute), base.Add(15*time.Minute), time.Time{}, "review failed", false, false)
+}
+
+func seedProjectWorkExternalChatProjectionCase(t *testing.T, handler *Handler) {
+	t.Helper()
+	ctx := t.Context()
+	createdAt := time.Date(2026, 6, 3, 12, 16, 0, 0, time.UTC)
+	if _, err := handler.projectWork.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_external_chat",
+		ProjectID: "proj_projection",
+		Title:     "work_external_chat",
+		Status:    projectwork.WorkItemStatusRunning,
+		UpdatedAt: createdAt,
+	}); err != nil {
+		t.Fatalf("CreateWorkItem(work_external_chat): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:            "asgn_external_chat",
+		ProjectID:     "proj_projection",
+		WorkItemID:    "work_external_chat",
+		RoleID:        "role_projection",
+		DriverKind:    projectwork.AssignmentDriverExternalAgent,
+		Status:        projectwork.AssignmentStatusRunning,
+		ChatSessionID: "chat_external_projection",
+		CreatedAt:     createdAt,
+		UpdatedAt:     createdAt,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_external_chat): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:            "asgn_missing_chat",
+		ProjectID:     "proj_projection",
+		WorkItemID:    "work_external_chat",
+		RoleID:        "role_projection",
+		DriverKind:    projectwork.AssignmentDriverExternalAgent,
+		Status:        projectwork.AssignmentStatusRunning,
+		ChatSessionID: "chat_external_missing",
+		CreatedAt:     createdAt,
+		UpdatedAt:     createdAt,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_missing_chat): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:            "asgn_failed_chat",
+		ProjectID:     "proj_projection",
+		WorkItemID:    "work_external_chat",
+		RoleID:        "role_projection",
+		DriverKind:    projectwork.AssignmentDriverExternalAgent,
+		Status:        projectwork.AssignmentStatusRunning,
+		ChatSessionID: "chat_external_failed",
+		CreatedAt:     createdAt,
+		UpdatedAt:     createdAt,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_failed_chat): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:            "asgn_prepared_chat",
+		ProjectID:     "proj_projection",
+		WorkItemID:    "work_external_chat",
+		RoleID:        "role_projection",
+		DriverKind:    projectwork.AssignmentDriverExternalAgent,
+		Status:        projectwork.AssignmentStatusRunning,
+		ChatSessionID: "chat_external_prepared",
+		CreatedAt:     createdAt,
+		UpdatedAt:     createdAt,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_prepared_chat): %v", err)
+	}
+	if _, err := handler.agentChat.Create(ctx, chat.Session{
+		ID:              "chat_external_projection",
+		Title:           "External projection",
+		ProjectID:       "proj_projection",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_external_projection",
+		Workspace:       t.TempDir(),
+		Status:          "running",
+		CreatedAt:       createdAt,
+		UpdatedAt:       createdAt.Add(2 * time.Minute),
+		Messages: []chat.Message{
+			{ID: "msg_external_user", Role: "user", Content: "Continue", Status: "completed", CreatedAt: createdAt.Add(time.Minute)},
+			{ID: "msg_external_done", Role: "assistant", Content: "Done", Status: "completed", CreatedAt: createdAt.Add(2 * time.Minute), CompletedAt: createdAt.Add(3 * time.Minute)},
+		},
+	}); err != nil {
+		t.Fatalf("Create chat session: %v", err)
+	}
+	if _, err := handler.agentChat.Create(ctx, chat.Session{
+		ID:              "chat_external_failed",
+		Title:           "External failed projection",
+		ProjectID:       "proj_projection",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_external_failed",
+		Workspace:       t.TempDir(),
+		Status:          "failed",
+		CreatedAt:       createdAt,
+		UpdatedAt:       createdAt.Add(4 * time.Minute),
+		Messages: []chat.Message{
+			{ID: "msg_external_failed", Role: "assistant", Content: "", Status: "failed", Error: "adapter auth failed", CreatedAt: createdAt.Add(4 * time.Minute)},
+		},
+	}); err != nil {
+		t.Fatalf("Create failed chat session: %v", err)
+	}
+	if _, err := handler.agentChat.Create(ctx, chat.Session{
+		ID:              "chat_external_prepared",
+		Title:           "External prepared projection",
+		ProjectID:       "proj_projection",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_external_prepared",
+		Workspace:       t.TempDir(),
+		CreatedAt:       createdAt,
+	}); err != nil {
+		t.Fatalf("Create prepared chat session: %v", err)
+	}
 }
 
 func seedProjectWorkRunOnlyProjectionCase(t *testing.T, handler *Handler) {
@@ -2057,6 +2200,16 @@ func findProjectActivityItemForTest(t *testing.T, items []ProjectActivityItemRes
 	}
 	t.Fatalf("activity assignment %s not found in %+v", assignmentID, items)
 	return ProjectActivityItemResponse{}
+}
+
+func allProjectActivityItemsForTest(data ProjectActivityDataResponse) []ProjectActivityItemResponse {
+	items := make([]ProjectActivityItemResponse, 0, len(data.Buckets.Active)+len(data.Buckets.Blocked)+len(data.Buckets.Completed)+len(data.Buckets.Recent)+len(data.Recent))
+	items = append(items, data.Buckets.Active...)
+	items = append(items, data.Buckets.Blocked...)
+	items = append(items, data.Buckets.Completed...)
+	items = append(items, data.Buckets.Recent...)
+	items = append(items, data.Recent...)
+	return items
 }
 
 func boolToInt(value bool) int {

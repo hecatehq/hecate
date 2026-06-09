@@ -77,6 +77,59 @@ describe("projectInsights", () => {
     expect(metric?.value).toBe(1);
     expect(metric?.detail).toBe("1 recent accepted, 1 superseded, 1 dismissed");
   });
+
+  it("surfaces blocked external-agent assignments with chat refs", () => {
+    const project = {
+      id: "proj_external",
+      name: "Project",
+      roots: [
+        {
+          id: "root_1",
+          path: "/tmp/project",
+          kind: "git",
+          active: true,
+          created_at: "2026-06-04T10:00:00Z",
+          updated_at: "2026-06-04T10:00:00Z",
+        },
+      ],
+      default_provider: "openai",
+      default_model: "gpt-4.1",
+      context_sources: [],
+      created_at: "2026-06-04T10:00:00Z",
+      updated_at: "2026-06-04T10:00:00Z",
+    } satisfies ProjectRecord;
+    const item = activityItem(project.id, []);
+    item.assignment.driver_kind = "external_agent";
+    item.assignment.chat_session_id = "chat_failed";
+    item.blocking_signal = "failed";
+    item.linked_chat_id = "chat_failed";
+    const activity = {
+      project_id: project.id,
+      summary: {
+        work_item_count: 1,
+        assignment_count: 1,
+        active_count: 0,
+        blocked_count: 1,
+        completed_count: 0,
+        recent_count: 1,
+      },
+      buckets: {
+        active: [],
+        blocked: [item],
+        completed: [],
+        recent: [],
+      },
+      recent: [],
+    } as ProjectActivityData;
+
+    const health = buildProjectHealthSummary(project, activity, [], [], []);
+    const attention = health.attention.find((entry) =>
+      entry.title.startsWith("External assignment needs review"),
+    );
+
+    expect(attention?.chatID).toBe("chat_failed");
+    expect(attention?.actionLabel).toBe("View blocked");
+  });
 });
 
 function activityItem(

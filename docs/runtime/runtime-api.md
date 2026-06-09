@@ -1613,6 +1613,20 @@ The top-level envelope follows the Hecate-native convention:
           "status_summary": "1 approval pending",
           "linked_task_id": "task_...",
           "linked_run_id": "run_...",
+          "linked_chat_id": "chat_...",
+          "linked_chat": {
+            "id": "chat_...",
+            "title": "Backend substrate - External implementer",
+            "agent_id": "codex",
+            "driver_kind": "acp",
+            "native_session_id": "native_...",
+            "status": "running",
+            "latest_message_id": "msg_...",
+            "latest_role": "assistant",
+            "latest_status": "completed",
+            "message_count": 2,
+            "updated_at": "2026-06-03T12:02:00Z"
+          },
           "artifact_summary": {
             "count": 1,
             "latest_kind": "handoff",
@@ -1649,6 +1663,8 @@ The top-level envelope follows the Hecate-native convention:
               "project_id": "proj_...",
               "work_item_id": "work_...",
               "source_assignment_id": "asgn_...",
+              "source_chat_session_id": "chat_...",
+              "source_message_id": "msg_...",
               "target_role_id": "reviewer_qa",
               "title": "QA handoff",
               "summary": "Implementation is ready for review.",
@@ -1674,16 +1690,27 @@ The top-level envelope follows the Hecate-native convention:
 ```
 
 `blocking_signal` is the compact V1 operator signal. Known values are
-`awaiting_approval`, `failed`, `not_started`, `running`, `completed`, and
-`stale_unknown`. `not_started` means a queued assignment has no linked task,
-run, or chat identifiers. `stale_unknown` covers missing linked task/run
-records, run-only links without enough task context, and unknown status values.
+`awaiting_approval`, `failed`, `cancelled`, `not_started`, `running`,
+`completed`, and `stale_unknown`. `not_started` means a queued assignment has
+no linked task, run, or chat identifiers. `stale_unknown` covers missing linked
+task/run/chat records, run-only links without enough task context, and unknown
+status values.
 Rows are sorted by most recent assignment/work/artifact update, then assignment
 ID. Each bucket is capped at 20 rows; `recent` mirrors
 `buckets.recent`. The example above leaves the mirrored recent arrays empty for
 brevity; real responses include the same item shape there when `recent_count`
 is non-zero. `artifact_summary.assignment_id` is present only when the latest
 summarized artifact is assignment-scoped; work-item-level artifacts omit it.
+`linked_chat` is present when an assignment points at a Chat or External Agent
+session. It is a compact activity projection, not a full chat transcript:
+clients use it for session status, last-message status/error,
+adapter/session identity, and missing linked-session diagnostics, then open the
+chat endpoint for full transcript state. When a handoff is created from an
+assignment, clients may copy the assignment, run, chat, message, and context
+refs into the handoff source fields so later follow-up assignments preserve
+provenance without auto-dispatching work.
+An `idle` linked chat with a running/queued external assignment is a prepared
+session waiting for the operator's first or next turn, not stale execution.
 `handoff_summary` and `recent_handoffs` are activity projections over
 structured handoff records attached to the same work item and, when present,
 the same source or target assignment. Handoffs that are not assignment-linked
