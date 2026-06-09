@@ -2870,6 +2870,82 @@ describe("ProjectsView cockpit", () => {
     expect(startProjectAssignment).not.toHaveBeenCalled();
   });
 
+  it("falls back to Hecate task follow-up assignments when the target role has no default driver", async () => {
+    resetProjectWorkMocks();
+    const reviewRole: ProjectWorkRoleRecord = {
+      id: "role_review",
+      project_id: project.id,
+      name: "Review",
+      built_in: false,
+    };
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [role, reviewRole],
+    });
+    vi.mocked(getProjectHandoffs).mockResolvedValue({
+      object: "project_handoffs",
+      data: [
+        {
+          id: "handoff_driver_fallback",
+          project_id: project.id,
+          work_item_id: workItem.id,
+          title: "Review handoff",
+          summary: "Ready for review.",
+          recommended_next_action: "Create a review assignment.",
+          target_role_id: "role_review",
+          status: "pending",
+          provenance_kind: "agent_draft",
+          trust_label: "operator_reviewed",
+          created_at: "2026-06-02T12:00:00Z",
+          updated_at: "2026-06-02T12:00:00Z",
+          status_changed_at: "2026-06-02T12:00:00Z",
+        },
+      ],
+    });
+    vi.mocked(createProjectAssignment).mockResolvedValueOnce({
+      object: "project_assignment",
+      data: {
+        ...hecateAssignment,
+        id: "asgn_review",
+        role_id: "role_review",
+        driver_kind: "hecate_task",
+        status: "queued",
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const detail = screen.getByLabelText("Selected work item");
+    await waitFor(() => {
+      expect(within(detail).getAllByText("Review handoff").length).toBeGreaterThan(0);
+    });
+    await userEvent.click(
+      within(detail).getByRole("button", { name: "Create follow-up assignment" }),
+    );
+
+    await waitFor(() => {
+      expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
+        role_id: "role_review",
+        driver_kind: "hecate_task",
+      });
+    });
+    expect(updateProjectHandoff).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      "handoff_driver_fallback",
+      expect.objectContaining({
+        target_assignment_id: "asgn_review",
+        target_role_id: "role_review",
+        status: "accepted",
+      }),
+    );
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
   it("uses a role default driver when adding assignments", async () => {
     const externalRole: ProjectWorkRoleRecord = {
       id: "role_external",
