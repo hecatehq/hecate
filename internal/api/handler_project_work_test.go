@@ -1547,6 +1547,7 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 			t.Parallel()
 			handler, server := newProjectWorkProjectionTestServer(t, backend)
 			seedProjectWorkProjectionTest(t, handler)
+			handler.agentChat = failingChatGetStore{Store: handler.agentChat, failingID: "chat_external_error"}
 
 			rec := httptest.NewRecorder()
 			server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_projection/activity", nil))
@@ -1626,6 +1627,16 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 				t.Fatalf("missing chat activity = %+v, want stale linked chat signal", missingChat)
 			}
 
+			crossProjectChat := findProjectActivityItemForTest(t, allProjectActivityItemsForTest(response.Data), "asgn_cross_project_chat")
+			if crossProjectChat.LinkedChat == nil || !crossProjectChat.LinkedChat.Missing || crossProjectChat.LinkedChat.Title != "" || crossProjectChat.LinkedChat.LatestMessageID != "" {
+				t.Fatalf("cross-project chat activity = %+v, want missing without foreign chat metadata", crossProjectChat)
+			}
+
+			errorChat := findProjectActivityItemForTest(t, allProjectActivityItemsForTest(response.Data), "asgn_error_chat")
+			if errorChat.LinkedChat == nil || !errorChat.LinkedChat.Missing || errorChat.BlockingSignal != "stale_unknown" || errorChat.StatusSummary != "linked chat missing" {
+				t.Fatalf("error chat activity = %+v, want degraded missing linked chat", errorChat)
+			}
+
 			preparedChat := findProjectActivityItemForTest(t, allProjectActivityItemsForTest(response.Data), "asgn_prepared_chat")
 			if preparedChat.BlockingSignal != "running" || preparedChat.LinkedChat == nil || preparedChat.LinkedChat.Status != "idle" {
 				t.Fatalf("prepared chat activity = %+v, want idle linked chat treated as running assignment", preparedChat)
@@ -1675,6 +1686,18 @@ func (s failingAgentProfileStore) Update(context.Context, string, func(*agentpro
 
 func (s failingAgentProfileStore) Delete(context.Context, string) error {
 	return s.err
+}
+
+type failingChatGetStore struct {
+	chat.Store
+	failingID string
+}
+
+func (s failingChatGetStore) Get(ctx context.Context, id string) (chat.Session, bool, error) {
+	if id == s.failingID {
+		return chat.Session{}, false, errors.New("chat get failed")
+	}
+	return s.Store.Get(ctx, id)
 }
 
 type projectWorkAssignmentStartSeed struct {
@@ -1888,6 +1911,32 @@ func seedProjectWorkExternalChatProjectionCase(t *testing.T, handler *Handler) {
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_prepared_chat): %v", err)
 	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:            "asgn_cross_project_chat",
+		ProjectID:     "proj_projection",
+		WorkItemID:    "work_external_chat",
+		RoleID:        "role_projection",
+		DriverKind:    projectwork.AssignmentDriverExternalAgent,
+		Status:        projectwork.AssignmentStatusRunning,
+		ChatSessionID: "chat_external_other_project",
+		CreatedAt:     createdAt,
+		UpdatedAt:     createdAt,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_cross_project_chat): %v", err)
+	}
+	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
+		ID:            "asgn_error_chat",
+		ProjectID:     "proj_projection",
+		WorkItemID:    "work_external_chat",
+		RoleID:        "role_projection",
+		DriverKind:    projectwork.AssignmentDriverExternalAgent,
+		Status:        projectwork.AssignmentStatusRunning,
+		ChatSessionID: "chat_external_error",
+		CreatedAt:     createdAt,
+		UpdatedAt:     createdAt,
+	}); err != nil {
+		t.Fatalf("CreateAssignment(asgn_error_chat): %v", err)
+	}
 	if _, err := handler.agentChat.Create(ctx, chat.Session{
 		ID:              "chat_external_projection",
 		Title:           "External projection",
@@ -1934,6 +1983,23 @@ func seedProjectWorkExternalChatProjectionCase(t *testing.T, handler *Handler) {
 		CreatedAt:       createdAt,
 	}); err != nil {
 		t.Fatalf("Create prepared chat session: %v", err)
+	}
+	if _, err := handler.agentChat.Create(ctx, chat.Session{
+		ID:              "chat_external_other_project",
+		Title:           "Foreign external projection",
+		ProjectID:       "proj_other",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_external_other_project",
+		Workspace:       t.TempDir(),
+		Status:          "completed",
+		CreatedAt:       createdAt,
+		UpdatedAt:       createdAt.Add(5 * time.Minute),
+		Messages: []chat.Message{
+			{ID: "msg_foreign_done", Role: "assistant", Content: "Other project", Status: "completed", CreatedAt: createdAt.Add(5 * time.Minute)},
+		},
+	}); err != nil {
+		t.Fatalf("Create cross-project chat session: %v", err)
 	}
 }
 

@@ -1693,8 +1693,9 @@ The top-level envelope follows the Hecate-native convention:
 `awaiting_approval`, `failed`, `cancelled`, `not_started`, `running`,
 `completed`, and `stale_unknown`. `not_started` means a queued assignment has
 no linked task, run, or chat identifiers. `stale_unknown` covers missing linked
-task/run/chat records, run-only links without enough task context, and unknown
-status values.
+task/run/chat records, run-only links without enough task context, unknown
+status values, wrong-project linked chats, and transient linked-chat lookup
+failures.
 Rows are sorted by most recent assignment/work/artifact update, then assignment
 ID. Each bucket is capped at 20 rows; `recent` mirrors
 `buckets.recent`. The example above leaves the mirrored recent arrays empty for

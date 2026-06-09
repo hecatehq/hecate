@@ -2104,10 +2104,10 @@ func groupProjectWorkAssignmentsByWorkItem(assignments []projectwork.Assignment)
 	return grouped
 }
 
-func (h *Handler) projectActivityLinkedChats(ctx context.Context, assignments []projectwork.Assignment) (map[string]*ProjectActivityLinkedChatResponse, error) {
+func (h *Handler) projectActivityLinkedChats(ctx context.Context, projectID string, assignments []projectwork.Assignment) map[string]*ProjectActivityLinkedChatResponse {
 	linked := make(map[string]*ProjectActivityLinkedChatResponse)
 	if h == nil || h.agentChat == nil {
-		return linked, nil
+		return linked
 	}
 	for _, assignment := range assignments {
 		chatID := strings.TrimSpace(assignment.ChatSessionID)
@@ -2115,19 +2115,20 @@ func (h *Handler) projectActivityLinkedChats(ctx context.Context, assignments []
 			continue
 		}
 		session, ok, err := h.agentChat.Get(ctx, chatID)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			linked[assignment.ID] = &ProjectActivityLinkedChatResponse{
-				ID:      chatID,
-				Missing: true,
-			}
+		if err != nil || !ok || strings.TrimSpace(session.ProjectID) != strings.TrimSpace(projectID) {
+			linked[assignment.ID] = missingProjectActivityLinkedChat(chatID)
 			continue
 		}
 		linked[assignment.ID] = renderProjectActivityLinkedChat(session)
 	}
-	return linked, nil
+	return linked
+}
+
+func missingProjectActivityLinkedChat(chatID string) *ProjectActivityLinkedChatResponse {
+	return &ProjectActivityLinkedChatResponse{
+		ID:      chatID,
+		Missing: true,
+	}
 }
 
 func renderProjectActivityLinkedChat(session chat.Session) *ProjectActivityLinkedChatResponse {
@@ -2245,10 +2246,7 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 		roleByID[role.ID] = role
 	}
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
-	linkedChats, err := h.projectActivityLinkedChats(ctx, assignments)
-	if err != nil {
-		return ProjectActivityDataResponse{}, err
-	}
+	linkedChats := h.projectActivityLinkedChats(ctx, projectID, assignments)
 	projectedWorkItems := make(map[string]ProjectWorkItemResponse, len(workItems))
 	for _, item := range workItems {
 		projected, err := h.renderProjectedProjectWorkItemWithAssignments(ctx, item, assignmentsByWorkItem[item.ID])
