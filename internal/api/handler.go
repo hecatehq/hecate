@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
@@ -22,6 +23,7 @@ import (
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/ratelimit"
@@ -47,6 +49,8 @@ type Handler struct {
 	memory                   memory.Store
 	memoryCandidates         memory.CandidateStore
 	projectWork              projectwork.Store
+	projectAssistantMu       sync.Mutex
+	projectAssistant         *projectassistant.Service
 	agentProfiles            agentprofiles.Store
 	agentChatRunner          agentadapters.Runner
 	agentChatLive            *agentChatLive
@@ -381,6 +385,9 @@ func (h *Handler) SetAgentChatStore(store chat.Store) {
 		return
 	}
 	h.agentChat = store
+	h.projectAssistantMu.Lock()
+	h.projectAssistant = nil
+	h.projectAssistantMu.Unlock()
 	h.reconcileAgentChatStore(context.Background())
 }
 
@@ -389,6 +396,9 @@ func (h *Handler) SetProjectStore(store projects.Store) {
 		return
 	}
 	h.projects = store
+	h.projectAssistantMu.Lock()
+	h.projectAssistant = nil
+	h.projectAssistantMu.Unlock()
 }
 
 func (h *Handler) SetMemoryStore(store memory.Store) {
@@ -401,6 +411,9 @@ func (h *Handler) SetMemoryStore(store memory.Store) {
 	} else {
 		h.memoryCandidates = nil
 	}
+	h.projectAssistantMu.Lock()
+	h.projectAssistant = nil
+	h.projectAssistantMu.Unlock()
 }
 
 func (h *Handler) SetProjectWorkStore(store projectwork.Store) {
@@ -408,6 +421,9 @@ func (h *Handler) SetProjectWorkStore(store projectwork.Store) {
 		return
 	}
 	h.projectWork = store
+	h.projectAssistantMu.Lock()
+	h.projectAssistant = nil
+	h.projectAssistantMu.Unlock()
 }
 
 func (h *Handler) SetAgentProfileStore(store agentprofiles.Store) {

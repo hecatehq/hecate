@@ -117,6 +117,7 @@ object when available.
 - [Health and discovery endpoints](#health-and-discovery-endpoints)
 - [Agent profile endpoints](#agent-profile-endpoints)
 - [Project endpoints](#project-endpoints)
+- [Project Assistant endpoints](#project-assistant-endpoints)
 - [Chat session endpoints](#chat-session-endpoints)
 - [Rate-limit headers on chat / messages](#rate-limit-headers-on-chat--messages)
 
@@ -1192,20 +1193,20 @@ When supplied, `default_root_id` must match one of the supplied roots.
 Context source `id` values are optional; Hecate generates `ctxsrc_...` IDs for
 sources that omit them. Context sources are metadata only in this release.
 
+Projects may be created without a workspace by omitting both `workspace_path`
+and `roots`. For the common one-workspace case, send `workspace_path` and
+optionally `workspace_kind`; Hecate creates one active root and makes it the
+default root. For advanced multi-root setup, send `roots` directly.
+`workspace_path` cannot be combined with `roots` or an explicit
+`default_root_id`.
+
 ```json
 POST /hecate/v1/projects
 {
   "name": "Hecate",
   "description": "Gateway and agent runtime",
-  "roots": [
-    {
-      "path": "/Users/alice/src/hecate",
-      "kind": "git",
-      "git_remote": "git@github.com:hecatehq/hecate.git",
-      "git_branch": "master",
-      "active": true
-    }
-  ],
+  "workspace_path": "/Users/alice/src/hecate",
+  "workspace_kind": "git",
   "context_sources": [
     {
       "kind": "doc",
@@ -2058,6 +2059,22 @@ the same work item.
   "author_role_id": "software_developer"
 }
 ```
+
+## Project Assistant endpoints
+
+Project Assistant is the API-first assistant-action foundation for project
+operations. It does not expose an open-ended chat persona. Clients submit a
+typed, allowlisted proposal, inspect the exact changes, then explicitly apply
+the proposal. Apply revalidates current server state before mutating projects,
+chats, project work, or memory candidates.
+
+Endpoints:
+
+- `POST /hecate/v1/project-assistant/propose`
+- `POST /hecate/v1/project-assistant/apply`
+
+See [`project-assistant.md`](project-assistant.md) for the proposal schema,
+supported action kinds, confirmation behavior, and safety model.
 
 ## Chat session endpoints
 

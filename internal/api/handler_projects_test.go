@@ -137,6 +137,93 @@ func TestProjectsAPI_Validation(t *testing.T) {
 	}
 }
 
+func TestProjectsAPI_CreateWithWorkspacePathDefaultsRoot(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{
+		"name":"Workspace project",
+		"workspace_path":"/tmp/hecate-workspace",
+		"workspace_kind":"git"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if len(created.Data.Roots) != 1 {
+		t.Fatalf("roots = %+v, want one generated workspace root", created.Data.Roots)
+	}
+	root := created.Data.Roots[0]
+	if root.ID == "" || root.Path != "/tmp/hecate-workspace" || root.Kind != "git" || !root.Active {
+		t.Fatalf("root = %+v, want generated active git workspace root", root)
+	}
+	if created.Data.DefaultRootID != root.ID {
+		t.Fatalf("default_root_id = %q, want generated root id %q", created.Data.DefaultRootID, root.ID)
+	}
+}
+
+func TestProjectsAPI_CreateWithoutWorkspace(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(`{"name":"No workspace"}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var created ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if len(created.Data.Roots) != 0 || created.Data.DefaultRootID != "" {
+		t.Fatalf("project = %+v, want workspace-less project", created.Data)
+	}
+}
+
+func TestProjectsAPI_CreateWorkspacePathRejectsConflictingRootFields(t *testing.T) {
+	t.Parallel()
+	server := newProjectsTestServer()
+
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "explicit roots",
+			body: `{"name":"Broken","workspace_path":"/tmp/hecate","roots":[{"path":"/tmp/other"}]}`,
+			want: "workspace_path cannot be combined with roots",
+		},
+		{
+			name: "workspace kind without path",
+			body: `{"name":"Broken","workspace_kind":"git"}`,
+			want: "workspace_kind requires workspace_path",
+		},
+		{
+			name: "default root id",
+			body: `{"name":"Broken","workspace_path":"/tmp/hecate","default_root_id":"root_a"}`,
+			want: "default_root_id cannot be supplied with workspace_path",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(tc.body))))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("create status = %d body=%s, want 400", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.want) {
+				t.Fatalf("create body = %s, want %q", rec.Body.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestProjectsAPI_InvalidDefaultRootPatchDoesNotMutate(t *testing.T) {
 	t.Parallel()
 	server := newProjectsTestServer()
