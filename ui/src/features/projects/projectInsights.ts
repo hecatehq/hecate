@@ -65,6 +65,7 @@ export type ProjectHealthAttention = {
   workItemID?: string;
   taskID?: string;
   runID?: string;
+  chatID?: string;
   candidateID?: string;
   actionLabel?: string;
 };
@@ -261,6 +262,21 @@ export function buildProjectHealthSummary(
   if (firstStale) {
     attention.push(
       activityAttention(firstStale, "Stale or unknown assignment", "View blocked", "blocked"),
+    );
+  }
+  const firstFailedExternal = activityItems.find(
+    (item) =>
+      item.assignment.driver_kind === "external_agent" &&
+      (item.blocking_signal === "failed" || item.blocking_signal === "cancelled"),
+  );
+  if (firstFailedExternal) {
+    attention.push(
+      activityAttention(
+        firstFailedExternal,
+        "External assignment needs review",
+        "View blocked",
+        "blocked",
+      ),
     );
   }
   if (enabledMemory === 0 && enabledContextSources === 0 && project) {
@@ -572,6 +588,7 @@ function projectAssignmentToActivityAttention(
     status_summary: "active assignment has not changed recently",
     linked_task_id: assignment.execution?.task_id || assignment.task_id,
     linked_run_id: assignment.execution?.run_id || assignment.run_id,
+    linked_chat_id: assignment.chat_session_id,
     artifact_summary: { count: assignment.execution?.artifact_count ?? 0 },
     updated_at: assignment.updated_at,
   };
@@ -586,6 +603,7 @@ function activityAttention(
   const taskID =
     item.linked_task_id || item.assignment.execution?.task_id || item.assignment.task_id;
   const runID = item.linked_run_id || item.assignment.execution?.run_id || item.assignment.run_id;
+  const chatID = item.linked_chat_id || item.assignment.chat_session_id;
   return {
     id: item.id,
     title: `${title}: ${item.work_item.title}`,
@@ -601,6 +619,7 @@ function activityAttention(
     workItemID: item.work_item.id,
     taskID,
     runID,
+    chatID,
     actionLabel,
   };
 }

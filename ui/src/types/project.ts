@@ -384,6 +384,7 @@ export type UpdateProjectHandoffPayload = Partial<CreateProjectHandoffPayload>;
 export type ProjectActivitySignal =
   | "awaiting_approval"
   | "failed"
+  | "cancelled"
   | "not_started"
   | "running"
   | "completed"
@@ -417,6 +418,23 @@ export type ProjectActivityHandoffSummary = {
   target_work_item_id?: string;
 };
 
+export type ProjectActivityLinkedChatRecord = {
+  id: string;
+  title?: string;
+  agent_id?: string;
+  driver_kind?: string;
+  native_session_id?: string;
+  status?: string;
+  latest_message_id?: string;
+  latest_role?: string;
+  latest_status?: string;
+  latest_error?: string;
+  message_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  missing?: boolean;
+};
+
 export type ProjectActivityItemRecord = {
   id: string;
   project_id: string;
@@ -429,6 +447,7 @@ export type ProjectActivityItemRecord = {
   linked_task_id?: string;
   linked_run_id?: string;
   linked_chat_id?: string;
+  linked_chat?: ProjectActivityLinkedChatRecord;
   linked_message_id?: string;
   recent_artifacts?: ProjectCollaborationArtifactRecord[];
   artifact_summary: ProjectActivityArtifactSummary;

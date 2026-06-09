@@ -284,7 +284,11 @@ Project assignments can also prepare External Agent sessions. Starting a
 linked External Agent chat session, records assignment/profile/workspace context,
 and stores the session link on the assignment. It does not send the assignment
 prompt automatically; the operator stays in control of the first turn from the
-linked chat.
+linked chat. Project activity rows project the linked chat's session status,
+latest message status, adapter identity, and missing-session diagnostics so the
+Projects cockpit can show follow-through state without embedding the full chat
+transcript. Handoffs created from these assignments can carry the source
+assignment, chat session, message, run, and context refs for provenance.
 
 Hecate validates the workspace before creating a session, sanitizes the
 environment passed to the ACP agent process, applies timeout/cancel behavior,

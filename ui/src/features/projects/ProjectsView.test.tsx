@@ -1356,6 +1356,112 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
+  it("prefills handoffs from linked external-agent assignment context", async () => {
+    resetProjectWorkMocks();
+    const linkedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      driver_kind: "external_agent",
+      status: "running",
+      task_id: "",
+      run_id: "",
+      chat_session_id: "chat_external_1",
+      message_id: "",
+      context_snapshot_id: "ctx_external_1",
+      execution: undefined,
+    };
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: {
+        project_id: project.id,
+        summary: {
+          work_item_count: 1,
+          assignment_count: 1,
+          active_count: 1,
+          blocked_count: 0,
+          completed_count: 0,
+          recent_count: 1,
+        },
+        buckets: {
+          active: [
+            {
+              id: linkedAssignment.id,
+              project_id: project.id,
+              work_item: {
+                id: workItem.id,
+                title: workItem.title,
+                status: "running",
+                priority: workItem.priority,
+              },
+              assignment: linkedAssignment,
+              role,
+              status: "running",
+              blocking_signal: "running",
+              status_summary: "linked chat · running · assistant completed · 2 messages",
+              linked_chat_id: "chat_external_1",
+              linked_message_id: "msg_external_1",
+              linked_chat: {
+                id: "chat_external_1",
+                title: "External implementation",
+                agent_id: "codex",
+                driver_kind: "acp",
+                native_session_id: "native_external_1",
+                status: "running",
+                latest_message_id: "msg_external_1",
+                latest_role: "assistant",
+                latest_status: "completed",
+                message_count: 2,
+                updated_at: "2026-06-02T11:20:00Z",
+              },
+              artifact_summary: { count: 0 },
+              handoff_summary: { count: 0 },
+              updated_at: "2026-06-02T11:20:00Z",
+            },
+          ],
+          blocked: [],
+          completed: [],
+          recent: [],
+        },
+        recent: [],
+      },
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [linkedAssignment] }],
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [linkedAssignment],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    expect(within(detail).getByText("chat completed")).toBeTruthy();
+    expect(
+      within(detail).getByText("linked chat · running · assistant completed · 2 messages"),
+    ).toBeTruthy();
+
+    await userEvent.click(
+      within(detail).getByRole("button", {
+        name: `Create handoff from assignment ${linkedAssignment.id}`,
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "New handoff" });
+    expect(within(dialog).getByLabelText("Source assignment")).toHaveValue(linkedAssignment.id);
+    expect(within(dialog).getByLabelText("Source chat")).toHaveValue("chat_external_1");
+    expect(within(dialog).getByLabelText("Source message")).toHaveValue("msg_external_1");
+    expect(within(dialog).getByLabelText("Context refs")).toHaveValue(
+      "ctx_external_1, chat_external_1, msg_external_1",
+    );
+  });
+
   it("renders a project timeline from activity, decisions, artifacts, and memory", async () => {
     resetProjectWorkMocks();
     const onOpenTask = vi.fn();

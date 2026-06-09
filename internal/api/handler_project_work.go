@@ -344,12 +344,30 @@ type ProjectActivityItemResponse struct {
 	LinkedTaskID    string                                 `json:"linked_task_id,omitempty"`
 	LinkedRunID     string                                 `json:"linked_run_id,omitempty"`
 	LinkedChatID    string                                 `json:"linked_chat_id,omitempty"`
+	LinkedChat      *ProjectActivityLinkedChatResponse     `json:"linked_chat,omitempty"`
 	LinkedMessageID string                                 `json:"linked_message_id,omitempty"`
 	RecentArtifacts []ProjectWorkArtifactResponse          `json:"recent_artifacts,omitempty"`
 	ArtifactSummary ProjectActivityArtifactSummaryResponse `json:"artifact_summary"`
 	RecentHandoffs  []ProjectHandoffResponse               `json:"recent_handoffs,omitempty"`
 	HandoffSummary  ProjectActivityHandoffSummaryResponse  `json:"handoff_summary"`
 	UpdatedAt       string                                 `json:"updated_at"`
+}
+
+type ProjectActivityLinkedChatResponse struct {
+	ID              string `json:"id"`
+	Title           string `json:"title,omitempty"`
+	AgentID         string `json:"agent_id,omitempty"`
+	DriverKind      string `json:"driver_kind,omitempty"`
+	NativeSessionID string `json:"native_session_id,omitempty"`
+	Status          string `json:"status,omitempty"`
+	LatestMessageID string `json:"latest_message_id,omitempty"`
+	LatestRole      string `json:"latest_role,omitempty"`
+	LatestStatus    string `json:"latest_status,omitempty"`
+	LatestError     string `json:"latest_error,omitempty"`
+	MessageCount    int    `json:"message_count,omitempty"`
+	CreatedAt       string `json:"created_at,omitempty"`
+	UpdatedAt       string `json:"updated_at,omitempty"`
+	Missing         bool   `json:"missing,omitempty"`
 }
 
 type ProjectActivityWorkItemResponse struct {
@@ -2086,6 +2104,71 @@ func groupProjectWorkAssignmentsByWorkItem(assignments []projectwork.Assignment)
 	return grouped
 }
 
+func (h *Handler) projectActivityLinkedChats(ctx context.Context, projectID string, assignments []projectwork.Assignment) map[string]*ProjectActivityLinkedChatResponse {
+	linked := make(map[string]*ProjectActivityLinkedChatResponse)
+	if h == nil || h.agentChat == nil {
+		return linked
+	}
+	for _, assignment := range assignments {
+		chatID := strings.TrimSpace(assignment.ChatSessionID)
+		if chatID == "" {
+			continue
+		}
+		session, ok, err := h.agentChat.Get(ctx, chatID)
+		if err != nil || !ok || strings.TrimSpace(session.ProjectID) != strings.TrimSpace(projectID) {
+			linked[assignment.ID] = missingProjectActivityLinkedChat(chatID)
+			continue
+		}
+		linked[assignment.ID] = renderProjectActivityLinkedChat(session)
+	}
+	return linked
+}
+
+func missingProjectActivityLinkedChat(chatID string) *ProjectActivityLinkedChatResponse {
+	return &ProjectActivityLinkedChatResponse{
+		ID:      chatID,
+		Missing: true,
+	}
+}
+
+func renderProjectActivityLinkedChat(session chat.Session) *ProjectActivityLinkedChatResponse {
+	item := &ProjectActivityLinkedChatResponse{
+		ID:              session.ID,
+		Title:           session.Title,
+		AgentID:         renderChatAgentID(session),
+		DriverKind:      session.DriverKind,
+		NativeSessionID: session.NativeSessionID,
+		Status:          session.Status,
+		MessageCount:    len(session.Messages),
+		CreatedAt:       formatOptionalTime(session.CreatedAt),
+		UpdatedAt:       formatOptionalTime(session.UpdatedAt),
+	}
+	if latest := latestProjectActivityChatMessage(session.Messages); latest != nil {
+		item.LatestMessageID = latest.ID
+		item.LatestRole = latest.Role
+		item.LatestStatus = latest.Status
+		item.LatestError = latest.Error
+		if !latest.CompletedAt.IsZero() {
+			item.UpdatedAt = formatOptionalTime(latest.CompletedAt)
+		} else if !latest.StartedAt.IsZero() {
+			item.UpdatedAt = formatOptionalTime(latest.StartedAt)
+		} else if !latest.CreatedAt.IsZero() {
+			item.UpdatedAt = formatOptionalTime(latest.CreatedAt)
+		}
+	}
+	return item
+}
+
+func latestProjectActivityChatMessage(messages []chat.Message) *chat.Message {
+	for i := len(messages) - 1; i >= 0; i-- {
+		message := messages[i]
+		if strings.TrimSpace(message.ID) != "" {
+			return &messages[i]
+		}
+	}
+	return nil
+}
+
 func projectWorkProjectedAssignmentStatus(assignment projectwork.Assignment, projectedStatus string, projectedAt time.Time) string {
 	projectedStatus = strings.TrimSpace(projectedStatus)
 	if projectedStatus == "" {
@@ -2163,6 +2246,7 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 		roleByID[role.ID] = role
 	}
 	assignmentsByWorkItem := groupProjectWorkAssignmentsByWorkItem(assignments)
+	linkedChats := h.projectActivityLinkedChats(ctx, projectID, assignments)
 	projectedWorkItems := make(map[string]ProjectWorkItemResponse, len(workItems))
 	for _, item := range workItems {
 		projected, err := h.renderProjectedProjectWorkItemWithAssignments(ctx, item, assignmentsByWorkItem[item.ID])
@@ -2186,7 +2270,7 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 				activityHandoffs = handoffsByWorkItem[projected.WorkItemID]
 			}
 			role, _ := roleByID[projected.RoleID]
-			items = append(items, renderProjectActivityItem(workItem, projected, role, activityArtifacts, activityHandoffs))
+			items = append(items, renderProjectActivityItem(workItem, projected, role, activityArtifacts, activityHandoffs, linkedChats[projected.ID]))
 		}
 	}
 	sortProjectActivityItems(items)
@@ -2218,14 +2302,14 @@ func (h *Handler) renderProjectActivity(ctx context.Context, projectID string) (
 	return response, nil
 }
 
-func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, role projectwork.AgentRoleProfile, artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff) ProjectActivityItemResponse {
+func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, role projectwork.AgentRoleProfile, artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff, linkedChat *ProjectActivityLinkedChatResponse) ProjectActivityItemResponse {
 	artifactSummary, recentArtifacts := renderProjectActivityArtifactSignals(artifacts)
 	handoffSummary, recentHandoffs := renderProjectActivityHandoffSignals(handoffs)
-	status := strings.TrimSpace(firstNonEmpty(projectActivityExecutionStatus(assignment), assignment.Status))
+	status := strings.TrimSpace(projectActivityProjectedStatus(assignment, linkedChat))
 	if status == "" {
 		status = "unknown"
 	}
-	signal := projectActivityBlockingSignal(assignment)
+	signal := projectActivityBlockingSignal(assignment, linkedChat)
 	return ProjectActivityItemResponse{
 		ID:              assignment.ID,
 		ProjectID:       assignment.ProjectID,
@@ -2234,16 +2318,17 @@ func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment Proj
 		Role:            renderProjectWorkRole(role),
 		Status:          status,
 		BlockingSignal:  signal,
-		StatusSummary:   projectActivityStatusSummary(assignment, signal, artifactSummary.Count),
+		StatusSummary:   projectActivityStatusSummary(assignment, linkedChat, signal, artifactSummary.Count),
 		LinkedTaskID:    firstNonEmpty(projectActivityExecutionTaskID(assignment), assignment.TaskID),
 		LinkedRunID:     firstNonEmpty(projectActivityExecutionRunID(assignment), assignment.RunID),
 		LinkedChatID:    assignment.ChatSessionID,
+		LinkedChat:      linkedChat,
 		LinkedMessageID: assignment.MessageID,
 		RecentArtifacts: recentArtifacts,
 		ArtifactSummary: artifactSummary,
 		RecentHandoffs:  recentHandoffs,
 		HandoffSummary:  handoffSummary,
-		UpdatedAt:       projectActivityUpdatedAt(workItem, assignment, artifactSummary, handoffSummary),
+		UpdatedAt:       projectActivityUpdatedAt(workItem, assignment, linkedChat, artifactSummary, handoffSummary),
 	}
 }
 
@@ -2389,7 +2474,7 @@ func boundedProjectActivityItems(items []ProjectActivityItemResponse, limit int)
 
 func projectActivityBucket(item ProjectActivityItemResponse) string {
 	switch item.BlockingSignal {
-	case "awaiting_approval", "failed", "not_started", "stale_unknown":
+	case "awaiting_approval", "failed", "cancelled", "not_started", "stale_unknown":
 		return "blocked"
 	case "completed":
 		return "completed"
@@ -2400,13 +2485,18 @@ func projectActivityBucket(item ProjectActivityItemResponse) string {
 	}
 }
 
-func projectActivityBlockingSignal(assignment ProjectWorkAssignmentResponse) string {
-	status := strings.TrimSpace(firstNonEmpty(projectActivityExecutionStatus(assignment), assignment.Status))
+func projectActivityBlockingSignal(assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse) string {
+	if linkedChat != nil && linkedChat.Missing {
+		return "stale_unknown"
+	}
+	status := strings.TrimSpace(projectActivityProjectedStatus(assignment, linkedChat))
 	switch status {
 	case projectwork.AssignmentStatusAwaitingApproval:
 		return "awaiting_approval"
 	case projectwork.AssignmentStatusFailed:
 		return "failed"
+	case projectwork.AssignmentStatusCancelled, "closed":
+		return "cancelled"
 	case projectwork.AssignmentStatusCompleted:
 		return "completed"
 	case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusQueued:
@@ -2428,7 +2518,7 @@ func projectActivityBlockingSignal(assignment ProjectWorkAssignmentResponse) str
 	}
 }
 
-func projectActivityStatusSummary(assignment ProjectWorkAssignmentResponse, signal string, artifactCount int) string {
+func projectActivityStatusSummary(assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse, signal string, artifactCount int) string {
 	switch signal {
 	case "awaiting_approval":
 		count := 0
@@ -2440,13 +2530,27 @@ func projectActivityStatusSummary(assignment ProjectWorkAssignmentResponse, sign
 		}
 		return "awaiting approval"
 	case "failed":
+		if linkedChat != nil && linkedChat.LatestError != "" {
+			return linkedChat.LatestError
+		}
 		if assignment.Execution != nil && assignment.Execution.LastError != "" {
 			return assignment.Execution.LastError
 		}
+		if linkedChat != nil {
+			return "linked chat failed"
+		}
 		return "failed run"
+	case "cancelled":
+		if linkedChat != nil {
+			return "linked chat cancelled"
+		}
+		return "cancelled"
 	case "not_started":
 		return "not started"
 	case "running":
+		if linkedChat != nil {
+			return projectActivityLinkedChatSummary(linkedChat)
+		}
 		return "running"
 	case "completed":
 		if artifactCount > 0 {
@@ -2454,8 +2558,46 @@ func projectActivityStatusSummary(assignment ProjectWorkAssignmentResponse, sign
 		}
 		return "completed"
 	default:
+		if linkedChat != nil && linkedChat.Missing {
+			return "linked chat missing"
+		}
 		return "stale or unknown"
 	}
+}
+
+func projectActivityProjectedStatus(assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse) string {
+	if linkedChat != nil {
+		if linkedChat.Missing {
+			return "stale_unknown"
+		}
+		if status := strings.TrimSpace(linkedChat.Status); status != "" && status != "idle" {
+			return status
+		}
+		if status := strings.TrimSpace(linkedChat.LatestStatus); status != "" {
+			return status
+		}
+		if strings.TrimSpace(linkedChat.Status) == "idle" {
+			return firstNonEmpty(projectActivityExecutionStatus(assignment), assignment.Status, projectwork.AssignmentStatusRunning)
+		}
+	}
+	return firstNonEmpty(projectActivityExecutionStatus(assignment), assignment.Status)
+}
+
+func projectActivityLinkedChatSummary(linkedChat *ProjectActivityLinkedChatResponse) string {
+	if linkedChat == nil {
+		return ""
+	}
+	parts := []string{"linked chat"}
+	if linkedChat.Status != "" {
+		parts = append(parts, linkedChat.Status)
+	}
+	if linkedChat.LatestRole != "" && linkedChat.LatestStatus != "" {
+		parts = append(parts, linkedChat.LatestRole+" "+linkedChat.LatestStatus)
+	}
+	if linkedChat.MessageCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d message%s", linkedChat.MessageCount, pluralSuffix(linkedChat.MessageCount)))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func projectActivityExecutionStatus(assignment ProjectWorkAssignmentResponse) string {
@@ -2479,13 +2621,20 @@ func projectActivityExecutionRunID(assignment ProjectWorkAssignmentResponse) str
 	return assignment.Execution.RunID
 }
 
-func projectActivityUpdatedAt(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, artifacts ProjectActivityArtifactSummaryResponse, handoffs ProjectActivityHandoffSummaryResponse) string {
+func projectActivityUpdatedAt(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse, artifacts ProjectActivityArtifactSummaryResponse, handoffs ProjectActivityHandoffSummaryResponse) string {
 	latest := parseProjectActivityTime(firstNonEmpty(assignment.CompletedAt, assignment.StartedAt, assignment.UpdatedAt, assignment.CreatedAt))
 	workUpdated := parseProjectActivityTime(workItem.UpdatedAt)
+	chatUpdated := time.Time{}
+	if linkedChat != nil {
+		chatUpdated = parseProjectActivityTime(linkedChat.UpdatedAt)
+	}
 	artifactUpdated := parseProjectActivityTime(artifacts.LatestAt)
 	handoffUpdated := parseProjectActivityTime(handoffs.LatestAt)
 	if workUpdated.After(latest) {
 		latest = workUpdated
+	}
+	if chatUpdated.After(latest) {
+		latest = chatUpdated
 	}
 	if artifactUpdated.After(latest) {
 		latest = artifactUpdated
