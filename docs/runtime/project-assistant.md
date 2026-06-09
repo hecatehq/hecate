@@ -24,10 +24,21 @@ the same validation, confirmation, and audit rules.
   Workspace-bound behavior must use WorkspaceFS, ProcessRunner, GitRunner, or
   existing task-runtime paths.
 - Proposals, traces, artifacts, and memory candidates must not store secrets.
+- Apply is human-gated. Do not expose `/project-assistant/apply` as a direct
+  model-callable tool; chat or agent integrations must route durable mutations
+  through an explicit blocking operator confirmation first.
 
-Apply is sequential across existing stores. A proposal id is an idempotency
-boundary: applying the same proposal again returns a conflict instead of
-duplicating mutations.
+Apply is sequential across existing stores. A proposal id plus its canonical
+action set is the in-process progress boundary. If action N fails after earlier
+actions have already mutated durable stores, the API returns the partial action
+results and `failed_action_index`. Retrying the exact same proposal resumes at
+the next unapplied action. Retrying the same proposal id with a changed action
+set returns `409 conflict`, and retrying a fully applied proposal also returns
+`409 conflict`.
+
+Future versions may persist proposal ids server-side so reviewed actions,
+confirmation, and resumable progress survive process restarts. The v0 API keeps
+that shape possible without requiring it.
 
 ## Endpoints
 
@@ -113,6 +124,37 @@ Repeated apply attempts for the same proposal id return `409 conflict`.
 Stale ids, missing projects, missing chats, missing work items, or missing
 memory candidates return `404 not_found` or `409 conflict` depending on the
 state transition.
+
+When a multi-action apply fails after earlier actions were committed, the error
+includes progress metadata:
+
+```json
+{
+  "error": {
+    "type": "not_found",
+    "message": "project assistant apply failed at action 1: project assistant target not found: project \"proj_missing\"",
+    "failed_action_index": 1,
+    "partial_result": {
+      "proposal_id": "pa_...",
+      "applied": false,
+      "actions": [
+        {
+          "kind": "create_project",
+          "id": "proj_hecate",
+          "data": {
+            "project_id": "proj_hecate"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Retry the unchanged proposal after fixing the missing target to resume from the
+first unapplied action. If the client changes `actions[]` while reusing the same
+proposal id, apply returns `409 conflict` so the operator can refresh the
+proposal instead of unknowingly applying a different change set.
 
 ## Action shape
 

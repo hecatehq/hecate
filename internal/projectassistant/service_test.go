@@ -551,6 +551,132 @@ func TestService_ApplyRepeatedProposalConflicts(t *testing.T) {
 	}
 }
 
+func TestService_ApplyPartialFailureReturnsProgressAndResumesAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			proposal := Proposal{
+				ID:                   "pa_partial_resume",
+				RequiresConfirmation: true,
+				Actions: []Action{
+					{
+						Kind:  ActionCreateProject,
+						Patch: rawPatch(t, map[string]string{"id": "proj_partial", "name": "Partial"}),
+					},
+					{
+						Kind: ActionCreateWorkItem,
+						Patch: rawPatch(t, map[string]string{
+							"id":         "work_after_retry",
+							"project_id": "proj_after_retry",
+							"title":      "Resume after missing project",
+						}),
+					},
+				},
+			}
+
+			result, err := fixture.service.Apply(ctx, proposal, true)
+			if !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Apply err = %v, want ErrNotFound", err)
+			}
+			var applyErr *ApplyError
+			if !errors.As(err, &applyErr) {
+				t.Fatalf("Apply err = %T %v, want ApplyError", err, err)
+			}
+			if applyErr.FailedActionIndex != 1 {
+				t.Fatalf("failed_action_index = %d, want 1", applyErr.FailedActionIndex)
+			}
+			if result.Applied || len(result.Actions) != 1 || result.Actions[0].ID != "proj_partial" {
+				t.Fatalf("partial result = %+v, want first action only", result)
+			}
+			if applyErr.Result.ProposalID != result.ProposalID || len(applyErr.Result.Actions) != len(result.Actions) {
+				t.Fatalf("apply error result = %+v, want returned partial result %+v", applyErr.Result, result)
+			}
+			if _, ok, err := fixture.projects.Get(ctx, "proj_partial"); err != nil || !ok {
+				t.Fatalf("get partially-created project ok=%v err=%v", ok, err)
+			}
+
+			if _, err := fixture.projects.Create(ctx, projects.Project{ID: "proj_after_retry", Name: "After retry"}); err != nil {
+				t.Fatalf("create missing project before retry: %v", err)
+			}
+			result, err = fixture.service.Apply(ctx, proposal, true)
+			if err != nil {
+				t.Fatalf("retry Apply: %v", err)
+			}
+			if !result.Applied || len(result.Actions) != 2 {
+				t.Fatalf("retry result = %+v, want both actions applied", result)
+			}
+			item, ok, err := fixture.work.GetWorkItem(ctx, "proj_after_retry", "work_after_retry")
+			if err != nil || !ok {
+				t.Fatalf("get work item ok=%v err=%v", ok, err)
+			}
+			if item.Title != "Resume after missing project" {
+				t.Fatalf("work item title = %q, want resumed action title", item.Title)
+			}
+
+			projectsAfterRetry, err := fixture.projects.List(ctx)
+			if err != nil {
+				t.Fatalf("list projects: %v", err)
+			}
+			var partialProjectCount int
+			for _, project := range projectsAfterRetry {
+				if project.ID == "proj_partial" {
+					partialProjectCount++
+				}
+			}
+			if partialProjectCount != 1 {
+				t.Fatalf("proj_partial count = %d, want one non-duplicated project", partialProjectCount)
+			}
+		})
+	}
+}
+
+func TestService_ApplyChangedProposalAfterPartialFailureConflictsAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			proposal := Proposal{
+				ID:                   "pa_partial_changed",
+				RequiresConfirmation: true,
+				Actions: []Action{
+					{
+						Kind:  ActionCreateProject,
+						Patch: rawPatch(t, map[string]string{"id": "proj_partial_changed", "name": "Partial"}),
+					},
+					{
+						Kind: ActionCreateWorkItem,
+						Patch: rawPatch(t, map[string]string{
+							"id":         "work_changed",
+							"project_id": "proj_missing_changed",
+							"title":      "Original title",
+						}),
+					},
+				},
+			}
+			if _, err := fixture.service.Apply(ctx, proposal, true); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Apply err = %v, want ErrNotFound", err)
+			}
+
+			changed := proposal
+			changed.Actions = cloneActions(proposal.Actions)
+			changed.Actions[1].Patch = rawPatch(t, map[string]string{
+				"id":         "work_changed",
+				"project_id": "proj_missing_changed",
+				"title":      "Changed title",
+			})
+			_, err := fixture.service.Apply(ctx, changed, true)
+			if !errors.Is(err, ErrConflict) {
+				t.Fatalf("changed Apply err = %v, want ErrConflict", err)
+			}
+		})
+	}
+}
+
 func assistantFixtureBuilders() []assistantFixtureBuilder {
 	return []assistantFixtureBuilder{
 		{name: "memory", build: newMemoryAssistantFixture},

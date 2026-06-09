@@ -52,7 +52,7 @@ func (h *Handler) HandleProjectAssistantApply(w http.ResponseWriter, r *http.Req
 	}
 	result, err := h.projectAssistantService().Apply(r.Context(), req.Proposal, req.Confirm)
 	if err != nil {
-		writeProjectAssistantError(w, err)
+		writeProjectAssistantApplyError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{
@@ -75,16 +75,36 @@ func (h *Handler) projectAssistantService() *projectassistant.Service {
 	return h.projectAssistant
 }
 
+func writeProjectAssistantApplyError(w http.ResponseWriter, err error) {
+	var applyErr *projectassistant.ApplyError
+	if !errors.As(err, &applyErr) {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	status, code := projectAssistantErrorStatusCode(err)
+	WriteErrorDetails(w, status, code, err.Error(), ErrorDetails{
+		Fields: map[string]any{
+			"failed_action_index": applyErr.FailedActionIndex,
+			"partial_result":      applyErr.Result,
+		},
+	})
+}
+
 func writeProjectAssistantError(w http.ResponseWriter, err error) {
+	status, code := projectAssistantErrorStatusCode(err)
+	WriteError(w, status, code, err.Error())
+}
+
+func projectAssistantErrorStatusCode(err error) (int, string) {
 	switch {
 	case errors.Is(err, projectassistant.ErrUnknownActionKind), errors.Is(err, projectassistant.ErrInvalid):
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return http.StatusBadRequest, errCodeInvalidRequest
 	case errors.Is(err, projectassistant.ErrNotFound):
-		WriteError(w, http.StatusNotFound, errCodeNotFound, err.Error())
+		return http.StatusNotFound, errCodeNotFound
 	case errors.Is(err, projectassistant.ErrConfirmationRequired), errors.Is(err, projectassistant.ErrConflict):
-		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
+		return http.StatusConflict, errCodeConflict
 	default:
-		WriteError(w, http.StatusInternalServerError, errCodeInternalError, err.Error())
+		return http.StatusInternalServerError, errCodeInternalError
 	}
 }
 

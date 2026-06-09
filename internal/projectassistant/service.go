@@ -1,6 +1,7 @@
 package projectassistant
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -47,7 +48,7 @@ type Service struct {
 	work             projectwork.Store
 	memoryCandidates memory.CandidateStore
 	idgen            IDGenerator
-	applied          map[string]struct{}
+	applyProgress    map[string]*applyProgress
 }
 
 type Stores struct {
@@ -94,6 +95,43 @@ type ActionResult struct {
 	Data map[string]string `json:"data,omitempty"`
 }
 
+type ApplyError struct {
+	ProposalID        string
+	FailedActionIndex int
+	Result            ApplyResult
+	Err               error
+}
+
+func (e *ApplyError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Err == nil {
+		return fmt.Sprintf("project assistant apply failed at action %d", e.FailedActionIndex)
+	}
+	return fmt.Sprintf("project assistant apply failed at action %d: %v", e.FailedActionIndex, e.Err)
+}
+
+func (e *ApplyError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+type applyProgress struct {
+	fingerprint string
+	complete    bool
+	results     []ActionResult
+}
+
+type actionFingerprint struct {
+	Kind   string            `json:"kind"`
+	Target map[string]string `json:"target,omitempty"`
+	Patch  json.RawMessage   `json:"patch,omitempty"`
+	Reason string            `json:"reason,omitempty"`
+}
+
 var defaultIDCounter atomic.Uint64
 
 func NewService(stores Stores, idgen IDGenerator) *Service {
@@ -108,7 +146,7 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 		work:             stores.Work,
 		memoryCandidates: stores.MemoryCandidates,
 		idgen:            idgen,
-		applied:          make(map[string]struct{}),
+		applyProgress:    make(map[string]*applyProgress),
 	}
 }
 
@@ -159,27 +197,52 @@ func (s *Service) Apply(ctx context.Context, proposal Proposal, confirmed bool) 
 			return ApplyResult{}, err
 		}
 	}
+	fingerprint, err := actionSetFingerprint(proposal.Actions)
+	if err != nil {
+		return ApplyResult{}, err
+	}
 
 	// Hold the apply lock through the mutation sequence so a proposal ID cannot
-	// race itself into duplicate durable writes.
+	// race itself into duplicate durable writes. Progress is intentionally
+	// in-process for v0; retrying the exact same action set resumes after the
+	// last committed action instead of replaying earlier mutations.
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.applied[proposal.ID]; ok {
+
+	progress, ok := s.applyProgress[proposal.ID]
+	if !ok {
+		progress = &applyProgress{fingerprint: fingerprint}
+		s.applyProgress[proposal.ID] = progress
+	}
+	if progress.complete {
 		return ApplyResult{}, fmt.Errorf("%w: proposal %q was already applied", ErrConflict, proposal.ID)
 	}
-
-	results := make([]ActionResult, 0, len(proposal.Actions))
-	for _, action := range proposal.Actions {
-		result, err := s.applyAction(ctx, action)
-		if err != nil {
-			return ApplyResult{}, err
-		}
-		results = append(results, result)
+	if progress.fingerprint != fingerprint {
+		return ApplyResult{}, fmt.Errorf("%w: proposal %q action set changed after partial apply", ErrConflict, proposal.ID)
 	}
 
-	s.applied[proposal.ID] = struct{}{}
+	for idx := len(progress.results); idx < len(proposal.Actions); idx++ {
+		action := proposal.Actions[idx]
+		result, err := s.applyAction(ctx, action)
+		if err != nil {
+			partial := ApplyResult{
+				ProposalID: proposal.ID,
+				Applied:    false,
+				Actions:    cloneActionResults(progress.results),
+			}
+			return partial, &ApplyError{
+				ProposalID:        proposal.ID,
+				FailedActionIndex: idx,
+				Result:            partial,
+				Err:               err,
+			}
+		}
+		progress.results = append(progress.results, result)
+	}
 
-	return ApplyResult{ProposalID: proposal.ID, Applied: true, Actions: results}, nil
+	progress.complete = true
+
+	return ApplyResult{ProposalID: proposal.ID, Applied: true, Actions: cloneActionResults(progress.results)}, nil
 }
 
 func (s *Service) applyAction(ctx context.Context, action Action) (ActionResult, error) {
@@ -865,6 +928,53 @@ func cloneActions(actions []Action) []Action {
 			Target: cloneStringMap(action.Target),
 			Patch:  append(json.RawMessage(nil), action.Patch...),
 			Reason: action.Reason,
+		}
+	}
+	return cloned
+}
+
+func actionSetFingerprint(actions []Action) (string, error) {
+	items := make([]actionFingerprint, 0, len(actions))
+	for _, action := range actions {
+		patch, err := compactPatch(action.Patch)
+		if err != nil {
+			return "", err
+		}
+		items = append(items, actionFingerprint{
+			Kind:   normalizeKind(action.Kind),
+			Target: cloneStringMap(action.Target),
+			Patch:  patch,
+			Reason: strings.TrimSpace(action.Reason),
+		})
+	}
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		return "", fmt.Errorf("%w: encode action fingerprint: %v", ErrInvalid, err)
+	}
+	return string(encoded), nil
+}
+
+func compactPatch(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return nil, fmt.Errorf("%w: invalid action patch json", ErrInvalid)
+	}
+	return append(json.RawMessage(nil), buf.Bytes()...), nil
+}
+
+func cloneActionResults(results []ActionResult) []ActionResult {
+	if results == nil {
+		return nil
+	}
+	cloned := make([]ActionResult, len(results))
+	for idx, result := range results {
+		cloned[idx] = ActionResult{
+			Kind: result.Kind,
+			ID:   result.ID,
+			Data: cloneStringMap(result.Data),
 		}
 	}
 	return cloned

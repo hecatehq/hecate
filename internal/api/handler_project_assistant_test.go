@@ -26,6 +26,15 @@ type projectAssistantApplyResponse struct {
 	Data   projectassistant.ApplyResult `json:"data"`
 }
 
+type projectAssistantErrorResponse struct {
+	Error struct {
+		Type              string                       `json:"type"`
+		Message           string                       `json:"message"`
+		FailedActionIndex int                          `json:"failed_action_index"`
+		PartialResult     projectassistant.ApplyResult `json:"partial_result"`
+	} `json:"error"`
+}
+
 func newProjectAssistantTestServer() http.Handler {
 	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
 	handler.SetProjectStore(projects.NewMemoryStore())
@@ -134,6 +143,54 @@ func TestProjectAssistantAPI_ProposeAndApplyCreateProject(t *testing.T) {
 	root := project.Data.Roots[0]
 	if root.Path != "/tmp/hecate-api-project" || root.Kind != "git" || !root.Active || project.Data.DefaultRootID != root.ID {
 		t.Fatalf("root = %+v default_root_id=%q, want generated default workspace root", root, project.Data.DefaultRootID)
+	}
+}
+
+func TestProjectAssistantAPI_ApplyPartialFailureIncludesProgress(t *testing.T) {
+	t.Parallel()
+	server := newProjectAssistantTestServer()
+	proposal := projectassistant.Proposal{
+		ID:                   "pa_partial_api",
+		Title:                "Partial apply",
+		RequiresConfirmation: true,
+		Actions: []projectassistant.Action{
+			{
+				Kind:  projectassistant.ActionCreateProject,
+				Patch: json.RawMessage(`{"id":"proj_partial_api","name":"Partial API"}`),
+			},
+			{
+				Kind: projectassistant.ActionCreateWorkItem,
+				Patch: json.RawMessage(`{
+					"id":"work_missing_project",
+					"project_id":"proj_missing_api",
+					"title":"Cannot create yet"
+				}`),
+			},
+		},
+	}
+	applyBody, err := json.Marshal(map[string]any{"proposal": proposal, "confirm": true})
+	if err != nil {
+		t.Fatalf("marshal apply body: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/apply", bytes.NewReader(applyBody)))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("partial apply status = %d body=%s, want 404", rec.Code, rec.Body.String())
+	}
+	var payload projectAssistantErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode partial apply error: %v", err)
+	}
+	if payload.Error.Type != errCodeNotFound || payload.Error.FailedActionIndex != 1 {
+		t.Fatalf("error = %+v, want not_found at action index 1", payload.Error)
+	}
+	partial := payload.Error.PartialResult
+	if partial.ProposalID != "pa_partial_api" || partial.Applied || len(partial.Actions) != 1 {
+		t.Fatalf("partial_result = %+v, want one unapplied partial result", partial)
+	}
+	if partial.Actions[0].Kind != projectassistant.ActionCreateProject || partial.Actions[0].ID != "proj_partial_api" {
+		t.Fatalf("partial action = %+v, want created project action", partial.Actions[0])
 	}
 }
 

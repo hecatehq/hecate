@@ -2068,6 +2068,13 @@ typed, allowlisted proposal, inspect the exact changes, then explicitly apply
 the proposal. Apply revalidates current server state before mutating projects,
 chats, project work, or memory candidates.
 
+Apply is a human-gated operation. Do not wire it as a direct model-callable tool
+without an explicit blocking operator confirmation. Multi-action apply is
+sequential and resumable within the current process: on a mid-sequence failure
+the error includes `failed_action_index` and `partial_result`; retrying the
+unchanged proposal id resumes after the committed actions, while changing the
+action set or reapplying a fully applied proposal returns `409 conflict`.
+
 Endpoints:
 
 - `POST /hecate/v1/project-assistant/propose`
