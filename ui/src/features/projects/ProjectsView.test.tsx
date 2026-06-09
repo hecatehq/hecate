@@ -951,6 +951,9 @@ describe("ProjectsView cockpit", () => {
     expect(await screen.findByText("Generated summary")).toBeTruthy();
     expect(screen.getByText("Temporary note")).toBeTruthy();
     expect(screen.getAllByText("generated_summary").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Source refs: task_run Implementation run/).length).toBeGreaterThan(
+      0,
+    );
 
     await user.click(
       screen.getByRole("button", { name: "Reject memory candidate Temporary note" }),
@@ -961,6 +964,10 @@ describe("ProjectsView cockpit", () => {
       screen.getByRole("button", { name: "Promote memory candidate Generated summary" }),
     );
     expect(screen.getByRole("button", { name: "Promote memory" })).toBeTruthy();
+    expect(screen.getByText("Candidate provenance")).toBeTruthy();
+    expect(screen.getAllByText(/Source refs: task_run Implementation run/).length).toBeGreaterThan(
+      0,
+    );
     fireEvent.change(screen.getByLabelText("Trust label"), {
       target: { value: "operator_memory" },
     });
