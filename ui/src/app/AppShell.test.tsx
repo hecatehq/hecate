@@ -645,6 +645,88 @@ describe("ConsoleShell navigation", () => {
     expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
   });
 
+  it("selects linked External Agent chats when opening a started project assignment", async () => {
+    const createChatSession = vi.fn<RuntimeConsoleFixtureActions["createChatSession"]>(
+      async () => undefined,
+    );
+    const selectChatSession = vi.fn<RuntimeConsoleFixtureActions["selectChatSession"]>(
+      async () => undefined,
+    );
+    const onSelectWorkspace = vi.fn();
+    const project = {
+      id: "proj_1",
+      name: "Hecate",
+      roots: [],
+      created_at: "2026-05-21T10:00:00Z",
+      updated_at: "2026-05-21T10:00:00Z",
+    };
+    const workItem: ProjectWorkItemRecord = {
+      id: "work_1",
+      project_id: project.id,
+      title: "Build cockpit UI",
+      brief: "Open the linked external agent chat.",
+      status: "ready",
+      priority: "high",
+      owner_role_id: "software_developer",
+      created_at: "2026-06-02T10:00:00Z",
+      updated_at: "2026-06-02T11:00:00Z",
+    };
+    const assignment: ProjectAssignmentRecord = {
+      id: "asgn_external",
+      project_id: project.id,
+      work_item_id: workItem.id,
+      role_id: "software_developer",
+      driver_kind: "external_agent",
+      status: "running",
+      chat_session_id: "chat_external_1",
+      context_snapshot_id: "ctx_external_1",
+      created_at: "2026-06-02T10:00:00Z",
+      updated_at: "2026-06-02T11:00:00Z",
+    };
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [
+        {
+          id: "software_developer",
+          project_id: project.id,
+          name: "Software developer",
+          built_in: true,
+        },
+      ],
+    });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [assignment] }],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: workItem,
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [assignment],
+    });
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="projects" onSelectWorkspace={onSelectWorkspace} />,
+        {
+          state,
+          actions: { ...createRuntimeConsoleActions(), createChatSession, selectChatSession },
+        },
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open chat" }));
+
+    expect(selectChatSession).toHaveBeenCalledWith("chat_external_1");
+    expect(createChatSession).not.toHaveBeenCalled();
+    expect(onSelectWorkspace).toHaveBeenCalledWith("chats");
+  });
+
   it("moves the active chat when selecting a different project", () => {
     const selectProject = vi.fn(async () => undefined);
     const selectChatSession = vi.fn(async () => undefined);

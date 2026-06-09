@@ -1263,6 +1263,99 @@ describe("ProjectsView cockpit", () => {
     expect(screen.getByRole("article", { name: "Build cockpit UI work item" })).toBeTruthy();
   });
 
+  it("starts queued external-agent assignments from the selected work item", async () => {
+    resetProjectWorkMocks();
+    const externalAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      driver_kind: "external_agent",
+      status: "queued",
+      task_id: "",
+      run_id: "",
+      execution: undefined,
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [externalAssignment] }],
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [externalAssignment],
+    });
+    vi.mocked(startProjectAssignment).mockResolvedValue({
+      object: "project_assignment",
+      data: {
+        ...externalAssignment,
+        status: "running",
+        chat_session_id: "chat_external_1",
+        context_snapshot_id: "ctx_external_1",
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await userEvent.click(within(detail).getByRole("button", { name: "Start" }));
+
+    expect(startProjectAssignment).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      externalAssignment.id,
+      "external_agent",
+    );
+  });
+
+  it("opens linked external-agent assignment chat sessions directly", async () => {
+    resetProjectWorkMocks();
+    const onOpenChat = vi.fn();
+    const linkedAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      driver_kind: "external_agent",
+      status: "running",
+      task_id: "",
+      run_id: "",
+      chat_session_id: "chat_external_1",
+      context_snapshot_id: "ctx_external_1",
+      execution: undefined,
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [linkedAssignment] }],
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [linkedAssignment],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(
+      withRuntimeConsole(<ProjectsView onOpenChat={onOpenChat} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    await userEvent.click(within(detail).getByRole("button", { name: "Open chat" }));
+
+    expect(onOpenChat).toHaveBeenCalledWith({
+      projectID: project.id,
+      chatSessionID: "chat_external_1",
+    });
+  });
+
   it("renders a project timeline from activity, decisions, artifacts, and memory", async () => {
     resetProjectWorkMocks();
     const onOpenTask = vi.fn();
@@ -2298,6 +2391,7 @@ describe("ProjectsView cockpit", () => {
       project.id,
       workItem.id,
       notStartedAssignment.id,
+      "hecate_task",
     );
   });
 
@@ -2890,6 +2984,7 @@ describe("ProjectsView cockpit", () => {
       project.id,
       workItem.id,
       queuedAssignment.id,
+      "hecate_task",
     );
     await waitFor(() => {
       expect(getProjectWorkItem).toHaveBeenCalledTimes(2);
@@ -2926,7 +3021,7 @@ describe("ProjectsView cockpit", () => {
     expect(screen.queryByText(/^Started\s*$/)).toBeNull();
   });
 
-  it("does not expose native start for external-agent assignments", async () => {
+  it("exposes start for queued external-agent assignments", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
     vi.mocked(getProjectAssignments).mockResolvedValue({
@@ -2947,7 +3042,11 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    expect(await screen.findByText("Start in Chats")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
+    );
+    const detail = await screen.findByRole("region", { name: "Selected work item" });
+    expect(within(detail).getByRole("button", { name: "Start" })).toBeTruthy();
+    expect(screen.queryByText("Start in Chats")).toBeNull();
   });
 });

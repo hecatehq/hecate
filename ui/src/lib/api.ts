@@ -562,10 +562,11 @@ export async function startProjectAssignment(
   projectID: string,
   workItemID: string,
   assignmentID: string,
+  driverKind = "hecate_task",
 ): Promise<ProjectAssignmentResponse> {
   return fetchJSON<ProjectAssignmentResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments/${encodeURIComponent(assignmentID)}/start`,
-    { method: "POST", body: { driver_kind: "hecate_task" } },
+    { method: "POST", body: { driver_kind: driverKind } },
   );
 }
 

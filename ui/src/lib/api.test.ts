@@ -523,17 +523,28 @@ describe("api client", () => {
   });
 
   it("starts native project assignments with the hecate driver kind", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({ object: "project_assignment", data: { id: "asgn_1" } }),
-    );
+    fetchMock.mockClear();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ object: "project_assignment", data: { id: "asgn_1" } }))
+      .mockResolvedValueOnce(
+        jsonResponse({ object: "project_assignment", data: { id: "asgn_2" } }),
+      );
 
     await startProjectAssignment("proj_1", "work_1", "asgn_1");
+    await startProjectAssignment("proj_1", "work_1", "asgn_2", "external_agent");
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/hecate/v1/projects/proj_1/work-items/work_1/assignments/asgn_1/start",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ driver_kind: "hecate_task" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/proj_1/work-items/work_1/assignments/asgn_2/start",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ driver_kind: "external_agent" }),
       }),
     );
   });

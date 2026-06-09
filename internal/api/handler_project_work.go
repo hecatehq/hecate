@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/orchestrator"
@@ -830,10 +832,6 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("assignment driver_kind is %q, not %q", assignment.DriverKind, driver))
 		return
 	}
-	if assignment.DriverKind != projectwork.AssignmentDriverHecateTask {
-		WriteError(w, http.StatusConflict, errCodeConflict, fmt.Sprintf("assignment driver_kind %q is not supported by native start; V1 supports %q only", assignment.DriverKind, projectwork.AssignmentDriverHecateTask))
-		return
-	}
 	if projectWorkAssignmentIsTerminal(assignment.Status) {
 		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
 		if projectErr != nil {
@@ -841,6 +839,14 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 			return
 		}
 		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+		return
+	}
+	if assignment.DriverKind == projectwork.AssignmentDriverExternalAgent {
+		h.startProjectExternalAgentAssignment(w, r, project, workItem, assignment, role)
+		return
+	}
+	if assignment.DriverKind != projectwork.AssignmentDriverHecateTask {
+		WriteError(w, http.StatusConflict, errCodeConflict, fmt.Sprintf("assignment driver_kind %q is not supported; V1 supports %q and %q", assignment.DriverKind, projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent))
 		return
 	}
 	active, err := projectWorkAssignmentHasActiveExecution(ctx, h.taskStore, assignment)
@@ -978,6 +984,157 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	projected, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+}
+
+func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *http.Request, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) {
+	ctx := r.Context()
+	if h.agentChat == nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent chat store is not configured")
+		return
+	}
+	if h.agentChatRunner == nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent chat runner is not configured")
+		return
+	}
+	if strings.TrimSpace(assignment.ChatSessionID) != "" {
+		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+		if projectErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+			return
+		}
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+		return
+	}
+	workingDirectory, _, err := resolveProjectAssignmentWorkspace(project)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	profile, err := h.resolveProjectAssignmentProfile(ctx, role, project)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	adapterID := strings.TrimSpace(profile.ExternalAgentKind)
+	if adapterID == "" {
+		WriteError(w, http.StatusUnprocessableEntity, errCodeInvalidRequest, "external-agent assignment requires an agent profile with external_agent_kind")
+		return
+	}
+	adapter, ok := agentadapters.BuiltInByID(adapterID)
+	if !ok {
+		writeAgentChatAdapterNotFound(w, adapterID)
+		return
+	}
+	configOptions, err := projectExternalAgentConfigOptions(adapterID, profile.ExternalAgentOptions)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	workspace, err := agentadapters.ValidateWorkspace(workingDirectory)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	sessionID := newChatID("chat")
+	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workspace, "", "", firstNonEmptyString(profile.ExecutionProfile, "external_agent_assignment"), profile)
+	contextPacket.ID = firstNonEmptyString(contextPacket.ID, newChatID("ctx"))
+	contextPacket.ExecutionMode = chat.ExecutionModeExternalAgent
+	contextPacket.Provider = ""
+	contextPacket.Model = ""
+	contextPacket.Workspace = workspace
+	contextPacket.Refs.SessionID = sessionID
+	contextPacket.Refs.TaskID = ""
+	contextPacket.Refs.RunID = ""
+
+	session := chat.Session{
+		ID:              sessionID,
+		Title:           projectExternalAgentAssignmentTitle(workItem, role, adapter),
+		ProjectID:       project.ID,
+		AgentID:         adapterID,
+		DriverKind:      agentadapters.DriverKindACP,
+		Workspace:       workspace,
+		WorkspaceBranch: workspaceGitBranch(workspace),
+		ConfigOptions:   configOptions,
+	}
+	session, err = h.agentChat.Create(ctx, session)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	prepareCtx, cancel := context.WithTimeout(ctx, agentChatPrepareTimeout)
+	result, prepareErr := h.agentChatRunner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
+		SessionID:     session.ID,
+		AdapterID:     session.AgentID,
+		Workspace:     session.Workspace,
+		ConfigOptions: session.ConfigOptions,
+	})
+	cancel()
+	if prepareErr != nil {
+		_ = h.agentChat.Delete(context.Background(), session.ID)
+		writeAgentChatPrepareError(w, adapter.Name, prepareErr)
+		return
+	}
+	session, err = h.agentChat.UpdateSession(ctx, session.ID, func(item *chat.Session) {
+		item.DriverKind = result.DriverKind
+		item.NativeSessionID = result.NativeSessionID
+		item.ConfigOptions = result.ConfigOptions
+	})
+	if err != nil {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
+		_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
+		cleanupCancel()
+		_ = h.agentChat.Delete(context.Background(), session.ID)
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	contextPacket.Refs.SessionID = session.ID
+	contextPacket = normalizeContextPacket(contextPacket, chat.ContextRefs{
+		SessionID:    session.ID,
+		ProjectID:    project.ID,
+		WorkItemID:   workItem.ID,
+		AssignmentID: assignment.ID,
+		RoleID:       role.ID,
+	})
+	packetBytes := marshalContextPacket(contextPacket)
+	assignment, err = h.projectWork.UpdateAssignment(ctx, project.ID, assignment.ID, func(item *projectwork.Assignment) {
+		if item.ChatSessionID != "" || projectWorkAssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverExternalAgent {
+			return
+		}
+		item.ChatSessionID = session.ID
+		item.ContextSnapshotID = contextPacket.ID
+		item.ContextPacket = packetBytes
+		item.Status = projectwork.AssignmentStatusRunning
+		if item.StartedAt.IsZero() {
+			item.StartedAt = time.Now().UTC()
+		}
+	})
+	if err != nil {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
+		_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
+		cleanupCancel()
+		_ = h.agentChat.Delete(context.Background(), session.ID)
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if assignment.ChatSessionID != session.ID {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
+		_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
+		cleanupCancel()
+		_ = h.agentChat.Delete(context.Background(), session.ID)
+		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+		if projectErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+			return
+		}
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 		return
 	}
 	projected, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
@@ -1223,23 +1380,25 @@ type assignmentHint struct {
 }
 
 type resolvedAgentProfile struct {
-	ID                  string
-	Name                string
-	Source              string
-	Instructions        string
-	Missing             bool
-	Surface             string
-	ProviderHint        string
-	ModelHint           string
-	ExecutionProfile    string
-	ToolsEnabled        bool
-	WritesAllowed       bool
-	NetworkAllowed      bool
-	ApprovalPolicy      string
-	ProjectMemoryPolicy string
-	ContextSourcePolicy string
-	SkillIDs            []string
-	Warnings            []string
+	ID                   string
+	Name                 string
+	Source               string
+	Instructions         string
+	Missing              bool
+	Surface              string
+	ProviderHint         string
+	ModelHint            string
+	ExecutionProfile     string
+	ToolsEnabled         bool
+	WritesAllowed        bool
+	NetworkAllowed       bool
+	ApprovalPolicy       string
+	ProjectMemoryPolicy  string
+	ContextSourcePolicy  string
+	SkillIDs             []string
+	ExternalAgentKind    string
+	ExternalAgentOptions map[string]string
+	Warnings             []string
 }
 
 func (h *Handler) resolveProjectAssignmentProfile(ctx context.Context, role projectwork.AgentRoleProfile, project projects.Project) (resolvedAgentProfile, error) {
@@ -1290,22 +1449,75 @@ func (h *Handler) resolveProjectAssignmentProfile(ctx context.Context, role proj
 
 func resolvedProfileFromStore(profile agentprofiles.Profile, source string) resolvedAgentProfile {
 	return resolvedAgentProfile{
-		ID:                  profile.ID,
-		Name:                profile.Name,
-		Source:              source,
-		Instructions:        profile.Instructions,
-		Surface:             profile.Surface,
-		ProviderHint:        profile.ProviderHint,
-		ModelHint:           profile.ModelHint,
-		ExecutionProfile:    firstNonEmptyString(profile.ExecutionProfile, profile.ID),
-		ToolsEnabled:        profile.ToolsEnabled,
-		WritesAllowed:       profile.WritesAllowed,
-		NetworkAllowed:      profile.NetworkAllowed,
-		ApprovalPolicy:      profile.ApprovalPolicy,
-		ProjectMemoryPolicy: profile.ProjectMemoryPolicy,
-		ContextSourcePolicy: profile.ContextSourcePolicy,
-		SkillIDs:            append([]string(nil), profile.SkillIDs...),
+		ID:                   profile.ID,
+		Name:                 profile.Name,
+		Source:               source,
+		Instructions:         profile.Instructions,
+		Surface:              profile.Surface,
+		ProviderHint:         profile.ProviderHint,
+		ModelHint:            profile.ModelHint,
+		ExecutionProfile:     firstNonEmptyString(profile.ExecutionProfile, profile.ID),
+		ToolsEnabled:         profile.ToolsEnabled,
+		WritesAllowed:        profile.WritesAllowed,
+		NetworkAllowed:       profile.NetworkAllowed,
+		ApprovalPolicy:       profile.ApprovalPolicy,
+		ProjectMemoryPolicy:  profile.ProjectMemoryPolicy,
+		ContextSourcePolicy:  profile.ContextSourcePolicy,
+		SkillIDs:             append([]string(nil), profile.SkillIDs...),
+		ExternalAgentKind:    profile.ExternalAgentKind,
+		ExternalAgentOptions: cloneStringMap(profile.ExternalAgentOptions),
 	}
+}
+
+func projectExternalAgentConfigOptions(adapterID string, options map[string]string) ([]agentcontrols.ConfigOption, error) {
+	if len(options) == 0 {
+		return nil, nil
+	}
+	out := make([]agentcontrols.ConfigOption, 0, len(options))
+	for key, value := range options {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			continue
+		}
+		option, ok := agentadapters.LaunchConfigOptionForSet(adapterID, key, value)
+		if !ok {
+			return nil, fmt.Errorf("external_agent_options.%s is not a launch option for %s", key, adapterID)
+		}
+		out = append(out, option)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].ID < out[j].ID
+	})
+	return out, nil
+}
+
+func projectExternalAgentAssignmentTitle(workItem projectwork.WorkItem, role projectwork.AgentRoleProfile, adapter agentadapters.Adapter) string {
+	parts := []string{}
+	if title := strings.TrimSpace(workItem.Title); title != "" {
+		parts = append(parts, title)
+	}
+	if roleName := strings.TrimSpace(role.Name); roleName != "" {
+		parts = append(parts, roleName)
+	}
+	if adapter.Name != "" {
+		parts = append(parts, adapter.Name)
+	}
+	if len(parts) == 0 {
+		return "External Agent assignment"
+	}
+	return strings.Join(parts, " - ")
+}
+
+func cloneStringMap(items map[string]string) map[string]string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(items))
+	for key, value := range items {
+		out[key] = value
+	}
+	return out
 }
 
 func formatAssignmentHints(items []assignmentHint) string {

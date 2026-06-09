@@ -88,6 +88,7 @@ type Assignment struct {
 	ChatSessionID     string
 	MessageID         string
 	ContextSnapshotID string
+	ContextPacket     []byte
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	StartedAt         time.Time
@@ -782,6 +783,7 @@ func normalizeAssignment(item Assignment, now time.Time) Assignment {
 	item.ChatSessionID = strings.TrimSpace(item.ChatSessionID)
 	item.MessageID = strings.TrimSpace(item.MessageID)
 	item.ContextSnapshotID = strings.TrimSpace(item.ContextSnapshotID)
+	item.ContextPacket = append([]byte(nil), item.ContextPacket...)
 	if item.Status == "" {
 		item.Status = AssignmentStatusQueued
 	}
@@ -1072,6 +1074,7 @@ func cloneWorkItem(item WorkItem) WorkItem {
 }
 
 func cloneAssignment(item Assignment) Assignment {
+	item.ContextPacket = append([]byte(nil), item.ContextPacket...)
 	return item
 }
 

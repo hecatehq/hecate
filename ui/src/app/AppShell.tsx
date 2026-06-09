@@ -72,6 +72,7 @@ type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
 type TraceFocusRequest = { requestID: string; nonce: number };
 type ProjectChatRequest = {
   projectID: string;
+  chatSessionID?: string;
   provider?: string;
   model?: string;
   title?: string;
@@ -313,6 +314,11 @@ function AuthenticatedShell({
   function openChatFromProject(request: ProjectChatRequest) {
     if (request.projectID) {
       void projects.actions.selectProject(request.projectID);
+    }
+    if (request.chatSessionID) {
+      void chatActions.selectChatSession(request.chatSessionID);
+      onSelectWorkspace("chats");
+      return;
     }
     if (request.provider) {
       chatActions.selectProviderRoute(request.provider as ProviderFilter);
