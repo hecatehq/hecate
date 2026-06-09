@@ -85,6 +85,9 @@ func TestDetectAuthStatusClaudeUnknownWithoutMarker(t *testing.T) {
 	if !strings.Contains(hint, "claude /login") {
 		t.Fatalf("hint = %q, want the `claude /login` command callout", hint)
 	}
+	if !strings.Contains(hint, "ANTHROPIC_API_KEY") || !strings.Contains(hint, "ANTHROPIC_AUTH_TOKEN") {
+		t.Fatalf("hint = %q, want Anthropic env auth alternatives", hint)
+	}
 }
 
 func TestDetectAuthStatusClaudeConfigIsNotEnoughForACP(t *testing.T) {
@@ -126,6 +129,9 @@ func TestDetectAuthStatusClaudeReportsUnauthenticatedFromCLI(t *testing.T) {
 	if !strings.Contains(hint, "claude /login") {
 		t.Fatalf("hint = %q, want claude /login guidance", hint)
 	}
+	if !strings.Contains(hint, "ANTHROPIC_API_KEY") || !strings.Contains(hint, "ANTHROPIC_AUTH_TOKEN") {
+		t.Fatalf("hint = %q, want Anthropic env auth alternatives", hint)
+	}
 }
 
 func TestDetectAuthStatusClaudeParsesStatusOutputOnNonZeroExit(t *testing.T) {
@@ -138,6 +144,9 @@ func TestDetectAuthStatusClaudeParsesStatusOutputOnNonZeroExit(t *testing.T) {
 	}
 	if !strings.Contains(hint, "claude /login") {
 		t.Fatalf("hint = %q, want claude /login guidance", hint)
+	}
+	if !strings.Contains(hint, "ANTHROPIC_API_KEY") || !strings.Contains(hint, "ANTHROPIC_AUTH_TOKEN") {
+		t.Fatalf("hint = %q, want Anthropic env auth alternatives", hint)
 	}
 }
 

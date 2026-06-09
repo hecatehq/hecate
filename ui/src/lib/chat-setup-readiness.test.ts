@@ -157,6 +157,36 @@ describe("resolveChatSetupRepairState", () => {
     expect(repair?.message).toContain("cursor-agent login");
   });
 
+  it("uses shared readiness sign-in copy for external-agent setup repairs", () => {
+    const repair = resolveChatSetupRepairState({
+      ...base,
+      target: "external_agent",
+      selectedAgentID: "claude_code",
+      selectedAgentName: "Claude Code",
+      externalAgentSetupRequired: true,
+      selectedAgentReadiness: {
+        kind: "sign_in",
+        tone: "amber",
+        label: "sign in",
+        needsRepair: true,
+        loginCommand: "claude /login",
+        setupHint: "Install Claude Code and ensure claude is on PATH.",
+        signInHint:
+          "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment.",
+        detail: "Run `claude /login` in Terminal.",
+        verifiedByProbe: false,
+      },
+    });
+
+    expect(repair).toMatchObject({
+      kind: "external_agent_setup",
+      title: "Set up Claude Code",
+      message:
+        "Run claude /login in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment.",
+      action: "open_agent_setup",
+    });
+  });
+
   it("uses Grok Build setup copy that mentions sign-in and model selection", () => {
     const repair = resolveChatSetupRepairState({
       ...base,

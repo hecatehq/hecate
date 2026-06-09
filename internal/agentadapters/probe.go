@@ -203,7 +203,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 		res.Stderr = strings.TrimSpace(stderr.String())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
 		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
-			res.Hint = "Claude Code isn't signed in. Run `claude /login` in Terminal, then test Claude Code again from Connections."
+			res.Hint = adapterSignInHint(adapter)
 		}
 		res.Error = err.Error()
 		res.DurationMS = elapsedMS(start)
@@ -221,7 +221,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 		res.Stderr = strings.TrimSpace(stderr.String())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
 		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
-			res.Hint = "Claude Code isn't signed in. Run `claude /login` in Terminal, then test Claude Code again from Connections."
+			res.Hint = adapterSignInHint(adapter)
 		}
 		res.Error = err.Error()
 		res.DurationMS = elapsedMS(start)

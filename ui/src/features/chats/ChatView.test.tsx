@@ -3568,7 +3568,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
 
     expect(screen.getByText("Set up Claude Code")).toBeTruthy();
-    expect(screen.getByText(/local CLI sign-in/)).toBeTruthy();
+    expect(screen.getByText(/ANTHROPIC_API_KEY/)).toBeTruthy();
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Open setup" }));
@@ -3612,7 +3612,7 @@ describe("ChatView external-agent target", () => {
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("Set up Claude Code")).toBeTruthy();
-    expect(screen.getByText(/local CLI sign-in/)).toBeTruthy();
+    expect(screen.getByText(/ANTHROPIC_API_KEY/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 

@@ -28,12 +28,12 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 		if ok, checked := detectClaudeCLIAuthStatus(); ok {
 			return AuthStatusOK, ""
 		} else if checked {
-			return AuthStatusUnauthenticated, "Run `claude /login` in Terminal, then test Claude Code again. Hecate uses Claude Code's local auth; it does not store Claude tokens."
+			return AuthStatusUnauthenticated, adapterSignInHint(adapter)
 		}
 		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
 			return AuthStatusUnknown, "Claude Code config is present on disk. Hecate has not verified CLI auth yet. Open Connections and test Claude Code."
 		}
-		return AuthStatusUnknown, "Open Connections and test Claude Code. If it reports a sign-in error, run `claude /login` in Terminal."
+		return AuthStatusUnknown, "Open Connections and test Claude Code. If it reports a sign-in error, run `claude /login` in Terminal or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment."
 	case "cursor_agent":
 		if envAny("CURSOR_API_KEY") || fileAny("${HOME}/.cursor", "${HOME}/Library/Application Support/Cursor") {
 			return AuthStatusOK, ""
@@ -54,7 +54,7 @@ func adapterSignInHint(adapter Adapter) string {
 	case "codex":
 		return "Run codex login, or set OPENAI_API_KEY for the adapter environment."
 	case "claude_code":
-		return "Run `claude /login` in Terminal, then test Claude Code again. Hecate uses Claude Code's local auth; it does not store Claude tokens."
+		return "Run `claude /login` in Terminal, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment."
 	case "cursor_agent":
 		return "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment."
 	case "grok_build":
@@ -87,7 +87,7 @@ func adapterAppMissingHint(adapter Adapter) string {
 // trailing marker from visible copy; ChatView uses it to decide whether to show
 // the button.
 func claudeCodeAuthErrorMessage() string {
-	return "Claude Code isn't signed in. This is separate from the Anthropic key in the Providers tab — Claude Code runs as its own program and uses the operator's local Claude CLI auth. Run `claude /login`, then test Claude Code in Connections. (claude_code_auth_required)"
+	return "Claude Code isn't signed in. This is separate from the Anthropic key in the Providers tab — Claude Code runs as its own program and uses the operator's local Claude auth. Run `claude /login`, or set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN for the adapter environment, then test Claude Code in Connections. (claude_code_auth_required)"
 }
 
 var runClaudeAuthStatus = defaultRunClaudeAuthStatus

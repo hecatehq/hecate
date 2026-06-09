@@ -1,4 +1,5 @@
 import type { SelectedModelIssue } from "./provider-issues";
+import type { ExternalAgentReadiness } from "./external-agent-readiness";
 import type { ModelRecord } from "../types/model";
 import type { ProviderFilter } from "../types/provider";
 
@@ -40,6 +41,7 @@ export function resolveChatSetupRepairState({
   selectedAgentAvailable,
   anyAgentAvailable,
   externalAgentSetupRequired,
+  selectedAgentReadiness,
 }: {
   target: ChatSetupTarget;
   hasConfiguredProviders: boolean;
@@ -52,6 +54,7 @@ export function resolveChatSetupRepairState({
   selectedAgentAvailable: boolean;
   anyAgentAvailable: boolean;
   externalAgentSetupRequired: boolean;
+  selectedAgentReadiness?: ExternalAgentReadiness;
 }): ChatSetupRepairState | null {
   if (target === "external_agent") {
     if (!anyAgentAvailable || !selectedAgentAvailable) {
@@ -71,8 +74,8 @@ export function resolveChatSetupRepairState({
       const agent = selectedAgentName || "Selected agent";
       return {
         kind: "external_agent_setup",
-        title: `Set up ${agent}`,
-        message: externalAgentSetupMessage(selectedAgentID, agent),
+        title: externalAgentSetupTitle(agent, selectedAgentReadiness),
+        message: externalAgentSetupMessage(selectedAgentID, agent, selectedAgentReadiness),
         action: "open_agent_setup",
         actionLabel: "Open setup",
         tone: "amber",
@@ -124,7 +127,40 @@ export function resolveChatSetupRepairState({
   return null;
 }
 
-function externalAgentSetupMessage(agentID: string | undefined, agent: string): string {
+function externalAgentSetupTitle(agent: string, readiness?: ExternalAgentReadiness): string {
+  switch (readiness?.kind) {
+    case "billing":
+      return `Check ${agent} billing`;
+    case "issue":
+      return `Check ${agent}`;
+    default:
+      return `Set up ${agent}`;
+  }
+}
+
+function externalAgentSetupMessage(
+  agentID: string | undefined,
+  agent: string,
+  readiness?: ExternalAgentReadiness,
+): string {
+  if (readiness) {
+    switch (readiness.kind) {
+      case "sign_in":
+        return readiness.signInHint || readiness.detail || `${agent} needs local CLI sign-in.`;
+      case "setup":
+        return readiness.detail || readiness.setupHint;
+      case "billing":
+        return (
+          readiness.detail ||
+          `Check ${agent}'s billing or subscription, then test the adapter again in Connections.`
+        );
+      case "issue":
+        return readiness.detail || `Open Connections and test ${agent} again.`;
+      default:
+        break;
+    }
+  }
+
   switch (agentID) {
     case "cursor_agent":
       return "Cursor Agent needs the local CLI installed, available on PATH, and signed in with cursor-agent login before Hecate can start a session.";
