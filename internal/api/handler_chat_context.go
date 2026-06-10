@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -550,8 +551,8 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 			InclusionReason: "Selected as the project assignment workspace",
 		})
 	}
-	appendProjectMemoryWithInclusion(&packet, h.enabledProjectMemoryEntries(ctx, project.ID), false, "Stored project memory is not injected into project assignment launch context v1")
-	appendProjectContextSourcesWithInclusion(&packet, projectContextSourcesFromProject(project), false, "Stored project sources are not injected into project assignment launch context v1")
+	appendProjectMemoryForProfilePolicy(&packet, h.enabledProjectMemoryEntries(ctx, project.ID), profile)
+	appendProjectContextSourcesForProfilePolicy(&packet, projectContextSourcesFromProject(project), profile)
 	appendProjectAssignmentHandoffs(&packet, h.assignmentRelevantHandoffs(ctx, assignment, role.ID), false, "Handoff references are inspectable metadata only in project assignment launch context v1")
 	appendProjectAssignmentArtifacts(&packet, h.assignmentRelevantArtifacts(ctx, assignment), false, "Artifact references are inspectable metadata only in project assignment launch context v1")
 	return packet
@@ -659,6 +660,18 @@ func appendProjectMemory(packet *chat.ContextPacket, entries []memory.Entry) {
 	appendProjectMemoryWithInclusion(packet, entries, true, "Enabled project memory entry")
 }
 
+func appendProjectMemoryForProfilePolicy(packet *chat.ContextPacket, entries []memory.Entry, profile resolvedAgentProfile) {
+	policy := effectiveProjectMemoryPolicy(profile.ProjectMemoryPolicy)
+	switch policy {
+	case agentprofiles.MemoryExclude:
+		return
+	case agentprofiles.MemoryInclude:
+		appendProjectMemoryWithInclusion(packet, entries, true, "Activated by agent profile project_memory_policy=include")
+	default:
+		appendProjectMemoryWithInclusion(packet, entries, false, "Visible only by agent profile project_memory_policy="+firstNonEmptyString(strings.TrimSpace(profile.ProjectMemoryPolicy), agentprofiles.MemoryInherit))
+	}
+}
+
 func appendProjectMemoryWithInclusion(packet *chat.ContextPacket, entries []memory.Entry, included bool, reason string) {
 	for _, entry := range entries {
 		trust := strings.TrimSpace(entry.TrustLabel)
@@ -690,6 +703,18 @@ func appendProjectContextSources(packet *chat.ContextPacket, sources []chat.Cont
 	appendProjectContextSourcesWithInclusion(packet, sources, true, "Enabled project context source metadata")
 }
 
+func appendProjectContextSourcesForProfilePolicy(packet *chat.ContextPacket, sources []chat.ContextSource, profile resolvedAgentProfile) {
+	policy := effectiveContextSourcePolicy(profile.ContextSourcePolicy)
+	switch policy {
+	case agentprofiles.ContextExclude:
+		return
+	case agentprofiles.ContextIncludeEnabled:
+		appendProjectContextSourcesWithInclusion(packet, sources, true, "Activated by agent profile context_source_policy=include_enabled; source bodies are not loaded")
+	default:
+		appendProjectContextSourcesWithInclusion(packet, sources, false, "Visible only by agent profile context_source_policy="+firstNonEmptyString(strings.TrimSpace(profile.ContextSourcePolicy), agentprofiles.ContextInherit))
+	}
+}
+
 func appendProjectContextSourcesWithInclusion(packet *chat.ContextPacket, sources []chat.ContextSource, included bool, reason string) {
 	for _, source := range sources {
 		item := chat.ContextItem{
@@ -702,6 +727,32 @@ func appendProjectContextSourcesWithInclusion(packet *chat.ContextPacket, source
 			InclusionReason: reason,
 		}
 		appendContextPacketSourceWithSection(packet, contextSectionSources, source, item)
+	}
+}
+
+func effectiveProjectMemoryPolicy(policy string) string {
+	switch strings.TrimSpace(policy) {
+	case agentprofiles.MemoryInclude:
+		return agentprofiles.MemoryInclude
+	case agentprofiles.MemoryExclude:
+		return agentprofiles.MemoryExclude
+	case agentprofiles.MemoryVisibleOnly:
+		return agentprofiles.MemoryVisibleOnly
+	default:
+		return agentprofiles.MemoryVisibleOnly
+	}
+}
+
+func effectiveContextSourcePolicy(policy string) string {
+	switch strings.TrimSpace(policy) {
+	case agentprofiles.ContextIncludeEnabled:
+		return agentprofiles.ContextIncludeEnabled
+	case agentprofiles.ContextExclude:
+		return agentprofiles.ContextExclude
+	case agentprofiles.ContextVisibleOnly:
+		return agentprofiles.ContextVisibleOnly
+	default:
+		return agentprofiles.ContextVisibleOnly
 	}
 }
 

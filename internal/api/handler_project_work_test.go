@@ -676,6 +676,133 @@ func TestProjectWorkAPI_StartAssignmentPersistsInspectableContextPacket(t *testi
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentAppliesProfileContextPolicies(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name             string
+		memoryPolicy     string
+		sourcePolicy     string
+		wantMemoryItem   bool
+		wantMemoryActive bool
+		wantSourceItem   bool
+		wantSourceActive bool
+		wantMemoryReason string
+		wantSourceReason string
+	}{
+		{
+			name:             "include",
+			memoryPolicy:     agentprofiles.MemoryInclude,
+			sourcePolicy:     agentprofiles.ContextIncludeEnabled,
+			wantMemoryItem:   true,
+			wantMemoryActive: true,
+			wantSourceItem:   true,
+			wantSourceActive: true,
+			wantMemoryReason: "project_memory_policy=include",
+			wantSourceReason: "context_source_policy=include_enabled",
+		},
+		{
+			name:             "visible only",
+			memoryPolicy:     agentprofiles.MemoryVisibleOnly,
+			sourcePolicy:     agentprofiles.ContextVisibleOnly,
+			wantMemoryItem:   true,
+			wantMemoryActive: false,
+			wantSourceItem:   true,
+			wantSourceActive: false,
+			wantMemoryReason: "project_memory_policy=visible_only",
+			wantSourceReason: "context_source_policy=visible_only",
+		},
+		{
+			name:             "inherit keeps visible only default",
+			memoryPolicy:     agentprofiles.MemoryInherit,
+			sourcePolicy:     agentprofiles.ContextInherit,
+			wantMemoryItem:   true,
+			wantSourceItem:   true,
+			wantMemoryReason: "project_memory_policy=inherit",
+			wantSourceReason: "context_source_policy=inherit",
+		},
+		{
+			name:         "exclude",
+			memoryPolicy: agentprofiles.MemoryExclude,
+			sourcePolicy: agentprofiles.ContextExclude,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			handler, server := newProjectWorkTestServer()
+			handler.SetMemoryStore(memory.NewMemoryStore())
+			workspace := t.TempDir()
+			seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+				Workspace: workspace,
+				Driver:    projectwork.AssignmentDriverHecateTask,
+			})
+			if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+				ID:                  "implementation",
+				Name:                "Implementation",
+				Surface:             agentprofiles.SurfaceHecateTask,
+				ExecutionProfile:    "implementation",
+				ToolsEnabled:        true,
+				WritesAllowed:       true,
+				ProjectMemoryPolicy: tc.memoryPolicy,
+				ContextSourcePolicy: tc.sourcePolicy,
+			}); err != nil {
+				t.Fatalf("Create profile: %v", err)
+			}
+			if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+				project.ContextSources = []projects.ContextSource{{
+					ID:         "ctx_agents",
+					Kind:       "workspace_instruction",
+					Title:      "AGENTS.md",
+					Path:       "AGENTS.md",
+					Enabled:    true,
+					TrustLabel: "workspace_guidance",
+				}}
+			}); err != nil {
+				t.Fatalf("Update project context sources: %v", err)
+			}
+			if _, err := handler.memory.Create(t.Context(), memory.Entry{
+				ID:         "mem_runtime",
+				ProjectID:  "proj_start",
+				Title:      "Runtime preference",
+				Body:       "Keep context policy changes explicit.",
+				TrustLabel: memory.TrustLabelOperatorMemory,
+				SourceKind: memory.SourceKindOperator,
+				Enabled:    true,
+			}); err != nil {
+				t.Fatalf("Create project memory: %v", err)
+			}
+
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+			}
+			var assignment ProjectWorkAssignmentEnvelope
+			if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+				t.Fatalf("decode assignment: %v", err)
+			}
+			packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+
+			memoryItem := findRenderedContextItemByOrigin(packetResp.Data, "mem_runtime")
+			if tc.wantMemoryItem {
+				if memoryItem == nil || memoryItem.Included != tc.wantMemoryActive || memoryItem.Section != contextSectionMemory || !strings.Contains(memoryItem.InclusionReason, tc.wantMemoryReason) {
+					t.Fatalf("memory item = %+v, want present included=%v reason containing %q", memoryItem, tc.wantMemoryActive, tc.wantMemoryReason)
+				}
+			} else if memoryItem != nil {
+				t.Fatalf("memory item = %+v, want omitted by profile policy", memoryItem)
+			}
+
+			sourceItem := findRenderedContextItemByOrigin(packetResp.Data, "AGENTS.md")
+			if tc.wantSourceItem {
+				if sourceItem == nil || sourceItem.Included != tc.wantSourceActive || sourceItem.Section != contextSectionSources || !strings.Contains(sourceItem.InclusionReason, tc.wantSourceReason) {
+					t.Fatalf("source item = %+v, want present included=%v reason containing %q", sourceItem, tc.wantSourceActive, tc.wantSourceReason)
+				}
+			} else if sourceItem != nil {
+				t.Fatalf("source item = %+v, want omitted by profile policy", sourceItem)
+			}
+		})
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()

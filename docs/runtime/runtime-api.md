@@ -1093,7 +1093,14 @@ Project assignment starts resolve profiles in this order: role default,
 project default, built-in `project_assignment` fallback. The start path
 snapshots the resolved profile, provider/model hints, execution profile,
 memory policy, context-source policy, skill ids, and warnings into the task/run
-context packet.
+context packet. For project assignments, `project_memory_policy=include` marks
+enabled project memory active in the context packet, `visible_only` and
+`inherit` keep enabled memory as inspect-only context, and `exclude` omits
+memory records from the packet. For context sources,
+`context_source_policy=include_enabled` marks enabled source metadata active,
+`visible_only` and `inherit` keep it inspect-only, and `exclude` omits it.
+Hecate still does not load workspace instruction/source file bodies or
+`SKILL.md` bodies through these policies.
 
 ## Project endpoints
 
@@ -2031,6 +2038,13 @@ success it also persists a structured context packet on the created run, updates
 `context_snapshot_id` to that packet id, then updates the assignment with
 `task_id`, latest `run_id`, status, and timestamps before returning the updated
 assignment:
+
+The persisted context packet records the resolved profile and applies its
+project memory/context-source policies. `include` / `include_enabled` make the
+enabled project records active in the packet, `visible_only` / `inherit` keep
+them inspect-only, and `exclude` omits them so memory bodies are not snapshotted.
+Source-content loading remains explicit future work; source records are still
+metadata and `BodyRef` values, not file bodies.
 
 ```json
 {
