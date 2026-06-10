@@ -287,6 +287,12 @@ func (h *Handler) HandleDeleteProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if h.projectSkills != nil {
+		if _, err := h.projectSkills.DeleteProject(r.Context(), id); err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+	}
 	if h.memory != nil {
 		if _, err := h.memory.DeleteByProjectID(r.Context(), id); err != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())

@@ -9,6 +9,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
@@ -27,6 +28,7 @@ type DraftContext struct {
 	Request          string                   `json:"request"`
 	SelectedWork     *WorkItemContext         `json:"selected_work,omitempty"`
 	Roles            []RoleContext            `json:"roles"`
+	Skills           []ProjectSkillContext    `json:"skills,omitempty"`
 	Assignments      []AssignmentContext      `json:"assignments,omitempty"`
 	Memory           []MemoryContext          `json:"memory,omitempty"`
 	MemoryCandidates []MemoryCandidateContext `json:"memory_candidates,omitempty"`
@@ -103,9 +105,27 @@ type RoleContext struct {
 	DefaultProvider     string    `json:"default_provider,omitempty"`
 	DefaultModel        string    `json:"default_model,omitempty"`
 	DefaultAgentProfile string    `json:"default_agent_profile,omitempty"`
+	SkillIDs            []string  `json:"skill_ids,omitempty"`
 	BuiltIn             bool      `json:"built_in"`
 	CreatedAt           time.Time `json:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+type ProjectSkillContext struct {
+	ID                     string    `json:"id"`
+	Title                  string    `json:"title"`
+	Description            string    `json:"description,omitempty"`
+	Path                   string    `json:"path"`
+	RootID                 string    `json:"root_id,omitempty"`
+	Format                 string    `json:"format"`
+	Enabled                bool      `json:"enabled"`
+	Status                 string    `json:"status"`
+	TrustLabel             string    `json:"trust_label"`
+	SourceContextSourceIDs []string  `json:"source_context_source_ids,omitempty"`
+	Warnings               []string  `json:"warnings,omitempty"`
+	DiscoveredAt           time.Time `json:"discovered_at"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 type AssignmentContext struct {
@@ -212,6 +232,10 @@ func (s *Service) Context(ctx context.Context, input ContextInput) (DraftContext
 	if err != nil {
 		return DraftContext{}, err
 	}
+	skills, err := s.contextProjectSkills(ctx, project.ID)
+	if err != nil {
+		return DraftContext{}, err
+	}
 	memoryItems, err := s.contextMemory(ctx, project.ID)
 	if err != nil {
 		return DraftContext{}, err
@@ -225,6 +249,7 @@ func (s *Service) Context(ctx context.Context, input ContextInput) (DraftContext
 		Request:          strings.TrimSpace(input.Request),
 		SelectedWork:     workItemContextPtr(workItem),
 		Roles:            roleContexts(roles),
+		Skills:           skills,
 		Assignments:      assignments,
 		Memory:           memoryItems,
 		MemoryCandidates: candidates,
@@ -247,6 +272,21 @@ func (s *Service) contextWorkItem(ctx context.Context, projectID, workItemID str
 		return nil, fmt.Errorf("%w: project work item %q", ErrNotFound, workItemID)
 	}
 	return &item, nil
+}
+
+func (s *Service) contextProjectSkills(ctx context.Context, projectID string) ([]ProjectSkillContext, error) {
+	if s.projectSkills == nil {
+		return nil, nil
+	}
+	items, err := s.projectSkills.List(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ProjectSkillContext, 0, len(items))
+	for _, item := range items {
+		out = append(out, projectSkillContext(item))
+	}
+	return out, nil
 }
 
 func (s *Service) contextAssignments(ctx context.Context, projectID string) ([]AssignmentContext, error) {
@@ -477,12 +517,32 @@ func roleContexts(items []projectwork.AgentRoleProfile) []RoleContext {
 			DefaultProvider:     item.DefaultProvider,
 			DefaultModel:        item.DefaultModel,
 			DefaultAgentProfile: item.DefaultAgentProfile,
+			SkillIDs:            append([]string(nil), item.SkillIDs...),
 			BuiltIn:             item.BuiltIn,
 			CreatedAt:           item.CreatedAt,
 			UpdatedAt:           item.UpdatedAt,
 		})
 	}
 	return out
+}
+
+func projectSkillContext(item projectskills.Skill) ProjectSkillContext {
+	return ProjectSkillContext{
+		ID:                     item.ID,
+		Title:                  item.Title,
+		Description:            item.Description,
+		Path:                   item.Path,
+		RootID:                 item.RootID,
+		Format:                 item.Format,
+		Enabled:                item.Enabled,
+		Status:                 item.Status,
+		TrustLabel:             item.TrustLabel,
+		SourceContextSourceIDs: append([]string(nil), item.SourceContextSourceIDs...),
+		Warnings:               append([]string(nil), item.Warnings...),
+		DiscoveredAt:           item.DiscoveredAt,
+		CreatedAt:              item.CreatedAt,
+		UpdatedAt:              item.UpdatedAt,
+	}
 }
 
 func assignmentContext(item projectwork.Assignment) AssignmentContext {

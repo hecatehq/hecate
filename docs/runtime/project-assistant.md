@@ -23,7 +23,7 @@ resolves to the selected work item's owner role, then the first loaded project
 role. `Auto` for `Via` resolves to the selected role's default driver, then
 `hecate_task`. Operators can also choose model-backed drafting when the project
 has a default model, or deterministic Bootstrap drafting to turn discovered
-guidance metadata and project-local skill files into reviewable setup proposals.
+guidance metadata and registered project skills into reviewable setup proposals.
 In model mode the model may author only typed proposal actions from the same
 context packet, and the server still validates those actions before the operator
 can apply them. Bootstrap mode does not call a model and does not start work.
@@ -83,11 +83,11 @@ permission model.
   metadata, using `suggested_source_kind: "context_source"` and source refs back
   to the discovered source. Those candidates record provenance only; operators
   must review and edit/promote them before they become durable memory.
-- Bootstrap drafts may suggest project roles from local
-  `.agents/skills/*/SKILL.md` or `.hecate/skills/*/SKILL.md` files, plus local
-  skill roots explicitly referenced from discovered `AGENTS.md` or `CLAUDE.md`
-  guidance. Applying the proposal creates role records only; it does not install
-  skills, run scripts, grant tools, or change approval policy.
+- Bootstrap drafts may suggest project roles from enabled, available records in
+  the project skills registry. Applying the proposal creates role records with
+  `skill_ids` references only; it does not read or inject `SKILL.md` bodies,
+  install skills, run scripts, grant tools, or change approval policy. Disabled,
+  missing, invalid, or conflicting skills are skipped with warnings.
 - Assignment proposals create unstarted queued assignments. They cannot attach
   execution evidence or links such as `task_id`, `run_id`, `chat_session_id`,
   `message_id`, or `context_snapshot_id`; linking existing execution later
@@ -127,8 +127,9 @@ draft a proposal.
 The v0 context packet is item-limited and body-budgeted. It includes project
 defaults, roots, context-source metadata, the selected work item when present,
 loaded project roles, recent assignments, accepted project memory, pending
-memory candidates, recent activity, and a `selection` block explaining the chosen
-role and driver. Memory
+memory candidates, registered project skill metadata, recent activity, and a
+`selection` block explaining the chosen role and driver. Skill bodies are not
+included. Memory
 and candidate `body` fields are truncated at per-body byte limits and carry
 `body_original_bytes`, `body_returned_bytes`, `body_tokens_estimate`, and
 `body_truncated` metadata. The top-level `budget` block summarizes the active
@@ -213,14 +214,15 @@ the first loaded project role, and the selected role's default driver, then
 
 `draft_mode: "bootstrap"` creates a deterministic project setup proposal. It
 uses enabled `workspace_guidance` context-source metadata to propose memory
-candidates with source provenance, and scans active absolute project roots for
-local skill folders at `.agents/skills`, `.hecate/skills`, and any local skill
-roots explicitly linked from discovered `AGENTS.md` or `CLAUDE.md` files. It
-deduplicates against existing role ids and existing memory/candidate source refs.
-It may read those guidance files through the workspace filesystem with a byte cap
-to find skill paths, but it does not treat host-specific guidance as Hecate
-policy authority, call a model, create durable memory, start tasks, or launch
-agents.
+candidates with source provenance, and uses enabled, available project skills
+from `/hecate/v1/projects/{id}/skills`. The skill registry is refreshed through
+`POST /hecate/v1/projects/{id}/skills/discover`, which reads bounded local
+metadata from `.agents/skills`, `.hecate/skills`, and enabled `AGENTS.md` /
+`CLAUDE.md` context-source references. Bootstrap itself does not perform a
+second filesystem scan. It deduplicates against existing role ids and existing
+memory/candidate source refs. It does not treat host-specific guidance as
+Hecate policy authority, call a model, create durable memory, start tasks, or
+launch agents.
 
 `draft_mode: "model"` asks the configured gateway model to author the proposal
 from the same context packet. The request may provide `model` and `provider`;
@@ -462,8 +464,8 @@ The Projects cockpit exposes this contract at the top of the project workspace.
 V0 uses a composer-style request box that drafts typed proposals from the
 selected project/work item. The `Rules` draft option uses deterministic server
 logic; `Bootstrap` proposes project setup records from guidance and skill
-metadata; the `Assistant` draft option asks the project default model to author
-the same typed proposal shape. Later Hecate Chat can call the same proposal API,
+registry metadata; the `Assistant` draft option asks the project default model
+to author the same typed proposal shape. Later Hecate Chat can call the same proposal API,
 but durable mutations should still stop at the same explicit review/apply card.
 Applying a proposal always calls `/project-assistant/apply` with `confirm: true`
 after the operator reviews the action rows. A successful apply refreshes the

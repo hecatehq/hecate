@@ -25,6 +25,7 @@ import (
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/projectassistant"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/ratelimit"
 	"github.com/hecatehq/hecate/internal/sandbox"
@@ -49,6 +50,7 @@ type Handler struct {
 	memory                   memory.Store
 	memoryCandidates         memory.CandidateStore
 	projectWork              projectwork.Store
+	projectSkills            projectskills.Store
 	projectAssistantMu       sync.Mutex
 	projectAssistant         *projectassistant.Service
 	agentProfiles            agentprofiles.Store
@@ -322,6 +324,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		memory:              memoryStore,
 		memoryCandidates:    memoryStore,
 		projectWork:         projectwork.NewMemoryStore(),
+		projectSkills:       projectskills.NewMemoryStore(),
 		agentProfiles:       agentprofiles.NewMemoryStore(),
 		agentChatRunner:     agentChatRunner,
 		agentChatLive:       agentChatLive,
@@ -421,6 +424,16 @@ func (h *Handler) SetProjectWorkStore(store projectwork.Store) {
 		return
 	}
 	h.projectWork = store
+	h.projectAssistantMu.Lock()
+	h.projectAssistant = nil
+	h.projectAssistantMu.Unlock()
+}
+
+func (h *Handler) SetProjectSkillStore(store projectskills.Store) {
+	if store == nil {
+		return
+	}
+	h.projectSkills = store
 	h.projectAssistantMu.Lock()
 	h.projectAssistant = nil
 	h.projectAssistantMu.Unlock()

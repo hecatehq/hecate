@@ -1,14 +1,15 @@
 # Workspace Instructions, Skills, And Profiles
 
-> **Status:** proposal; Agent Profiles V1 core and workspace-guidance discovery
-> are partially implemented.
+> **Status:** proposal; Agent Profiles V1 core, workspace-guidance discovery,
+> project skills registry core/UI, role skill ids, assignment skill resolution,
+> and Bootstrap V2 registry-based role suggestions are implemented.
 > **Current source of truth:** [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md),
 > [Agent memory](agent-memory.md), [Projects](../accepted/projects.md), and
 > [Runtime API](../../runtime/runtime-api.md) for today's context-packet,
 > memory, project, and task behavior.
-> **Next action:** add profile-management UI and profile skill/source
-> resolution. Local skill registry support and source-content injection remain
-> separate later slices.
+> **Next action:** add profile-management UI polish, skill pickers, compatibility
+> warnings, and explicit source-content injection policy. Remote skill install
+> and skill execution remain separate later slices.
 
 Hecate needs a clean vocabulary for several things that are easy to blur:
 workspace `AGENTS.md` files, other Markdown instruction files, reusable
@@ -205,10 +206,12 @@ emerging `SKILL.md` folder shape:
   assets/
 ```
 
-Hecate V1 should support built-in skills plus project-local skills:
+Hecate V1 supports persisted project-local skill metadata:
 
 ```text
-.hecate/skills/<skill-id>/SKILL.md
+.agents/skills/<skill-id>/SKILL.md       # cross-agent compatibility source
+.hecate/skills/<skill-id>/SKILL.md       # Hecate-native/project-local source
+AGENTS.md / CLAUDE.md linked local roots # explicit project guidance references
 ```
 
 Better alignment target:
@@ -222,11 +225,11 @@ Better alignment target:
 ~/.claude/skills/<skill-id>/SKILL.md     # future user-global import candidate
 ```
 
-V1 should enable `.hecate/skills` first. `.agents/skills` is the most plausible
-future cross-agent compatibility path because it is not named after a single
-host. Compatibility scanning for `.claude/skills`, `.opencode/skills`, or
-global skill directories should be explicit opt-in, because those skills can
-carry host-specific assumptions or permission fields.
+V1 scans `.agents/skills`, `.hecate/skills`, and local skill roots explicitly
+linked from enabled `AGENTS.md` / `CLAUDE.md` context sources. Compatibility
+scanning for `.claude/skills`, `.opencode/skills`, or global skill directories
+should remain explicit opt-in, because those skills can carry host-specific
+assumptions or permission fields.
 
 Common frontmatter:
 
@@ -270,6 +273,21 @@ Skills may declare suggested tools or required capabilities. Hecate can warn
 when a profile does not satisfy them. Skills must not grant tool access,
 silently approve actions, bypass workspace validation, execute scripts, or write
 memory. Profile/policy/approval layers own authority.
+
+Implemented registry behavior:
+
+- `GET /hecate/v1/projects/{id}/skills` lists persisted project skill metadata.
+- `POST /hecate/v1/projects/{id}/skills/discover` refreshes metadata from
+  active project roots and enabled guidance-linked local skill roots.
+- `PATCH /hecate/v1/projects/{id}/skills/{skill_id}` updates operator-owned
+  metadata: `enabled`, `title`, `description`, and `trust_label`.
+- Discovery parses bounded metadata only: frontmatter `name`/`title` and
+  `description`, then H1/title fallback and directory id.
+- Hecate does not return, store, inject, execute, install, or fetch skill
+  bodies.
+- Duplicate ids become `conflict` records with warnings. Missing rediscovered
+  skills become `missing`.
+- Operator edits are preserved across rediscovery.
 
 V1 non-goals:
 
@@ -369,7 +387,8 @@ Recommended sequence:
    - Profile store with memory/SQLite parity.
    - CRUD/list API.
    - Resolution helper with explicit/role/project/fallback order.
-   - `skill_ids` as unresolved references or best-effort metadata.
+   - `skill_ids` resolve against the project skills registry during project
+     work starts.
    - Context packet fields for resolved profile metadata.
 
 2. **Workspace Instructions V1 Core** — partially implemented.
@@ -385,21 +404,27 @@ Recommended sequence:
      injected" when Hecate does not own the adapter prompt.
 
 3. **Skills Registry V1 Core**
-   - Built-in skill registry.
-   - Project-local `.hecate/skills/*/SKILL.md` discovery.
-   - Current Bootstrap drafting can suggest project roles from local
-     `.agents/skills`, `.hecate/skills`, and local skill roots explicitly linked
-     from discovered `AGENTS.md` or `CLAUDE.md` guidance without installing,
-     interpreting, or executing skills.
-   - Frontmatter validation.
-   - List/get API.
+   - Implemented: project-scoped memory/SQLite store parity.
+   - Implemented: project-local `.agents/skills` and `.hecate/skills`
+     discovery.
+   - Implemented: local skill roots explicitly linked from enabled `AGENTS.md`
+     or `CLAUDE.md` guidance.
+   - Implemented: safe metadata parsing, conflict/missing/invalid statuses, and
+     operator override preservation.
+   - Implemented: list/discover/patch API and Project Skills UI.
+   - Implemented: Bootstrap V2 suggests roles from enabled available registry
+     records without installing, interpreting, or executing skills.
+   - Future: built-in/global skill registry.
    - Trust/source labels.
    - No script execution or remote install.
 
 4. **Profile Skill Resolution**
-   - Resolve `skill_ids` to active skill metadata.
-   - Add active/skipped skills to context packets.
-   - Warn on missing, disabled, incompatible, or permission-conflicting skills.
+   - Implemented: project roles have `skill_ids`.
+   - Implemented: profile and role `skill_ids` resolve against project skills at
+     assignment start.
+   - Implemented: active/skipped skill metadata and warnings are snapshotted
+     into context packets without bodies.
+   - Future: profile editor skill picker and permission-compatibility warnings.
 
 5. **UI**
    - Profile editor.

@@ -23,7 +23,9 @@ assembly rather than hidden prompt glue or provider-specific shortcuts.
 The Projects surface is the operator cockpit for coordinating project-scoped
 teams of agents: project roles describe who should do the work, assignments and
 handoffs record collaboration state, Tasks and Chats remain the execution
-surfaces, and project memory/context carries reviewed knowledge forward.
+surfaces, project memory/context carries reviewed knowledge forward, and the
+project skills registry exposes local `SKILL.md` metadata for roles/profiles
+without granting tools, injecting bodies, or executing skill scripts.
 Model-backed assistant turns should carry a small context-inspector packet:
 execution mode, route/workspace metadata, source provenance, and visible
 transcript counts. Do not store full prompt bodies, raw transcript text, file

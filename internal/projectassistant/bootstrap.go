@@ -3,26 +3,17 @@ package projectassistant
 import (
 	"context"
 	"fmt"
-	"path"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/memory"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
-	"github.com/hecatehq/hecate/internal/workspacefs"
 )
 
 const (
 	bootstrapGuidanceActionLimit = 8
 	bootstrapSkillActionLimit    = 8
-	bootstrapGuidanceMaxBytes    = 64 * 1024
 )
-
-type bootstrapSkillSource struct {
-	ID   string
-	Path string
-}
 
 func (s *Service) draftBootstrap(ctx context.Context, input DraftInput, draftContext DraftContext) (Proposal, error) {
 	projectID := draftContext.Project.ID
@@ -156,11 +147,30 @@ func memorySourceRefKey(kind, id string) string {
 
 func bootstrapSkillRoleActions(projectID string, draftContext DraftContext) ([]Action, []string) {
 	existingRoles := existingRoleIDs(draftContext.Roles)
-	skills, warnings := discoverBootstrapSkills(draftContext.Project, existingRoles)
 	var actions []Action
-	for _, skill := range skills {
+	var warnings []string
+	if len(draftContext.Skills) == 0 {
+		warnings = append(warnings, "No project skills are registered yet; run project skill discovery before Bootstrap can suggest skill roles.")
+		return actions, warnings
+	}
+	for _, skill := range draftContext.Skills {
+		skillID := strings.TrimSpace(skill.ID)
+		if skillID == "" {
+			continue
+		}
+		roleID := "skill_" + skillID
+		switch {
+		case !skill.Enabled:
+			warnings = append(warnings, fmt.Sprintf("Skipped disabled project skill %s.", skillID))
+			continue
+		case skill.Status != projectskills.StatusAvailable:
+			warnings = append(warnings, fmt.Sprintf("Skipped project skill %s because status is %s.", skillID, firstNonEmpty(skill.Status, "unknown")))
+			continue
+		case existingRoles[skillID] || existingRoles[roleID]:
+			continue
+		}
 		if len(actions) >= bootstrapSkillActionLimit {
-			warnings = append(warnings, fmt.Sprintf("Skipped additional local skills after %d bootstrap role suggestions.", bootstrapSkillActionLimit))
+			warnings = append(warnings, fmt.Sprintf("Skipped additional project skills after %d bootstrap role suggestions.", bootstrapSkillActionLimit))
 			break
 		}
 		actions = append(actions, bootstrapSkillRoleAction(projectID, skill))
@@ -168,9 +178,9 @@ func bootstrapSkillRoleActions(projectID string, draftContext DraftContext) ([]A
 	return actions, warnings
 }
 
-func bootstrapSkillRoleAction(projectID string, skill bootstrapSkillSource) Action {
+func bootstrapSkillRoleAction(projectID string, skill ProjectSkillContext) Action {
 	roleID := "skill_" + skill.ID
-	roleName := bootstrapTitle(skill.ID)
+	roleName := firstNonEmpty(skill.Title, bootstrapTitle(skill.ID))
 	return Action{
 		Kind:   ActionCreateRole,
 		Target: map[string]string{"project_id": projectID},
@@ -178,226 +188,13 @@ func bootstrapSkillRoleAction(projectID string, skill bootstrapSkillSource) Acti
 			ID:                roleID,
 			ProjectID:         projectID,
 			Name:              roleName,
-			Description:       fmt.Sprintf("Suggested from local skill metadata at %s.", skill.Path),
-			Instructions:      fmt.Sprintf("Use local skill guidance at %s when this project role owns work. This role is a suggestion only; it does not install skills, execute scripts, change approvals, or grant tools.", skill.Path),
+			Description:       fmt.Sprintf("Suggested from project skill metadata at %s.", skill.Path),
+			Instructions:      fmt.Sprintf("Use project skill reference %s (%s) when this project role owns work. This role is a suggestion only; it does not inject skill bodies, install skills, execute scripts, change approvals, or grant tools.", skill.ID, skill.Path),
 			DefaultDriverKind: projectwork.AssignmentDriverHecateTask,
+			SkillIDs:          []string{skill.ID},
 		}),
-		Reason: fmt.Sprintf("Suggest a project role from local skill metadata at %s.", skill.Path),
+		Reason: fmt.Sprintf("Suggest a project role from project skill metadata at %s.", skill.Path),
 	}
-}
-
-func discoverBootstrapSkills(project ProjectContext, existingRoles map[string]bool) ([]bootstrapSkillSource, []string) {
-	var out []bootstrapSkillSource
-	var warnings []string
-	seen := make(map[string]bool)
-	for _, root := range project.Roots {
-		if !root.Active || strings.TrimSpace(root.Path) == "" {
-			continue
-		}
-		if !filepath.IsAbs(root.Path) {
-			warnings = append(warnings, fmt.Sprintf("Skipped skill discovery for non-absolute project root %s.", root.ID))
-			continue
-		}
-		fsys, err := workspacefs.New(root.Path)
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("Skipped skill discovery for root %s: %v.", root.ID, err))
-			continue
-		}
-		baseDirs := bootstrapSkillBaseDirs(fsys, root, project.ContextSources, &warnings)
-		for _, base := range baseDirs {
-			skills := discoverBootstrapSkillsInDir(fsys, base, seen, existingRoles)
-			out = append(out, skills...)
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].ID != out[j].ID {
-			return out[i].ID < out[j].ID
-		}
-		return out[i].Path < out[j].Path
-	})
-	return out, warnings
-}
-
-func bootstrapSkillBaseDirs(fsys *workspacefs.FS, root ProjectRootContext, sources []ContextSource, warnings *[]string) []string {
-	dirs := []string{".agents/skills", ".hecate/skills"}
-	seen := map[string]bool{
-		".agents/skills": true,
-		".hecate/skills": true,
-	}
-	for _, source := range sources {
-		if !bootstrapGuidanceSourceForRoot(source, root.ID) {
-			continue
-		}
-		body, ok := readBootstrapGuidanceSource(fsys, source, warnings)
-		if !ok {
-			continue
-		}
-		for _, dir := range skillBaseDirsFromGuidance(source.Path, body) {
-			if seen[dir] {
-				continue
-			}
-			seen[dir] = true
-			dirs = append(dirs, dir)
-		}
-	}
-	return dirs
-}
-
-func bootstrapGuidanceSourceForRoot(source ContextSource, rootID string) bool {
-	if !source.Enabled || strings.TrimSpace(source.Path) == "" {
-		return false
-	}
-	if source.Metadata != nil {
-		sourceRootID := strings.TrimSpace(source.Metadata["root_id"])
-		if sourceRootID != "" && rootID != "" && sourceRootID != rootID {
-			return false
-		}
-	}
-	if source.Kind == "workspace_instruction" || source.Format == "agents_md" || source.Format == "claude_md" {
-		return true
-	}
-	base := strings.ToLower(path.Base(filepath.ToSlash(source.Path)))
-	return base == "agents.md" || base == "claude.md" || base == "claude.local.md"
-}
-
-func readBootstrapGuidanceSource(fsys *workspacefs.FS, source ContextSource, warnings *[]string) (string, bool) {
-	info, _, err := fsys.Stat(source.Path)
-	if err != nil {
-		return "", false
-	}
-	if info.IsDir() {
-		return "", false
-	}
-	if info.Size() > bootstrapGuidanceMaxBytes {
-		if warnings != nil {
-			*warnings = append(*warnings, fmt.Sprintf("Skipped skill-reference discovery from %s because it is larger than %d bytes.", source.Path, bootstrapGuidanceMaxBytes))
-		}
-		return "", false
-	}
-	raw, _, err := fsys.ReadFile(source.Path)
-	if err != nil {
-		return "", false
-	}
-	return string(raw), true
-}
-
-func discoverBootstrapSkillsInDir(fsys *workspacefs.FS, base string, seen, existingRoles map[string]bool) []bootstrapSkillSource {
-	entries, _, err := fsys.ReadDir(base)
-	if err != nil {
-		return nil
-	}
-	var out []bootstrapSkillSource
-	for _, entry := range entries {
-		if !entry.IsDir || strings.HasPrefix(entry.Name, ".") {
-			continue
-		}
-		skillID := normalizeBootstrapID(entry.Name)
-		roleID := "skill_" + skillID
-		if skillID == "" || seen[skillID] || existingRoles[skillID] || existingRoles[roleID] {
-			continue
-		}
-		skillPath := path.Join(base, entry.Name, "SKILL.md")
-		info, _, err := fsys.Stat(skillPath)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		seen[skillID] = true
-		out = append(out, bootstrapSkillSource{
-			ID:   skillID,
-			Path: skillPath,
-		})
-	}
-	return out
-}
-
-func skillBaseDirsFromGuidance(sourcePath, body string) []string {
-	sourceDir := path.Dir(filepath.ToSlash(strings.TrimSpace(sourcePath)))
-	if sourceDir == "." {
-		sourceDir = ""
-	}
-	seen := make(map[string]bool)
-	var out []string
-	for _, token := range guidancePathTokens(body) {
-		for _, dir := range skillBaseDirsFromToken(sourceDir, token) {
-			if seen[dir] {
-				continue
-			}
-			seen[dir] = true
-			out = append(out, dir)
-		}
-	}
-	return out
-}
-
-func guidancePathTokens(body string) []string {
-	var out []string
-	var builder strings.Builder
-	flush := func() {
-		if builder.Len() == 0 {
-			return
-		}
-		token := strings.Trim(builder.String(), "`'\"()[]{}<>.,;:")
-		builder.Reset()
-		if token != "" {
-			out = append(out, token)
-		}
-	}
-	for _, r := range body {
-		switch {
-		case r >= 'a' && r <= 'z',
-			r >= 'A' && r <= 'Z',
-			r >= '0' && r <= '9',
-			r == '.', r == '_', r == '-', r == '/', r == '*', r == '@':
-			builder.WriteRune(r)
-		default:
-			flush()
-		}
-	}
-	flush()
-	return out
-}
-
-func skillBaseDirsFromToken(sourceDir, token string) []string {
-	token = strings.TrimSpace(strings.TrimPrefix(token, "@"))
-	if token == "" || strings.Contains(token, "://") || strings.HasPrefix(token, "#") {
-		return nil
-	}
-	token = filepath.ToSlash(token)
-	token = strings.TrimPrefix(token, "./")
-	if path.IsAbs(token) {
-		return nil
-	}
-	cleaned := path.Clean(token)
-	if sourceDir != "" && !strings.HasPrefix(cleaned, ".agents/") && !strings.HasPrefix(cleaned, ".hecate/") {
-		cleaned = path.Clean(path.Join(sourceDir, cleaned))
-	}
-	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return nil
-	}
-	lower := strings.ToLower(cleaned)
-	switch {
-	case strings.Contains(lower, "/*/skill.md"):
-		idx := strings.Index(lower, "/*/skill.md")
-		base := cleaned[:idx]
-		if base != "" && base != "." {
-			return []string{base}
-		}
-	case strings.HasSuffix(lower, "/skill.md"):
-		skillDir := path.Dir(cleaned)
-		base := path.Dir(skillDir)
-		if base != "." && base != "/" {
-			return []string{base}
-		}
-	case strings.HasSuffix(lower, "/skills/readme.md"):
-		return []string{path.Dir(cleaned)}
-	case strings.HasSuffix(lower, "/skills"):
-		return []string{cleaned}
-	default:
-		if idx := strings.Index(lower, "/skills/"); idx >= 0 {
-			return []string{cleaned[:idx+len("/skills")]}
-		}
-	}
-	return nil
 }
 
 func existingRoleIDs(roles []RoleContext) map[string]bool {

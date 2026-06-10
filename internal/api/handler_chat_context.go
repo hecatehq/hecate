@@ -10,6 +10,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -410,7 +411,7 @@ func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.S
 	return packet
 }
 
-func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string, profile resolvedAgentProfile) chat.ContextPacket {
+func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string, profile resolvedAgentProfile, skills resolvedProjectSkills) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, workingDirectory)
 	driverKind := firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask)
 	includedReason := "Included in the native project assignment launch context"
@@ -507,6 +508,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 		InclusionReason: includedReason,
 	})
 	appendResolvedAgentProfile(&packet, profile)
+	appendResolvedProjectSkills(&packet, skills)
 	if packet.SystemPromptIncluded {
 		promptOrigin := "task.system_prompt"
 		promptBodyRef := "task_system_prompt"
@@ -765,11 +767,124 @@ func appendResolvedAgentProfile(packet *chat.ContextPacket, profile resolvedAgen
 	}
 }
 
+type resolvedProjectSkills struct {
+	Requested []string
+	Resolved  []projectskills.Skill
+	Skipped   []resolvedProjectSkillSkip
+	Warnings  []string
+}
+
+type resolvedProjectSkillSkip struct {
+	ID     string
+	Reason string
+	Status string
+}
+
+func (h *Handler) resolveProjectAssignmentSkills(ctx context.Context, projectID string, role projectwork.AgentRoleProfile, profile resolvedAgentProfile) resolvedProjectSkills {
+	requested := normalizeContextStringList(append(append([]string(nil), role.SkillIDs...), profile.SkillIDs...))
+	result := resolvedProjectSkills{Requested: requested}
+	if len(requested) == 0 {
+		return result
+	}
+	if h == nil || h.projectSkills == nil {
+		result.Warnings = []string{"Project skills store is not configured; skill references were not resolved."}
+		for _, id := range requested {
+			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: "store_unavailable"})
+		}
+		return result
+	}
+	items, err := h.projectSkills.List(ctx, projectID)
+	if err != nil {
+		result.Warnings = []string{"Project skills could not be loaded; skill references were not resolved."}
+		for _, id := range requested {
+			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: "store_error"})
+		}
+		return result
+	}
+	byID := make(map[string]projectskills.Skill, len(items))
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	for _, id := range requested {
+		item, ok := byID[id]
+		switch {
+		case !ok:
+			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: "missing", Status: projectskills.StatusMissing})
+		case !item.Enabled:
+			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: "disabled", Status: item.Status})
+		case item.Status != projectskills.StatusAvailable:
+			result.Skipped = append(result.Skipped, resolvedProjectSkillSkip{ID: id, Reason: item.Status, Status: item.Status})
+		default:
+			result.Resolved = append(result.Resolved, item)
+		}
+	}
+	return result
+}
+
+func appendResolvedProjectSkills(packet *chat.ContextPacket, skills resolvedProjectSkills) {
+	if len(skills.Requested) == 0 {
+		return
+	}
+	body := []string{
+		"Requested: " + strings.Join(skills.Requested, ", "),
+	}
+	if len(skills.Resolved) > 0 {
+		var resolved []string
+		for _, skill := range skills.Resolved {
+			resolved = append(resolved, fmt.Sprintf("%s (%s)", skill.ID, skill.Path))
+		}
+		body = append(body, "Resolved enabled skills: "+strings.Join(resolved, ", "))
+	} else {
+		body = append(body, "Resolved enabled skills: none")
+	}
+	if len(skills.Skipped) > 0 {
+		var skipped []string
+		for _, item := range skills.Skipped {
+			skipped = append(skipped, fmt.Sprintf("%s:%s", item.ID, item.Reason))
+		}
+		body = append(body, "Skipped skills: "+strings.Join(skipped, ", "))
+	}
+	if len(skills.Warnings) > 0 {
+		body = append(body, "Warnings: "+strings.Join(skills.Warnings, " "))
+	}
+	appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
+		Kind:   "project_skills",
+		Label:  "Project skills",
+		Detail: strings.Join(skills.Requested, ","),
+		Trust:  projectskills.TrustWorkspaceSkill,
+	}, chat.ContextItem{
+		Kind:            "project_skills",
+		TrustLevel:      projectskills.TrustWorkspaceSkill,
+		Origin:          "project_skills",
+		Title:           "Project skills",
+		Body:            strings.Join(body, "\n"),
+		Included:        len(skills.Resolved) > 0,
+		InclusionReason: "Skill metadata resolved for this assignment; skill bodies are not injected",
+	})
+}
+
 func boolLabel(v bool) string {
 	if v {
 		return "true"
 	}
 	return "false"
+}
+
+func normalizeContextStringList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func appendProjectAssignmentHandoffs(packet *chat.ContextPacket, items []projectwork.Handoff, included bool, reason string) {

@@ -64,7 +64,7 @@ The short version:
   review.
 - **Project orchestration:** durable project identity, roles, work records,
   assignments, handoffs, activity health, project-scoped memory, context packet
-  snapshots, and explicit memory promotion.
+  snapshots, project skill metadata, and explicit memory promotion.
 - **Evidence:** traces, route reports, task artifacts, diffs, logs, screenshots
   where available, and final run output close to the decision that produced it.
 

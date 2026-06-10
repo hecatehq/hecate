@@ -80,6 +80,8 @@ import type {
   ProjectMemoryListResponse,
   ProjectMemoryResponse,
   ProjectResponse,
+  ProjectSkillResponse,
+  ProjectSkillsResponse,
   ProjectWorkItemsResponse,
   ProjectWorkItemResponse,
   ProjectWorkRoleResponse,
@@ -90,6 +92,7 @@ import type {
   UpdateProjectAssignmentPayload,
   UpdateProjectHandoffPayload,
   UpdateProjectMemoryPayload,
+  UpdateProjectSkillPayload,
   UpdateProjectPayload,
   UpdateProjectWorkRolePayload,
   UpdateProjectWorkItemPayload,
@@ -485,6 +488,30 @@ export async function getProjectActivity(projectID: string): Promise<ProjectActi
 export async function getProjectWorkRoles(projectID: string): Promise<ProjectWorkRolesResponse> {
   return fetchJSON<ProjectWorkRolesResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/roles`,
+  );
+}
+
+export async function getProjectSkills(projectID: string): Promise<ProjectSkillsResponse> {
+  return fetchJSON<ProjectSkillsResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/skills`,
+  );
+}
+
+export async function discoverProjectSkills(projectID: string): Promise<ProjectSkillsResponse> {
+  return fetchJSON<ProjectSkillsResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/skills/discover`,
+    { method: "POST" },
+  );
+}
+
+export async function updateProjectSkill(
+  projectID: string,
+  skillID: string,
+  payload: UpdateProjectSkillPayload,
+): Promise<ProjectSkillResponse> {
+  return fetchJSON<ProjectSkillResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/skills/${encodeURIComponent(skillID)}`,
+    { method: "PATCH", body: payload },
   );
 }
 

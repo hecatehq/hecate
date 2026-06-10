@@ -19,6 +19,15 @@ that layer.
 If guidance applies to more than one tool, put it in `docs-ai/`. Do not add a
 Claude-only, Cursor-only, or Codex-only copy of the same rule.
 
+Do not confuse this repository guidance with Hecate's product feature called
+project skills. In product/runtime docs, project skills are project-scoped
+metadata records discovered from workspace `SKILL.md` files. Hecate stores and
+shows their id/title/path/status/trust metadata so roles and profiles can
+reference them, but it does not load those bodies for agents, execute scripts,
+or grant permissions. Host agents may load their own native skills separately;
+that is outside Hecate's authority unless an explicit adapter contract says
+otherwise.
+
 ## Adapter Files
 
 Tracked adapter files may contain only:

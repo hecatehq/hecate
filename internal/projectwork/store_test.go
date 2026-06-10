@@ -42,6 +42,7 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 				DefaultProvider:     " ollama ",
 				DefaultModel:        " ministral-3:latest ",
 				DefaultAgentProfile: " implementation ",
+				SkillIDs:            []string{"qa", "backend", "backend"},
 			})
 			if err != nil {
 				t.Fatalf("CreateRole: %v", err)
@@ -52,17 +53,24 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if custom.DefaultDriverKind != AssignmentDriverHecateTask || custom.DefaultProvider != "ollama" || custom.DefaultModel != "ministral-3:latest" || custom.DefaultAgentProfile != "implementation" {
 				t.Fatalf("custom role defaults = %+v, want normalized execution defaults", custom)
 			}
+			if len(custom.SkillIDs) != 2 || custom.SkillIDs[0] != "backend" || custom.SkillIDs[1] != "qa" {
+				t.Fatalf("custom role skill ids = %+v, want normalized skill ids", custom.SkillIDs)
+			}
 			updatedRole, err := store.UpdateRole(ctx, "proj_alpha", "role_release_captain", func(item *AgentRoleProfile) {
 				item.DefaultDriverKind = AssignmentDriverExternalAgent
 				item.DefaultProvider = "anthropic"
 				item.DefaultModel = "claude-sonnet-4"
 				item.DefaultAgentProfile = "safe_external_review"
+				item.SkillIDs = []string{"review", "backend", "review"}
 			})
 			if err != nil {
 				t.Fatalf("UpdateRole defaults: %v", err)
 			}
 			if updatedRole.DefaultDriverKind != AssignmentDriverExternalAgent || updatedRole.DefaultProvider != "anthropic" || updatedRole.DefaultModel != "claude-sonnet-4" || updatedRole.DefaultAgentProfile != "safe_external_review" {
 				t.Fatalf("updated role defaults = %+v, want updated defaults", updatedRole)
+			}
+			if len(updatedRole.SkillIDs) != 2 || updatedRole.SkillIDs[0] != "backend" || updatedRole.SkillIDs[1] != "review" {
+				t.Fatalf("updated role skill ids = %+v, want normalized skill ids", updatedRole.SkillIDs)
 			}
 			if _, err := store.UpdateRole(ctx, "proj_alpha", "role_release_captain", func(item *AgentRoleProfile) {
 				item.DefaultDriverKind = "unsupported"

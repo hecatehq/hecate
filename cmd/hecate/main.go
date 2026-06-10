@@ -30,6 +30,7 @@ import (
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/retention"
@@ -201,6 +202,7 @@ func runServe() {
 	projectStore := buildProjectStore(cfg, logger, sqliteClient)
 	memoryStore := buildMemoryStore(cfg, logger, sqliteClient)
 	projectWorkStore := buildProjectWorkStore(cfg, logger, sqliteClient)
+	projectSkillStore := buildProjectSkillStore(cfg, logger, sqliteClient)
 	agentProfileStore := buildAgentProfileStore(cfg, logger, sqliteClient)
 	// Approval state follows HECATE_BACKEND so chat transcripts, grants,
 	// and pending approval rows move together across memory/sqlite modes.
@@ -272,6 +274,7 @@ func runServe() {
 	handler.SetProjectStore(projectStore)
 	handler.SetMemoryStore(memoryStore)
 	handler.SetProjectWorkStore(projectWorkStore)
+	handler.SetProjectSkillStore(projectSkillStore)
 	handler.SetAgentProfileStore(agentProfileStore)
 	handler.SetAgentApprovalStore(approvalStore)
 	handler.SetStateCleaner(sqliteClient)
@@ -752,6 +755,20 @@ func buildProjectWorkStore(cfg config.Config, logger *slog.Logger, sqliteClient 
 		return store
 	default:
 		return projectwork.NewMemoryStore()
+	}
+}
+
+func buildProjectSkillStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) projectskills.Store {
+	switch cfg.Projects.Backend {
+	case "sqlite":
+		store, err := projectskills.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("project skills store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return projectskills.NewMemoryStore()
 	}
 }
 

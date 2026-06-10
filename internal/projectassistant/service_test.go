@@ -14,6 +14,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -24,6 +25,7 @@ type assistantFixture struct {
 	projects         projects.Store
 	chats            chat.Store
 	work             projectwork.Store
+	projectSkills    projectskills.Store
 	memoryEntries    memory.Store
 	memoryCandidates memory.CandidateStore
 }
@@ -174,6 +176,13 @@ func TestService_DraftBootstrapCreatesGuidanceAndSkillRoleProposalAcrossStores(t
 			if err != nil {
 				t.Fatalf("Create project: %v", err)
 			}
+			discovered, warnings := projectskills.Discover(ctx, project)
+			if len(warnings) != 0 {
+				t.Fatalf("Discover project skills warnings = %+v, want none", warnings)
+			}
+			if _, err := fixture.projectSkills.UpsertDiscovered(ctx, project.ID, discovered); err != nil {
+				t.Fatalf("UpsertDiscovered: %v", err)
+			}
 
 			proposal, err := fixture.service.Draft(ctx, DraftInput{
 				ProjectID: project.ID,
@@ -210,6 +219,9 @@ func TestService_DraftBootstrapCreatesGuidanceAndSkillRoleProposalAcrossStores(t
 			if rolePatch.ID != "skill_research" || rolePatch.Name != "Research" || rolePatch.DefaultDriverKind != projectwork.AssignmentDriverHecateTask {
 				t.Fatalf("role patch = %+v, want skill-derived role", rolePatch)
 			}
+			if len(rolePatch.SkillIDs) != 1 || rolePatch.SkillIDs[0] != "research" {
+				t.Fatalf("role skill ids = %+v, want research", rolePatch.SkillIDs)
+			}
 
 			result, err := fixture.service.Apply(ctx, proposal, true)
 			if err != nil {
@@ -234,6 +246,11 @@ func TestService_DraftBootstrapCreatesGuidanceAndSkillRoleProposalAcrossStores(t
 			}
 			if !contextRoleExists(roleContexts(roles), "skill_research") {
 				t.Fatalf("roles = %+v, want skill_research custom role", roles)
+			}
+			for _, role := range roles {
+				if role.ID == "skill_research" && (len(role.SkillIDs) != 1 || role.SkillIDs[0] != "research") {
+					t.Fatalf("role skill ids after apply = %+v, want research", role.SkillIDs)
+				}
 			}
 		})
 	}
@@ -293,7 +310,7 @@ func TestService_DraftBootstrapIgnoresRepoSpecificDocsAISkills(t *testing.T) {
 	}
 }
 
-func TestService_DraftBootstrapDiscoversSkillDirsFromGuidanceReferences(t *testing.T) {
+func TestService_DraftBootstrapUsesRegisteredSkillDirsFromGuidanceReferences(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	fixture := newMemoryAssistantFixture(t)
@@ -355,6 +372,13 @@ func TestService_DraftBootstrapDiscoversSkillDirsFromGuidanceReferences(t *testi
 	if err != nil {
 		t.Fatalf("Create project: %v", err)
 	}
+	discovered, warnings := projectskills.Discover(ctx, project)
+	if len(warnings) != 0 {
+		t.Fatalf("Discover project skills warnings = %+v, want none", warnings)
+	}
+	if _, err := fixture.projectSkills.UpsertDiscovered(ctx, project.ID, discovered); err != nil {
+		t.Fatalf("UpsertDiscovered: %v", err)
+	}
 
 	proposal, err := fixture.service.Draft(ctx, DraftInput{
 		ProjectID: project.ID,
@@ -379,10 +403,16 @@ func TestService_DraftBootstrapDiscoversSkillDirsFromGuidanceReferences(t *testi
 			if !strings.Contains(patch.Instructions, "docs-ai/skills/research/SKILL.md") {
 				t.Fatalf("role instructions = %q, want guidance-derived skill path", patch.Instructions)
 			}
+			if len(patch.SkillIDs) != 1 || patch.SkillIDs[0] != "research" {
+				t.Fatalf("role skill ids = %+v, want research", patch.SkillIDs)
+			}
 		case "skill_review":
 			found[patch.ID] = true
 			if !strings.Contains(patch.Instructions, "claude-skills/review/SKILL.md") {
 				t.Fatalf("role instructions = %q, want Claude guidance-derived skill path", patch.Instructions)
+			}
+			if len(patch.SkillIDs) != 1 || patch.SkillIDs[0] != "review" {
+				t.Fatalf("role skill ids = %+v, want review", patch.SkillIDs)
 			}
 		}
 	}
@@ -390,6 +420,70 @@ func TestService_DraftBootstrapDiscoversSkillDirsFromGuidanceReferences(t *testi
 		if !found[id] {
 			t.Fatalf("actions = %+v, want role %s from guidance skill reference", proposal.Actions, id)
 		}
+	}
+}
+
+func TestService_DraftBootstrapSkipsDisabledAndConflictingSkills(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	project := createTestProject(t, ctx, fixture.projects)
+	if _, err := fixture.projectSkills.UpsertDiscovered(ctx, project.ID, []projectskills.Skill{
+		{
+			ID:         "available",
+			Title:      "Available",
+			Path:       ".hecate/skills/available/SKILL.md",
+			Format:     projectskills.FormatSkillMD,
+			Enabled:    true,
+			Status:     projectskills.StatusAvailable,
+			TrustLabel: projectskills.TrustWorkspaceSkill,
+		},
+		{
+			ID:         "disabled",
+			Title:      "Disabled",
+			Path:       ".hecate/skills/disabled/SKILL.md",
+			Format:     projectskills.FormatSkillMD,
+			Enabled:    false,
+			Status:     projectskills.StatusAvailable,
+			TrustLabel: projectskills.TrustWorkspaceSkill,
+		},
+		{
+			ID:         "conflict",
+			Title:      "Conflict",
+			Path:       ".hecate/skills/conflict/SKILL.md",
+			Format:     projectskills.FormatSkillMD,
+			Enabled:    true,
+			Status:     projectskills.StatusConflict,
+			TrustLabel: projectskills.TrustWorkspaceSkill,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertDiscovered: %v", err)
+	}
+
+	proposal, err := fixture.service.Draft(ctx, DraftInput{
+		ProjectID: project.ID,
+		Request:   "Bootstrap roles from skills",
+		DraftMode: DraftModeBootstrap,
+	})
+	if err != nil {
+		t.Fatalf("Draft bootstrap: %v", err)
+	}
+	roleIDs := map[string]bool{}
+	for _, action := range proposal.Actions {
+		if action.Kind != ActionCreateRole {
+			continue
+		}
+		var patch rolePatch
+		if err := json.Unmarshal(action.Patch, &patch); err != nil {
+			t.Fatalf("decode role patch: %v", err)
+		}
+		roleIDs[patch.ID] = true
+	}
+	if !roleIDs["skill_available"] || roleIDs["skill_disabled"] || roleIDs["skill_conflict"] {
+		t.Fatalf("role ids = %+v, want only available skill role", roleIDs)
+	}
+	if len(proposal.Warnings) < 2 || !strings.Contains(strings.Join(proposal.Warnings, "\n"), "disabled") || !strings.Contains(strings.Join(proposal.Warnings, "\n"), "conflict") {
+		t.Fatalf("warnings = %+v, want disabled and conflict warnings", proposal.Warnings)
 	}
 }
 
@@ -406,9 +500,24 @@ func TestService_ContextBuildsProjectAssistantPacketAcrossStores(t *testing.T) {
 				ProjectID:         project.ID,
 				Name:              "Planning Lead",
 				DefaultDriverKind: projectwork.AssignmentDriverExternalAgent,
+				SkillIDs:          []string{"planning"},
 			})
 			if err != nil {
 				t.Fatalf("CreateRole: %v", err)
+			}
+			if _, err := fixture.projectSkills.UpsertDiscovered(ctx, project.ID, []projectskills.Skill{{
+				ID:          "planning",
+				ProjectID:   project.ID,
+				Title:       "Planning",
+				Description: "Plan scoped project work.",
+				Path:        ".hecate/skills/planning/SKILL.md",
+				RootID:      "root_a",
+				Format:      projectskills.FormatSkillMD,
+				Enabled:     true,
+				Status:      projectskills.StatusAvailable,
+				TrustLabel:  projectskills.TrustWorkspaceSkill,
+			}}); err != nil {
+				t.Fatalf("UpsertDiscovered skill: %v", err)
 			}
 			workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
 				ID:          "work_context",
@@ -484,6 +593,19 @@ func TestService_ContextBuildsProjectAssistantPacketAcrossStores(t *testing.T) {
 			}
 			if len(packet.Roles) == 0 || !contextRoleExists(packet.Roles, role.ID) {
 				t.Fatalf("roles = %+v, want custom role included", packet.Roles)
+			}
+			var plannerRole *RoleContext
+			for idx := range packet.Roles {
+				if packet.Roles[idx].ID == role.ID {
+					plannerRole = &packet.Roles[idx]
+					break
+				}
+			}
+			if plannerRole == nil || len(plannerRole.SkillIDs) != 1 || plannerRole.SkillIDs[0] != "planning" {
+				t.Fatalf("role context = %+v, want planning skill id", plannerRole)
+			}
+			if len(packet.Skills) != 1 || packet.Skills[0].ID != "planning" || packet.Skills[0].Path == "" {
+				t.Fatalf("skills = %+v, want planning metadata", packet.Skills)
 			}
 			if len(packet.Assignments) != 1 || packet.Assignments[0].ID != "asgn_context" {
 				t.Fatalf("assignments = %+v, want recent assignment", packet.Assignments)
@@ -1590,12 +1712,14 @@ func newMemoryAssistantFixture(t *testing.T) assistantFixture {
 	projectStore := projects.NewMemoryStore()
 	chatStore := chat.NewMemoryStore()
 	workStore := projectwork.NewMemoryStore()
+	projectSkillStore := projectskills.NewMemoryStore()
 	memoryStore := memory.NewMemoryStore()
 	return assistantFixture{
-		service:          projectassistantService(projectStore, chatStore, workStore, memoryStore),
+		service:          projectassistantService(projectStore, chatStore, workStore, projectSkillStore, memoryStore),
 		projects:         projectStore,
 		chats:            chatStore,
 		work:             workStore,
+		projectSkills:    projectSkillStore,
 		memoryEntries:    memoryStore,
 		memoryCandidates: memoryStore,
 	}
@@ -1628,21 +1752,26 @@ func newSQLiteAssistantFixture(t *testing.T) assistantFixture {
 	if err != nil {
 		t.Fatalf("new project work sqlite store: %v", err)
 	}
+	projectSkillStore, err := projectskills.NewSQLiteStore(ctx, client)
+	if err != nil {
+		t.Fatalf("new project skills sqlite store: %v", err)
+	}
 	memoryStore, err := memory.NewSQLiteStore(ctx, client)
 	if err != nil {
 		t.Fatalf("new memory sqlite store: %v", err)
 	}
 	return assistantFixture{
-		service:          projectassistantService(projectStore, chatStore, workStore, memoryStore),
+		service:          projectassistantService(projectStore, chatStore, workStore, projectSkillStore, memoryStore),
 		projects:         projectStore,
 		chats:            chatStore,
 		work:             workStore,
+		projectSkills:    projectSkillStore,
 		memoryEntries:    memoryStore,
 		memoryCandidates: memoryStore,
 	}
 }
 
-func projectassistantService(projectStore projects.Store, chatStore chat.Store, workStore projectwork.Store, memoryStore memory.Store) *Service {
+func projectassistantService(projectStore projects.Store, chatStore chat.Store, workStore projectwork.Store, projectSkillStore projectskills.Store, memoryStore memory.Store) *Service {
 	var candidateStore memory.CandidateStore
 	if candidates, ok := memoryStore.(memory.CandidateStore); ok {
 		candidateStore = candidates
@@ -1651,6 +1780,7 @@ func projectassistantService(projectStore projects.Store, chatStore chat.Store, 
 		Projects:         projectStore,
 		Chats:            chatStore,
 		Work:             workStore,
+		ProjectSkills:    projectSkillStore,
 		Memory:           memoryStore,
 		MemoryCandidates: candidateStore,
 	}, sequenceIDGenerator())

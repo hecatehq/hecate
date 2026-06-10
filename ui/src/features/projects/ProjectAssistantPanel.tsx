@@ -284,6 +284,7 @@ function ProjectAssistantContextPanel({ context }: { context: ProjectAssistantCo
             label="Sources"
             value={String(context.project.context_sources?.length ?? 0)}
           />
+          <ProjectAssistantContextStat label="Skills" value={String(context.skills?.length ?? 0)} />
           <ProjectAssistantContextStat
             label="Assignments"
             value={String(context.assignments?.length ?? 0)}

@@ -20,6 +20,7 @@ import {
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   discoverProjectContextSources,
+  discoverProjectSkills,
   getProjectActivity,
   getAgentProfiles,
   getProjectAssignmentContext,
@@ -29,6 +30,7 @@ import {
   getProjectHandoffs,
   getProjectMemory,
   getProjectMemoryCandidates,
+  getProjectSkills,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
@@ -41,6 +43,7 @@ import {
   updateProjectHandoff,
   updateProjectHandoffStatus,
   updateProjectMemory,
+  updateProjectSkill,
   updateProjectWorkRole,
   updateProjectWorkItem,
 } from "../../lib/api";
@@ -56,6 +59,7 @@ import type {
   ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
   ProjectRecord,
+  ProjectSkillRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
@@ -180,6 +184,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
       object: "project_memory_candidates",
       data: [],
     })),
+    getProjectSkills: vi.fn(async () => ({ object: "project_skills", data: [] })),
     getAgentProfiles: vi.fn(async () => ({ object: "agent_profiles", data: [] })),
     draftProjectAssistant: vi.fn(async () => ({
       object: "project_assistant.proposal",
@@ -228,6 +233,8 @@ vi.mock("../../lib/api", async (importOriginal) => {
     deleteProjectHandoff: vi.fn(async () => undefined),
     createProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
     updateProjectMemory: vi.fn(async () => ({ object: "project_memory_entry", data: null })),
+    discoverProjectSkills: vi.fn(async () => ({ object: "project_skills", data: [] })),
+    updateProjectSkill: vi.fn(async () => ({ object: "project_skill", data: null })),
     deleteProjectMemory: vi.fn(async () => undefined),
     promoteProjectMemoryCandidate: vi.fn(async () => ({
       object: "project_memory_candidate",
@@ -352,6 +359,24 @@ const memoryCandidate: ProjectMemoryCandidateRecord = {
   updated_at: "2026-06-02T12:00:00Z",
 };
 
+const projectSkill: ProjectSkillRecord = {
+  id: "backend",
+  project_id: project.id,
+  title: "Backend",
+  description: "Build backend changes.",
+  path: ".hecate/skills/backend/SKILL.md",
+  root_id: "root_1",
+  format: "skill_md",
+  enabled: true,
+  status: "available",
+  trust_label: "workspace_skill",
+  source_context_source_ids: ["ctx_agents"],
+  warnings: [],
+  discovered_at: "2026-06-02T12:00:00Z",
+  created_at: "2026-06-02T12:00:00Z",
+  updated_at: "2026-06-02T12:00:00Z",
+};
+
 function resetProjectWorkMocks() {
   vi.mocked(getProjectActivity).mockResolvedValue({
     object: "project_activity",
@@ -421,6 +446,7 @@ function resetProjectWorkMocks() {
     object: "project_assignments",
     data: [hecateAssignment],
   });
+  vi.mocked(getProjectSkills).mockResolvedValue({ object: "project_skills", data: [] });
   vi.mocked(getProjectAssignmentContext).mockResolvedValue({
     object: "context_packet",
     data: {
@@ -768,6 +794,7 @@ function resetProjectWorkMocks() {
       id: "role_frontend_custom",
       project_id: "proj_1",
       name: "Frontend implementer",
+      skill_ids: ["frontend"],
       built_in: false,
     },
   });
@@ -781,6 +808,7 @@ function resetProjectWorkMocks() {
       default_provider: "anthropic",
       default_model: "claude-sonnet-4",
       default_agent_profile: "safe_external_review",
+      skill_ids: ["frontend"],
       built_in: false,
     },
   });
@@ -847,6 +875,7 @@ afterEach(() => {
   vi.mocked(getProjectHandoffs).mockReset();
   vi.mocked(getProjectMemory).mockReset();
   vi.mocked(getProjectMemoryCandidates).mockReset();
+  vi.mocked(getProjectSkills).mockReset();
   vi.mocked(getAgentProfiles).mockReset();
   vi.mocked(draftProjectAssistant).mockReset();
   vi.mocked(applyProjectAssistant).mockReset();
@@ -856,6 +885,8 @@ afterEach(() => {
   vi.mocked(deleteProjectHandoff).mockReset();
   vi.mocked(createProjectMemory).mockReset();
   vi.mocked(updateProjectMemory).mockReset();
+  vi.mocked(discoverProjectSkills).mockReset();
+  vi.mocked(updateProjectSkill).mockReset();
   vi.mocked(deleteProjectMemory).mockReset();
   vi.mocked(promoteProjectMemoryCandidate).mockReset();
   vi.mocked(rejectProjectMemoryCandidate).mockReset();
@@ -990,6 +1021,7 @@ describe("ProjectsView index", () => {
     );
     expect(within(tabs).getByRole("tab", { name: /Timeline \/ Decision Log/ })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: /Memory \/ Context/ })).toBeTruthy();
+    expect(within(tabs).getByRole("tab", { name: /Skills/ })).toBeTruthy();
     const workPanel = within(workspace).getByRole("region", { name: "Work coordination" });
     expect(workPanel).toBeTruthy();
     expect(workPanel.querySelector(".project-work-coordination-grid")).toBeTruthy();
@@ -1003,6 +1035,40 @@ describe("ProjectsView index", () => {
     await openProjectWorkspaceTab(/Memory \/ Context/);
     expect(within(workspace).getByText("No project memory entries saved yet.")).toBeTruthy();
     expect(within(workspace).queryByLabelText("Project timeline")).toBeNull();
+  });
+
+  it("renders and updates project skills from the registry", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectSkills).mockResolvedValue({
+      object: "project_skills",
+      data: [projectSkill],
+    });
+    vi.mocked(discoverProjectSkills).mockResolvedValue({
+      object: "project_skills",
+      data: [{ ...projectSkill, id: "qa", title: "QA", path: ".agents/skills/qa/SKILL.md" }],
+    });
+    vi.mocked(updateProjectSkill).mockResolvedValue({
+      object: "project_skill",
+      data: { ...projectSkill, enabled: false },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+
+    render(<ProjectsView />, {
+      wrapper: directWrapper({ projects: [project] }),
+    });
+
+    await openProjectWorkspaceTab(/Skills/);
+    const workspace = screen.getByRole("region", { name: "Project workspace" });
+    expect(within(workspace).getByText("Build backend changes.")).toBeTruthy();
+    await userEvent.click(within(workspace).getByRole("checkbox", { name: "Enable skill Backend" }));
+    await waitFor(() => {
+      expect(updateProjectSkill).toHaveBeenCalledWith(project.id, "backend", { enabled: false });
+    });
+    await userEvent.click(within(workspace).getByRole("button", { name: "Discover" }));
+    await waitFor(() => {
+      expect(discoverProjectSkills).toHaveBeenCalledWith(project.id);
+    });
+    expect(await within(workspace).findByText(/\.agents\/skills\/qa\/SKILL\.md/)).toBeTruthy();
   });
 
   it("renders empty, loading, and error states for the project index", () => {
@@ -3669,6 +3735,9 @@ describe("ProjectsView cockpit", () => {
     fireEvent.change(within(dialog).getByLabelText("Default model"), {
       target: { value: "ministral-3:latest" },
     });
+    fireEvent.change(within(dialog).getByLabelText("Skill ids"), {
+      target: { value: "frontend, ui" },
+    });
     await userEvent.click(within(dialog).getByRole("button", { name: "Create role" }));
 
     expect(createProjectWorkRole).toHaveBeenCalledWith(project.id, {
@@ -3679,6 +3748,7 @@ describe("ProjectsView cockpit", () => {
       default_provider: "ollama",
       default_model: "ministral-3:latest",
       default_agent_profile: "implementation",
+      skill_ids: ["frontend", "ui"],
     });
     await waitFor(() => {
       expect(within(dialog).getByRole("button", { name: "Save role" })).toBeTruthy();

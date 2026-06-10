@@ -58,6 +58,7 @@ type AgentRoleProfile struct {
 	DefaultProvider     string
 	DefaultModel        string
 	DefaultAgentProfile string
+	SkillIDs            []string
 	BuiltIn             bool
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
@@ -732,6 +733,7 @@ func normalizeRole(role AgentRoleProfile, now time.Time) AgentRoleProfile {
 	role.DefaultProvider = strings.TrimSpace(role.DefaultProvider)
 	role.DefaultModel = strings.TrimSpace(role.DefaultModel)
 	role.DefaultAgentProfile = strings.TrimSpace(role.DefaultAgentProfile)
+	role.SkillIDs = normalizeStringList(role.SkillIDs)
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -1065,6 +1067,7 @@ func handoffKey(projectID, id string) string {
 }
 
 func cloneRole(item AgentRoleProfile) AgentRoleProfile {
+	item.SkillIDs = append([]string(nil), item.SkillIDs...)
 	return item
 }
 

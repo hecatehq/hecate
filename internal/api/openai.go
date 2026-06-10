@@ -377,6 +377,34 @@ type ProjectContextSourceResponseItem struct {
 	UpdatedAt      string            `json:"updated_at"`
 }
 
+type ProjectSkillsResponse struct {
+	Object string                     `json:"object"`
+	Data   []ProjectSkillResponseItem `json:"data"`
+}
+
+type ProjectSkillResponse struct {
+	Object string                   `json:"object"`
+	Data   ProjectSkillResponseItem `json:"data"`
+}
+
+type ProjectSkillResponseItem struct {
+	ID                     string   `json:"id"`
+	ProjectID              string   `json:"project_id"`
+	Title                  string   `json:"title"`
+	Description            string   `json:"description,omitempty"`
+	Path                   string   `json:"path,omitempty"`
+	RootID                 string   `json:"root_id,omitempty"`
+	Format                 string   `json:"format"`
+	Enabled                bool     `json:"enabled"`
+	Status                 string   `json:"status"`
+	TrustLabel             string   `json:"trust_label"`
+	SourceContextSourceIDs []string `json:"source_context_source_ids,omitempty"`
+	Warnings               []string `json:"warnings,omitempty"`
+	DiscoveredAt           string   `json:"discovered_at,omitempty"`
+	CreatedAt              string   `json:"created_at"`
+	UpdatedAt              string   `json:"updated_at"`
+}
+
 type ProjectMemoryResponse struct {
 	Object string                    `json:"object"`
 	Data   ProjectMemoryResponseItem `json:"data"`
@@ -1162,6 +1190,7 @@ type SystemResetDataResponse struct {
 
 type SystemResetDataResponseItem struct {
 	ProjectsDeleted            int `json:"projects_deleted"`
+	ProjectSkillsDeleted       int `json:"project_skills_deleted"`
 	ProjectWorkRowsDeleted     int `json:"project_work_rows_deleted"`
 	AgentProfilesDeleted       int `json:"agent_profiles_deleted"`
 	ChatSessionsDeleted        int `json:"chat_sessions_deleted"`
