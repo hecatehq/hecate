@@ -3950,6 +3950,9 @@ describe("ProjectsView cockpit", () => {
     );
 
     await userEvent.click(await within(dialog).findByRole("button", { name: "Delete profile" }));
+    expect(deleteAgentProfile).not.toHaveBeenCalled();
+    expect(screen.getByText(/Other projects may also reference this global profile/i)).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Delete agent profile" }));
     expect(deleteAgentProfile).toHaveBeenCalledWith("implementation");
   });
 
