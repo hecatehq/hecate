@@ -24,6 +24,7 @@ import {
   getAgentProfiles,
   getProjectAssignmentContext,
   getProjectAssignments,
+  getProjectAssistantContext,
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
   getProjectMemory,
@@ -110,6 +111,57 @@ vi.mock("../../lib/api", async (importOriginal) => {
     getProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
     getProjectAssignments: vi.fn(async () => ({ object: "project_assignments", data: [] })),
     getProjectAssignmentContext: vi.fn(async () => ({ object: "context_packet", data: null })),
+    getProjectAssistantContext: vi.fn(async () => ({
+      object: "project_assistant.context",
+      data: {
+        project: {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-06-01T10:00:00Z",
+          updated_at: "2026-06-01T11:00:00Z",
+        },
+        request: "Queue Software developer for Build cockpit UI",
+        selected_work: {
+          id: "work_1",
+          title: "Build cockpit UI",
+          brief: "Expose project work and native starts.",
+          status: "ready",
+          priority: "high",
+          owner_role_id: "software_developer",
+          reviewer_role_ids: ["reviewer_qa"],
+          created_at: "2026-06-02T10:00:00Z",
+          updated_at: "2026-06-02T11:00:00Z",
+        },
+        roles: [
+          {
+            id: "software_developer",
+            name: "Software developer",
+            description: "Owns implementation work.",
+            default_driver_kind: "hecate_task",
+            default_provider: "anthropic",
+            default_model: "claude-sonnet-4",
+            default_agent_profile: "implementation",
+            built_in: true,
+            created_at: "2026-06-01T10:00:00Z",
+            updated_at: "2026-06-01T10:00:00Z",
+          },
+        ],
+        assignments: [],
+        memory: [],
+        memory_candidates: [],
+        recent_activity: [],
+        selection: {
+          role_id: "software_developer",
+          role_name: "Software developer",
+          role_source: "selected_work_owner",
+          driver_kind: "hecate_task",
+          driver_source: "role_default",
+          reason:
+            "Selected work item is owned by Software developer. Using hecate_task from the selected role default.",
+        },
+      },
+    })),
     getProjectCollaborationArtifacts: vi.fn(async () => ({
       object: "project_collaboration_artifacts",
       data: [],
@@ -427,6 +479,74 @@ function resetProjectWorkMocks() {
       ],
     },
   });
+  vi.mocked(getProjectAssistantContext).mockResolvedValue({
+    object: "project_assistant.context",
+    data: {
+      project: {
+        id: project.id,
+        name: project.name,
+        roots: project.roots.map(({ id, path, kind, git_remote, git_branch, active }) => ({
+          id,
+          path,
+          kind,
+          git_remote,
+          git_branch,
+          active,
+        })),
+        default_provider: project.default_provider,
+        default_model: project.default_model,
+        created_at: project.created_at,
+        updated_at: project.updated_at,
+      },
+      request: `Queue ${role.name} for ${workItem.title}`,
+      selected_work: {
+        id: workItem.id,
+        title: workItem.title,
+        brief: workItem.brief,
+        status: workItem.status,
+        priority: workItem.priority,
+        owner_role_id: workItem.owner_role_id,
+        reviewer_role_ids: workItem.reviewer_role_ids,
+        created_at: workItem.created_at,
+        updated_at: workItem.updated_at,
+      },
+      roles: [
+        {
+          id: role.id,
+          name: role.name,
+          description: role.description,
+          default_driver_kind: role.default_driver_kind,
+          default_provider: role.default_provider,
+          default_model: role.default_model,
+          default_agent_profile: role.default_agent_profile,
+          built_in: role.built_in,
+          created_at: "2026-06-01T10:00:00Z",
+          updated_at: "2026-06-01T10:00:00Z",
+        },
+      ],
+      assignments: [hecateAssignment],
+      memory: [memoryEntry],
+      memory_candidates: [memoryCandidate],
+      recent_activity: [
+        {
+          kind: "selected_work",
+          id: workItem.id,
+          title: workItem.title,
+          status: workItem.status,
+          updated_at: workItem.updated_at,
+        },
+      ],
+      selection: {
+        role_id: role.id,
+        role_name: role.name,
+        role_source: "selected_work_owner",
+        driver_kind: "hecate_task",
+        driver_source: "role_default",
+        reason:
+          "Selected work item is owned by Software developer. Using hecate_task from the selected role default.",
+      },
+    },
+  });
   vi.mocked(getProjectCollaborationArtifacts).mockResolvedValue({
     object: "project_collaboration_artifacts",
     data: [],
@@ -669,6 +789,7 @@ afterEach(() => {
   vi.mocked(getProjectWorkItem).mockReset();
   vi.mocked(getProjectAssignments).mockReset();
   vi.mocked(getProjectAssignmentContext).mockReset();
+  vi.mocked(getProjectAssistantContext).mockReset();
   vi.mocked(getProjectCollaborationArtifacts).mockReset();
   vi.mocked(getProjectHandoffs).mockReset();
   vi.mocked(getProjectMemory).mockReset();
@@ -947,6 +1068,61 @@ describe("ProjectsView cockpit", () => {
     expect(await within(assistant).findByText("Applied 1 action from pa_test.")).toBeTruthy();
     expect(getProjectWorkItems).toHaveBeenLastCalledWith(project.id);
     expect(getProjectAssignments).toHaveBeenLastCalledWith(project.id, workItem.id);
+  });
+
+  it("inspects Project Assistant context selection before drafting", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await user.click(within(assistant).getByRole("button", { name: "Inspect context" }));
+
+    await waitFor(() => {
+      expect(getProjectAssistantContext).toHaveBeenCalledWith({
+        project_id: project.id,
+        work_item_id: workItem.id,
+        request: "Queue Software developer for Build cockpit UI",
+      });
+    });
+    expect(
+      await within(assistant).findByText("Auto selected Software developer via Hecate task"),
+    ).toBeTruthy();
+    expect(
+      within(assistant).getByText(
+        "Selected work item is owned by Software developer. Using hecate_task from the selected role default.",
+      ),
+    ).toBeTruthy();
+    expect(within(assistant).getByText("context")).toBeTruthy();
+    expect(within(assistant).getByText("Candidates")).toBeTruthy();
+    expect(within(assistant).getAllByText("Build cockpit UI").length).toBeGreaterThan(0);
+  });
+
+  it("surfaces Project Assistant context inspection errors", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectAssistantContext).mockRejectedValueOnce(
+      new ApiError("project assistant target not found", 404, "not_found"),
+    );
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await user.click(within(assistant).getByRole("button", { name: "Inspect context" }));
+
+    expect(await within(assistant).findByText("project assistant target not found")).toBeTruthy();
+    expect(within(assistant).queryByLabelText("Project Assistant context")).toBeNull();
   });
 
   it("drafts Project Assistant work proposals without an owner role when none exists", async () => {
@@ -1567,7 +1743,11 @@ describe("ProjectsView cockpit", () => {
     await userEvent.click(within(detail).getByRole("button", { name: "Open task" }));
     expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
 
-    await userEvent.click(within(detail).getByRole("button", { name: "Inspect context" }));
+    await userEvent.click(
+      within(detail).getByTitle(
+        "Inspect the best available stored context snapshot for this assignment.",
+      ),
+    );
     expect(getProjectAssignmentContext).toHaveBeenCalledWith(
       project.id,
       workItem.id,

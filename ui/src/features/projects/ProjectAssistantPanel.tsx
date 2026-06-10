@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import type {
   ProjectAssistantApplyResult,
+  ProjectAssistantContextRecord,
   ProjectAssistantProposal,
   ProjectRecord,
   ProjectWorkItemRecord,
@@ -18,12 +19,17 @@ export type ProjectAssistantDraftForm = {
 };
 
 export type ProjectAssistantStatus = "idle" | "proposing" | "applying" | "applied";
+export type ProjectAssistantContextStatus = "idle" | "loading" | "loaded" | "error";
 
 type Props = {
   applyResult: ProjectAssistantApplyResult | null;
+  context: ProjectAssistantContextRecord | null;
+  contextError: string;
+  contextStatus: ProjectAssistantContextStatus;
   error: string;
   onApply: () => void;
   onDismiss: () => void;
+  onInspectContext: (form: ProjectAssistantDraftForm) => void;
   onPropose: (form: ProjectAssistantDraftForm) => void;
   project: ProjectRecord | null;
   proposal: ProjectAssistantProposal | null;
@@ -34,9 +40,13 @@ type Props = {
 
 export function ProjectAssistantPanel({
   applyResult,
+  context,
+  contextError,
+  contextStatus,
   error,
   onApply,
   onDismiss,
+  onInspectContext,
   onPropose,
   project,
   proposal,
@@ -60,6 +70,7 @@ export function ProjectAssistantPanel({
       : (roles.find((role) => role.id === form.roleID) ?? null);
   const valid = form.request.trim().length > 0 && (workItem ? Boolean(selectedRole) : true);
   const busy = status === "proposing" || status === "applying";
+  const contextBusy = contextStatus === "loading";
   const panelDetail = workItem ? `Selected work: ${workItem.title}` : "Project queue";
 
   return (
@@ -141,6 +152,15 @@ export function ProjectAssistantPanel({
             </label>
           </div>
           <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            disabled={!valid || busy || contextBusy}
+            onClick={() => onInspectContext(form)}
+          >
+            <Icon d={Icons.eye} size={13} />
+            {contextBusy ? "Inspecting..." : "Inspect context"}
+          </button>
+          <button
             className="btn btn-primary btn-sm"
             type="submit"
             disabled={!valid || busy}
@@ -151,6 +171,12 @@ export function ProjectAssistantPanel({
           </button>
         </div>
       </form>
+      {contextError && (
+        <div style={{ marginTop: 2 }}>
+          <InlineError message={contextError} />
+        </div>
+      )}
+      {context && <ProjectAssistantContextPanel context={context} />}
       {error && (
         <div style={{ marginTop: 10 }}>
           <InlineError message={error} />
@@ -217,6 +243,43 @@ export function ProjectAssistantPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function ProjectAssistantContextPanel({ context }: { context: ProjectAssistantContextRecord }) {
+  const selection = context.selection;
+  return (
+    <details open style={assistantContextStyle} aria-label="Project Assistant context">
+      <summary style={assistantContextSummaryStyle}>
+        <span className="badge badge-muted">context</span>
+        <span>{projectAssistantSelectionLabel(context)}</span>
+      </summary>
+      <div style={assistantContextBodyStyle}>
+        <div style={subtleTextStyle}>{selection.reason}</div>
+        <div style={assistantContextGridStyle}>
+          <ProjectAssistantContextStat label="Selected work" value={context.selected_work?.title} />
+          <ProjectAssistantContextStat label="Roles" value={String(context.roles.length)} />
+          <ProjectAssistantContextStat
+            label="Assignments"
+            value={String(context.assignments?.length ?? 0)}
+          />
+          <ProjectAssistantContextStat label="Memory" value={String(context.memory?.length ?? 0)} />
+          <ProjectAssistantContextStat
+            label="Candidates"
+            value={String(context.memory_candidates?.length ?? 0)}
+          />
+        </div>
+      </div>
+    </details>
+  );
+}
+
+function ProjectAssistantContextStat({ label, value }: { label: string; value?: string }) {
+  return (
+    <div style={assistantContextStatStyle}>
+      <span style={fieldLabelStyle}>{label}</span>
+      <span style={assistantContextStatValueStyle}>{value || "none"}</span>
+    </div>
   );
 }
 
@@ -308,6 +371,22 @@ function projectAssistantAutoRole(
   roles: ProjectWorkRoleRecord[],
 ): ProjectWorkRoleRecord | null {
   return roles.find((item) => item.id === workItem?.owner_role_id) ?? roles[0] ?? null;
+}
+
+function projectAssistantSelectionLabel(context: ProjectAssistantContextRecord): string {
+  const role = context.selection.role_name || context.selection.role_id || "no role";
+  return `Auto selected ${role} via ${projectAssistantDriverLabel(context.selection.driver_kind)}`;
+}
+
+function projectAssistantDriverLabel(kind: string): string {
+  switch (kind) {
+    case "hecate_task":
+      return "Hecate task";
+    case "external_agent":
+      return "External agent";
+    default:
+      return kind.replace(/_/g, " ");
+  }
 }
 
 function projectAssistantActionLabel(kind: string): string {
@@ -422,6 +501,59 @@ const assistantProposalStyle: CSSProperties = {
   display: "grid",
   gap: 10,
   padding: 10,
+};
+
+const assistantContextStyle: CSSProperties = {
+  background: "var(--bg2)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  minWidth: 0,
+  padding: "8px 10px",
+};
+
+const assistantContextSummaryStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--t1)",
+  cursor: "pointer",
+  display: "flex",
+  flexWrap: "wrap",
+  fontSize: 12,
+  gap: 8,
+  lineHeight: 1.4,
+  minWidth: 0,
+};
+
+const assistantContextBodyStyle: CSSProperties = {
+  display: "grid",
+  gap: 8,
+  marginTop: 8,
+  minWidth: 0,
+};
+
+const assistantContextGridStyle: CSSProperties = {
+  display: "grid",
+  gap: 6,
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 140px), 1fr))",
+  minWidth: 0,
+};
+
+const assistantContextStatStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 4,
+  minWidth: 0,
+  padding: "7px 8px",
+};
+
+const assistantContextStatValueStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontSize: 12,
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const assistantProposalHeaderStyle: CSSProperties = {

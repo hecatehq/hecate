@@ -96,6 +96,70 @@ requiring it.
 
 ## Endpoints
 
+### `POST /hecate/v1/project-assistant/context`
+
+Builds the same project-scoped context packet and role/driver selection that
+`draft` uses, without creating proposal data or mutating project stores. Clients
+use this endpoint to show what `Auto` resolved to before asking the server to
+draft a proposal.
+
+The context packet is deliberately bounded. It includes project defaults and
+roots, the selected work item when present, loaded project roles, recent
+assignments, accepted project memory, pending memory candidates, recent
+activity, and a `selection` block explaining the chosen role and driver.
+The response below is abbreviated; timestamp fields are included in the live
+API response.
+
+```json
+POST /hecate/v1/project-assistant/context
+{
+  "project_id": "proj_hecate",
+  "work_item_id": "work_next",
+  "request": "Queue product planning\nPrefer a reviewable handoff."
+}
+→ 200
+{
+  "object": "project_assistant.context",
+  "data": {
+    "project": {
+      "id": "proj_hecate",
+      "name": "Hecate",
+      "default_model": "qwen2.5-coder"
+    },
+    "request": "Queue product planning\nPrefer a reviewable handoff.",
+    "selected_work": {
+      "id": "work_next",
+      "title": "Plan next work",
+      "status": "ready",
+      "owner_role_id": "product_manager"
+    },
+    "roles": [
+      {
+        "id": "product_manager",
+        "name": "Product Manager",
+        "default_driver_kind": "external_agent",
+        "built_in": true
+      }
+    ],
+    "assignments": [],
+    "memory": [],
+    "memory_candidates": [],
+    "recent_activity": [],
+    "selection": {
+      "role_id": "product_manager",
+      "role_name": "Product Manager",
+      "role_source": "selected_work_owner",
+      "driver_kind": "external_agent",
+      "driver_source": "role_default",
+      "reason": "Selected work item is owned by Product Manager. Using external_agent from the selected role default."
+    }
+  }
+}
+```
+
+Missing projects, work items, or explicit roles return `404 not_found`.
+Unsupported driver kinds return `400 invalid_request`.
+
 ### `POST /hecate/v1/project-assistant/draft`
 
 Builds a server-owned proposal from project context and a short operator
@@ -108,7 +172,8 @@ loaded project role, and the selected role's default driver, then
 
 Drafting creates proposal data only. It does not create a Hecate Chat session,
 append a chat message, create a task, create a run, queue an assignment, or
-start an external agent session.
+start an external agent session. It uses the same context and selection path as
+`/project-assistant/context`.
 
 ```json
 POST /hecate/v1/project-assistant/draft

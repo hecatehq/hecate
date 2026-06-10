@@ -92,6 +92,138 @@ export type ProjectAssistantApplyResponse = {
   data: ProjectAssistantApplyResult;
 };
 
+export type ProjectAssistantContextSelection = {
+  role_id?: string;
+  role_name?: string;
+  role_source?: string;
+  driver_kind: string;
+  driver_source: string;
+  reason: string;
+};
+
+export type ProjectAssistantContextProjectRoot = {
+  id: string;
+  path: string;
+  kind: string;
+  git_remote?: string;
+  git_branch?: string;
+  active: boolean;
+};
+
+export type ProjectAssistantContextProject = {
+  id: string;
+  name: string;
+  description?: string;
+  roots?: ProjectAssistantContextProjectRoot[];
+  default_root_id?: string;
+  default_provider?: string;
+  default_model?: string;
+  default_agent_profile?: string;
+  default_workspace_mode?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectAssistantContextWorkItem = {
+  id: string;
+  title: string;
+  brief?: string;
+  status: string;
+  priority?: string;
+  owner_role_id?: string;
+  reviewer_role_ids?: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectAssistantContextRole = {
+  id: string;
+  name: string;
+  description?: string;
+  default_driver_kind?: string;
+  default_provider?: string;
+  default_model?: string;
+  default_agent_profile?: string;
+  built_in: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectAssistantContextAssignment = {
+  id: string;
+  work_item_id: string;
+  role_id: string;
+  driver_kind: string;
+  status: string;
+  task_id?: string;
+  run_id?: string;
+  chat_session_id?: string;
+  message_id?: string;
+  context_snapshot_id?: string;
+  created_at: string;
+  updated_at: string;
+  started_at?: string;
+  completed_at?: string;
+};
+
+export type ProjectAssistantContextMemory = {
+  id: string;
+  title: string;
+  body: string;
+  trust_label: string;
+  source_kind: string;
+  source_id?: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectAssistantContextMemoryCandidate = {
+  id: string;
+  title: string;
+  body: string;
+  suggested_kind?: string;
+  suggested_trust_label?: string;
+  suggested_source_kind?: string;
+  suggested_source_id?: string;
+  source_refs?: Array<{
+    kind: string;
+    id: string;
+    title?: string;
+    url?: string;
+  }>;
+  status: "pending" | "promoted" | "rejected" | (string & {});
+  status_reason?: string;
+  promoted_memory_id?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectAssistantContextActivity = {
+  kind: string;
+  id: string;
+  title: string;
+  status?: string;
+  updated_at: string;
+};
+
+export type ProjectAssistantContextRecord = {
+  project: ProjectAssistantContextProject;
+  request: string;
+  selected_work?: ProjectAssistantContextWorkItem;
+  roles: ProjectAssistantContextRole[];
+  assignments?: ProjectAssistantContextAssignment[];
+  memory?: ProjectAssistantContextMemory[];
+  memory_candidates?: ProjectAssistantContextMemoryCandidate[];
+  recent_activity?: ProjectAssistantContextActivity[];
+  selection: ProjectAssistantContextSelection;
+};
+
+export type ProjectAssistantContextResponse = {
+  object: string;
+  data: ProjectAssistantContextRecord;
+};
+
 export type ProjectAssistantProposePayload = {
   id?: string;
   title?: string;
@@ -99,13 +231,15 @@ export type ProjectAssistantProposePayload = {
   actions: ProjectAssistantAction[];
 };
 
-export type ProjectAssistantDraftPayload = {
+export type ProjectAssistantContextPayload = {
   project_id: string;
   work_item_id?: string;
   request: string;
   role_id?: string;
   driver_kind?: string;
 };
+
+export type ProjectAssistantDraftPayload = ProjectAssistantContextPayload;
 
 export type ProjectAssistantApplyPayload = {
   proposal: ProjectAssistantProposal;

@@ -46,6 +46,7 @@ type Service struct {
 	projects         projects.Store
 	chats            chat.Store
 	work             projectwork.Store
+	memory           memory.Store
 	memoryCandidates memory.CandidateStore
 	idgen            IDGenerator
 	applyProgress    map[string]*applyProgress
@@ -55,6 +56,7 @@ type Stores struct {
 	Projects         projects.Store
 	Chats            chat.Store
 	Work             projectwork.Store
+	Memory           memory.Store
 	MemoryCandidates memory.CandidateStore
 }
 
@@ -73,6 +75,14 @@ type DraftInput struct {
 	RoleID     string
 	DriverKind string
 	TraceID    string
+}
+
+type ContextInput struct {
+	ProjectID  string
+	WorkItemID string
+	Request    string
+	RoleID     string
+	DriverKind string
 }
 
 type Proposal struct {
@@ -153,6 +163,7 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 		projects:         stores.Projects,
 		chats:            stores.Chats,
 		work:             stores.Work,
+		memory:           stores.Memory,
 		memoryCandidates: stores.MemoryCandidates,
 		idgen:            idgen,
 		applyProgress:    make(map[string]*applyProgress),
@@ -191,63 +202,36 @@ func (s *Service) Propose(_ context.Context, input ProposalInput) (Proposal, err
 }
 
 func (s *Service) Draft(ctx context.Context, input DraftInput) (Proposal, error) {
-	if s == nil || s.projects == nil || s.work == nil {
-		return Proposal{}, ErrStoreNotConfigured
-	}
-	projectID := strings.TrimSpace(input.ProjectID)
-	if projectID == "" {
-		return Proposal{}, fmt.Errorf("%w: project_id is required", ErrInvalid)
-	}
-	project, ok, err := s.projects.Get(ctx, projectID)
+	draftContext, err := s.Context(ctx, ContextInput{
+		ProjectID:  input.ProjectID,
+		WorkItemID: input.WorkItemID,
+		Request:    input.Request,
+		RoleID:     input.RoleID,
+		DriverKind: input.DriverKind,
+	})
 	if err != nil {
 		return Proposal{}, err
-	}
-	if !ok {
-		return Proposal{}, fmt.Errorf("%w: project %q", ErrNotFound, projectID)
-	}
-	roles, err := s.work.ListRoles(ctx, project.ID)
-	if err != nil {
-		return Proposal{}, err
-	}
-	workItemID := strings.TrimSpace(input.WorkItemID)
-	var workItem *projectwork.WorkItem
-	if workItemID != "" {
-		item, found, err := s.work.GetWorkItem(ctx, project.ID, workItemID)
-		if err != nil {
-			return Proposal{}, err
-		}
-		if !found {
-			return Proposal{}, fmt.Errorf("%w: project work item %q", ErrNotFound, workItemID)
-		}
-		workItem = &item
-	}
-	role := draftRole(strings.TrimSpace(input.RoleID), roles, workItem)
-	if strings.TrimSpace(input.RoleID) != "" && role == nil {
-		return Proposal{}, fmt.Errorf("%w: role %q", ErrNotFound, strings.TrimSpace(input.RoleID))
-	}
-	driverKind := draftDriverKind(strings.TrimSpace(input.DriverKind), role)
-	if !validDraftDriverKind(driverKind) {
-		return Proposal{}, fmt.Errorf("%w: unsupported assignment driver_kind %q", ErrInvalid, driverKind)
 	}
 	request := draftRequestParts(input.Request)
+	roleLabel := firstNonEmpty(draftContext.Selection.RoleName, draftContext.Selection.RoleID, "role")
 	var proposalInput ProposalInput
-	if workItem != nil {
-		if role == nil {
+	if draftContext.SelectedWork != nil {
+		if draftContext.Selection.RoleID == "" {
 			return Proposal{}, fmt.Errorf("%w: role_id is required for assignment drafts", ErrInvalid)
 		}
 		patch := mustRawJSON(map[string]any{
-			"project_id":   project.ID,
-			"work_item_id": workItem.ID,
-			"role_id":      role.ID,
-			"driver_kind":  driverKind,
+			"project_id":   draftContext.Project.ID,
+			"work_item_id": draftContext.SelectedWork.ID,
+			"role_id":      draftContext.Selection.RoleID,
+			"driver_kind":  draftContext.Selection.DriverKind,
 			"status":       projectwork.AssignmentStatusQueued,
 		})
 		proposalInput = ProposalInput{
-			Title:   firstNonEmpty(request.title, fmt.Sprintf("Queue %s for %s", firstNonEmpty(role.Name, role.ID, "role"), workItem.Title)),
-			Summary: fmt.Sprintf("Create a queued %s assignment on the selected work item.", driverKind),
+			Title:   firstNonEmpty(request.title, fmt.Sprintf("Queue %s for %s", roleLabel, draftContext.SelectedWork.Title)),
+			Summary: fmt.Sprintf("Create a queued %s assignment on the selected work item.", draftContext.Selection.DriverKind),
 			Actions: []Action{{
 				Kind:   ActionCreateAssignment,
-				Target: map[string]string{"project_id": project.ID},
+				Target: map[string]string{"project_id": draftContext.Project.ID},
 				Patch:  patch,
 				Reason: "Queue a reviewable assignment without starting execution.",
 			}},
@@ -255,21 +239,21 @@ func (s *Service) Draft(ctx context.Context, input DraftInput) (Proposal, error)
 		}
 	} else {
 		patch := map[string]any{
-			"project_id": project.ID,
+			"project_id": draftContext.Project.ID,
 			"title":      firstNonEmpty(request.title, "Untitled project work"),
 			"brief":      request.brief,
 			"status":     projectwork.WorkItemStatusReady,
 			"priority":   "normal",
 		}
-		if role != nil {
-			patch["owner_role_id"] = role.ID
+		if draftContext.Selection.RoleID != "" {
+			patch["owner_role_id"] = draftContext.Selection.RoleID
 		}
 		proposalInput = ProposalInput{
 			Title:   firstNonEmpty(request.title, "Create project work item"),
 			Summary: "Create a ready work item from the current assistant draft.",
 			Actions: []Action{{
 				Kind:   ActionCreateWorkItem,
-				Target: map[string]string{"project_id": project.ID},
+				Target: map[string]string{"project_id": draftContext.Project.ID},
 				Patch:  mustRawJSON(patch),
 				Reason: "Create a reviewable project work item.",
 			}},
@@ -1106,46 +1090,6 @@ func draftRequestParts(request string) draftRequest {
 		return draftRequest{}
 	}
 	return draftRequest{title: parts[0], brief: strings.Join(parts[1:], "\n\n")}
-}
-
-func draftRole(roleID string, roles []projectwork.AgentRoleProfile, workItem *projectwork.WorkItem) *projectwork.AgentRoleProfile {
-	roleID = strings.TrimSpace(roleID)
-	if roleID != "" {
-		for _, role := range roles {
-			if role.ID == roleID {
-				found := role
-				return &found
-			}
-		}
-		return nil
-	}
-	if workItem != nil {
-		ownerID := strings.TrimSpace(workItem.OwnerRoleID)
-		if ownerID != "" {
-			for _, role := range roles {
-				if role.ID == ownerID {
-					found := role
-					return &found
-				}
-			}
-		}
-	}
-	if len(roles) == 0 {
-		return nil
-	}
-	found := roles[0]
-	return &found
-}
-
-func draftDriverKind(driverKind string, role *projectwork.AgentRoleProfile) string {
-	driverKind = strings.TrimSpace(driverKind)
-	if driverKind != "" {
-		return driverKind
-	}
-	if role != nil && strings.TrimSpace(role.DefaultDriverKind) != "" {
-		return strings.TrimSpace(role.DefaultDriverKind)
-	}
-	return projectwork.AssignmentDriverHecateTask
 }
 
 func validDraftDriverKind(kind string) bool {

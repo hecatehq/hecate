@@ -18,6 +18,7 @@ import {
   createProjectHandoff,
   discoverProjectContextSources,
   draftProjectAssistant,
+  getProjectAssistantContext,
   createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
@@ -76,6 +77,8 @@ import type {
   ProjectActivityData,
   ProjectActivityItemRecord,
   ProjectAssistantApplyResult,
+  ProjectAssistantContextPayload,
+  ProjectAssistantContextRecord,
   ProjectAssistantProposal,
   ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
@@ -352,6 +355,11 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [assistantProposal, setAssistantProposal] = useState<ProjectAssistantProposal | null>(null);
   const [assistantApplyResult, setAssistantApplyResult] =
     useState<ProjectAssistantApplyResult | null>(null);
+  const [assistantContext, setAssistantContext] = useState<ProjectAssistantContextRecord | null>(
+    null,
+  );
+  const [assistantContextStatus, setAssistantContextStatus] = useState<LoadState>("idle");
+  const [assistantContextError, setAssistantContextError] = useState("");
   const [assistantStatus, setAssistantStatus] = useState<ProjectAssistantStatus>("idle");
   const [assistantError, setAssistantError] = useState("");
 
@@ -610,6 +618,9 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   useEffect(() => {
     setAssistantProposal(null);
     setAssistantApplyResult(null);
+    setAssistantContext(null);
+    setAssistantContextError("");
+    setAssistantContextStatus("idle");
     setAssistantError("");
     setAssistantStatus("idle");
   }, [selectedProjectID, selectedWorkItemID]);
@@ -1109,20 +1120,31 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setAssistantError("");
     setAssistantApplyResult(null);
     try {
-      const roleID = form.roleID === PROJECT_ASSISTANT_AUTO ? "" : form.roleID.trim();
-      const driverKind = form.driverKind === PROJECT_ASSISTANT_AUTO ? "" : form.driverKind.trim();
-      const proposal = await draftProjectAssistant({
-        project_id: selectedProject.id,
-        work_item_id: selectedWorkItem?.id,
-        request: form.request,
-        ...(roleID ? { role_id: roleID } : {}),
-        ...(driverKind ? { driver_kind: driverKind } : {}),
-      });
+      const proposal = await draftProjectAssistant(
+        projectAssistantPayload(form, selectedProject.id, selectedWorkItem?.id),
+      );
       setAssistantProposal(proposal.data);
       setAssistantStatus("idle");
     } catch (error) {
       setAssistantStatus("idle");
       setAssistantError(errorMessage(error, "Failed to draft Project Assistant proposal."));
+    }
+  }
+
+  async function handleProjectAssistantContext(form: ProjectAssistantDraftForm) {
+    if (!selectedProject) return;
+    setAssistantContextStatus("loading");
+    setAssistantContextError("");
+    try {
+      const payload = await getProjectAssistantContext(
+        projectAssistantPayload(form, selectedProject.id, selectedWorkItem?.id),
+      );
+      setAssistantContext(payload.data);
+      setAssistantContextStatus("loaded");
+    } catch (error) {
+      setAssistantContext(null);
+      setAssistantContextStatus("error");
+      setAssistantContextError(errorMessage(error, "Failed to inspect Project Assistant context."));
     }
   }
 
@@ -1159,6 +1181,9 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   function dismissProjectAssistantProposal() {
     setAssistantProposal(null);
     setAssistantApplyResult(null);
+    setAssistantContext(null);
+    setAssistantContextError("");
+    setAssistantContextStatus("idle");
     setAssistantError("");
     setAssistantStatus("idle");
   }
@@ -1292,8 +1317,12 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
               <section style={domainSectionStyle} aria-label="Project workspace">
                 <ProjectAssistantPanel
                   applyResult={assistantApplyResult}
+                  context={assistantContext}
+                  contextError={assistantContextError}
+                  contextStatus={assistantContextStatus}
                   error={assistantError}
                   onApply={() => void handleProjectAssistantApply()}
+                  onInspectContext={(form) => void handleProjectAssistantContext(form)}
                   onDismiss={dismissProjectAssistantProposal}
                   onPropose={(form) => void handleProjectAssistantPropose(form)}
                   project={selectedProject}
@@ -4915,6 +4944,22 @@ function projectAssistantResultWorkItemID(result: ProjectAssistantApplyResult): 
     if (workItemID) return workItemID;
   }
   return "";
+}
+
+function projectAssistantPayload(
+  form: ProjectAssistantDraftForm,
+  projectID: string,
+  workItemID?: string,
+): ProjectAssistantContextPayload {
+  const roleID = form.roleID === PROJECT_ASSISTANT_AUTO ? "" : form.roleID.trim();
+  const driverKind = form.driverKind === PROJECT_ASSISTANT_AUTO ? "" : form.driverKind.trim();
+  return {
+    project_id: projectID,
+    ...(workItemID ? { work_item_id: workItemID } : {}),
+    request: form.request,
+    ...(roleID ? { role_id: roleID } : {}),
+    ...(driverKind ? { driver_kind: driverKind } : {}),
+  };
 }
 
 function projectAssistantApplyErrorMessage(
