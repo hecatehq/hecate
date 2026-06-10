@@ -1022,6 +1022,84 @@ describe("ProjectsView cockpit", () => {
     expect(getProjectAssignments).toHaveBeenLastCalledWith(project.id, workItem.id);
   });
 
+  it("surfaces partial Project Assistant apply progress", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(draftProjectAssistant).mockResolvedValueOnce({
+      object: "project_assistant.proposal",
+      data: {
+        id: "pa_partial",
+        title: "Apply two changes",
+        summary: "Create an assignment and a memory candidate.",
+        requires_confirmation: true,
+        actions: [
+          {
+            kind: "create_assignment",
+            target: { project_id: project.id },
+            patch: {
+              project_id: project.id,
+              work_item_id: workItem.id,
+              role_id: role.id,
+              driver_kind: "hecate_task",
+              status: "queued",
+            },
+            reason: "Queue the selected work.",
+          },
+          {
+            kind: "create_memory_candidate",
+            target: { project_id: project.id },
+            patch: {
+              project_id: project.id,
+              title: "Decision",
+              body: "Keep the apply flow resumable.",
+              source_kind: "operator_note",
+            },
+            reason: "Capture the decision.",
+          },
+        ],
+        trace_id: "trace_partial_apply",
+      },
+    });
+    vi.mocked(applyProjectAssistant).mockRejectedValueOnce(
+      new ApiError("project assistant apply failed at action 1", 409, "conflict", {
+        fields: {
+          failed_action_index: 1,
+          partial_result: {
+            proposal_id: "pa_partial",
+            applied: false,
+            actions: [
+              {
+                kind: "create_assignment",
+                id: "asgn_partial",
+                data: { project_id: project.id, assignment_id: "asgn_partial" },
+              },
+            ],
+          },
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+    await within(assistant).findByText("Create memory candidate");
+    await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
+
+    expect(
+      await within(assistant).findByText(
+        "Project Assistant applied 1 of 2 actions, then failed at action 2. Apply the same proposal again after fixing the target state to resume from the next unapplied action.",
+      ),
+    ).toBeTruthy();
+    expect(getProjectWorkItems).toHaveBeenLastCalledWith(project.id);
+    expect(getProjectAssignments).toHaveBeenLastCalledWith(project.id, workItem.id);
+  });
+
   it("manages project memory entries in the cockpit", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectMemory).mockResolvedValue({

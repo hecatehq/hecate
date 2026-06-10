@@ -109,6 +109,7 @@ type ErrorPayload = {
     status?: string;
     stage?: string;
     hint?: string;
+    [key: string]: unknown;
   };
 };
 
@@ -1580,13 +1581,14 @@ export class ApiError extends Error {
   operatorAction: string;
   requestId: string;
   traceId: string;
+  fields: Record<string, unknown>;
   constructor(
     message: string,
     status: number,
     code = "",
-    details: Partial<
-      Pick<ApiError, "userMessage" | "operatorAction" | "requestId" | "traceId">
-    > = {},
+    details: Partial<Pick<ApiError, "userMessage" | "operatorAction" | "requestId" | "traceId">> & {
+      fields?: Record<string, unknown>;
+    } = {},
   ) {
     super(message);
     this.name = "ApiError";
@@ -1596,6 +1598,7 @@ export class ApiError extends Error {
     this.operatorAction = details.operatorAction ?? "";
     this.requestId = details.requestId ?? "";
     this.traceId = details.traceId ?? "";
+    this.fields = details.fields ?? {};
   }
 }
 
@@ -1637,6 +1640,7 @@ async function apiError(response: Response, fallback: string): Promise<ApiError>
     operatorAction: payload.operatorAction,
     requestId: payload.requestId || response.headers.get("X-Request-Id") || "",
     traceId: payload.traceId || response.headers.get("X-Trace-Id") || "",
+    fields: payload.fields,
   });
 }
 
@@ -1650,6 +1654,7 @@ async function errorPayload(
   operatorAction: string;
   requestId: string;
   traceId: string;
+  fields: Record<string, unknown>;
 }> {
   try {
     const payload = (await response.clone().json()) as ErrorPayload;
@@ -1660,6 +1665,7 @@ async function errorPayload(
       operatorAction: payload.error?.operator_action ?? "",
       requestId: payload.error?.request_id ?? "",
       traceId: payload.error?.trace_id ?? "",
+      fields: payload.error ? extraErrorFields(payload.error) : {},
     };
   } catch {
     const text = await response.text().catch(() => "");
@@ -1671,6 +1677,32 @@ async function errorPayload(
       operatorAction: "",
       requestId: "",
       traceId: "",
+      fields: {},
     };
   }
+}
+
+function extraErrorFields(error: NonNullable<ErrorPayload["error"]>): Record<string, unknown> {
+  const {
+    type,
+    message,
+    user_message,
+    operator_action,
+    request_id,
+    trace_id,
+    status,
+    stage,
+    hint,
+    ...fields
+  } = error;
+  void type;
+  void message;
+  void user_message;
+  void operator_action;
+  void request_id;
+  void trace_id;
+  void status;
+  void stage;
+  void hint;
+  return fields;
 }

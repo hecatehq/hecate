@@ -1014,6 +1014,37 @@ describe("api client", () => {
       } satisfies Partial<ApiError>);
     });
 
+    it("preserves nonstandard error fields from the gateway envelope", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              type: "conflict",
+              message: "project assistant apply failed",
+              failed_action_index: 1,
+              partial_result: {
+                proposal_id: "pa_partial",
+                applied: false,
+                actions: [{ kind: "create_assignment", id: "asgn_1" }],
+              },
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      await expect(getUsageSummary("?scope=global")).rejects.toMatchObject({
+        fields: {
+          failed_action_index: 1,
+          partial_result: {
+            proposal_id: "pa_partial",
+            applied: false,
+            actions: [{ kind: "create_assignment", id: "asgn_1" }],
+          },
+        },
+      } satisfies Partial<ApiError>);
+    });
+
     it("falls back to request and trace headers when the error body omits correlation IDs", async () => {
       fetchMock.mockResolvedValue(
         new Response(

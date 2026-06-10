@@ -1146,7 +1146,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       await loadProjectMemory(selectedProjectID);
     } catch (error) {
       setAssistantStatus("idle");
-      setAssistantError(projectAssistantApplyErrorMessage(error));
+      setAssistantError(projectAssistantApplyErrorMessage(error, proposal));
       if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
         const refreshedWorkItemID = await loadWorkForProject(selectedProjectID, selectedWorkItemID);
         if (refreshedWorkItemID) {
@@ -4917,8 +4917,13 @@ function projectAssistantResultWorkItemID(result: ProjectAssistantApplyResult): 
   return "";
 }
 
-function projectAssistantApplyErrorMessage(error: unknown): string {
+function projectAssistantApplyErrorMessage(
+  error: unknown,
+  proposal?: ProjectAssistantProposal,
+): string {
   if (error instanceof ApiError) {
+    const partialMessage = projectAssistantPartialApplyErrorMessage(error, proposal);
+    if (partialMessage) return partialMessage;
     if (error.status === 404) {
       return "Project Assistant could not find a proposal target. The project may have changed; refresh project work and draft the proposal again.";
     }
@@ -4927,6 +4932,39 @@ function projectAssistantApplyErrorMessage(error: unknown): string {
     }
   }
   return errorMessage(error, "Failed to apply Project Assistant proposal.");
+}
+
+function projectAssistantPartialApplyErrorMessage(
+  error: ApiError,
+  proposal?: ProjectAssistantProposal,
+): string {
+  const failedActionIndex = projectAssistantFailedActionIndex(error.fields.failed_action_index);
+  const partialResult = projectAssistantPartialResult(error.fields.partial_result);
+  if (failedActionIndex === null || !partialResult) return "";
+  const appliedCount = partialResult.actions.length;
+  const totalCount = proposal?.actions.length ?? Math.max(appliedCount, failedActionIndex + 1);
+  return `Project Assistant applied ${appliedCount} of ${totalCount} actions, then failed at action ${failedActionIndex + 1}. Apply the same proposal again after fixing the target state to resume from the next unapplied action.`;
+}
+
+function projectAssistantFailedActionIndex(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function projectAssistantPartialResult(value: unknown): ProjectAssistantApplyResult | null {
+  if (!value || typeof value !== "object") return null;
+  const result = value as Partial<ProjectAssistantApplyResult>;
+  if (
+    typeof result.proposal_id !== "string" ||
+    typeof result.applied !== "boolean" ||
+    !Array.isArray(result.actions)
+  ) {
+    return null;
+  }
+  return {
+    proposal_id: result.proposal_id,
+    applied: result.applied,
+    actions: result.actions,
+  };
 }
 
 function emptyRoleForm(): RoleForm {
