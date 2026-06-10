@@ -474,6 +474,17 @@ function resetProjectWorkMocks() {
           included: true,
         },
         {
+          section: "skills",
+          kind: "project_skills",
+          trust_level: "workspace_skill",
+          origin: "project_skills",
+          title: "Project skills",
+          body: "Requested: backend\nResolved enabled skills: backend (.hecate/skills/backend/SKILL.md)",
+          included: true,
+          inclusion_reason:
+            "Skill metadata resolved for this assignment; skill bodies are not injected",
+        },
+        {
           section: "memory",
           kind: "memory",
           trust_level: "operator_memory",
@@ -2001,12 +2012,14 @@ describe("ProjectsView cockpit", () => {
     const dialog = await screen.findByRole("dialog", { name: "Assignment asgn_1 context" });
     expect(dialog).toBeTruthy();
     expect(within(dialog).getByText("Profile")).toBeTruthy();
+    expect(within(dialog).getByText("Skills")).toBeTruthy();
     expect(within(dialog).getByText("Memory")).toBeTruthy();
     expect(within(dialog).getByText("Project sources")).toBeTruthy();
     expect(within(dialog).getByText("Work context")).toBeTruthy();
     expect(within(dialog).getByText("Runtime evidence")).toBeTruthy();
     expect(within(dialog).getByText("Task")).toBeTruthy();
     expect(within(dialog).getByText("task_1")).toBeTruthy();
+    expect(within(dialog).getByText("Project skills")).toBeTruthy();
     expect(within(dialog).getByText("Expose project work and native starts.")).toBeTruthy();
 
     await userEvent.click(within(detail).getByRole("button", { name: "Open chat" }));

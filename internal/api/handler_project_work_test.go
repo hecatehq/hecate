@@ -794,8 +794,8 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 		}
 	}
 	skillsItem := findRenderedContextItemByOrigin(packetResp.Data, "project_skills")
-	if skillsItem == nil || !skillsItem.Included || skillsItem.Section != contextSectionProfile {
-		t.Fatalf("project skills item = %+v, want included profile section item", skillsItem)
+	if skillsItem == nil || !skillsItem.Included || skillsItem.Section != contextSectionSkills {
+		t.Fatalf("project skills item = %+v, want included skills section item", skillsItem)
 	}
 	for _, want := range []string{
 		"Requested: backend, review",

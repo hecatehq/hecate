@@ -28,6 +28,7 @@ const (
 const (
 	contextSectionProfile      = "profile"
 	contextSectionInstructions = "instructions"
+	contextSectionSkills       = "skills"
 	contextSectionMemory       = "memory"
 	contextSectionWorkspace    = "workspace"
 	contextSectionProject      = "project"
@@ -847,7 +848,7 @@ func appendResolvedProjectSkills(packet *chat.ContextPacket, skills resolvedProj
 	if len(skills.Warnings) > 0 {
 		body = append(body, "Warnings: "+strings.Join(skills.Warnings, " "))
 	}
-	appendContextPacketSourceWithSection(packet, contextSectionProfile, chat.ContextSource{
+	appendContextPacketSourceWithSection(packet, contextSectionSkills, chat.ContextSource{
 		Kind:   "project_skills",
 		Label:  "Project skills",
 		Detail: strings.Join(skills.Requested, ","),
@@ -1068,6 +1069,8 @@ func defaultContextItemSection(kind string) string {
 	switch {
 	case kind == "system_prompt":
 		return contextSectionInstructions
+	case kind == "project_skills":
+		return contextSectionSkills
 	case kind == "memory":
 		return contextSectionMemory
 	case kind == "workspace":
