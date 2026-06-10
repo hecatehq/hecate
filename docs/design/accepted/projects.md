@@ -266,6 +266,28 @@ The Projects UI should stay lightweight but operational:
 
 Avoid turning Projects into a heavy project-management product. This is a runtime identity and context boundary first.
 
+## Authority Model
+
+Projects is the operator cockpit for project-scoped work. It coordinates
+identity, roles, assignments, handoffs, memory, guidance, activity, approvals,
+artifacts, and context inspection, but it is not itself an execution engine.
+
+The product layers should stay separate:
+
+| Layer             | Scope               | Owns                                                                                                   |
+| ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------ |
+| Operator          | Human control plane | Final authority over project setup, proposal apply, assignment start, approvals, cancellation, memory. |
+| Project Assistant | One project         | Bounded proposals for setup, work items, assignments, handoffs, and memory candidates.                 |
+| Planner           | Future project plan | Backlog, milestones, dependencies, roles, and context-bundle proposals.                                |
+| Manager           | Future project run  | Active-state monitoring, blocker detection, sequencing suggestions, follow-up proposals.               |
+| Orchestrator      | Runtime execution   | Approved task/agent coordination, waits, approvals, event emission, and state transitions.             |
+
+Project Assistant can help create a new project or draft a follow-up assignment,
+but it does not auto-start work, run agents, or write durable memory directly.
+Planner and Manager are future proposal/monitoring layers. The orchestrator is
+the runtime coordinator that executes approved work through Tasks, External
+Agents, approvals, artifacts, traces, and events.
+
 ## Storage Plan
 
 The first implementation adds `internal/projects/` with memory and SQLite

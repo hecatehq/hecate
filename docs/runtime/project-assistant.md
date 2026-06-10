@@ -31,6 +31,34 @@ selected work item, the draft creates a new project work item. In both cases
 `Draft proposal` creates reviewable data only; it does not create a chat, task,
 run, assignment, or agent session.
 
+## Authority boundary
+
+Project Assistant is a proposal author, not the project orchestrator. It can
+help set up a project, attach roots, draft work items, queue assignments, draft
+handoffs, and create memory candidates, but it does not own runtime execution
+or ongoing project supervision.
+
+The intended authority ladder is:
+
+| Layer             | Responsibility                                                                 |
+| ----------------- | ------------------------------------------------------------------------------ |
+| Operator          | Final authority. Reviews, applies, starts, cancels, and approves durable work. |
+| Project Assistant | Produces one bounded project-scoped proposal when asked.                       |
+| Planner           | Future layer that turns goals and project state into backlog/plan proposals.   |
+| Manager           | Future layer that monitors active work and proposes next actions or gates.     |
+| Orchestrator      | Executes approved coordination through tasks, agents, approvals, and events.   |
+
+Project Assistant may propose orchestration-shaped work, such as "create an
+implementation assignment, then create a QA assignment", but applying that
+proposal only creates durable project records. Starting assignments, waiting on
+approvals, routing handoffs, and coordinating multiple agents belong to the
+orchestrator after explicit operator action.
+
+Project Assistant is also distinct from any future personal assistant. Project
+Assistant is scoped to one project and its project stores. A personal assistant
+would be operator-scoped across projects and would need a separate privacy and
+permission model.
+
 ## Safety model
 
 - Project Assistant actions are typed and allowlisted.

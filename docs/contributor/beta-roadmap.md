@@ -46,8 +46,9 @@ is released in alpha tags only after it merges.
   patch review; Hecate Chat projections stay accurate and linked. One chat can
   have many historical segments but only one active task-backed loop.
 - **Project orchestration boundaries**: Projects coordinate roles,
-  assignments, handoffs, memory, and activity health; they do not become a
-  separate execution engine or hosted project-management system.
+  assignments, handoffs, memory, and activity health; Project Assistant drafts
+  bounded proposals; the orchestrator executes approved work. Projects do not
+  become a separate execution engine or hosted project-management system.
 - **Docs structure**: operator docs, runtime references, contributor docs,
   design records, and `docs-ai` guidance describe the same product and same
   caveats.
