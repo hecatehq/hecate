@@ -29,6 +29,7 @@ type RemoteState =
 const sectionOrder = [
   "profile",
   "instructions",
+  "skills",
   "memory",
   "sources",
   "project_work",
@@ -540,6 +541,8 @@ function humanSectionLabel(section: string): string {
       return "Profile";
     case "instructions":
       return "Instructions";
+    case "skills":
+      return "Skills";
     case "project":
       return "Project";
     case "project_work":
