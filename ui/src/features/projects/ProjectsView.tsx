@@ -5705,7 +5705,12 @@ function upsertProjectSkill(items: ProjectSkillRecord[], item: ProjectSkillRecor
   return next.sort((a, b) => {
     if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
     const rank = projectSkillStatusRank(a.status) - projectSkillStatusRank(b.status);
-    return rank || a.title.localeCompare(b.title) || a.path.localeCompare(b.path) || a.id.localeCompare(b.id);
+    return (
+      rank ||
+      a.title.localeCompare(b.title) ||
+      a.path.localeCompare(b.path) ||
+      a.id.localeCompare(b.id)
+    );
   });
 }
 

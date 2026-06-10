@@ -1060,7 +1060,9 @@ describe("ProjectsView index", () => {
     await openProjectWorkspaceTab(/Skills/);
     const workspace = screen.getByRole("region", { name: "Project workspace" });
     expect(within(workspace).getByText("Build backend changes.")).toBeTruthy();
-    await userEvent.click(within(workspace).getByRole("checkbox", { name: "Enable skill Backend" }));
+    await userEvent.click(
+      within(workspace).getByRole("checkbox", { name: "Enable skill Backend" }),
+    );
     await waitFor(() => {
       expect(updateProjectSkill).toHaveBeenCalledWith(project.id, "backend", { enabled: false });
     });
