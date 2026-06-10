@@ -104,9 +104,11 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   `unknown` until the provider reports richer metadata.
 - Workspace modes are available for task/project starts, and named agent
   profiles now have a core API, profile-management UI, project/role default
-  selection, and project-skill pickers. Profile-driven memory/source injection
-  is still beta-hardening work. Tools-on chat still uses the selected workspace
-  with the current chat runtime posture.
+  selection, project-skill pickers, and profile-driven assignment context-packet
+  memory/source activation. Prompt injection of project memory, source file
+  bodies, and Hecate-owned workspace instructions is still beta-hardening work.
+  Tools-on chat still uses the selected workspace with the current chat runtime
+  posture.
 - Tasks remains canonical for full run history, retry/resume, artifacts, and
   patch review. Chats projects the high-signal run activity and approval
   controls, but it is not a replacement for every Task Detail inspection flow.

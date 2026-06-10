@@ -8,9 +8,9 @@
 > [Agent memory](agent-memory.md), [Projects](../accepted/projects.md), and
 > [Runtime API](../../runtime/runtime-api.md) for today's context-packet,
 > memory, project, and task behavior.
-> **Next action:** add compatibility warnings, profile-driven memory/source
-> activation, and explicit source-content injection policy. Remote skill
-> install and skill execution remain separate later slices.
+> **Next action:** add compatibility warnings, profile-driven prompt/source
+> content injection policy, and broader chat/external-agent profile selection.
+> Remote skill install and skill execution remain separate later slices.
 
 Hecate needs a clean vocabulary for several things that are easy to blur:
 workspace `AGENTS.md` files, other Markdown instruction files, reusable
@@ -392,6 +392,8 @@ Recommended sequence:
    - `skill_ids` resolve against the project skills registry during project
      work starts.
    - Context packet fields for resolved profile metadata.
+   - Implemented: profile memory/source policies drive project-assignment
+     context packet active / visible-only / omitted state.
 
 2. **Workspace Instructions V1 Core** — partially implemented.
    - Discover `AGENTS.md` and nested `AGENTS.md` under project workspace roots.
