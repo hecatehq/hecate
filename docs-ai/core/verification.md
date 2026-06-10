@@ -28,6 +28,12 @@ neighboring unit tests, integration tests for crossed seams, UI view tests, and
 e2e tests for real-binary behavior. Run the relevant set locally first; if a
 test cannot be run, say which one and why in the PR/update summary.
 
+Also explicitly check documentation before changing PR state. If behavior,
+operator workflow, public API, runtime events, configuration, agent guidance, or
+architecture shape changed, update the relevant user docs, AI guidance, runtime
+reference, and related Mermaid diagrams in the same change. If no docs need to
+change, say that in the PR/update summary instead of leaving it implicit.
+
 Written production code needs automated coverage in the same change. New
 behavior gets a new test, bug fixes get a regression test, and refactors keep
 the existing behavior tests passing before and after the reshape. If automated

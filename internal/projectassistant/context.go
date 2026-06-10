@@ -49,6 +49,7 @@ type ProjectContext struct {
 	Name                 string               `json:"name"`
 	Description          string               `json:"description,omitempty"`
 	Roots                []ProjectRootContext `json:"roots,omitempty"`
+	ContextSources       []ContextSource      `json:"context_sources,omitempty"`
 	DefaultRootID        string               `json:"default_root_id,omitempty"`
 	DefaultProvider      string               `json:"default_provider,omitempty"`
 	DefaultModel         string               `json:"default_model,omitempty"`
@@ -65,6 +66,21 @@ type ProjectRootContext struct {
 	GitRemote string `json:"git_remote,omitempty"`
 	GitBranch string `json:"git_branch,omitempty"`
 	Active    bool   `json:"active"`
+}
+
+type ContextSource struct {
+	ID             string            `json:"id"`
+	Kind           string            `json:"kind"`
+	Title          string            `json:"title,omitempty"`
+	Path           string            `json:"path"`
+	Enabled        bool              `json:"enabled"`
+	Format         string            `json:"format,omitempty"`
+	Scope          string            `json:"scope,omitempty"`
+	TrustLabel     string            `json:"trust_label,omitempty"`
+	SourceCategory string            `json:"source_category,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
 }
 
 type WorkItemContext struct {
@@ -370,6 +386,7 @@ func projectContext(project projects.Project) ProjectContext {
 		Name:                 project.Name,
 		Description:          project.Description,
 		Roots:                projectRootContexts(project.Roots),
+		ContextSources:       contextSources(project.ContextSources),
 		DefaultRootID:        project.DefaultRootID,
 		DefaultProvider:      project.DefaultProvider,
 		DefaultModel:         project.DefaultModel,
@@ -391,6 +408,38 @@ func projectRootContexts(items []projects.Root) []ProjectRootContext {
 			GitBranch: item.GitBranch,
 			Active:    item.Active,
 		})
+	}
+	return out
+}
+
+func contextSources(items []projects.ContextSource) []ContextSource {
+	out := make([]ContextSource, 0, len(items))
+	for _, item := range items {
+		out = append(out, ContextSource{
+			ID:             item.ID,
+			Kind:           item.Kind,
+			Title:          item.Title,
+			Path:           item.Path,
+			Enabled:        item.Enabled,
+			Format:         item.Format,
+			Scope:          item.Scope,
+			TrustLabel:     item.TrustLabel,
+			SourceCategory: item.SourceCategory,
+			Metadata:       cloneContextMetadata(item.Metadata),
+			CreatedAt:      item.CreatedAt,
+			UpdatedAt:      item.UpdatedAt,
+		})
+	}
+	return out
+}
+
+func cloneContextMetadata(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
 	}
 	return out
 }

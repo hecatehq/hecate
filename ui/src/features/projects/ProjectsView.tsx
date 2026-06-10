@@ -4973,8 +4973,8 @@ function projectAssistantDraftPayload(
     projectID,
     workItemID,
   );
-  if (form.draftMode === "model") {
-    payload.draft_mode = "model";
+  if (form.draftMode !== "deterministic") {
+    payload.draft_mode = form.draftMode;
   }
   return payload;
 }

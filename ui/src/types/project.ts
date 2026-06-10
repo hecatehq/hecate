@@ -124,6 +124,7 @@ export type ProjectAssistantContextProject = {
   name: string;
   description?: string;
   roots?: ProjectAssistantContextProjectRoot[];
+  context_sources?: ProjectContextSourceRecord[];
   default_root_id?: string;
   default_provider?: string;
   default_model?: string;
@@ -257,7 +258,7 @@ export type ProjectAssistantContextPayload = {
   driver_kind?: string;
 };
 
-export type ProjectAssistantDraftMode = "deterministic" | "model";
+export type ProjectAssistantDraftMode = "deterministic" | "model" | "bootstrap";
 
 export type ProjectAssistantDraftPayload = ProjectAssistantContextPayload & {
   draft_mode?: ProjectAssistantDraftMode;

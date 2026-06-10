@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -131,6 +132,264 @@ func TestService_DraftCreatesWorkItemProposalAcrossStores(t *testing.T) {
 				t.Fatalf("work item patch = %+v, want project/title/brief/owner role", patch)
 			}
 		})
+	}
+}
+
+func TestService_DraftBootstrapCreatesGuidanceAndSkillRoleProposalAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			root := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(root, ".hecate", "skills", "research"), 0o755); err != nil {
+				t.Fatalf("mkdir skill: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(root, ".hecate", "skills", "research", "SKILL.md"), []byte("# Research\n"), 0o644); err != nil {
+				t.Fatalf("write skill: %v", err)
+			}
+			project, err := fixture.projects.Create(ctx, projects.Project{
+				ID:   "proj_bootstrap",
+				Name: "Bootstrap Project",
+				Roots: []projects.Root{{
+					ID:     "root_bootstrap",
+					Path:   root,
+					Kind:   "git",
+					Active: true,
+				}},
+				ContextSources: []projects.ContextSource{{
+					ID:             "ctx_agents",
+					Kind:           "workspace_instruction",
+					Title:          "AGENTS.md",
+					Path:           "AGENTS.md",
+					Enabled:        true,
+					Format:         "agents_md",
+					Scope:          "workspace",
+					TrustLabel:     "workspace_guidance",
+					SourceCategory: "workspace_guidance",
+					Metadata:       map[string]string{"root_id": "root_bootstrap"},
+				}},
+			})
+			if err != nil {
+				t.Fatalf("Create project: %v", err)
+			}
+
+			proposal, err := fixture.service.Draft(ctx, DraftInput{
+				ProjectID: project.ID,
+				Request:   "Bootstrap project guidance",
+				DraftMode: DraftModeBootstrap,
+				TraceID:   "trace_bootstrap",
+			})
+			if err != nil {
+				t.Fatalf("Draft bootstrap: %v", err)
+			}
+			if proposal.TraceID != "trace_bootstrap" || !proposal.RequiresConfirmation {
+				t.Fatalf("proposal trace/confirmation = %q/%v, want trace and confirmation", proposal.TraceID, proposal.RequiresConfirmation)
+			}
+			if len(proposal.Actions) != 2 {
+				t.Fatalf("actions = %+v, want guidance candidate and skill role", proposal.Actions)
+			}
+			if proposal.Actions[0].Kind != ActionCreateMemoryCandidate || proposal.Actions[1].Kind != ActionCreateRole {
+				t.Fatalf("action kinds = %s/%s, want memory candidate then role", proposal.Actions[0].Kind, proposal.Actions[1].Kind)
+			}
+			var memoryPatch memoryCandidatePatch
+			if err := json.Unmarshal(proposal.Actions[0].Patch, &memoryPatch); err != nil {
+				t.Fatalf("decode memory patch: %v", err)
+			}
+			if memoryPatch.SuggestedSourceKind != "context_source" || memoryPatch.SuggestedSourceID != "ctx_agents" || memoryPatch.SuggestedTrustLabel != "workspace_guidance" {
+				t.Fatalf("memory patch = %+v, want context-source provenance", memoryPatch)
+			}
+			if !strings.Contains(memoryPatch.Body, "provenance only") {
+				t.Fatalf("memory body = %q, want provenance-only warning", memoryPatch.Body)
+			}
+			var rolePatch rolePatch
+			if err := json.Unmarshal(proposal.Actions[1].Patch, &rolePatch); err != nil {
+				t.Fatalf("decode role patch: %v", err)
+			}
+			if rolePatch.ID != "skill_research" || rolePatch.Name != "Research" || rolePatch.DefaultDriverKind != projectwork.AssignmentDriverHecateTask {
+				t.Fatalf("role patch = %+v, want skill-derived role", rolePatch)
+			}
+
+			result, err := fixture.service.Apply(ctx, proposal, true)
+			if err != nil {
+				t.Fatalf("Apply bootstrap: %v", err)
+			}
+			if !result.Applied || len(result.Actions) != 2 {
+				t.Fatalf("apply result = %+v, want two applied actions", result)
+			}
+			candidates, err := fixture.memoryCandidates.ListCandidates(ctx, memory.CandidateFilter{
+				ProjectID: project.ID,
+				Status:    memory.CandidateStatusPending,
+			})
+			if err != nil {
+				t.Fatalf("ListCandidates: %v", err)
+			}
+			if len(candidates) != 1 || candidates[0].SuggestedSourceKind != "context_source" || candidates[0].SuggestedSourceID != "ctx_agents" {
+				t.Fatalf("candidates = %+v, want context-source memory candidate", candidates)
+			}
+			roles, err := fixture.work.ListRoles(ctx, project.ID)
+			if err != nil {
+				t.Fatalf("ListRoles: %v", err)
+			}
+			if !contextRoleExists(roleContexts(roles), "skill_research") {
+				t.Fatalf("roles = %+v, want skill_research custom role", roles)
+			}
+		})
+	}
+}
+
+func TestService_DraftBootstrapIgnoresRepoSpecificDocsAISkills(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs-ai", "skills", "research"), 0o755); err != nil {
+		t.Fatalf("mkdir docs-ai skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs-ai", "skills", "research", "SKILL.md"), []byte("# Research\n"), 0o644); err != nil {
+		t.Fatalf("write docs-ai skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Instructions\n\nNo skill registry is declared here.\n"), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	project, err := fixture.projects.Create(ctx, projects.Project{
+		ID:   "proj_docs_ai_bootstrap",
+		Name: "Docs AI Bootstrap",
+		Roots: []projects.Root{{
+			ID:     "root_docs_ai",
+			Path:   root,
+			Kind:   "git",
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{{
+			ID:             "ctx_docs_ai_agents",
+			Kind:           "workspace_instruction",
+			Title:          "AGENTS.md",
+			Path:           "AGENTS.md",
+			Enabled:        true,
+			Format:         "agents_md",
+			Scope:          "workspace",
+			TrustLabel:     "workspace_guidance",
+			SourceCategory: "workspace_guidance",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	proposal, err := fixture.service.Draft(ctx, DraftInput{
+		ProjectID: project.ID,
+		Request:   "Bootstrap project guidance",
+		DraftMode: DraftModeBootstrap,
+	})
+	if err != nil {
+		t.Fatalf("Draft bootstrap: %v", err)
+	}
+	for _, action := range proposal.Actions {
+		if action.Kind == ActionCreateRole {
+			t.Fatalf("actions = %+v, want docs-ai skills ignored for generic bootstrap", proposal.Actions)
+		}
+	}
+}
+
+func TestService_DraftBootstrapDiscoversSkillDirsFromGuidanceReferences(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs-ai", "skills", "research"), 0o755); err != nil {
+		t.Fatalf("mkdir docs-ai skill: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "claude-skills", "review"), 0o755); err != nil {
+		t.Fatalf("mkdir review claude skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs-ai", "skills", "research", "SKILL.md"), []byte("# Research\n"), 0o644); err != nil {
+		t.Fatalf("write docs-ai skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "claude-skills", "review", "SKILL.md"), []byte("# Review\n"), 0o644); err != nil {
+		t.Fatalf("write review claude skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("Canonical skill registry: [`docs-ai/skills/README.md`](docs-ai/skills/README.md).\nUse [`docs-ai/skills/research/SKILL.md`](docs-ai/skills/research/SKILL.md).\n"), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("Claude-compatible entrypoint. Use [`claude-skills/review/SKILL.md`](claude-skills/review/SKILL.md).\n"), 0o644); err != nil {
+		t.Fatalf("write CLAUDE.md: %v", err)
+	}
+	project, err := fixture.projects.Create(ctx, projects.Project{
+		ID:   "proj_guidance_skill_refs",
+		Name: "Guidance Skill Refs",
+		Roots: []projects.Root{{
+			ID:     "root_guidance_skill_refs",
+			Path:   root,
+			Kind:   "git",
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{
+			{
+				ID:             "ctx_guidance_agents",
+				Kind:           "workspace_instruction",
+				Title:          "AGENTS.md",
+				Path:           "AGENTS.md",
+				Enabled:        true,
+				Format:         "agents_md",
+				Scope:          "workspace",
+				TrustLabel:     "workspace_guidance",
+				SourceCategory: "workspace_guidance",
+				Metadata:       map[string]string{"root_id": "root_guidance_skill_refs"},
+			},
+			{
+				ID:             "ctx_guidance_claude",
+				Kind:           "host_instruction",
+				Title:          "CLAUDE.md",
+				Path:           "CLAUDE.md",
+				Enabled:        true,
+				Format:         "claude_md",
+				Scope:          "workspace",
+				TrustLabel:     "workspace_guidance",
+				SourceCategory: "workspace_guidance",
+				Metadata:       map[string]string{"root_id": "root_guidance_skill_refs", "host": "claude"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	proposal, err := fixture.service.Draft(ctx, DraftInput{
+		ProjectID: project.ID,
+		Request:   "Bootstrap project guidance",
+		DraftMode: DraftModeBootstrap,
+	})
+	if err != nil {
+		t.Fatalf("Draft bootstrap: %v", err)
+	}
+	found := map[string]bool{}
+	for _, action := range proposal.Actions {
+		if action.Kind != ActionCreateRole {
+			continue
+		}
+		var patch rolePatch
+		if err := json.Unmarshal(action.Patch, &patch); err != nil {
+			t.Fatalf("decode role patch: %v", err)
+		}
+		switch patch.ID {
+		case "skill_research":
+			found[patch.ID] = true
+			if !strings.Contains(patch.Instructions, "docs-ai/skills/research/SKILL.md") {
+				t.Fatalf("role instructions = %q, want guidance-derived skill path", patch.Instructions)
+			}
+		case "skill_review":
+			found[patch.ID] = true
+			if !strings.Contains(patch.Instructions, "claude-skills/review/SKILL.md") {
+				t.Fatalf("role instructions = %q, want Claude guidance-derived skill path", patch.Instructions)
+			}
+		}
+	}
+	for _, id := range []string{"skill_research", "skill_review"} {
+		if !found[id] {
+			t.Fatalf("actions = %+v, want role %s from guidance skill reference", proposal.Actions, id)
+		}
 	}
 }
 

@@ -16,7 +16,7 @@ export type ProjectAssistantDraftForm = {
   request: string;
   roleID: string;
   driverKind: string;
-  draftMode: "deterministic" | "model";
+  draftMode: "deterministic" | "model" | "bootstrap";
 };
 
 export type ProjectAssistantStatus = "idle" | "proposing" | "applying" | "applied";
@@ -119,14 +119,12 @@ export function ProjectAssistantPanel({
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
-                    draftMode:
-                      event.target.value === "model" && modelDraftAvailable
-                        ? "model"
-                        : "deterministic",
+                    draftMode: projectAssistantDraftMode(event.target.value, modelDraftAvailable),
                   }))
                 }
               >
                 <option value="deterministic">Rules</option>
+                <option value="bootstrap">Bootstrap</option>
                 <option value="model" disabled={!modelDraftAvailable}>
                   Assistant{modelDraftAvailable ? "" : " (set model)"}
                 </option>
@@ -283,6 +281,10 @@ function ProjectAssistantContextPanel({ context }: { context: ProjectAssistantCo
           <ProjectAssistantContextStat label="Selected work" value={context.selected_work?.title} />
           <ProjectAssistantContextStat label="Roles" value={String(context.roles.length)} />
           <ProjectAssistantContextStat
+            label="Sources"
+            value={String(context.project.context_sources?.length ?? 0)}
+          />
+          <ProjectAssistantContextStat
             label="Assignments"
             value={String(context.assignments?.length ?? 0)}
           />
@@ -398,6 +400,15 @@ function projectAssistantDraftForm(
   };
 }
 
+function projectAssistantDraftMode(
+  value: string,
+  modelDraftAvailable: boolean,
+): ProjectAssistantDraftForm["draftMode"] {
+  if (value === "bootstrap") return "bootstrap";
+  if (value === "model" && modelDraftAvailable) return "model";
+  return "deterministic";
+}
+
 function projectAssistantAutoRole(
   workItem: ProjectWorkItemRecord | null,
   roles: ProjectWorkRoleRecord[],
@@ -435,6 +446,8 @@ function projectAssistantActionLabel(kind: string): string {
       return "Set defaults";
     case "move_chat_session":
       return "Move chat";
+    case "create_role":
+      return "Create role";
     case "create_work_item":
       return "Create work item";
     case "update_work_item":
