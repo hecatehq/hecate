@@ -15,6 +15,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/storage"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type assistantFixture struct {
@@ -29,6 +30,24 @@ type assistantFixture struct {
 type assistantFixtureBuilder struct {
 	name  string
 	build func(t *testing.T) assistantFixture
+}
+
+type fakeAssistantLLM struct {
+	response string
+	err      error
+	requests []types.ChatRequest
+}
+
+func (f *fakeAssistantLLM) Chat(_ context.Context, req types.ChatRequest) (*types.ChatResponse, error) {
+	f.requests = append(f.requests, req)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &types.ChatResponse{
+		Choices: []types.ChatChoice{{
+			Message: types.Message{Role: "assistant", Content: f.response},
+		}},
+	}, nil
 }
 
 func TestService_ProposeRejectsUnknownActionKind(t *testing.T) {
@@ -342,6 +361,222 @@ func TestService_DraftUsesContextSelection(t *testing.T) {
 	patch := rawPatchMap(t, proposal.Actions[0].Patch)
 	if patch["role_id"] != role.ID || patch["driver_kind"] != projectwork.AssignmentDriverExternalAgent {
 		t.Fatalf("patch = %+v, want context-selected owner role and role default driver", patch)
+	}
+}
+
+func TestService_DraftModelUsesLLMProposal(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	project := createTestProject(t, ctx, fixture.projects)
+	if _, err := fixture.projects.Update(ctx, project.ID, func(project *projects.Project) {
+		project.DefaultProvider = "ollama"
+		project.DefaultModel = "llama3.1:8b"
+	}); err != nil {
+		t.Fatalf("set project defaults: %v", err)
+	}
+	role, err := fixture.work.CreateRole(ctx, projectwork.AgentRoleProfile{
+		ID:                "planner",
+		ProjectID:         project.ID,
+		Name:              "Planning Lead",
+		DefaultDriverKind: projectwork.AssignmentDriverExternalAgent,
+	})
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:          "work_model",
+		ProjectID:   project.ID,
+		Title:       "Model-backed draft",
+		Status:      projectwork.WorkItemStatusReady,
+		OwnerRoleID: role.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	llm := &fakeAssistantLLM{
+		response: `{
+			"title": "Queue planning review",
+			"summary": "Queue the selected role for the selected work item.",
+			"actions": [{
+				"kind": "create_assignment",
+				"target": {"project_id": "proj_alpha"},
+				"patch": {
+					"project_id": "proj_alpha",
+					"work_item_id": "work_model",
+					"role_id": "planner",
+					"driver_kind": "external_agent",
+					"status": "queued"
+				},
+				"reason": "Queue reviewable work without starting execution."
+			}]
+		}`,
+	}
+	fixture.service.llm = llm
+
+	proposal, err := fixture.service.Draft(ctx, DraftInput{
+		ProjectID:  project.ID,
+		WorkItemID: workItem.ID,
+		Request:    "Queue planning review",
+		DraftMode:  DraftModeModel,
+		Provider:   "openai",
+		Model:      "gpt-test",
+		RequestID:  "req_model_draft",
+		TraceID:    "trace_model_draft",
+	})
+	if err != nil {
+		t.Fatalf("Draft model: %v", err)
+	}
+	if proposal.Title != "Queue planning review" || proposal.TraceID != "trace_model_draft" {
+		t.Fatalf("proposal title/trace = %q/%q, want model title and trace", proposal.Title, proposal.TraceID)
+	}
+	if len(proposal.Actions) != 1 || proposal.Actions[0].Kind != ActionCreateAssignment {
+		t.Fatalf("actions = %+v, want model create_assignment", proposal.Actions)
+	}
+	if len(llm.requests) != 1 {
+		t.Fatalf("llm requests = %d, want one", len(llm.requests))
+	}
+	req := llm.requests[0]
+	if req.RequestID != "req_model_draft" || req.Model != "gpt-test" || req.Scope.ProviderHint != "openai" {
+		t.Fatalf("llm request = %+v, want explicit request/model/provider", req)
+	}
+	if !strings.Contains(string(req.ResponseFormat), "json_object") || len(req.Messages) != 2 {
+		t.Fatalf("llm response format/messages = %s/%d, want json object and system+user", string(req.ResponseFormat), len(req.Messages))
+	}
+	if !strings.Contains(req.Messages[1].Content, `"selected_work"`) || !strings.Contains(req.Messages[1].Content, `"selection"`) {
+		t.Fatalf("llm prompt = %q, want selected work and selection context", req.Messages[1].Content)
+	}
+}
+
+func TestService_DraftModelRejectsMissingModel(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	project := createTestProject(t, ctx, fixture.projects)
+	llm := &fakeAssistantLLM{response: `{}`}
+	fixture.service.llm = llm
+
+	_, err := fixture.service.Draft(ctx, DraftInput{
+		ProjectID: project.ID,
+		Request:   "Draft with no configured model",
+		DraftMode: DraftModeModel,
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Draft err = %v, want ErrInvalid", err)
+	}
+	if len(llm.requests) != 0 {
+		t.Fatalf("llm requests = %d, want none when model is missing", len(llm.requests))
+	}
+}
+
+func TestService_DraftModelRejectsOutOfScopeActions(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cases := []struct {
+		name     string
+		response string
+	}{
+		{
+			name: "project action",
+			response: `{
+				"title": "Create project",
+				"actions": [{
+					"kind": "create_project",
+					"target": {"project_id": "proj_alpha"},
+					"patch": {"name": "Other project"}
+				}]
+			}`,
+		},
+		{
+			name: "wrong project",
+			response: `{
+				"title": "Create work elsewhere",
+				"actions": [{
+					"kind": "create_work_item",
+					"target": {"project_id": "proj_other"},
+					"patch": {"project_id": "proj_other", "title": "Elsewhere"}
+				}]
+			}`,
+		},
+		{
+			name: "assignment binds run",
+			response: `{
+				"title": "Bind existing run",
+				"actions": [{
+					"kind": "create_assignment",
+					"target": {"project_id": "proj_alpha"},
+					"patch": {
+						"project_id": "proj_alpha",
+						"work_item_id": "work_model_guard",
+						"role_id": "planner",
+						"driver_kind": "hecate_task",
+						"status": "queued",
+						"run_id": "run_existing"
+					}
+				}]
+			}`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newMemoryAssistantFixture(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			if _, err := fixture.projects.Update(ctx, project.ID, func(project *projects.Project) {
+				project.DefaultModel = "llama3.1:8b"
+			}); err != nil {
+				t.Fatalf("set project defaults: %v", err)
+			}
+			role, err := fixture.work.CreateRole(ctx, projectwork.AgentRoleProfile{
+				ID:                "planner",
+				ProjectID:         project.ID,
+				Name:              "Planning Lead",
+				DefaultDriverKind: projectwork.AssignmentDriverHecateTask,
+			})
+			if err != nil {
+				t.Fatalf("CreateRole: %v", err)
+			}
+			workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+				ID:          "work_model_guard",
+				ProjectID:   project.ID,
+				Title:       "Guard model draft",
+				Status:      projectwork.WorkItemStatusReady,
+				OwnerRoleID: role.ID,
+			})
+			if err != nil {
+				t.Fatalf("CreateWorkItem: %v", err)
+			}
+			llm := &fakeAssistantLLM{response: tc.response}
+			fixture.service.llm = llm
+
+			_, err = fixture.service.Draft(ctx, DraftInput{
+				ProjectID:  project.ID,
+				WorkItemID: workItem.ID,
+				Request:    "Draft guarded action",
+				DraftMode:  DraftModeModel,
+			})
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Draft err = %v, want ErrInvalid", err)
+			}
+			if len(llm.requests) != 1 {
+				t.Fatalf("llm requests = %d, want one", len(llm.requests))
+			}
+		})
+	}
+}
+
+func TestDecodeModelDraftResponseExtractsWrappedJSON(t *testing.T) {
+	t.Parallel()
+	draft, err := decodeModelDraftResponse(&types.ChatResponse{
+		Choices: []types.ChatChoice{{
+			Message: types.Message{Role: "assistant", Content: "```json\n{\"proposal\":{\"title\":\"Wrapped\",\"actions\":[{\"kind\":\"create_work_item\",\"target\":{\"project_id\":\"proj_alpha\"},\"patch\":{\"project_id\":\"proj_alpha\",\"title\":\"Wrapped work\"}}]}}\n```"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("decodeModelDraftResponse: %v", err)
+	}
+	if draft.Title != "Wrapped" || len(draft.Actions) != 1 || draft.Actions[0].Kind != ActionCreateWorkItem {
+		t.Fatalf("draft = %+v, want wrapped create_work_item", draft)
 	}
 }
 
@@ -750,7 +985,6 @@ func TestService_ApplyCreatesProjectWorkRecords(t *testing.T) {
 							"work_item_id": "work_a",
 							"role_id":      "software_developer",
 							"driver_kind":  projectwork.AssignmentDriverHecateTask,
-							"task_id":      "task_a",
 						}),
 					},
 					{
@@ -790,6 +1024,78 @@ func TestService_ApplyCreatesProjectWorkRecords(t *testing.T) {
 			}
 			if len(handoffs) != 1 || handoffs[0].ID != "handoff_a" || handoffs[0].Status != projectwork.HandoffStatusPending {
 				t.Fatalf("handoffs = %+v, want pending handoff", handoffs)
+			}
+		})
+	}
+}
+
+func TestService_ApplyRejectsNonQueuedAssignmentProposal(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	cases := []struct {
+		name        string
+		patch       map[string]any
+		errContains string
+	}{
+		{
+			name: "execution link",
+			patch: map[string]any{
+				"status":  projectwork.AssignmentStatusQueued,
+				"task_id": "task_existing",
+			},
+			errContains: "cannot bind chats, tasks, runs",
+		},
+		{
+			name: "running status",
+			patch: map[string]any{
+				"status": projectwork.AssignmentStatusRunning,
+			},
+			errContains: "must create queued assignments",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newMemoryAssistantFixture(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			if _, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+				ID:        "work_execution_link",
+				ProjectID: project.ID,
+				Title:     "Reject assignment links",
+				Status:    projectwork.WorkItemStatusReady,
+			}); err != nil {
+				t.Fatalf("CreateWorkItem: %v", err)
+			}
+			patch := map[string]any{
+				"project_id":   project.ID,
+				"work_item_id": "work_execution_link",
+				"role_id":      "software_developer",
+				"driver_kind":  projectwork.AssignmentDriverHecateTask,
+			}
+			for key, value := range tc.patch {
+				patch[key] = value
+			}
+
+			_, err := fixture.service.Apply(ctx, Proposal{
+				ID:                   "pa_assignment_links_" + tc.name,
+				RequiresConfirmation: true,
+				Actions: []Action{{
+					Kind:  ActionCreateAssignment,
+					Patch: rawPatch(t, patch),
+				}},
+			}, true)
+			if !errors.Is(err, ErrInvalid) {
+				t.Fatalf("Apply err = %v, want ErrInvalid", err)
+			}
+			if !strings.Contains(err.Error(), tc.errContains) {
+				t.Fatalf("Apply err = %v, want %q", err, tc.errContains)
+			}
+			assignments, err := fixture.work.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: project.ID})
+			if err != nil {
+				t.Fatalf("ListAssignments: %v", err)
+			}
+			if len(assignments) != 0 {
+				t.Fatalf("assignments = %+v, want none after rejected proposal", assignments)
 			}
 		})
 	}

@@ -257,7 +257,13 @@ export type ProjectAssistantContextPayload = {
   driver_kind?: string;
 };
 
-export type ProjectAssistantDraftPayload = ProjectAssistantContextPayload;
+export type ProjectAssistantDraftMode = "deterministic" | "model";
+
+export type ProjectAssistantDraftPayload = ProjectAssistantContextPayload & {
+  draft_mode?: ProjectAssistantDraftMode;
+  provider?: string;
+  model?: string;
+};
 
 export type ProjectAssistantApplyPayload = {
   proposal: ProjectAssistantProposal;
