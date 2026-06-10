@@ -103,12 +103,23 @@ Builds the same project-scoped context packet and role/driver selection that
 use this endpoint to show what `Auto` resolved to before asking the server to
 draft a proposal.
 
-The context packet is deliberately bounded. It includes project defaults and
-roots, the selected work item when present, loaded project roles, recent
-assignments, accepted project memory, pending memory candidates, recent
-activity, and a `selection` block explaining the chosen role and driver.
-The response below is abbreviated; timestamp fields are included in the live
-API response.
+The v0 context packet is item-limited and body-budgeted. It includes project
+defaults and roots, the selected work item when present, loaded project roles,
+recent assignments, accepted project memory, pending memory candidates, recent
+activity, and a `selection` block explaining the chosen role and driver. Memory
+and candidate `body` fields are truncated at per-body byte limits and carry
+`body_original_bytes`, `body_returned_bytes`, `body_tokens_estimate`, and
+`body_truncated` metadata. The top-level `budget` block summarizes the active
+limits and total returned body size.
+
+The token estimate is intentionally cheap and model-independent; provider
+tokenizers remain authoritative when a real LLM-backed Project Assistant
+consumer exists. Candidate bodies are lower-trust by construction, especially
+generated-summary candidates. Future prompt assembly must preserve that trust
+labeling instead of treating candidate bodies as accepted project memory.
+
+The response below is abbreviated; timestamp fields are included in the live API
+response.
 
 ```json
 POST /hecate/v1/project-assistant/context
@@ -145,6 +156,14 @@ POST /hecate/v1/project-assistant/context
     "memory": [],
     "memory_candidates": [],
     "recent_activity": [],
+    "budget": {
+      "memory_body_max_bytes": 4096,
+      "memory_candidate_body_max_bytes": 2048,
+      "body_original_bytes": 0,
+      "body_returned_bytes": 0,
+      "body_tokens_estimate": 0,
+      "body_truncated_count": 0
+    },
     "selection": {
       "role_id": "product_manager",
       "role_name": "Product Manager",

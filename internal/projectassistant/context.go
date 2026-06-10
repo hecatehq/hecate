@@ -13,10 +13,13 @@ import (
 )
 
 const (
-	contextAssignmentLimit      = 12
-	contextMemoryLimit          = 12
-	contextMemoryCandidateLimit = 12
-	contextActivityLimit        = 16
+	contextAssignmentLimit       = 12
+	contextMemoryLimit           = 12
+	contextMemoryCandidateLimit  = 12
+	contextActivityLimit         = 16
+	contextMemoryBodyMaxBytes    = 4096
+	contextCandidateBodyMaxBytes = 2048
+	contextTruncatedSuffix       = "\n...[truncated]"
 )
 
 type DraftContext struct {
@@ -28,7 +31,17 @@ type DraftContext struct {
 	Memory           []MemoryContext          `json:"memory,omitempty"`
 	MemoryCandidates []MemoryCandidateContext `json:"memory_candidates,omitempty"`
 	RecentActivity   []ActivityContext        `json:"recent_activity,omitempty"`
+	Budget           ContextBudget            `json:"budget"`
 	Selection        DraftSelection           `json:"selection"`
+}
+
+type ContextBudget struct {
+	MemoryBodyMaxBytes          int `json:"memory_body_max_bytes"`
+	MemoryCandidateBodyMaxBytes int `json:"memory_candidate_body_max_bytes"`
+	BodyOriginalBytes           int `json:"body_original_bytes"`
+	BodyReturnedBytes           int `json:"body_returned_bytes"`
+	BodyTokensEstimate          int `json:"body_tokens_estimate"`
+	BodyTruncatedCount          int `json:"body_truncated_count"`
 }
 
 type ProjectContext struct {
@@ -97,21 +110,29 @@ type AssignmentContext struct {
 }
 
 type MemoryContext struct {
-	ID         string    `json:"id"`
-	Title      string    `json:"title"`
-	Body       string    `json:"body"`
-	TrustLabel string    `json:"trust_label"`
-	SourceKind string    `json:"source_kind"`
-	SourceID   string    `json:"source_id,omitempty"`
-	Enabled    bool      `json:"enabled"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Title              string    `json:"title"`
+	Body               string    `json:"body"`
+	BodyOriginalBytes  int       `json:"body_original_bytes"`
+	BodyReturnedBytes  int       `json:"body_returned_bytes"`
+	BodyTokensEstimate int       `json:"body_tokens_estimate"`
+	BodyTruncated      bool      `json:"body_truncated"`
+	TrustLabel         string    `json:"trust_label"`
+	SourceKind         string    `json:"source_kind"`
+	SourceID           string    `json:"source_id,omitempty"`
+	Enabled            bool      `json:"enabled"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type MemoryCandidateContext struct {
 	ID                  string                      `json:"id"`
 	Title               string                      `json:"title"`
 	Body                string                      `json:"body"`
+	BodyOriginalBytes   int                         `json:"body_original_bytes"`
+	BodyReturnedBytes   int                         `json:"body_returned_bytes"`
+	BodyTokensEstimate  int                         `json:"body_tokens_estimate"`
+	BodyTruncated       bool                        `json:"body_truncated"`
 	SuggestedKind       string                      `json:"suggested_kind,omitempty"`
 	SuggestedTrustLabel string                      `json:"suggested_trust_label,omitempty"`
 	SuggestedSourceKind string                      `json:"suggested_source_kind,omitempty"`
@@ -192,6 +213,7 @@ func (s *Service) Context(ctx context.Context, input ContextInput) (DraftContext
 		Memory:           memoryItems,
 		MemoryCandidates: candidates,
 		RecentActivity:   recentActivity(workItem, assignments, memoryItems, candidates),
+		Budget:           contextBudget(memoryItems, candidates),
 		Selection:        selection,
 	}, nil
 }
@@ -434,24 +456,34 @@ func assignmentContext(item projectwork.Assignment) AssignmentContext {
 }
 
 func memoryContext(item memory.Entry) MemoryContext {
+	body := budgetedBody(item.Body, contextMemoryBodyMaxBytes)
 	return MemoryContext{
-		ID:         item.ID,
-		Title:      item.Title,
-		Body:       item.Body,
-		TrustLabel: item.TrustLabel,
-		SourceKind: item.SourceKind,
-		SourceID:   item.SourceID,
-		Enabled:    item.Enabled,
-		CreatedAt:  item.CreatedAt,
-		UpdatedAt:  item.UpdatedAt,
+		ID:                 item.ID,
+		Title:              item.Title,
+		Body:               body.Text,
+		BodyOriginalBytes:  body.OriginalBytes,
+		BodyReturnedBytes:  body.ReturnedBytes,
+		BodyTokensEstimate: body.TokensEstimate,
+		BodyTruncated:      body.Truncated,
+		TrustLabel:         item.TrustLabel,
+		SourceKind:         item.SourceKind,
+		SourceID:           item.SourceID,
+		Enabled:            item.Enabled,
+		CreatedAt:          item.CreatedAt,
+		UpdatedAt:          item.UpdatedAt,
 	}
 }
 
 func memoryCandidateContext(item memory.Candidate) MemoryCandidateContext {
+	body := budgetedBody(item.Body, contextCandidateBodyMaxBytes)
 	return MemoryCandidateContext{
 		ID:                  item.ID,
 		Title:               item.Title,
-		Body:                item.Body,
+		Body:                body.Text,
+		BodyOriginalBytes:   body.OriginalBytes,
+		BodyReturnedBytes:   body.ReturnedBytes,
+		BodyTokensEstimate:  body.TokensEstimate,
+		BodyTruncated:       body.Truncated,
 		SuggestedKind:       item.SuggestedKind,
 		SuggestedTrustLabel: item.SuggestedTrustLabel,
 		SuggestedSourceKind: item.SuggestedSourceKind,
@@ -486,6 +518,96 @@ func recentActivity(workItem *projectwork.WorkItem, assignments []AssignmentCont
 		out = out[:contextActivityLimit]
 	}
 	return out
+}
+
+type contextBodyBudget struct {
+	Text           string
+	OriginalBytes  int
+	ReturnedBytes  int
+	TokensEstimate int
+	Truncated      bool
+}
+
+func budgetedBody(body string, maxBytes int) contextBodyBudget {
+	body = strings.TrimSpace(body)
+	originalBytes := len(body)
+	if originalBytes == 0 {
+		return contextBodyBudget{}
+	}
+	if maxBytes <= 0 {
+		return contextBodyBudget{
+			OriginalBytes:  originalBytes,
+			TokensEstimate: estimateTokensFromBytes(originalBytes),
+			Truncated:      true,
+		}
+	}
+	out := body
+	truncated := false
+	if len(out) > maxBytes {
+		truncated = true
+		if maxBytes <= len(contextTruncatedSuffix) {
+			out = contextTruncatedSuffix[:maxBytes]
+		} else {
+			end := truncateStringByteIndex(out, maxBytes-len(contextTruncatedSuffix))
+			out = strings.TrimRight(out[:end], "\r\n\t ") + contextTruncatedSuffix
+			if len(out) > maxBytes {
+				end = truncateStringByteIndex(out, maxBytes-len(contextTruncatedSuffix))
+				out = out[:end] + contextTruncatedSuffix
+			}
+		}
+	}
+	return contextBodyBudget{
+		Text:           out,
+		OriginalBytes:  originalBytes,
+		ReturnedBytes:  len(out),
+		TokensEstimate: estimateTokensFromBytes(len(out)),
+		Truncated:      truncated,
+	}
+}
+
+func contextBudget(memoryItems []MemoryContext, candidates []MemoryCandidateContext) ContextBudget {
+	budget := ContextBudget{
+		MemoryBodyMaxBytes:          contextMemoryBodyMaxBytes,
+		MemoryCandidateBodyMaxBytes: contextCandidateBodyMaxBytes,
+	}
+	for _, item := range memoryItems {
+		budget.BodyOriginalBytes += item.BodyOriginalBytes
+		budget.BodyReturnedBytes += item.BodyReturnedBytes
+		budget.BodyTokensEstimate += item.BodyTokensEstimate
+		if item.BodyTruncated {
+			budget.BodyTruncatedCount++
+		}
+	}
+	for _, item := range candidates {
+		budget.BodyOriginalBytes += item.BodyOriginalBytes
+		budget.BodyReturnedBytes += item.BodyReturnedBytes
+		budget.BodyTokensEstimate += item.BodyTokensEstimate
+		if item.BodyTruncated {
+			budget.BodyTruncatedCount++
+		}
+	}
+	return budget
+}
+
+func estimateTokensFromBytes(size int) int {
+	if size <= 0 {
+		return 0
+	}
+	return (size + 3) / 4
+}
+
+func truncateStringByteIndex(content string, maxBytes int) int {
+	if len(content) <= maxBytes {
+		return len(content)
+	}
+	end := 0
+	for index := range content {
+		if index > maxBytes {
+			break
+		}
+		end = index
+	}
+	return end
 }
 
 func roleDisplayName(role projectwork.AgentRoleProfile) string {

@@ -101,6 +101,15 @@ export type ProjectAssistantContextSelection = {
   reason: string;
 };
 
+export type ProjectAssistantContextBudget = {
+  memory_body_max_bytes: number;
+  memory_candidate_body_max_bytes: number;
+  body_original_bytes: number;
+  body_returned_bytes: number;
+  body_tokens_estimate: number;
+  body_truncated_count: number;
+};
+
 export type ProjectAssistantContextProjectRoot = {
   id: string;
   path: string;
@@ -170,6 +179,10 @@ export type ProjectAssistantContextMemory = {
   id: string;
   title: string;
   body: string;
+  body_original_bytes: number;
+  body_returned_bytes: number;
+  body_tokens_estimate: number;
+  body_truncated: boolean;
   trust_label: string;
   source_kind: string;
   source_id?: string;
@@ -182,6 +195,10 @@ export type ProjectAssistantContextMemoryCandidate = {
   id: string;
   title: string;
   body: string;
+  body_original_bytes: number;
+  body_returned_bytes: number;
+  body_tokens_estimate: number;
+  body_truncated: boolean;
   suggested_kind?: string;
   suggested_trust_label?: string;
   suggested_source_kind?: string;
@@ -216,6 +233,7 @@ export type ProjectAssistantContextRecord = {
   memory?: ProjectAssistantContextMemory[];
   memory_candidates?: ProjectAssistantContextMemoryCandidate[];
   recent_activity?: ProjectAssistantContextActivity[];
+  budget: ProjectAssistantContextBudget;
   selection: ProjectAssistantContextSelection;
 };
 

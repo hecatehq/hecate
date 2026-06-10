@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
@@ -235,6 +236,73 @@ func TestService_ContextRejectsMissingExplicitRole(t *testing.T) {
 	})
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Context err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestService_ContextBudgetsMemoryBodiesAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			memoryBody := strings.Repeat("é", contextMemoryBodyMaxBytes)
+			candidateBody := strings.Repeat("é", contextCandidateBodyMaxBytes)
+			if _, err := fixture.memoryEntries.Create(ctx, memory.Entry{
+				ID:         "mem_budget",
+				ProjectID:  project.ID,
+				Title:      "Large project memory",
+				Body:       memoryBody,
+				TrustLabel: memory.TrustLabelOperatorMemory,
+				SourceKind: memory.SourceKindOperator,
+				Enabled:    true,
+			}); err != nil {
+				t.Fatalf("Create memory: %v", err)
+			}
+			if _, err := fixture.memoryCandidates.CreateCandidate(ctx, memory.Candidate{
+				ID:                  "cand_budget",
+				ProjectID:           project.ID,
+				Title:               "Large candidate memory",
+				Body:                candidateBody,
+				SuggestedTrustLabel: memory.TrustLabelGenerated,
+				SuggestedSourceKind: memory.SourceKindGenerated,
+				Status:              memory.CandidateStatusPending,
+			}); err != nil {
+				t.Fatalf("CreateCandidate: %v", err)
+			}
+
+			packet, err := fixture.service.Context(ctx, ContextInput{
+				ProjectID: project.ID,
+				Request:   "Inspect budgeted context",
+			})
+			if err != nil {
+				t.Fatalf("Context: %v", err)
+			}
+			if len(packet.Memory) != 1 || len(packet.MemoryCandidates) != 1 {
+				t.Fatalf("memory/candidates = %+v/%+v, want one of each", packet.Memory, packet.MemoryCandidates)
+			}
+			gotMemory := packet.Memory[0]
+			if !gotMemory.BodyTruncated || len(gotMemory.Body) > contextMemoryBodyMaxBytes || !strings.HasSuffix(gotMemory.Body, contextTruncatedSuffix) || !utf8.ValidString(gotMemory.Body) {
+				t.Fatalf("memory body budget = len:%d truncated:%v suffix:%v valid:%v", len(gotMemory.Body), gotMemory.BodyTruncated, strings.HasSuffix(gotMemory.Body, contextTruncatedSuffix), utf8.ValidString(gotMemory.Body))
+			}
+			if gotMemory.BodyOriginalBytes != len(memoryBody) || gotMemory.BodyReturnedBytes != len(gotMemory.Body) || gotMemory.BodyTokensEstimate != estimateTokensFromBytes(len(gotMemory.Body)) {
+				t.Fatalf("memory budget metadata = %+v, want original/returned bytes and token estimate", gotMemory)
+			}
+			gotCandidate := packet.MemoryCandidates[0]
+			if !gotCandidate.BodyTruncated || len(gotCandidate.Body) > contextCandidateBodyMaxBytes || !strings.HasSuffix(gotCandidate.Body, contextTruncatedSuffix) || !utf8.ValidString(gotCandidate.Body) {
+				t.Fatalf("candidate body budget = len:%d truncated:%v suffix:%v valid:%v", len(gotCandidate.Body), gotCandidate.BodyTruncated, strings.HasSuffix(gotCandidate.Body, contextTruncatedSuffix), utf8.ValidString(gotCandidate.Body))
+			}
+			if gotCandidate.BodyOriginalBytes != len(candidateBody) || gotCandidate.BodyReturnedBytes != len(gotCandidate.Body) || gotCandidate.BodyTokensEstimate != estimateTokensFromBytes(len(gotCandidate.Body)) {
+				t.Fatalf("candidate budget metadata = %+v, want original/returned bytes and token estimate", gotCandidate)
+			}
+			if packet.Budget.MemoryBodyMaxBytes != contextMemoryBodyMaxBytes || packet.Budget.MemoryCandidateBodyMaxBytes != contextCandidateBodyMaxBytes || packet.Budget.BodyTruncatedCount != 2 {
+				t.Fatalf("context budget = %+v, want byte limits and two truncated bodies", packet.Budget)
+			}
+			if packet.Budget.BodyOriginalBytes != gotMemory.BodyOriginalBytes+gotCandidate.BodyOriginalBytes || packet.Budget.BodyReturnedBytes != gotMemory.BodyReturnedBytes+gotCandidate.BodyReturnedBytes || packet.Budget.BodyTokensEstimate != gotMemory.BodyTokensEstimate+gotCandidate.BodyTokensEstimate {
+				t.Fatalf("context budget totals = %+v, want memory + candidate totals", packet.Budget)
+			}
+		})
 	}
 }
 

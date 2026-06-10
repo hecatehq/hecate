@@ -151,6 +151,14 @@ vi.mock("../../lib/api", async (importOriginal) => {
         memory: [],
         memory_candidates: [],
         recent_activity: [],
+        budget: {
+          memory_body_max_bytes: 4096,
+          memory_candidate_body_max_bytes: 2048,
+          body_original_bytes: 0,
+          body_returned_bytes: 0,
+          body_tokens_estimate: 0,
+          body_truncated_count: 0,
+        },
         selection: {
           role_id: "software_developer",
           role_name: "Software developer",
@@ -525,8 +533,44 @@ function resetProjectWorkMocks() {
         },
       ],
       assignments: [hecateAssignment],
-      memory: [memoryEntry],
-      memory_candidates: [memoryCandidate],
+      memory: [
+        {
+          id: memoryEntry.id,
+          title: memoryEntry.title,
+          body: memoryEntry.body,
+          body_original_bytes: memoryEntry.body.length,
+          body_returned_bytes: memoryEntry.body.length,
+          body_tokens_estimate: Math.ceil(memoryEntry.body.length / 4),
+          body_truncated: false,
+          trust_label: memoryEntry.trust_label,
+          source_kind: memoryEntry.source_kind,
+          source_id: memoryEntry.source_id,
+          enabled: memoryEntry.enabled,
+          created_at: memoryEntry.created_at,
+          updated_at: memoryEntry.updated_at,
+        },
+      ],
+      memory_candidates: [
+        {
+          id: memoryCandidate.id,
+          title: memoryCandidate.title,
+          body: memoryCandidate.body,
+          body_original_bytes: memoryCandidate.body.length,
+          body_returned_bytes: memoryCandidate.body.length,
+          body_tokens_estimate: Math.ceil(memoryCandidate.body.length / 4),
+          body_truncated: false,
+          suggested_kind: memoryCandidate.suggested_kind,
+          suggested_trust_label: memoryCandidate.suggested_trust_label,
+          suggested_source_kind: memoryCandidate.suggested_source_kind,
+          suggested_source_id: memoryCandidate.suggested_source_id,
+          source_refs: memoryCandidate.source_refs,
+          status: memoryCandidate.status,
+          status_reason: memoryCandidate.status_reason,
+          promoted_memory_id: memoryCandidate.promoted_memory_id,
+          created_at: memoryCandidate.created_at,
+          updated_at: memoryCandidate.updated_at,
+        },
+      ],
       recent_activity: [
         {
           kind: "selected_work",
@@ -536,6 +580,15 @@ function resetProjectWorkMocks() {
           updated_at: workItem.updated_at,
         },
       ],
+      budget: {
+        memory_body_max_bytes: 4096,
+        memory_candidate_body_max_bytes: 2048,
+        body_original_bytes: memoryEntry.body.length + memoryCandidate.body.length,
+        body_returned_bytes: memoryEntry.body.length + memoryCandidate.body.length,
+        body_tokens_estimate:
+          Math.ceil(memoryEntry.body.length / 4) + Math.ceil(memoryCandidate.body.length / 4),
+        body_truncated_count: 0,
+      },
       selection: {
         role_id: role.id,
         role_name: role.name,
@@ -1101,6 +1154,8 @@ describe("ProjectsView cockpit", () => {
     ).toBeTruthy();
     expect(within(assistant).getByText("context")).toBeTruthy();
     expect(within(assistant).getByText("Candidates")).toBeTruthy();
+    expect(within(assistant).getByText("Body tokens")).toBeTruthy();
+    expect(within(assistant).getByText("Truncated")).toBeTruthy();
     expect(within(assistant).getAllByText("Build cockpit UI").length).toBeGreaterThan(0);
   });
 
