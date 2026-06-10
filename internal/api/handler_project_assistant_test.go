@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
@@ -113,6 +114,72 @@ func TestProjectAssistantAPI_ContextBuildsSelectionPacket(t *testing.T) {
 	}
 	if len(response.Data.Memory) != 1 || response.Data.Memory[0].ID != "mem_context" {
 		t.Fatalf("memory = %+v, want memory entry included", response.Data.Memory)
+	}
+}
+
+func TestProjectAssistantAPI_ContextBudgetsMemoryBodies(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantTestHandler()
+	project, err := handler.projects.Create(t.Context(), projects.Project{ID: "proj_budget", Name: "Budget Project"})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	memoryBody := strings.Repeat("é", 6000)
+	candidateBody := strings.Repeat("é", 3000)
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:         "mem_budget",
+		ProjectID:  project.ID,
+		Title:      "Large context memory",
+		Body:       memoryBody,
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create memory: %v", err)
+	}
+	if _, err := handler.memoryCandidates.CreateCandidate(t.Context(), memory.Candidate{
+		ID:                  "cand_budget",
+		ProjectID:           project.ID,
+		Title:               "Large context candidate",
+		Body:                candidateBody,
+		SuggestedTrustLabel: memory.TrustLabelGenerated,
+		SuggestedSourceKind: memory.SourceKindGenerated,
+		Status:              memory.CandidateStatusPending,
+	}); err != nil {
+		t.Fatalf("Create candidate: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/context", bytes.NewReader([]byte(`{
+		"project_id":"proj_budget",
+		"request":"Inspect context budget"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("context status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response projectAssistantContextResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode context response: %v", err)
+	}
+	if len(response.Data.Memory) != 1 || len(response.Data.MemoryCandidates) != 1 {
+		t.Fatalf("memory/candidates = %+v/%+v, want one of each", response.Data.Memory, response.Data.MemoryCandidates)
+	}
+	gotMemory := response.Data.Memory[0]
+	if !gotMemory.BodyTruncated || gotMemory.BodyOriginalBytes != len(memoryBody) || gotMemory.BodyReturnedBytes != len(gotMemory.Body) {
+		t.Fatalf("memory budget = %+v, want truncated body with original and returned byte counts", gotMemory)
+	}
+	if !strings.HasSuffix(gotMemory.Body, "\n...[truncated]") || !utf8.ValidString(gotMemory.Body) {
+		t.Fatalf("memory body suffix/utf8 = %v/%v, want truncated suffix and valid utf8", strings.HasSuffix(gotMemory.Body, "\n...[truncated]"), utf8.ValidString(gotMemory.Body))
+	}
+	gotCandidate := response.Data.MemoryCandidates[0]
+	if !gotCandidate.BodyTruncated || gotCandidate.BodyOriginalBytes != len(candidateBody) || gotCandidate.BodyReturnedBytes != len(gotCandidate.Body) {
+		t.Fatalf("candidate budget = %+v, want truncated body with original and returned byte counts", gotCandidate)
+	}
+	if !strings.HasSuffix(gotCandidate.Body, "\n...[truncated]") || !utf8.ValidString(gotCandidate.Body) {
+		t.Fatalf("candidate body suffix/utf8 = %v/%v, want truncated suffix and valid utf8", strings.HasSuffix(gotCandidate.Body, "\n...[truncated]"), utf8.ValidString(gotCandidate.Body))
+	}
+	if response.Data.Budget.BodyTruncatedCount != 2 || response.Data.Budget.BodyOriginalBytes != gotMemory.BodyOriginalBytes+gotCandidate.BodyOriginalBytes || response.Data.Budget.BodyReturnedBytes != gotMemory.BodyReturnedBytes+gotCandidate.BodyReturnedBytes {
+		t.Fatalf("context budget = %+v, want aggregate body metadata", response.Data.Budget)
 	}
 }
 
