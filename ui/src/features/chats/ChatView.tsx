@@ -161,6 +161,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const workspaceDialogOpenRef = useRef(false);
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [workspaceChangesOpen, setWorkspaceChangesOpen] = useState(false);
+  const [workspaceRefreshSignal, setWorkspaceRefreshSignal] = useState(0);
   const [rightPanelWidth, setRightPanelWidth] = useState(() => readStoredRightPanelWidth());
   const [draftChatStarted, setDraftChatStarted] = useState(false);
   const [rtkOnboardingDismissed, setRTKOnboardingDismissed] = useState(false);
@@ -180,6 +181,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [taskApprovalBusyID, setTaskApprovalBusyID] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const focusComposerAfterNewChatRef = useRef(false);
+  const workspaceRefreshStateRef = useRef({ agentBusy: false, sessionID: "" });
 
   const activeSessionIsExternal = Boolean(
     state.activeChatSession?.agent_id && state.activeChatSession.agent_id !== "hecate",
@@ -544,6 +546,19 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       setWorkspaceChangesOpen(false);
     }
   }, [activeWorkspacePath, selectedChatReady]);
+
+  useEffect(() => {
+    const previous = workspaceRefreshStateRef.current;
+    workspaceRefreshStateRef.current = { agentBusy, sessionID: activeSessionID };
+    if (
+      workspaceChangesPanelOpen &&
+      previous.sessionID === activeSessionID &&
+      previous.agentBusy &&
+      !agentBusy
+    ) {
+      setWorkspaceRefreshSignal((current) => current + 1);
+    }
+  }, [activeSessionID, agentBusy, workspaceChangesPanelOpen]);
 
   useEffect(() => {
     if (!focusComposerAfterNewChatRef.current || !composerVisible) return;
@@ -996,6 +1011,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
                 <ChatWorkspaceChangesPanel
                   sessionID={activeSessionID}
                   workspace={activeWorkspacePath}
+                  refreshSignal={workspaceRefreshSignal}
                   onGetWorkspaceDiff={chatActions.getChatWorkspaceDiff}
                   onGetWorkspaceFiles={chatActions.getChatWorkspaceFiles}
                   onGetWorkspaceFileDiff={chatActions.getChatWorkspaceFileDiff}

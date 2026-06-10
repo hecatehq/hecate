@@ -104,6 +104,7 @@ export function compactWorkspaceChangeLabel(diffStat?: string): string {
 export function ChatWorkspaceChangesPanel({
   sessionID,
   workspace,
+  refreshSignal = 0,
   onGetWorkspaceDiff,
   onGetWorkspaceFiles,
   onGetWorkspaceFileDiff,
@@ -111,6 +112,7 @@ export function ChatWorkspaceChangesPanel({
 }: {
   sessionID: string;
   workspace: string;
+  refreshSignal?: number;
   onGetWorkspaceDiff: (sessionID: string) => Promise<ChatWorkspaceDiffRecord | null>;
   onGetWorkspaceFiles: (sessionID: string) => Promise<ChatWorkspaceFilesRecord | null>;
   onGetWorkspaceFileDiff: (
@@ -146,6 +148,7 @@ export function ChatWorkspaceChangesPanel({
   const filesLoadedRef = useRef(false);
   const fileDiffsRef = useRef<Record<string, ChatChangedFileDiffRecord>>({});
   const failedFileDiffPathsRef = useRef<Set<string>>(new Set());
+  const refreshSignalRef = useRef(refreshSignal);
 
   function replaceFileDiffs(next: Record<string, ChatChangedFileDiffRecord>) {
     fileDiffsRef.current = next;
@@ -303,6 +306,7 @@ export function ChatWorkspaceChangesPanel({
         setExpandedDiffPaths((current) =>
           paths.length === 0 ? [] : current.filter((path) => !paths.includes(path)),
         );
+        if (filesLoadedRef.current) void refreshFiles();
       } else {
         setLocalError("Could not discard those workspace changes.");
       }
@@ -345,6 +349,14 @@ export function ChatWorkspaceChangesPanel({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView, sessionID, workspace]);
+
+  useEffect(() => {
+    if (refreshSignalRef.current === refreshSignal) return;
+    refreshSignalRef.current = refreshSignal;
+    void refreshReview();
+    if (filesLoadedRef.current) void refreshFiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
 
   useEffect(() => {
     return () => {
