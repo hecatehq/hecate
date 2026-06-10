@@ -2154,14 +2154,17 @@ action set or reapplying a fully applied proposal returns `409 conflict`.
 
 Endpoints:
 
+- `POST /hecate/v1/project-assistant/context`
 - `POST /hecate/v1/project-assistant/draft`
 - `POST /hecate/v1/project-assistant/propose`
 - `POST /hecate/v1/project-assistant/apply`
 
-`draft` creates proposal data only; it does not create a chat message, task,
-run, assignment, or external agent session. See
-[`project-assistant.md`](project-assistant.md) for the draft request, proposal
-schema, supported action kinds, confirmation behavior, and safety model.
+`context` returns the bounded project packet and inspectable Auto role/driver
+selection that `draft` will use. `draft` creates proposal data only; it does not
+create a chat message, task, run, assignment, or external agent session. See
+[`project-assistant.md`](project-assistant.md) for the context and draft
+requests, proposal schema, supported action kinds, confirmation behavior, and
+safety model.
 
 ## Chat session endpoints
 

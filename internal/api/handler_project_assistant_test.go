@@ -26,6 +26,11 @@ type projectAssistantApplyResponse struct {
 	Data   projectassistant.ApplyResult `json:"data"`
 }
 
+type projectAssistantContextResponse struct {
+	Object string                        `json:"object"`
+	Data   projectassistant.DraftContext `json:"data"`
+}
+
 type projectAssistantErrorResponse struct {
 	Error struct {
 		Type              string                       `json:"type"`
@@ -47,6 +52,68 @@ func newProjectAssistantTestHandler() (*Handler, http.Handler) {
 	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
 	handler.SetMemoryStore(memory.NewMemoryStore())
 	return handler, NewServer(quietLogger(), handler)
+}
+
+func TestProjectAssistantAPI_ContextBuildsSelectionPacket(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantTestHandler()
+	project, err := handler.projects.Create(t.Context(), projects.Project{ID: "proj_context", Name: "Context Project"})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	role, err := handler.projectWork.CreateRole(t.Context(), projectwork.AgentRoleProfile{
+		ID:                "planner",
+		ProjectID:         project.ID,
+		Name:              "Planning Lead",
+		DefaultDriverKind: projectwork.AssignmentDriverExternalAgent,
+	})
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	workItem, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:          "work_context",
+		ProjectID:   project.ID,
+		Title:       "Plan context",
+		Status:      projectwork.WorkItemStatusReady,
+		OwnerRoleID: role.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:         "mem_context",
+		ProjectID:  project.ID,
+		Title:      "Context decision",
+		Body:       "Expose assistant context before model drafting.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create memory: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/context", bytes.NewReader([]byte(`{
+		"project_id":"proj_context",
+		"work_item_id":"work_context",
+		"request":"Queue planning"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("context status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var response projectAssistantContextResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode context response: %v", err)
+	}
+	if response.Object != "project_assistant.context" || response.Data.Project.ID != project.ID || response.Data.SelectedWork == nil || response.Data.SelectedWork.ID != workItem.ID {
+		t.Fatalf("context response = %+v, want project assistant context with selected work", response)
+	}
+	if response.Data.Selection.RoleID != role.ID || response.Data.Selection.DriverKind != projectwork.AssignmentDriverExternalAgent || response.Data.Selection.RoleSource != "selected_work_owner" {
+		t.Fatalf("selection = %+v, want owner role and external driver", response.Data.Selection)
+	}
+	if len(response.Data.Memory) != 1 || response.Data.Memory[0].ID != "mem_context" {
+		t.Fatalf("memory = %+v, want memory entry included", response.Data.Memory)
+	}
 }
 
 func TestProjectAssistantAPI_DraftCreatesAssignmentProposal(t *testing.T) {

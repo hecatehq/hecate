@@ -114,6 +114,169 @@ func TestService_DraftCreatesWorkItemProposalAcrossStores(t *testing.T) {
 	}
 }
 
+func TestService_ContextBuildsProjectAssistantPacketAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			role, err := fixture.work.CreateRole(ctx, projectwork.AgentRoleProfile{
+				ID:                "planner",
+				ProjectID:         project.ID,
+				Name:              "Planning Lead",
+				DefaultDriverKind: projectwork.AssignmentDriverExternalAgent,
+			})
+			if err != nil {
+				t.Fatalf("CreateRole: %v", err)
+			}
+			workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+				ID:          "work_context",
+				ProjectID:   project.ID,
+				Title:       "Shape assistant context",
+				Brief:       "Define what the assistant sees.",
+				Status:      projectwork.WorkItemStatusReady,
+				OwnerRoleID: role.ID,
+			})
+			if err != nil {
+				t.Fatalf("CreateWorkItem: %v", err)
+			}
+			if _, err := fixture.work.CreateAssignment(ctx, projectwork.Assignment{
+				ID:         "asgn_context",
+				ProjectID:  project.ID,
+				WorkItemID: workItem.ID,
+				RoleID:     role.ID,
+				DriverKind: projectwork.AssignmentDriverExternalAgent,
+				Status:     projectwork.AssignmentStatusRunning,
+			}); err != nil {
+				t.Fatalf("CreateAssignment: %v", err)
+			}
+			if _, err := fixture.memoryEntries.Create(ctx, memory.Entry{
+				ID:         "mem_context",
+				ProjectID:  project.ID,
+				Title:      "Assistant context decision",
+				Body:       "Drafts inspect context before proposing durable changes.",
+				TrustLabel: memory.TrustLabelOperatorMemory,
+				SourceKind: memory.SourceKindOperator,
+				Enabled:    true,
+			}); err != nil {
+				t.Fatalf("Create memory: %v", err)
+			}
+			if _, err := fixture.memoryCandidates.CreateCandidate(ctx, memory.Candidate{
+				ID:                  "cand_context",
+				ProjectID:           project.ID,
+				Title:               "Candidate context note",
+				Body:                "Candidate memory is visible but still reviewable.",
+				SuggestedTrustLabel: memory.TrustLabelGenerated,
+				SuggestedSourceKind: memory.SourceKindGenerated,
+				Status:              memory.CandidateStatusPending,
+			}); err != nil {
+				t.Fatalf("CreateCandidate: %v", err)
+			}
+			if _, err := fixture.memoryCandidates.CreateCandidate(ctx, memory.Candidate{
+				ID:                  "cand_rejected",
+				ProjectID:           project.ID,
+				Title:               "Rejected context note",
+				Body:                "Rejected suggestions stay out of assistant context.",
+				SuggestedTrustLabel: memory.TrustLabelGenerated,
+				SuggestedSourceKind: memory.SourceKindGenerated,
+				Status:              memory.CandidateStatusRejected,
+			}); err != nil {
+				t.Fatalf("Create rejected candidate: %v", err)
+			}
+
+			packet, err := fixture.service.Context(ctx, ContextInput{
+				ProjectID:  project.ID,
+				WorkItemID: workItem.ID,
+				Request:    "Queue planning",
+			})
+			if err != nil {
+				t.Fatalf("Context: %v", err)
+			}
+			if packet.Project.ID != project.ID || packet.SelectedWork == nil || packet.SelectedWork.ID != workItem.ID {
+				t.Fatalf("context project/work = %+v/%+v, want selected project/work", packet.Project, packet.SelectedWork)
+			}
+			if packet.Selection.RoleID != role.ID || packet.Selection.RoleSource != "selected_work_owner" || packet.Selection.DriverKind != projectwork.AssignmentDriverExternalAgent || packet.Selection.DriverSource != "role_default" {
+				t.Fatalf("selection = %+v, want owner role and role default driver", packet.Selection)
+			}
+			if !strings.Contains(packet.Selection.Reason, "Selected work item is owned by Planning Lead") || !strings.Contains(packet.Selection.Reason, "Using external_agent") {
+				t.Fatalf("selection reason = %q, want owner/default explanation", packet.Selection.Reason)
+			}
+			if len(packet.Roles) == 0 || !contextRoleExists(packet.Roles, role.ID) {
+				t.Fatalf("roles = %+v, want custom role included", packet.Roles)
+			}
+			if len(packet.Assignments) != 1 || packet.Assignments[0].ID != "asgn_context" {
+				t.Fatalf("assignments = %+v, want recent assignment", packet.Assignments)
+			}
+			if len(packet.Memory) != 1 || packet.Memory[0].ID != "mem_context" {
+				t.Fatalf("memory = %+v, want enabled project memory", packet.Memory)
+			}
+			if len(packet.MemoryCandidates) != 1 || packet.MemoryCandidates[0].ID != "cand_context" {
+				t.Fatalf("memory candidates = %+v, want candidate", packet.MemoryCandidates)
+			}
+			if len(packet.RecentActivity) == 0 {
+				t.Fatalf("recent activity is empty, want context timeline entries")
+			}
+		})
+	}
+}
+
+func TestService_ContextRejectsMissingExplicitRole(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	project := createTestProject(t, ctx, fixture.projects)
+
+	_, err := fixture.service.Context(ctx, ContextInput{
+		ProjectID: project.ID,
+		Request:   "Draft with missing role",
+		RoleID:    "missing_role",
+	})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Context err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestService_DraftUsesContextSelection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	project := createTestProject(t, ctx, fixture.projects)
+	role, err := fixture.work.CreateRole(ctx, projectwork.AgentRoleProfile{
+		ID:                "planner",
+		ProjectID:         project.ID,
+		Name:              "Planning Lead",
+		DefaultDriverKind: projectwork.AssignmentDriverExternalAgent,
+	})
+	if err != nil {
+		t.Fatalf("CreateRole: %v", err)
+	}
+	workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:          "work_context_draft",
+		ProjectID:   project.ID,
+		Title:       "Draft from context",
+		Status:      projectwork.WorkItemStatusReady,
+		OwnerRoleID: role.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorkItem: %v", err)
+	}
+
+	proposal, err := fixture.service.Draft(ctx, DraftInput{
+		ProjectID:  project.ID,
+		WorkItemID: workItem.ID,
+		Request:    "Queue selected owner",
+	})
+	if err != nil {
+		t.Fatalf("Draft: %v", err)
+	}
+	patch := rawPatchMap(t, proposal.Actions[0].Patch)
+	if patch["role_id"] != role.ID || patch["driver_kind"] != projectwork.AssignmentDriverExternalAgent {
+		t.Fatalf("patch = %+v, want context-selected owner role and role default driver", patch)
+	}
+}
+
 func TestService_DraftRejectsUnsupportedDriverKind(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -829,12 +992,17 @@ func newSQLiteAssistantFixture(t *testing.T) assistantFixture {
 	}
 }
 
-func projectassistantService(projectStore projects.Store, chatStore chat.Store, workStore projectwork.Store, memoryStore memory.CandidateStore) *Service {
+func projectassistantService(projectStore projects.Store, chatStore chat.Store, workStore projectwork.Store, memoryStore memory.Store) *Service {
+	var candidateStore memory.CandidateStore
+	if candidates, ok := memoryStore.(memory.CandidateStore); ok {
+		candidateStore = candidates
+	}
 	return NewService(Stores{
 		Projects:         projectStore,
 		Chats:            chatStore,
 		Work:             workStore,
-		MemoryCandidates: memoryStore,
+		Memory:           memoryStore,
+		MemoryCandidates: candidateStore,
 	}, sequenceIDGenerator())
 }
 
@@ -862,6 +1030,15 @@ func rawPatchMap(t *testing.T, payload json.RawMessage) map[string]string {
 		t.Fatalf("decode patch: %v", err)
 	}
 	return decoded
+}
+
+func contextRoleExists(roles []RoleContext, id string) bool {
+	for _, role := range roles {
+		if role.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func createTestProject(t *testing.T, ctx context.Context, store projects.Store) projects.Project {

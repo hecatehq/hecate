@@ -24,9 +24,40 @@ type projectAssistantDraftRequest struct {
 	DriverKind string `json:"driver_kind,omitempty"`
 }
 
+type projectAssistantContextRequest struct {
+	ProjectID  string `json:"project_id"`
+	WorkItemID string `json:"work_item_id,omitempty"`
+	Request    string `json:"request"`
+	RoleID     string `json:"role_id,omitempty"`
+	DriverKind string `json:"driver_kind,omitempty"`
+}
+
 type projectAssistantApplyRequest struct {
 	Proposal projectassistant.Proposal `json:"proposal"`
 	Confirm  bool                      `json:"confirm,omitempty"`
+}
+
+func (h *Handler) HandleProjectAssistantContext(w http.ResponseWriter, r *http.Request) {
+	var req projectAssistantContextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant context request")
+		return
+	}
+	context, err := h.projectAssistantService().Context(r.Context(), projectassistant.ContextInput{
+		ProjectID:  req.ProjectID,
+		WorkItemID: req.WorkItemID,
+		Request:    req.Request,
+		RoleID:     req.RoleID,
+		DriverKind: req.DriverKind,
+	})
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"object": "project_assistant.context",
+		"data":   context,
+	})
 }
 
 func (h *Handler) HandleProjectAssistantDraft(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +132,7 @@ func (h *Handler) projectAssistantService() *projectassistant.Service {
 			Projects:         h.projects,
 			Chats:            h.agentChat,
 			Work:             h.projectWork,
+			Memory:           h.memory,
 			MemoryCandidates: h.memoryCandidates,
 		}, newOpaqueTaskResourceID)
 	}
