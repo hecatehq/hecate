@@ -268,6 +268,14 @@ function ProjectAssistantContextPanel({ context }: { context: ProjectAssistantCo
             label="Candidates"
             value={String(context.memory_candidates?.length ?? 0)}
           />
+          <ProjectAssistantContextStat
+            label="Body tokens"
+            value={`~${context.budget.body_tokens_estimate}`}
+          />
+          <ProjectAssistantContextStat
+            label="Truncated"
+            value={String(context.budget.body_truncated_count)}
+          />
         </div>
       </div>
     </details>

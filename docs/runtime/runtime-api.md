@@ -2159,9 +2159,12 @@ Endpoints:
 - `POST /hecate/v1/project-assistant/propose`
 - `POST /hecate/v1/project-assistant/apply`
 
-`context` returns the bounded project packet and inspectable Auto role/driver
-selection that `draft` will use. `draft` creates proposal data only; it does not
-create a chat message, task, run, assignment, or external agent session. See
+`context` returns the v0 item-limited and body-budgeted project packet plus the
+inspectable Auto role/driver selection that `draft` will use. Memory and
+memory-candidate bodies are truncated at per-body byte limits and carry returned
+byte counts, original byte counts, truncation flags, and cheap token estimates.
+`draft` creates proposal data only; it does not create a chat message, task,
+run, assignment, or external agent session. See
 [`project-assistant.md`](project-assistant.md) for the context and draft
 requests, proposal schema, supported action kinds, confirmation behavior, and
 safety model.
