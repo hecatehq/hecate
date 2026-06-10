@@ -60,8 +60,11 @@ set returns `409 conflict`, and retrying a fully applied proposal also returns
 `409 conflict`.
 
 Future versions may persist proposal ids server-side so reviewed actions,
-confirmation, and resumable progress survive process restarts. The v0 API keeps
-that shape possible without requiring it.
+confirmation, and resumable progress survive process restarts. In v0 the
+progress map is process-local; a runtime restart between a partial apply and a
+retry loses that resume point, so clients should refresh the proposal before
+retrying after restart. The v0 API keeps the persisted shape possible without
+requiring it.
 
 ## Endpoints
 

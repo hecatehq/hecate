@@ -257,193 +257,190 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
               >
                 {group.label}
               </div>
-              {group.sessions.map((s) => {
-                const isDraftAgentChat = isAgentChat && sidebarSessionIsDraft(s);
-                return (
-                  <div
-                    key={s.id}
-                    role="button"
-                    tabIndex={renamingId === s.id ? -1 : 0}
-                    aria-current={activeSessionID === s.id ? "true" : undefined}
-                    aria-label={`Chat ${s.title || "Untitled"}${s.agent_label ? `, ${s.agent_label}` : ""}`}
-                    onClick={() => {
-                      if (renamingId === s.id) return;
-                      onSelectSession(s.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.target !== e.currentTarget) return;
-                      if (renamingId === s.id) return;
-                      if (e.key !== "Enter" && e.key !== " ") return;
-                      e.preventDefault();
-                      onSelectSession(s.id);
-                    }}
-                    onFocus={() => setHoveredChatId(s.id)}
-                    onBlur={(e) => {
-                      const nextFocus = e.relatedTarget;
-                      if (!(nextFocus instanceof Node) || !e.currentTarget.contains(nextFocus)) {
-                        setHoveredChatId(null);
-                      }
-                    }}
-                    onMouseEnter={() => setHoveredChatId(s.id)}
-                    onMouseLeave={() => setHoveredChatId(null)}
-                    style={{
-                      padding: "8px 12px",
-                      cursor: "pointer",
-                      background: activeSessionID === s.id ? "var(--teal-bg)" : "transparent",
-                      borderLeft:
-                        activeSessionID === s.id
-                          ? "2px solid var(--teal)"
-                          : "2px solid transparent",
-                      transition: "background 0.1s",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 7, minHeight: 22 }}>
-                      {renamingId === s.id ? (
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              void chatActions.renameChatSession(s.id, renameValue);
-                              setRenamingId(null);
-                            }
-                            if (e.key === "Escape") setRenamingId(null);
-                          }}
-                          onBlur={() => {
+              {group.sessions.map((s) => (
+                <div
+                  key={s.id}
+                  role="button"
+                  tabIndex={renamingId === s.id ? -1 : 0}
+                  aria-current={activeSessionID === s.id ? "true" : undefined}
+                  aria-label={`Chat ${s.title || "Untitled"}${s.agent_label ? `, ${s.agent_label}` : ""}`}
+                  onClick={() => {
+                    if (renamingId === s.id) return;
+                    onSelectSession(s.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.target !== e.currentTarget) return;
+                    if (renamingId === s.id) return;
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    onSelectSession(s.id);
+                  }}
+                  onFocus={() => setHoveredChatId(s.id)}
+                  onBlur={(e) => {
+                    const nextFocus = e.relatedTarget;
+                    if (!(nextFocus instanceof Node) || !e.currentTarget.contains(nextFocus)) {
+                      setHoveredChatId(null);
+                    }
+                  }}
+                  onMouseEnter={() => setHoveredChatId(s.id)}
+                  onMouseLeave={() => setHoveredChatId(null)}
+                  style={{
+                    padding: "8px 12px",
+                    cursor: "pointer",
+                    background: activeSessionID === s.id ? "var(--teal-bg)" : "transparent",
+                    borderLeft:
+                      activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
+                    transition: "background 0.1s",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, minHeight: 22 }}>
+                    {renamingId === s.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
                             void chatActions.renameChatSession(s.id, renameValue);
                             setRenamingId(null);
-                          }}
+                          }
+                          if (e.key === "Escape") setRenamingId(null);
+                        }}
+                        onBlur={() => {
+                          void chatActions.renameChatSession(s.id, renameValue);
+                          setRenamingId(null);
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          height: 18,
+                          boxSizing: "border-box",
+                          fontSize: 12,
+                          background: "var(--bg3)",
+                          border: "1px solid var(--teal)",
+                          borderRadius: "var(--radius-sm)",
+                          color: "var(--t0)",
+                          padding: "0 4px",
+                          outline: "none",
+                          fontFamily: "var(--font-sans)",
+                          lineHeight: "16px",
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <div
                           style={{
                             flex: 1,
                             minWidth: 0,
-                            height: 18,
-                            boxSizing: "border-box",
                             fontSize: 12,
-                            background: "var(--bg3)",
-                            border: "1px solid var(--teal)",
-                            borderRadius: "var(--radius-sm)",
-                            color: "var(--t0)",
-                            padding: "0 4px",
-                            outline: "none",
-                            fontFamily: "var(--font-sans)",
-                            lineHeight: "16px",
+                            lineHeight: "18px",
+                            color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)",
+                            fontWeight: activeSessionID === s.id ? 500 : 400,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
                           }}
-                        />
-                      ) : (
-                        <>
-                          <div
+                        >
+                          {s.title || "Untitled"}
+                        </div>
+                        {sidebarSessionTimeLabel(s.updated_at || s.created_at) && (
+                          <span
+                            title={formatAbsoluteTime(s.updated_at || s.created_at)}
                             style={{
-                              flex: 1,
-                              minWidth: 0,
-                              fontSize: 12,
-                              lineHeight: "18px",
-                              color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)",
-                              fontWeight: activeSessionID === s.id ? 500 : 400,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {s.title || "Untitled"}
-                          </div>
-                          {sidebarSessionTimeLabel(s.updated_at || s.created_at) && (
-                            <span
-                              title={formatAbsoluteTime(s.updated_at || s.created_at)}
-                              style={{
-                                color: "var(--t3)",
-                                flexShrink: 0,
-                                fontFamily: "var(--font-mono)",
-                                fontSize: 9,
-                                lineHeight: "18px",
-                              }}
-                            >
-                              {sidebarSessionTimeLabel(s.updated_at || s.created_at)}
-                            </span>
-                          )}
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 1,
-                              opacity: hoveredChatId === s.id ? 1 : 0,
-                              transition: "opacity 0.15s",
+                              color: "var(--t3)",
                               flexShrink: 0,
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 9,
+                              lineHeight: "18px",
                             }}
                           >
-                            <button
-                              className="btn btn-ghost btn-sm"
-                              aria-label={`Rename chat ${s.title || "Untitled"}`}
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setRenamingId(s.id);
-                                setRenameValue(s.title || "");
-                              }}
-                              style={{ padding: "1px 3px" }}
-                              title="Rename"
-                            >
-                              <Icon d={Icons.edit} size={10} />
-                            </button>
-                            <button
-                              className="btn btn-ghost btn-sm"
-                              aria-label={`Delete chat ${s.title || "Untitled"}`}
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteChatID(s.id);
-                              }}
-                              style={{ padding: "1px 3px", color: "var(--red)" }}
-                              title="Delete"
-                            >
-                              <Icon d={Icons.trash} size={10} />
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        fontSize: 10,
-                        color: "var(--t3)",
-                        marginTop: 1,
-                        fontFamily: "var(--font-mono)",
-                      }}
-                    >
-                      {isAgentChat && s.agent_brand && renamingId !== s.id && (
-                        <BrandAvatar
-                          brand={s.agent_brand}
-                          fallback={s.agent_label || s.agent_brand}
-                          title={s.agent_label || s.agent_brand}
-                          boxed={false}
-                          size={13}
-                          style={{ flexShrink: 0 }}
-                        />
-                      )}
-                      <span>{isDraftAgentChat ? "draft" : `${s.message_count} msg`}</span>
-                      {isAgentChat ? (
-                        !isDraftAgentChat &&
-                        s.status_label && (
-                          <>
-                            <span style={{ color: "var(--t4)" }}>·</span>
-                            <span>{s.status_label}</span>
-                          </>
-                        )
-                      ) : (
+                            {sidebarSessionTimeLabel(s.updated_at || s.created_at)}
+                          </span>
+                        )}
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 1,
+                            opacity: hoveredChatId === s.id ? 1 : 0,
+                            transition: "opacity 0.15s",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            aria-label={`Rename chat ${s.title || "Untitled"}`}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenamingId(s.id);
+                              setRenameValue(s.title || "");
+                            }}
+                            style={{ padding: "1px 3px" }}
+                            title="Rename"
+                          >
+                            <Icon d={Icons.edit} size={10} />
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            aria-label={`Delete chat ${s.title || "Untitled"}`}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteChatID(s.id);
+                            }}
+                            style={{ padding: "1px 3px", color: "var(--red)" }}
+                            title="Delete"
+                          >
+                            <Icon d={Icons.trash} size={10} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 10,
+                      color: "var(--t3)",
+                      marginTop: 1,
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {isAgentChat && s.agent_brand && renamingId !== s.id && (
+                      <BrandAvatar
+                        brand={s.agent_brand}
+                        fallback={s.agent_label || s.agent_brand}
+                        title={s.agent_label || s.agent_brand}
+                        boxed={false}
+                        size={13}
+                        style={{ flexShrink: 0 }}
+                      />
+                    )}
+                    <span>
+                      {isAgentChat && sidebarSessionIsDraft(s) ? "draft" : `${s.message_count} msg`}
+                    </span>
+                    {isAgentChat ? (
+                      !sidebarSessionIsDraft(s) &&
+                      s.status_label && (
                         <>
                           <span style={{ color: "var(--t4)" }}>·</span>
-                          <span>
-                            {s.provider_call_count} call{s.provider_call_count === 1 ? "" : "s"}
-                          </span>
+                          <span>{s.status_label}</span>
                         </>
-                      )}
-                    </div>
+                      )
+                    ) : (
+                      <>
+                        <span style={{ color: "var(--t4)" }}>·</span>
+                        <span>
+                          {s.provider_call_count} call{s.provider_call_count === 1 ? "" : "s"}
+                        </span>
+                      </>
+                    )}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           ))}
         </div>
