@@ -154,7 +154,25 @@ export type ProjectAssistantContextRole = {
   default_provider?: string;
   default_model?: string;
   default_agent_profile?: string;
+  skill_ids?: string[];
   built_in: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectAssistantContextSkill = {
+  id: string;
+  title: string;
+  description?: string;
+  path: string;
+  root_id?: string;
+  format: string;
+  enabled: boolean;
+  status: string;
+  trust_label: string;
+  source_context_source_ids?: string[];
+  warnings?: string[];
+  discovered_at: string;
   created_at: string;
   updated_at: string;
 };
@@ -230,6 +248,7 @@ export type ProjectAssistantContextRecord = {
   request: string;
   selected_work?: ProjectAssistantContextWorkItem;
   roles: ProjectAssistantContextRole[];
+  skills?: ProjectAssistantContextSkill[];
   assignments?: ProjectAssistantContextAssignment[];
   memory?: ProjectAssistantContextMemory[];
   memory_candidates?: ProjectAssistantContextMemoryCandidate[];
@@ -414,6 +433,7 @@ export type ProjectWorkRoleRecord = {
   default_provider?: string;
   default_model?: string;
   default_agent_profile?: string;
+  skill_ids?: string[];
   built_in: boolean;
   created_at?: string;
   updated_at?: string;
@@ -428,9 +448,35 @@ export type CreateProjectWorkRolePayload = {
   default_provider?: string;
   default_model?: string;
   default_agent_profile?: string;
+  skill_ids?: string[];
 };
 
 export type UpdateProjectWorkRolePayload = Partial<CreateProjectWorkRolePayload>;
+
+export type ProjectSkillRecord = {
+  id: string;
+  project_id: string;
+  title: string;
+  description?: string;
+  path: string;
+  root_id?: string;
+  format: string;
+  enabled: boolean;
+  status: "available" | "missing" | "invalid" | "conflict" | (string & {});
+  trust_label: string;
+  source_context_source_ids?: string[];
+  warnings?: string[];
+  discovered_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UpdateProjectSkillPayload = {
+  title?: string;
+  description?: string;
+  enabled?: boolean;
+  trust_label?: string;
+};
 
 export type ProjectWorkItemStatus =
   | "backlog"
@@ -710,6 +756,16 @@ export type ProjectWorkRolesResponse = {
 export type ProjectWorkRoleResponse = {
   object: string;
   data: ProjectWorkRoleRecord;
+};
+
+export type ProjectSkillsResponse = {
+  object: string;
+  data: ProjectSkillRecord[];
+};
+
+export type ProjectSkillResponse = {
+  object: string;
+  data: ProjectSkillRecord;
 };
 
 export type ProjectWorkItemsResponse = {

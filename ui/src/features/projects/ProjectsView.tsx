@@ -17,6 +17,7 @@ import {
   createProjectAssignment,
   createProjectHandoff,
   discoverProjectContextSources,
+  discoverProjectSkills,
   draftProjectAssistant,
   getProjectAssistantContext,
   createProjectMemory,
@@ -35,6 +36,7 @@ import {
   getProjectHandoffs,
   getProjectMemory,
   getProjectMemoryCandidates,
+  getProjectSkills,
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
@@ -46,6 +48,7 @@ import {
   updateProjectHandoff,
   updateProjectHandoffStatus,
   updateProjectMemory,
+  updateProjectSkill,
   updateProjectWorkRole,
   updateProjectWorkItem,
 } from "../../lib/api";
@@ -87,11 +90,13 @@ import type {
   CreateProjectHandoffPayload,
   ProjectHandoffRecord,
   ProjectMemoryRecord,
+  ProjectSkillRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
   UpdateProjectAssignmentPayload,
   UpdateProjectPayload,
+  UpdateProjectSkillPayload,
   UpdateProjectWorkItemPayload,
 } from "../../types/project";
 import type { AgentProfileRecord } from "../../types/agent-profile";
@@ -137,7 +142,7 @@ type WorkItemSummary = {
 
 type LoadState = "idle" | "loading" | "loaded" | "error";
 
-type ProjectWorkspaceTab = "work" | "timeline" | "memory";
+type ProjectWorkspaceTab = "work" | "timeline" | "memory" | "skills";
 
 type NewWorkItemForm = {
   title: string;
@@ -202,6 +207,12 @@ type MemoryForm = {
   enabled: boolean;
 };
 
+type SkillForm = {
+  title: string;
+  description: string;
+  trustLabel: string;
+};
+
 type RoleForm = {
   id: string;
   name: string;
@@ -211,6 +222,7 @@ type RoleForm = {
   defaultProvider: string;
   defaultModel: string;
   defaultAgentProfile: string;
+  skillIDs: string;
 };
 
 const WORK_ITEM_STATUSES = [
@@ -370,6 +382,11 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   }
   const [memoryEntries, setMemoryEntries] = useState<ProjectMemoryRecord[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<ProjectMemoryCandidateRecord[]>([]);
+  const [projectSkills, setProjectSkills] = useState<ProjectSkillRecord[]>([]);
+  const [skillsLoadState, setSkillsLoadState] = useState<LoadState>("idle");
+  const [skillsError, setSkillsError] = useState("");
+  const [discoveringSkills, setDiscoveringSkills] = useState(false);
+  const [updatingSkillID, setUpdatingSkillID] = useState("");
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileRecord[]>([]);
   const [agentProfilesError, setAgentProfilesError] = useState("");
   const [discoveringContext, setDiscoveringContext] = useState(false);
@@ -568,6 +585,26 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }, []);
 
+  const loadProjectSkills = useCallback(async (projectID: string) => {
+    setSkillsError("");
+    setUpdatingSkillID("");
+    if (!projectID) {
+      setProjectSkills([]);
+      setSkillsLoadState("idle");
+      return;
+    }
+    setProjectSkills([]);
+    setSkillsLoadState("loading");
+    try {
+      const payload = await getProjectSkills(projectID);
+      setProjectSkills(payload.data ?? []);
+      setSkillsLoadState("loaded");
+    } catch (error) {
+      setSkillsLoadState("error");
+      setSkillsError(errorMessage(error, "Failed to load project skills."));
+    }
+  }, []);
+
   const loadWorkItemDetail = useCallback(async (projectID: string, workItemID: string) => {
     setDetailError("");
     setAssignmentErrors({});
@@ -610,6 +647,10 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   useEffect(() => {
     void loadProjectMemory(selectedProjectID);
   }, [loadProjectMemory, selectedProjectID]);
+
+  useEffect(() => {
+    void loadProjectSkills(selectedProjectID);
+  }, [loadProjectSkills, selectedProjectID]);
 
   useEffect(() => {
     if (!selectedProjectID || !selectedWorkItemID) return;
@@ -694,6 +735,38 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       setMemoryError(errorMessage(error, "Failed to discover workspace guidance."));
     } finally {
       setDiscoveringContext(false);
+    }
+  }
+
+  async function handleDiscoverProjectSkills() {
+    if (!selectedProjectID) return;
+    setDiscoveringSkills(true);
+    setSkillsError("");
+    try {
+      const payload = await discoverProjectSkills(selectedProjectID);
+      setProjectSkills(payload.data ?? []);
+      setSkillsLoadState("loaded");
+    } catch (error) {
+      setSkillsError(errorMessage(error, "Failed to discover project skills."));
+    } finally {
+      setDiscoveringSkills(false);
+    }
+  }
+
+  async function handleUpdateProjectSkill(
+    skill: ProjectSkillRecord,
+    patch: UpdateProjectSkillPayload,
+  ) {
+    if (!selectedProjectID) return;
+    setUpdatingSkillID(skill.id);
+    setSkillsError("");
+    try {
+      const payload = await updateProjectSkill(selectedProjectID, skill.id, patch);
+      setProjectSkills((current) => upsertProjectSkill(current, payload.data));
+    } catch (error) {
+      setSkillsError(errorMessage(error, "Failed to update project skill."));
+    } finally {
+      setUpdatingSkillID("");
     }
   }
 
@@ -1337,6 +1410,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                   memoryCandidateCount={memoryCandidates.length}
                   memoryEntryCount={memoryEntries.length}
                   onChange={setWorkspaceTab}
+                  projectSkillCount={projectSkills.length}
                   workItemCount={workItems.length}
                 />
                 {workspaceTab === "work" && (
@@ -1493,6 +1567,19 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                     onRefresh={() => void loadProjectMemory(selectedProjectID)}
                     project={selectedProject}
                     rejectingCandidateID={rejectingCandidateID}
+                  />
+                )}
+                {workspaceTab === "skills" && (
+                  <ProjectSkillsPanel
+                    discovering={discoveringSkills}
+                    error={skillsError}
+                    loading={skillsLoadState === "loading"}
+                    onDiscover={handleDiscoverProjectSkills}
+                    onRefresh={() => void loadProjectSkills(selectedProjectID)}
+                    onUpdate={(skill, patch) => void handleUpdateProjectSkill(skill, patch)}
+                    project={selectedProject}
+                    skills={projectSkills}
+                    updatingSkillID={updatingSkillID}
                   />
                 )}
               </section>
@@ -2099,18 +2186,21 @@ function ProjectWorkspaceTabs({
   memoryCandidateCount,
   memoryEntryCount,
   onChange,
+  projectSkillCount,
   workItemCount,
 }: {
   activeTab: ProjectWorkspaceTab;
   memoryCandidateCount: number;
   memoryEntryCount: number;
   onChange: (tab: ProjectWorkspaceTab) => void;
+  projectSkillCount: number;
   workItemCount: number;
 }) {
   const tabs: Array<{ id: ProjectWorkspaceTab; label: string; count: number }> = [
     { id: "work", label: "Work Coordination", count: workItemCount },
     { id: "timeline", label: "Timeline / Decision Log", count: 0 },
     { id: "memory", label: "Memory / Context", count: memoryEntryCount + memoryCandidateCount },
+    { id: "skills", label: "Skills", count: projectSkillCount },
   ];
 
   return (
@@ -2750,6 +2840,213 @@ function ProjectMemoryPanel({
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectSkillsPanel({
+  discovering,
+  error,
+  loading,
+  onDiscover,
+  onRefresh,
+  onUpdate,
+  project,
+  skills,
+  updatingSkillID,
+}: {
+  discovering: boolean;
+  error: string;
+  loading: boolean;
+  onDiscover: () => void;
+  onRefresh: () => void;
+  onUpdate: (skill: ProjectSkillRecord, patch: UpdateProjectSkillPayload) => void;
+  project: ProjectRecord | null;
+  skills: ProjectSkillRecord[];
+  updatingSkillID: string;
+}) {
+  if (!project) return null;
+  const enabledCount = skills.filter((skill) => skill.enabled).length;
+  const availableCount = skills.filter((skill) => skill.status === "available").length;
+  return (
+    <div>
+      <div style={panelStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <div>
+            <div style={sectionLabelStyle}>Project Skills</div>
+            <div style={{ ...subtleTextStyle, marginTop: 3 }}>
+              {loading
+                ? "Loading project skills..."
+                : `${enabledCount} enabled / ${availableCount} available / ${skills.length} registered`}
+            </div>
+          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-label="Refresh project skills"
+            title="Refresh"
+            onClick={onRefresh}
+            style={{ marginLeft: "auto" }}
+          >
+            <Icon d={Icons.refresh} size={12} />
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            disabled={discovering}
+            onClick={onDiscover}
+          >
+            <Icon d={Icons.search} size={12} />
+            {discovering ? "Discovering..." : "Discover"}
+          </button>
+        </div>
+        {error && (
+          <div style={{ marginBottom: 10 }}>
+            <InlineError message={error} />
+          </div>
+        )}
+        {skills.length === 0 && !loading ? (
+          <EmptyBlock
+            title="No project skills registered"
+            detail="Discover skills from AGENTS.md / CLAUDE.md references, .agents/skills, or .hecate/skills."
+          />
+        ) : (
+          <div style={{ display: "grid", gap: 8 }}>
+            {skills.map((skill) => (
+              <ProjectSkillRow
+                key={skill.id}
+                pending={updatingSkillID === skill.id}
+                skill={skill}
+                onUpdate={onUpdate}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectSkillRow({
+  onUpdate,
+  pending,
+  skill,
+}: {
+  onUpdate: (skill: ProjectSkillRecord, patch: UpdateProjectSkillPayload) => void;
+  pending: boolean;
+  skill: ProjectSkillRecord;
+}) {
+  const [draft, setDraft] = useState(() => skillFormFromRecord(skill));
+
+  useEffect(() => {
+    setDraft(skillFormFromRecord(skill));
+  }, [skill]);
+
+  const changed =
+    draft.title.trim() !== skill.title ||
+    draft.description.trim() !== (skill.description ?? "") ||
+    draft.trustLabel.trim() !== skill.trust_label;
+  const statusClass = skill.status === "available" ? "badge badge-green" : "badge badge-amber";
+
+  return (
+    <div style={memoryEntryStyle}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            paddingTop: 2,
+            color: "var(--text1)",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={skill.enabled}
+            disabled={pending}
+            aria-label={`Enable skill ${skill.title || skill.id}`}
+            onChange={(event) => onUpdate(skill, { enabled: event.target.checked })}
+          />
+          <span className={skill.enabled ? "badge badge-green" : "badge badge-muted"}>
+            {skill.enabled ? "enabled" : "disabled"}
+          </span>
+        </label>
+        <div style={{ display: "grid", gap: 8, flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+            <CopyableID text={skill.id} compact />
+            <span className={statusClass}>{skill.status}</span>
+            <span className="badge badge-muted">{skill.trust_label}</span>
+            <span className="badge badge-muted">{skill.format}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) 1fr", gap: 8 }}>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Title</span>
+              <input
+                className="input"
+                value={draft.title}
+                disabled={pending}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, title: event.target.value }))
+                }
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Trust label</span>
+              <input
+                className="input"
+                value={draft.trustLabel}
+                disabled={pending}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, trustLabel: event.target.value }))
+                }
+              />
+            </label>
+          </div>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Description</span>
+            <textarea
+              className="input"
+              rows={2}
+              value={draft.description}
+              disabled={pending}
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, description: event.target.value }))
+              }
+            />
+          </label>
+          <div style={subtleTextStyle}>
+            {skill.path}
+            {skill.root_id ? ` · root ${skill.root_id}` : ""}
+            {skill.source_context_source_ids?.length
+              ? ` · sources ${skill.source_context_source_ids.join(", ")}`
+              : ""}
+            {skill.discovered_at ? ` · discovered ${formatAbsoluteTime(skill.discovered_at)}` : ""}
+          </div>
+          {skill.warnings?.length ? (
+            <div style={{ display: "grid", gap: 3 }}>
+              {skill.warnings.map((warning) => (
+                <div key={warning} style={{ ...subtleTextStyle, color: "var(--amber)" }}>
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          disabled={pending || !changed}
+          onClick={() =>
+            onUpdate(skill, {
+              title: draft.title.trim(),
+              description: draft.description.trim(),
+              trust_label: draft.trustLabel.trim(),
+            })
+          }
+        >
+          {pending ? "Saving..." : "Save"}
+        </button>
       </div>
     </div>
   );
@@ -3847,6 +4144,18 @@ function RolesModal({
               />
             </label>
           </div>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Skill ids</span>
+            <input
+              className="input"
+              value={form.skillIDs}
+              disabled={editingBuiltIn}
+              placeholder="backend, qa"
+              onChange={(event) =>
+                setForm((current) => ({ ...current, skillIDs: event.target.value }))
+              }
+            />
+          </label>
           <div style={subtleTextStyle}>
             Role defaults are execution hints. Assignments can still override the driver, and
             project defaults remain the fallback.
@@ -5039,6 +5348,7 @@ function emptyRoleForm(): RoleForm {
     defaultProvider: "",
     defaultModel: "",
     defaultAgentProfile: "",
+    skillIDs: "",
   };
 }
 
@@ -5052,6 +5362,7 @@ function roleFormFromRecord(role: ProjectWorkRoleRecord): RoleForm {
     defaultProvider: role.default_provider ?? "",
     defaultModel: role.default_model ?? "",
     defaultAgentProfile: role.default_agent_profile ?? "",
+    skillIDs: (role.skill_ids ?? []).join(", "),
   };
 }
 
@@ -5064,6 +5375,15 @@ function rolePayloadFromForm(form: RoleForm) {
     default_provider: form.defaultProvider.trim(),
     default_model: form.defaultModel.trim(),
     default_agent_profile: form.defaultAgentProfile.trim(),
+    skill_ids: splitIDs(form.skillIDs),
+  };
+}
+
+function skillFormFromRecord(skill: ProjectSkillRecord): SkillForm {
+  return {
+    title: skill.title ?? "",
+    description: skill.description ?? "",
+    trustLabel: skill.trust_label ?? "workspace_skill",
   };
 }
 
@@ -5374,6 +5694,34 @@ function upsertRole(items: ProjectWorkRoleRecord[], item: ProjectWorkRoleRecord)
     if (a.built_in !== b.built_in) return a.built_in ? -1 : 1;
     return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
   });
+}
+
+function upsertProjectSkill(items: ProjectSkillRecord[], item: ProjectSkillRecord) {
+  const index = items.findIndex((current) => current.id === item.id);
+  const next = index === -1 ? [item, ...items] : items.slice();
+  if (index !== -1) {
+    next[index] = item;
+  }
+  return next.sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    const rank = projectSkillStatusRank(a.status) - projectSkillStatusRank(b.status);
+    return rank || a.title.localeCompare(b.title) || a.path.localeCompare(b.path) || a.id.localeCompare(b.id);
+  });
+}
+
+function projectSkillStatusRank(status: string): number {
+  switch (status) {
+    case "available":
+      return 0;
+    case "conflict":
+      return 1;
+    case "invalid":
+      return 2;
+    case "missing":
+      return 3;
+    default:
+      return 4;
+  }
 }
 
 function upsertWorkItem(items: ProjectWorkItemRecord[], item: ProjectWorkItemRecord) {

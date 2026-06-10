@@ -139,6 +139,7 @@ func (h *Handler) projectAssistantService() *projectassistant.Service {
 			Projects:         h.projects,
 			Chats:            h.agentChat,
 			Work:             h.projectWork,
+			ProjectSkills:    h.projectSkills,
 			Memory:           h.memory,
 			MemoryCandidates: h.memoryCandidates,
 			LLM:              gatewayAgentLLMClient{service: h.service},

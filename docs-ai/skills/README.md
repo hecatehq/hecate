@@ -7,6 +7,11 @@ Codex-specific, or editor-specific copies of these skills.
 Each skill is a directory with one `SKILL.md`. Add new skills here, then update
 this registry in the same change.
 
+These repository skills are agent-maintainer guidance for working on Hecate
+itself. They are separate from Hecate's runtime Project Skills Registry, which
+stores project-scoped `SKILL.md` metadata for operator projects without loading
+bodies or granting permissions.
+
 | Skill                                 | Use When                                                                                  |
 | ------------------------------------- | ----------------------------------------------------------------------------------------- |
 | [`architect`](architect/SKILL.md)     | Planning substantial changes before code, especially cross-package or architectural work. |

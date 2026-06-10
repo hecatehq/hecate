@@ -71,6 +71,8 @@ internal/
   eventprotocol/        agent-runtime event protocol v1 envelopes (API-facing shape)
   chat/                 chat transcript persistence (memory / sqlite)
   projects/             durable project identity store (memory / sqlite)
+  projectskills/        project-scoped SKILL.md metadata registry
+                          (memory / sqlite; no body injection or execution)
   storage/              sqlite client wrappers
   retention/            retention worker (subsystems: traces, usage_events, audit, provider_history, turn_events, agent_chat_approvals)
   mcp/                  stdio MCP server (read tools + write tools)

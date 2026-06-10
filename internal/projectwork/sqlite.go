@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS %s (
 	default_provider TEXT NOT NULL DEFAULT '',
 	default_model TEXT NOT NULL DEFAULT '',
 	default_agent_profile TEXT NOT NULL DEFAULT '',
+	skill_ids TEXT NOT NULL DEFAULT '[]',
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	PRIMARY KEY(project_id, id)
@@ -167,6 +168,9 @@ CREATE TABLE IF NOT EXISTS %s (
 			return err
 		}
 	}
+	if err := s.ensureColumn(ctx, s.rolesTbl, "skill_ids", `TEXT NOT NULL DEFAULT '[]'`); err != nil {
+		return err
+	}
 	for _, stmt := range []struct {
 		table string
 		name  string
@@ -230,7 +234,7 @@ func (s *SQLiteStore) columnExists(ctx context.Context, quotedTable, column stri
 func (s *SQLiteStore) ListRoles(ctx context.Context, projectID string) ([]AgentRoleProfile, error) {
 	projectID = strings.TrimSpace(projectID)
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-SELECT id, project_id, name, description, instructions, default_driver_kind, default_provider, default_model, default_agent_profile, created_at, updated_at
+SELECT id, project_id, name, description, instructions, default_driver_kind, default_provider, default_model, default_agent_profile, skill_ids, created_at, updated_at
 FROM %s
 WHERE project_id = ?
 ORDER BY name ASC, id ASC`, s.rolesTbl), projectID)
@@ -263,11 +267,15 @@ func (s *SQLiteStore) CreateRole(ctx context.Context, role AgentRoleProfile) (Ag
 	if err := validateRole(role); err != nil {
 		return AgentRoleProfile{}, err
 	}
-	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
-INSERT INTO %s (id, project_id, name, description, instructions, default_driver_kind, default_provider, default_model, default_agent_profile, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.rolesTbl),
+	skillIDs, err := encodeStringList(role.SkillIDs)
+	if err != nil {
+		return AgentRoleProfile{}, err
+	}
+	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
+INSERT INTO %s (id, project_id, name, description, instructions, default_driver_kind, default_provider, default_model, default_agent_profile, skill_ids, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.rolesTbl),
 		role.ID, role.ProjectID, role.Name, role.Description, role.Instructions,
-		role.DefaultDriverKind, role.DefaultProvider, role.DefaultModel, role.DefaultAgentProfile,
+		role.DefaultDriverKind, role.DefaultProvider, role.DefaultModel, role.DefaultAgentProfile, skillIDs,
 		formatTime(role.CreatedAt), formatTime(role.UpdatedAt),
 	)
 	if err != nil {
@@ -311,12 +319,16 @@ func (s *SQLiteStore) UpdateRole(ctx context.Context, projectID, id string, upda
 	if err := validateRole(role); err != nil {
 		return AgentRoleProfile{}, err
 	}
+	skillIDs, err := encodeStringList(role.SkillIDs)
+	if err != nil {
+		return AgentRoleProfile{}, err
+	}
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
 UPDATE %s
-SET name = ?, description = ?, instructions = ?, default_driver_kind = ?, default_provider = ?, default_model = ?, default_agent_profile = ?, updated_at = ?
+SET name = ?, description = ?, instructions = ?, default_driver_kind = ?, default_provider = ?, default_model = ?, default_agent_profile = ?, skill_ids = ?, updated_at = ?
 WHERE project_id = ? AND id = ?`, s.rolesTbl),
 		role.Name, role.Description, role.Instructions,
-		role.DefaultDriverKind, role.DefaultProvider, role.DefaultModel, role.DefaultAgentProfile,
+		role.DefaultDriverKind, role.DefaultProvider, role.DefaultModel, role.DefaultAgentProfile, skillIDs,
 		formatTime(role.UpdatedAt), projectID, id,
 	)
 	if err != nil {
@@ -982,7 +994,7 @@ ORDER BY role_id ASC`, s.reviewersTbl), projectID, workItemID)
 
 func (s *SQLiteStore) getCustomRole(ctx context.Context, projectID, id string) (AgentRoleProfile, error) {
 	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
-SELECT id, project_id, name, description, instructions, default_driver_kind, default_provider, default_model, default_agent_profile, created_at, updated_at
+SELECT id, project_id, name, description, instructions, default_driver_kind, default_provider, default_model, default_agent_profile, skill_ids, created_at, updated_at
 FROM %s
 WHERE project_id = ? AND id = ?`, s.rolesTbl), strings.TrimSpace(projectID), strings.TrimSpace(id))
 	role, err := scanRole(row)
@@ -1082,6 +1094,7 @@ type scanner interface {
 
 func scanRole(row scanner) (AgentRoleProfile, error) {
 	var item AgentRoleProfile
+	var skillIDs string
 	var createdAt, updatedAt string
 	if err := row.Scan(
 		&item.ID,
@@ -1093,12 +1106,16 @@ func scanRole(row scanner) (AgentRoleProfile, error) {
 		&item.DefaultProvider,
 		&item.DefaultModel,
 		&item.DefaultAgentProfile,
+		&skillIDs,
 		&createdAt,
 		&updatedAt,
 	); err != nil {
 		return AgentRoleProfile{}, err
 	}
 	var err error
+	if item.SkillIDs, err = decodeStringList(skillIDs); err != nil {
+		return AgentRoleProfile{}, err
+	}
 	if item.CreatedAt, err = parseTime(createdAt); err != nil {
 		return AgentRoleProfile{}, err
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -720,8 +721,35 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	}
 	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
 		role.DefaultAgentProfile = "prof_role"
+		role.SkillIDs = []string{"backend"}
 	}); err != nil {
 		t.Fatalf("Update role defaults: %v", err)
+	}
+	if _, err := handler.projectSkills.UpsertDiscovered(t.Context(), "proj_start", []projectskills.Skill{
+		{
+			ID:         "backend",
+			ProjectID:  "proj_start",
+			Title:      "Backend",
+			Path:       ".hecate/skills/backend/SKILL.md",
+			RootID:     "root_start",
+			Format:     projectskills.FormatSkillMD,
+			Enabled:    true,
+			Status:     projectskills.StatusAvailable,
+			TrustLabel: projectskills.TrustWorkspaceSkill,
+		},
+		{
+			ID:         "review",
+			ProjectID:  "proj_start",
+			Title:      "Review",
+			Path:       ".hecate/skills/review/SKILL.md",
+			RootID:     "root_start",
+			Format:     projectskills.FormatSkillMD,
+			Enabled:    false,
+			Status:     projectskills.StatusAvailable,
+			TrustLabel: projectskills.TrustWorkspaceSkill,
+		},
+	}); err != nil {
+		t.Fatalf("UpsertDiscovered skills: %v", err)
 	}
 
 	rec := httptest.NewRecorder()
@@ -763,6 +791,19 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	} {
 		if !strings.Contains(profileItem.Body, want) {
 			t.Fatalf("profile body = %q, want %q", profileItem.Body, want)
+		}
+	}
+	skillsItem := findRenderedContextItemByOrigin(packetResp.Data, "project_skills")
+	if skillsItem == nil || !skillsItem.Included || skillsItem.Section != contextSectionProfile {
+		t.Fatalf("project skills item = %+v, want included profile section item", skillsItem)
+	}
+	for _, want := range []string{
+		"Requested: backend, review",
+		"Resolved enabled skills: backend (.hecate/skills/backend/SKILL.md)",
+		"review:disabled",
+	} {
+		if !strings.Contains(skillsItem.Body, want) {
+			t.Fatalf("project skills body = %q, want %q", skillsItem.Body, want)
 		}
 	}
 }

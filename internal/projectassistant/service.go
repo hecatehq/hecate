@@ -13,6 +13,7 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 )
 
@@ -47,6 +48,7 @@ type Service struct {
 	projects         projects.Store
 	chats            chat.Store
 	work             projectwork.Store
+	projectSkills    projectskills.Store
 	memory           memory.Store
 	memoryCandidates memory.CandidateStore
 	llm              LLMClient
@@ -58,6 +60,7 @@ type Stores struct {
 	Projects         projects.Store
 	Chats            chat.Store
 	Work             projectwork.Store
+	ProjectSkills    projectskills.Store
 	Memory           memory.Store
 	MemoryCandidates memory.CandidateStore
 	LLM              LLMClient
@@ -170,6 +173,7 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 		projects:         stores.Projects,
 		chats:            stores.Chats,
 		work:             stores.Work,
+		projectSkills:    stores.ProjectSkills,
 		memory:           stores.Memory,
 		memoryCandidates: stores.MemoryCandidates,
 		llm:              stores.LLM,
@@ -641,6 +645,7 @@ func (s *Service) applyCreateRole(ctx context.Context, action Action) (ActionRes
 		DefaultProvider:     patch.DefaultProvider,
 		DefaultModel:        patch.DefaultModel,
 		DefaultAgentProfile: patch.DefaultAgentProfile,
+		SkillIDs:            append([]string(nil), patch.SkillIDs...),
 	})
 	if err != nil {
 		return ActionResult{}, mapProjectWorkErr(err)
@@ -931,15 +936,16 @@ type moveChatSessionPatch struct {
 }
 
 type rolePatch struct {
-	ID                  string `json:"id,omitempty"`
-	ProjectID           string `json:"project_id,omitempty"`
-	Name                string `json:"name,omitempty"`
-	Description         string `json:"description,omitempty"`
-	Instructions        string `json:"instructions,omitempty"`
-	DefaultDriverKind   string `json:"default_driver_kind,omitempty"`
-	DefaultProvider     string `json:"default_provider,omitempty"`
-	DefaultModel        string `json:"default_model,omitempty"`
-	DefaultAgentProfile string `json:"default_agent_profile,omitempty"`
+	ID                  string   `json:"id,omitempty"`
+	ProjectID           string   `json:"project_id,omitempty"`
+	Name                string   `json:"name,omitempty"`
+	Description         string   `json:"description,omitempty"`
+	Instructions        string   `json:"instructions,omitempty"`
+	DefaultDriverKind   string   `json:"default_driver_kind,omitempty"`
+	DefaultProvider     string   `json:"default_provider,omitempty"`
+	DefaultModel        string   `json:"default_model,omitempty"`
+	DefaultAgentProfile string   `json:"default_agent_profile,omitempty"`
+	SkillIDs            []string `json:"skill_ids,omitempty"`
 }
 
 type workItemPatch struct {

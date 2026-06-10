@@ -269,6 +269,12 @@ func TestProjectAssistantAPI_DraftBootstrapProposal(t *testing.T) {
 		t.Fatalf("Create project: %v", err)
 	}
 
+	discoverRec := httptest.NewRecorder()
+	server.ServeHTTP(discoverRec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_bootstrap_api/skills/discover", nil))
+	if discoverRec.Code != http.StatusOK {
+		t.Fatalf("discover skills status = %d body=%s, want 200", discoverRec.Code, discoverRec.Body.String())
+	}
+
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/draft", bytes.NewReader([]byte(`{
 		"project_id":"proj_bootstrap_api",
@@ -304,6 +310,10 @@ func TestProjectAssistantAPI_DraftBootstrapProposal(t *testing.T) {
 	}
 	if rolePatch["id"] != "skill_research" || rolePatch["name"] != "Research" {
 		t.Fatalf("role patch = %+v, want skill-derived role", rolePatch)
+	}
+	skillIDs, _ := rolePatch["skill_ids"].([]any)
+	if len(skillIDs) != 1 || skillIDs[0] != "research" {
+		t.Fatalf("role skill ids = %+v, want research", rolePatch["skill_ids"])
 	}
 }
 

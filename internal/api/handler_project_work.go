@@ -24,24 +24,26 @@ import (
 )
 
 type createProjectWorkRoleRequest struct {
-	ID                  string `json:"id,omitempty"`
-	Name                string `json:"name"`
-	Description         string `json:"description,omitempty"`
-	Instructions        string `json:"instructions,omitempty"`
-	DefaultDriverKind   string `json:"default_driver_kind,omitempty"`
-	DefaultProvider     string `json:"default_provider,omitempty"`
-	DefaultModel        string `json:"default_model,omitempty"`
-	DefaultAgentProfile string `json:"default_agent_profile,omitempty"`
+	ID                  string   `json:"id,omitempty"`
+	Name                string   `json:"name"`
+	Description         string   `json:"description,omitempty"`
+	Instructions        string   `json:"instructions,omitempty"`
+	DefaultDriverKind   string   `json:"default_driver_kind,omitempty"`
+	DefaultProvider     string   `json:"default_provider,omitempty"`
+	DefaultModel        string   `json:"default_model,omitempty"`
+	DefaultAgentProfile string   `json:"default_agent_profile,omitempty"`
+	SkillIDs            []string `json:"skill_ids,omitempty"`
 }
 
 type updateProjectWorkRoleRequest struct {
-	Name                *string `json:"name,omitempty"`
-	Description         *string `json:"description,omitempty"`
-	Instructions        *string `json:"instructions,omitempty"`
-	DefaultDriverKind   *string `json:"default_driver_kind,omitempty"`
-	DefaultProvider     *string `json:"default_provider,omitempty"`
-	DefaultModel        *string `json:"default_model,omitempty"`
-	DefaultAgentProfile *string `json:"default_agent_profile,omitempty"`
+	Name                *string  `json:"name,omitempty"`
+	Description         *string  `json:"description,omitempty"`
+	Instructions        *string  `json:"instructions,omitempty"`
+	DefaultDriverKind   *string  `json:"default_driver_kind,omitempty"`
+	DefaultProvider     *string  `json:"default_provider,omitempty"`
+	DefaultModel        *string  `json:"default_model,omitempty"`
+	DefaultAgentProfile *string  `json:"default_agent_profile,omitempty"`
+	SkillIDs            []string `json:"skill_ids,omitempty"`
 }
 
 type createProjectWorkItemRequest struct {
@@ -154,18 +156,19 @@ type ProjectWorkRolesResponse struct {
 }
 
 type ProjectWorkRoleResponse struct {
-	ID                  string `json:"id"`
-	ProjectID           string `json:"project_id"`
-	Name                string `json:"name"`
-	Description         string `json:"description,omitempty"`
-	Instructions        string `json:"instructions,omitempty"`
-	DefaultDriverKind   string `json:"default_driver_kind,omitempty"`
-	DefaultProvider     string `json:"default_provider,omitempty"`
-	DefaultModel        string `json:"default_model,omitempty"`
-	DefaultAgentProfile string `json:"default_agent_profile,omitempty"`
-	BuiltIn             bool   `json:"built_in"`
-	CreatedAt           string `json:"created_at,omitempty"`
-	UpdatedAt           string `json:"updated_at,omitempty"`
+	ID                  string   `json:"id"`
+	ProjectID           string   `json:"project_id"`
+	Name                string   `json:"name"`
+	Description         string   `json:"description,omitempty"`
+	Instructions        string   `json:"instructions,omitempty"`
+	DefaultDriverKind   string   `json:"default_driver_kind,omitempty"`
+	DefaultProvider     string   `json:"default_provider,omitempty"`
+	DefaultModel        string   `json:"default_model,omitempty"`
+	DefaultAgentProfile string   `json:"default_agent_profile,omitempty"`
+	SkillIDs            []string `json:"skill_ids,omitempty"`
+	BuiltIn             bool     `json:"built_in"`
+	CreatedAt           string   `json:"created_at,omitempty"`
+	UpdatedAt           string   `json:"updated_at,omitempty"`
 }
 
 type ProjectWorkRoleEnvelope struct {
@@ -450,6 +453,7 @@ func (h *Handler) HandleCreateProjectWorkRole(w http.ResponseWriter, r *http.Req
 		DefaultProvider:     req.DefaultProvider,
 		DefaultModel:        req.DefaultModel,
 		DefaultAgentProfile: req.DefaultAgentProfile,
+		SkillIDs:            req.SkillIDs,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -487,6 +491,9 @@ func (h *Handler) HandleUpdateProjectWorkRole(w http.ResponseWriter, r *http.Req
 		}
 		if req.DefaultAgentProfile != nil {
 			item.DefaultAgentProfile = *req.DefaultAgentProfile
+		}
+		if req.SkillIDs != nil {
+			item.SkillIDs = append([]string(nil), req.SkillIDs...)
 		}
 	})
 	if !writeProjectWorkError(w, err) {
@@ -906,7 +913,8 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, "project assignment start requires a default model")
 		return
 	}
-	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workingDirectory, requestedProvider, requestedModel, executionProfile, profile)
+	resolvedSkills := h.resolveProjectAssignmentSkills(ctx, project.ID, role, profile)
+	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workingDirectory, requestedProvider, requestedModel, executionProfile, profile, resolvedSkills)
 	if contextPacket.ID == "" {
 		contextPacket.ID = newChatID("ctx")
 	}
@@ -1062,7 +1070,8 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		return
 	}
 	sessionID := newChatID("chat")
-	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workspace, "", "", firstNonEmptyString(profile.ExecutionProfile, "external_agent_assignment"), profile)
+	resolvedSkills := h.resolveProjectAssignmentSkills(ctx, project.ID, role, profile)
+	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workspace, "", "", firstNonEmptyString(profile.ExecutionProfile, "external_agent_assignment"), profile, resolvedSkills)
 	contextPacket.ID = firstNonEmptyString(contextPacket.ID, newChatID("ctx"))
 	contextPacket.ExecutionMode = chat.ExecutionModeExternalAgent
 	contextPacket.Provider = ""
@@ -2717,6 +2726,7 @@ func renderProjectWorkRole(item projectwork.AgentRoleProfile) ProjectWorkRoleRes
 		DefaultProvider:     item.DefaultProvider,
 		DefaultModel:        item.DefaultModel,
 		DefaultAgentProfile: item.DefaultAgentProfile,
+		SkillIDs:            append([]string(nil), item.SkillIDs...),
 		BuiltIn:             item.BuiltIn,
 		CreatedAt:           formatOptionalTime(item.CreatedAt),
 		UpdatedAt:           formatOptionalTime(item.UpdatedAt),

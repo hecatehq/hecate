@@ -1033,9 +1033,11 @@ Agent profiles are reusable runtime postures for project work, Hecate Chat,
 task-backed runs, and external-agent launches. They describe defaults and
 constraints such as instructions, surface, provider/model hints, tool/write/
 network posture, approval policy, project-memory policy, context-source
-policy, skill ids, and external-agent options. In this release, `skill_ids` are
-unresolved references for operators and future launch code; Hecate does not
-install or execute skills from an agent profile.
+policy, skill ids, and external-agent options. `skill_ids` resolve against the
+selected project's skills registry when project work starts. Hecate snapshots
+resolved/skipped skill metadata and warnings into the context packet, but it
+does not install skills, execute scripts, grant tools, or inject `SKILL.md`
+bodies from an agent profile.
 
 Profile responses use the normal Hecate envelope:
 
@@ -1111,7 +1113,11 @@ metadata (`path`, `kind`, `title`, `format`, `scope`, `trust_label`,
 `source_category`, arbitrary string metadata, and whether the source is
 enabled). Chat message context packets include enabled sources as itemized
 `workspace_guidance` metadata for inspection, but Hecate does not inject those
-files into prompts yet. Project work-coordination endpoints can
+files into prompts yet. Projects also have a project-scoped skills registry
+for local `SKILL.md` metadata discovered from `.agents/skills`,
+`.hecate/skills`, and enabled guidance-linked local skill roots. The registry
+stores ids, title/description metadata, path, root, status, trust label, and
+warnings; it does not store or return skill bodies. Project work-coordination endpoints can
 persist roles, work items, assignments, and collaboration artifacts under a
 project. Assignments may record links to existing task runs or chat messages,
 but creating an assignment does not start a task, open a chat, inject context,
@@ -1727,6 +1733,70 @@ the same source or target assignment. Handoffs that are not assignment-linked
 are still available from the handoff list/detail endpoints; V1 does not create
 standalone activity rows for them.
 
+#### `GET /hecate/v1/projects/{id}/skills`
+
+Lists persisted project skills. These are project metadata records, not loaded
+runtime instructions. Bodies are never returned.
+
+```json
+{
+  "object": "project_skills",
+  "data": [
+    {
+      "id": "backend",
+      "project_id": "proj_...",
+      "title": "Backend",
+      "description": "Build backend changes.",
+      "path": ".hecate/skills/backend/SKILL.md",
+      "root_id": "root_...",
+      "format": "skill_md",
+      "enabled": true,
+      "status": "available",
+      "trust_label": "workspace_skill",
+      "source_context_source_ids": ["ctx_agents"],
+      "warnings": [],
+      "discovered_at": "2026-06-10T12:00:00Z",
+      "created_at": "2026-06-10T12:00:00Z",
+      "updated_at": "2026-06-10T12:00:00Z"
+    }
+  ]
+}
+```
+
+#### `POST /hecate/v1/projects/{id}/skills/discover`
+
+Refreshes the project skills registry from active absolute project roots.
+Discovery scans:
+
+- `.agents/skills/*/SKILL.md`
+- `.hecate/skills/*/SKILL.md`
+- local skill roots explicitly linked from enabled `AGENTS.md` or `CLAUDE.md`
+  context sources.
+
+Only safe metadata is parsed from bounded `SKILL.md` files: frontmatter
+`name`/`title` and `description`, then H1/title fallback and directory id.
+Duplicate ids become `status: "conflict"` records with warnings. Previously
+persisted skills not found in the latest discovery become `status: "missing"`.
+Operator edits to `enabled`, `title`, `description`, and `trust_label` are
+preserved across rediscovery.
+
+#### `PATCH /hecate/v1/projects/{id}/skills/{skill_id}`
+
+Updates operator-owned skill metadata:
+
+```json
+{
+  "enabled": false,
+  "title": "Backend Lead",
+  "description": "Operator-curated backend posture.",
+  "trust_label": "workspace_skill"
+}
+```
+
+Returns `{ "object": "project_skill", "data": { ... } }`.
+
+Skill status values are `available`, `missing`, `invalid`, and `conflict`.
+
 #### `GET /hecate/v1/projects/{id}/roles`
 
 Lists built-in roles plus custom roles for the project.
@@ -1752,6 +1822,7 @@ Lists built-in roles plus custom roles for the project.
       "default_provider": "ollama",
       "default_model": "ministral-3:latest",
       "default_agent_profile": "implementation",
+      "skill_ids": ["release"],
       "built_in": false,
       "created_at": "2026-06-03T12:00:00Z",
       "updated_at": "2026-06-03T12:00:00Z"
@@ -1770,7 +1841,9 @@ and `default_agent_profile` can seed native task/chat launches before project
 defaults are used. Provider, model, and profile hints are stored as supplied
 and are not validated against the live provider catalog when the role is saved;
 stale or unroutable values fail later when an assignment or chat launch uses
-them.
+them. `skill_ids` are references to the project skills registry. Missing,
+disabled, or conflicting skills warn at assignment start; they do not block the
+assignment.
 
 ```json
 {
@@ -1780,7 +1853,8 @@ them.
   "default_driver_kind": "hecate_task",
   "default_provider": "ollama",
   "default_model": "ministral-3:latest",
-  "default_agent_profile": "implementation"
+  "default_agent_profile": "implementation",
+  "skill_ids": ["release"]
 }
 ```
 
@@ -1788,8 +1862,8 @@ Returns `{ "object": "project_role", "data": { ... } }`.
 
 #### `PATCH /hecate/v1/projects/{id}/roles/{role_id}`
 
-Updates a custom role's `name`, `description`, `instructions`, or role default
-execution hints. Built-in roles return `409 conflict`.
+Updates a custom role's `name`, `description`, `instructions`, `skill_ids`, or
+role default execution hints. Built-in roles return `409 conflict`.
 
 #### `DELETE /hecate/v1/projects/{id}/roles/{role_id}`
 
@@ -2167,9 +2241,8 @@ byte counts, original byte counts, truncation flags, and cheap token estimates.
 `draft` creates proposal data only; it does not create a chat message, task,
 run, assignment, or external agent session. `draft_mode` defaults to
 `deterministic`; `draft_mode: "bootstrap"` deterministically proposes memory
-candidates from enabled guidance-source metadata and project roles from local
-`.agents/skills` or `.hecate/skills` folders, plus local skill roots explicitly
-linked from discovered `AGENTS.md` or `CLAUDE.md` guidance; `draft_mode: "model"`
+candidates from enabled guidance-source metadata and project roles from enabled
+available project-skill registry records; `draft_mode: "model"`
 can use the project default model or explicit request model to author typed
 proposal actions, but those actions are
 still project-scoped, allowlisted, server-validated, and explicitly applied by
