@@ -22,6 +22,9 @@ type projectAssistantDraftRequest struct {
 	Request    string `json:"request"`
 	RoleID     string `json:"role_id,omitempty"`
 	DriverKind string `json:"driver_kind,omitempty"`
+	DraftMode  string `json:"draft_mode,omitempty"`
+	Provider   string `json:"provider,omitempty"`
+	Model      string `json:"model,omitempty"`
 }
 
 type projectAssistantContextRequest struct {
@@ -72,6 +75,10 @@ func (h *Handler) HandleProjectAssistantDraft(w http.ResponseWriter, r *http.Req
 		Request:    req.Request,
 		RoleID:     req.RoleID,
 		DriverKind: req.DriverKind,
+		DraftMode:  req.DraftMode,
+		Provider:   req.Provider,
+		Model:      req.Model,
+		RequestID:  RequestIDFromContext(r.Context()),
 		TraceID:    requestTraceID(r),
 	})
 	if err != nil {
@@ -134,6 +141,7 @@ func (h *Handler) projectAssistantService() *projectassistant.Service {
 			Work:             h.projectWork,
 			Memory:           h.memory,
 			MemoryCandidates: h.memoryCandidates,
+			LLM:              gatewayAgentLLMClient{service: h.service},
 		}, newOpaqueTaskResourceID)
 	}
 	return h.projectAssistant

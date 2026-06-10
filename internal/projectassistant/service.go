@@ -48,6 +48,7 @@ type Service struct {
 	work             projectwork.Store
 	memory           memory.Store
 	memoryCandidates memory.CandidateStore
+	llm              LLMClient
 	idgen            IDGenerator
 	applyProgress    map[string]*applyProgress
 }
@@ -58,6 +59,7 @@ type Stores struct {
 	Work             projectwork.Store
 	Memory           memory.Store
 	MemoryCandidates memory.CandidateStore
+	LLM              LLMClient
 }
 
 type ProposalInput struct {
@@ -74,6 +76,10 @@ type DraftInput struct {
 	Request    string
 	RoleID     string
 	DriverKind string
+	DraftMode  string
+	Provider   string
+	Model      string
+	RequestID  string
 	TraceID    string
 }
 
@@ -165,6 +171,7 @@ func NewService(stores Stores, idgen IDGenerator) *Service {
 		work:             stores.Work,
 		memory:           stores.Memory,
 		memoryCandidates: stores.MemoryCandidates,
+		llm:              stores.LLM,
 		idgen:            idgen,
 		applyProgress:    make(map[string]*applyProgress),
 	}
@@ -212,6 +219,17 @@ func (s *Service) Draft(ctx context.Context, input DraftInput) (Proposal, error)
 	if err != nil {
 		return Proposal{}, err
 	}
+	switch normalizeDraftMode(input.DraftMode) {
+	case "", DraftModeDeterministic:
+		return s.draftDeterministic(ctx, input, draftContext)
+	case DraftModeModel:
+		return s.draftWithModel(ctx, input, draftContext)
+	default:
+		return Proposal{}, fmt.Errorf("%w: unsupported draft_mode %q", ErrInvalid, input.DraftMode)
+	}
+}
+
+func (s *Service) draftDeterministic(ctx context.Context, input DraftInput, draftContext DraftContext) (Proposal, error) {
 	request := draftRequestParts(input.Request)
 	roleLabel := firstNonEmpty(draftContext.Selection.RoleName, draftContext.Selection.RoleID, "role")
 	var proposalInput ProposalInput
@@ -365,10 +383,29 @@ func validateActionShape(action Action) error {
 		if len(action.Patch) == 0 && kind != ActionRemoveProjectRoot {
 			return fmt.Errorf("%w: action %q patch is required", ErrInvalid, kind)
 		}
+		if kind == ActionCreateAssignment {
+			var patch assignmentPatch
+			if err := decodePatch(action, &patch); err != nil {
+				return err
+			}
+			if err := validateAssignmentProposalBoundary(patch); err != nil {
+				return err
+			}
+		}
 		return nil
 	default:
 		return fmt.Errorf("%w: %s", ErrUnknownActionKind, action.Kind)
 	}
+}
+
+func validateAssignmentProposalBoundary(patch assignmentPatch) error {
+	if patch.TaskID != "" || patch.RunID != "" || patch.ChatSessionID != "" || patch.MessageID != "" || patch.ContextSnapshotID != "" {
+		return fmt.Errorf("%w: create_assignment proposals cannot bind chats, tasks, runs, messages, or snapshots", ErrInvalid)
+	}
+	if patch.Status != "" && patch.Status != projectwork.AssignmentStatusQueued {
+		return fmt.Errorf("%w: create_assignment proposals must create queued assignments", ErrInvalid)
+	}
+	return nil
 }
 
 func (s *Service) applyCreateProject(ctx context.Context, action Action) (ActionResult, error) {

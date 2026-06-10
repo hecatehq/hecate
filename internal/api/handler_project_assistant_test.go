@@ -247,6 +247,42 @@ func TestProjectAssistantAPI_ProposeRejectsUnknownActionKind(t *testing.T) {
 	}
 }
 
+func TestProjectAssistantAPI_ProposeRejectsAssignmentBoundaryViolations(t *testing.T) {
+	t.Parallel()
+	server := newProjectAssistantTestServer()
+
+	cases := []struct {
+		name     string
+		patch    string
+		contains string
+	}{
+		{
+			name:     "execution link",
+			patch:    `"project_id":"proj_api","work_item_id":"work_api","role_id":"developer","driver_kind":"hecate_task","status":"queued","task_id":"task_existing"`,
+			contains: "cannot bind chats, tasks, runs",
+		},
+		{
+			name:     "non queued status",
+			patch:    `"project_id":"proj_api","work_item_id":"work_api","role_id":"developer","driver_kind":"hecate_task","status":"running"`,
+			contains: "must create queued assignments",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := `{"actions":[{"kind":"create_assignment","patch":{` + tc.patch + `}}]}`
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/propose", strings.NewReader(body)))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("propose status = %d body=%s, want 400", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.contains) {
+				t.Fatalf("propose body = %s, want %q", rec.Body.String(), tc.contains)
+			}
+		})
+	}
+}
+
 func TestProjectAssistantAPI_ProposeAndApplyCreateProject(t *testing.T) {
 	t.Parallel()
 	server := newProjectAssistantTestServer()

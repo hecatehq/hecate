@@ -16,6 +16,7 @@ export type ProjectAssistantDraftForm = {
   request: string;
   roleID: string;
   driverKind: string;
+  draftMode: "deterministic" | "model";
 };
 
 export type ProjectAssistantStatus = "idle" | "proposing" | "applying" | "applied";
@@ -72,6 +73,7 @@ export function ProjectAssistantPanel({
   const busy = status === "proposing" || status === "applying";
   const contextBusy = contextStatus === "loading";
   const panelDetail = workItem ? `Selected work: ${workItem.title}` : "Project queue";
+  const modelDraftAvailable = Boolean(project.default_model?.trim());
 
   return (
     <section style={assistantPanelStyle} aria-label="Project Assistant">
@@ -109,6 +111,27 @@ export function ProjectAssistantPanel({
         </label>
         <div style={assistantRouteBarStyle}>
           <div style={assistantRouteFieldsStyle}>
+            <label style={routeFieldStyle}>
+              <span style={fieldLabelStyle}>Draft</span>
+              <select
+                className="input"
+                value={form.draftMode}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    draftMode:
+                      event.target.value === "model" && modelDraftAvailable
+                        ? "model"
+                        : "deterministic",
+                  }))
+                }
+              >
+                <option value="deterministic">Rules</option>
+                <option value="model" disabled={!modelDraftAvailable}>
+                  Assistant{modelDraftAvailable ? "" : " (set model)"}
+                </option>
+              </select>
+            </label>
             <label style={routeFieldStyle}>
               <span style={fieldLabelStyle}>Run as</span>
               <select
@@ -371,6 +394,7 @@ function projectAssistantDraftForm(
     request,
     roleID: roles.length > 0 ? PROJECT_ASSISTANT_AUTO : "",
     driverKind: PROJECT_ASSISTANT_AUTO,
+    draftMode: "deterministic",
   };
 }
 

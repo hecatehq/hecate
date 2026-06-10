@@ -79,6 +79,7 @@ import type {
   ProjectAssistantApplyResult,
   ProjectAssistantContextPayload,
   ProjectAssistantContextRecord,
+  ProjectAssistantDraftPayload,
   ProjectAssistantProposal,
   ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
@@ -1121,7 +1122,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setAssistantApplyResult(null);
     try {
       const proposal = await draftProjectAssistant(
-        projectAssistantPayload(form, selectedProject.id, selectedWorkItem?.id),
+        projectAssistantDraftPayload(form, selectedProject.id, selectedWorkItem?.id),
       );
       setAssistantProposal(proposal.data);
       setAssistantStatus("idle");
@@ -1137,7 +1138,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setAssistantContextError("");
     try {
       const payload = await getProjectAssistantContext(
-        projectAssistantPayload(form, selectedProject.id, selectedWorkItem?.id),
+        projectAssistantContextPayload(form, selectedProject.id, selectedWorkItem?.id),
       );
       setAssistantContext(payload.data);
       setAssistantContextStatus("loaded");
@@ -4946,7 +4947,7 @@ function projectAssistantResultWorkItemID(result: ProjectAssistantApplyResult): 
   return "";
 }
 
-function projectAssistantPayload(
+function projectAssistantContextPayload(
   form: ProjectAssistantDraftForm,
   projectID: string,
   workItemID?: string,
@@ -4960,6 +4961,22 @@ function projectAssistantPayload(
     ...(roleID ? { role_id: roleID } : {}),
     ...(driverKind ? { driver_kind: driverKind } : {}),
   };
+}
+
+function projectAssistantDraftPayload(
+  form: ProjectAssistantDraftForm,
+  projectID: string,
+  workItemID?: string,
+): ProjectAssistantDraftPayload {
+  const payload: ProjectAssistantDraftPayload = projectAssistantContextPayload(
+    form,
+    projectID,
+    workItemID,
+  );
+  if (form.draftMode === "model") {
+    payload.draft_mode = "model";
+  }
+  return payload;
 }
 
 function projectAssistantApplyErrorMessage(

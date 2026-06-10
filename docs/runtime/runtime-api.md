@@ -2164,7 +2164,13 @@ inspectable Auto role/driver selection that `draft` will use. Memory and
 memory-candidate bodies are truncated at per-body byte limits and carry returned
 byte counts, original byte counts, truncation flags, and cheap token estimates.
 `draft` creates proposal data only; it does not create a chat message, task,
-run, assignment, or external agent session. See
+run, assignment, or external agent session. `draft_mode` defaults to
+`deterministic`; `draft_mode: "model"` can use the project default model or
+explicit request model to author typed proposal actions, but those actions are
+still project-scoped, allowlisted, server-validated, and explicitly applied by
+the operator. Project Assistant assignment proposals create unstarted queued
+assignments and cannot carry `task_id`, `run_id`, `chat_session_id`,
+`message_id`, or `context_snapshot_id` links. See
 [`project-assistant.md`](project-assistant.md) for the context and draft
 requests, proposal schema, supported action kinds, confirmation behavior, and
 safety model.

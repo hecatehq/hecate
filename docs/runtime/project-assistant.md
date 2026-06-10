@@ -18,13 +18,15 @@ workspace tabs; Chats remains the place for conversational turns. A future real
 assistant may offer a chat-like project surface, but durable changes should
 still land as typed proposals that the operator reviews and applies.
 
-The current composer is intentionally deterministic. `Auto` for `Run as`
+The current composer defaults to deterministic drafting. `Auto` for `Run as`
 resolves to the selected work item's owner role, then the first loaded project
 role. `Auto` for `Via` resolves to the selected role's default driver, then
-`hecate_task`. No model is choosing a delegate yet. When Hecate grows a real
-project assistant loop, it can use richer project context to recommend or select
-roles and drivers, but that decision still needs to be inspectable before work
-is queued or launched.
+`hecate_task`. Operators can also choose model-backed drafting when the project
+has a default model. In that mode the model may author only typed proposal
+actions from the same context packet, and the server still validates those
+actions before the operator can apply them. A future real project assistant loop
+can use richer project context to recommend or select roles and drivers, but
+that decision still needs to be inspectable before work is queued or launched.
 
 The UI supports both project-level planning and selected-work context. With a
 selected work item, the draft queues an assignment for that work. Without a
@@ -71,6 +73,10 @@ permission model.
   server-side.
 - Memory actions create memory candidates only. They never create durable
   memory entries directly.
+- Assignment proposals create unstarted queued assignments. They cannot attach
+  execution evidence or links such as `task_id`, `run_id`, `chat_session_id`,
+  `message_id`, or `context_snapshot_id`; linking existing execution later
+  needs a separate explicit same-project action.
 - Assistant code does not perform raw filesystem, shell, or Git access.
   Workspace-bound behavior must use WorkspaceFS, ProcessRunner, GitRunner, or
   existing task-runtime paths.
@@ -182,12 +188,22 @@ Unsupported driver kinds return `400 invalid_request`.
 ### `POST /hecate/v1/project-assistant/draft`
 
 Builds a server-owned proposal from project context and a short operator
-request. The v0 draft path is deterministic: with `work_item_id` it proposes a
-queued assignment for the selected work; without `work_item_id` it proposes a
-new ready work item. `role_id` and `driver_kind` are optional hints; omitting
-them lets the server choose the selected work item's owner role, then the first
-loaded project role, and the selected role's default driver, then
+request. By default, `draft_mode` is `deterministic`: with `work_item_id` it
+proposes a queued assignment for the selected work; without `work_item_id` it
+proposes a new ready work item. `role_id` and `driver_kind` are optional hints;
+omitting them lets the server choose the selected work item's owner role, then
+the first loaded project role, and the selected role's default driver, then
 `hecate_task`.
+
+`draft_mode: "model"` asks the configured gateway model to author the proposal
+from the same context packet. The request may provide `model` and `provider`;
+otherwise Hecate uses the project's `default_model` and optional
+`default_provider`. Model-backed drafting still returns typed proposal data
+only. The model cannot apply the proposal, start execution, create chats, create
+tasks or runs, start external-agent sessions, promote memory, or bind execution
+links onto assignments. The returned actions are revalidated against the current
+project, selected work item, role/driver selection, and assignment boundary
+before the proposal is returned.
 
 Drafting creates proposal data only. It does not create a Hecate Chat session,
 append a chat message, create a task, create a run, queue an assignment, or
@@ -200,6 +216,7 @@ POST /hecate/v1/project-assistant/draft
   "project_id": "proj_hecate",
   "work_item_id": "work_next",
   "request": "Queue product planning\nPrefer a reviewable handoff.",
+  "draft_mode": "deterministic",
   "driver_kind": "external_agent"
 }
 → 200
@@ -230,7 +247,9 @@ POST /hecate/v1/project-assistant/draft
 ```
 
 Missing projects, work items, or explicit roles return `404 not_found`.
-Unsupported driver kinds return `400 invalid_request`.
+Unsupported driver kinds, unsupported draft modes, missing model configuration
+for model-backed drafting, or out-of-bound model actions return
+`400 invalid_request`.
 
 ### `POST /hecate/v1/project-assistant/propose`
 
@@ -402,8 +421,10 @@ The first visible UI should stay small and inspectable:
 
 The Projects cockpit exposes this contract at the top of the project workspace.
 V0 uses a composer-style request box that drafts typed proposals from the
-selected project/work item. Later Hecate Chat can call the same proposal API,
-but durable mutations should still stop at the same explicit review/apply card.
+selected project/work item. The `Rules` draft option uses deterministic server
+logic; the `Assistant` draft option asks the project default model to author the
+same typed proposal shape. Later Hecate Chat can call the same proposal API, but
+durable mutations should still stop at the same explicit review/apply card.
 Applying a proposal always calls `/project-assistant/apply` with `confirm: true`
 after the operator reviews the action rows. A successful apply refreshes the
 project list, project work, selected work-item detail, and project memory.
