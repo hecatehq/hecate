@@ -23,6 +23,7 @@ const (
 	ActionRemoveProjectRoot     = "remove_project_root"
 	ActionSetProjectDefaults    = "set_project_defaults"
 	ActionMoveChatSession       = "move_chat_session"
+	ActionCreateRole            = "create_role"
 	ActionCreateWorkItem        = "create_work_item"
 	ActionUpdateWorkItem        = "update_work_item"
 	ActionCreateAssignment      = "create_assignment"
@@ -222,6 +223,8 @@ func (s *Service) Draft(ctx context.Context, input DraftInput) (Proposal, error)
 	switch normalizeDraftMode(input.DraftMode) {
 	case "", DraftModeDeterministic:
 		return s.draftDeterministic(ctx, input, draftContext)
+	case DraftModeBootstrap:
+		return s.draftBootstrap(ctx, input, draftContext)
 	case DraftModeModel:
 		return s.draftWithModel(ctx, input, draftContext)
 	default:
@@ -359,6 +362,8 @@ func (s *Service) applyAction(ctx context.Context, action Action) (ActionResult,
 		return s.applySetProjectDefaults(ctx, action)
 	case ActionMoveChatSession:
 		return s.applyMoveChatSession(ctx, action)
+	case ActionCreateRole:
+		return s.applyCreateRole(ctx, action)
 	case ActionCreateWorkItem:
 		return s.applyCreateWorkItem(ctx, action)
 	case ActionUpdateWorkItem:
@@ -378,7 +383,7 @@ func validateActionShape(action Action) error {
 	kind := normalizeKind(action.Kind)
 	switch kind {
 	case ActionCreateProject, ActionUpdateProject, ActionAttachProjectRoot, ActionRemoveProjectRoot,
-		ActionSetProjectDefaults, ActionMoveChatSession, ActionCreateWorkItem, ActionUpdateWorkItem,
+		ActionSetProjectDefaults, ActionMoveChatSession, ActionCreateRole, ActionCreateWorkItem, ActionUpdateWorkItem,
 		ActionCreateAssignment, ActionCreateHandoff, ActionCreateMemoryCandidate:
 		if len(action.Patch) == 0 && kind != ActionRemoveProjectRoot {
 			return fmt.Errorf("%w: action %q patch is required", ErrInvalid, kind)
@@ -605,6 +610,42 @@ func (s *Service) applyMoveChatSession(ctx context.Context, action Action) (Acti
 		return ActionResult{}, err
 	}
 	return ActionResult{Kind: ActionMoveChatSession, ID: updated.ID, Data: map[string]string{"chat_session_id": updated.ID, "project_id": updated.ProjectID}}, nil
+}
+
+func (s *Service) applyCreateRole(ctx context.Context, action Action) (ActionResult, error) {
+	if s.work == nil {
+		return ActionResult{}, ErrStoreNotConfigured
+	}
+	var patch rolePatch
+	if err := decodePatch(action, &patch); err != nil {
+		return ActionResult{}, err
+	}
+	projectID := patch.ProjectID
+	if projectID == "" {
+		projectID = targetValue(action, "project_id")
+	}
+	if _, err := s.requireProject(ctx, projectID); err != nil {
+		return ActionResult{}, err
+	}
+	id := strings.TrimSpace(patch.ID)
+	if id == "" {
+		id = s.idgen("role")
+	}
+	role, err := s.work.CreateRole(ctx, projectwork.AgentRoleProfile{
+		ID:                  id,
+		ProjectID:           projectID,
+		Name:                patch.Name,
+		Description:         patch.Description,
+		Instructions:        patch.Instructions,
+		DefaultDriverKind:   patch.DefaultDriverKind,
+		DefaultProvider:     patch.DefaultProvider,
+		DefaultModel:        patch.DefaultModel,
+		DefaultAgentProfile: patch.DefaultAgentProfile,
+	})
+	if err != nil {
+		return ActionResult{}, mapProjectWorkErr(err)
+	}
+	return ActionResult{Kind: ActionCreateRole, ID: role.ID, Data: map[string]string{"project_id": role.ProjectID, "role_id": role.ID}}, nil
 }
 
 func (s *Service) applyCreateWorkItem(ctx context.Context, action Action) (ActionResult, error) {
@@ -887,6 +928,18 @@ type defaultsPatch struct {
 
 type moveChatSessionPatch struct {
 	ProjectID string `json:"project_id"`
+}
+
+type rolePatch struct {
+	ID                  string `json:"id,omitempty"`
+	ProjectID           string `json:"project_id,omitempty"`
+	Name                string `json:"name,omitempty"`
+	Description         string `json:"description,omitempty"`
+	Instructions        string `json:"instructions,omitempty"`
+	DefaultDriverKind   string `json:"default_driver_kind,omitempty"`
+	DefaultProvider     string `json:"default_provider,omitempty"`
+	DefaultModel        string `json:"default_model,omitempty"`
+	DefaultAgentProfile string `json:"default_agent_profile,omitempty"`
 }
 
 type workItemPatch struct {
@@ -1174,6 +1227,8 @@ func mapProjectWorkErr(err error) error {
 		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	case errors.Is(err, projectwork.ErrDuplicate), errors.Is(err, projectwork.ErrDuplicateRole):
 		return fmt.Errorf("%w: %v", ErrConflict, err)
+	case errors.Is(err, projectwork.ErrBuiltInRole):
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
 	default:
 		return err
 	}

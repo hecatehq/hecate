@@ -14,6 +14,7 @@ import (
 const (
 	DraftModeDeterministic = "deterministic"
 	DraftModeModel         = "model"
+	DraftModeBootstrap     = "bootstrap"
 
 	modelDraftMaxTokens = 1600
 )

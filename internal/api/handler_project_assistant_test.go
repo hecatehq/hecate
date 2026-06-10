@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -228,6 +230,80 @@ func TestProjectAssistantAPI_DraftCreatesAssignmentProposal(t *testing.T) {
 	}
 	if patch["project_id"] != project.ID || patch["work_item_id"] != workItem.ID || patch["role_id"] != "product_manager" || patch["driver_kind"] != projectwork.AssignmentDriverExternalAgent {
 		t.Fatalf("patch = %+v, want selected project/work/owner role/external driver", patch)
+	}
+}
+
+func TestProjectAssistantAPI_DraftBootstrapProposal(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantTestHandler()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".hecate", "skills", "research"), 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".hecate", "skills", "research", "SKILL.md"), []byte("# Research\n"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	_, err := handler.projects.Create(t.Context(), projects.Project{
+		ID:   "proj_bootstrap_api",
+		Name: "Bootstrap API Project",
+		Roots: []projects.Root{{
+			ID:     "root_bootstrap_api",
+			Path:   root,
+			Kind:   "git",
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{{
+			ID:             "ctx_agents_api",
+			Kind:           "workspace_instruction",
+			Title:          "AGENTS.md",
+			Path:           "AGENTS.md",
+			Enabled:        true,
+			Format:         "agents_md",
+			Scope:          "workspace",
+			TrustLabel:     "workspace_guidance",
+			SourceCategory: "workspace_guidance",
+			Metadata:       map[string]string{"root_id": "root_bootstrap_api"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/draft", bytes.NewReader([]byte(`{
+		"project_id":"proj_bootstrap_api",
+		"request":"Bootstrap project guidance",
+		"draft_mode":"bootstrap"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("draft bootstrap status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var proposed projectAssistantProposalResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposed); err != nil {
+		t.Fatalf("decode draft response: %v", err)
+	}
+	if proposed.Object != "project_assistant.proposal" || proposed.Data.ID == "" {
+		t.Fatalf("draft response = %+v, want proposal envelope with id", proposed)
+	}
+	if len(proposed.Data.Actions) != 2 {
+		t.Fatalf("actions = %+v, want guidance candidate and skill role", proposed.Data.Actions)
+	}
+	if proposed.Data.Actions[0].Kind != projectassistant.ActionCreateMemoryCandidate || proposed.Data.Actions[1].Kind != projectassistant.ActionCreateRole {
+		t.Fatalf("action kinds = %s/%s, want memory candidate then role", proposed.Data.Actions[0].Kind, proposed.Data.Actions[1].Kind)
+	}
+	var memoryPatch map[string]any
+	if err := json.Unmarshal(proposed.Data.Actions[0].Patch, &memoryPatch); err != nil {
+		t.Fatalf("decode memory patch: %v", err)
+	}
+	if memoryPatch["suggested_source_kind"] != "context_source" || memoryPatch["suggested_source_id"] != "ctx_agents_api" {
+		t.Fatalf("memory patch = %+v, want context-source provenance", memoryPatch)
+	}
+	var rolePatch map[string]any
+	if err := json.Unmarshal(proposed.Data.Actions[1].Patch, &rolePatch); err != nil {
+		t.Fatalf("decode role patch: %v", err)
+	}
+	if rolePatch["id"] != "skill_research" || rolePatch["name"] != "Research" {
+		t.Fatalf("role patch = %+v, want skill-derived role", rolePatch)
 	}
 }
 

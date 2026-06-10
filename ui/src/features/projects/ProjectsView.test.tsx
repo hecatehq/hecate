@@ -1148,6 +1148,31 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
+  it("can request bootstrap Project Assistant drafts", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await user.selectOptions(within(assistant).getByLabelText("Draft"), "bootstrap");
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+
+    await waitFor(() => {
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        work_item_id: workItem.id,
+        request: "Queue Software developer for Build cockpit UI",
+        draft_mode: "bootstrap",
+      });
+    });
+  });
+
   it("inspects Project Assistant context selection before drafting", async () => {
     resetProjectWorkMocks();
     const user = userEvent.setup();

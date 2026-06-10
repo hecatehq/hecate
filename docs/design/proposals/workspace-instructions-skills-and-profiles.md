@@ -376,6 +376,9 @@ Recommended sequence:
    - Discover `AGENTS.md` and nested `AGENTS.md` under project workspace roots.
    - Save/refresh them as project context-source metadata.
    - Label host-specific files as metadata-only context sources.
+   - Project Assistant context exposes context-source metadata, and Bootstrap
+     drafting can turn enabled guidance metadata into reviewable memory
+     candidates with source refs.
    - Future: include relevant Hecate-owned instruction content in context packets
      after explicit injection policy is designed.
    - Future: label external-agent behavior as "available to adapter" or "not
@@ -384,6 +387,10 @@ Recommended sequence:
 3. **Skills Registry V1 Core**
    - Built-in skill registry.
    - Project-local `.hecate/skills/*/SKILL.md` discovery.
+   - Current Bootstrap drafting can suggest project roles from local
+     `.agents/skills`, `.hecate/skills`, and local skill roots explicitly linked
+     from discovered `AGENTS.md` or `CLAUDE.md` guidance without installing,
+     interpreting, or executing skills.
    - Frontmatter validation.
    - List/get API.
    - Trust/source labels.

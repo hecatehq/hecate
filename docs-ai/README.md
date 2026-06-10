@@ -75,6 +75,9 @@ Details and update rules: [`core/agent-guidance.md`](core/agent-guidance.md).
   `docs/operator/`, `docs/runtime/`, `docs/contributor/`, or `docs/design/`
   page. New event type → event-protocol taxonomy check +
   `docs/runtime/events.md`. Not as a follow-up.
+- **PR readiness check.** Before opening or updating a PR, confirm tests were
+  added/updated for production-code changes and confirm user/AI/runtime docs
+  and related diagrams are updated or intentionally unchanged.
 - **Race suite is the floor** for backend/runtime changes — not a nice-to-have. Use `just test-race` or `go test -race -timeout 10m ./...`.
 - **No plan labels** (`Phase 1`, `P0`, `#15`, `Milestone N`) in commit messages or code comments.
 - **Probe before assuming paths.** `grep`, `ls`, `go build` before writing file paths from memory. Wrong paths compound.

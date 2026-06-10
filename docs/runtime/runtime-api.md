@@ -2160,13 +2160,18 @@ Endpoints:
 - `POST /hecate/v1/project-assistant/apply`
 
 `context` returns the v0 item-limited and body-budgeted project packet plus the
-inspectable Auto role/driver selection that `draft` will use. Memory and
+inspectable Auto role/driver selection that `draft` will use. It includes
+project context-source metadata, but not source file bodies. Memory and
 memory-candidate bodies are truncated at per-body byte limits and carry returned
 byte counts, original byte counts, truncation flags, and cheap token estimates.
 `draft` creates proposal data only; it does not create a chat message, task,
 run, assignment, or external agent session. `draft_mode` defaults to
-`deterministic`; `draft_mode: "model"` can use the project default model or
-explicit request model to author typed proposal actions, but those actions are
+`deterministic`; `draft_mode: "bootstrap"` deterministically proposes memory
+candidates from enabled guidance-source metadata and project roles from local
+`.agents/skills` or `.hecate/skills` folders, plus local skill roots explicitly
+linked from discovered `AGENTS.md` or `CLAUDE.md` guidance; `draft_mode: "model"`
+can use the project default model or explicit request model to author typed
+proposal actions, but those actions are
 still project-scoped, allowlisted, server-validated, and explicitly applied by
 the operator. Model-backed drafts use the normal model gateway path and send the
 item-limited, body-budgeted context packet, including accepted memory and

@@ -22,7 +22,9 @@ The default operating loop, when to stop and plan, and how to propose commits.
    commits to a PR, marking it ready, or asking for merge, this is mandatory by
    touched surface: TypeScript/UI changes require the UI checks and Go changes
    require the Go checks. If a PR touches both, run both. State exactly what
-   was run.
+   was run. Also confirm tests were added or updated for production-code
+   changes, and confirm user/AI/runtime docs plus related diagrams were updated
+   or are intentionally unchanged.
 7. **Summarize.** What changed, what risks remain, what the operator should know — including manual smoke steps if any.
 
 ## When to ask clarifying questions

@@ -134,6 +134,9 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 - **Before creating or updating PRs**: identify and run the related tests for
   every touched surface first. If a required check cannot run, say why in the
   PR/update summary.
+- **PR readiness includes coverage and docs**: before opening or updating a PR,
+  confirm production-code changes added or updated the right tests, and confirm
+  user/AI/runtime docs and related diagrams are updated or explicitly unchanged.
 - **Written production code needs tests**: new behavior gets new tests, bug
   fixes get regression tests, and refactors keep behavior tests passing before
   and after the reshape.
