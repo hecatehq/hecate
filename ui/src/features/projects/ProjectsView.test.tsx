@@ -9,12 +9,14 @@ import { SettingsProvider } from "../../app/state/settings";
 import {
   ApiError,
   applyProjectAssistant,
+  createAgentProfile,
   createProjectAssignment,
   createProjectHandoff,
   createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteProjectAssignment,
+  deleteAgentProfile,
   deleteProjectHandoff,
   deleteProjectMemory,
   deleteProjectWorkRole,
@@ -39,6 +41,7 @@ import {
   rejectProjectMemoryCandidate,
   startProjectAssignment,
   updateProject,
+  updateAgentProfile,
   updateProjectAssignment,
   updateProjectHandoff,
   updateProjectHandoffStatus,
@@ -186,6 +189,9 @@ vi.mock("../../lib/api", async (importOriginal) => {
     })),
     getProjectSkills: vi.fn(async () => ({ object: "project_skills", data: [] })),
     getAgentProfiles: vi.fn(async () => ({ object: "agent_profiles", data: [] })),
+    createAgentProfile: vi.fn(async () => ({ object: "agent_profile", data: null })),
+    updateAgentProfile: vi.fn(async () => ({ object: "agent_profile", data: null })),
+    deleteAgentProfile: vi.fn(async () => undefined),
     draftProjectAssistant: vi.fn(async () => ({
       object: "project_assistant.proposal",
       data: {
@@ -676,6 +682,55 @@ function resetProjectWorkMocks() {
       },
     ],
   });
+  vi.mocked(createAgentProfile).mockImplementation(async (payload) => ({
+    object: "agent_profile",
+    data: {
+      id: payload.id || "profile_new",
+      name: payload.name,
+      description: payload.description ?? "",
+      instructions: payload.instructions ?? "",
+      surface: payload.surface || "any",
+      provider_hint: payload.provider_hint ?? "",
+      model_hint: payload.model_hint ?? "",
+      execution_profile: payload.execution_profile ?? "",
+      tools_enabled: payload.tools_enabled ?? true,
+      writes_allowed: payload.writes_allowed ?? false,
+      network_allowed: payload.network_allowed ?? false,
+      approval_policy: payload.approval_policy || "inherit",
+      project_memory_policy: payload.project_memory_policy || "inherit",
+      context_source_policy: payload.context_source_policy || "inherit",
+      skill_ids: payload.skill_ids ?? [],
+      external_agent_kind: payload.external_agent_kind ?? "",
+      external_agent_options: {},
+      created_at: "2026-06-04T12:00:00Z",
+      updated_at: "2026-06-04T12:00:00Z",
+    },
+  }));
+  vi.mocked(updateAgentProfile).mockImplementation(async (id, payload) => ({
+    object: "agent_profile",
+    data: {
+      id,
+      name: payload.name || "Implementation",
+      description: payload.description ?? "",
+      instructions: payload.instructions ?? "",
+      surface: payload.surface || "any",
+      provider_hint: payload.provider_hint ?? "",
+      model_hint: payload.model_hint ?? "",
+      execution_profile: payload.execution_profile ?? "",
+      tools_enabled: payload.tools_enabled ?? true,
+      writes_allowed: payload.writes_allowed ?? false,
+      network_allowed: payload.network_allowed ?? false,
+      approval_policy: payload.approval_policy || "inherit",
+      project_memory_policy: payload.project_memory_policy || "inherit",
+      context_source_policy: payload.context_source_policy || "inherit",
+      skill_ids: payload.skill_ids ?? [],
+      external_agent_kind: payload.external_agent_kind ?? "",
+      external_agent_options: {},
+      created_at: "2026-06-04T10:00:00Z",
+      updated_at: "2026-06-04T12:00:00Z",
+    },
+  }));
+  vi.mocked(deleteAgentProfile).mockResolvedValue(undefined);
   vi.mocked(draftProjectAssistant).mockResolvedValue({
     object: "project_assistant.proposal",
     data: {
@@ -888,6 +943,9 @@ afterEach(() => {
   vi.mocked(getProjectMemoryCandidates).mockReset();
   vi.mocked(getProjectSkills).mockReset();
   vi.mocked(getAgentProfiles).mockReset();
+  vi.mocked(createAgentProfile).mockReset();
+  vi.mocked(updateAgentProfile).mockReset();
+  vi.mocked(deleteAgentProfile).mockReset();
   vi.mocked(draftProjectAssistant).mockReset();
   vi.mocked(applyProjectAssistant).mockReset();
   vi.mocked(createProjectHandoff).mockReset();
@@ -995,7 +1053,12 @@ describe("ProjectsView index", () => {
       .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label") ?? "");
     expect(actionLabels[0]).toMatch(/^Project attention/);
-    expect(actionLabels.slice(1)).toEqual(["Roles", "Project settings", "Refresh project work"]);
+    expect(actionLabels.slice(1)).toEqual([
+      "Roles",
+      "Agent profiles",
+      "Project settings",
+      "Refresh project work",
+    ]);
     expect(within(detail).queryByText("Cockpit")).toBeNull();
     expect(within(workPanel).getByRole("button", { name: "Work" })).toBeTruthy();
     expect(within(workPanel).getByText("Work Queue")).toBeTruthy();
@@ -3719,6 +3782,23 @@ describe("ProjectsView cockpit", () => {
 
   it("creates custom roles with execution defaults", async () => {
     resetProjectWorkMocks();
+    vi.mocked(getProjectSkills).mockResolvedValue({
+      object: "project_skills",
+      data: [
+        {
+          ...projectSkill,
+          id: "frontend",
+          title: "Frontend",
+          path: ".agents/skills/frontend/SKILL.md",
+        },
+        {
+          ...projectSkill,
+          id: "ui",
+          title: "UI",
+          path: ".agents/skills/ui/SKILL.md",
+        },
+      ],
+    });
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -3750,9 +3830,8 @@ describe("ProjectsView cockpit", () => {
     fireEvent.change(within(dialog).getByLabelText("Default model"), {
       target: { value: "ministral-3:latest" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Skill ids"), {
-      target: { value: "frontend, ui" },
-    });
+    await userEvent.click(await within(dialog).findByLabelText("Use skill Frontend"));
+    await userEvent.click(within(dialog).getByLabelText("Use skill UI"));
     await userEvent.click(within(dialog).getByRole("button", { name: "Create role" }));
 
     expect(createProjectWorkRole).toHaveBeenCalledWith(project.id, {
@@ -3769,6 +3848,109 @@ describe("ProjectsView cockpit", () => {
       expect(within(dialog).getByRole("button", { name: "Save role" })).toBeTruthy();
     });
     expect(within(dialog).getByRole("button", { name: "Delete role" })).toBeTruthy();
+  });
+
+  it("creates agent profiles with project skill selections", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectSkills).mockResolvedValue({
+      object: "project_skills",
+      data: [projectSkill],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Agent profiles" }));
+    const dialog = screen.getByRole("dialog", { name: "Agent profiles" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "New profile" }));
+    fireEvent.change(within(dialog).getByLabelText("Profile id"), {
+      target: { value: "reviewer" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
+      target: { value: "Reviewer" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Description"), {
+      target: { value: "Reviews implementation assignments." },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Instructions"), {
+      target: { value: "Review the diff and surface risks." },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Surface"), {
+      target: { value: "hecate_task" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Execution profile"), {
+      target: { value: "review" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Provider hint"), {
+      target: { value: "ollama" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Model hint"), {
+      target: { value: "qwen2.5-coder" },
+    });
+    await userEvent.click(within(dialog).getByLabelText("Writes allowed"));
+    fireEvent.change(within(dialog).getByLabelText("Approval policy"), {
+      target: { value: "require" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Memory policy"), {
+      target: { value: "include" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Context source policy"), {
+      target: { value: "visible_only" },
+    });
+    await userEvent.click(await within(dialog).findByLabelText("Use skill Backend"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create profile" }));
+
+    expect(createAgentProfile).toHaveBeenCalledWith({
+      id: "reviewer",
+      name: "Reviewer",
+      description: "Reviews implementation assignments.",
+      instructions: "Review the diff and surface risks.",
+      surface: "hecate_task",
+      provider_hint: "ollama",
+      model_hint: "qwen2.5-coder",
+      execution_profile: "review",
+      tools_enabled: true,
+      writes_allowed: true,
+      network_allowed: false,
+      approval_policy: "require",
+      project_memory_policy: "include",
+      context_source_policy: "visible_only",
+      skill_ids: ["backend"],
+      external_agent_kind: "",
+    });
+  });
+
+  it("updates and deletes agent profiles", async () => {
+    resetProjectWorkMocks();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Agent profiles" }));
+    const dialog = screen.getByRole("dialog", { name: "Agent profiles" });
+    fireEvent.change(within(dialog).getByLabelText("Name"), {
+      target: { value: "Implementation reviewer" },
+    });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save profile" }));
+
+    expect(updateAgentProfile).toHaveBeenCalledWith(
+      "implementation",
+      expect.objectContaining({
+        name: "Implementation reviewer",
+        surface: "hecate_task",
+        project_memory_policy: "visible_only",
+        context_source_policy: "include_enabled",
+      }),
+    );
+
+    await userEvent.click(await within(dialog).findByRole("button", { name: "Delete profile" }));
+    expect(deleteAgentProfile).toHaveBeenCalledWith("implementation");
   });
 
   it("edits and deletes assignments from the selected work item", async () => {
