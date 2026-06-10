@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -82,7 +83,7 @@ Every action must target the current project_id from the context.
 Do not create chats, tasks, runs, sessions, filesystem changes, shell commands, or durable memory entries.
 If selected_work is present, work-scoped actions must use that selected work item.
 For create_assignment, use context.selection.role_id, context.selection.driver_kind, and status "queued".
-Memory actions must create memory candidates only. Pending memory candidates in context are lower-trust than accepted memory.`)
+Memory actions must create memory candidates only, with suggested_trust_label "generated_summary" and suggested_source_kind "generated". Pending memory candidates in context are lower-trust than accepted memory.`)
 	user := fmt.Sprintf("Draft one concise proposal for this Project Assistant context:\n\n%s", string(contextJSON))
 	return []types.Message{
 		{Role: "system", Content: system},
@@ -140,12 +141,49 @@ func modelDraftContent(resp *types.ChatResponse) string {
 }
 
 func extractJSONObject(content string) string {
-	start := strings.Index(content, "{")
-	end := strings.LastIndex(content, "}")
-	if start < 0 || end <= start {
-		return content
+	for start, r := range content {
+		if r != '{' {
+			continue
+		}
+		if end, ok := balancedJSONObjectEnd(content[start:]); ok {
+			return strings.TrimSpace(content[start : start+end])
+		}
 	}
-	return strings.TrimSpace(content[start : end+1])
+	return content
+}
+
+func balancedJSONObjectEnd(content string) (int, bool) {
+	depth := 0
+	inString := false
+	escaped := false
+	for idx, r := range content {
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case r == '\\':
+				escaped = true
+			case r == '"':
+				inString = false
+			}
+			continue
+		}
+		switch r {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return idx + 1, true
+			}
+			if depth < 0 {
+				return 0, false
+			}
+		}
+	}
+	return 0, false
 }
 
 func validateModelDraftActions(draftContext DraftContext, actions []Action) error {
@@ -242,7 +280,22 @@ func validateModelDraftAction(draftContext DraftContext, index int, action Actio
 		if err := decodePatch(action, &patch); err != nil {
 			return err
 		}
-		return validateOptionalProjectID(index, "patch.project_id", patch.ProjectID, projectID)
+		if err := validateOptionalProjectID(index, "patch.project_id", patch.ProjectID, projectID); err != nil {
+			return err
+		}
+		return validateModelMemoryCandidateProvenance(index, patch)
+	}
+	return nil
+}
+
+func validateModelMemoryCandidateProvenance(index int, patch memoryCandidatePatch) error {
+	trustLabel := strings.TrimSpace(patch.SuggestedTrustLabel)
+	if trustLabel != "" && trustLabel != memory.TrustLabelGenerated {
+		return fmt.Errorf("%w: model draft action %d memory candidate suggested_trust_label must be %q", ErrInvalid, index+1, memory.TrustLabelGenerated)
+	}
+	sourceKind := strings.TrimSpace(patch.SuggestedSourceKind)
+	if sourceKind != "" && sourceKind != memory.SourceKindGenerated {
+		return fmt.Errorf("%w: model draft action %d memory candidate suggested_source_kind must be %q", ErrInvalid, index+1, memory.SourceKindGenerated)
 	}
 	return nil
 }

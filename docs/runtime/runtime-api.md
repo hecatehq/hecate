@@ -2168,9 +2168,13 @@ run, assignment, or external agent session. `draft_mode` defaults to
 `deterministic`; `draft_mode: "model"` can use the project default model or
 explicit request model to author typed proposal actions, but those actions are
 still project-scoped, allowlisted, server-validated, and explicitly applied by
-the operator. Project Assistant assignment proposals create unstarted queued
-assignments and cannot carry `task_id`, `run_id`, `chat_session_id`,
-`message_id`, or `context_snapshot_id` links. See
+the operator. Model-backed drafts use the normal model gateway path and send the
+item-limited, body-budgeted context packet, including accepted memory and
+pending memory-candidate excerpts, to the selected local or cloud provider
+route. The packet is body-budgeted but not yet provider-tokenizer fitted.
+Project Assistant assignment proposals create unstarted queued assignments and
+cannot carry `task_id`, `run_id`, `chat_session_id`, `message_id`, or
+`context_snapshot_id` links. See
 [`project-assistant.md`](project-assistant.md) for the context and draft
 requests, proposal schema, supported action kinds, confirmation behavior, and
 safety model.

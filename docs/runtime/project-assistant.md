@@ -72,7 +72,10 @@ permission model.
   data; apply revalidates ids, current state, and project/workspace boundaries
   server-side.
 - Memory actions create memory candidates only. They never create durable
-  memory entries directly.
+  memory entries directly. Model-backed drafts may only mark those candidates
+  with generated provenance: `suggested_trust_label: "generated_summary"` and
+  `suggested_source_kind: "generated"` when provided; operator-authored trust or
+  source labels require later operator promotion or editing.
 - Assignment proposals create unstarted queued assignments. They cannot attach
   execution evidence or links such as `task_id`, `run_id`, `chat_session_id`,
   `message_id`, or `context_snapshot_id`; linking existing execution later
@@ -198,12 +201,23 @@ the first loaded project role, and the selected role's default driver, then
 `draft_mode: "model"` asks the configured gateway model to author the proposal
 from the same context packet. The request may provide `model` and `provider`;
 otherwise Hecate uses the project's `default_model` and optional
-`default_provider`. Model-backed drafting still returns typed proposal data
-only. The model cannot apply the proposal, start execution, create chats, create
-tasks or runs, start external-agent sessions, promote memory, or bind execution
-links onto assignments. The returned actions are revalidated against the current
-project, selected work item, role/driver selection, and assignment boundary
-before the proposal is returned.
+`default_provider`. Model-backed drafts use the normal model gateway path,
+including gateway governor, policy, provider/model routing, and provider
+preflight. They send the item-limited and body-budgeted Project Assistant
+context packet through that selected route, including accepted project memory and
+pending memory-candidate excerpts. If the route uses a cloud provider, those
+context excerpts are sent to that provider just like other Hecate model calls;
+operators should choose local or cloud project defaults accordingly. The packet
+is body-budgeted but not yet fitted with a provider tokenizer or
+context-window-specific preflight.
+
+Model-backed drafting still returns typed proposal data only. The model cannot
+apply the proposal, start execution, create chats, create tasks or runs, start
+external-agent sessions, promote memory, mark generated memory candidates as
+operator-authored, or bind execution links onto assignments. The returned
+actions are revalidated against the current project, selected work item,
+role/driver selection, memory-candidate generated provenance, and assignment
+boundary before the proposal is returned.
 
 Drafting creates proposal data only. It does not create a Hecate Chat session,
 append a chat message, create a task, create a run, queue an assignment, or
