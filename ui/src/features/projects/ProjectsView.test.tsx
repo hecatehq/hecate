@@ -1159,6 +1159,78 @@ describe("ProjectsView cockpit", () => {
     expect(within(assistant).getAllByText("Build cockpit UI").length).toBeGreaterThan(0);
   });
 
+  it("renders Project Assistant context budget values", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectAssistantContext).mockResolvedValueOnce({
+      object: "project_assistant.context",
+      data: {
+        project: {
+          id: project.id,
+          name: project.name,
+          roots: [],
+          created_at: project.created_at,
+          updated_at: project.updated_at,
+        },
+        request: `Queue ${role.name} for ${workItem.title}`,
+        selected_work: {
+          id: workItem.id,
+          title: workItem.title,
+          status: workItem.status,
+          owner_role_id: workItem.owner_role_id,
+          created_at: workItem.created_at,
+          updated_at: workItem.updated_at,
+        },
+        roles: [
+          {
+            id: role.id,
+            name: role.name,
+            built_in: role.built_in,
+            created_at: "2026-06-01T10:00:00Z",
+            updated_at: "2026-06-01T10:00:00Z",
+          },
+        ],
+        assignments: [],
+        memory: [],
+        memory_candidates: [],
+        recent_activity: [],
+        budget: {
+          memory_body_max_bytes: 4096,
+          memory_candidate_body_max_bytes: 2048,
+          body_original_bytes: 12000,
+          body_returned_bytes: 6144,
+          body_tokens_estimate: 321,
+          body_truncated_count: 2,
+        },
+        selection: {
+          role_id: role.id,
+          role_name: role.name,
+          role_source: "selected_work_owner",
+          driver_kind: "hecate_task",
+          driver_source: "role_default",
+          reason:
+            "Selected work item is owned by Software developer. Using hecate_task from the selected role default.",
+        },
+      },
+    });
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await user.click(within(assistant).getByRole("button", { name: "Inspect context" }));
+
+    const context = await within(assistant).findByLabelText("Project Assistant context");
+    expect(within(context).getByText("Body tokens")).toBeTruthy();
+    expect(within(context).getByText("~321")).toBeTruthy();
+    expect(within(context).getByText("Truncated")).toBeTruthy();
+    expect(within(context).getByText("2")).toBeTruthy();
+  });
+
   it("surfaces Project Assistant context inspection errors", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectAssistantContext).mockRejectedValueOnce(
