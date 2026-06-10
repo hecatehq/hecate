@@ -142,7 +142,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   workspace changes panel's Review tab owns changed-file diffs, copy, and
   discard actions; the Files tab owns the full workspace tree. Keep the full
   tree collapsed by default and expand matching directories only when the
-  operator searches or opens them.
+  operator searches or opens them. When the workspace panel is visible, refresh
+  it after an active chat/agent turn settles so the operator sees live changes
+  without pressing Refresh; keep the explicit Refresh action for manual
+  rechecks and recovery.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.
