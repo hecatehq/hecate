@@ -31,7 +31,7 @@ import {
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
-  proposeProjectAssistant,
+  draftProjectAssistant,
   promoteProjectMemoryCandidate,
   rejectProjectMemoryCandidate,
   startProjectAssignment,
@@ -121,7 +121,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
       data: [],
     })),
     getAgentProfiles: vi.fn(async () => ({ object: "agent_profiles", data: [] })),
-    proposeProjectAssistant: vi.fn(async () => ({
+    draftProjectAssistant: vi.fn(async () => ({
       object: "project_assistant.proposal",
       data: {
         id: "pa_test",
@@ -466,7 +466,7 @@ function resetProjectWorkMocks() {
       },
     ],
   });
-  vi.mocked(proposeProjectAssistant).mockResolvedValue({
+  vi.mocked(draftProjectAssistant).mockResolvedValue({
     object: "project_assistant.proposal",
     data: {
       id: "pa_test",
@@ -674,7 +674,7 @@ afterEach(() => {
   vi.mocked(getProjectMemory).mockReset();
   vi.mocked(getProjectMemoryCandidates).mockReset();
   vi.mocked(getAgentProfiles).mockReset();
-  vi.mocked(proposeProjectAssistant).mockReset();
+  vi.mocked(draftProjectAssistant).mockReset();
   vi.mocked(applyProjectAssistant).mockReset();
   vi.mocked(createProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoff).mockReset();
@@ -923,23 +923,10 @@ describe("ProjectsView cockpit", () => {
     await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
 
     await waitFor(() => {
-      expect(proposeProjectAssistant).toHaveBeenCalledWith({
-        title: "Queue Software developer for Build cockpit UI",
-        summary: "Create a queued hecate_task assignment on the selected work item.",
-        actions: [
-          {
-            kind: "create_assignment",
-            target: { project_id: project.id },
-            patch: {
-              project_id: project.id,
-              work_item_id: workItem.id,
-              role_id: role.id,
-              driver_kind: "hecate_task",
-              status: "queued",
-            },
-            reason: "Queue a reviewable assignment without starting execution.",
-          },
-        ],
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        work_item_id: workItem.id,
+        request: "Queue Software developer for Build cockpit UI",
       });
     });
     expect(await within(assistant).findByText("Create assignment")).toBeTruthy();
@@ -983,23 +970,9 @@ describe("ProjectsView cockpit", () => {
     await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
 
     await waitFor(() => {
-      expect(proposeProjectAssistant).toHaveBeenCalledWith({
-        title: "Write project brief",
-        summary: "Create a ready work item from the current assistant draft.",
-        actions: [
-          {
-            kind: "create_work_item",
-            target: { project_id: project.id },
-            patch: {
-              project_id: project.id,
-              title: "Write project brief",
-              brief: "Capture the next operator task.",
-              status: "ready",
-              priority: "normal",
-            },
-            reason: "Create a reviewable project work item.",
-          },
-        ],
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        request: "Write project brief\nCapture the next operator task.",
       });
     });
   });

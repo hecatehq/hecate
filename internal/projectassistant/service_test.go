@@ -42,6 +42,94 @@ func TestService_ProposeRejectsUnknownActionKind(t *testing.T) {
 	}
 }
 
+func TestService_DraftCreatesAssignmentProposalAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+			workItem, err := fixture.work.CreateWorkItem(ctx, projectwork.WorkItem{
+				ID:          "work_plan",
+				ProjectID:   project.ID,
+				Title:       "Plan next work",
+				Brief:       "Pick the next reviewable task.",
+				Status:      projectwork.WorkItemStatusReady,
+				OwnerRoleID: "product_manager",
+			})
+			if err != nil {
+				t.Fatalf("CreateWorkItem: %v", err)
+			}
+
+			proposal, err := fixture.service.Draft(ctx, DraftInput{
+				ProjectID:  project.ID,
+				WorkItemID: workItem.ID,
+				Request:    "Queue product planning\nPrefer a reviewable handoff.",
+				DriverKind: projectwork.AssignmentDriverExternalAgent,
+				TraceID:    "trace_draft",
+			})
+			if err != nil {
+				t.Fatalf("Draft assignment: %v", err)
+			}
+			if proposal.Title != "Queue product planning" || proposal.TraceID != "trace_draft" {
+				t.Fatalf("proposal title/trace = %q/%q, want request title and trace", proposal.Title, proposal.TraceID)
+			}
+			if len(proposal.Actions) != 1 || proposal.Actions[0].Kind != ActionCreateAssignment {
+				t.Fatalf("actions = %+v, want one create_assignment", proposal.Actions)
+			}
+			patch := rawPatchMap(t, proposal.Actions[0].Patch)
+			if patch["project_id"] != project.ID || patch["work_item_id"] != workItem.ID || patch["role_id"] != "product_manager" || patch["driver_kind"] != projectwork.AssignmentDriverExternalAgent || patch["status"] != projectwork.AssignmentStatusQueued {
+				t.Fatalf("assignment patch = %+v, want project/work/owner-role/external queued", patch)
+			}
+		})
+	}
+}
+
+func TestService_DraftCreatesWorkItemProposalAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			project := createTestProject(t, ctx, fixture.projects)
+
+			proposal, err := fixture.service.Draft(ctx, DraftInput{
+				ProjectID: project.ID,
+				Request:   "Write rollout notes\nCapture release caveats.",
+				RoleID:    "architect",
+			})
+			if err != nil {
+				t.Fatalf("Draft work item: %v", err)
+			}
+			if len(proposal.Actions) != 1 || proposal.Actions[0].Kind != ActionCreateWorkItem {
+				t.Fatalf("actions = %+v, want one create_work_item", proposal.Actions)
+			}
+			patch := rawPatchMap(t, proposal.Actions[0].Patch)
+			if patch["project_id"] != project.ID || patch["title"] != "Write rollout notes" || patch["brief"] != "Capture release caveats." || patch["owner_role_id"] != "architect" {
+				t.Fatalf("work item patch = %+v, want project/title/brief/owner role", patch)
+			}
+		})
+	}
+}
+
+func TestService_DraftRejectsUnsupportedDriverKind(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture := newMemoryAssistantFixture(t)
+	project := createTestProject(t, ctx, fixture.projects)
+
+	_, err := fixture.service.Draft(ctx, DraftInput{
+		ProjectID:  project.ID,
+		Request:    "Queue speculative work",
+		DriverKind: "spreadsheet_macro",
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Draft err = %v, want ErrInvalid", err)
+	}
+}
+
 func TestService_ApplyRequiresConfirmation(t *testing.T) {
 	t.Parallel()
 	for _, builder := range assistantFixtureBuilders() {
@@ -765,6 +853,15 @@ func rawPatch(t *testing.T, value any) json.RawMessage {
 		t.Fatalf("marshal patch: %v", err)
 	}
 	return payload
+}
+
+func rawPatchMap(t *testing.T, payload json.RawMessage) map[string]string {
+	t.Helper()
+	var decoded map[string]string
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode patch: %v", err)
+	}
+	return decoded
 }
 
 func createTestProject(t *testing.T, ctx context.Context, store projects.Store) projects.Project {

@@ -99,6 +99,14 @@ export type ProjectAssistantProposePayload = {
   actions: ProjectAssistantAction[];
 };
 
+export type ProjectAssistantDraftPayload = {
+  project_id: string;
+  work_item_id?: string;
+  request: string;
+  role_id?: string;
+  driver_kind?: string;
+};
+
 export type ProjectAssistantApplyPayload = {
   proposal: ProjectAssistantProposal;
   confirm?: boolean;

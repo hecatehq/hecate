@@ -1,9 +1,10 @@
 # Project Assistant
 
 Project Assistant is Hecate's API-first foundation for supervised project
-operations. It is intentionally narrow: a client proposes typed actions, Hecate
-validates them, the operator inspects the exact change set, and apply
-revalidates current server state before any durable mutation.
+operations. It is intentionally narrow: a client can ask Hecate to draft a
+reviewable project proposal or submit typed actions directly, Hecate validates
+the proposal, the operator inspects the exact change set, and apply revalidates
+current server state before any durable mutation.
 
 It is not a broad chat persona in v0. Hecate Chat can call the same proposal and
 apply API later, but the action system lives in core so every surface follows
@@ -63,6 +64,58 @@ confirmation, and resumable progress survive process restarts. The v0 API keeps
 that shape possible without requiring it.
 
 ## Endpoints
+
+### `POST /hecate/v1/project-assistant/draft`
+
+Builds a server-owned proposal from project context and a short operator
+request. The v0 draft path is deterministic: with `work_item_id` it proposes a
+queued assignment for the selected work; without `work_item_id` it proposes a
+new ready work item. `role_id` and `driver_kind` are optional hints; omitting
+them lets the server choose the selected work item's owner role, then the first
+loaded project role, and the selected role's default driver, then
+`hecate_task`.
+
+Drafting creates proposal data only. It does not create a Hecate Chat session,
+append a chat message, create a task, create a run, queue an assignment, or
+start an external agent session.
+
+```json
+POST /hecate/v1/project-assistant/draft
+{
+  "project_id": "proj_hecate",
+  "work_item_id": "work_next",
+  "request": "Queue product planning\nPrefer a reviewable handoff.",
+  "driver_kind": "external_agent"
+}
+→ 200
+{
+  "object": "project_assistant.proposal",
+  "data": {
+    "id": "pa_...",
+    "title": "Queue product planning",
+    "summary": "Create a queued external_agent assignment on the selected work item.",
+    "actions": [
+      {
+        "kind": "create_assignment",
+        "target": { "project_id": "proj_hecate" },
+        "patch": {
+          "project_id": "proj_hecate",
+          "work_item_id": "work_next",
+          "role_id": "product_manager",
+          "driver_kind": "external_agent",
+          "status": "queued"
+        },
+        "reason": "Queue a reviewable assignment without starting execution."
+      }
+    ],
+    "requires_confirmation": true,
+    "trace_id": "..."
+  }
+}
+```
+
+Missing projects, work items, or explicit roles return `404 not_found`.
+Unsupported driver kinds return `400 invalid_request`.
 
 ### `POST /hecate/v1/project-assistant/propose`
 

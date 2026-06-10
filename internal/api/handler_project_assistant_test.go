@@ -36,12 +36,65 @@ type projectAssistantErrorResponse struct {
 }
 
 func newProjectAssistantTestServer() http.Handler {
+	_, server := newProjectAssistantTestHandler()
+	return server
+}
+
+func newProjectAssistantTestHandler() (*Handler, http.Handler) {
 	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
 	handler.SetProjectStore(projects.NewMemoryStore())
 	handler.SetAgentChatStore(chat.NewMemoryStore())
 	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
 	handler.SetMemoryStore(memory.NewMemoryStore())
-	return NewServer(quietLogger(), handler)
+	return handler, NewServer(quietLogger(), handler)
+}
+
+func TestProjectAssistantAPI_DraftCreatesAssignmentProposal(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectAssistantTestHandler()
+	project, err := handler.projects.Create(t.Context(), projects.Project{ID: "proj_api", Name: "API Project"})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	workItem, err := handler.projectWork.CreateWorkItem(t.Context(), projectwork.WorkItem{
+		ID:          "work_api",
+		ProjectID:   project.ID,
+		Title:       "Plan next work",
+		Brief:       "Pick the next reviewable task.",
+		Status:      projectwork.WorkItemStatusReady,
+		OwnerRoleID: "product_manager",
+	})
+	if err != nil {
+		t.Fatalf("Create work item: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/project-assistant/draft", bytes.NewReader([]byte(`{
+		"project_id":"proj_api",
+		"work_item_id":"work_api",
+		"request":"Queue Product Manager\nPrepare acceptance criteria.",
+		"driver_kind":"external_agent"
+	}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("draft status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var proposed projectAssistantProposalResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &proposed); err != nil {
+		t.Fatalf("decode draft response: %v", err)
+	}
+	if proposed.Object != "project_assistant.proposal" || proposed.Data.ID == "" {
+		t.Fatalf("draft response = %+v, want proposal envelope with id", proposed)
+	}
+	if proposed.Data.Title != "Queue Product Manager" || len(proposed.Data.Actions) != 1 || proposed.Data.Actions[0].Kind != projectassistant.ActionCreateAssignment {
+		t.Fatalf("proposal = %+v, want one assignment proposal with request title", proposed.Data)
+	}
+	var patch map[string]string
+	if err := json.Unmarshal(proposed.Data.Actions[0].Patch, &patch); err != nil {
+		t.Fatalf("decode patch: %v", err)
+	}
+	if patch["project_id"] != project.ID || patch["work_item_id"] != workItem.ID || patch["role_id"] != "product_manager" || patch["driver_kind"] != projectwork.AssignmentDriverExternalAgent {
+		t.Fatalf("patch = %+v, want selected project/work/owner role/external driver", patch)
+	}
 }
 
 func TestProjectAssistantAPI_ProposeRejectsUnknownActionKind(t *testing.T) {
