@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -12,6 +13,7 @@ import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
 import {
   ApiError,
+  applyProjectAssistant,
   createProjectAssignment,
   createProjectHandoff,
   discoverProjectContextSources,
@@ -34,6 +36,7 @@ import {
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
+  proposeProjectAssistant,
   startProjectAssignment,
   promoteProjectMemoryCandidate,
   rejectProjectMemoryCandidate,
@@ -62,10 +65,19 @@ import {
   type ProjectHealthAttention,
   type ProjectTimelineItem,
 } from "./projectInsights";
+import {
+  PROJECT_ASSISTANT_AUTO,
+  ProjectAssistantPanel,
+  type ProjectAssistantDraftForm,
+  type ProjectAssistantStatus,
+} from "./ProjectAssistantPanel";
 import type {
   ProjectAssignmentRecord,
   ProjectActivityData,
   ProjectActivityItemRecord,
+  ProjectAssistantApplyResult,
+  ProjectAssistantProposal,
+  ProjectAssistantProposePayload,
   ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
   ProjectContextSourceRecord,
@@ -337,6 +349,12 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [detailError, setDetailError] = useState("");
   const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   const [startingAssignmentID, setStartingAssignmentID] = useState("");
+  const startingAssignmentIDsRef = useRef<Set<string>>(new Set());
+  const [assistantProposal, setAssistantProposal] = useState<ProjectAssistantProposal | null>(null);
+  const [assistantApplyResult, setAssistantApplyResult] =
+    useState<ProjectAssistantApplyResult | null>(null);
+  const [assistantStatus, setAssistantStatus] = useState<ProjectAssistantStatus>("idle");
+  const [assistantError, setAssistantError] = useState("");
 
   function updateRightPanelWidth(width: number) {
     setRightPanelWidth(width);
@@ -589,6 +607,13 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     if (!selectedProjectID || !selectedWorkItemID) return;
     void loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
   }, [loadWorkItemDetail, selectedProjectID, selectedWorkItemID]);
+
+  useEffect(() => {
+    setAssistantProposal(null);
+    setAssistantApplyResult(null);
+    setAssistantError("");
+    setAssistantStatus("idle");
+  }, [selectedProjectID, selectedWorkItemID]);
 
   function openProject(projectID: string) {
     if (projectID !== selectedProjectID) {
@@ -1079,11 +1104,71 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }
 
+  async function handleProjectAssistantPropose(form: ProjectAssistantDraftForm) {
+    if (!selectedProject) return;
+    setAssistantStatus("proposing");
+    setAssistantError("");
+    setAssistantApplyResult(null);
+    try {
+      const payload = buildProjectAssistantProposalPayload({
+        form,
+        project: selectedProject,
+        role: projectAssistantResolvedRole(form, roles, selectedWorkItem),
+        workItem: selectedWorkItem,
+      });
+      const proposal = await proposeProjectAssistant(payload);
+      setAssistantProposal(proposal.data);
+      setAssistantStatus("idle");
+    } catch (error) {
+      setAssistantStatus("idle");
+      setAssistantError(errorMessage(error, "Failed to draft Project Assistant proposal."));
+    }
+  }
+
+  async function handleProjectAssistantApply() {
+    if (!selectedProjectID || !assistantProposal) return;
+    const proposal = assistantProposal;
+    setAssistantStatus("applying");
+    setAssistantError("");
+    try {
+      const payload = await applyProjectAssistant({ proposal, confirm: true });
+      setAssistantApplyResult(payload.data);
+      setAssistantProposal(null);
+      setAssistantStatus("applied");
+      await projects.actions.loadProjects();
+      const preferredWorkItemID =
+        projectAssistantResultWorkItemID(payload.data) || selectedWorkItemID;
+      const refreshedWorkItemID = await loadWorkForProject(selectedProjectID, preferredWorkItemID);
+      if (refreshedWorkItemID) {
+        await loadWorkItemDetail(selectedProjectID, refreshedWorkItemID);
+      }
+      await loadProjectMemory(selectedProjectID);
+    } catch (error) {
+      setAssistantStatus("idle");
+      setAssistantError(projectAssistantApplyErrorMessage(error));
+      if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
+        const refreshedWorkItemID = await loadWorkForProject(selectedProjectID, selectedWorkItemID);
+        if (refreshedWorkItemID) {
+          await loadWorkItemDetail(selectedProjectID, refreshedWorkItemID);
+        }
+      }
+    }
+  }
+
+  function dismissProjectAssistantProposal() {
+    setAssistantProposal(null);
+    setAssistantApplyResult(null);
+    setAssistantError("");
+    setAssistantStatus("idle");
+  }
+
   async function handleStartAssignment(
     assignment: ProjectAssignmentRecord,
     workItemID = selectedWorkItemID,
   ) {
     if (!selectedProjectID || !workItemID) return;
+    if (startingAssignmentIDsRef.current.has(assignment.id)) return;
+    startingAssignmentIDsRef.current.add(assignment.id);
     setStartingAssignmentID(assignment.id);
     setAssignmentErrors((current) => ({ ...current, [assignment.id]: "" }));
     try {
@@ -1106,6 +1191,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
         await loadWorkItemDetail(selectedProjectID, workItemID);
       }
     } finally {
+      startingAssignmentIDsRef.current.delete(assignment.id);
       setStartingAssignmentID("");
     }
   }
@@ -1203,6 +1289,18 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           <section style={detailStyle} aria-label="Selected work item">
             <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
               <section style={domainSectionStyle} aria-label="Project workspace">
+                <ProjectAssistantPanel
+                  applyResult={assistantApplyResult}
+                  error={assistantError}
+                  onApply={() => void handleProjectAssistantApply()}
+                  onDismiss={dismissProjectAssistantProposal}
+                  onPropose={(form) => void handleProjectAssistantPropose(form)}
+                  project={selectedProject}
+                  proposal={assistantProposal}
+                  roles={roles}
+                  status={assistantStatus}
+                  workItem={selectedWorkItem}
+                />
                 <ProjectWorkspaceTabs
                   activeTab={workspaceTab}
                   memoryCandidateCount={memoryCandidates.length}
@@ -4490,6 +4588,8 @@ function AssignmentRow({
     (assignment.driver_kind === "hecate_task" || assignment.driver_kind === "external_agent") &&
     projectedStatus === "queued";
   const external = assignment.driver_kind === "external_agent";
+  const startActionLabel = external ? "Prepare chat" : "Start";
+  const startingLabel = external ? "Preparing…" : "Starting…";
   const startedAt = execution?.started_at || assignment.started_at;
   const finishedAt = execution?.finished_at || assignment.completed_at;
   return (
@@ -4525,17 +4625,22 @@ function AssignmentRow({
             type="button"
             onClick={onStart}
             disabled={starting}
+            title={
+              external
+                ? "Prepare a linked External Agent chat. The first prompt is sent from Chats."
+                : "Start this assignment."
+            }
           >
-            <Icon d={Icons.send} size={12} />
-            {starting ? "Starting…" : "Start"}
+            <Icon d={external ? Icons.chat : Icons.send} size={12} />
+            {starting ? startingLabel : startActionLabel}
           </button>
         )}
         {external && !startable && !assignment.chat_session_id && (
           <span
             style={subtleTextStyle}
-            title="Start this assignment to prepare a supervised External Agent chat session."
+            title="Prepare this assignment to create a supervised External Agent chat session."
           >
-            Start in Chats
+            Chat not prepared
           </span>
         )}
       </div>
@@ -4568,7 +4673,9 @@ function AssignmentRow({
           disabled={!onOpenChat || (!chatSessionID && !chatModel)}
           title={
             chatSessionID
-              ? "Open linked External Agent chat"
+              ? external
+                ? "Open the prepared External Agent chat. The first prompt is sent from Chats."
+                : "Open linked External Agent chat"
               : chatModel
                 ? `Open chat with ${chatModel}`
                 : "Set project defaults before opening chat."
@@ -4799,6 +4906,113 @@ function summarizeAssignments(assignments: ProjectAssignmentRecord[]): WorkItemS
     },
     { assignmentCount: 0, activeCount: 0, failedCount: 0, completedCount: 0 },
   );
+}
+
+function buildProjectAssistantProposalPayload({
+  form,
+  project,
+  role,
+  workItem,
+}: {
+  form: ProjectAssistantDraftForm;
+  project: ProjectRecord;
+  role: ProjectWorkRoleRecord | null;
+  workItem: ProjectWorkItemRecord | null;
+}): ProjectAssistantProposePayload {
+  const roleID =
+    form.roleID === PROJECT_ASSISTANT_AUTO
+      ? role?.id || ""
+      : (form.roleID || role?.id || "").trim();
+  const driverKind =
+    form.driverKind === PROJECT_ASSISTANT_AUTO
+      ? role?.default_driver_kind || "hecate_task"
+      : (form.driverKind || role?.default_driver_kind || "hecate_task").trim();
+  const request = projectAssistantRequestParts(form.request);
+  if (workItem) {
+    return {
+      title: request.title || `Queue ${role?.name || roleID || "role"} for ${workItem.title}`,
+      summary: `Create a queued ${driverKind} assignment on the selected work item.`,
+      actions: [
+        {
+          kind: "create_assignment",
+          target: { project_id: project.id },
+          patch: {
+            project_id: project.id,
+            work_item_id: workItem.id,
+            role_id: roleID,
+            driver_kind: driverKind,
+            status: "queued",
+          },
+          reason: "Queue a reviewable assignment without starting execution.",
+        },
+      ],
+    };
+  }
+  const patch: Record<string, unknown> = {
+    project_id: project.id,
+    title: request.title || "Untitled project work",
+    brief: request.brief,
+    status: "ready",
+    priority: "normal",
+  };
+  if (roleID) {
+    patch.owner_role_id = roleID;
+  }
+  return {
+    title: request.title || "Create project work item",
+    summary: "Create a ready work item from the current assistant draft.",
+    actions: [
+      {
+        kind: "create_work_item",
+        target: { project_id: project.id },
+        patch,
+        reason: "Create a reviewable project work item.",
+      },
+    ],
+  };
+}
+
+function projectAssistantResolvedRole(
+  form: ProjectAssistantDraftForm,
+  roles: ProjectWorkRoleRecord[],
+  workItem: ProjectWorkItemRecord | null,
+): ProjectWorkRoleRecord | null {
+  if (form.roleID && form.roleID !== PROJECT_ASSISTANT_AUTO) {
+    return roles.find((role) => role.id === form.roleID) ?? null;
+  }
+  return roles.find((role) => role.id === workItem?.owner_role_id) ?? roles[0] ?? null;
+}
+
+function projectAssistantRequestParts(request: string): { title: string; brief: string } {
+  const lines = request
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const title = lines[0] ?? "";
+  return {
+    title,
+    brief: lines.slice(1).join("\n\n"),
+  };
+}
+
+function projectAssistantResultWorkItemID(result: ProjectAssistantApplyResult): string {
+  for (const action of result.actions) {
+    const workItemID = action.data?.work_item_id;
+    if (workItemID) return workItemID;
+  }
+  return "";
+}
+
+function projectAssistantApplyErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 404) {
+      return "Project Assistant could not find a proposal target. The project may have changed; refresh project work and draft the proposal again.";
+    }
+    if (error.status === 409) {
+      return "Project Assistant could not apply because the proposal is stale, conflicts with current project state, or was already applied. Refresh project work and draft it again.";
+    }
+  }
+  return errorMessage(error, "Failed to apply Project Assistant proposal.");
 }
 
 function emptyRoleForm(): RoleForm {

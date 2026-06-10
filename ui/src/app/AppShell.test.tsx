@@ -630,6 +630,7 @@ describe("ConsoleShell navigation", () => {
         provider: "ollama",
         model: "qwen2.5-coder",
         title: "Build cockpit UI - Software developer",
+        reuseEmptyDraft: true,
       }),
     );
     const request = createChatSession.mock.calls[0]?.[0];

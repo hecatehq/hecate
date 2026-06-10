@@ -53,6 +53,57 @@ export type ProjectResponse = {
   data: ProjectRecord;
 };
 
+export type ProjectAssistantAction = {
+  kind: string;
+  target?: Record<string, string>;
+  patch?: Record<string, unknown>;
+  reason?: string;
+};
+
+export type ProjectAssistantProposal = {
+  id: string;
+  title: string;
+  summary: string;
+  actions: ProjectAssistantAction[];
+  warnings?: string[];
+  requires_confirmation: boolean;
+  trace_id?: string;
+};
+
+export type ProjectAssistantActionResult = {
+  kind: string;
+  id?: string;
+  data?: Record<string, string>;
+};
+
+export type ProjectAssistantApplyResult = {
+  proposal_id: string;
+  applied: boolean;
+  actions: ProjectAssistantActionResult[];
+};
+
+export type ProjectAssistantProposalResponse = {
+  object: string;
+  data: ProjectAssistantProposal;
+};
+
+export type ProjectAssistantApplyResponse = {
+  object: string;
+  data: ProjectAssistantApplyResult;
+};
+
+export type ProjectAssistantProposePayload = {
+  id?: string;
+  title?: string;
+  summary?: string;
+  actions: ProjectAssistantAction[];
+};
+
+export type ProjectAssistantApplyPayload = {
+  proposal: ProjectAssistantProposal;
+  confirm?: boolean;
+};
+
 export type ProjectMemoryRecord = {
   id: string;
   scope: "project" | (string & {});

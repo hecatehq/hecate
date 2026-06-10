@@ -333,6 +333,7 @@ function AuthenticatedShell({
       model: request.model,
       title: request.title,
       draft: request.draft,
+      reuseEmptyDraft: Boolean(request.draft),
     });
     onSelectWorkspace("chats");
   }

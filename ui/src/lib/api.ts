@@ -62,6 +62,10 @@ import type {
   CreateProjectHandoffPayload,
   CreateProjectWorkRolePayload,
   CreateProjectWorkItemPayload,
+  ProjectAssistantApplyPayload,
+  ProjectAssistantApplyResponse,
+  ProjectAssistantProposalResponse,
+  ProjectAssistantProposePayload,
   ProjectAssignmentResponse,
   ProjectAssignmentsResponse,
   ProjectActivityResponse,
@@ -349,6 +353,24 @@ export async function updateProject(
 export async function deleteProject(id: string): Promise<void> {
   return fetchJSON<void>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",
+  });
+}
+
+export async function proposeProjectAssistant(
+  payload: ProjectAssistantProposePayload,
+): Promise<ProjectAssistantProposalResponse> {
+  return fetchJSON<ProjectAssistantProposalResponse>(`${HECATE_API}/project-assistant/propose`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function applyProjectAssistant(
+  payload: ProjectAssistantApplyPayload,
+): Promise<ProjectAssistantApplyResponse> {
+  return fetchJSON<ProjectAssistantApplyResponse>(`${HECATE_API}/project-assistant/apply`, {
+    method: "POST",
+    body: payload,
   });
 }
 

@@ -9,6 +9,28 @@ It is not a broad chat persona in v0. Hecate Chat can call the same proposal and
 apply API later, but the action system lives in core so every surface follows
 the same validation, confirmation, and audit rules.
 
+## Current decisions
+
+Project Assistant v0 is a project-level proposal and review surface, not a
+replacement for simple chat. The Projects UI owns a compact composer above the
+workspace tabs; Chats remains the place for conversational turns. A future real
+assistant may offer a chat-like project surface, but durable changes should
+still land as typed proposals that the operator reviews and applies.
+
+The current composer is intentionally deterministic. `Auto` for `Run as`
+resolves to the selected work item's owner role, then the first loaded project
+role. `Auto` for `Via` resolves to the selected role's default driver, then
+`hecate_task`. No model is choosing a delegate yet. When Hecate grows a real
+project assistant loop, it can use richer project context to recommend or select
+roles and drivers, but that decision still needs to be inspectable before work
+is queued or launched.
+
+The UI supports both project-level planning and selected-work context. With a
+selected work item, the draft queues an assignment for that work. Without a
+selected work item, the draft creates a new project work item. In both cases
+`Draft proposal` creates reviewable data only; it does not create a chat, task,
+run, assignment, or agent session.
+
 ## Safety model
 
 - Project Assistant actions are typed and allowlisted.
@@ -197,9 +219,42 @@ Every action has the same envelope:
 
 The first visible UI should stay small and inspectable:
 
-- show proposal cards with exact actions before apply;
-- show `Apply`, `Dismiss`, and `Inspect`;
+- start from a compact request composer, not a wide operational form;
+- place the composer at the top of the project workspace because the assistant
+  is project-scoped, above workspace tabs and tab panels even when it uses the
+  selected work item as context;
+- keep route controls contextual, with an automatic choice for the common path;
+- show proposal cards with exact actions before apply, either inline or behind
+  an inspect affordance;
+- show `Apply` and `Dismiss`;
 - require explicit confirmation for durable/destructive proposals;
 - show stale-state failures as "State changed, refresh proposal";
 - keep Chat integration as a later caller of the same API, not a second action
   system.
+
+The Projects cockpit exposes this contract at the top of the project workspace.
+V0 uses a composer-style request box that drafts typed proposals from the
+selected project/work item. Later Hecate Chat can call the same proposal API,
+but durable mutations should still stop at the same explicit review/apply card.
+Applying a proposal always calls `/project-assistant/apply` with `confirm: true`
+after the operator reviews the action rows. A successful apply refreshes the
+project list, project work, selected work-item detail, and project memory.
+`404 not_found` and `409 conflict` apply responses are treated as stale review
+state: refresh the current work view and draft a fresh proposal instead of
+retrying blindly.
+
+Drafting a proposal does not create a chat session, task, run, or assignment.
+Applying a proposal may create durable project records such as work items or
+queued assignments, but a queued assignment still does not start execution.
+Task/chat execution starts only through the assignment start flow, which may
+then attach `task_id`, `run_id`, or `chat_session_id` links to the assignment.
+For `external_agent` assignments, "start" means "prepare the linked chat":
+Hecate creates and prepares the External Agent session, stores the assignment
+context packet, and links `chat_session_id`, but it does not append a visible
+chat message or send the first prompt. The operator sends that first prompt
+from Chats after reviewing the prepared session.
+
+Project-launched Hecate chat drafts reuse an existing matching 0-message idle
+chat instead of creating another empty chat row. Once the operator sends a
+message, the transcript is no longer reusable and a later launch may create a
+new chat.

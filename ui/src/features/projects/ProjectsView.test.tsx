@@ -7,6 +7,8 @@ import { ProvidersAndModelsProvider } from "../../app/state/providersAndModels";
 import { ProjectsProvider } from "../../app/state/projects";
 import { SettingsProvider } from "../../app/state/settings";
 import {
+  ApiError,
+  applyProjectAssistant,
   createProjectAssignment,
   createProjectHandoff,
   createProjectMemory,
@@ -29,6 +31,7 @@ import {
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
+  proposeProjectAssistant,
   promoteProjectMemoryCandidate,
   rejectProjectMemoryCandidate,
   startProjectAssignment,
@@ -118,6 +121,47 @@ vi.mock("../../lib/api", async (importOriginal) => {
       data: [],
     })),
     getAgentProfiles: vi.fn(async () => ({ object: "agent_profiles", data: [] })),
+    proposeProjectAssistant: vi.fn(async () => ({
+      object: "project_assistant.proposal",
+      data: {
+        id: "pa_test",
+        title: "Queue Software developer for Build cockpit UI",
+        summary: "Create a queued hecate_task assignment on the selected work item.",
+        requires_confirmation: true,
+        actions: [
+          {
+            kind: "create_assignment",
+            target: { project_id: "proj_1" },
+            patch: {
+              project_id: "proj_1",
+              work_item_id: "work_1",
+              role_id: "software_developer",
+              driver_kind: "hecate_task",
+              status: "queued",
+            },
+            reason: "Queue a reviewable assignment without starting execution.",
+          },
+        ],
+        trace_id: "trace_project_assistant",
+      },
+    })),
+    applyProjectAssistant: vi.fn(async () => ({
+      object: "project_assistant.apply_result",
+      data: {
+        proposal_id: "pa_test",
+        applied: true,
+        actions: [
+          {
+            kind: "create_assignment",
+            id: "asgn_assistant",
+            data: {
+              project_id: "proj_1",
+              assignment_id: "asgn_assistant",
+            },
+          },
+        ],
+      },
+    })),
     createProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
     updateProjectHandoff: vi.fn(async () => ({ object: "project_handoff", data: null })),
     updateProjectHandoffStatus: vi.fn(async () => ({ object: "project_handoff", data: null })),
@@ -422,6 +466,47 @@ function resetProjectWorkMocks() {
       },
     ],
   });
+  vi.mocked(proposeProjectAssistant).mockResolvedValue({
+    object: "project_assistant.proposal",
+    data: {
+      id: "pa_test",
+      title: "Queue Software developer for Build cockpit UI",
+      summary: "Create a queued hecate_task assignment on the selected work item.",
+      requires_confirmation: true,
+      actions: [
+        {
+          kind: "create_assignment",
+          target: { project_id: project.id },
+          patch: {
+            project_id: project.id,
+            work_item_id: workItem.id,
+            role_id: role.id,
+            driver_kind: "hecate_task",
+            status: "queued",
+          },
+          reason: "Queue a reviewable assignment without starting execution.",
+        },
+      ],
+      trace_id: "trace_project_assistant",
+    },
+  });
+  vi.mocked(applyProjectAssistant).mockResolvedValue({
+    object: "project_assistant.apply_result",
+    data: {
+      proposal_id: "pa_test",
+      applied: true,
+      actions: [
+        {
+          kind: "create_assignment",
+          id: "asgn_assistant",
+          data: {
+            project_id: project.id,
+            assignment_id: "asgn_assistant",
+          },
+        },
+      ],
+    },
+  });
   vi.mocked(createProjectHandoff).mockResolvedValue({
     object: "project_handoff",
     data: {
@@ -589,6 +674,8 @@ afterEach(() => {
   vi.mocked(getProjectMemory).mockReset();
   vi.mocked(getProjectMemoryCandidates).mockReset();
   vi.mocked(getAgentProfiles).mockReset();
+  vi.mocked(proposeProjectAssistant).mockReset();
+  vi.mocked(applyProjectAssistant).mockReset();
   vi.mocked(createProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoff).mockReset();
   vi.mocked(updateProjectHandoffStatus).mockReset();
@@ -716,7 +803,9 @@ describe("ProjectsView index", () => {
 
     expect(await screen.findByText("Expose project work and native starts.")).toBeTruthy();
     const workspace = screen.getByRole("region", { name: "Project workspace" });
+    const assistant = within(workspace).getByRole("region", { name: "Project Assistant" });
     const tabs = within(workspace).getByRole("tablist", { name: "Project workspace views" });
+    expect(assistant.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("region", { name: "Work queue" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Project attention/ })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Needs attention" })).toBeNull();
@@ -817,6 +906,147 @@ describe("ProjectsView cockpit", () => {
     });
     expect(actions.selectProject).toHaveBeenCalledWith(project.id);
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
+  });
+
+  it("reviews and applies Project Assistant assignment proposals", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+
+    await waitFor(() => {
+      expect(proposeProjectAssistant).toHaveBeenCalledWith({
+        title: "Queue Software developer for Build cockpit UI",
+        summary: "Create a queued hecate_task assignment on the selected work item.",
+        actions: [
+          {
+            kind: "create_assignment",
+            target: { project_id: project.id },
+            patch: {
+              project_id: project.id,
+              work_item_id: workItem.id,
+              role_id: role.id,
+              driver_kind: "hecate_task",
+              status: "queued",
+            },
+            reason: "Queue a reviewable assignment without starting execution.",
+          },
+        ],
+      });
+    });
+    expect(await within(assistant).findByText("Create assignment")).toBeTruthy();
+    expect(within(assistant).getByText("work_item_id")).toBeTruthy();
+    expect(within(assistant).getByText(workItem.id)).toBeTruthy();
+    expect(
+      within(assistant).getByRole("button", { name: "Copy trace_project_assistant" }),
+    ).toBeTruthy();
+
+    await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
+
+    await waitFor(() => {
+      expect(applyProjectAssistant).toHaveBeenCalledWith({
+        proposal: expect.objectContaining({ id: "pa_test" }),
+        confirm: true,
+      });
+    });
+    expect(await within(assistant).findByText("Applied 1 action from pa_test.")).toBeTruthy();
+    expect(getProjectWorkItems).toHaveBeenLastCalledWith(project.id);
+    expect(getProjectAssignments).toHaveBeenLastCalledWith(project.id, workItem.id);
+  });
+
+  it("drafts Project Assistant work proposals without an owner role when none exists", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_work_roles", data: [] });
+    vi.mocked(getProjectWorkItems).mockResolvedValue({ object: "project_work_items", data: [] });
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await screen.findByText("No work items for this project.");
+    expect(within(assistant).getByText("Project queue")).toBeTruthy();
+    fireEvent.change(within(assistant).getByLabelText("Request"), {
+      target: { value: "Write project brief\nCapture the next operator task." },
+    });
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+
+    await waitFor(() => {
+      expect(proposeProjectAssistant).toHaveBeenCalledWith({
+        title: "Write project brief",
+        summary: "Create a ready work item from the current assistant draft.",
+        actions: [
+          {
+            kind: "create_work_item",
+            target: { project_id: project.id },
+            patch: {
+              project_id: project.id,
+              title: "Write project brief",
+              brief: "Capture the next operator task.",
+              status: "ready",
+              priority: "normal",
+            },
+            reason: "Create a reviewable project work item.",
+          },
+        ],
+      });
+    });
+  });
+
+  it("dismisses Project Assistant proposals without applying", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+    expect(await within(assistant).findByText("Create assignment")).toBeTruthy();
+
+    await user.click(within(assistant).getByRole("button", { name: "Dismiss proposal" }));
+
+    expect(within(assistant).queryByText("Create assignment")).toBeNull();
+    expect(applyProjectAssistant).not.toHaveBeenCalled();
+  });
+
+  it("surfaces stale Project Assistant proposal conflicts and refreshes work", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(applyProjectAssistant).mockRejectedValueOnce(
+      new ApiError("project assistant conflict", 409, "conflict"),
+    );
+    const user = userEvent.setup();
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+    await within(assistant).findByText("Create assignment");
+    await user.click(within(assistant).getByRole("button", { name: "Apply proposal" }));
+
+    expect(await within(assistant).findByText(/proposal is stale, conflicts/)).toBeTruthy();
+    expect(getProjectWorkItems).toHaveBeenLastCalledWith(project.id);
+    expect(getProjectAssignments).toHaveBeenLastCalledWith(project.id, workItem.id);
   });
 
   it("manages project memory entries in the cockpit", async () => {
@@ -1317,7 +1547,7 @@ describe("ProjectsView cockpit", () => {
     expect(screen.getByRole("article", { name: "Build cockpit UI work item" })).toBeTruthy();
   });
 
-  it("starts queued external-agent assignments from the selected work item", async () => {
+  it("prepares queued external-agent assignment chats from the selected work item", async () => {
     resetProjectWorkMocks();
     const externalAssignment: ProjectAssignmentRecord = {
       ...hecateAssignment,
@@ -1335,15 +1565,14 @@ describe("ProjectsView cockpit", () => {
       object: "project_assignments",
       data: [externalAssignment],
     });
-    vi.mocked(startProjectAssignment).mockResolvedValue({
-      object: "project_assignment",
-      data: {
-        ...externalAssignment,
-        status: "running",
-        chat_session_id: "chat_external_1",
-        context_snapshot_id: "ctx_external_1",
-      },
-    });
+    let resolveStartAssignment: (
+      value: Awaited<ReturnType<typeof startProjectAssignment>>,
+    ) => void = () => {};
+    vi.mocked(startProjectAssignment).mockReturnValue(
+      new Promise((resolve) => {
+        resolveStartAssignment = resolve;
+      }),
+    );
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -1355,7 +1584,8 @@ describe("ProjectsView cockpit", () => {
       await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
     );
     const detail = await screen.findByRole("region", { name: "Selected work item" });
-    await userEvent.click(within(detail).getByRole("button", { name: "Start" }));
+    const prepareButton = within(detail).getByRole("button", { name: "Prepare chat" });
+    await userEvent.dblClick(prepareButton);
 
     expect(startProjectAssignment).toHaveBeenCalledWith(
       project.id,
@@ -1363,6 +1593,19 @@ describe("ProjectsView cockpit", () => {
       externalAssignment.id,
       "external_agent",
     );
+    expect(startProjectAssignment).toHaveBeenCalledTimes(1);
+    resolveStartAssignment({
+      object: "project_assignment",
+      data: {
+        ...externalAssignment,
+        status: "running",
+        chat_session_id: "chat_external_1",
+        context_snapshot_id: "ctx_external_1",
+      },
+    });
+    await waitFor(() => {
+      expect(prepareButton).not.toBeDisabled();
+    });
   });
 
   it("opens linked external-agent assignment chat sessions directly", async () => {
@@ -3282,7 +3525,7 @@ describe("ProjectsView cockpit", () => {
     expect(screen.queryByText(/^Started\s*$/)).toBeNull();
   });
 
-  it("exposes start for queued external-agent assignments", async () => {
+  it("exposes chat preparation for queued external-agent assignments", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
     vi.mocked(getProjectAssignments).mockResolvedValue({
@@ -3307,7 +3550,7 @@ describe("ProjectsView cockpit", () => {
       await screen.findByRole("button", { name: "Open work item Build cockpit UI" }),
     );
     const detail = await screen.findByRole("region", { name: "Selected work item" });
-    expect(within(detail).getByRole("button", { name: "Start" })).toBeTruthy();
-    expect(screen.queryByText("Start in Chats")).toBeNull();
+    expect(within(detail).getByRole("button", { name: "Prepare chat" })).toBeTruthy();
+    expect(screen.queryByText("Chat not prepared")).toBeNull();
   });
 });

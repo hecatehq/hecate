@@ -75,6 +75,7 @@ import type {
   ChatWorkspaceDiffRecord,
   ChatWorkspaceFilesRecord,
   ChatResponse,
+  ChatSessionSummaryRecord,
   ChatSessionRecord,
 } from "../../../types/chat";
 import type { SettingsActions } from "./settings";
@@ -179,6 +180,49 @@ function modelAvailableForProviderFilter(
 
 export { chatSessionIsExternal, chatSessionIsBusy };
 
+export function findReusableEmptyDraftSession(
+  sessions: ChatSessionSummaryRecord[],
+  {
+    agentID,
+    model,
+    projectID,
+    provider,
+    title,
+  }: {
+    agentID: string;
+    model: string;
+    projectID: string;
+    provider: string;
+    title: string;
+  },
+): ChatSessionSummaryRecord | null {
+  const expectedAgentID = agentID.trim() || "hecate";
+  const expectedProjectID = projectID.trim();
+  const expectedProvider = provider.trim();
+  const expectedModel = model.trim();
+  const expectedTitle = title.trim();
+  if (!expectedTitle) return null;
+  return (
+    sessions.find((session) => {
+      const sessionAgentID = (session.agent_id ?? "hecate").trim() || "hecate";
+      const sessionProjectID = (session.project_id ?? "").trim();
+      const sessionProvider = (session.provider ?? "").trim();
+      const sessionModel = (session.model ?? "").trim();
+      const sessionTitle = (session.title ?? "").trim();
+      const sessionStatus = (session.status ?? "").trim();
+      return (
+        sessionAgentID === expectedAgentID &&
+        sessionProjectID === expectedProjectID &&
+        sessionProvider === expectedProvider &&
+        sessionModel === expectedModel &&
+        sessionTitle === expectedTitle &&
+        (session.message_count ?? 0) === 0 &&
+        (!sessionStatus || sessionStatus === "idle")
+      );
+    }) ?? null
+  );
+}
+
 export type CreateChatSessionOptions = {
   agentID?: string;
   projectID?: string;
@@ -186,6 +230,7 @@ export type CreateChatSessionOptions = {
   model?: string;
   title?: string;
   draft?: string;
+  reuseEmptyDraft?: boolean;
 };
 
 type ChatActionsReturn = {
@@ -814,6 +859,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const requestedAgentID = options?.agentID?.trim();
     const requestedTitle = options?.title?.trim() || "";
     const requestedDraft = options?.draft ?? "";
+    const requestedReuseEmptyDraft = Boolean(options?.reuseEmptyDraft && requestedDraft.trim());
     const createProjectID =
       options && "projectID" in options ? options.projectID?.trim() || "" : activeProjectID;
     const requestedProviderFilter = (
@@ -893,6 +939,31 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       setActiveChatSession(null);
       return;
     }
+    const createProvider = requestedProviderFilter === "auto" ? "" : requestedProviderFilter;
+    if (requestedReuseEmptyDraft) {
+      const reusable = findReusableEmptyDraftSession(chat.state.chatSessions, {
+        agentID: "hecate",
+        projectID: createProjectID,
+        provider: createProvider,
+        model: requestedModel,
+        title: requestedTitle,
+      });
+      if (reusable) {
+        setChatTargetBySessionID((current) => {
+          const next = new Map(current);
+          next.set(reusable.id, "agent");
+          return next;
+        });
+        setChatToolsEnabledBySessionID((current) => {
+          const next = new Map(current);
+          next.set(reusable.id, toolsEnabled);
+          return next;
+        });
+        await selectChatSession(reusable.id);
+        setMessage(requestedDraft);
+        return;
+      }
+    }
     setChatLoading(true);
     clearChatErrorState();
     try {
@@ -900,7 +971,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
         ...(requestedTitle ? { title: requestedTitle } : {}),
         ...(createProjectID ? { project_id: createProjectID } : {}),
         agent_id: "hecate",
-        provider: requestedProviderFilter === "auto" ? "" : requestedProviderFilter,
+        provider: createProvider,
         model: requestedModel,
         ...(toolsEnabled && workspace ? { workspace } : {}),
         ...(toolsEnabled ? { rtk_enabled: hecateRTKEnabled } : {}),
