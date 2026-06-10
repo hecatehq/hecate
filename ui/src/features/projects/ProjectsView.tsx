@@ -17,6 +17,7 @@ import {
   createProjectAssignment,
   createProjectHandoff,
   discoverProjectContextSources,
+  draftProjectAssistant,
   createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
@@ -36,7 +37,6 @@ import {
   getProjectWorkItem,
   getProjectWorkItems,
   getProjectWorkRoles,
-  proposeProjectAssistant,
   startProjectAssignment,
   promoteProjectMemoryCandidate,
   rejectProjectMemoryCandidate,
@@ -77,7 +77,6 @@ import type {
   ProjectActivityItemRecord,
   ProjectAssistantApplyResult,
   ProjectAssistantProposal,
-  ProjectAssistantProposePayload,
   ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
   ProjectContextSourceRecord,
@@ -1110,13 +1109,15 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setAssistantError("");
     setAssistantApplyResult(null);
     try {
-      const payload = buildProjectAssistantProposalPayload({
-        form,
-        project: selectedProject,
-        role: projectAssistantResolvedRole(form, roles, selectedWorkItem),
-        workItem: selectedWorkItem,
+      const roleID = form.roleID === PROJECT_ASSISTANT_AUTO ? "" : form.roleID.trim();
+      const driverKind = form.driverKind === PROJECT_ASSISTANT_AUTO ? "" : form.driverKind.trim();
+      const proposal = await draftProjectAssistant({
+        project_id: selectedProject.id,
+        work_item_id: selectedWorkItem?.id,
+        request: form.request,
+        ...(roleID ? { role_id: roleID } : {}),
+        ...(driverKind ? { driver_kind: driverKind } : {}),
       });
-      const proposal = await proposeProjectAssistant(payload);
       setAssistantProposal(proposal.data);
       setAssistantStatus("idle");
     } catch (error) {
@@ -4906,93 +4907,6 @@ function summarizeAssignments(assignments: ProjectAssignmentRecord[]): WorkItemS
     },
     { assignmentCount: 0, activeCount: 0, failedCount: 0, completedCount: 0 },
   );
-}
-
-function buildProjectAssistantProposalPayload({
-  form,
-  project,
-  role,
-  workItem,
-}: {
-  form: ProjectAssistantDraftForm;
-  project: ProjectRecord;
-  role: ProjectWorkRoleRecord | null;
-  workItem: ProjectWorkItemRecord | null;
-}): ProjectAssistantProposePayload {
-  const roleID =
-    form.roleID === PROJECT_ASSISTANT_AUTO
-      ? role?.id || ""
-      : (form.roleID || role?.id || "").trim();
-  const driverKind =
-    form.driverKind === PROJECT_ASSISTANT_AUTO
-      ? role?.default_driver_kind || "hecate_task"
-      : (form.driverKind || role?.default_driver_kind || "hecate_task").trim();
-  const request = projectAssistantRequestParts(form.request);
-  if (workItem) {
-    return {
-      title: request.title || `Queue ${role?.name || roleID || "role"} for ${workItem.title}`,
-      summary: `Create a queued ${driverKind} assignment on the selected work item.`,
-      actions: [
-        {
-          kind: "create_assignment",
-          target: { project_id: project.id },
-          patch: {
-            project_id: project.id,
-            work_item_id: workItem.id,
-            role_id: roleID,
-            driver_kind: driverKind,
-            status: "queued",
-          },
-          reason: "Queue a reviewable assignment without starting execution.",
-        },
-      ],
-    };
-  }
-  const patch: Record<string, unknown> = {
-    project_id: project.id,
-    title: request.title || "Untitled project work",
-    brief: request.brief,
-    status: "ready",
-    priority: "normal",
-  };
-  if (roleID) {
-    patch.owner_role_id = roleID;
-  }
-  return {
-    title: request.title || "Create project work item",
-    summary: "Create a ready work item from the current assistant draft.",
-    actions: [
-      {
-        kind: "create_work_item",
-        target: { project_id: project.id },
-        patch,
-        reason: "Create a reviewable project work item.",
-      },
-    ],
-  };
-}
-
-function projectAssistantResolvedRole(
-  form: ProjectAssistantDraftForm,
-  roles: ProjectWorkRoleRecord[],
-  workItem: ProjectWorkItemRecord | null,
-): ProjectWorkRoleRecord | null {
-  if (form.roleID && form.roleID !== PROJECT_ASSISTANT_AUTO) {
-    return roles.find((role) => role.id === form.roleID) ?? null;
-  }
-  return roles.find((role) => role.id === workItem?.owner_role_id) ?? roles[0] ?? null;
-}
-
-function projectAssistantRequestParts(request: string): { title: string; brief: string } {
-  const lines = request
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const title = lines[0] ?? "";
-  return {
-    title,
-    brief: lines.slice(1).join("\n\n"),
-  };
 }
 
 function projectAssistantResultWorkItemID(result: ProjectAssistantApplyResult): string {

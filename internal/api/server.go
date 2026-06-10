@@ -70,6 +70,7 @@ func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
 	// to them for shared defaults, memory, and context assembly.
 	mux.HandleFunc("GET /hecate/v1/projects", handler.HandleProjects)
 	mux.HandleFunc("POST /hecate/v1/projects", handler.HandleCreateProject)
+	mux.HandleFunc("POST /hecate/v1/project-assistant/draft", handler.HandleProjectAssistantDraft)
 	mux.HandleFunc("POST /hecate/v1/project-assistant/propose", handler.HandleProjectAssistantPropose)
 	mux.HandleFunc("POST /hecate/v1/project-assistant/apply", handler.HandleProjectAssistantApply)
 	mux.HandleFunc("GET /hecate/v1/projects/{id}", handler.HandleProject)

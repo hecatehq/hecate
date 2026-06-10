@@ -16,9 +16,41 @@ type projectAssistantProposeRequest struct {
 	Actions []projectassistant.Action `json:"actions"`
 }
 
+type projectAssistantDraftRequest struct {
+	ProjectID  string `json:"project_id"`
+	WorkItemID string `json:"work_item_id,omitempty"`
+	Request    string `json:"request"`
+	RoleID     string `json:"role_id,omitempty"`
+	DriverKind string `json:"driver_kind,omitempty"`
+}
+
 type projectAssistantApplyRequest struct {
 	Proposal projectassistant.Proposal `json:"proposal"`
 	Confirm  bool                      `json:"confirm,omitempty"`
+}
+
+func (h *Handler) HandleProjectAssistantDraft(w http.ResponseWriter, r *http.Request) {
+	var req projectAssistantDraftRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant draft request")
+		return
+	}
+	proposal, err := h.projectAssistantService().Draft(r.Context(), projectassistant.DraftInput{
+		ProjectID:  req.ProjectID,
+		WorkItemID: req.WorkItemID,
+		Request:    req.Request,
+		RoleID:     req.RoleID,
+		DriverKind: req.DriverKind,
+		TraceID:    requestTraceID(r),
+	})
+	if err != nil {
+		writeProjectAssistantError(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"object": "project_assistant.proposal",
+		"data":   proposal,
+	})
 }
 
 func (h *Handler) HandleProjectAssistantPropose(w http.ResponseWriter, r *http.Request) {

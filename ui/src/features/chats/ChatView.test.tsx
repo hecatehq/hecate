@@ -3092,6 +3092,27 @@ describe("ChatView chats sidebar", () => {
     expect(screen.getByText("Second chat")).toBeTruthy();
   });
 
+  it("labels empty idle assistant chats as drafts", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      chatSessions: [
+        {
+          id: "a1",
+          title: "Plan next work for hecate",
+          agent_id: "hecate",
+          status: "idle",
+          message_count: 0,
+          updated_at: daysAgo(0),
+        } as any,
+      ],
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+    const row = screen.getByRole("button", { name: /^Chat Plan next work for hecate/ });
+    expect(within(row).getByText("draft")).toBeTruthy();
+    expect(within(row).queryByText("0 msg")).toBeNull();
+    expect(within(row).queryByText("idle")).toBeNull();
+  });
+
   it("filters chat history by title and route metadata", async () => {
     const { state, actions } = setup({
       chatTarget: "agent",

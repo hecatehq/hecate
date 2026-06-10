@@ -2139,10 +2139,11 @@ the same work item.
 ## Project Assistant endpoints
 
 Project Assistant is the API-first assistant-action foundation for project
-operations. It does not expose an open-ended chat persona. Clients submit a
-typed, allowlisted proposal, inspect the exact changes, then explicitly apply
-the proposal. Apply revalidates current server state before mutating projects,
-chats, project work, or memory candidates.
+operations. It does not expose an open-ended chat persona. Clients can ask the
+server to draft a reviewable proposal from project context, or submit a typed,
+allowlisted proposal directly. Operators inspect the exact changes, then
+explicitly apply the proposal. Apply revalidates current server state before
+mutating projects, chats, project work, or memory candidates.
 
 Apply is a human-gated operation. Do not wire it as a direct model-callable tool
 without an explicit blocking operator confirmation. Multi-action apply is
@@ -2153,11 +2154,14 @@ action set or reapplying a fully applied proposal returns `409 conflict`.
 
 Endpoints:
 
+- `POST /hecate/v1/project-assistant/draft`
 - `POST /hecate/v1/project-assistant/propose`
 - `POST /hecate/v1/project-assistant/apply`
 
-See [`project-assistant.md`](project-assistant.md) for the proposal schema,
-supported action kinds, confirmation behavior, and safety model.
+`draft` creates proposal data only; it does not create a chat message, task,
+run, assignment, or external agent session. See
+[`project-assistant.md`](project-assistant.md) for the draft request, proposal
+schema, supported action kinds, confirmation behavior, and safety model.
 
 ## Chat session endpoints
 

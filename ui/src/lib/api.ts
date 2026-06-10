@@ -64,6 +64,7 @@ import type {
   CreateProjectWorkItemPayload,
   ProjectAssistantApplyPayload,
   ProjectAssistantApplyResponse,
+  ProjectAssistantDraftPayload,
   ProjectAssistantProposalResponse,
   ProjectAssistantProposePayload,
   ProjectAssignmentResponse,
@@ -360,6 +361,15 @@ export async function proposeProjectAssistant(
   payload: ProjectAssistantProposePayload,
 ): Promise<ProjectAssistantProposalResponse> {
   return fetchJSON<ProjectAssistantProposalResponse>(`${HECATE_API}/project-assistant/propose`, {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function draftProjectAssistant(
+  payload: ProjectAssistantDraftPayload,
+): Promise<ProjectAssistantProposalResponse> {
+  return fetchJSON<ProjectAssistantProposalResponse>(`${HECATE_API}/project-assistant/draft`, {
     method: "POST",
     body: payload,
   });
