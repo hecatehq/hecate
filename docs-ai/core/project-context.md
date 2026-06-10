@@ -25,7 +25,9 @@ teams of agents: project roles describe who should do the work, assignments and
 handoffs record collaboration state, Tasks and Chats remain the execution
 surfaces, project memory/context carries reviewed knowledge forward, and the
 project skills registry exposes local `SKILL.md` metadata for roles/profiles
-without granting tools, injecting bodies, or executing skill scripts.
+without granting tools, injecting bodies, or executing skill scripts. The
+operator UI can manage agent profiles and pick registered project skills for
+roles/profiles; those selections remain metadata until launch-time resolution.
 Model-backed assistant turns should carry a small context-inspector packet:
 execution mode, route/workspace metadata, source provenance, and visible
 transcript counts. Do not store full prompt bodies, raw transcript text, file

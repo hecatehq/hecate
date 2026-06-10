@@ -103,10 +103,10 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   capability metadata; generic OpenAI-compatible local models often remain
   `unknown` until the provider reports richer metadata.
 - Workspace modes are available for task/project starts, and named agent
-  profiles now have a core API plus project/role default selection. A full
-  profile-management UI and profile-driven memory/source injection are still
-  beta-hardening work. Tools-on chat still uses the selected workspace with the
-  current chat runtime posture.
+  profiles now have a core API, profile-management UI, project/role default
+  selection, and project-skill pickers. Profile-driven memory/source injection
+  is still beta-hardening work. Tools-on chat still uses the selected workspace
+  with the current chat runtime posture.
 - Tasks remains canonical for full run history, retry/resume, artifacts, and
   patch review. Chats projects the high-signal run activity and approval
   controls, but it is not a replacement for every Task Detail inspection flow.

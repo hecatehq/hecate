@@ -371,9 +371,9 @@ The next project-orchestration slices are:
 
 1. Finish durable task/run project linkage so native tasks, project assignments,
    and chat-origin work all expose the same `project_id` boundary.
-2. Add a profile-management UI and finish profile-driven memory/source
-   selection. Role/project defaults already resolve into assignment-start
-   provider/model/profile/context posture.
+2. Finish profile-driven memory/source selection. Profile-management UI,
+   role/project default profile selection, and project-skill pickers exist;
+   assignment starts already resolve provider/model/profile/context posture.
 3. Add focused end-to-end project journeys: create project, set defaults, add
    memory, create work item, create/start assignment, resolve approval or
    failure, inspect activity health, and follow a handoff.

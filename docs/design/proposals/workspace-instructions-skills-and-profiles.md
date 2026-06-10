@@ -2,14 +2,15 @@
 
 > **Status:** proposal; Agent Profiles V1 core, workspace-guidance discovery,
 > project skills registry core/UI, role skill ids, assignment skill resolution,
-> and Bootstrap V2 registry-based role suggestions are implemented.
+> profile-management UI, skill pickers, and Bootstrap V2 registry-based role
+> suggestions are implemented.
 > **Current source of truth:** [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md),
 > [Agent memory](agent-memory.md), [Projects](../accepted/projects.md), and
 > [Runtime API](../../runtime/runtime-api.md) for today's context-packet,
 > memory, project, and task behavior.
-> **Next action:** add profile-management UI polish, skill pickers, compatibility
-> warnings, and explicit source-content injection policy. Remote skill install
-> and skill execution remain separate later slices.
+> **Next action:** add compatibility warnings, profile-driven memory/source
+> activation, and explicit source-content injection policy. Remote skill
+> install and skill execution remain separate later slices.
 
 Hecate needs a clean vocabulary for several things that are easy to blur:
 workspace `AGENTS.md` files, other Markdown instruction files, reusable
@@ -386,6 +387,7 @@ Recommended sequence:
 1. **Agent Profiles V1 Core** — partially implemented.
    - Profile store with memory/SQLite parity.
    - CRUD/list API.
+   - Profile-management UI for creating, editing, and deleting saved profiles.
    - Resolution helper with explicit/role/project/fallback order.
    - `skill_ids` resolve against the project skills registry during project
      work starts.
@@ -424,12 +426,14 @@ Recommended sequence:
      assignment start.
    - Implemented: active/skipped skill metadata and warnings are snapshotted
      into context packets without bodies.
-   - Future: profile editor skill picker and permission-compatibility warnings.
+   - Implemented: project roles and the profile editor can select from the
+     project skills registry while preserving manual/unresolved IDs.
+   - Future: permission-compatibility warnings.
 
 5. **UI**
-   - Profile editor.
-   - Skill list/detail and skill picker.
-   - Workspace instruction source list.
+   - Implemented: profile editor.
+   - Implemented: Project Skills list/detail and role/profile skill pickers.
+   - Implemented: workspace instruction source list.
    - Context Inspector sections for instructions, skills, profile, memory, and
      runbook/workflow context.
 

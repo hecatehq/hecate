@@ -14,6 +14,7 @@ import { useSettings } from "../../app/state/settings";
 import {
   ApiError,
   applyProjectAssistant,
+  createAgentProfile,
   createProjectAssignment,
   createProjectHandoff,
   discoverProjectContextSources,
@@ -41,9 +42,11 @@ import {
   getProjectWorkItems,
   getProjectWorkRoles,
   startProjectAssignment,
+  deleteAgentProfile,
   promoteProjectMemoryCandidate,
   rejectProjectMemoryCandidate,
   updateProject,
+  updateAgentProfile,
   updateProjectAssignment,
   updateProjectHandoff,
   updateProjectHandoffStatus,
@@ -99,7 +102,11 @@ import type {
   UpdateProjectSkillPayload,
   UpdateProjectWorkItemPayload,
 } from "../../types/project";
-import type { AgentProfileRecord } from "../../types/agent-profile";
+import type {
+  AgentProfileRecord,
+  CreateAgentProfilePayload,
+  UpdateAgentProfilePayload,
+} from "../../types/agent-profile";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderPresetRecord } from "../../types/provider";
 import type { ContextPacketRecord } from "../../types/context";
@@ -213,6 +220,25 @@ type SkillForm = {
   trustLabel: string;
 };
 
+type AgentProfileForm = {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  surface: string;
+  providerHint: string;
+  modelHint: string;
+  executionProfile: string;
+  toolsEnabled: boolean;
+  writesAllowed: boolean;
+  networkAllowed: boolean;
+  approvalPolicy: string;
+  projectMemoryPolicy: string;
+  contextSourcePolicy: string;
+  skillIDs: string;
+  externalAgentKind: string;
+};
+
 type RoleForm = {
   id: string;
   name: string;
@@ -251,6 +277,10 @@ const MEMORY_TRUST_LABELS = [
   "external_untrusted",
   "runtime_state",
 ];
+const AGENT_PROFILE_SURFACES = ["any", "hecate_chat", "hecate_task", "external_agent"];
+const AGENT_PROFILE_APPROVAL_POLICIES = ["inherit", "require", "block", "allow"];
+const AGENT_PROFILE_MEMORY_POLICIES = ["inherit", "include", "visible_only", "exclude"];
+const AGENT_PROFILE_CONTEXT_POLICIES = ["inherit", "include_enabled", "visible_only", "exclude"];
 const MEMORY_SOURCE_KINDS = [
   "operator",
   "generated",
@@ -389,6 +419,9 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [updatingSkillID, setUpdatingSkillID] = useState("");
   const [agentProfiles, setAgentProfiles] = useState<AgentProfileRecord[]>([]);
   const [agentProfilesError, setAgentProfilesError] = useState("");
+  const [profilesModalOpen, setProfilesModalOpen] = useState(false);
+  const [profilesPending, setProfilesPending] = useState(false);
+  const [profilesError, setProfilesError] = useState("");
   const [discoveringContext, setDiscoveringContext] = useState(false);
   const [memoryLoadState, setMemoryLoadState] = useState<LoadState>("idle");
   const [memoryError, setMemoryError] = useState("");
@@ -405,22 +438,26 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     () => projects.state.projects.find((project) => project.id === selectedProjectID) ?? null,
     [projects.state.projects, selectedProjectID],
   );
+
+  const loadAgentProfiles = useCallback(async (cancelled?: () => boolean) => {
+    try {
+      const payload = await getAgentProfiles();
+      if (cancelled?.()) return;
+      setAgentProfiles(payload.data ?? []);
+      setAgentProfilesError("");
+    } catch (error) {
+      if (cancelled?.()) return;
+      setAgentProfilesError(errorMessage(error, "Failed to load agent profiles."));
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    getAgentProfiles()
-      .then((payload) => {
-        if (cancelled) return;
-        setAgentProfiles(payload.data ?? []);
-        setAgentProfilesError("");
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setAgentProfilesError(errorMessage(error, "Failed to load agent profiles."));
-      });
+    void loadAgentProfiles(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadAgentProfiles]);
   const pendingDeleteProject =
     projects.state.projects.find((project) => project.id === deleteProjectID) ?? null;
   const roleByID = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
@@ -767,6 +804,55 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       setSkillsError(errorMessage(error, "Failed to update project skill."));
     } finally {
       setUpdatingSkillID("");
+    }
+  }
+
+  async function handleCreateAgentProfile(form: AgentProfileForm) {
+    const name = form.name.trim();
+    if (!name) return undefined;
+    setProfilesPending(true);
+    setProfilesError("");
+    try {
+      const payload = await createAgentProfile(profileCreatePayloadFromForm(form));
+      setAgentProfiles((current) => upsertAgentProfile(current, payload.data));
+      return payload.data;
+    } catch (error) {
+      setProfilesError(errorMessage(error, "Failed to create agent profile."));
+      return undefined;
+    } finally {
+      setProfilesPending(false);
+    }
+  }
+
+  async function handleUpdateAgentProfile(profileID: string, form: AgentProfileForm) {
+    const name = form.name.trim();
+    if (!name) return undefined;
+    setProfilesPending(true);
+    setProfilesError("");
+    try {
+      const payload = await updateAgentProfile(profileID, profileUpdatePayloadFromForm(form));
+      setAgentProfiles((current) => upsertAgentProfile(current, payload.data));
+      return payload.data;
+    } catch (error) {
+      setProfilesError(errorMessage(error, "Failed to update agent profile."));
+      return undefined;
+    } finally {
+      setProfilesPending(false);
+    }
+  }
+
+  async function handleDeleteAgentProfile(profile: AgentProfileRecord) {
+    setProfilesPending(true);
+    setProfilesError("");
+    try {
+      await deleteAgentProfile(profile.id);
+      setAgentProfiles((current) => current.filter((item) => item.id !== profile.id));
+      return true;
+    } catch (error) {
+      setProfilesError(errorMessage(error, "Failed to delete agent profile."));
+      return false;
+    } finally {
+      setProfilesPending(false);
     }
   }
 
@@ -1380,6 +1466,10 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
             setDefaultsError("");
             setSettingsPanelOpen((open) => !open);
           }}
+          onManageProfiles={() => {
+            setProfilesError("");
+            setProfilesModalOpen(true);
+          }}
           onManageRoles={() => {
             setRolesError("");
             setRolesModalOpen(true);
@@ -1612,11 +1702,25 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
             agentProfiles={agentProfiles}
             error={rolesError}
             pending={rolesPending}
+            projectSkills={projectSkills}
             roles={roles}
             onClose={() => setRolesModalOpen(false)}
             onCreate={handleCreateRole}
             onDelete={handleDeleteRole}
             onUpdate={handleUpdateRole}
+          />
+        )}
+
+        {selectedProject && profilesModalOpen && (
+          <ProfilesModal
+            error={profilesError}
+            pending={profilesPending}
+            profiles={agentProfiles}
+            projectSkills={projectSkills}
+            onClose={() => setProfilesModalOpen(false)}
+            onCreate={handleCreateAgentProfile}
+            onDelete={handleDeleteAgentProfile}
+            onUpdate={handleUpdateAgentProfile}
           />
         )}
 
@@ -1944,6 +2048,7 @@ function ProjectHeader({
   onAttentionTask,
   onAttentionWorkItem,
   onEditDefaults,
+  onManageProfiles,
   onManageRoles,
   onRefresh,
 }: {
@@ -1958,6 +2063,7 @@ function ProjectHeader({
   onAttentionTask?: (taskID: string, runID?: string) => void;
   onAttentionWorkItem: (workItemID: string) => void;
   onEditDefaults: () => void;
+  onManageProfiles: () => void;
   onManageRoles: () => void;
   onRefresh: () => void;
 }) {
@@ -2075,6 +2181,17 @@ function ProjectHeader({
           style={projectHeaderActionButtonStyle}
         >
           <Icon d={Icons.user} size={13} />
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-label="Agent profiles"
+          title="Agent profiles"
+          onClick={onManageProfiles}
+          disabled={!project}
+          style={projectHeaderActionButtonStyle}
+        >
+          <Icon d={Icons.model} size={13} />
         </button>
         <button
           className="btn btn-ghost btn-sm"
@@ -3897,10 +4014,443 @@ function normalizeWorkspaceMode(value: string) {
   return "in_place";
 }
 
+function ProfilesModal({
+  error,
+  pending,
+  profiles,
+  projectSkills,
+  onClose,
+  onCreate,
+  onDelete,
+  onUpdate,
+}: {
+  error: string;
+  pending: boolean;
+  profiles: AgentProfileRecord[];
+  projectSkills: ProjectSkillRecord[];
+  onClose: () => void;
+  onCreate: (
+    form: AgentProfileForm,
+  ) => AgentProfileRecord | undefined | Promise<AgentProfileRecord | undefined>;
+  onDelete: (profile: AgentProfileRecord) => boolean | Promise<boolean>;
+  onUpdate: (
+    profileID: string,
+    form: AgentProfileForm,
+  ) => AgentProfileRecord | undefined | Promise<AgentProfileRecord | undefined>;
+}) {
+  const [selectedProfileID, setSelectedProfileID] = useState(profiles[0]?.id ?? "new");
+  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileID) ?? null;
+  const editingNew = selectedProfileID === "new";
+  const [form, setForm] = useState<AgentProfileForm>(() =>
+    selectedProfile ? profileFormFromRecord(selectedProfile) : emptyAgentProfileForm(),
+  );
+
+  function selectProfile(profileID: string) {
+    setSelectedProfileID(profileID);
+    const profile = profiles.find((item) => item.id === profileID) ?? null;
+    setForm(profile ? profileFormFromRecord(profile) : emptyAgentProfileForm());
+  }
+
+  function selectProfileRecord(profile: AgentProfileRecord) {
+    setSelectedProfileID(profile.id);
+    setForm(profileFormFromRecord(profile));
+  }
+
+  const canSave = form.name.trim().length > 0;
+  const submit = async () => {
+    if (!canSave) return;
+    if (editingNew) {
+      const profile = await onCreate(form);
+      if (profile) selectProfileRecord(profile);
+      return;
+    }
+    const profile = await onUpdate(selectedProfileID, form);
+    if (profile) selectProfileRecord(profile);
+  };
+
+  async function deleteSelectedProfile(profile: AgentProfileRecord) {
+    const deleted = await onDelete(profile);
+    if (!deleted) return;
+    const nextProfile = profiles.find((item) => item.id !== profile.id) ?? null;
+    if (nextProfile) {
+      selectProfileRecord(nextProfile);
+      return;
+    }
+    setSelectedProfileID("new");
+    setForm(emptyAgentProfileForm());
+  }
+
+  return (
+    <Modal
+      title="Agent profiles"
+      onClose={onClose}
+      width={840}
+      footer={
+        <div style={{ display: "flex", gap: 8, width: "100%" }}>
+          {selectedProfile && !editingNew && (
+            <button
+              className="btn btn-ghost"
+              type="button"
+              disabled={pending}
+              onClick={() => void deleteSelectedProfile(selectedProfile)}
+              style={{ color: "var(--red)" }}
+            >
+              Delete profile
+            </button>
+          )}
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={pending || !canSave}
+            onClick={() => void submit()}
+            style={{ marginLeft: "auto" }}
+          >
+            {pending ? "Saving..." : editingNew ? "Create profile" : "Save profile"}
+          </button>
+        </div>
+      }
+    >
+      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 14, minHeight: 470 }}>
+        <div
+          style={{
+            borderRight: "1px solid var(--border)",
+            paddingRight: 10,
+            display: "grid",
+            alignContent: "start",
+            gap: 6,
+          }}
+        >
+          <button
+            className={
+              selectedProfileID === "new" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
+            }
+            type="button"
+            onClick={() => selectProfile("new")}
+            style={{ justifyContent: "flex-start" }}
+          >
+            <Icon d={Icons.plus} size={12} />
+            New profile
+          </button>
+          {profiles.map((profile) => (
+            <button
+              key={profile.id}
+              className={
+                selectedProfileID === profile.id ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"
+              }
+              type="button"
+              onClick={() => selectProfile(profile.id)}
+              style={{ justifyContent: "flex-start", minWidth: 0 }}
+            >
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                {profile.name || profile.id}
+              </span>
+            </button>
+          ))}
+        </div>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+          style={{ display: "grid", gap: 12, alignContent: "start" }}
+        >
+          {error && <InlineError message={error} />}
+          <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 10 }}>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Profile id</span>
+              <input
+                className="input"
+                value={form.id}
+                disabled={!editingNew}
+                placeholder="implementation"
+                onChange={(event) => setForm((current) => ({ ...current, id: event.target.value }))}
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Name</span>
+              <input
+                className="input"
+                value={form.name}
+                autoFocus={editingNew}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, name: event.target.value }))
+                }
+              />
+            </label>
+          </div>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Description</span>
+            <textarea
+              className="input"
+              value={form.description}
+              rows={2}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, description: event.target.value }))
+              }
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Instructions</span>
+            <textarea
+              className="input"
+              value={form.instructions}
+              rows={5}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, instructions: event.target.value }))
+              }
+            />
+          </label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Surface</span>
+              <select
+                className="input"
+                value={form.surface}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, surface: event.target.value }))
+                }
+              >
+                {AGENT_PROFILE_SURFACES.map((surface) => (
+                  <option key={surface} value={surface}>
+                    {surface}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Execution profile</span>
+              <input
+                className="input"
+                value={form.executionProfile}
+                placeholder="implementation"
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, executionProfile: event.target.value }))
+                }
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Provider hint</span>
+              <input
+                className="input"
+                value={form.providerHint}
+                placeholder="ollama"
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, providerHint: event.target.value }))
+                }
+              />
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Model hint</span>
+              <input
+                className="input"
+                value={form.modelHint}
+                placeholder="qwen2.5-coder"
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, modelHint: event.target.value }))
+                }
+              />
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <label style={checkboxLabelStyle}>
+              <input
+                type="checkbox"
+                checked={form.toolsEnabled}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, toolsEnabled: event.target.checked }))
+                }
+              />
+              Tools enabled
+            </label>
+            <label style={checkboxLabelStyle}>
+              <input
+                type="checkbox"
+                checked={form.writesAllowed}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, writesAllowed: event.target.checked }))
+                }
+              />
+              Writes allowed
+            </label>
+            <label style={checkboxLabelStyle}>
+              <input
+                type="checkbox"
+                checked={form.networkAllowed}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, networkAllowed: event.target.checked }))
+                }
+              />
+              Network allowed
+            </label>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Approval policy</span>
+              <select
+                className="input"
+                value={form.approvalPolicy}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, approvalPolicy: event.target.value }))
+                }
+              >
+                {AGENT_PROFILE_APPROVAL_POLICIES.map((policy) => (
+                  <option key={policy} value={policy}>
+                    {policy}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Memory policy</span>
+              <select
+                className="input"
+                value={form.projectMemoryPolicy}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, projectMemoryPolicy: event.target.value }))
+                }
+              >
+                {AGENT_PROFILE_MEMORY_POLICIES.map((policy) => (
+                  <option key={policy} value={policy}>
+                    {policy}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>Context source policy</span>
+              <select
+                className="input"
+                value={form.contextSourcePolicy}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, contextSourcePolicy: event.target.value }))
+                }
+              >
+                {AGENT_PROFILE_CONTEXT_POLICIES.map((policy) => (
+                  <option key={policy} value={policy}>
+                    {policy}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={fieldStyle}>
+              <span style={fieldLabelStyle}>External agent kind</span>
+              <input
+                className="input"
+                value={form.externalAgentKind}
+                placeholder="claude_code"
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, externalAgentKind: event.target.value }))
+                }
+              />
+            </label>
+          </div>
+          <SkillIDPicker
+            onChange={(skillIDs) => setForm((current) => ({ ...current, skillIDs }))}
+            skills={projectSkills}
+            value={form.skillIDs}
+          />
+          <div style={subtleTextStyle}>
+            Profiles set runtime posture and skill references. Skills do not grant tools, writes,
+            network, or approvals.
+          </div>
+        </form>
+      </div>
+    </Modal>
+  );
+}
+
+function SkillIDPicker({
+  disabled = false,
+  skills,
+  value,
+  onChange,
+}: {
+  disabled?: boolean;
+  skills: ProjectSkillRecord[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const selectedIDs = uniqueSkillIDs(splitIDs(value));
+  const selectedSet = new Set(selectedIDs);
+  const indexedSkills = new Map(skills.map((skill) => [skill.id, skill]));
+  const sortedSkills = sortProjectSkillsForPicker(skills);
+  const warnings = selectedIDs.flatMap((id) => projectSkillSelectionWarnings(id, indexedSkills));
+
+  function toggleSkill(skillID: string, checked: boolean) {
+    const next = checked
+      ? uniqueSkillIDs([...selectedIDs, skillID])
+      : selectedIDs.filter((id) => id !== skillID);
+    onChange(next.join(", "));
+  }
+
+  return (
+    <div style={fieldStyle}>
+      {sortedSkills.length > 0 && (
+        <div style={{ display: "grid", gap: 6 }}>
+          <span style={fieldLabelStyle}>Project skills</span>
+          <div style={{ display: "grid", gap: 6 }}>
+            {sortedSkills.map((skill) => (
+              <label
+                key={`${skill.id}:${skill.path}`}
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  display: "grid",
+                  gap: 4,
+                  gridTemplateColumns: "auto 1fr",
+                  padding: "7px 8px",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedSet.has(skill.id)}
+                  disabled={disabled}
+                  aria-label={`Use skill ${skill.title || skill.id}`}
+                  onChange={(event) => toggleSkill(skill.id, event.target.checked)}
+                  style={{ marginTop: 2 }}
+                />
+                <span style={{ display: "grid", gap: 4, minWidth: 0 }}>
+                  <span style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={titleStyle}>{skill.title || skill.id}</span>
+                    <span className={projectSkillBadgeClass(skill)}>{skill.status}</span>
+                    {!skill.enabled && <span className="badge badge-muted">disabled</span>}
+                    <span className="badge badge-muted">{skill.id}</span>
+                  </span>
+                  <span style={subtleTextStyle}>{skill.path}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      <label style={{ ...fieldStyle, marginTop: sortedSkills.length > 0 ? 8 : 0 }}>
+        <span style={fieldLabelStyle}>Skill ids</span>
+        <input
+          className="input"
+          value={value}
+          disabled={disabled}
+          placeholder="backend, qa"
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </label>
+      {warnings.length > 0 && (
+        <div style={{ display: "grid", gap: 3 }}>
+          {warnings.map((warning) => (
+            <div key={warning} style={{ ...subtleTextStyle, color: "var(--amber)" }}>
+              {warning}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RolesModal({
   agentProfiles,
   error,
   pending,
+  projectSkills,
   roles,
   onClose,
   onCreate,
@@ -3910,6 +4460,7 @@ function RolesModal({
   agentProfiles: AgentProfileRecord[];
   error: string;
   pending: boolean;
+  projectSkills: ProjectSkillRecord[];
   roles: ProjectWorkRoleRecord[];
   onClose: () => void;
   onCreate: (
@@ -4144,18 +4695,12 @@ function RolesModal({
               />
             </label>
           </div>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Skill ids</span>
-            <input
-              className="input"
-              value={form.skillIDs}
-              disabled={editingBuiltIn}
-              placeholder="backend, qa"
-              onChange={(event) =>
-                setForm((current) => ({ ...current, skillIDs: event.target.value }))
-              }
-            />
-          </label>
+          <SkillIDPicker
+            disabled={editingBuiltIn}
+            onChange={(skillIDs) => setForm((current) => ({ ...current, skillIDs }))}
+            skills={projectSkills}
+            value={form.skillIDs}
+          />
           <div style={subtleTextStyle}>
             Role defaults are execution hints. Assignments can still override the driver, and
             project defaults remain the fallback.
@@ -5352,6 +5897,75 @@ function emptyRoleForm(): RoleForm {
   };
 }
 
+function emptyAgentProfileForm(): AgentProfileForm {
+  return {
+    id: "",
+    name: "",
+    description: "",
+    instructions: "",
+    surface: "any",
+    providerHint: "",
+    modelHint: "",
+    executionProfile: "",
+    toolsEnabled: true,
+    writesAllowed: false,
+    networkAllowed: false,
+    approvalPolicy: "inherit",
+    projectMemoryPolicy: "inherit",
+    contextSourcePolicy: "inherit",
+    skillIDs: "",
+    externalAgentKind: "",
+  };
+}
+
+function profileFormFromRecord(profile: AgentProfileRecord): AgentProfileForm {
+  return {
+    id: profile.id,
+    name: profile.name,
+    description: profile.description ?? "",
+    instructions: profile.instructions ?? "",
+    surface: profile.surface || "any",
+    providerHint: profile.provider_hint ?? "",
+    modelHint: profile.model_hint ?? "",
+    executionProfile: profile.execution_profile ?? "",
+    toolsEnabled: profile.tools_enabled,
+    writesAllowed: profile.writes_allowed,
+    networkAllowed: profile.network_allowed,
+    approvalPolicy: profile.approval_policy || "inherit",
+    projectMemoryPolicy: profile.project_memory_policy || "inherit",
+    contextSourcePolicy: profile.context_source_policy || "inherit",
+    skillIDs: (profile.skill_ids ?? []).join(", "),
+    externalAgentKind: profile.external_agent_kind ?? "",
+  };
+}
+
+function profileCreatePayloadFromForm(form: AgentProfileForm): CreateAgentProfilePayload {
+  const payload = profileUpdatePayloadFromForm(form) as CreateAgentProfilePayload;
+  const id = form.id.trim();
+  if (id) payload.id = id;
+  return payload;
+}
+
+function profileUpdatePayloadFromForm(form: AgentProfileForm): UpdateAgentProfilePayload {
+  return {
+    name: form.name.trim(),
+    description: form.description.trim(),
+    instructions: form.instructions.trim(),
+    surface: form.surface.trim() || "any",
+    provider_hint: form.providerHint.trim(),
+    model_hint: form.modelHint.trim(),
+    execution_profile: form.executionProfile.trim(),
+    tools_enabled: form.toolsEnabled,
+    writes_allowed: form.writesAllowed,
+    network_allowed: form.networkAllowed,
+    approval_policy: form.approvalPolicy.trim() || "inherit",
+    project_memory_policy: form.projectMemoryPolicy.trim() || "inherit",
+    context_source_policy: form.contextSourcePolicy.trim() || "inherit",
+    skill_ids: uniqueSkillIDs(splitIDs(form.skillIDs)),
+    external_agent_kind: form.externalAgentKind.trim(),
+  };
+}
+
 function roleFormFromRecord(role: ProjectWorkRoleRecord): RoleForm {
   return {
     id: role.id,
@@ -5375,7 +5989,7 @@ function rolePayloadFromForm(form: RoleForm) {
     default_provider: form.defaultProvider.trim(),
     default_model: form.defaultModel.trim(),
     default_agent_profile: form.defaultAgentProfile.trim(),
-    skill_ids: splitIDs(form.skillIDs),
+    skill_ids: uniqueSkillIDs(splitIDs(form.skillIDs)),
   };
 }
 
@@ -5696,6 +6310,15 @@ function upsertRole(items: ProjectWorkRoleRecord[], item: ProjectWorkRoleRecord)
   });
 }
 
+function upsertAgentProfile(items: AgentProfileRecord[], item: AgentProfileRecord) {
+  const index = items.findIndex((current) => current.id === item.id);
+  const next = index === -1 ? [item, ...items] : items.slice();
+  if (index !== -1) {
+    next[index] = item;
+  }
+  return next.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
 function upsertProjectSkill(items: ProjectSkillRecord[], item: ProjectSkillRecord) {
   const index = items.findIndex((current) => current.id === item.id);
   const next = index === -1 ? [item, ...items] : items.slice();
@@ -5712,6 +6335,37 @@ function upsertProjectSkill(items: ProjectSkillRecord[], item: ProjectSkillRecor
       a.id.localeCompare(b.id)
     );
   });
+}
+
+function sortProjectSkillsForPicker(skills: ProjectSkillRecord[]) {
+  return skills.slice().sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    const rank = projectSkillStatusRank(a.status) - projectSkillStatusRank(b.status);
+    return (
+      rank ||
+      a.title.localeCompare(b.title) ||
+      a.path.localeCompare(b.path) ||
+      a.id.localeCompare(b.id)
+    );
+  });
+}
+
+function projectSkillBadgeClass(skill: ProjectSkillRecord) {
+  if (skill.status === "available" && skill.enabled) return "badge badge-green";
+  if (skill.status === "available") return "badge badge-muted";
+  return "badge badge-amber";
+}
+
+function projectSkillSelectionWarnings(
+  skillID: string,
+  indexedSkills: Map<string, ProjectSkillRecord>,
+) {
+  const skill = indexedSkills.get(skillID);
+  if (!skill) return [`Skill ${skillID} is not registered in this project.`];
+  const warnings: string[] = [];
+  if (!skill.enabled) warnings.push(`Skill ${skillID} is disabled.`);
+  if (skill.status !== "available") warnings.push(`Skill ${skillID} is ${skill.status}.`);
+  return warnings;
 }
 
 function projectSkillStatusRank(status: string): number {
@@ -5805,6 +6459,10 @@ function splitIDs(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function uniqueSkillIDs(ids: string[]): string[] {
+  return Array.from(new Set(ids));
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -5950,6 +6608,14 @@ const fieldLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontSize: 11,
   textTransform: "uppercase",
+};
+
+const checkboxLabelStyle: CSSProperties = {
+  alignItems: "center",
+  color: "var(--t1)",
+  display: "inline-flex",
+  fontSize: 12,
+  gap: 6,
 };
 
 const panelStyle: CSSProperties = {
