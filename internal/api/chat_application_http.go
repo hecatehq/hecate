@@ -11,6 +11,13 @@ var chatAppErrorMappings = []appErrorMapping{
 	validationAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest),
 	{
 		Match: func(err error) bool {
+			return errors.Is(err, chatapp.ErrSessionNotFound)
+		},
+		Status: http.StatusNotFound,
+		Code:   errCodeNotFound,
+	},
+	{
+		Match: func(err error) bool {
 			return errors.Is(err, chatapp.ErrNoSettingsProvided)
 		},
 		Status: http.StatusBadRequest,
