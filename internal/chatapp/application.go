@@ -131,6 +131,21 @@ type AdmitMessageResult struct {
 	ToolsEnabled  bool
 }
 
+type MessageDispatchRoute string
+
+const (
+	MessageDispatchHecateTask    MessageDispatchRoute = "hecate_task"
+	MessageDispatchDirectModel   MessageDispatchRoute = "direct_model"
+	MessageDispatchExternalAgent MessageDispatchRoute = "external_agent"
+)
+
+type MessageDispatchPlan struct {
+	Content       string
+	ExecutionMode string
+	ToolsEnabled  bool
+	Route         MessageDispatchRoute
+}
+
 type MessageLimitError struct {
 	Code      string
 	Message   string
@@ -391,6 +406,28 @@ func (app *Application) AdmitMessage(cmd AdmitMessageCommand) (*AdmitMessageResu
 		ExecutionMode: executionMode,
 		ToolsEnabled:  toolsEnabled,
 	}, nil
+}
+
+func ResolveMessageDispatch(session chat.Session, admission AdmitMessageResult, hecateToolsUnavailable bool) MessageDispatchPlan {
+	toolsEnabled := admission.ToolsEnabled
+	route := MessageDispatchHecateTask
+	switch admission.ExecutionMode {
+	case chat.ExecutionModeExternalAgent:
+		route = MessageDispatchExternalAgent
+	case chat.ExecutionModeHecateTask:
+		if toolsEnabled && !isExternalSession(session) && hecateToolsUnavailable {
+			toolsEnabled = false
+		}
+		if !toolsEnabled {
+			route = MessageDispatchDirectModel
+		}
+	}
+	return MessageDispatchPlan{
+		Content:       admission.Content,
+		ExecutionMode: admission.ExecutionMode,
+		ToolsEnabled:  toolsEnabled,
+		Route:         route,
+	}
 }
 
 func (app *Application) cleanupExternalSession(sessionID string) {
