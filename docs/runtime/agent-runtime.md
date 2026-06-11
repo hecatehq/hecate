@@ -250,7 +250,9 @@ workspace-instruction bodies controlled by the resolved agent profile:
 `project_memory_policy=include` can include bounded project memory bodies, and
 `context_source_policy=include_enabled` can include bounded portable `AGENTS.md`
 workspace-instruction bodies. Host-specific guidance files and `SKILL.md` bodies
-remain metadata-only for this path.
+remain metadata-only for this path. If the selected route is a cloud provider,
+included project memory and workspace-instruction bodies are sent to that
+provider as normal task prompt content.
 
 ## Approval gating
 
