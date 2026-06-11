@@ -291,11 +291,20 @@ func TestTaskApplication_LoadNotFoundErrors(t *testing.T) {
 	if _, err := app.LoadTask(ctx, "missing"); !errors.Is(err, errTaskNotFound) {
 		t.Fatalf("LoadTask(missing) error = %v, want errTaskNotFound", err)
 	}
+	if _, err := app.LoadTask(ctx, " "); !errors.Is(err, errTaskIDRequired) || !isTaskValidationError(err) {
+		t.Fatalf("LoadTask(empty) error = %v, want task validation errTaskIDRequired", err)
+	}
 	if _, err := app.LoadTaskRun(ctx, task, "missing"); !errors.Is(err, errTaskRunNotFound) {
 		t.Fatalf("LoadTaskRun(missing) error = %v, want errTaskRunNotFound", err)
 	}
+	if _, err := app.LoadTaskRun(ctx, task, " "); !errors.Is(err, errTaskRunIDRequired) || !isTaskValidationError(err) {
+		t.Fatalf("LoadTaskRun(empty) error = %v, want task validation errTaskRunIDRequired", err)
+	}
 	if _, err := app.GetTaskApproval(ctx, task, "missing"); !errors.Is(err, errTaskApprovalNotFound) {
 		t.Fatalf("GetTaskApproval(missing) error = %v, want errTaskApprovalNotFound", err)
+	}
+	if _, err := app.GetTaskApproval(ctx, task, " "); !errors.Is(err, errTaskApprovalIDRequired) || !isTaskValidationError(err) {
+		t.Fatalf("GetTaskApproval(empty) error = %v, want task validation errTaskApprovalIDRequired", err)
 	}
 }
 
@@ -519,8 +528,8 @@ func TestTaskApplication_RetryFromTurnValidatesTurnBeforeRunner(t *testing.T) {
 	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_failed", TaskID: task.ID, Status: "failed"})
 
 	_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnRequest{Turn: 0})
-	if err == nil || err.Error() != "turn must be >= 1" {
-		t.Fatalf("RetryTaskRunFromTurn(turn 0) error = %v, want turn must be >= 1", err)
+	if !errors.Is(err, errTaskTurnRequired) || !isTaskValidationError(err) {
+		t.Fatalf("RetryTaskRunFromTurn(turn 0) error = %v, want task validation errTaskTurnRequired", err)
 	}
 }
 

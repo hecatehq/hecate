@@ -60,6 +60,10 @@ func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 			return
 		}
+		if isTaskValidationError(err) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
 		if errors.Is(err, errTaskApprovalNotFound) {
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "task approval not found")
 			return
@@ -310,6 +314,8 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 func (h *Handler) writeTaskLifecycleAppError(w http.ResponseWriter, err error) bool {
 	switch {
 	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskRunnerNotConfigured):
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	case isTaskValidationError(err):
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 	case errors.Is(err, errTaskHasActiveRun), errors.Is(err, errTaskHasOtherActiveRun), errors.Is(err, errTaskRunNotRetryable), errors.Is(err, errTaskRunNotResumable):
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())

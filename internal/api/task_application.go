@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -22,6 +21,10 @@ var (
 	errTaskNotFound                  = errors.New("task not found")
 	errTaskRunNotFound               = errors.New("task run not found")
 	errTaskApprovalNotFound          = errors.New("task approval not found")
+	errTaskIDRequired                = errors.New("task id is required")
+	errTaskRunIDRequired             = errors.New("run id is required")
+	errTaskApprovalIDRequired        = errors.New("approval id is required")
+	errTaskTurnRequired              = errors.New("turn must be >= 1")
 	errTaskPromptRequired            = errors.New("prompt is required")
 	errTaskHasActiveRun              = errors.New("task already has an active run")
 	errTaskHasOtherActiveRun         = errors.New("task already has another active run")
@@ -49,6 +52,11 @@ func taskValidation(err error) error {
 		return nil
 	}
 	return taskValidationError{err: err}
+}
+
+func isTaskValidationError(err error) bool {
+	var validation taskValidationError
+	return errors.As(err, &validation)
 }
 
 type taskApplicationRunner interface {
@@ -195,7 +203,7 @@ func (app *taskApplication) LoadTask(ctx context.Context, id string) (types.Task
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return types.Task{}, fmt.Errorf("task id is required")
+		return types.Task{}, taskValidation(errTaskIDRequired)
 	}
 	task, found, err := app.store.GetTask(ctx, id)
 	if err != nil {
@@ -241,7 +249,7 @@ func (app *taskApplication) LoadTaskRun(ctx context.Context, task types.Task, ru
 	}
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
-		return types.TaskRun{}, fmt.Errorf("run id is required")
+		return types.TaskRun{}, taskValidation(errTaskRunIDRequired)
 	}
 	run, found, err := app.store.GetRun(ctx, task.ID, runID)
 	if err != nil {
@@ -361,7 +369,7 @@ func (app *taskApplication) RetryTaskRunFromTurn(ctx context.Context, task types
 		return nil, errTaskRunNotTurnRetryable
 	}
 	if req.Turn < 1 {
-		return nil, fmt.Errorf("turn must be >= 1")
+		return nil, taskValidation(errTaskTurnRequired)
 	}
 	active, err := taskHasOtherActiveRun(ctx, app.store, task, run.ID)
 	if err != nil {
@@ -389,7 +397,7 @@ func (app *taskApplication) GetTaskApproval(ctx context.Context, task types.Task
 	}
 	approvalID = strings.TrimSpace(approvalID)
 	if approvalID == "" {
-		return types.TaskApproval{}, fmt.Errorf("approval id is required")
+		return types.TaskApproval{}, taskValidation(errTaskApprovalIDRequired)
 	}
 	approval, found, err := app.store.GetApproval(ctx, task.ID, approvalID)
 	if err != nil {

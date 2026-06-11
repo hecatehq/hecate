@@ -5891,6 +5891,55 @@ func TestTaskRunMutationsReturnConflictWhenAnotherLatestRunActive(t *testing.T) 
 	}
 }
 
+func TestTaskRunRetryFromTurnInvalidTurnReturnsBadRequest(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	apiHandler.taskRunner = nil
+	handler := NewServer(logger, apiHandler)
+	tasks := newTaskTestClient(t, handler)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	task := types.Task{
+		ID:          "task-invalid-turn",
+		Title:       "invalid turn",
+		Prompt:      "retry should validate turn before runner dispatch",
+		Status:      "failed",
+		LatestRunID: "run-invalid-turn",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if _, err := apiHandler.taskStore.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run := types.TaskRun{
+		ID:         task.LatestRunID,
+		TaskID:     task.ID,
+		Number:     1,
+		Status:     "failed",
+		StartedAt:  now.Add(-time.Minute),
+		FinishedAt: now,
+	}
+	if _, err := apiHandler.taskStore.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	rec := tasks.mustRequestStatus(http.StatusBadRequest, http.MethodPost,
+		"/hecate/v1/tasks/"+task.ID+"/runs/"+run.ID+"/retry-from-turn",
+		`{"turn":0}`)
+	payload := decodeRecorder[struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}](t, rec)
+	if payload.Error.Type != errCodeInvalidRequest || payload.Error.Message != "turn must be >= 1" {
+		t.Fatalf("error = %#v, want invalid_request turn validation", payload.Error)
+	}
+}
+
 func TestTaskRunResumeFromCancelledRun(t *testing.T) {
 	t.Parallel()
 

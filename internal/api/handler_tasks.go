@@ -52,11 +52,10 @@ func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) writeCreateTaskError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
-	var validation taskValidationError
 	switch {
 	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskProjectStoreNotConfigured):
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	case errors.Is(err, errTaskPromptRequired), errors.Is(err, errTaskProjectNotFound), errors.As(err, &validation):
+	case errors.Is(err, errTaskPromptRequired), errors.Is(err, errTaskProjectNotFound), isTaskValidationError(err):
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 	default:
 		telemetry.Error(h.logger, ctx, "gateway.tasks.create.failed",
@@ -177,6 +176,10 @@ func (h *Handler) HandleTask(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 			return
 		}
+		if isTaskValidationError(err) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
 		if errors.Is(err, errTaskNotFound) {
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
 			return
@@ -205,7 +208,7 @@ func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.taskApplication().DeleteTask(ctx, id); err != nil {
 		switch {
-		case errors.Is(err, errTaskStoreNotConfigured):
+		case errors.Is(err, errTaskStoreNotConfigured), isTaskValidationError(err):
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 			return
 		case errors.Is(err, errTaskNotFound):

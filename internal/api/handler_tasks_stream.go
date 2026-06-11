@@ -255,6 +255,10 @@ func (h *Handler) loadAuthorizedTask(ctx context.Context, w http.ResponseWriter,
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 			return types.Task{}, false
 		}
+		if isTaskValidationError(err) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return types.Task{}, false
+		}
 		if errors.Is(err, errTaskNotFound) {
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
 			return types.Task{}, false
@@ -279,6 +283,10 @@ func (h *Handler) loadAuthorizedTaskRun(ctx context.Context, w http.ResponseWrit
 	run, err := h.taskApplication().LoadTaskRun(ctx, task, runID)
 	if err != nil {
 		if errors.Is(err, errTaskStoreNotConfigured) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return types.TaskRun{}, false
+		}
+		if isTaskValidationError(err) {
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 			return types.TaskRun{}, false
 		}
