@@ -284,7 +284,9 @@ The product layers should stay separate:
 | Orchestrator      | Runtime execution   | Approved task/agent coordination, waits, approvals, event emission, and state transitions.             |
 
 Project Assistant can help create a new project or draft a follow-up assignment,
-but it does not auto-start work, run agents, or write durable memory directly.
+and the Projects UI can prepare Bootstrap proposals by refreshing workspace
+guidance and project skills before drafting. It does not auto-start work, run
+agents, or write durable memory directly.
 Planner and Manager are future proposal/monitoring layers. The orchestrator is
 the runtime coordinator that executes approved work through Tasks, External
 Agents, approvals, artifacts, traces, and events.

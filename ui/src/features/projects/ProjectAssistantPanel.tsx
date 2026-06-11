@@ -29,12 +29,14 @@ type Props = {
   contextStatus: ProjectAssistantContextStatus;
   error: string;
   onApply: () => void;
+  onBootstrap: () => void;
   onDismiss: () => void;
   onInspectContext: (form: ProjectAssistantDraftForm) => void;
   onPropose: (form: ProjectAssistantDraftForm) => void;
   project: ProjectRecord | null;
   proposal: ProjectAssistantProposal | null;
   roles: ProjectWorkRoleRecord[];
+  bootstrapPending: boolean;
   status: ProjectAssistantStatus;
   workItem: ProjectWorkItemRecord | null;
 };
@@ -46,12 +48,14 @@ export function ProjectAssistantPanel({
   contextStatus,
   error,
   onApply,
+  onBootstrap,
   onDismiss,
   onInspectContext,
   onPropose,
   project,
   proposal,
   roles,
+  bootstrapPending,
   status,
   workItem,
 }: Props) {
@@ -72,6 +76,7 @@ export function ProjectAssistantPanel({
   const valid = form.request.trim().length > 0 && (workItem ? Boolean(selectedRole) : true);
   const busy = status === "proposing" || status === "applying";
   const contextBusy = contextStatus === "loading";
+  const bootstrapBusy = bootstrapPending || busy;
   const panelDetail = workItem ? `Selected work: ${workItem.title}` : "Project queue";
   const modelDraftAvailable = Boolean(project.default_model?.trim());
 
@@ -180,6 +185,15 @@ export function ProjectAssistantPanel({
           >
             <Icon d={Icons.eye} size={13} />
             {contextBusy ? "Inspecting..." : "Inspect context"}
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            disabled={bootstrapBusy || contextBusy}
+            onClick={onBootstrap}
+          >
+            <Icon d={Icons.refresh} size={13} />
+            {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
           </button>
           <button
             className="btn btn-primary btn-sm"

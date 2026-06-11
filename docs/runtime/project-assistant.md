@@ -224,6 +224,12 @@ memory/candidate source refs. It does not treat host-specific guidance as
 Hecate policy authority, call a model, create durable memory, start tasks, or
 launch agents.
 
+In the operator UI, **Bootstrap project** is a convenience command around the
+same API contract: it refreshes workspace guidance context sources, refreshes
+the project skills registry, then requests a project-scoped Bootstrap draft.
+The resulting proposal is still review/apply gated and does not attach to the
+currently selected work item.
+
 `draft_mode: "model"` asks the configured gateway model to author the proposal
 from the same context packet. The request may provide `model` and `provider`;
 otherwise Hecate uses the project's `default_model` and optional
