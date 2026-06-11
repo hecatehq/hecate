@@ -1,4 +1,4 @@
-package api
+package taskapp
 
 import (
 	"context"
@@ -88,12 +88,12 @@ func (r *recordingTaskApplicationRunner) totalCalls() int {
 	return r.startCalls + r.resumeCalls + r.continueCalls + r.retryFromTurnCalls + r.cancelCalls + r.resolveCalls
 }
 
-func newTestTaskApplication(store taskstate.Store, runner taskApplicationRunner) *taskApplication {
+func newTestTaskApplication(store taskstate.Store, runner Runner) *Application {
 	return newTestTaskApplicationWithProjects(store, runner, nil)
 }
 
-func newTestTaskApplicationWithProjects(store taskstate.Store, runner taskApplicationRunner, projectStore projects.Store) *taskApplication {
-	return newTaskApplication(taskApplicationOptions{
+func newTestTaskApplicationWithProjects(store taskstate.Store, runner Runner, projectStore projects.Store) *Application {
+	return New(Options{
 		Store:       store,
 		Runner:      runner,
 		Projects:    projectStore,
@@ -147,7 +147,7 @@ func TestTaskApplication_CreateTaskAppliesDefaults(t *testing.T) {
 	store := taskstate.NewMemoryStore()
 	app := newTestTaskApplication(store, &recordingTaskApplicationRunner{})
 
-	task, err := app.CreateTask(ctx, taskCreateCommand{
+	task, err := app.CreateTask(ctx, CreateCommand{
 		Prompt:           "  Build the repo  ",
 		ExecutionProfile: "repo_local",
 		Repo:             "/tmp/hecate",
@@ -189,28 +189,28 @@ func TestTaskApplication_CreateTaskValidatesProject(t *testing.T) {
 	store := taskstate.NewMemoryStore()
 	app := newTestTaskApplication(store, nil)
 
-	_, err := app.CreateTask(ctx, taskCreateCommand{
+	_, err := app.CreateTask(ctx, CreateCommand{
 		Prompt:    "Use project context",
 		ProjectID: "proj_missing_store",
 	})
-	if !errors.Is(err, errTaskProjectStoreNotConfigured) {
-		t.Fatalf("CreateTask(project without store) error = %v, want errTaskProjectStoreNotConfigured", err)
+	if !errors.Is(err, ErrProjectStoreNotConfigured) {
+		t.Fatalf("CreateTask(project without store) error = %v, want ErrProjectStoreNotConfigured", err)
 	}
 
 	projectStore := projects.NewMemoryStore()
 	app = newTestTaskApplicationWithProjects(store, nil, projectStore)
-	_, err = app.CreateTask(ctx, taskCreateCommand{
+	_, err = app.CreateTask(ctx, CreateCommand{
 		Prompt:    "Use project context",
 		ProjectID: "proj_missing",
 	})
-	if !errors.Is(err, errTaskProjectNotFound) {
-		t.Fatalf("CreateTask(missing project) error = %v, want errTaskProjectNotFound", err)
+	if !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("CreateTask(missing project) error = %v, want ErrProjectNotFound", err)
 	}
 
 	if _, err := projectStore.Create(ctx, projects.Project{ID: "proj_1", Name: "Project One"}); err != nil {
 		t.Fatalf("Create project: %v", err)
 	}
-	task, err := app.CreateTask(ctx, taskCreateCommand{
+	task, err := app.CreateTask(ctx, CreateCommand{
 		Prompt:    "Use project context",
 		ProjectID: " proj_1 ",
 	})
@@ -228,11 +228,11 @@ func TestTaskApplication_CreateTaskValidation(t *testing.T) {
 	ctx := context.Background()
 	app := newTestTaskApplication(taskstate.NewMemoryStore(), nil)
 
-	if _, err := app.CreateTask(ctx, taskCreateCommand{}); !errors.Is(err, errTaskPromptRequired) {
-		t.Fatalf("CreateTask(agent_loop without prompt) error = %v, want errTaskPromptRequired", err)
+	if _, err := app.CreateTask(ctx, CreateCommand{}); !errors.Is(err, ErrPromptRequired) {
+		t.Fatalf("CreateTask(agent_loop without prompt) error = %v, want ErrPromptRequired", err)
 	}
 
-	task, err := app.CreateTask(ctx, taskCreateCommand{
+	task, err := app.CreateTask(ctx, CreateCommand{
 		ExecutionKind: "shell",
 		ShellCommand:  "printf ok",
 	})
@@ -248,35 +248,35 @@ func TestTaskApplication_NilStoreAndRunnerErrors(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	app := newTaskApplication(taskApplicationOptions{})
-	if _, err := app.CreateTask(ctx, taskCreateCommand{Prompt: "x"}); !errors.Is(err, errTaskStoreNotConfigured) {
-		t.Fatalf("CreateTask(nil store) error = %v, want errTaskStoreNotConfigured", err)
+	app := New(Options{})
+	if _, err := app.CreateTask(ctx, CreateCommand{Prompt: "x"}); !errors.Is(err, ErrStoreNotConfigured) {
+		t.Fatalf("CreateTask(nil store) error = %v, want ErrStoreNotConfigured", err)
 	}
-	if _, err := app.ListTasks(ctx, taskstate.TaskFilter{}); !errors.Is(err, errTaskStoreNotConfigured) {
-		t.Fatalf("ListTasks(nil store) error = %v, want errTaskStoreNotConfigured", err)
+	if _, err := app.ListTasks(ctx, taskstate.TaskFilter{}); !errors.Is(err, ErrStoreNotConfigured) {
+		t.Fatalf("ListTasks(nil store) error = %v, want ErrStoreNotConfigured", err)
 	}
-	if _, err := app.LoadTask(ctx, "task"); !errors.Is(err, errTaskStoreNotConfigured) {
-		t.Fatalf("LoadTask(nil store) error = %v, want errTaskStoreNotConfigured", err)
+	if _, err := app.LoadTask(ctx, "task"); !errors.Is(err, ErrStoreNotConfigured) {
+		t.Fatalf("LoadTask(nil store) error = %v, want ErrStoreNotConfigured", err)
 	}
-	if _, err := app.LoadTaskRun(ctx, types.Task{ID: "task"}, "run"); !errors.Is(err, errTaskStoreNotConfigured) {
-		t.Fatalf("LoadTaskRun(nil store) error = %v, want errTaskStoreNotConfigured", err)
+	if _, err := app.LoadTaskRun(ctx, types.Task{ID: "task"}, "run"); !errors.Is(err, ErrStoreNotConfigured) {
+		t.Fatalf("LoadTaskRun(nil store) error = %v, want ErrStoreNotConfigured", err)
 	}
-	if _, err := app.GetTaskApproval(ctx, types.Task{ID: "task"}, "approval"); !errors.Is(err, errTaskStoreNotConfigured) {
-		t.Fatalf("GetTaskApproval(nil store) error = %v, want errTaskStoreNotConfigured", err)
+	if _, err := app.GetTaskApproval(ctx, types.Task{ID: "task"}, "approval"); !errors.Is(err, ErrStoreNotConfigured) {
+		t.Fatalf("GetTaskApproval(nil store) error = %v, want ErrStoreNotConfigured", err)
 	}
-	if err := app.RequireRunner(); !errors.Is(err, errTaskStoreNotConfigured) {
-		t.Fatalf("RequireRunner(nil store) error = %v, want errTaskStoreNotConfigured", err)
+	if err := app.RequireRunner(); !errors.Is(err, ErrStoreNotConfigured) {
+		t.Fatalf("RequireRunner(nil store) error = %v, want ErrStoreNotConfigured", err)
 	}
 
 	app = newTestTaskApplication(taskstate.NewMemoryStore(), nil)
-	if err := app.RequireRunner(); !errors.Is(err, errTaskRunnerNotConfigured) {
-		t.Fatalf("RequireRunner(nil runner) error = %v, want errTaskRunnerNotConfigured", err)
+	if err := app.RequireRunner(); !errors.Is(err, ErrRunnerNotConfigured) {
+		t.Fatalf("RequireRunner(nil runner) error = %v, want ErrRunnerNotConfigured", err)
 	}
-	if _, err := app.StartTask(ctx, types.Task{ID: "task"}); !errors.Is(err, errTaskRunnerNotConfigured) {
-		t.Fatalf("StartTask(nil runner) error = %v, want errTaskRunnerNotConfigured", err)
+	if _, err := app.StartTask(ctx, types.Task{ID: "task"}); !errors.Is(err, ErrRunnerNotConfigured) {
+		t.Fatalf("StartTask(nil runner) error = %v, want ErrRunnerNotConfigured", err)
 	}
-	if _, err := app.ResolveTaskApproval(ctx, taskResolveApprovalCommand{}); !errors.Is(err, errTaskRunnerNotConfigured) {
-		t.Fatalf("ResolveTaskApproval(nil runner) error = %v, want errTaskRunnerNotConfigured", err)
+	if _, err := app.ResolveTaskApproval(ctx, ResolveApprovalCommand{}); !errors.Is(err, ErrRunnerNotConfigured) {
+		t.Fatalf("ResolveTaskApproval(nil runner) error = %v, want ErrRunnerNotConfigured", err)
 	}
 }
 
@@ -288,23 +288,23 @@ func TestTaskApplication_LoadNotFoundErrors(t *testing.T) {
 	app := newTestTaskApplication(store, nil)
 	task := createTaskForAppTest(t, ctx, store, types.Task{ID: "task_found"})
 
-	if _, err := app.LoadTask(ctx, "missing"); !errors.Is(err, errTaskNotFound) {
-		t.Fatalf("LoadTask(missing) error = %v, want errTaskNotFound", err)
+	if _, err := app.LoadTask(ctx, "missing"); !errors.Is(err, ErrTaskNotFound) {
+		t.Fatalf("LoadTask(missing) error = %v, want ErrTaskNotFound", err)
 	}
-	if _, err := app.LoadTask(ctx, " "); !errors.Is(err, errTaskIDRequired) || !isTaskValidationError(err) {
-		t.Fatalf("LoadTask(empty) error = %v, want task validation errTaskIDRequired", err)
+	if _, err := app.LoadTask(ctx, " "); !errors.Is(err, ErrTaskIDRequired) || !IsValidationError(err) {
+		t.Fatalf("LoadTask(empty) error = %v, want task validation ErrTaskIDRequired", err)
 	}
-	if _, err := app.LoadTaskRun(ctx, task, "missing"); !errors.Is(err, errTaskRunNotFound) {
-		t.Fatalf("LoadTaskRun(missing) error = %v, want errTaskRunNotFound", err)
+	if _, err := app.LoadTaskRun(ctx, task, "missing"); !errors.Is(err, ErrRunNotFound) {
+		t.Fatalf("LoadTaskRun(missing) error = %v, want ErrRunNotFound", err)
 	}
-	if _, err := app.LoadTaskRun(ctx, task, " "); !errors.Is(err, errTaskRunIDRequired) || !isTaskValidationError(err) {
-		t.Fatalf("LoadTaskRun(empty) error = %v, want task validation errTaskRunIDRequired", err)
+	if _, err := app.LoadTaskRun(ctx, task, " "); !errors.Is(err, ErrRunIDRequired) || !IsValidationError(err) {
+		t.Fatalf("LoadTaskRun(empty) error = %v, want task validation ErrRunIDRequired", err)
 	}
-	if _, err := app.GetTaskApproval(ctx, task, "missing"); !errors.Is(err, errTaskApprovalNotFound) {
-		t.Fatalf("GetTaskApproval(missing) error = %v, want errTaskApprovalNotFound", err)
+	if _, err := app.GetTaskApproval(ctx, task, "missing"); !errors.Is(err, ErrApprovalNotFound) {
+		t.Fatalf("GetTaskApproval(missing) error = %v, want ErrApprovalNotFound", err)
 	}
-	if _, err := app.GetTaskApproval(ctx, task, " "); !errors.Is(err, errTaskApprovalIDRequired) || !isTaskValidationError(err) {
-		t.Fatalf("GetTaskApproval(empty) error = %v, want task validation errTaskApprovalIDRequired", err)
+	if _, err := app.GetTaskApproval(ctx, task, " "); !errors.Is(err, ErrApprovalIDRequired) || !IsValidationError(err) {
+		t.Fatalf("GetTaskApproval(empty) error = %v, want task validation ErrApprovalIDRequired", err)
 	}
 }
 
@@ -327,8 +327,8 @@ func TestTaskApplication_StartTaskRejectsActiveRunBeforeRunner(t *testing.T) {
 	createRunForAppTest(t, ctx, store, types.TaskRun{ID: task.LatestRunID, TaskID: task.ID, Status: "awaiting_approval"})
 
 	_, err := app.StartTask(ctx, task)
-	if !errors.Is(err, errTaskHasActiveRun) {
-		t.Fatalf("StartTask() error = %v, want errTaskHasActiveRun", err)
+	if !errors.Is(err, ErrActiveRun) {
+		t.Fatalf("StartTask() error = %v, want ErrActiveRun", err)
 	}
 	if runner.startCalls != 0 {
 		t.Fatalf("runner start calls = %d, want 0", runner.startCalls)
@@ -362,33 +362,33 @@ func TestTaskApplication_LifecycleRejectsOtherActiveRunBeforeRunner(t *testing.T
 
 	cases := []struct {
 		name string
-		call func(context.Context, *taskApplication, types.Task, types.TaskRun) error
+		call func(context.Context, *Application, types.Task, types.TaskRun) error
 	}{
 		{
 			name: "retry",
-			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
 				_, err := app.RetryTaskRun(ctx, task, run)
 				return err
 			},
 		},
 		{
 			name: "resume",
-			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
-				_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{Reason: "try again"})
+			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
+				_, err := app.ResumeTaskRun(ctx, task, run, ResumeCommand{Reason: "try again"})
 				return err
 			},
 		},
 		{
 			name: "continue",
-			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
 				_, err := app.ContinueTaskRun(ctx, task, run, "continue")
 				return err
 			},
 		},
 		{
 			name: "retry_from_turn",
-			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
-				_, err := app.RetryTaskRunFromTurn(ctx, task, run, taskRetryFromTurnCommand{Turn: 1, Reason: "rewind"})
+			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
+				_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnCommand{Turn: 1, Reason: "rewind"})
 				return err
 			},
 		},
@@ -412,8 +412,8 @@ func TestTaskApplication_LifecycleRejectsOtherActiveRunBeforeRunner(t *testing.T
 			run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_source", TaskID: task.ID, Status: "failed"})
 
 			err := tc.call(ctx, app, task, run)
-			if !errors.Is(err, errTaskHasOtherActiveRun) {
-				t.Fatalf("%s error = %v, want errTaskHasOtherActiveRun", tc.name, err)
+			if !errors.Is(err, ErrOtherActiveRun) {
+				t.Fatalf("%s error = %v, want ErrOtherActiveRun", tc.name, err)
 			}
 			if runner.totalCalls() != 0 {
 				t.Fatalf("runner calls = %d, want 0", runner.totalCalls())
@@ -427,50 +427,50 @@ func TestTaskApplication_LifecycleValidationPrecedesRunnerConfiguration(t *testi
 
 	cases := []struct {
 		name string
-		call func(context.Context, *taskApplication, types.Task, types.TaskRun) error
+		call func(context.Context, *Application, types.Task, types.TaskRun) error
 		want error
 	}{
 		{
 			name: "retry_nonterminal",
-			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
 				_, err := app.RetryTaskRun(ctx, task, run)
 				return err
 			},
-			want: errTaskRunNotRetryable,
+			want: ErrRunNotRetryable,
 		},
 		{
 			name: "resume_nonterminal",
-			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
-				_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{Reason: "try again"})
+			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
+				_, err := app.ResumeTaskRun(ctx, task, run, ResumeCommand{Reason: "try again"})
 				return err
 			},
-			want: errTaskRunNotResumable,
+			want: ErrRunNotResumable,
 		},
 		{
 			name: "turn_retry_nonterminal",
-			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
-				_, err := app.RetryTaskRunFromTurn(ctx, task, run, taskRetryFromTurnCommand{Turn: 1})
+			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
+				_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnCommand{Turn: 1})
 				return err
 			},
-			want: errTaskRunNotTurnRetryable,
+			want: ErrRunNotTurnRetryable,
 		},
 		{
 			name: "resume_other_active_before_lower_budget",
-			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
 				run.Status = "failed"
 				task.BudgetMicrosUSD = 500
-				_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{BudgetMicrosUSD: 100})
+				_, err := app.ResumeTaskRun(ctx, task, run, ResumeCommand{BudgetMicrosUSD: 100})
 				return err
 			},
-			want: errTaskHasOtherActiveRun,
+			want: ErrOtherActiveRun,
 		},
 		{
 			name: "continue_other_active",
-			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+			call: func(ctx context.Context, app *Application, task types.Task, run types.TaskRun) error {
 				_, err := app.ContinueTaskRun(ctx, task, run, "continue")
 				return err
 			},
-			want: errTaskHasOtherActiveRun,
+			want: ErrOtherActiveRun,
 		},
 	}
 
@@ -512,9 +512,9 @@ func TestTaskApplication_ResumeLowerBudgetPrecedesRunnerConfiguration(t *testing
 	})
 	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: task.LatestRunID, TaskID: task.ID, Status: "failed"})
 
-	_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{BudgetMicrosUSD: 100})
-	if !errors.Is(err, errTaskBudgetLower) {
-		t.Fatalf("ResumeTaskRun(lower budget, nil runner) error = %v, want errTaskBudgetLower", err)
+	_, err := app.ResumeTaskRun(ctx, task, run, ResumeCommand{BudgetMicrosUSD: 100})
+	if !errors.Is(err, ErrBudgetLower) {
+		t.Fatalf("ResumeTaskRun(lower budget, nil runner) error = %v, want ErrBudgetLower", err)
 	}
 }
 
@@ -527,9 +527,9 @@ func TestTaskApplication_RetryFromTurnValidatesTurnBeforeRunner(t *testing.T) {
 	task := createTaskForAppTest(t, ctx, store, types.Task{ID: "task_turn", Status: "failed"})
 	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_failed", TaskID: task.ID, Status: "failed"})
 
-	_, err := app.RetryTaskRunFromTurn(ctx, task, run, taskRetryFromTurnCommand{Turn: 0})
-	if !errors.Is(err, errTaskTurnRequired) || !isTaskValidationError(err) {
-		t.Fatalf("RetryTaskRunFromTurn(turn 0) error = %v, want task validation errTaskTurnRequired", err)
+	_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnCommand{Turn: 0})
+	if !errors.Is(err, ErrTurnRequired) || !IsValidationError(err) {
+		t.Fatalf("RetryTaskRunFromTurn(turn 0) error = %v, want task validation ErrTurnRequired", err)
 	}
 }
 
@@ -553,7 +553,7 @@ func TestTaskApplication_ResumeRaisesBudgetBeforeRunner(t *testing.T) {
 	createTaskForAppTest(t, ctx, store, task)
 	createRunForAppTest(t, ctx, store, run)
 
-	_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{
+	_, err := app.ResumeTaskRun(ctx, task, run, ResumeCommand{
 		Reason:          "raise ceiling",
 		BudgetMicrosUSD: 250,
 	})
@@ -593,9 +593,9 @@ func TestTaskApplication_ResumeRejectsLowerBudgetBeforeRunner(t *testing.T) {
 	})
 	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: task.LatestRunID, TaskID: task.ID, Status: "failed"})
 
-	_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{BudgetMicrosUSD: 100})
-	if !errors.Is(err, errTaskBudgetLower) {
-		t.Fatalf("ResumeTaskRun(lower budget) error = %v, want errTaskBudgetLower", err)
+	_, err := app.ResumeTaskRun(ctx, task, run, ResumeCommand{BudgetMicrosUSD: 100})
+	if !errors.Is(err, ErrBudgetLower) {
+		t.Fatalf("ResumeTaskRun(lower budget) error = %v, want ErrBudgetLower", err)
 	}
 	if runner.resumeCalls != 0 {
 		t.Fatalf("resume calls = %d, want 0", runner.resumeCalls)
@@ -620,8 +620,8 @@ func TestTaskApplication_DeleteRejectsStaleSummaryWhenLatestRunActive(t *testing
 	createRunForAppTest(t, ctx, store, types.TaskRun{ID: task.LatestRunID, TaskID: task.ID, Status: "running"})
 
 	err := app.DeleteTask(ctx, task.ID)
-	if !errors.Is(err, errTaskDeleteActiveRun) {
-		t.Fatalf("DeleteTask() error = %v, want errTaskDeleteActiveRun", err)
+	if !errors.Is(err, ErrDeleteActiveRun) {
+		t.Fatalf("DeleteTask() error = %v, want ErrDeleteActiveRun", err)
 	}
 	if _, found, err := store.GetTask(ctx, task.ID); err != nil || !found {
 		t.Fatalf("task after delete attempt: found=%t err=%v, want still present", found, err)
@@ -636,7 +636,7 @@ func TestTaskApplication_ResolveApprovalEnrichesRequest(t *testing.T) {
 	app := newTestTaskApplication(taskstate.NewMemoryStore(), runner)
 	task := types.Task{ID: "task_approval"}
 
-	_, err := app.ResolveTaskApproval(ctx, taskResolveApprovalCommand{
+	_, err := app.ResolveTaskApproval(ctx, ResolveApprovalCommand{
 		Task:       task,
 		ApprovalID: "approval_1",
 		Decision:   "approve",

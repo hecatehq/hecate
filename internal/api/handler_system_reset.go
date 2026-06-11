@@ -8,6 +8,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
 )
 
@@ -188,7 +189,7 @@ func (h *Handler) resetTasks(ctx context.Context) (int, error) {
 	}
 	deleted := 0
 	for _, task := range tasks {
-		active, err := taskHasActiveRun(ctx, h.taskStore, task)
+		active, err := taskapp.HasActiveRun(ctx, h.taskStore, task)
 		if err != nil {
 			return deleted, err
 		}

@@ -49,6 +49,9 @@ docs-ai/                canonical agent guidance (this file points there for dep
 
 internal/
   api/                  inbound HTTP shapes + handlers (OpenAIChatMessage, uppercase)
+  taskapp/              task lifecycle application layer used by API handlers:
+                          creation defaults, load helpers, active-run guards,
+                          approval resolution dispatch, runner calls
   providers/            outbound HTTP per provider (openAIChatMessage, lowercase)
                           — same JSON shape as api/, deliberate duplication
   gateway/              top-level request orchestration: governor → router → provider

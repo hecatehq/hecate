@@ -17,6 +17,7 @@ import (
 	"github.com/hecatehq/hecate/internal/retention"
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -289,10 +290,10 @@ func (h *Handler) HandleMCPProbe(w http.ResponseWriter, r *http.Request) {
 }
 
 // normalizeMCPProbeRequest validates and converts the wire shape into
-// the internal types.MCPServerConfig. Mirrors normalizeMCPServerConfigs's
+// the internal types.MCPServerConfig. Mirrors taskapp MCP normalization
 // rules for one row: non-empty name (default "probe" if missing —
 // the operator typically doesn't care about the alias for a dry-run),
-// command XOR url, secrets resolved via the shared storeSecretMap helper.
+// command XOR url, secrets resolved via the shared taskapp helper.
 func normalizeMCPProbeRequest(req MCPProbeRequest, cipher secrets.Cipher) (types.MCPServerConfig, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -307,11 +308,11 @@ func normalizeMCPProbeRequest(req MCPProbeRequest, cipher secrets.Cipher) (types
 		return types.MCPServerConfig{}, fmt.Errorf("either command or url is required")
 	}
 	args := append([]string(nil), req.Args...)
-	env, err := storeSecretMap(req.Env, cipher, "env")
+	env, err := taskapp.StoreSecretMap(req.Env, cipher, "env")
 	if err != nil {
 		return types.MCPServerConfig{}, err
 	}
-	headers, err := storeSecretMap(req.Headers, cipher, "headers")
+	headers, err := taskapp.StoreSecretMap(req.Headers, cipher, "headers")
 	if err != nil {
 		return types.MCPServerConfig{}, err
 	}
