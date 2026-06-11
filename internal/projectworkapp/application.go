@@ -111,30 +111,22 @@ type UpdateWorkItemCommand struct {
 }
 
 type CreateAssignmentCommand struct {
-	ID                string
-	RoleID            string
-	DriverKind        string
-	Status            string
-	TaskID            string
-	RunID             string
-	ChatSessionID     string
-	MessageID         string
-	ContextSnapshotID string
-	StartedAt         time.Time
-	CompletedAt       time.Time
+	ID           string
+	RoleID       string
+	DriverKind   string
+	Status       string
+	ExecutionRef projectwork.AssignmentExecutionRef
+	StartedAt    time.Time
+	CompletedAt  time.Time
 }
 
 type UpdateAssignmentCommand struct {
-	RoleID            *string
-	DriverKind        *string
-	Status            *string
-	TaskID            *string
-	RunID             *string
-	ChatSessionID     *string
-	MessageID         *string
-	ContextSnapshotID *string
-	StartedAt         *time.Time
-	CompletedAt       *time.Time
+	RoleID       *string
+	DriverKind   *string
+	Status       *string
+	ExecutionRef *projectwork.AssignmentExecutionRef
+	StartedAt    *time.Time
+	CompletedAt  *time.Time
 }
 
 type StartTaskAssignmentCommand struct {
@@ -334,19 +326,15 @@ func (app *Application) CreateAssignment(ctx context.Context, projectID, workIte
 		}
 	}
 	return app.store.CreateAssignment(ctx, projectwork.Assignment{
-		ID:                id,
-		ProjectID:         projectID,
-		WorkItemID:        workItemID,
-		RoleID:            cmd.RoleID,
-		DriverKind:        driverKind,
-		Status:            cmd.Status,
-		TaskID:            cmd.TaskID,
-		RunID:             cmd.RunID,
-		ChatSessionID:     cmd.ChatSessionID,
-		MessageID:         cmd.MessageID,
-		ContextSnapshotID: cmd.ContextSnapshotID,
-		StartedAt:         cmd.StartedAt,
-		CompletedAt:       cmd.CompletedAt,
+		ID:           id,
+		ProjectID:    projectID,
+		WorkItemID:   workItemID,
+		RoleID:       cmd.RoleID,
+		DriverKind:   driverKind,
+		Status:       cmd.Status,
+		ExecutionRef: cmd.ExecutionRef,
+		StartedAt:    cmd.StartedAt,
+		CompletedAt:  cmd.CompletedAt,
 	})
 }
 
@@ -364,20 +352,8 @@ func (app *Application) UpdateAssignment(ctx context.Context, projectID, assignm
 		if cmd.Status != nil {
 			item.Status = *cmd.Status
 		}
-		if cmd.TaskID != nil {
-			item.TaskID = *cmd.TaskID
-		}
-		if cmd.RunID != nil {
-			item.RunID = *cmd.RunID
-		}
-		if cmd.ChatSessionID != nil {
-			item.ChatSessionID = *cmd.ChatSessionID
-		}
-		if cmd.MessageID != nil {
-			item.MessageID = *cmd.MessageID
-		}
-		if cmd.ContextSnapshotID != nil {
-			item.ContextSnapshotID = *cmd.ContextSnapshotID
+		if cmd.ExecutionRef != nil {
+			item.ExecutionRef = *cmd.ExecutionRef
 		}
 		if cmd.StartedAt != nil {
 			item.StartedAt = *cmd.StartedAt
@@ -419,11 +395,16 @@ func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAs
 	taskID := app.idgen("task")
 	claimRejected := false
 	assignment, err := app.store.UpdateAssignment(ctx, cmd.ProjectID, cmd.Assignment.ID, func(item *projectwork.Assignment) {
-		if item.TaskID != "" || item.RunID != "" || AssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverHecateTask {
+		ref := projectwork.NormalizeAssignmentExecutionRef(item.ExecutionRef)
+		if ref.TaskID != "" || ref.RunID != "" || AssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverHecateTask {
 			claimRejected = true
 			return
 		}
-		item.TaskID = taskID
+		item.ExecutionRef = projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: taskID,
+			Status: projectwork.AssignmentStatusQueued,
+		}
 		item.Status = projectwork.AssignmentStatusQueued
 		if item.StartedAt.IsZero() {
 			item.StartedAt = app.now().UTC()
@@ -463,7 +444,11 @@ func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAs
 	})
 	if err != nil {
 		assignment, updateErr := app.store.UpdateAssignment(ctx, cmd.ProjectID, cmd.Assignment.ID, func(item *projectwork.Assignment) {
-			item.TaskID = task.ID
+			item.ExecutionRef = projectwork.AssignmentExecutionRef{
+				Kind:   projectwork.AssignmentExecutionKindTaskRun,
+				TaskID: task.ID,
+				Status: projectwork.AssignmentStatusFailed,
+			}
 			item.Status = projectwork.AssignmentStatusFailed
 			item.CompletedAt = app.now().UTC()
 		})
@@ -474,10 +459,16 @@ func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAs
 	}
 
 	assignment, err = app.store.UpdateAssignment(ctx, cmd.ProjectID, cmd.Assignment.ID, func(item *projectwork.Assignment) {
-		item.TaskID = result.Task.ID
-		item.RunID = result.Run.ID
-		item.ContextSnapshotID = cmd.ContextSnapshotID
-		item.Status = AssignmentStatusFromRun(result.Run.Status)
+		status := AssignmentStatusFromRun(result.Run.Status)
+		item.ExecutionRef = projectwork.AssignmentExecutionRef{
+			Kind:              projectwork.AssignmentExecutionKindTaskRun,
+			TaskID:            result.Task.ID,
+			RunID:             result.Run.ID,
+			ContextSnapshotID: cmd.ContextSnapshotID,
+			Status:            status,
+			TraceID:           result.Run.TraceID,
+		}
+		item.Status = status
 		if item.StartedAt.IsZero() {
 			item.StartedAt = app.now().UTC()
 		}
@@ -504,7 +495,7 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 	if app.agentRunner == nil {
 		return nil, ErrAgentRunnerNotConfigured
 	}
-	if strings.TrimSpace(cmd.Assignment.ChatSessionID) != "" ||
+	if strings.TrimSpace(cmd.Assignment.ExecutionRef.ChatSessionID) != "" ||
 		AssignmentIsTerminal(cmd.Assignment.Status) ||
 		cmd.Assignment.DriverKind != projectwork.AssignmentDriverExternalAgent {
 		return &StartExternalAgentAssignmentResult{Assignment: cmd.Assignment}, ErrAssignmentStartConflict
@@ -542,11 +533,16 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 	}
 
 	assignment, err := app.store.UpdateAssignment(ctx, cmd.ProjectID, cmd.Assignment.ID, func(item *projectwork.Assignment) {
-		if item.ChatSessionID != "" || AssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverExternalAgent {
+		ref := projectwork.NormalizeAssignmentExecutionRef(item.ExecutionRef)
+		if ref.ChatSessionID != "" || AssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverExternalAgent {
 			return
 		}
-		item.ChatSessionID = session.ID
-		item.ContextSnapshotID = cmd.ContextSnapshotID
+		item.ExecutionRef = projectwork.AssignmentExecutionRef{
+			Kind:              projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID:     session.ID,
+			ContextSnapshotID: cmd.ContextSnapshotID,
+			Status:            projectwork.AssignmentStatusRunning,
+		}
 		item.ContextPacket = append([]byte(nil), cmd.ContextPacket...)
 		item.Status = projectwork.AssignmentStatusRunning
 		if item.StartedAt.IsZero() {
@@ -557,7 +553,7 @@ func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd St
 		app.cleanupExternalSession(session.ID)
 		return &StartExternalAgentAssignmentResult{Session: session}, err
 	}
-	if assignment.ChatSessionID != session.ID {
+	if assignment.ExecutionRef.ChatSessionID != session.ID {
 		app.cleanupExternalSession(session.ID)
 		return &StartExternalAgentAssignmentResult{Assignment: assignment, Session: session}, ErrAssignmentStartConflict
 	}
@@ -580,8 +576,9 @@ func (app *Application) loadRole(ctx context.Context, projectID, roleID string) 
 
 func (app *Application) clearTaskClaim(ctx context.Context, projectID, assignmentID, taskID string) (projectwork.Assignment, error) {
 	return app.store.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
-		if item.TaskID == taskID && item.RunID == "" {
-			item.TaskID = ""
+		ref := projectwork.NormalizeAssignmentExecutionRef(item.ExecutionRef)
+		if ref.TaskID == taskID && ref.RunID == "" {
+			item.ExecutionRef = projectwork.AssignmentExecutionRef{}
 			item.Status = projectwork.AssignmentStatusQueued
 			item.StartedAt = time.Time{}
 			item.CompletedAt = time.Time{}
@@ -627,11 +624,12 @@ func AssignmentStatusFromRun(status string) string {
 }
 
 func AssignmentHasActiveExecution(ctx context.Context, store TaskRunLookupStore, assignment projectwork.Assignment) (bool, error) {
-	if strings.TrimSpace(assignment.RunID) != "" && strings.TrimSpace(assignment.TaskID) != "" && store == nil {
+	ref := projectwork.NormalizeAssignmentExecutionRef(assignment.ExecutionRef)
+	if strings.TrimSpace(ref.RunID) != "" && strings.TrimSpace(ref.TaskID) != "" && store == nil {
 		return false, ErrTaskStoreNotConfigured
 	}
-	if strings.TrimSpace(assignment.RunID) != "" && strings.TrimSpace(assignment.TaskID) != "" {
-		run, ok, err := store.GetRun(ctx, assignment.TaskID, assignment.RunID)
+	if strings.TrimSpace(ref.RunID) != "" && strings.TrimSpace(ref.TaskID) != "" {
+		run, ok, err := store.GetRun(ctx, ref.TaskID, ref.RunID)
 		if err != nil {
 			return false, err
 		}
@@ -643,7 +641,7 @@ func AssignmentHasActiveExecution(ctx context.Context, store TaskRunLookupStore,
 	case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval:
 		return true, nil
 	case projectwork.AssignmentStatusQueued:
-		return strings.TrimSpace(assignment.TaskID) != "" || strings.TrimSpace(assignment.RunID) != "", nil
+		return strings.TrimSpace(ref.TaskID) != "" || strings.TrimSpace(ref.RunID) != "", nil
 	default:
 		return false, nil
 	}

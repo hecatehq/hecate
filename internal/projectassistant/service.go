@@ -393,6 +393,13 @@ func validateActionShape(action Action) error {
 			return fmt.Errorf("%w: action %q patch is required", ErrInvalid, kind)
 		}
 		if kind == ActionCreateAssignment {
+			hasRuntimeLinks, err := assignmentPatchHasRuntimeLinks(action.Patch)
+			if err != nil {
+				return err
+			}
+			if hasRuntimeLinks {
+				return fmt.Errorf("%w: create_assignment proposals cannot bind chats, tasks, runs, messages, or snapshots", ErrInvalid)
+			}
 			var patch assignmentPatch
 			if err := decodePatch(action, &patch); err != nil {
 				return err
@@ -408,13 +415,29 @@ func validateActionShape(action Action) error {
 }
 
 func validateAssignmentProposalBoundary(patch assignmentPatch) error {
-	if patch.TaskID != "" || patch.RunID != "" || patch.ChatSessionID != "" || patch.MessageID != "" || patch.ContextSnapshotID != "" || len(patch.ExecutionRef) > 0 {
+	if len(patch.ExecutionRef) > 0 {
 		return fmt.Errorf("%w: create_assignment proposals cannot bind chats, tasks, runs, messages, or snapshots", ErrInvalid)
 	}
 	if patch.Status != "" && patch.Status != projectwork.AssignmentStatusQueued {
 		return fmt.Errorf("%w: create_assignment proposals must create queued assignments", ErrInvalid)
 	}
 	return nil
+}
+
+func assignmentPatchHasRuntimeLinks(raw json.RawMessage) (bool, error) {
+	if len(raw) == 0 {
+		return false, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return false, fmt.Errorf("%w: decode assignment patch keys: %v", ErrInvalid, err)
+	}
+	for _, key := range []string{"task_id", "run_id", "chat_session_id", "message_id", "context_snapshot_id", "execution_ref"} {
+		if _, ok := fields[key]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Service) applyCreateProject(ctx context.Context, action Action) (ActionResult, error) {
@@ -964,18 +987,13 @@ type updateWorkItemPatch struct {
 }
 
 type assignmentPatch struct {
-	ID                string          `json:"id,omitempty"`
-	ProjectID         string          `json:"project_id,omitempty"`
-	WorkItemID        string          `json:"work_item_id,omitempty"`
-	RoleID            string          `json:"role_id,omitempty"`
-	DriverKind        string          `json:"driver_kind,omitempty"`
-	Status            string          `json:"status,omitempty"`
-	TaskID            string          `json:"task_id,omitempty"`
-	RunID             string          `json:"run_id,omitempty"`
-	ChatSessionID     string          `json:"chat_session_id,omitempty"`
-	MessageID         string          `json:"message_id,omitempty"`
-	ContextSnapshotID string          `json:"context_snapshot_id,omitempty"`
-	ExecutionRef      json.RawMessage `json:"execution_ref,omitempty"`
+	ID           string          `json:"id,omitempty"`
+	ProjectID    string          `json:"project_id,omitempty"`
+	WorkItemID   string          `json:"work_item_id,omitempty"`
+	RoleID       string          `json:"role_id,omitempty"`
+	DriverKind   string          `json:"driver_kind,omitempty"`
+	Status       string          `json:"status,omitempty"`
+	ExecutionRef json.RawMessage `json:"execution_ref,omitempty"`
 }
 
 type handoffPatch struct {

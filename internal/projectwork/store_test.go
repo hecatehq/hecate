@@ -125,14 +125,17 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			}
 
 			assignment, err := store.CreateAssignment(ctx, Assignment{
-				ID:                "asgn_impl",
-				ProjectID:         "proj_alpha",
-				WorkItemID:        "work_api",
-				RoleID:            "software_developer",
-				TaskID:            "task_123",
-				RunID:             "run_123",
-				ContextSnapshotID: "ctx_123",
-				ContextPacket:     []byte(`{"id":"ctx_123","version":"chat.context.v1"}`),
+				ID:         "asgn_impl",
+				ProjectID:  "proj_alpha",
+				WorkItemID: "work_api",
+				RoleID:     "software_developer",
+				ExecutionRef: AssignmentExecutionRef{
+					Kind:              AssignmentExecutionKindTaskRun,
+					TaskID:            "task_123",
+					RunID:             "run_123",
+					ContextSnapshotID: "ctx_123",
+				},
+				ContextPacket: []byte(`{"id":"ctx_123","version":"chat.context.v1"}`),
 			})
 			if err != nil {
 				t.Fatalf("CreateAssignment: %v", err)
@@ -145,6 +148,9 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			}
 			if string(assignment.ContextPacket) != `{"id":"ctx_123","version":"chat.context.v1"}` {
 				t.Fatalf("assignment context packet = %s, want stored packet", string(assignment.ContextPacket))
+			}
+			if assignment.ExecutionRef.TaskID != "task_123" || assignment.ExecutionRef.RunID != "run_123" || assignment.ExecutionRef.ContextSnapshotID != "ctx_123" {
+				t.Fatalf("assignment execution_ref = %+v, want stored canonical links", assignment.ExecutionRef)
 			}
 
 			startedAt := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
@@ -416,9 +422,9 @@ CREATE TABLE `+assignmentsTbl+` (
 	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano)
 	if _, err := client.DB().ExecContext(ctx, `
 INSERT INTO `+assignmentsTbl+` (
-	id, project_id, work_item_id, role_id, status, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		"asgn_legacy", "proj_alpha", "work_alpha", "software_developer", AssignmentStatusQueued, now, now,
+	id, project_id, work_item_id, role_id, status, task_id, run_id, context_snapshot_id, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"asgn_legacy", "proj_alpha", "work_alpha", "software_developer", AssignmentStatusQueued, "task_legacy", "run_legacy", "ctx_legacy", now, now,
 	); err != nil {
 		t.Fatalf("insert legacy assignment: %v", err)
 	}
@@ -433,6 +439,9 @@ INSERT INTO `+assignmentsTbl+` (
 	}
 	if len(assignments) != 1 || assignments[0].DriverKind != AssignmentDriverHecateTask {
 		t.Fatalf("assignments = %+v, want legacy assignment backfilled to hecate_task", assignments)
+	}
+	if assignments[0].ExecutionRef.TaskID != "task_legacy" || assignments[0].ExecutionRef.RunID != "run_legacy" || assignments[0].ExecutionRef.ContextSnapshotID != "ctx_legacy" {
+		t.Fatalf("assignment execution_ref = %+v, want legacy columns folded into canonical ref", assignments[0].ExecutionRef)
 	}
 }
 

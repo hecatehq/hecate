@@ -183,11 +183,7 @@ export type ProjectAssistantContextAssignment = {
   role_id: string;
   driver_kind: string;
   status: string;
-  task_id?: string;
-  run_id?: string;
-  chat_session_id?: string;
-  message_id?: string;
-  context_snapshot_id?: string;
+  execution_ref?: ProjectAssignmentExecutionRefRecord;
   created_at: string;
   updated_at: string;
   started_at?: string;
@@ -564,11 +560,6 @@ export type ProjectAssignmentRecord = {
   role_id: string;
   driver_kind: ProjectAssignmentDriverKind | string;
   status: ProjectAssignmentStatus | string;
-  task_id?: string;
-  run_id?: string;
-  chat_session_id?: string;
-  message_id?: string;
-  context_snapshot_id?: string;
   created_at: string;
   updated_at: string;
   started_at?: string;
@@ -582,11 +573,7 @@ export type CreateProjectAssignmentPayload = {
   role_id: string;
   driver_kind?: ProjectAssignmentDriverKind | string;
   status?: ProjectAssignmentStatus | string;
-  task_id?: string;
-  run_id?: string;
-  chat_session_id?: string;
-  message_id?: string;
-  context_snapshot_id?: string;
+  execution_ref?: ProjectAssignmentExecutionRefRecord;
   started_at?: string;
   completed_at?: string;
 };

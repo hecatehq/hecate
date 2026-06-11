@@ -8,7 +8,7 @@ import {
 import type { ProjectActivityItemRecord, ProjectAssignmentRecord } from "../../types/project";
 
 describe("projectAssignmentViewModels", () => {
-  it("prefers canonical execution_ref over legacy assignment fields", () => {
+  it("uses canonical execution_ref for task-run links", () => {
     const execution = toProjectAssignmentExecutionViewModel({
       id: "assign_1",
       project_id: "proj_1",
@@ -16,8 +16,6 @@ describe("projectAssignmentViewModels", () => {
       role_id: "developer",
       driver_kind: "hecate_task",
       status: "queued",
-      task_id: "task_legacy",
-      run_id: "run_legacy",
       execution_ref: {
         kind: "task_run",
         task_id: "task_ref",
@@ -39,7 +37,7 @@ describe("projectAssignmentViewModels", () => {
     expect(execution.hasTaskRun).toBe(true);
   });
 
-  it("does not reconstruct runtime links from legacy execution or raw fields", () => {
+  it("does not reconstruct runtime links from execution summaries", () => {
     const execution = toProjectAssignmentExecutionViewModel({
       id: "assign_1",
       project_id: "proj_1",
@@ -47,8 +45,6 @@ describe("projectAssignmentViewModels", () => {
       role_id: "developer",
       driver_kind: "hecate_task",
       status: "queued",
-      task_id: "task_raw",
-      run_id: "run_raw",
       execution: {
         task_id: "task_projected",
         run_id: "run_projected",
@@ -75,8 +71,6 @@ describe("projectAssignmentViewModels", () => {
       role_id: "developer",
       driver_kind: "external_agent",
       status: "running",
-      chat_session_id: "chat_assignment",
-      message_id: "msg_assignment",
       execution_ref: {
         kind: "chat_session",
         chat_session_id: "chat_assignment",
@@ -127,7 +121,6 @@ describe("projectAssignmentViewModels", () => {
       role_id: "reviewer",
       driver_kind: "hecate_task",
       status: "queued",
-      context_snapshot_id: "ctx_1",
       execution_ref: {
         kind: "context_snapshot",
         context_snapshot_id: "ctx_1",

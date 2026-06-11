@@ -679,8 +679,6 @@ describe("ConsoleShell navigation", () => {
       role_id: "software_developer",
       driver_kind: "external_agent",
       status: "running",
-      chat_session_id: "chat_external_1",
-      context_snapshot_id: "ctx_external_1",
       execution_ref: {
         kind: "chat_session",
         chat_session_id: "chat_external_1",

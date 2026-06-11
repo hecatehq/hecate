@@ -14,6 +14,10 @@ const (
 	AssignmentDriverHecateTask    = "hecate_task"
 	AssignmentDriverExternalAgent = "external_agent"
 
+	AssignmentExecutionKindTaskRun         = "task_run"
+	AssignmentExecutionKindChatSession     = "chat_session"
+	AssignmentExecutionKindContextSnapshot = "context_snapshot"
+
 	WorkItemStatusBacklog   = "backlog"
 	WorkItemStatusReady     = "ready"
 	WorkItemStatusRunning   = "running"
@@ -78,22 +82,31 @@ type WorkItem struct {
 }
 
 type Assignment struct {
-	ID                string
-	ProjectID         string
-	WorkItemID        string
-	RoleID            string
-	DriverKind        string
-	Status            string
-	TaskID            string
-	RunID             string
-	ChatSessionID     string
-	MessageID         string
-	ContextSnapshotID string
-	ContextPacket     []byte
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	StartedAt         time.Time
-	CompletedAt       time.Time
+	ID            string
+	ProjectID     string
+	WorkItemID    string
+	RoleID        string
+	DriverKind    string
+	Status        string
+	ExecutionRef  AssignmentExecutionRef
+	ContextPacket []byte
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	StartedAt     time.Time
+	CompletedAt   time.Time
+}
+
+type AssignmentExecutionRef struct {
+	Kind                 string `json:"kind,omitempty"`
+	TaskID               string `json:"task_id,omitempty"`
+	RunID                string `json:"run_id,omitempty"`
+	ChatSessionID        string `json:"chat_session_id,omitempty"`
+	MessageID            string `json:"message_id,omitempty"`
+	ContextSnapshotID    string `json:"context_snapshot_id,omitempty"`
+	Status               string `json:"status,omitempty"`
+	PendingApprovalCount int    `json:"pending_approval_count,omitempty"`
+	TraceID              string `json:"trace_id,omitempty"`
+	Missing              bool   `json:"missing,omitempty"`
 }
 
 type CollaborationArtifact struct {
@@ -780,11 +793,7 @@ func normalizeAssignment(item Assignment, now time.Time) Assignment {
 	item.RoleID = strings.TrimSpace(item.RoleID)
 	item.DriverKind = strings.TrimSpace(item.DriverKind)
 	item.Status = strings.TrimSpace(item.Status)
-	item.TaskID = strings.TrimSpace(item.TaskID)
-	item.RunID = strings.TrimSpace(item.RunID)
-	item.ChatSessionID = strings.TrimSpace(item.ChatSessionID)
-	item.MessageID = strings.TrimSpace(item.MessageID)
-	item.ContextSnapshotID = strings.TrimSpace(item.ContextSnapshotID)
+	item.ExecutionRef = NormalizeAssignmentExecutionRef(item.ExecutionRef)
 	item.ContextPacket = append([]byte(nil), item.ContextPacket...)
 	if item.Status == "" {
 		item.Status = AssignmentStatusQueued
@@ -802,6 +811,37 @@ func normalizeAssignment(item Assignment, now time.Time) Assignment {
 		item.UpdatedAt = item.CreatedAt
 	}
 	return item
+}
+
+func NormalizeAssignmentExecutionRef(ref AssignmentExecutionRef) AssignmentExecutionRef {
+	ref.Kind = strings.TrimSpace(ref.Kind)
+	ref.TaskID = strings.TrimSpace(ref.TaskID)
+	ref.RunID = strings.TrimSpace(ref.RunID)
+	ref.ChatSessionID = strings.TrimSpace(ref.ChatSessionID)
+	ref.MessageID = strings.TrimSpace(ref.MessageID)
+	ref.ContextSnapshotID = strings.TrimSpace(ref.ContextSnapshotID)
+	ref.Status = strings.TrimSpace(ref.Status)
+	ref.TraceID = strings.TrimSpace(ref.TraceID)
+	if ref.Kind == "" {
+		ref.Kind = AssignmentExecutionRefKind(ref.TaskID, ref.RunID, ref.ChatSessionID, ref.MessageID, ref.ContextSnapshotID)
+	}
+	if ref.PendingApprovalCount < 0 {
+		ref.PendingApprovalCount = 0
+	}
+	return ref
+}
+
+func AssignmentExecutionRefKind(taskID, runID, chatSessionID, messageID, contextSnapshotID string) string {
+	switch {
+	case strings.TrimSpace(taskID) != "" || strings.TrimSpace(runID) != "":
+		return AssignmentExecutionKindTaskRun
+	case strings.TrimSpace(chatSessionID) != "" || strings.TrimSpace(messageID) != "":
+		return AssignmentExecutionKindChatSession
+	case strings.TrimSpace(contextSnapshotID) != "":
+		return AssignmentExecutionKindContextSnapshot
+	default:
+		return ""
+	}
 }
 
 func normalizeArtifact(item CollaborationArtifact, now time.Time) CollaborationArtifact {

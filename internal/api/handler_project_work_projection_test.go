@@ -39,25 +39,30 @@ func TestProjectWorkProjection_AssignmentExecutionHydratesAwaitingRun(t *testing
 	handler := &Handler{taskStore: store}
 	startedAt := time.Date(2026, 6, 4, 13, 0, 0, 0, time.UTC)
 	assignment := projectwork.Assignment{
-		ID:        "asgn_awaiting",
-		Status:    projectwork.AssignmentStatusQueued,
-		TaskID:    "task_awaiting",
-		RunID:     "run_awaiting",
+		ID:     "asgn_awaiting",
+		Status: projectwork.AssignmentStatusQueued,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: "task_awaiting",
+			RunID:  "run_awaiting",
+		},
 		UpdatedAt: startedAt.Add(-time.Minute),
 	}
+	taskID := assignment.ExecutionRef.TaskID
+	runID := assignment.ExecutionRef.RunID
 
 	if _, err := store.CreateTask(ctx, types.Task{
-		ID:          assignment.TaskID,
+		ID:          taskID,
 		Status:      "awaiting_approval",
-		LatestRunID: assignment.RunID,
+		LatestRunID: runID,
 		CreatedAt:   startedAt,
 		UpdatedAt:   startedAt,
 	}); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	if _, err := store.CreateRun(ctx, types.TaskRun{
-		ID:            assignment.RunID,
-		TaskID:        assignment.TaskID,
+		ID:            runID,
+		TaskID:        taskID,
 		Number:        1,
 		Status:        "awaiting_approval",
 		Model:         "qwen2.5-coder",
@@ -71,9 +76,9 @@ func TestProjectWorkProjection_AssignmentExecutionHydratesAwaitingRun(t *testing
 		t.Fatalf("CreateRun: %v", err)
 	}
 	for _, approval := range []types.TaskApproval{
-		{ID: "ap_pending", TaskID: assignment.TaskID, RunID: assignment.RunID, Status: "pending", CreatedAt: startedAt},
-		{ID: "ap_approved", TaskID: assignment.TaskID, RunID: assignment.RunID, Status: "approved", CreatedAt: startedAt},
-		{ID: "ap_other_run", TaskID: assignment.TaskID, RunID: "run_other", Status: "pending", CreatedAt: startedAt},
+		{ID: "ap_pending", TaskID: taskID, RunID: runID, Status: "pending", CreatedAt: startedAt},
+		{ID: "ap_approved", TaskID: taskID, RunID: runID, Status: "approved", CreatedAt: startedAt},
+		{ID: "ap_other_run", TaskID: taskID, RunID: "run_other", Status: "pending", CreatedAt: startedAt},
 	} {
 		if _, err := store.CreateApproval(ctx, approval); err != nil {
 			t.Fatalf("CreateApproval(%s): %v", approval.ID, err)
@@ -94,7 +99,7 @@ func TestProjectWorkProjection_AssignmentExecutionHydratesAwaitingRun(t *testing
 		t.Fatalf("response execution is nil, want hydrated execution")
 	}
 	execution := response.Execution
-	if execution.TaskID != assignment.TaskID || execution.RunID != assignment.RunID {
+	if execution.TaskID != taskID || execution.RunID != runID {
 		t.Fatalf("execution ids = %q/%q, want linked task/run", execution.TaskID, execution.RunID)
 	}
 	if execution.TaskStatus != "awaiting_approval" || execution.RunStatus != "awaiting_approval" || execution.Status != projectwork.AssignmentStatusAwaitingApproval {

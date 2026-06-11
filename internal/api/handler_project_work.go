@@ -71,30 +71,22 @@ type updateProjectWorkItemRequest struct {
 }
 
 type createProjectWorkAssignmentRequest struct {
-	ID                string `json:"id,omitempty"`
-	RoleID            string `json:"role_id"`
-	DriverKind        string `json:"driver_kind,omitempty"`
-	Status            string `json:"status,omitempty"`
-	TaskID            string `json:"task_id,omitempty"`
-	RunID             string `json:"run_id,omitempty"`
-	ChatSessionID     string `json:"chat_session_id,omitempty"`
-	MessageID         string `json:"message_id,omitempty"`
-	ContextSnapshotID string `json:"context_snapshot_id,omitempty"`
-	StartedAt         string `json:"started_at,omitempty"`
-	CompletedAt       string `json:"completed_at,omitempty"`
+	ID           string                                     `json:"id,omitempty"`
+	RoleID       string                                     `json:"role_id"`
+	DriverKind   string                                     `json:"driver_kind,omitempty"`
+	Status       string                                     `json:"status,omitempty"`
+	ExecutionRef *ProjectWorkAssignmentExecutionRefResponse `json:"execution_ref,omitempty"`
+	StartedAt    string                                     `json:"started_at,omitempty"`
+	CompletedAt  string                                     `json:"completed_at,omitempty"`
 }
 
 type updateProjectWorkAssignmentRequest struct {
-	RoleID            *string `json:"role_id,omitempty"`
-	DriverKind        *string `json:"driver_kind,omitempty"`
-	Status            *string `json:"status,omitempty"`
-	TaskID            *string `json:"task_id,omitempty"`
-	RunID             *string `json:"run_id,omitempty"`
-	ChatSessionID     *string `json:"chat_session_id,omitempty"`
-	MessageID         *string `json:"message_id,omitempty"`
-	ContextSnapshotID *string `json:"context_snapshot_id,omitempty"`
-	StartedAt         *string `json:"started_at,omitempty"`
-	CompletedAt       *string `json:"completed_at,omitempty"`
+	RoleID       *string                                    `json:"role_id,omitempty"`
+	DriverKind   *string                                    `json:"driver_kind,omitempty"`
+	Status       *string                                    `json:"status,omitempty"`
+	ExecutionRef *ProjectWorkAssignmentExecutionRefResponse `json:"execution_ref,omitempty"`
+	StartedAt    *string                                    `json:"started_at,omitempty"`
+	CompletedAt  *string                                    `json:"completed_at,omitempty"`
 }
 
 type startProjectWorkAssignmentRequest struct {
@@ -248,23 +240,18 @@ type ProjectWorkAssignmentEnvelope struct {
 }
 
 type ProjectWorkAssignmentResponse struct {
-	ID                string                                     `json:"id"`
-	ProjectID         string                                     `json:"project_id"`
-	WorkItemID        string                                     `json:"work_item_id"`
-	RoleID            string                                     `json:"role_id"`
-	DriverKind        string                                     `json:"driver_kind"`
-	Status            string                                     `json:"status"`
-	TaskID            string                                     `json:"task_id,omitempty"`
-	RunID             string                                     `json:"run_id,omitempty"`
-	ChatSessionID     string                                     `json:"chat_session_id,omitempty"`
-	MessageID         string                                     `json:"message_id,omitempty"`
-	ContextSnapshotID string                                     `json:"context_snapshot_id,omitempty"`
-	CreatedAt         string                                     `json:"created_at"`
-	UpdatedAt         string                                     `json:"updated_at"`
-	StartedAt         string                                     `json:"started_at,omitempty"`
-	CompletedAt       string                                     `json:"completed_at,omitempty"`
-	ExecutionRef      *ProjectWorkAssignmentExecutionRefResponse `json:"execution_ref,omitempty"`
-	Execution         *ProjectWorkAssignmentExecutionResponse    `json:"execution,omitempty"`
+	ID           string                                     `json:"id"`
+	ProjectID    string                                     `json:"project_id"`
+	WorkItemID   string                                     `json:"work_item_id"`
+	RoleID       string                                     `json:"role_id"`
+	DriverKind   string                                     `json:"driver_kind"`
+	Status       string                                     `json:"status"`
+	CreatedAt    string                                     `json:"created_at"`
+	UpdatedAt    string                                     `json:"updated_at"`
+	StartedAt    string                                     `json:"started_at,omitempty"`
+	CompletedAt  string                                     `json:"completed_at,omitempty"`
+	ExecutionRef *ProjectWorkAssignmentExecutionRefResponse `json:"execution_ref,omitempty"`
+	Execution    *ProjectWorkAssignmentExecutionResponse    `json:"execution,omitempty"`
 }
 
 type ProjectWorkArtifactsResponse struct {
@@ -574,17 +561,13 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 		return
 	}
 	item, err := h.projectWorkApplication().CreateAssignment(r.Context(), projectID, workItemID, projectworkapp.CreateAssignmentCommand{
-		ID:                req.ID,
-		RoleID:            req.RoleID,
-		DriverKind:        req.DriverKind,
-		Status:            req.Status,
-		TaskID:            req.TaskID,
-		RunID:             req.RunID,
-		ChatSessionID:     req.ChatSessionID,
-		MessageID:         req.MessageID,
-		ContextSnapshotID: req.ContextSnapshotID,
-		StartedAt:         startedAt,
-		CompletedAt:       completedAt,
+		ID:           req.ID,
+		RoleID:       req.RoleID,
+		DriverKind:   req.DriverKind,
+		Status:       req.Status,
+		ExecutionRef: projectWorkAssignmentExecutionRefFromRequest(req.ExecutionRef),
+		StartedAt:    startedAt,
+		CompletedAt:  completedAt,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -621,16 +604,12 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 		completedAtPtr = &completedAt
 	}
 	item, err := h.projectWorkApplication().UpdateAssignment(r.Context(), projectID, assignmentID, projectworkapp.UpdateAssignmentCommand{
-		RoleID:            req.RoleID,
-		DriverKind:        req.DriverKind,
-		Status:            req.Status,
-		TaskID:            req.TaskID,
-		RunID:             req.RunID,
-		ChatSessionID:     req.ChatSessionID,
-		MessageID:         req.MessageID,
-		ContextSnapshotID: req.ContextSnapshotID,
-		StartedAt:         startedAtPtr,
-		CompletedAt:       completedAtPtr,
+		RoleID:       req.RoleID,
+		DriverKind:   req.DriverKind,
+		Status:       req.Status,
+		ExecutionRef: projectWorkAssignmentExecutionRefPtrFromRequest(req.ExecutionRef),
+		StartedAt:    startedAtPtr,
+		CompletedAt:  completedAtPtr,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -849,7 +828,7 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent chat runner is not configured")
 		return
 	}
-	if strings.TrimSpace(assignment.ChatSessionID) != "" {
+	if strings.TrimSpace(assignment.ExecutionRef.ChatSessionID) != "" {
 		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
 		if projectErr != nil {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
@@ -1983,24 +1962,45 @@ func renderProjectWorkItem(item projectwork.WorkItem) ProjectWorkItemResponse {
 
 func renderProjectWorkAssignment(item projectwork.Assignment) ProjectWorkAssignmentResponse {
 	response := ProjectWorkAssignmentResponse{
-		ID:                item.ID,
-		ProjectID:         item.ProjectID,
-		WorkItemID:        item.WorkItemID,
-		RoleID:            item.RoleID,
-		DriverKind:        item.DriverKind,
-		Status:            item.Status,
-		TaskID:            item.TaskID,
-		RunID:             item.RunID,
-		ChatSessionID:     item.ChatSessionID,
-		MessageID:         item.MessageID,
-		ContextSnapshotID: item.ContextSnapshotID,
-		CreatedAt:         formatOptionalTime(item.CreatedAt),
-		UpdatedAt:         formatOptionalTime(item.UpdatedAt),
-		StartedAt:         formatOptionalTime(item.StartedAt),
-		CompletedAt:       formatOptionalTime(item.CompletedAt),
+		ID:          item.ID,
+		ProjectID:   item.ProjectID,
+		WorkItemID:  item.WorkItemID,
+		RoleID:      item.RoleID,
+		DriverKind:  item.DriverKind,
+		Status:      item.Status,
+		CreatedAt:   formatOptionalTime(item.CreatedAt),
+		UpdatedAt:   formatOptionalTime(item.UpdatedAt),
+		StartedAt:   formatOptionalTime(item.StartedAt),
+		CompletedAt: formatOptionalTime(item.CompletedAt),
 	}
 	response.ExecutionRef = renderProjectWorkAssignmentExecutionRef(projectworkapp.AssignmentExecutionRefFor(item, nil, response.Status))
 	return response
+}
+
+func projectWorkAssignmentExecutionRefFromRequest(ref *ProjectWorkAssignmentExecutionRefResponse) projectwork.AssignmentExecutionRef {
+	if ref == nil {
+		return projectwork.AssignmentExecutionRef{}
+	}
+	return projectwork.NormalizeAssignmentExecutionRef(projectwork.AssignmentExecutionRef{
+		Kind:                 ref.Kind,
+		TaskID:               ref.TaskID,
+		RunID:                ref.RunID,
+		ChatSessionID:        ref.ChatSessionID,
+		MessageID:            ref.MessageID,
+		ContextSnapshotID:    ref.ContextSnapshotID,
+		Status:               ref.Status,
+		PendingApprovalCount: ref.PendingApprovalCount,
+		TraceID:              ref.TraceID,
+		Missing:              ref.Missing,
+	})
+}
+
+func projectWorkAssignmentExecutionRefPtrFromRequest(ref *ProjectWorkAssignmentExecutionRefResponse) *projectwork.AssignmentExecutionRef {
+	if ref == nil {
+		return nil
+	}
+	converted := projectWorkAssignmentExecutionRefFromRequest(ref)
+	return &converted
 }
 
 func renderProjectWorkAssignmentExecutionRef(ref *projectworkapp.AssignmentExecutionRef) *ProjectWorkAssignmentExecutionRefResponse {

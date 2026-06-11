@@ -175,7 +175,7 @@ describe("projectInsights", () => {
     } satisfies ProjectRecord;
     const item = activityItem(project.id, []);
     item.assignment.driver_kind = "external_agent";
-    item.assignment.chat_session_id = "chat_failed";
+    item.assignment.execution_ref = { kind: "chat_session", chat_session_id: "chat_failed" };
     item.blocking_signal = "failed";
     item.linked_chat_id = "chat_failed";
     const activity = {

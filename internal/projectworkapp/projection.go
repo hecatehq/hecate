@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	AssignmentExecutionKindTaskRun         = "task_run"
-	AssignmentExecutionKindChatSession     = "chat_session"
-	AssignmentExecutionKindContextSnapshot = "context_snapshot"
+	AssignmentExecutionKindTaskRun         = projectwork.AssignmentExecutionKindTaskRun
+	AssignmentExecutionKindChatSession     = projectwork.AssignmentExecutionKindChatSession
+	AssignmentExecutionKindContextSnapshot = projectwork.AssignmentExecutionKindContextSnapshot
 )
 
 type AssignmentProjectionStore interface {
@@ -40,18 +40,7 @@ type AssignmentExecutionSummary struct {
 	Missing              bool
 }
 
-type AssignmentExecutionRef struct {
-	Kind                 string
-	TaskID               string
-	RunID                string
-	ChatSessionID        string
-	MessageID            string
-	ContextSnapshotID    string
-	Status               string
-	PendingApprovalCount int
-	TraceID              string
-	Missing              bool
-}
+type AssignmentExecutionRef = projectwork.AssignmentExecutionRef
 
 type AssignmentExecutionProjection struct {
 	Execution   AssignmentExecutionSummary
@@ -61,8 +50,9 @@ type AssignmentExecutionProjection struct {
 }
 
 func ProjectAssignmentExecution(ctx context.Context, store AssignmentProjectionStore, assignment projectwork.Assignment) (*AssignmentExecutionProjection, error) {
-	taskID := strings.TrimSpace(assignment.TaskID)
-	runID := strings.TrimSpace(assignment.RunID)
+	ref := projectwork.NormalizeAssignmentExecutionRef(assignment.ExecutionRef)
+	taskID := strings.TrimSpace(ref.TaskID)
+	runID := strings.TrimSpace(ref.RunID)
 	if taskID == "" {
 		return nil, nil
 	}
@@ -147,11 +137,13 @@ func ProjectAssignmentExecution(ctx context.Context, store AssignmentProjectionS
 }
 
 func AssignmentExecutionRefFor(assignment projectwork.Assignment, execution *AssignmentExecutionSummary, status string) *AssignmentExecutionRef {
-	taskID := strings.TrimSpace(assignment.TaskID)
-	runID := strings.TrimSpace(assignment.RunID)
-	pendingApprovalCount := 0
-	traceID := ""
-	missing := false
+	base := projectwork.NormalizeAssignmentExecutionRef(assignment.ExecutionRef)
+	taskID := strings.TrimSpace(base.TaskID)
+	runID := strings.TrimSpace(base.RunID)
+	status = firstNonEmpty(status, base.Status)
+	pendingApprovalCount := base.PendingApprovalCount
+	traceID := base.TraceID
+	missing := base.Missing
 	if execution != nil {
 		taskID = firstNonEmpty(execution.TaskID, taskID)
 		runID = firstNonEmpty(execution.RunID, runID)
@@ -160,10 +152,10 @@ func AssignmentExecutionRefFor(assignment projectwork.Assignment, execution *Ass
 		traceID = execution.TraceID
 		missing = execution.Missing
 	}
-	chatSessionID := strings.TrimSpace(assignment.ChatSessionID)
-	messageID := strings.TrimSpace(assignment.MessageID)
-	contextSnapshotID := strings.TrimSpace(assignment.ContextSnapshotID)
-	kind := AssignmentExecutionRefKind(taskID, runID, chatSessionID, messageID, contextSnapshotID)
+	chatSessionID := strings.TrimSpace(base.ChatSessionID)
+	messageID := strings.TrimSpace(base.MessageID)
+	contextSnapshotID := strings.TrimSpace(base.ContextSnapshotID)
+	kind := firstNonEmpty(base.Kind, AssignmentExecutionRefKind(taskID, runID, chatSessionID, messageID, contextSnapshotID))
 	if kind == "" {
 		return nil
 	}
@@ -182,16 +174,7 @@ func AssignmentExecutionRefFor(assignment projectwork.Assignment, execution *Ass
 }
 
 func AssignmentExecutionRefKind(taskID, runID, chatSessionID, messageID, contextSnapshotID string) string {
-	switch {
-	case strings.TrimSpace(taskID) != "" || strings.TrimSpace(runID) != "":
-		return AssignmentExecutionKindTaskRun
-	case strings.TrimSpace(chatSessionID) != "" || strings.TrimSpace(messageID) != "":
-		return AssignmentExecutionKindChatSession
-	case strings.TrimSpace(contextSnapshotID) != "":
-		return AssignmentExecutionKindContextSnapshot
-	default:
-		return ""
-	}
+	return projectwork.AssignmentExecutionRefKind(taskID, runID, chatSessionID, messageID, contextSnapshotID)
 }
 
 func ProjectedAssignmentStatus(assignment projectwork.Assignment, projectedStatus string, projectedAt time.Time) string {

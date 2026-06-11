@@ -135,8 +135,8 @@ func (h *Handler) HandleProjectWorkAssignmentContext(w http.ResponseWriter, r *h
 	}
 	writeChatContextPacket(w, chatcontext.Normalize(packet, chatcontext.MergeRefs(
 		chatcontext.ProjectAssignmentRefs(projectID, workItemID, assignmentID, assignment.RoleID),
-		chatcontext.TaskRunRefs(assignment.TaskID, assignment.RunID, projectID),
-		chatcontext.ChatMessageRefs(assignment.ChatSessionID, assignment.MessageID, projectID),
+		chatcontext.TaskRunRefs(assignment.ExecutionRef.TaskID, assignment.ExecutionRef.RunID, projectID),
+		chatcontext.ChatMessageRefs(assignment.ExecutionRef.ChatSessionID, assignment.ExecutionRef.MessageID, projectID),
 	)))
 }
 
@@ -175,13 +175,14 @@ func (h *Handler) contextPacketForTaskRun(ctx context.Context, task types.Task, 
 }
 
 func (h *Handler) contextPacketForProjectAssignment(ctx context.Context, assignment projectwork.Assignment) (chat.ContextPacket, bool, error) {
-	if h != nil && h.taskStore != nil && strings.TrimSpace(assignment.TaskID) != "" && strings.TrimSpace(assignment.RunID) != "" {
-		task, ok, err := h.taskStore.GetTask(ctx, assignment.TaskID)
+	ref := projectwork.NormalizeAssignmentExecutionRef(assignment.ExecutionRef)
+	if h != nil && h.taskStore != nil && strings.TrimSpace(ref.TaskID) != "" && strings.TrimSpace(ref.RunID) != "" {
+		task, ok, err := h.taskStore.GetTask(ctx, ref.TaskID)
 		if err != nil {
 			return chat.ContextPacket{}, false, err
 		}
 		if ok {
-			run, ok, err := h.taskStore.GetRun(ctx, assignment.TaskID, assignment.RunID)
+			run, ok, err := h.taskStore.GetRun(ctx, ref.TaskID, ref.RunID)
 			if err != nil {
 				return chat.ContextPacket{}, false, err
 			}
@@ -196,15 +197,15 @@ func (h *Handler) contextPacketForProjectAssignment(ctx context.Context, assignm
 	if packet, ok, err := chatcontext.FromProjectAssignmentPayload(assignment.ContextPacket); err != nil || ok {
 		return packet, ok, err
 	}
-	if h == nil || h.agentChat == nil || strings.TrimSpace(assignment.ChatSessionID) == "" || strings.TrimSpace(assignment.MessageID) == "" {
+	if h == nil || h.agentChat == nil || strings.TrimSpace(ref.ChatSessionID) == "" || strings.TrimSpace(ref.MessageID) == "" {
 		return chat.ContextPacket{}, false, nil
 	}
-	session, ok, err := h.agentChat.Get(ctx, assignment.ChatSessionID)
+	session, ok, err := h.agentChat.Get(ctx, ref.ChatSessionID)
 	if err != nil || !ok {
 		return chat.ContextPacket{}, false, err
 	}
 	for _, message := range session.Messages {
-		if message.ID != strings.TrimSpace(assignment.MessageID) {
+		if message.ID != strings.TrimSpace(ref.MessageID) {
 			continue
 		}
 		packet, found := chatcontext.FromSessionMessage(session, message.ID)
@@ -374,9 +375,10 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 	packet.ID = newChatID("ctx")
 	packet.ExecutionProfile = strings.TrimSpace(executionProfile)
 	packet.SystemPromptIncluded = strings.TrimSpace(projectAssignmentSystemPrompt(project, role, profile, promptContext)) != ""
+	ref := projectwork.NormalizeAssignmentExecutionRef(assignment.ExecutionRef)
 	packet.Refs = &chat.ContextRefs{
-		TaskID:       strings.TrimSpace(assignment.TaskID),
-		RunID:        strings.TrimSpace(assignment.RunID),
+		TaskID:       strings.TrimSpace(ref.TaskID),
+		RunID:        strings.TrimSpace(ref.RunID),
 		ProjectID:    strings.TrimSpace(project.ID),
 		WorkItemID:   strings.TrimSpace(workItem.ID),
 		AssignmentID: strings.TrimSpace(assignment.ID),

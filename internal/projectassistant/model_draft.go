@@ -237,6 +237,13 @@ func validateModelDraftAction(draftContext DraftContext, index int, action Actio
 		if selectedWorkID == "" {
 			return fmt.Errorf("%w: model draft action %d cannot create assignment without selected_work", ErrInvalid, index+1)
 		}
+		hasRuntimeLinks, err := assignmentPatchHasRuntimeLinks(action.Patch)
+		if err != nil {
+			return err
+		}
+		if hasRuntimeLinks {
+			return fmt.Errorf("%w: model draft action %d assignment cannot bind chats, tasks, runs, messages, or snapshots", ErrInvalid, index+1)
+		}
 		var patch assignmentPatch
 		if err := decodePatch(action, &patch); err != nil {
 			return err
@@ -255,9 +262,6 @@ func validateModelDraftAction(draftContext DraftContext, index int, action Actio
 		}
 		if patch.Status != "" && patch.Status != projectwork.AssignmentStatusQueued {
 			return fmt.Errorf("%w: model draft action %d assignment status must be queued", ErrInvalid, index+1)
-		}
-		if patch.TaskID != "" || patch.RunID != "" || patch.ChatSessionID != "" || patch.MessageID != "" || patch.ContextSnapshotID != "" {
-			return fmt.Errorf("%w: model draft action %d assignment cannot bind chats, tasks, runs, messages, or snapshots", ErrInvalid, index+1)
 		}
 	case ActionCreateHandoff:
 		if selectedWorkID == "" {

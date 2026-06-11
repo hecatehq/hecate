@@ -129,20 +129,16 @@ type ProjectSkillContext struct {
 }
 
 type AssignmentContext struct {
-	ID                string     `json:"id"`
-	WorkItemID        string     `json:"work_item_id"`
-	RoleID            string     `json:"role_id"`
-	DriverKind        string     `json:"driver_kind"`
-	Status            string     `json:"status"`
-	TaskID            string     `json:"task_id,omitempty"`
-	RunID             string     `json:"run_id,omitempty"`
-	ChatSessionID     string     `json:"chat_session_id,omitempty"`
-	MessageID         string     `json:"message_id,omitempty"`
-	ContextSnapshotID string     `json:"context_snapshot_id,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
-	StartedAt         *time.Time `json:"started_at,omitempty"`
-	CompletedAt       *time.Time `json:"completed_at,omitempty"`
+	ID           string                             `json:"id"`
+	WorkItemID   string                             `json:"work_item_id"`
+	RoleID       string                             `json:"role_id"`
+	DriverKind   string                             `json:"driver_kind"`
+	Status       string                             `json:"status"`
+	ExecutionRef projectwork.AssignmentExecutionRef `json:"execution_ref,omitempty"`
+	CreatedAt    time.Time                          `json:"created_at"`
+	UpdatedAt    time.Time                          `json:"updated_at"`
+	StartedAt    *time.Time                         `json:"started_at,omitempty"`
+	CompletedAt  *time.Time                         `json:"completed_at,omitempty"`
 }
 
 type MemoryContext struct {
@@ -547,20 +543,16 @@ func projectSkillContext(item projectskills.Skill) ProjectSkillContext {
 
 func assignmentContext(item projectwork.Assignment) AssignmentContext {
 	return AssignmentContext{
-		ID:                item.ID,
-		WorkItemID:        item.WorkItemID,
-		RoleID:            item.RoleID,
-		DriverKind:        item.DriverKind,
-		Status:            item.Status,
-		TaskID:            item.TaskID,
-		RunID:             item.RunID,
-		ChatSessionID:     item.ChatSessionID,
-		MessageID:         item.MessageID,
-		ContextSnapshotID: item.ContextSnapshotID,
-		CreatedAt:         item.CreatedAt,
-		UpdatedAt:         item.UpdatedAt,
-		StartedAt:         timePtrIfSet(item.StartedAt),
-		CompletedAt:       timePtrIfSet(item.CompletedAt),
+		ID:           item.ID,
+		WorkItemID:   item.WorkItemID,
+		RoleID:       item.RoleID,
+		DriverKind:   item.DriverKind,
+		Status:       item.Status,
+		ExecutionRef: projectwork.NormalizeAssignmentExecutionRef(item.ExecutionRef),
+		CreatedAt:    item.CreatedAt,
+		UpdatedAt:    item.UpdatedAt,
+		StartedAt:    timePtrIfSet(item.StartedAt),
+		CompletedAt:  timePtrIfSet(item.CompletedAt),
 	}
 }
 

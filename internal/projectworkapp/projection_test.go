@@ -38,9 +38,12 @@ func TestProjectAssignmentExecution_ProjectsRunAndCanonicalRef(t *testing.T) {
 	}
 
 	assignment := projectwork.Assignment{
-		ID:        "asgn_1",
-		TaskID:    "task_1",
-		RunID:     "run_1",
+		ID: "asgn_1",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionKindTaskRun,
+			TaskID: "task_1",
+			RunID:  "run_1",
+		},
 		Status:    projectwork.AssignmentStatusQueued,
 		UpdatedAt: startedAt.Add(-time.Minute),
 	}
@@ -67,9 +70,9 @@ func TestProjectAssignmentExecution_MissingTaskMarksExecutionMissing(t *testing.
 	t.Parallel()
 
 	projection, err := ProjectAssignmentExecution(context.Background(), taskstate.NewMemoryStore(), projectwork.Assignment{
-		ID:     "asgn_1",
-		TaskID: "task_missing",
-		Status: projectwork.AssignmentStatusQueued,
+		ID:           "asgn_1",
+		ExecutionRef: projectwork.AssignmentExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, TaskID: "task_missing"},
+		Status:       projectwork.AssignmentStatusQueued,
 	})
 	if err != nil {
 		t.Fatalf("ProjectAssignmentExecution() error = %v", err)
@@ -77,7 +80,7 @@ func TestProjectAssignmentExecution_MissingTaskMarksExecutionMissing(t *testing.
 	if projection == nil || !projection.Execution.Missing || projection.Execution.TaskID != "task_missing" {
 		t.Fatalf("projection = %+v, want missing execution summary", projection)
 	}
-	ref := AssignmentExecutionRefFor(projectwork.Assignment{TaskID: "task_missing"}, &projection.Execution, projection.Status)
+	ref := AssignmentExecutionRefFor(projectwork.Assignment{ExecutionRef: projectwork.AssignmentExecutionRef{TaskID: "task_missing"}}, &projection.Execution, projection.Status)
 	if ref == nil || !ref.Missing || ref.Kind != AssignmentExecutionKindTaskRun {
 		t.Fatalf("execution ref = %+v, want missing task-run ref", ref)
 	}
@@ -87,16 +90,22 @@ func TestAssignmentExecutionRefFor_RawChatAndContextLinks(t *testing.T) {
 	t.Parallel()
 
 	chatRef := AssignmentExecutionRefFor(projectwork.Assignment{
-		ChatSessionID: "chat_1",
-		MessageID:     "msg_1",
-		Status:        projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_1",
+			MessageID:     "msg_1",
+		},
+		Status: projectwork.AssignmentStatusRunning,
 	}, nil, projectwork.AssignmentStatusRunning)
 	if chatRef == nil || chatRef.Kind != AssignmentExecutionKindChatSession || chatRef.ChatSessionID != "chat_1" || chatRef.MessageID != "msg_1" {
 		t.Fatalf("chat ref = %+v, want chat-session ref", chatRef)
 	}
 	contextRef := AssignmentExecutionRefFor(projectwork.Assignment{
-		ContextSnapshotID: "ctx_1",
-		Status:            projectwork.AssignmentStatusQueued,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:              projectwork.AssignmentExecutionKindContextSnapshot,
+			ContextSnapshotID: "ctx_1",
+		},
+		Status: projectwork.AssignmentStatusQueued,
 	}, nil, projectwork.AssignmentStatusQueued)
 	if contextRef == nil || contextRef.Kind != AssignmentExecutionKindContextSnapshot || contextRef.ContextSnapshotID != "ctx_1" {
 		t.Fatalf("context ref = %+v, want context-snapshot ref", contextRef)

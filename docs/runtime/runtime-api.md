@@ -1540,10 +1540,12 @@ Supported structured handoff statuses are `pending`, `accepted`, `superseded`,
 and `dismissed`.
 
 Assignment responses are projected from linked canonical task/run state when
-`task_id` and `run_id` point at a Hecate task run. If `task_id` is present and
-`run_id` is empty, Hecate uses that task's `latest_run_id` when available. The
-stored assignment row is coordination metadata; reads do not mutate the task,
-run, or assignment rows. Run statuses map directly into assignment statuses:
+`execution_ref.kind="task_run"` and `execution_ref.task_id` /
+`execution_ref.run_id` point at a Hecate task run. If
+`execution_ref.task_id` is present and `execution_ref.run_id` is empty, Hecate
+uses that task's `latest_run_id` when available. The stored assignment row is
+coordination metadata; reads do not mutate the task, run, or assignment rows.
+Run statuses map directly into assignment statuses:
 
 | Task/run status     | Project assignment status |
 | ------------------- | ------------------------- |
@@ -1562,12 +1564,11 @@ runtime state. The `execution` summary may include `task_status`, `run_status`,
 projected `status`, pending approval count, step/approval/artifact counts,
 model/provider, last error, run timestamps, and trace ID.
 
-Assignments also include `execution_ref`, a compact canonical link projection
-for UI clients. It prefers projected execution data when available and falls
-back to stored links, with `kind` set to `task_run`, `chat_session`, or
-`context_snapshot`. Legacy raw link fields (`task_id`, `run_id`,
-`chat_session_id`, `message_id`, `context_snapshot_id`) and the richer
-`execution` summary remain for compatibility and detail views.
+Assignments include `execution_ref`, the canonical compact execution link for
+UI clients and API callers. It prefers projected execution data when available
+and falls back to stored links, with `kind` set to `task_run`, `chat_session`,
+or `context_snapshot`. The richer `execution` summary remains for detail views;
+raw top-level assignment link fields are not part of the alpha contract.
 
 Work-item list and detail responses apply the same conservative rollup over
 projected assignment statuses: any active linked assignment (`queued`,
@@ -1958,17 +1959,19 @@ Lists assignment metadata for a work item.
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments`
 
 Creates an assignment metadata record. `role_id` is required. `driver_kind`
-defaults to `hecate_task`. Optional link fields (`task_id`, `run_id`,
-`chat_session_id`, `message_id`, `context_snapshot_id`) are stored as
-references only.
+defaults to `hecate_task`. Optional execution links are stored under
+`execution_ref` only.
 
 ```json
 {
   "role_id": "software_developer",
   "driver_kind": "hecate_task",
-  "task_id": "task_...",
-  "run_id": "run_...",
-  "context_snapshot_id": "ctx_..."
+  "execution_ref": {
+    "kind": "task_run",
+    "task_id": "task_...",
+    "run_id": "run_...",
+    "context_snapshot_id": "ctx_..."
+  }
 }
 ```
 
@@ -1984,9 +1987,6 @@ Returns:
     "role_id": "software_developer",
     "driver_kind": "hecate_task",
     "status": "queued",
-    "task_id": "task_...",
-    "run_id": "run_...",
-    "context_snapshot_id": "ctx_...",
     "execution_ref": {
       "kind": "task_run",
       "task_id": "task_...",
@@ -2022,8 +2022,8 @@ or external-agent execution.
 Returns the best available context packet for the assignment. Hecate resolves
 linked Task/Run packets first, then falls back to the assignment-stored packet
 created by an External Agent start, then to a linked Chat `chat_session_id` +
-`message_id` packet when present. Unstarted assignments, legacy rows without a
-stored packet or execution link, or older runs that predate snapshots return
+`message_id` from `execution_ref` when present. Unstarted assignments, rows
+without a stored packet or execution link, or older runs that predate snapshots return
 `404 not_found`. The Projects cockpit uses this endpoint for the assignment
 `Inspect context` action so operators can inspect the resolved profile, launch
 instructions, memory, project sources, work context, runtime refs, and skipped
@@ -2061,9 +2061,9 @@ or defaultless roots return `400 invalid_request`. A missing model returns
 The endpoint then starts the task through the canonical task runner, so normal
 task approvals, queueing, run events, artifacts, and SSE inspection apply. On
 success it also persists a structured context packet on the created run, updates
-`context_snapshot_id` to that packet id, then updates the assignment with
-`task_id`, latest `run_id`, status, and timestamps before returning the updated
-assignment:
+`execution_ref.context_snapshot_id` to that packet id, then updates the
+assignment with `execution_ref.task_id`, latest `execution_ref.run_id`, status,
+and timestamps before returning the updated assignment:
 
 The persisted context packet records the resolved profile and applies its
 project memory/context-source policies. `include` / `include_enabled` make the
@@ -2088,9 +2088,13 @@ model request.
     "role_id": "software_developer",
     "driver_kind": "hecate_task",
     "status": "queued",
-    "task_id": "task_...",
-    "run_id": "run_...",
-    "context_snapshot_id": "ctx_...",
+    "execution_ref": {
+      "kind": "task_run",
+      "task_id": "task_...",
+      "run_id": "run_...",
+      "context_snapshot_id": "ctx_...",
+      "status": "queued"
+    },
     "execution": {
       "task_id": "task_...",
       "run_id": "run_...",
@@ -2112,8 +2116,9 @@ Profile must name an `external_agent_kind` such as `codex`, `claude_code`,
 Hecate-owned launch controls for that adapter. Hecate validates the project
 workspace root, creates and prepares the chat session through the External Agent
 supervisor, stores a project assignment context packet on the assignment, and
-links `chat_session_id` plus `context_snapshot_id`. `task_id`, `run_id`, and
-`message_id` remain empty until the operator sends a turn in the linked chat.
+links `execution_ref.chat_session_id` plus
+`execution_ref.context_snapshot_id`. Task-run fields and `message_id` remain
+empty until the operator sends a turn in the linked chat.
 
 ```json
 {
@@ -2125,8 +2130,12 @@ links `chat_session_id` plus `context_snapshot_id`. `task_id`, `run_id`, and
     "role_id": "software_developer",
     "driver_kind": "external_agent",
     "status": "running",
-    "chat_session_id": "chat_...",
-    "context_snapshot_id": "ctx_...",
+    "execution_ref": {
+      "kind": "chat_session",
+      "chat_session_id": "chat_...",
+      "context_snapshot_id": "ctx_...",
+      "status": "running"
+    },
     "created_at": "2026-06-03T12:00:00Z",
     "updated_at": "2026-06-03T12:00:01Z",
     "started_at": "2026-06-03T12:00:01Z"
@@ -2138,8 +2147,9 @@ Repeated starts for an assignment that already has an active execution return
 `409` with the current assignment envelope and do not create another task/run.
 Assignments in terminal states (`completed`, `failed`, `cancelled`) also return
 `409`. If task creation succeeds but task start fails, Hecate keeps the
-assignment's `task_id`, marks the assignment `failed`, and returns an error so
-the operator can inspect the linked task instead of losing the partial state.
+assignment's `execution_ref.task_id`, marks the assignment `failed`, and returns
+an error so the operator can inspect the linked task instead of losing the
+partial state.
 
 #### `GET /hecate/v1/projects/{id}/handoffs`
 
