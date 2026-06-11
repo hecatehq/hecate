@@ -93,6 +93,15 @@ read-only; it may emit projected live frames with the latest persisted sequence,
 but must not append synthetic `snapshot` events. Handler changes should stay
 focused on request setup, polling, and cancellation.
 
+### Change task APIs
+
+Task HTTP handlers should stay thin: parse path/query/body, choose the
+HTTP status/error envelope, and render response DTOs. Task creation,
+task/run loading, active-run conflict checks, approval resolution dispatch,
+resume budget raising, and runner calls live behind `internal/api`
+`taskApplication`. Extend that seam before adding more store/runner
+orchestration directly to handlers.
+
 ### Change chat-session / ACP adapter behavior
 
 Chat sessions separate ownership from turn execution:

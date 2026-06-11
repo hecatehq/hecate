@@ -3,7 +3,9 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -36,6 +38,47 @@ func TestTaskRunQueuedLifecycleE2E(t *testing.T) {
 	events := getJSON[e2eTaskEventsResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events")
 	assertE2EEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.started", "run.finished"})
 	assertE2EEventData(t, events.Data, "run.finished", "final_status", "completed")
+}
+
+func TestTaskApplicationLayerDirectShellLifecycleE2E(t *testing.T) {
+	workDir := t.TempDir()
+	baseURL := gatewayServer(t,
+		"HECATE_BACKEND=sqlite",
+		"HECATE_TASK_APPROVAL_POLICIES=",
+	)
+
+	body := fmt.Sprintf(`{
+		"title": "application layer shell e2e",
+		"execution_kind": "shell",
+		"shell_command": "printf 'app-layer\n'",
+		"working_directory": %q,
+		"sandbox_allowed_root": %q,
+		"workspace_mode": "in_place",
+		"timeout_ms": 10000
+	}`, workDir, workDir)
+	created := postJSONDecode[e2eTaskResponse](t, baseURL+"/hecate/v1/tasks", body)
+	if created.Data.Status != "queued" {
+		t.Fatalf("created status = %q, want queued", created.Data.Status)
+	}
+
+	started := postJSONDecode[e2eTaskRunResponse](t, baseURL+"/hecate/v1/tasks/"+created.Data.ID+"/start", `{}`)
+	run := waitForE2ETaskRunTerminal(t, baseURL, created.Data.ID, started.Data.ID, 10*time.Second)
+	if run.Status != "completed" {
+		t.Fatalf("run status = %q last_error=%q, want completed", run.Status, run.LastError)
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodDelete, baseURL+"/hecate/v1/tasks/"+created.Data.ID, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE task: %v", err)
+	}
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE task status = %d, want 204; body=%s", resp.StatusCode, readBody(t, resp))
+	}
+	resp.Body.Close()
 }
 
 func TestTaskRunClaimedStartTransitionPopulatesTraceE2E(t *testing.T) {

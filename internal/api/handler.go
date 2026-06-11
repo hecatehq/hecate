@@ -99,6 +99,24 @@ type Handler struct {
 	quitFunc func()
 }
 
+func (h *Handler) taskApplication() *taskApplication {
+	if h == nil {
+		return newTaskApplication(taskApplicationOptions{})
+	}
+	var runner taskApplicationRunner
+	if h.taskRunner != nil {
+		runner = h.taskRunner
+	}
+	return newTaskApplication(taskApplicationOptions{
+		Store:         h.taskStore,
+		Runner:        runner,
+		Projects:      h.projects,
+		SecretCipher:  h.secretCipher,
+		MaxMCPServers: h.config.Server.TaskMaxMCPServersPerTask,
+		IDGenerator:   newOpaqueTaskResourceID,
+	})
+}
+
 // approvalConfig bundles everything the coordinator needs apart from
 // the store, so SetAgentApprovalStore can swap stores without
 // re-deriving mode/timeout/hook closures. Also retains the live bus +

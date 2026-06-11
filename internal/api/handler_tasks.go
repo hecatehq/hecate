@@ -33,106 +33,14 @@ import (
 // runs the same arbitrary command a task would.
 func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
 
 	var req CreateTaskRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	applyExecutionProfileDefaults(&req)
-
-	title := strings.TrimSpace(req.Title)
-	prompt := strings.TrimSpace(req.Prompt)
-	if title == "" {
-		if prompt == "" {
-			title = "New task"
-		} else {
-			title = prompt
-			if len(title) > 80 {
-				title = strings.TrimSpace(title[:80]) + "..."
-			}
-		}
-	}
-	// prompt is required for agent_loop tasks; direct-execution tasks
-	// (shell, git, file) carry their work in the command/file fields and
-	// don't need a natural-language prompt.
-	effectiveKind := strings.TrimSpace(req.ExecutionKind)
-	isAgentLoop := effectiveKind == "" || effectiveKind == "agent_loop"
-	if prompt == "" && isAgentLoop {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "prompt is required")
-		return
-	}
-
-	mcpServers, mcpErr := normalizeMCPServerConfigs(req.MCPServers, h.secretCipher, h.config.Server.TaskMaxMCPServersPerTask)
-	if mcpErr != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, mcpErr.Error())
-		return
-	}
-
-	workspaceMode := strings.TrimSpace(req.WorkspaceMode)
-	if workspaceMode == "" {
-		workspaceMode = "ephemeral"
-	}
-	priority := strings.TrimSpace(req.Priority)
-	if priority == "" {
-		priority = "normal"
-	}
-	projectID := strings.TrimSpace(req.ProjectID)
-	if projectID != "" {
-		if h.projects == nil {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project store is not configured")
-			return
-		}
-		if _, ok, err := h.projects.Get(ctx, projectID); err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		} else if !ok {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "project not found")
-			return
-		}
-	}
-
-	now := time.Now().UTC()
-	task := types.Task{
-		ID:                 newTaskID(),
-		Title:              title,
-		Prompt:             prompt,
-		ProjectID:          projectID,
-		SystemPrompt:       strings.TrimSpace(req.SystemPrompt),
-		ExecutionProfile:   strings.TrimSpace(req.ExecutionProfile),
-		Repo:               strings.TrimSpace(req.Repo),
-		BaseBranch:         strings.TrimSpace(req.BaseBranch),
-		WorkspaceMode:      workspaceMode,
-		ExecutionKind:      strings.TrimSpace(req.ExecutionKind),
-		ShellCommand:       strings.TrimSpace(req.ShellCommand),
-		GitCommand:         strings.TrimSpace(req.GitCommand),
-		WorkingDirectory:   strings.TrimSpace(req.WorkingDirectory),
-		FileOperation:      strings.TrimSpace(req.FileOperation),
-		FilePath:           strings.TrimSpace(req.FilePath),
-		FileContent:        req.FileContent,
-		SandboxAllowedRoot: strings.TrimSpace(req.SandboxAllowedRoot),
-		SandboxReadOnly:    req.SandboxReadOnly,
-		SandboxNetwork:     req.SandboxNetwork,
-		TimeoutMS:          req.TimeoutMS,
-		Status:             "queued",
-		Priority:           priority,
-		RequestedModel:     strings.TrimSpace(req.RequestedModel),
-		RequestedProvider:  strings.TrimSpace(req.RequestedProvider),
-		BudgetMicrosUSD:    req.BudgetMicrosUSD,
-		MCPServers:         mcpServers,
-		CreatedAt:          now,
-		UpdatedAt:          now,
-	}
-	created, err := h.taskStore.CreateTask(ctx, task)
+	created, err := h.taskApplication().CreateTask(ctx, req)
 	if err != nil {
-		telemetry.Error(h.logger, ctx, "gateway.tasks.create.failed",
-			slog.String("event.name", "gateway.tasks.create.failed"),
-			slog.Any("error", err),
-		)
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		h.writeCreateTaskError(w, r, err)
 		return
 	}
 
@@ -140,6 +48,23 @@ func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Object: "task",
 		Data:   buildTaskItem(ctx, h.taskStore, created),
 	})
+}
+
+func (h *Handler) writeCreateTaskError(w http.ResponseWriter, r *http.Request, err error) {
+	ctx := r.Context()
+	var validation taskValidationError
+	switch {
+	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskProjectStoreNotConfigured):
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	case errors.Is(err, errTaskPromptRequired), errors.Is(err, errTaskProjectNotFound), errors.As(err, &validation):
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	default:
+		telemetry.Error(h.logger, ctx, "gateway.tasks.create.failed",
+			slog.String("event.name", "gateway.tasks.create.failed"),
+			slog.Any("error", err),
+		)
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	}
 }
 
 func applyExecutionProfileDefaults(req *CreateTaskRequest) {
@@ -188,10 +113,6 @@ Use read_file and list_dir before editing. Prefer file_edit for targeted changes
 
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
 
 	limit := 50
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
@@ -217,8 +138,12 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.ProjectID = &projectID
 	}
-	result, err := h.taskStore.ListTasks(ctx, filter)
+	result, err := h.taskApplication().ListTasks(ctx, filter)
 	if err != nil {
+		if errors.Is(err, errTaskStoreNotConfigured) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.list.failed",
 			slog.String("event.name", "gateway.tasks.list.failed"),
 			slog.Any("error", err),
@@ -239,10 +164,6 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
 
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
@@ -250,17 +171,21 @@ func (h *Handler) HandleTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, found, err := h.taskStore.GetTask(ctx, id)
+	task, err := h.taskApplication().LoadTask(ctx, id)
 	if err != nil {
+		if errors.Is(err, errTaskStoreNotConfigured) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+		if errors.Is(err, errTaskNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
+			return
+		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.get.failed",
 			slog.String("event.name", "gateway.tasks.get.failed"),
 			slog.Any("error", err),
 		)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !found {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
 		return
 	}
 	WriteJSON(w, http.StatusOK, TaskResponse{
@@ -271,10 +196,6 @@ func (h *Handler) HandleTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
 
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
@@ -282,24 +203,18 @@ func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, found, err := h.taskStore.GetTask(ctx, id)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !found {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
-		return
-	}
-	if active, err := taskHasActiveRun(ctx, h.taskStore, task); err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	} else if active {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "cannot delete a task with an active run; cancel it first")
-		return
-	}
-
-	if err := h.taskStore.DeleteTask(ctx, id); err != nil {
+	if err := h.taskApplication().DeleteTask(ctx, id); err != nil {
+		switch {
+		case errors.Is(err, errTaskStoreNotConfigured):
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		case errors.Is(err, errTaskNotFound):
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
+			return
+		case errors.Is(err, errTaskDeleteActiveRun):
+			WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
+			return
+		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.delete.failed",
 			slog.String("event.name", "gateway.tasks.delete.failed"),
 			slog.String("task_id", id),
@@ -314,28 +229,21 @@ func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
-	if h.taskRunner == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task runner is not configured")
-		return
-	}
 
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
-	if active, err := taskHasActiveRun(ctx, h.taskStore, task); err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	} else if active {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has an active run")
-		return
-	}
-	result, err := h.taskRunner.StartTask(ctx, task, newOpaqueTaskResourceID)
+	result, err := h.taskApplication().StartTask(ctx, task)
 	if err != nil {
+		switch {
+		case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskRunnerNotConfigured):
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		case errors.Is(err, errTaskHasActiveRun):
+			WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
+			return
+		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.start.failed",
 			slog.String("event.name", "gateway.tasks.start.failed"),
 			slog.Any("error", err),
@@ -357,28 +265,6 @@ func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 		Object: "task_run",
 		Data:   renderTaskRun(result.Run),
 	})
-}
-
-func taskHasActiveRun(ctx context.Context, store taskstate.Store, task types.Task) (bool, error) {
-	latestRunID := strings.TrimSpace(task.LatestRunID)
-	if latestRunID != "" && store != nil {
-		run, found, err := store.GetRun(ctx, task.ID, latestRunID)
-		if err != nil {
-			return false, err
-		}
-		if found {
-			return !types.IsTerminalTaskRunStatus(run.Status), nil
-		}
-	}
-	return latestRunID != "" && !types.IsTerminalTaskRunStatus(task.Status), nil
-}
-
-func taskHasOtherActiveRun(ctx context.Context, store taskstate.Store, task types.Task, currentRunID string) (bool, error) {
-	latestRunID := strings.TrimSpace(task.LatestRunID)
-	if latestRunID == "" || latestRunID == strings.TrimSpace(currentRunID) {
-		return false, nil
-	}
-	return taskHasActiveRun(ctx, store, task)
 }
 
 func (h *Handler) HandleTaskRuns(w http.ResponseWriter, r *http.Request) {
