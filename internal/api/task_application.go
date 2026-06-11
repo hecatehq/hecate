@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -88,6 +89,62 @@ type taskApplicationOptions struct {
 	Now           func() time.Time
 }
 
+type taskCreateCommand struct {
+	Title              string
+	Prompt             string
+	ProjectID          string
+	SystemPrompt       string
+	ExecutionProfile   string
+	Repo               string
+	BaseBranch         string
+	WorkspaceMode      string
+	ExecutionKind      string
+	ShellCommand       string
+	GitCommand         string
+	WorkingDirectory   string
+	FileOperation      string
+	FilePath           string
+	FileContent        string
+	SandboxAllowedRoot string
+	SandboxReadOnly    bool
+	SandboxNetwork     bool
+	TimeoutMS          int
+	Priority           string
+	RequestedModel     string
+	RequestedProvider  string
+	BudgetMicrosUSD    int64
+	MCPServers         []taskMCPServerCommand
+}
+
+type taskMCPServerCommand struct {
+	Name           string
+	Command        string
+	Args           []string
+	Env            map[string]string
+	URL            string
+	Headers        map[string]string
+	ApprovalPolicy string
+}
+
+type taskResumeCommand struct {
+	Reason          string
+	BudgetMicrosUSD int64
+}
+
+type taskRetryFromTurnCommand struct {
+	Turn   int
+	Reason string
+}
+
+type taskResolveApprovalCommand struct {
+	Task       types.Task
+	ApprovalID string
+	Decision   string
+	Note       string
+	ResolvedBy string
+	RequestID  string
+}
+
 func newTaskApplication(opts taskApplicationOptions) *taskApplication {
 	app := &taskApplication{
 		store:         opts.Store,
@@ -107,14 +164,14 @@ func newTaskApplication(opts taskApplicationOptions) *taskApplication {
 	return app
 }
 
-func (app *taskApplication) CreateTask(ctx context.Context, req CreateTaskRequest) (types.Task, error) {
+func (app *taskApplication) CreateTask(ctx context.Context, cmd taskCreateCommand) (types.Task, error) {
 	if app == nil || app.store == nil {
 		return types.Task{}, errTaskStoreNotConfigured
 	}
-	applyExecutionProfileDefaults(&req)
+	applyExecutionProfileDefaults(&cmd)
 
-	title := strings.TrimSpace(req.Title)
-	prompt := strings.TrimSpace(req.Prompt)
+	title := strings.TrimSpace(cmd.Title)
+	prompt := strings.TrimSpace(cmd.Prompt)
 	if title == "" {
 		if prompt == "" {
 			title = "New task"
@@ -125,26 +182,26 @@ func (app *taskApplication) CreateTask(ctx context.Context, req CreateTaskReques
 			}
 		}
 	}
-	effectiveKind := strings.TrimSpace(req.ExecutionKind)
+	effectiveKind := strings.TrimSpace(cmd.ExecutionKind)
 	isAgentLoop := effectiveKind == "" || effectiveKind == "agent_loop"
 	if prompt == "" && isAgentLoop {
 		return types.Task{}, errTaskPromptRequired
 	}
 
-	mcpServers, err := normalizeMCPServerConfigs(req.MCPServers, app.secretCipher, app.maxMCPServers)
+	mcpServers, err := normalizeMCPServerConfigs(cmd.MCPServers, app.secretCipher, app.maxMCPServers)
 	if err != nil {
 		return types.Task{}, taskValidation(err)
 	}
 
-	workspaceMode := strings.TrimSpace(req.WorkspaceMode)
+	workspaceMode := strings.TrimSpace(cmd.WorkspaceMode)
 	if workspaceMode == "" {
 		workspaceMode = "ephemeral"
 	}
-	priority := strings.TrimSpace(req.Priority)
+	priority := strings.TrimSpace(cmd.Priority)
 	if priority == "" {
 		priority = "normal"
 	}
-	projectID := strings.TrimSpace(req.ProjectID)
+	projectID := strings.TrimSpace(cmd.ProjectID)
 	if projectID != "" {
 		if app.projects == nil {
 			return types.Task{}, errTaskProjectStoreNotConfigured
@@ -162,32 +219,72 @@ func (app *taskApplication) CreateTask(ctx context.Context, req CreateTaskReques
 		Title:              title,
 		Prompt:             prompt,
 		ProjectID:          projectID,
-		SystemPrompt:       strings.TrimSpace(req.SystemPrompt),
-		ExecutionProfile:   strings.TrimSpace(req.ExecutionProfile),
-		Repo:               strings.TrimSpace(req.Repo),
-		BaseBranch:         strings.TrimSpace(req.BaseBranch),
+		SystemPrompt:       strings.TrimSpace(cmd.SystemPrompt),
+		ExecutionProfile:   strings.TrimSpace(cmd.ExecutionProfile),
+		Repo:               strings.TrimSpace(cmd.Repo),
+		BaseBranch:         strings.TrimSpace(cmd.BaseBranch),
 		WorkspaceMode:      workspaceMode,
-		ExecutionKind:      strings.TrimSpace(req.ExecutionKind),
-		ShellCommand:       strings.TrimSpace(req.ShellCommand),
-		GitCommand:         strings.TrimSpace(req.GitCommand),
-		WorkingDirectory:   strings.TrimSpace(req.WorkingDirectory),
-		FileOperation:      strings.TrimSpace(req.FileOperation),
-		FilePath:           strings.TrimSpace(req.FilePath),
-		FileContent:        req.FileContent,
-		SandboxAllowedRoot: strings.TrimSpace(req.SandboxAllowedRoot),
-		SandboxReadOnly:    req.SandboxReadOnly,
-		SandboxNetwork:     req.SandboxNetwork,
-		TimeoutMS:          req.TimeoutMS,
+		ExecutionKind:      strings.TrimSpace(cmd.ExecutionKind),
+		ShellCommand:       strings.TrimSpace(cmd.ShellCommand),
+		GitCommand:         strings.TrimSpace(cmd.GitCommand),
+		WorkingDirectory:   strings.TrimSpace(cmd.WorkingDirectory),
+		FileOperation:      strings.TrimSpace(cmd.FileOperation),
+		FilePath:           strings.TrimSpace(cmd.FilePath),
+		FileContent:        cmd.FileContent,
+		SandboxAllowedRoot: strings.TrimSpace(cmd.SandboxAllowedRoot),
+		SandboxReadOnly:    cmd.SandboxReadOnly,
+		SandboxNetwork:     cmd.SandboxNetwork,
+		TimeoutMS:          cmd.TimeoutMS,
 		Status:             "queued",
 		Priority:           priority,
-		RequestedModel:     strings.TrimSpace(req.RequestedModel),
-		RequestedProvider:  strings.TrimSpace(req.RequestedProvider),
-		BudgetMicrosUSD:    req.BudgetMicrosUSD,
+		RequestedModel:     strings.TrimSpace(cmd.RequestedModel),
+		RequestedProvider:  strings.TrimSpace(cmd.RequestedProvider),
+		BudgetMicrosUSD:    cmd.BudgetMicrosUSD,
 		MCPServers:         mcpServers,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
 	return app.store.CreateTask(ctx, task)
+}
+
+func applyExecutionProfileDefaults(cmd *taskCreateCommand) {
+	if cmd == nil {
+		return
+	}
+	profile := strings.TrimSpace(cmd.ExecutionProfile)
+	if profile != "repo_local" && profile != "coding_agent" {
+		return
+	}
+	if strings.TrimSpace(cmd.ExecutionKind) == "" {
+		cmd.ExecutionKind = "agent_loop"
+	}
+	if strings.TrimSpace(cmd.WorkspaceMode) == "" {
+		cmd.WorkspaceMode = "persistent"
+	}
+	if strings.TrimSpace(cmd.WorkingDirectory) == "" {
+		cmd.WorkingDirectory = "."
+	}
+	if strings.TrimSpace(cmd.SandboxAllowedRoot) == "" {
+		workingDir := strings.TrimSpace(cmd.WorkingDirectory)
+		repo := strings.TrimSpace(cmd.Repo)
+		switch {
+		case filepath.IsAbs(workingDir):
+			cmd.SandboxAllowedRoot = workingDir
+		case filepath.IsAbs(repo):
+			cmd.SandboxAllowedRoot = repo
+		}
+	}
+	if cmd.TimeoutMS <= 0 {
+		cmd.TimeoutMS = 120000
+	}
+	if profile == "coding_agent" {
+		if cmd.TimeoutMS <= 120000 {
+			cmd.TimeoutMS = 300000
+		}
+		if strings.TrimSpace(cmd.SystemPrompt) == "" {
+			cmd.SystemPrompt = codingAgentProfileSystemPrompt
+		}
+	}
 }
 
 func (app *taskApplication) ListTasks(ctx context.Context, filter taskstate.TaskFilter) ([]types.Task, error) {
@@ -308,7 +405,7 @@ func (app *taskApplication) RetryTaskRun(ctx context.Context, task types.Task, r
 	return app.runner.StartTask(ctx, task, app.idgen)
 }
 
-func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, run types.TaskRun, req ResumeTaskRunRequest) (*orchestrator.StartTaskResult, error) {
+func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, run types.TaskRun, cmd taskResumeCommand) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
 		return nil, errTaskStoreNotConfigured
 	}
@@ -322,8 +419,8 @@ func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, 
 	if active {
 		return nil, errTaskHasOtherActiveRun
 	}
-	if req.BudgetMicrosUSD > 0 {
-		if req.BudgetMicrosUSD < task.BudgetMicrosUSD {
+	if cmd.BudgetMicrosUSD > 0 {
+		if cmd.BudgetMicrosUSD < task.BudgetMicrosUSD {
 			return nil, errTaskBudgetLower
 		}
 		if app.runner == nil {
@@ -331,7 +428,7 @@ func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, 
 		}
 		// Persist the raised ceiling before queueing; the resumed
 		// agent loop reads the task ceiling on its first turn.
-		task.BudgetMicrosUSD = req.BudgetMicrosUSD
+		task.BudgetMicrosUSD = cmd.BudgetMicrosUSD
 		updated, err := app.store.UpdateTask(ctx, task)
 		if err != nil {
 			return nil, err
@@ -341,7 +438,7 @@ func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, 
 	if app.runner == nil {
 		return nil, errTaskRunnerNotConfigured
 	}
-	return app.runner.ResumeTask(ctx, task, run, strings.TrimSpace(req.Reason), app.idgen)
+	return app.runner.ResumeTask(ctx, task, run, strings.TrimSpace(cmd.Reason), app.idgen)
 }
 
 func (app *taskApplication) ContinueTaskRun(ctx context.Context, task types.Task, run types.TaskRun, prompt string) (*orchestrator.StartTaskResult, error) {
@@ -361,14 +458,14 @@ func (app *taskApplication) ContinueTaskRun(ctx context.Context, task types.Task
 	return app.runner.ContinueAgentTask(ctx, task, run, prompt, app.idgen)
 }
 
-func (app *taskApplication) RetryTaskRunFromTurn(ctx context.Context, task types.Task, run types.TaskRun, req RetryFromTurnRequest) (*orchestrator.StartTaskResult, error) {
+func (app *taskApplication) RetryTaskRunFromTurn(ctx context.Context, task types.Task, run types.TaskRun, cmd taskRetryFromTurnCommand) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
 		return nil, errTaskStoreNotConfigured
 	}
 	if !types.IsTerminalTaskRunStatus(run.Status) {
 		return nil, errTaskRunNotTurnRetryable
 	}
-	if req.Turn < 1 {
+	if cmd.Turn < 1 {
 		return nil, taskValidation(errTaskTurnRequired)
 	}
 	active, err := taskHasOtherActiveRun(ctx, app.store, task, run.ID)
@@ -381,7 +478,7 @@ func (app *taskApplication) RetryTaskRunFromTurn(ctx context.Context, task types
 	if app.runner == nil {
 		return nil, errTaskRunnerNotConfigured
 	}
-	return app.runner.RetryTaskFromTurn(ctx, task, run, req.Turn, strings.TrimSpace(req.Reason), app.idgen)
+	return app.runner.RetryTaskFromTurn(ctx, task, run, cmd.Turn, strings.TrimSpace(cmd.Reason), app.idgen)
 }
 
 func (app *taskApplication) ListTaskApprovals(ctx context.Context, task types.Task) ([]types.TaskApproval, error) {
@@ -409,19 +506,25 @@ func (app *taskApplication) GetTaskApproval(ctx context.Context, task types.Task
 	return approval, nil
 }
 
-func (app *taskApplication) ResolveTaskApproval(ctx context.Context, req orchestrator.ResolveApprovalRequest) (*orchestrator.ResolveApprovalResult, error) {
+func (app *taskApplication) ResolveTaskApproval(ctx context.Context, cmd taskResolveApprovalCommand) (*orchestrator.ResolveApprovalResult, error) {
 	if app == nil || app.store == nil {
 		return nil, errTaskStoreNotConfigured
 	}
 	if app.runner == nil {
 		return nil, errTaskRunnerNotConfigured
 	}
-	if strings.TrimSpace(req.ResolvedBy) == "" {
+	req := orchestrator.ResolveApprovalRequest{
+		Task:       cmd.Task,
+		ApprovalID: strings.TrimSpace(cmd.ApprovalID),
+		Decision:   cmd.Decision,
+		Note:       cmd.Note,
+		ResolvedBy: strings.TrimSpace(cmd.ResolvedBy),
+		RequestID:  cmd.RequestID,
+	}
+	if req.ResolvedBy == "" {
 		req.ResolvedBy = "operator"
 	}
-	if req.IDGenerator == nil {
-		req.IDGenerator = app.idgen
-	}
+	req.IDGenerator = app.idgen
 	return app.runner.ResolveTaskApproval(ctx, req)
 }
 

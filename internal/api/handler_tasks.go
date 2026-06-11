@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,7 +37,7 @@ func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	created, err := h.taskApplication().CreateTask(ctx, req)
+	created, err := h.taskApplication().CreateTask(ctx, taskCreateCommandFromRequest(req))
 	if err != nil {
 		h.writeCreateTaskError(w, r, err)
 		return
@@ -66,49 +65,57 @@ func (h *Handler) writeCreateTaskError(w http.ResponseWriter, r *http.Request, e
 	}
 }
 
-func applyExecutionProfileDefaults(req *CreateTaskRequest) {
-	if req == nil {
-		return
-	}
-	profile := strings.TrimSpace(req.ExecutionProfile)
-	if profile != "repo_local" && profile != "coding_agent" {
-		return
-	}
-	if strings.TrimSpace(req.ExecutionKind) == "" {
-		req.ExecutionKind = "agent_loop"
-	}
-	if strings.TrimSpace(req.WorkspaceMode) == "" {
-		req.WorkspaceMode = "persistent"
-	}
-	if strings.TrimSpace(req.WorkingDirectory) == "" {
-		req.WorkingDirectory = "."
-	}
-	if strings.TrimSpace(req.SandboxAllowedRoot) == "" {
-		workingDir := strings.TrimSpace(req.WorkingDirectory)
-		repo := strings.TrimSpace(req.Repo)
-		switch {
-		case filepath.IsAbs(workingDir):
-			req.SandboxAllowedRoot = workingDir
-		case filepath.IsAbs(repo):
-			req.SandboxAllowedRoot = repo
-		}
-	}
-	if req.TimeoutMS <= 0 {
-		req.TimeoutMS = 120000
-	}
-	if profile == "coding_agent" {
-		if req.TimeoutMS <= 120000 {
-			req.TimeoutMS = 300000
-		}
-		if strings.TrimSpace(req.SystemPrompt) == "" {
-			req.SystemPrompt = codingAgentProfileSystemPrompt
-		}
-	}
-}
-
 const codingAgentProfileSystemPrompt = `You are running inside Hecate's coding-agent runtime.
 
 Use read_file and list_dir before editing. Prefer file_edit for targeted changes and file_write only for new files or full rewrites. Keep changes scoped to the user's request. Explain important tradeoffs in the final answer, and mention files changed when useful.`
+
+func taskCreateCommandFromRequest(req CreateTaskRequest) taskCreateCommand {
+	return taskCreateCommand{
+		Title:              req.Title,
+		Prompt:             req.Prompt,
+		ProjectID:          req.ProjectID,
+		SystemPrompt:       req.SystemPrompt,
+		ExecutionProfile:   req.ExecutionProfile,
+		Repo:               req.Repo,
+		BaseBranch:         req.BaseBranch,
+		WorkspaceMode:      req.WorkspaceMode,
+		ExecutionKind:      req.ExecutionKind,
+		ShellCommand:       req.ShellCommand,
+		GitCommand:         req.GitCommand,
+		WorkingDirectory:   req.WorkingDirectory,
+		FileOperation:      req.FileOperation,
+		FilePath:           req.FilePath,
+		FileContent:        req.FileContent,
+		SandboxAllowedRoot: req.SandboxAllowedRoot,
+		SandboxReadOnly:    req.SandboxReadOnly,
+		SandboxNetwork:     req.SandboxNetwork,
+		TimeoutMS:          req.TimeoutMS,
+		Priority:           req.Priority,
+		RequestedModel:     req.RequestedModel,
+		RequestedProvider:  req.RequestedProvider,
+		BudgetMicrosUSD:    req.BudgetMicrosUSD,
+		MCPServers:         taskMCPServerCommandsFromRequest(req.MCPServers),
+	}
+}
+
+func taskMCPServerCommandsFromRequest(items []MCPServerConfigItem) []taskMCPServerCommand {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]taskMCPServerCommand, 0, len(items))
+	for _, item := range items {
+		out = append(out, taskMCPServerCommand{
+			Name:           item.Name,
+			Command:        item.Command,
+			Args:           append([]string(nil), item.Args...),
+			Env:            cloneStringMap(item.Env),
+			URL:            item.URL,
+			Headers:        cloneStringMap(item.Headers),
+			ApprovalPolicy: item.ApprovalPolicy,
+		})
+	}
+	return out
+}
 
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -690,7 +697,7 @@ func renderTaskItem(task types.Task) TaskItem {
 //
 // Returns nil for an empty input (the agent loop skips MCP-host
 // startup when MCPServers is nil/empty).
-func normalizeMCPServerConfigs(items []MCPServerConfigItem, cipher secrets.Cipher, maxEntries int) ([]types.MCPServerConfig, error) {
+func normalizeMCPServerConfigs(items []taskMCPServerCommand, cipher secrets.Cipher, maxEntries int) ([]types.MCPServerConfig, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
