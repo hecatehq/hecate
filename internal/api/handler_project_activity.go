@@ -193,7 +193,7 @@ func (h *Handler) projectActivityLinkedChats(ctx context.Context, projectID stri
 		return linked
 	}
 	for _, assignment := range assignments {
-		chatID := strings.TrimSpace(assignment.ChatSessionID)
+		chatID := strings.TrimSpace(assignment.ExecutionRef.ChatSessionID)
 		if chatID == "" {
 			continue
 		}
@@ -281,9 +281,6 @@ func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment Proj
 func projectActivityAssignmentInput(assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse, artifactCount int) projectworkapp.ActivityAssignmentInput {
 	return projectworkapp.ActivityAssignmentInput{
 		Status:        assignment.Status,
-		TaskID:        assignment.TaskID,
-		RunID:         assignment.RunID,
-		ChatSessionID: assignment.ChatSessionID,
 		Execution:     projectActivityExecutionSummaryForApp(assignment.Execution),
 		ExecutionRef:  projectActivityExecutionRefForApp(assignment.ExecutionRef),
 		LinkedChat:    projectActivityLinkedChatForApp(linkedChat),

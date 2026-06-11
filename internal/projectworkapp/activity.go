@@ -19,9 +19,6 @@ type ActivityLinkedChat struct {
 
 type ActivityAssignmentInput struct {
 	Status        string
-	TaskID        string
-	RunID         string
-	ChatSessionID string
 	Execution     *AssignmentExecutionSummary
 	ExecutionRef  *AssignmentExecutionRef
 	LinkedChat    *ActivityLinkedChat
@@ -83,16 +80,16 @@ func ProjectActivityBlockingSignal(input ActivityAssignmentInput) string {
 	case projectwork.AssignmentStatusCompleted:
 		return "completed"
 	case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusQueued:
-		if input.Execution == nil && strings.TrimSpace(input.TaskID) == "" && strings.TrimSpace(input.RunID) != "" {
+		if input.Execution == nil && activityExecutionTaskID(input) == "" && activityExecutionRunID(input) != "" {
 			return "stale_unknown"
 		}
 		if input.Execution != nil && input.Execution.Missing {
 			return "stale_unknown"
 		}
 		if status == projectwork.AssignmentStatusQueued &&
-			strings.TrimSpace(input.TaskID) == "" &&
-			strings.TrimSpace(input.RunID) == "" &&
-			strings.TrimSpace(input.ChatSessionID) == "" {
+			activityExecutionTaskID(input) == "" &&
+			activityExecutionRunID(input) == "" &&
+			activityExecutionChatID(input) == "" {
 			return "not_started"
 		}
 		return "running"

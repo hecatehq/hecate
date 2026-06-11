@@ -93,17 +93,17 @@ func TestApplication_UpdateAssignmentAppliesOptionalFields(t *testing.T) {
 	}
 
 	status := projectwork.AssignmentStatusRunning
-	runID := "run_1"
+	ref := projectwork.AssignmentExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, RunID: "run_1", Status: status}
 	startedAt := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
 	updated, err := app.UpdateAssignment(ctx, "proj_1", assignment.ID, UpdateAssignmentCommand{
-		Status:    &status,
-		RunID:     &runID,
-		StartedAt: &startedAt,
+		Status:       &status,
+		ExecutionRef: &ref,
+		StartedAt:    &startedAt,
 	})
 	if err != nil {
 		t.Fatalf("UpdateAssignment() error = %v", err)
 	}
-	if updated.Status != status || updated.RunID != runID || !updated.StartedAt.Equal(startedAt) {
+	if updated.Status != status || updated.ExecutionRef.RunID != ref.RunID || !updated.StartedAt.Equal(startedAt) {
 		t.Fatalf("updated assignment = %+v, want optional fields applied", updated)
 	}
 }
@@ -201,7 +201,7 @@ func TestApplication_StartTaskAssignmentCreatesTaskAndLinksRun(t *testing.T) {
 	if result.Task.ID != "task_fixed" || result.Run.ID != "run_started" || result.TraceID != "trace-start" {
 		t.Fatalf("result = %+v, want task/run/trace from runner", result)
 	}
-	if result.Assignment.TaskID != result.Task.ID || result.Assignment.RunID != result.Run.ID || result.Assignment.ContextSnapshotID != "ctx_1" {
+	if result.Assignment.ExecutionRef.TaskID != result.Task.ID || result.Assignment.ExecutionRef.RunID != result.Run.ID || result.Assignment.ExecutionRef.ContextSnapshotID != "ctx_1" {
 		t.Fatalf("linked assignment = %+v, want task/run/context links", result.Assignment)
 	}
 	if _, ok, err := taskStore.GetTask(ctx, result.Task.ID); err != nil || !ok {
@@ -219,7 +219,7 @@ func TestApplication_StartTaskAssignmentRejectsActiveAssignmentBeforeRunner(t *t
 	app := newStartTestApplication(workStore, taskStore, runner)
 	assignment := seedStartTestAssignment(t, ctx, app)
 	assignment, err := workStore.UpdateAssignment(ctx, "proj_1", assignment.ID, func(item *projectwork.Assignment) {
-		item.TaskID = "task_existing"
+		item.ExecutionRef = projectwork.AssignmentExecutionRef{Kind: projectwork.AssignmentExecutionKindTaskRun, TaskID: "task_existing"}
 		item.Status = projectwork.AssignmentStatusQueued
 	})
 	if err != nil {
@@ -268,7 +268,7 @@ func TestApplication_StartTaskAssignmentBuildFailureClearsClaim(t *testing.T) {
 		t.Fatalf("ListAssignments() error = %v", err)
 	}
 	got := items[0]
-	if got.TaskID != "" || got.RunID != "" || got.Status != projectwork.AssignmentStatusQueued || !got.StartedAt.IsZero() {
+	if got.ExecutionRef.TaskID != "" || got.ExecutionRef.RunID != "" || got.Status != projectwork.AssignmentStatusQueued || !got.StartedAt.IsZero() {
 		t.Fatalf("assignment after build failure = %+v, want cleared queued claim", got)
 	}
 	if runner.calls != 0 {
@@ -300,7 +300,7 @@ func TestApplication_StartTaskAssignmentRunnerFailureMarksFailed(t *testing.T) {
 	if result == nil || result.Task.ID != "task_fixed" {
 		t.Fatalf("result = %+v, want created task on runner failure", result)
 	}
-	if result.Assignment.Status != projectwork.AssignmentStatusFailed || result.Assignment.TaskID != "task_fixed" || result.Assignment.CompletedAt.IsZero() {
+	if result.Assignment.Status != projectwork.AssignmentStatusFailed || result.Assignment.ExecutionRef.TaskID != "task_fixed" || result.Assignment.CompletedAt.IsZero() {
 		t.Fatalf("assignment after runner failure = %+v, want failed linked task", result.Assignment)
 	}
 }
@@ -385,7 +385,7 @@ func TestApplication_StartExternalAgentAssignmentPreparesAndLinksSession(t *test
 	if runner.prepareCalls != 1 || runner.closeCalls != 0 {
 		t.Fatalf("runner prepare/close = %d/%d, want 1/0", runner.prepareCalls, runner.closeCalls)
 	}
-	if result.Assignment.ChatSessionID != "chat_ext" || result.Assignment.ContextSnapshotID != "ctx_ext" || result.Assignment.Status != projectwork.AssignmentStatusRunning {
+	if result.Assignment.ExecutionRef.ChatSessionID != "chat_ext" || result.Assignment.ExecutionRef.ContextSnapshotID != "ctx_ext" || result.Assignment.Status != projectwork.AssignmentStatusRunning {
 		t.Fatalf("assignment = %+v, want linked running session", result.Assignment)
 	}
 	session, ok, err := chatStore.Get(ctx, "chat_ext")
@@ -428,7 +428,7 @@ func TestApplication_StartExternalAgentAssignmentPrepareFailureDeletesSession(t 
 	if err != nil {
 		t.Fatalf("ListAssignments() error = %v", err)
 	}
-	if items[0].ChatSessionID != "" || items[0].Status != projectwork.AssignmentStatusQueued {
+	if items[0].ExecutionRef.ChatSessionID != "" || items[0].Status != projectwork.AssignmentStatusQueued {
 		t.Fatalf("assignment after prepare failure = %+v, want unlinked queued", items[0])
 	}
 }
@@ -470,7 +470,7 @@ func (s *racingAssignmentStore) UpdateAssignment(ctx context.Context, projectID,
 	if !s.raced && assignmentID == "asgn_ext" {
 		s.raced = true
 		if _, err := s.Store.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
-			item.ChatSessionID = "chat_winner"
+			item.ExecutionRef = projectwork.AssignmentExecutionRef{Kind: projectwork.AssignmentExecutionKindChatSession, ChatSessionID: "chat_winner"}
 			item.Status = projectwork.AssignmentStatusRunning
 		}); err != nil {
 			return projectwork.Assignment{}, err
@@ -498,7 +498,7 @@ func TestApplication_StartExternalAgentAssignmentCleansPreparedSessionWhenClaimL
 	if !errors.Is(err, ErrAssignmentStartConflict) {
 		t.Fatalf("StartExternalAgentAssignment(raced claim) error = %v, want ErrAssignmentStartConflict", err)
 	}
-	if result == nil || result.Assignment.ChatSessionID != "chat_winner" {
+	if result == nil || result.Assignment.ExecutionRef.ChatSessionID != "chat_winner" {
 		t.Fatalf("result = %+v, want winning assignment", result)
 	}
 	if runner.prepareCalls != 1 || runner.closeCalls != 1 {
@@ -519,7 +519,7 @@ func TestApplication_StartExternalAgentAssignmentRejectsExistingChatBeforePrepar
 	app := newExternalStartTestApplication(workStore, chatStore, runner)
 	assignment := seedExternalStartTestAssignment(t, ctx, app)
 	assignment, err := workStore.UpdateAssignment(ctx, "proj_1", assignment.ID, func(item *projectwork.Assignment) {
-		item.ChatSessionID = "chat_existing"
+		item.ExecutionRef = projectwork.AssignmentExecutionRef{Kind: projectwork.AssignmentExecutionKindChatSession, ChatSessionID: "chat_existing"}
 	})
 	if err != nil {
 		t.Fatalf("UpdateAssignment() error = %v", err)

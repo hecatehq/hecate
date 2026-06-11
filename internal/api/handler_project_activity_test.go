@@ -87,8 +87,6 @@ func TestProjectActivityProjection_ItemStatusSummaryAndBucket(t *testing.T) {
 		WorkItemID: "work-1",
 		RoleID:     "role-1",
 		Status:     projectwork.AssignmentStatusAwaitingApproval,
-		TaskID:     "task-stored",
-		RunID:      "run-stored",
 		Execution: &ProjectWorkAssignmentExecutionResponse{
 			TaskID:               "task-projected",
 			RunID:                "run-projected",
@@ -140,12 +138,15 @@ func TestProjectActivityProjection_ItemStatusSummaryAndBucket(t *testing.T) {
 	}
 
 	missingChat := renderProjectActivityItem(workItem, ProjectWorkAssignmentResponse{
-		ID:            "asgn-chat",
-		ProjectID:     "proj",
-		WorkItemID:    "work-1",
-		RoleID:        "role-1",
-		Status:        projectwork.AssignmentStatusRunning,
-		ChatSessionID: "chat-missing",
+		ID:         "asgn-chat",
+		ProjectID:  "proj",
+		WorkItemID: "work-1",
+		RoleID:     "role-1",
+		Status:     projectwork.AssignmentStatusRunning,
+		ExecutionRef: &ProjectWorkAssignmentExecutionRefResponse{
+			Kind:          "chat_session",
+			ChatSessionID: "chat-missing",
+		},
 	}, role, nil, nil, missingProjectActivityLinkedChat("chat-missing"))
 	if missingChat.BlockingSignal != "stale_unknown" || missingChat.StatusSummary != "linked chat missing" || projectActivityBucket(missingChat) != "blocked" {
 		t.Fatalf("missing chat item = %+v, want stale linked-chat signal", missingChat)

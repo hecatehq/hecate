@@ -318,8 +318,6 @@ const hecateAssignment: ProjectAssignmentRecord = {
   role_id: "software_developer",
   driver_kind: "hecate_task",
   status: "queued",
-  task_id: "task_1",
-  run_id: "run_1",
   execution_ref: {
     kind: "task_run",
     task_id: "task_1",
@@ -2168,8 +2166,6 @@ describe("ProjectsView cockpit", () => {
       ...hecateAssignment,
       driver_kind: "external_agent",
       status: "queued",
-      task_id: "",
-      run_id: "",
       execution_ref: undefined,
       execution: undefined,
     };
@@ -2215,8 +2211,6 @@ describe("ProjectsView cockpit", () => {
       data: {
         ...externalAssignment,
         status: "running",
-        chat_session_id: "chat_external_1",
-        context_snapshot_id: "ctx_external_1",
         execution_ref: {
           kind: "chat_session",
           chat_session_id: "chat_external_1",
@@ -2237,10 +2231,6 @@ describe("ProjectsView cockpit", () => {
       ...hecateAssignment,
       driver_kind: "external_agent",
       status: "running",
-      task_id: "",
-      run_id: "",
-      chat_session_id: "chat_external_1",
-      context_snapshot_id: "ctx_external_1",
       execution_ref: {
         kind: "chat_session",
         chat_session_id: "chat_external_1",
@@ -2287,11 +2277,6 @@ describe("ProjectsView cockpit", () => {
       ...hecateAssignment,
       driver_kind: "external_agent",
       status: "running",
-      task_id: "",
-      run_id: "",
-      chat_session_id: "chat_external_1",
-      message_id: "",
-      context_snapshot_id: "ctx_external_1",
       execution_ref: {
         kind: "chat_session",
         chat_session_id: "chat_external_1",
@@ -3411,8 +3396,6 @@ describe("ProjectsView cockpit", () => {
     const notStartedAssignment: ProjectAssignmentRecord = {
       ...hecateAssignment,
       id: "asgn_not_started",
-      task_id: "",
-      run_id: "",
       status: "queued",
       execution_ref: undefined,
       execution: undefined,
@@ -3588,8 +3571,6 @@ describe("ProjectsView cockpit", () => {
     resetProjectWorkMocks();
     const unstartedAssignment: ProjectAssignmentRecord = {
       ...hecateAssignment,
-      task_id: "",
-      run_id: "",
       execution_ref: undefined,
       execution: undefined,
       status: "queued",
@@ -4126,11 +4107,11 @@ describe("ProjectsView cockpit", () => {
         role_id: "software_developer",
         driver_kind: "external_agent",
         status: "running",
-        task_id: "task_1",
-        run_id: "run_1",
-        chat_session_id: "",
-        message_id: "",
-        context_snapshot_id: "",
+        execution_ref: {
+          kind: "task_run",
+          task_id: "task_1",
+          run_id: "run_1",
+        },
       },
     );
 
@@ -4361,8 +4342,6 @@ describe("ProjectsView cockpit", () => {
       id: "asgn_external",
       driver_kind: "external_agent",
       status: "queued",
-      task_id: "",
-      run_id: "",
       execution_ref: undefined,
       execution: undefined,
     };

@@ -98,6 +98,7 @@ import type {
   ProjectHandoffRecord,
   ProjectMemoryRecord,
   ProjectSkillRecord,
+  ProjectAssignmentExecutionRefRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
@@ -182,6 +183,32 @@ type EditAssignmentForm = NewAssignmentForm & {
   messageID: string;
   contextSnapshotID: string;
 };
+
+function projectAssignmentExecutionKindFromForm(form: EditAssignmentForm) {
+  if (form.taskID.trim() || form.runID.trim()) return "task_run";
+  if (form.chatSessionID.trim() || form.messageID.trim()) return "chat_session";
+  if (form.contextSnapshotID.trim()) return "context_snapshot";
+  return "none";
+}
+
+function projectAssignmentExecutionRefFromForm(
+  form: EditAssignmentForm,
+): ProjectAssignmentExecutionRefRecord {
+  const ref: ProjectAssignmentExecutionRefRecord = {
+    kind: projectAssignmentExecutionKindFromForm(form),
+  };
+  const taskID = form.taskID.trim();
+  const runID = form.runID.trim();
+  const chatSessionID = form.chatSessionID.trim();
+  const messageID = form.messageID.trim();
+  const contextSnapshotID = form.contextSnapshotID.trim();
+  if (taskID) ref.task_id = taskID;
+  if (runID) ref.run_id = runID;
+  if (chatSessionID) ref.chat_session_id = chatSessionID;
+  if (messageID) ref.message_id = messageID;
+  if (contextSnapshotID) ref.context_snapshot_id = contextSnapshotID;
+  return ref;
+}
 
 type HandoffForm = {
   id: string;
@@ -1124,11 +1151,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       role_id: roleID,
       driver_kind: form.driverKind || "hecate_task",
       status: form.status || "queued",
-      task_id: form.taskID.trim(),
-      run_id: form.runID.trim(),
-      chat_session_id: form.chatSessionID.trim(),
-      message_id: form.messageID.trim(),
-      context_snapshot_id: form.contextSnapshotID.trim(),
+      execution_ref: projectAssignmentExecutionRefFromForm(form),
     };
     try {
       const payload = await updateProjectAssignment(
@@ -5182,11 +5205,11 @@ function EditAssignmentModal({
     roleID: assignment.role_id,
     driverKind: assignment.driver_kind || "hecate_task",
     status: assignment.status || "queued",
-    taskID: assignment.task_id ?? "",
-    runID: assignment.run_id ?? "",
-    chatSessionID: assignment.chat_session_id ?? "",
-    messageID: assignment.message_id ?? "",
-    contextSnapshotID: assignment.context_snapshot_id ?? "",
+    taskID: assignment.execution_ref?.task_id ?? "",
+    runID: assignment.execution_ref?.run_id ?? "",
+    chatSessionID: assignment.execution_ref?.chat_session_id ?? "",
+    messageID: assignment.execution_ref?.message_id ?? "",
+    contextSnapshotID: assignment.execution_ref?.context_snapshot_id ?? "",
   });
   const valid = form.roleID.trim().length > 0;
   return (

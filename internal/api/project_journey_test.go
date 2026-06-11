@@ -100,12 +100,13 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	}
 
 	started := mustRequestJSON[ProjectWorkAssignmentEnvelope](client, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_backend/assignments/asgn_backend/start", `{}`)
-	if started.Data.TaskID == "" || started.Data.RunID == "" || started.Data.ContextSnapshotID == "" {
-		t.Fatalf("started assignment = %+v, want task/run/context links", started.Data)
+	startedRef := assignmentExecutionRefForTest(t, started.Data)
+	if startedRef.TaskID == "" || startedRef.RunID == "" || startedRef.ContextSnapshotID == "" {
+		t.Fatalf("started assignment execution_ref = %+v, want task/run/context links", startedRef)
 	}
-	task, found, err := handler.taskStore.GetTask(t.Context(), started.Data.TaskID)
+	task, found, err := handler.taskStore.GetTask(t.Context(), startedRef.TaskID)
 	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", started.Data.TaskID, found, err)
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", startedRef.TaskID, found, err)
 	}
 	if task.ProjectID != projectID || task.WorkspaceSystemPromptPolicy != types.WorkspaceSystemPromptExclude {
 		t.Fatalf("task project/prompt policy = %q/%q, want project id and excluded workspace prompt layer", task.ProjectID, task.WorkspaceSystemPromptPolicy)
@@ -132,12 +133,12 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 	handoff := mustRequestJSONStatus[ProjectHandoffEnvelope](client, http.StatusCreated, http.MethodPost, "/hecate/v1/projects/"+projectID+"/work-items/work_backend/handoffs", projectJourneyJSON(t, map[string]any{
 		"id":                      "handoff_review",
 		"source_assignment_id":    "asgn_backend",
-		"source_run_id":           started.Data.RunID,
+		"source_run_id":           startedRef.RunID,
 		"target_role_id":          "reviewer_qa",
 		"title":                   "Review handoff",
 		"summary":                 "Backend journey implementation is ready for review.",
 		"recommended_next_action": "Create a review assignment and inspect the context packet.",
-		"context_refs":            []string{started.Data.ContextSnapshotID},
+		"context_refs":            []string{startedRef.ContextSnapshotID},
 		"created_by_role_id":      "role_backend",
 		"provenance_kind":         "agent_draft",
 		"trust_label":             "operator_reviewed",
@@ -152,7 +153,7 @@ func TestProjectJourneyAPI_DiscoverStartInspectAndHandoff(t *testing.T) {
 		"role_id":     "reviewer_qa",
 		"driver_kind": "hecate_task",
 	}))
-	if reviewAssignment.Data.ID != "asgn_review" || reviewAssignment.Data.TaskID != "" {
+	if reviewAssignment.Data.ID != "asgn_review" || reviewAssignment.Data.ExecutionRef != nil {
 		t.Fatalf("review assignment = %+v, want queued unstarted follow-up", reviewAssignment.Data)
 	}
 	patchedHandoff := mustRequestJSON[ProjectHandoffEnvelope](client, http.MethodPatch, "/hecate/v1/projects/"+projectID+"/work-items/work_backend/handoffs/handoff_review", projectJourneyJSON(t, map[string]any{

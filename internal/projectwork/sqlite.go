@@ -98,11 +98,7 @@ CREATE TABLE IF NOT EXISTS %s (
 	role_id TEXT NOT NULL,
 	driver_kind TEXT NOT NULL DEFAULT 'hecate_task',
 	status TEXT NOT NULL,
-	task_id TEXT NOT NULL DEFAULT '',
-	run_id TEXT NOT NULL DEFAULT '',
-	chat_session_id TEXT NOT NULL DEFAULT '',
-	message_id TEXT NOT NULL DEFAULT '',
-	context_snapshot_id TEXT NOT NULL DEFAULT '',
+	execution_ref TEXT NOT NULL DEFAULT '{}',
 	context_packet TEXT NOT NULL DEFAULT '',
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
@@ -163,6 +159,12 @@ CREATE TABLE IF NOT EXISTS %s (
 	if err := s.ensureColumn(ctx, s.assignmentsTbl, "context_packet", `TEXT NOT NULL DEFAULT ''`); err != nil {
 		return err
 	}
+	if err := s.ensureColumn(ctx, s.assignmentsTbl, "execution_ref", `TEXT NOT NULL DEFAULT '{}'`); err != nil {
+		return err
+	}
+	if err := s.migrateAssignmentExecutionRefs(ctx); err != nil {
+		return err
+	}
 	for _, column := range []string{"default_driver_kind", "default_provider", "default_model", "default_agent_profile"} {
 		if err := s.ensureColumn(ctx, s.rolesTbl, column, `TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
@@ -186,6 +188,68 @@ CREATE TABLE IF NOT EXISTS %s (
 		name := strings.Trim(stmt.table, `"`) + "_" + stmt.name
 		if _, err := s.db.ExecContext(ctx, fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (%s)`, name, stmt.table, stmt.cols)); err != nil {
 			return fmt.Errorf("create %s index: %w", stmt.name, err)
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) migrateAssignmentExecutionRefs(ctx context.Context) error {
+	for _, column := range []string{"task_id", "run_id", "chat_session_id", "message_id", "context_snapshot_id"} {
+		exists, err := s.columnExists(ctx, s.assignmentsTbl, column)
+		if err != nil {
+			return fmt.Errorf("inspect sqlite project work legacy assignment columns: %w", err)
+		}
+		if !exists {
+			return nil
+		}
+	}
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+SELECT id, project_id, execution_ref, task_id, run_id, chat_session_id, message_id, context_snapshot_id
+FROM %s`, s.assignmentsTbl))
+	if err != nil {
+		return fmt.Errorf("read legacy project assignment execution refs: %w", err)
+	}
+	defer rows.Close()
+
+	type migratedRef struct {
+		id        string
+		projectID string
+		encoded   string
+	}
+	var updates []migratedRef
+	for rows.Next() {
+		var (
+			id, projectID, existing string
+			ref                     AssignmentExecutionRef
+		)
+		if err := rows.Scan(&id, &projectID, &existing, &ref.TaskID, &ref.RunID, &ref.ChatSessionID, &ref.MessageID, &ref.ContextSnapshotID); err != nil {
+			return fmt.Errorf("scan legacy project assignment execution ref: %w", err)
+		}
+		if !emptyAssignmentExecutionRefJSON(existing) {
+			continue
+		}
+		ref = NormalizeAssignmentExecutionRef(ref)
+		if ref.Kind == "" {
+			continue
+		}
+		encoded, err := encodeAssignmentExecutionRef(ref)
+		if err != nil {
+			return err
+		}
+		updates = append(updates, migratedRef{id: id, projectID: projectID, encoded: encoded})
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, update := range updates {
+		if _, err := s.db.ExecContext(
+			ctx,
+			fmt.Sprintf(`UPDATE %s SET execution_ref = ? WHERE project_id = ? AND id = ?`, s.assignmentsTbl),
+			update.encoded,
+			update.projectID,
+			update.id,
+		); err != nil {
+			return fmt.Errorf("migrate project assignment execution ref: %w", err)
 		}
 	}
 	return nil
@@ -496,7 +560,7 @@ func (s *SQLiteStore) ListAssignments(ctx context.Context, filter AssignmentFilt
 	filter.ProjectID = strings.TrimSpace(filter.ProjectID)
 	filter.WorkItemID = strings.TrimSpace(filter.WorkItemID)
 	query := fmt.Sprintf(`
-SELECT id, project_id, work_item_id, role_id, driver_kind, status, task_id, run_id, chat_session_id, message_id, context_snapshot_id, context_packet, created_at, updated_at, started_at, completed_at
+SELECT id, project_id, work_item_id, role_id, driver_kind, status, execution_ref, context_packet, created_at, updated_at, started_at, completed_at
 FROM %s
 WHERE project_id = ?`, s.assignmentsTbl)
 	args := []any{filter.ProjectID}
@@ -533,14 +597,18 @@ func (s *SQLiteStore) CreateAssignment(ctx context.Context, assignment Assignmen
 	} else if !ok {
 		return Assignment{}, fmt.Errorf("%w: work item not found", ErrNotFound)
 	}
-	_, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+	executionRef, err := encodeAssignmentExecutionRef(assignment.ExecutionRef)
+	if err != nil {
+		return Assignment{}, err
+	}
+	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
 INSERT INTO %s (
-	id, project_id, work_item_id, role_id, driver_kind, status, task_id, run_id, chat_session_id,
-	message_id, context_snapshot_id, context_packet, created_at, updated_at, started_at, completed_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.assignmentsTbl),
+	id, project_id, work_item_id, role_id, driver_kind, status, execution_ref,
+	context_packet, created_at, updated_at, started_at, completed_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, s.assignmentsTbl),
 		assignment.ID, assignment.ProjectID, assignment.WorkItemID, assignment.RoleID, assignment.DriverKind,
-		assignment.Status, assignment.TaskID, assignment.RunID, assignment.ChatSessionID,
-		assignment.MessageID, assignment.ContextSnapshotID, string(assignment.ContextPacket), formatTime(assignment.CreatedAt),
+		assignment.Status, executionRef,
+		string(assignment.ContextPacket), formatTime(assignment.CreatedAt),
 		formatTime(assignment.UpdatedAt), formatTime(assignment.StartedAt), formatTime(assignment.CompletedAt),
 	)
 	if err != nil {
@@ -582,13 +650,16 @@ func (s *SQLiteStore) UpdateAssignment(ctx context.Context, projectID, id string
 	if err := validateAssignment(item); err != nil {
 		return Assignment{}, err
 	}
+	executionRef, err := encodeAssignmentExecutionRef(item.ExecutionRef)
+	if err != nil {
+		return Assignment{}, err
+	}
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
 UPDATE %s
-SET role_id = ?, driver_kind = ?, status = ?, task_id = ?, run_id = ?, chat_session_id = ?, message_id = ?,
-	context_snapshot_id = ?, context_packet = ?, updated_at = ?, started_at = ?, completed_at = ?
+SET role_id = ?, driver_kind = ?, status = ?, execution_ref = ?, context_packet = ?, updated_at = ?, started_at = ?, completed_at = ?
 WHERE project_id = ? AND id = ?`, s.assignmentsTbl),
-		item.RoleID, item.DriverKind, item.Status, item.TaskID, item.RunID, item.ChatSessionID,
-		item.MessageID, item.ContextSnapshotID, string(item.ContextPacket), formatTime(item.UpdatedAt),
+		item.RoleID, item.DriverKind, item.Status, executionRef,
+		string(item.ContextPacket), formatTime(item.UpdatedAt),
 		formatTime(item.StartedAt), formatTime(item.CompletedAt), projectID, id,
 	)
 	if err != nil {
@@ -1026,7 +1097,7 @@ WHERE project_id = ? AND id = ?`, s.workItemsTbl), strings.TrimSpace(projectID),
 
 func (s *SQLiteStore) getRequiredAssignment(ctx context.Context, projectID, id string) (Assignment, error) {
 	row := s.db.QueryRowContext(ctx, fmt.Sprintf(`
-SELECT id, project_id, work_item_id, role_id, driver_kind, status, task_id, run_id, chat_session_id, message_id, context_snapshot_id, context_packet, created_at, updated_at, started_at, completed_at
+SELECT id, project_id, work_item_id, role_id, driver_kind, status, execution_ref, context_packet, created_at, updated_at, started_at, completed_at
 FROM %s
 WHERE project_id = ? AND id = ?`, s.assignmentsTbl), strings.TrimSpace(projectID), strings.TrimSpace(id))
 	item, err := scanAssignment(row)
@@ -1144,14 +1215,17 @@ func scanWorkItem(row scanner) (WorkItem, error) {
 func scanAssignment(row scanner) (Assignment, error) {
 	var item Assignment
 	var createdAt, updatedAt, startedAt, completedAt string
+	var executionRef string
 	if err := row.Scan(
 		&item.ID, &item.ProjectID, &item.WorkItemID, &item.RoleID, &item.DriverKind, &item.Status,
-		&item.TaskID, &item.RunID, &item.ChatSessionID, &item.MessageID,
-		&item.ContextSnapshotID, &item.ContextPacket, &createdAt, &updatedAt, &startedAt, &completedAt,
+		&executionRef, &item.ContextPacket, &createdAt, &updatedAt, &startedAt, &completedAt,
 	); err != nil {
 		return Assignment{}, err
 	}
 	var err error
+	if item.ExecutionRef, err = decodeAssignmentExecutionRef(executionRef); err != nil {
+		return Assignment{}, err
+	}
 	if item.CreatedAt, err = parseTime(createdAt); err != nil {
 		return Assignment{}, err
 	}
@@ -1257,6 +1331,32 @@ func decodeStringList(value string) ([]string, error) {
 		return nil, err
 	}
 	return normalizeStringList(values), nil
+}
+
+func encodeAssignmentExecutionRef(ref AssignmentExecutionRef) (string, error) {
+	ref = NormalizeAssignmentExecutionRef(ref)
+	data, err := json.Marshal(ref)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func decodeAssignmentExecutionRef(value string) (AssignmentExecutionRef, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return AssignmentExecutionRef{}, nil
+	}
+	var ref AssignmentExecutionRef
+	if err := json.Unmarshal([]byte(value), &ref); err != nil {
+		return AssignmentExecutionRef{}, err
+	}
+	return NormalizeAssignmentExecutionRef(ref), nil
+}
+
+func emptyAssignmentExecutionRefJSON(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || value == "{}" || value == "null"
 }
 
 func formatTime(value time.Time) string {

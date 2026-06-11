@@ -174,9 +174,12 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments", bytes.NewReader([]byte(`{
 		"id":"asgn_backend",
 		"role_id":"software_developer",
-		"task_id":"task_123",
-		"run_id":"run_123",
-		"context_snapshot_id":"ctx_123"
+		"execution_ref":{
+			"kind":"task_run",
+			"task_id":"task_123",
+			"run_id":"run_123",
+			"context_snapshot_id":"ctx_123"
+		}
 	}`))))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create assignment status = %d body=%s, want 201", rec.Code, rec.Body.String())
@@ -185,7 +188,7 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	if assignment.Data.Status != projectwork.AssignmentStatusQueued || assignment.Data.TaskID != "task_123" {
+	if assignment.Data.Status != projectwork.AssignmentStatusQueued || assignmentExecutionRefForTest(t, assignment.Data).TaskID != "task_123" {
 		t.Fatalf("assignment = %+v, want queued linked task", assignment.Data)
 	}
 
@@ -203,14 +206,21 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments/asgn_backend", bytes.NewReader([]byte(`{"status":"completed","chat_session_id":"chat_123","message_id":"msg_123"}`))))
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_backend/assignments/asgn_backend", bytes.NewReader([]byte(`{
+		"status":"completed",
+		"execution_ref":{
+			"kind":"chat_session",
+			"chat_session_id":"chat_123",
+			"message_id":"msg_123"
+		}
+	}`))))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode patched assignment: %v", err)
 	}
-	if assignment.Data.Status != projectwork.AssignmentStatusCompleted || assignment.Data.ChatSessionID != "chat_123" {
+	if assignment.Data.Status != projectwork.AssignmentStatusCompleted || assignmentExecutionRefForTest(t, assignment.Data).ChatSessionID != "chat_123" {
 		t.Fatalf("patched assignment = %+v, want completed linked chat", assignment.Data)
 	}
 
@@ -515,19 +525,20 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	if assignment.Data.TaskID == "" || assignment.Data.RunID == "" {
-		t.Fatalf("assignment links = task %q run %q, want both set", assignment.Data.TaskID, assignment.Data.RunID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	if ref.TaskID == "" || ref.RunID == "" {
+		t.Fatalf("assignment execution_ref = %+v, want task and run links", ref)
 	}
 	if assignment.Data.DriverKind != projectwork.AssignmentDriverHecateTask {
 		t.Fatalf("driver_kind = %q, want hecate_task", assignment.Data.DriverKind)
 	}
-	if assignment.Data.Execution == nil || assignment.Data.Execution.TaskID != assignment.Data.TaskID || assignment.Data.Execution.RunID != assignment.Data.RunID {
+	if assignment.Data.Execution == nil || assignment.Data.Execution.TaskID != ref.TaskID || assignment.Data.Execution.RunID != ref.RunID {
 		t.Fatalf("assignment execution = %+v, want linked task/run summary", assignment.Data.Execution)
 	}
 
-	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
 	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
 	}
 	if task.ExecutionKind != "agent_loop" || task.OriginKind != "project_work_item" || task.OriginID != "work_start" {
 		t.Fatalf("task execution/origin = %q %q/%q, want agent_loop project_work_item/work_start", task.ExecutionKind, task.OriginKind, task.OriginID)
@@ -565,8 +576,8 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	if !strings.Contains(task.SystemPrompt, "Role instructions:\nFollow backend invariants.") || !strings.Contains(task.SystemPrompt, "Project system prompt:\nProject default system prompt.") {
 		t.Fatalf("task system_prompt = %q, want role and project prompts", task.SystemPrompt)
 	}
-	if _, found, err := handler.taskStore.GetRun(t.Context(), task.ID, assignment.Data.RunID); err != nil || !found {
-		t.Fatalf("GetRun(%q) found=%v err=%v, want run", assignment.Data.RunID, found, err)
+	if _, found, err := handler.taskStore.GetRun(t.Context(), task.ID, ref.RunID); err != nil || !found {
+		t.Fatalf("GetRun(%q) found=%v err=%v, want run", ref.RunID, found, err)
 	}
 }
 
@@ -645,13 +656,14 @@ func TestProjectWorkAPI_StartAssignmentPersistsInspectableContextPacket(t *testi
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	if assignment.Data.ContextSnapshotID == "" {
-		t.Fatalf("context_snapshot_id = %q, want persisted packet id", assignment.Data.ContextSnapshotID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	if ref.ContextSnapshotID == "" {
+		t.Fatalf("execution_ref = %+v, want persisted packet id", ref)
 	}
 
-	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
-	if packetResp.Data.ID != assignment.Data.ContextSnapshotID {
-		t.Fatalf("task run context id = %q, want %q", packetResp.Data.ID, assignment.Data.ContextSnapshotID)
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
+	if packetResp.Data.ID != ref.ContextSnapshotID {
+		t.Fatalf("task run context id = %q, want %q", packetResp.Data.ID, ref.ContextSnapshotID)
 	}
 	if packetResp.Data.ExecutionProfile != "implementation" {
 		t.Fatalf("execution_profile = %q, want implementation", packetResp.Data.ExecutionProfile)
@@ -676,8 +688,8 @@ func TestProjectWorkAPI_StartAssignmentPersistsInspectableContextPacket(t *testi
 	}
 
 	assignmentPacket := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/context", "")
-	if assignmentPacket.Data.ID != assignment.Data.ContextSnapshotID {
-		t.Fatalf("assignment context id = %q, want %q", assignmentPacket.Data.ID, assignment.Data.ContextSnapshotID)
+	if assignmentPacket.Data.ID != ref.ContextSnapshotID {
+		t.Fatalf("assignment context id = %q, want %q", assignmentPacket.Data.ID, ref.ContextSnapshotID)
 	}
 }
 
@@ -785,7 +797,8 @@ func TestProjectWorkAPI_StartAssignmentAppliesProfileContextPolicies(t *testing.
 			if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 				t.Fatalf("decode assignment: %v", err)
 			}
-			packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+			ref := assignmentExecutionRefForTest(t, assignment.Data)
+			packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
 
 			memoryItem := findRenderedContextItemByOrigin(packetResp.Data, "mem_runtime")
 			if tc.wantMemoryItem {
@@ -882,9 +895,10 @@ func TestProjectWorkAPI_StartAssignmentIncludesExplicitPromptContext(t *testing.
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
 	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
 	}
 	for _, want := range []string{
 		"Project memory: Runtime preference",
@@ -900,7 +914,7 @@ func TestProjectWorkAPI_StartAssignmentIncludesExplicitPromptContext(t *testing.
 		t.Fatalf("task system_prompt = %q, want host-specific source body omitted", task.SystemPrompt)
 	}
 
-	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
 	promptItem := findRenderedContextItemByKind(packetResp.Data, "prompt_context")
 	if promptItem == nil || !promptItem.Included || promptItem.Section != contextSectionInstructions {
 		t.Fatalf("prompt context item = %+v, want included instructions item", promptItem)
@@ -974,9 +988,10 @@ func TestProjectWorkAPI_StartAssignmentKeepsVisibleOnlyPromptContextOutOfSystemP
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
 	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
 	}
 	for _, notWant := range []string{
 		"Do not include this visible-only memory body.",
@@ -986,7 +1001,7 @@ func TestProjectWorkAPI_StartAssignmentKeepsVisibleOnlyPromptContextOutOfSystemP
 			t.Fatalf("task system_prompt = %q, want visible-only body %q omitted", task.SystemPrompt, notWant)
 		}
 	}
-	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
 	if item := findRenderedContextItemByKind(packetResp.Data, "prompt_context"); item != nil {
 		t.Fatalf("prompt context item = %+v, want omitted when no prompt context was loaded", item)
 	}
@@ -1032,14 +1047,15 @@ func TestProjectWorkAPI_StartAssignmentTruncatesPromptContext(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
 	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
 	}
 	if !strings.Contains(task.SystemPrompt, "[truncated]") {
 		t.Fatalf("task system_prompt = %q, want truncated prompt context marker", task.SystemPrompt)
 	}
-	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
 	promptItem := findRenderedContextItemByKind(packetResp.Data, "prompt_context")
 	if promptItem == nil || !strings.Contains(promptItem.Body, "Truncated prompt context items: 1") || !strings.Contains(promptItem.Body, "mem_long was truncated") {
 		t.Fatalf("prompt context item = %+v, want truncation summary", promptItem)
@@ -1131,9 +1147,10 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
 	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
 	}
 	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.ExecutionProfile != "role_profile" {
 		t.Fatalf("task provider/model/profile = %q/%q/%q, want role profile hints", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
@@ -1142,7 +1159,7 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 		t.Fatalf("task system prompt = %q, want profile instructions", task.SystemPrompt)
 	}
 
-	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
 	if packetResp.Data.ExecutionProfile != "role_profile" {
 		t.Fatalf("packet execution_profile = %q, want role_profile", packetResp.Data.ExecutionProfile)
 	}
@@ -1218,11 +1235,12 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	if assignment.Data.ChatSessionID == "" || assignment.Data.ContextSnapshotID == "" {
-		t.Fatalf("assignment links = chat %q context %q, want linked session and context", assignment.Data.ChatSessionID, assignment.Data.ContextSnapshotID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	if ref.ChatSessionID == "" || ref.ContextSnapshotID == "" {
+		t.Fatalf("assignment execution_ref = %+v, want linked session and context", ref)
 	}
-	if assignment.Data.TaskID != "" || assignment.Data.RunID != "" || assignment.Data.MessageID != "" {
-		t.Fatalf("assignment task/run/message links = %q/%q/%q, want no task run or dispatched message", assignment.Data.TaskID, assignment.Data.RunID, assignment.Data.MessageID)
+	if ref.TaskID != "" || ref.RunID != "" || ref.MessageID != "" {
+		t.Fatalf("assignment execution_ref = %+v, want no task run or dispatched message", ref)
 	}
 	if assignment.Data.Status != projectwork.AssignmentStatusRunning {
 		t.Fatalf("assignment status = %q, want running", assignment.Data.Status)
@@ -1238,10 +1256,10 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 	if err != nil {
 		t.Fatalf("ValidateWorkspace: %v", err)
 	}
-	if prepare.AdapterID != "codex" || prepare.SessionID != assignment.Data.ChatSessionID || prepare.Workspace != resolvedWorkspace {
+	if prepare.AdapterID != "codex" || prepare.SessionID != ref.ChatSessionID || prepare.Workspace != resolvedWorkspace {
 		t.Fatalf("prepare request = %+v, want codex session in workspace", prepare)
 	}
-	session, ok, err := handler.agentChat.Get(t.Context(), assignment.Data.ChatSessionID)
+	session, ok, err := handler.agentChat.Get(t.Context(), ref.ChatSessionID)
 	if err != nil || !ok {
 		t.Fatalf("Get chat session found=%v err=%v, want linked session", ok, err)
 	}
@@ -1250,10 +1268,10 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 	}
 
 	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/context", "")
-	if packetResp.Data.ID != assignment.Data.ContextSnapshotID {
-		t.Fatalf("assignment context id = %q, want %q", packetResp.Data.ID, assignment.Data.ContextSnapshotID)
+	if packetResp.Data.ID != ref.ContextSnapshotID {
+		t.Fatalf("assignment context id = %q, want %q", packetResp.Data.ID, ref.ContextSnapshotID)
 	}
-	if packetResp.Data.ExecutionMode != chat.ExecutionModeExternalAgent || packetResp.Data.Refs == nil || packetResp.Data.Refs.SessionID != assignment.Data.ChatSessionID {
+	if packetResp.Data.ExecutionMode != chat.ExecutionModeExternalAgent || packetResp.Data.Refs == nil || packetResp.Data.Refs.SessionID != ref.ChatSessionID {
 		t.Fatalf("packet execution/refs = %q/%+v, want external agent session refs", packetResp.Data.ExecutionMode, packetResp.Data.Refs)
 	}
 	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_external")
@@ -1334,7 +1352,7 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentConcurrentRequestsCreateOneC
 	if err != nil {
 		t.Fatalf("ListAssignments: %v", err)
 	}
-	if len(assignments) != 1 || assignments[0].ChatSessionID != sessions[0].ID {
+	if len(assignments) != 1 || assignments[0].ExecutionRef.ChatSessionID != sessions[0].ID {
 		t.Fatalf("assignment/chat link = %+v / %+v, want one linked surviving chat", assignments, sessions)
 	}
 	if got := runner.prepareCount(); got != 2 {
@@ -1405,7 +1423,8 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsMissingProfileWarning(t *testing
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
 	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_missing")
 	if profileItem == nil || profileItem.Included || profileItem.Section != contextSectionProfile {
 		t.Fatalf("profile item = %+v, want excluded missing profile item", profileItem)
@@ -1476,9 +1495,10 @@ func TestProjectWorkAPI_StartAssignmentKeepsExplicitModelEqualToRouterDefault(t 
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
 	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
 	}
 	if task.RequestedModel != "qwen2.5-coder" {
 		t.Fatalf("task requested model = %q, want explicit project default", task.RequestedModel)
@@ -1524,9 +1544,10 @@ func TestProjectWorkAPI_StartAssignmentKeepsExplicitRoleModelEqualToRouterDefaul
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
 	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
 	}
 	if task.RequestedModel != "qwen2.5-coder" {
 		t.Fatalf("task requested model = %q, want explicit role default", task.RequestedModel)
@@ -1569,8 +1590,11 @@ func TestProjectWorkAPI_AssignmentContextFallsBackToLinkedChatPacket(t *testing.
 		t.Fatalf("Append linked message: %v", err)
 	}
 	if _, err := handler.projectWork.UpdateAssignment(t.Context(), "proj_start", "asgn_start", func(item *projectwork.Assignment) {
-		item.ChatSessionID = "chat_linked"
-		item.MessageID = "msg_linked"
+		item.ExecutionRef = projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_linked",
+			MessageID:     "msg_linked",
+		}
 	}); err != nil {
 		t.Fatalf("Update assignment links: %v", err)
 	}
@@ -1601,9 +1625,10 @@ func TestProjectWorkAPI_StartAssignmentFallsBackToProjectDefaults(t *testing.T) 
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
 	if err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
 	}
 	if task.RequestedProvider != "ollama" || task.RequestedModel != "qwen2.5-coder" || task.ExecutionProfile != "project_review" {
 		t.Fatalf("task provider/model/profile = %q/%q/%q, want project defaults", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
@@ -1781,8 +1806,10 @@ func TestProjectWorkAPI_StartAssignmentRepeatedReturnsCurrentAssignment(t *testi
 	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
 		t.Fatalf("decode second assignment: %v", err)
 	}
-	if second.Data.TaskID != first.Data.TaskID || second.Data.RunID != first.Data.RunID {
-		t.Fatalf("second assignment links = %q/%q, want existing %q/%q", second.Data.TaskID, second.Data.RunID, first.Data.TaskID, first.Data.RunID)
+	firstRef := assignmentExecutionRefForTest(t, first.Data)
+	secondRef := assignmentExecutionRefForTest(t, second.Data)
+	if secondRef.TaskID != firstRef.TaskID || secondRef.RunID != firstRef.RunID {
+		t.Fatalf("second assignment execution_ref = %+v, want existing %+v", secondRef, firstRef)
 	}
 	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
 	if err != nil {
@@ -1810,8 +1837,9 @@ func TestProjectWorkAPI_StartAssignmentActiveConflictBeatsModelValidation(t *tes
 	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
 		t.Fatalf("decode first assignment: %v", err)
 	}
-	if first.Data.TaskID == "" || first.Data.RunID == "" {
-		t.Fatalf("first assignment links = %q/%q, want task and run", first.Data.TaskID, first.Data.RunID)
+	firstRef := assignmentExecutionRefForTest(t, first.Data)
+	if firstRef.TaskID == "" || firstRef.RunID == "" {
+		t.Fatalf("first assignment execution_ref = %+v, want task and run", firstRef)
 	}
 
 	handler.config.Router.DefaultModel = ""
@@ -1837,8 +1865,9 @@ func TestProjectWorkAPI_StartAssignmentActiveConflictBeatsModelValidation(t *tes
 	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
 		t.Fatalf("decode second assignment: %v", err)
 	}
-	if second.Data.TaskID != first.Data.TaskID || second.Data.RunID != first.Data.RunID {
-		t.Fatalf("second assignment links = %q/%q, want existing %q/%q", second.Data.TaskID, second.Data.RunID, first.Data.TaskID, first.Data.RunID)
+	secondRef := assignmentExecutionRefForTest(t, second.Data)
+	if secondRef.TaskID != firstRef.TaskID || secondRef.RunID != firstRef.RunID {
+		t.Fatalf("second assignment execution_ref = %+v, want existing %+v", secondRef, firstRef)
 	}
 }
 
@@ -1929,8 +1958,9 @@ func TestProjectWorkAPI_StartAssignmentTerminalReturnsCurrentAssignment(t *testi
 	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
 		t.Fatalf("decode assignment: %v", err)
 	}
-	if assignment.Data.TaskID != "task_existing" || assignment.Data.RunID != "run_existing" {
-		t.Fatalf("terminal assignment links = %q/%q, want existing links", assignment.Data.TaskID, assignment.Data.RunID)
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	if ref.TaskID != "task_existing" || ref.RunID != "run_existing" {
+		t.Fatalf("terminal assignment execution_ref = %+v, want existing links", ref)
 	}
 	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
 	if err != nil {
@@ -1965,8 +1995,8 @@ func TestProjectWorkAPI_StartAssignmentPreservesTaskLinkWhenStartFails(t *testin
 		t.Fatalf("assignments = %+v, want one assignment", assignments)
 	}
 	assignment := assignments[0]
-	if assignment.TaskID == "" {
-		t.Fatalf("assignment task_id is empty, want preserved task link")
+	if assignment.ExecutionRef.TaskID == "" {
+		t.Fatalf("assignment execution_ref = %+v, want preserved task link", assignment.ExecutionRef)
 	}
 	if assignment.Status != projectwork.AssignmentStatusFailed {
 		t.Fatalf("assignment status = %q, want failed", assignment.Status)
@@ -1974,8 +2004,8 @@ func TestProjectWorkAPI_StartAssignmentPreservesTaskLinkWhenStartFails(t *testin
 	if assignment.CompletedAt.IsZero() {
 		t.Fatalf("assignment completed_at is zero, want failure timestamp")
 	}
-	if _, found, err := handler.taskStore.GetTask(t.Context(), assignment.TaskID); err != nil || !found {
-		t.Fatalf("GetTask(%q) found=%v err=%v, want preserved task", assignment.TaskID, found, err)
+	if _, found, err := handler.taskStore.GetTask(t.Context(), assignment.ExecutionRef.TaskID); err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want preserved task", assignment.ExecutionRef.TaskID, found, err)
 	}
 }
 
@@ -2001,8 +2031,8 @@ func TestProjectWorkAPI_StartAssignmentClearsClaimWhenTaskCreateFails(t *testing
 		t.Fatalf("assignments = %+v, want one assignment", assignments)
 	}
 	assignment := assignments[0]
-	if assignment.TaskID != "" || assignment.RunID != "" {
-		t.Fatalf("assignment links = %q/%q, want cleared task/run links", assignment.TaskID, assignment.RunID)
+	if assignment.ExecutionRef.TaskID != "" || assignment.ExecutionRef.RunID != "" {
+		t.Fatalf("assignment execution_ref = %+v, want cleared task/run links", assignment.ExecutionRef)
 	}
 	if assignment.Status != projectwork.AssignmentStatusQueued {
 		t.Fatalf("assignment status = %q, want queued for retry", assignment.Status)
@@ -2072,10 +2102,11 @@ func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 			assertProjectWorkStatusForTest(t, server, "work_missing", projectwork.WorkItemStatusReady)
 
 			runOnly := getProjectWorkAssignmentForTest(t, server, "work_run_only", "asgn_run_only")
-			if runOnly.Status != projectwork.AssignmentStatusQueued || runOnly.RunID == "" || runOnly.Execution != nil {
+			runOnlyRef := assignmentExecutionRefForTest(t, runOnly)
+			if runOnly.Status != projectwork.AssignmentStatusQueued || runOnlyRef.RunID == "" || runOnly.Execution != nil {
 				t.Fatalf("run-only assignment = %+v, want stored queued status without execution projection", runOnly)
 			}
-			if runOnly.ExecutionRef == nil || runOnly.ExecutionRef.Kind != "task_run" || runOnly.ExecutionRef.RunID != runOnly.RunID {
+			if runOnlyRef.Kind != "task_run" {
 				t.Fatalf("run-only execution_ref = %+v, want raw run ref", runOnly.ExecutionRef)
 			}
 			assertProjectWorkStatusForTest(t, server, "work_run_only", projectwork.WorkItemStatusReady)
@@ -2319,8 +2350,11 @@ func seedProjectWorkAssignmentStartTest(t *testing.T, handler *Handler, seed pro
 		RoleID:     "role_backend",
 		DriverKind: seed.Driver,
 		Status:     seed.Status,
-		TaskID:     seed.TaskID,
-		RunID:      seed.RunID,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionRefKind(seed.TaskID, seed.RunID, "", "", ""),
+			TaskID: seed.TaskID,
+			RunID:  seed.RunID,
+		},
 	}); err != nil {
 		t.Fatalf("CreateAssignment: %v", err)
 	}
@@ -2419,80 +2453,98 @@ func seedProjectWorkExternalChatProjectionCase(t *testing.T, handler *Handler) {
 		t.Fatalf("CreateWorkItem(work_external_chat): %v", err)
 	}
 	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
-		ID:            "asgn_external_chat",
-		ProjectID:     "proj_projection",
-		WorkItemID:    "work_external_chat",
-		RoleID:        "role_projection",
-		DriverKind:    projectwork.AssignmentDriverExternalAgent,
-		Status:        projectwork.AssignmentStatusRunning,
-		ChatSessionID: "chat_external_projection",
-		CreatedAt:     createdAt,
-		UpdatedAt:     createdAt,
+		ID:         "asgn_external_chat",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_external_chat",
+		RoleID:     "role_projection",
+		DriverKind: projectwork.AssignmentDriverExternalAgent,
+		Status:     projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_external_projection",
+		},
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_external_chat): %v", err)
 	}
 	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
-		ID:            "asgn_missing_chat",
-		ProjectID:     "proj_projection",
-		WorkItemID:    "work_external_chat",
-		RoleID:        "role_projection",
-		DriverKind:    projectwork.AssignmentDriverExternalAgent,
-		Status:        projectwork.AssignmentStatusRunning,
-		ChatSessionID: "chat_external_missing",
-		CreatedAt:     createdAt,
-		UpdatedAt:     createdAt,
+		ID:         "asgn_missing_chat",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_external_chat",
+		RoleID:     "role_projection",
+		DriverKind: projectwork.AssignmentDriverExternalAgent,
+		Status:     projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_external_missing",
+		},
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_missing_chat): %v", err)
 	}
 	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
-		ID:            "asgn_failed_chat",
-		ProjectID:     "proj_projection",
-		WorkItemID:    "work_external_chat",
-		RoleID:        "role_projection",
-		DriverKind:    projectwork.AssignmentDriverExternalAgent,
-		Status:        projectwork.AssignmentStatusRunning,
-		ChatSessionID: "chat_external_failed",
-		CreatedAt:     createdAt,
-		UpdatedAt:     createdAt,
+		ID:         "asgn_failed_chat",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_external_chat",
+		RoleID:     "role_projection",
+		DriverKind: projectwork.AssignmentDriverExternalAgent,
+		Status:     projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_external_failed",
+		},
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_failed_chat): %v", err)
 	}
 	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
-		ID:            "asgn_prepared_chat",
-		ProjectID:     "proj_projection",
-		WorkItemID:    "work_external_chat",
-		RoleID:        "role_projection",
-		DriverKind:    projectwork.AssignmentDriverExternalAgent,
-		Status:        projectwork.AssignmentStatusRunning,
-		ChatSessionID: "chat_external_prepared",
-		CreatedAt:     createdAt,
-		UpdatedAt:     createdAt,
+		ID:         "asgn_prepared_chat",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_external_chat",
+		RoleID:     "role_projection",
+		DriverKind: projectwork.AssignmentDriverExternalAgent,
+		Status:     projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_external_prepared",
+		},
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_prepared_chat): %v", err)
 	}
 	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
-		ID:            "asgn_cross_project_chat",
-		ProjectID:     "proj_projection",
-		WorkItemID:    "work_external_chat",
-		RoleID:        "role_projection",
-		DriverKind:    projectwork.AssignmentDriverExternalAgent,
-		Status:        projectwork.AssignmentStatusRunning,
-		ChatSessionID: "chat_external_other_project",
-		CreatedAt:     createdAt,
-		UpdatedAt:     createdAt,
+		ID:         "asgn_cross_project_chat",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_external_chat",
+		RoleID:     "role_projection",
+		DriverKind: projectwork.AssignmentDriverExternalAgent,
+		Status:     projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_external_other_project",
+		},
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_cross_project_chat): %v", err)
 	}
 	if _, err := handler.projectWork.CreateAssignment(ctx, projectwork.Assignment{
-		ID:            "asgn_error_chat",
-		ProjectID:     "proj_projection",
-		WorkItemID:    "work_external_chat",
-		RoleID:        "role_projection",
-		DriverKind:    projectwork.AssignmentDriverExternalAgent,
-		Status:        projectwork.AssignmentStatusRunning,
-		ChatSessionID: "chat_external_error",
-		CreatedAt:     createdAt,
-		UpdatedAt:     createdAt,
+		ID:         "asgn_error_chat",
+		ProjectID:  "proj_projection",
+		WorkItemID: "work_external_chat",
+		RoleID:     "role_projection",
+		DriverKind: projectwork.AssignmentDriverExternalAgent,
+		Status:     projectwork.AssignmentStatusRunning,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:          projectwork.AssignmentExecutionKindChatSession,
+			ChatSessionID: "chat_external_error",
+		},
+		CreatedAt: createdAt,
+		UpdatedAt: createdAt,
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_error_chat): %v", err)
 	}
@@ -2580,7 +2632,10 @@ func seedProjectWorkRunOnlyProjectionCase(t *testing.T, handler *Handler) {
 		RoleID:     "role_projection",
 		DriverKind: projectwork.AssignmentDriverHecateTask,
 		Status:     projectwork.AssignmentStatusQueued,
-		RunID:      "run_without_task",
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:  projectwork.AssignmentExecutionKindTaskRun,
+			RunID: "run_without_task",
+		},
 	}); err != nil {
 		t.Fatalf("CreateAssignment(asgn_run_only): %v", err)
 	}
@@ -2657,10 +2712,13 @@ func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assig
 		RoleID:     "role_projection",
 		DriverKind: projectwork.AssignmentDriverHecateTask,
 		Status:     assignmentStatus,
-		TaskID:     taskID,
-		RunID:      runID,
-		CreatedAt:  assignmentUpdated,
-		UpdatedAt:  assignmentUpdated,
+		ExecutionRef: projectwork.AssignmentExecutionRef{
+			Kind:   projectwork.AssignmentExecutionRefKind(taskID, runID, "", "", ""),
+			TaskID: taskID,
+			RunID:  runID,
+		},
+		CreatedAt: assignmentUpdated,
+		UpdatedAt: assignmentUpdated,
 	}); err != nil {
 		t.Fatalf("CreateAssignment(%s): %v", assignmentID, err)
 	}
@@ -2756,6 +2814,14 @@ func getProjectWorkAssignmentForTest(t *testing.T, server http.Handler, workID, 
 	}
 	t.Fatalf("assignment %s not found in %+v", assignmentID, response.Data)
 	return ProjectWorkAssignmentResponse{}
+}
+
+func assignmentExecutionRefForTest(t *testing.T, assignment ProjectWorkAssignmentResponse) ProjectWorkAssignmentExecutionRefResponse {
+	t.Helper()
+	if assignment.ExecutionRef == nil {
+		t.Fatalf("assignment %q execution_ref is nil", assignment.ID)
+	}
+	return *assignment.ExecutionRef
 }
 
 func assertProjectWorkStatusForTest(t *testing.T, server http.Handler, workID, want string) {

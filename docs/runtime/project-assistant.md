@@ -89,9 +89,9 @@ permission model.
   install skills, run scripts, grant tools, or change approval policy. Disabled,
   missing, invalid, or conflicting skills are skipped with warnings.
 - Assignment proposals create unstarted queued assignments. They cannot attach
-  execution evidence or links such as `task_id`, `run_id`, `chat_session_id`,
-  `message_id`, or `context_snapshot_id`; linking existing execution later
-  needs a separate explicit same-project action.
+  execution evidence or links such as `execution_ref`, `task_id`, `run_id`,
+  `chat_session_id`, `message_id`, or `context_snapshot_id`; linking existing
+  execution later needs a separate explicit same-project action.
 - Assistant code does not perform raw filesystem, shell, or Git access.
   Workspace-bound behavior must use WorkspaceFS, ProcessRunner, GitRunner, or
   existing task-runtime paths.
@@ -484,12 +484,13 @@ Drafting a proposal does not create a chat session, task, run, or assignment.
 Applying a proposal may create durable project records such as work items or
 queued assignments, but a queued assignment still does not start execution.
 Task/chat execution starts only through the assignment start flow, which may
-then attach `task_id`, `run_id`, or `chat_session_id` links to the assignment.
+then attach `execution_ref.task_id`, `execution_ref.run_id`, or
+`execution_ref.chat_session_id` links to the assignment.
 For `external_agent` assignments, "start" means "prepare the linked chat":
 Hecate creates and prepares the External Agent session, stores the assignment
-context packet, and links `chat_session_id`, but it does not append a visible
-chat message or send the first prompt. The operator sends that first prompt
-from Chats after reviewing the prepared session.
+context packet, and links `execution_ref.chat_session_id`, but it does not
+append a visible chat message or send the first prompt. The operator sends that
+first prompt from Chats after reviewing the prepared session.
 
 Project-launched Hecate chat drafts reuse an existing matching 0-message idle
 chat instead of creating another empty chat row. Once the operator sends a
