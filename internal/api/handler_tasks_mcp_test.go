@@ -44,22 +44,22 @@ func TestNormalizeMCPServerConfigs_Validation(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		desc    string
-		items   []MCPServerConfigItem
+		items   []taskMCPServerCommand
 		wantErr string
 	}{
 		{
 			desc:    "empty name",
-			items:   []MCPServerConfigItem{{Name: "", Command: "npx"}},
+			items:   []taskMCPServerCommand{{Name: "", Command: "npx"}},
 			wantErr: "name is required",
 		},
 		{
 			desc:    "empty command and url",
-			items:   []MCPServerConfigItem{{Name: "fs", Command: ""}},
+			items:   []taskMCPServerCommand{{Name: "fs", Command: ""}},
 			wantErr: "either command or url is required",
 		},
 		{
 			desc: "duplicate name",
-			items: []MCPServerConfigItem{
+			items: []taskMCPServerCommand{
 				{Name: "fs", Command: "npx"},
 				{Name: "fs", Command: "uvx"},
 			},
@@ -67,7 +67,7 @@ func TestNormalizeMCPServerConfigs_Validation(t *testing.T) {
 		},
 		{
 			desc: "invalid approval_policy value",
-			items: []MCPServerConfigItem{
+			items: []taskMCPServerCommand{
 				{Name: "gh", Command: "npx", ApprovalPolicy: "yolo"},
 			},
 			wantErr: "approval_policy",
@@ -91,7 +91,7 @@ func TestNormalizeMCPServerConfigs_Validation(t *testing.T) {
 func TestNormalizeMCPServerConfigs_RefPassesThrough(t *testing.T) {
 	t.Parallel()
 	for _, cipher := range []secrets.Cipher{nil, newTestCipherForAPI(t)} {
-		items := []MCPServerConfigItem{
+		items := []taskMCPServerCommand{
 			{Name: "gh", Command: "npx", Env: map[string]string{"TOKEN": "$GITHUB_TOKEN"}},
 		}
 		out, err := normalizeMCPServerConfigs(items, cipher, 0)
@@ -109,7 +109,7 @@ func TestNormalizeMCPServerConfigs_RefPassesThrough(t *testing.T) {
 // haven't configured a key continue to work.
 func TestNormalizeMCPServerConfigs_NoCipherLiteralStoredAsIs(t *testing.T) {
 	t.Parallel()
-	items := []MCPServerConfigItem{
+	items := []taskMCPServerCommand{
 		{Name: "gh", Command: "npx", Env: map[string]string{"TOKEN": "plaintext-secret"}},
 	}
 	out, err := normalizeMCPServerConfigs(items, nil, 0)
@@ -127,7 +127,7 @@ func TestNormalizeMCPServerConfigs_NoCipherLiteralStoredAsIs(t *testing.T) {
 func TestNormalizeMCPServerConfigs_CipherEncryptsLiteral(t *testing.T) {
 	t.Parallel()
 	cipher := newTestCipherForAPI(t)
-	items := []MCPServerConfigItem{
+	items := []taskMCPServerCommand{
 		{Name: "gh", Command: "npx", Env: map[string]string{"TOKEN": "my-plaintext-token"}},
 	}
 	out, err := normalizeMCPServerConfigs(items, cipher, 0)
@@ -156,7 +156,7 @@ func TestNormalizeMCPServerConfigs_AlreadyEncryptedPassesThrough(t *testing.T) {
 	ct, _ := cipher.Encrypt("secret")
 	already := types.MCPEnvEncPrefix + ct
 
-	items := []MCPServerConfigItem{
+	items := []taskMCPServerCommand{
 		{Name: "gh", Command: "npx", Env: map[string]string{"TOKEN": already}},
 	}
 	out, err := normalizeMCPServerConfigs(items, cipher, 0)
@@ -225,7 +225,7 @@ func TestNormalizeMCPServerConfigs_ApprovalPolicyAccepted(t *testing.T) {
 	cases := []string{"", types.MCPApprovalAuto, types.MCPApprovalRequireApproval, types.MCPApprovalBlock}
 	for _, policy := range cases {
 		t.Run("policy="+policy, func(t *testing.T) {
-			items := []MCPServerConfigItem{
+			items := []taskMCPServerCommand{
 				{Name: "gh", Command: "npx", ApprovalPolicy: policy},
 			}
 			out, err := normalizeMCPServerConfigs(items, nil, 0)
@@ -257,10 +257,10 @@ func TestRenderMCPServerConfigs_ApprovalPolicyShownVerbatim(t *testing.T) {
 // stdio server per index. Handy for the cap tests: the validation
 // only counts entries, the per-row content doesn't matter beyond
 // passing the structural checks (non-empty name, command set).
-func makeMCPItems(n int) []MCPServerConfigItem {
-	out := make([]MCPServerConfigItem, n)
+func makeMCPItems(n int) []taskMCPServerCommand {
+	out := make([]taskMCPServerCommand, n)
 	for i := range out {
-		out[i] = MCPServerConfigItem{
+		out[i] = taskMCPServerCommand{
 			Name:    fmt.Sprintf("srv-%d", i),
 			Command: "npx",
 		}

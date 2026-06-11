@@ -103,7 +103,7 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := h.taskApplication().ResolveTaskApproval(ctx, orchestrator.ResolveApprovalRequest{
+	result, err := h.taskApplication().ResolveTaskApproval(ctx, taskResolveApprovalCommand{
 		Task:       task,
 		ApprovalID: approvalID,
 		Decision:   req.Decision,
@@ -221,7 +221,10 @@ func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := h.taskApplication().ResumeTaskRun(ctx, task, run, req)
+	result, err := h.taskApplication().ResumeTaskRun(ctx, task, run, taskResumeCommand{
+		Reason:          req.Reason,
+		BudgetMicrosUSD: req.BudgetMicrosUSD,
+	})
 	if err != nil {
 		if h.writeTaskLifecycleAppError(w, err) {
 			return
@@ -290,7 +293,10 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := h.taskApplication().RetryTaskRunFromTurn(ctx, task, run, req)
+	result, err := h.taskApplication().RetryTaskRunFromTurn(ctx, task, run, taskRetryFromTurnCommand{
+		Turn:   req.Turn,
+		Reason: req.Reason,
+	})
 	if err != nil {
 		if h.writeTaskLifecycleAppError(w, err) {
 			return

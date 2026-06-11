@@ -147,7 +147,7 @@ func TestTaskApplication_CreateTaskAppliesDefaults(t *testing.T) {
 	store := taskstate.NewMemoryStore()
 	app := newTestTaskApplication(store, &recordingTaskApplicationRunner{})
 
-	task, err := app.CreateTask(ctx, CreateTaskRequest{
+	task, err := app.CreateTask(ctx, taskCreateCommand{
 		Prompt:           "  Build the repo  ",
 		ExecutionProfile: "repo_local",
 		Repo:             "/tmp/hecate",
@@ -189,7 +189,7 @@ func TestTaskApplication_CreateTaskValidatesProject(t *testing.T) {
 	store := taskstate.NewMemoryStore()
 	app := newTestTaskApplication(store, nil)
 
-	_, err := app.CreateTask(ctx, CreateTaskRequest{
+	_, err := app.CreateTask(ctx, taskCreateCommand{
 		Prompt:    "Use project context",
 		ProjectID: "proj_missing_store",
 	})
@@ -199,7 +199,7 @@ func TestTaskApplication_CreateTaskValidatesProject(t *testing.T) {
 
 	projectStore := projects.NewMemoryStore()
 	app = newTestTaskApplicationWithProjects(store, nil, projectStore)
-	_, err = app.CreateTask(ctx, CreateTaskRequest{
+	_, err = app.CreateTask(ctx, taskCreateCommand{
 		Prompt:    "Use project context",
 		ProjectID: "proj_missing",
 	})
@@ -210,7 +210,7 @@ func TestTaskApplication_CreateTaskValidatesProject(t *testing.T) {
 	if _, err := projectStore.Create(ctx, projects.Project{ID: "proj_1", Name: "Project One"}); err != nil {
 		t.Fatalf("Create project: %v", err)
 	}
-	task, err := app.CreateTask(ctx, CreateTaskRequest{
+	task, err := app.CreateTask(ctx, taskCreateCommand{
 		Prompt:    "Use project context",
 		ProjectID: " proj_1 ",
 	})
@@ -228,11 +228,11 @@ func TestTaskApplication_CreateTaskValidation(t *testing.T) {
 	ctx := context.Background()
 	app := newTestTaskApplication(taskstate.NewMemoryStore(), nil)
 
-	if _, err := app.CreateTask(ctx, CreateTaskRequest{}); !errors.Is(err, errTaskPromptRequired) {
+	if _, err := app.CreateTask(ctx, taskCreateCommand{}); !errors.Is(err, errTaskPromptRequired) {
 		t.Fatalf("CreateTask(agent_loop without prompt) error = %v, want errTaskPromptRequired", err)
 	}
 
-	task, err := app.CreateTask(ctx, CreateTaskRequest{
+	task, err := app.CreateTask(ctx, taskCreateCommand{
 		ExecutionKind: "shell",
 		ShellCommand:  "printf ok",
 	})
@@ -249,7 +249,7 @@ func TestTaskApplication_NilStoreAndRunnerErrors(t *testing.T) {
 
 	ctx := context.Background()
 	app := newTaskApplication(taskApplicationOptions{})
-	if _, err := app.CreateTask(ctx, CreateTaskRequest{Prompt: "x"}); !errors.Is(err, errTaskStoreNotConfigured) {
+	if _, err := app.CreateTask(ctx, taskCreateCommand{Prompt: "x"}); !errors.Is(err, errTaskStoreNotConfigured) {
 		t.Fatalf("CreateTask(nil store) error = %v, want errTaskStoreNotConfigured", err)
 	}
 	if _, err := app.ListTasks(ctx, taskstate.TaskFilter{}); !errors.Is(err, errTaskStoreNotConfigured) {
@@ -275,7 +275,7 @@ func TestTaskApplication_NilStoreAndRunnerErrors(t *testing.T) {
 	if _, err := app.StartTask(ctx, types.Task{ID: "task"}); !errors.Is(err, errTaskRunnerNotConfigured) {
 		t.Fatalf("StartTask(nil runner) error = %v, want errTaskRunnerNotConfigured", err)
 	}
-	if _, err := app.ResolveTaskApproval(ctx, orchestrator.ResolveApprovalRequest{}); !errors.Is(err, errTaskRunnerNotConfigured) {
+	if _, err := app.ResolveTaskApproval(ctx, taskResolveApprovalCommand{}); !errors.Is(err, errTaskRunnerNotConfigured) {
 		t.Fatalf("ResolveTaskApproval(nil runner) error = %v, want errTaskRunnerNotConfigured", err)
 	}
 }
@@ -374,7 +374,7 @@ func TestTaskApplication_LifecycleRejectsOtherActiveRunBeforeRunner(t *testing.T
 		{
 			name: "resume",
 			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
-				_, err := app.ResumeTaskRun(ctx, task, run, ResumeTaskRunRequest{Reason: "try again"})
+				_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{Reason: "try again"})
 				return err
 			},
 		},
@@ -388,7 +388,7 @@ func TestTaskApplication_LifecycleRejectsOtherActiveRunBeforeRunner(t *testing.T
 		{
 			name: "retry_from_turn",
 			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
-				_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnRequest{Turn: 1, Reason: "rewind"})
+				_, err := app.RetryTaskRunFromTurn(ctx, task, run, taskRetryFromTurnCommand{Turn: 1, Reason: "rewind"})
 				return err
 			},
 		},
@@ -441,7 +441,7 @@ func TestTaskApplication_LifecycleValidationPrecedesRunnerConfiguration(t *testi
 		{
 			name: "resume_nonterminal",
 			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
-				_, err := app.ResumeTaskRun(ctx, task, run, ResumeTaskRunRequest{Reason: "try again"})
+				_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{Reason: "try again"})
 				return err
 			},
 			want: errTaskRunNotResumable,
@@ -449,7 +449,7 @@ func TestTaskApplication_LifecycleValidationPrecedesRunnerConfiguration(t *testi
 		{
 			name: "turn_retry_nonterminal",
 			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
-				_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnRequest{Turn: 1})
+				_, err := app.RetryTaskRunFromTurn(ctx, task, run, taskRetryFromTurnCommand{Turn: 1})
 				return err
 			},
 			want: errTaskRunNotTurnRetryable,
@@ -459,7 +459,7 @@ func TestTaskApplication_LifecycleValidationPrecedesRunnerConfiguration(t *testi
 			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
 				run.Status = "failed"
 				task.BudgetMicrosUSD = 500
-				_, err := app.ResumeTaskRun(ctx, task, run, ResumeTaskRunRequest{BudgetMicrosUSD: 100})
+				_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{BudgetMicrosUSD: 100})
 				return err
 			},
 			want: errTaskHasOtherActiveRun,
@@ -512,7 +512,7 @@ func TestTaskApplication_ResumeLowerBudgetPrecedesRunnerConfiguration(t *testing
 	})
 	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: task.LatestRunID, TaskID: task.ID, Status: "failed"})
 
-	_, err := app.ResumeTaskRun(ctx, task, run, ResumeTaskRunRequest{BudgetMicrosUSD: 100})
+	_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{BudgetMicrosUSD: 100})
 	if !errors.Is(err, errTaskBudgetLower) {
 		t.Fatalf("ResumeTaskRun(lower budget, nil runner) error = %v, want errTaskBudgetLower", err)
 	}
@@ -527,7 +527,7 @@ func TestTaskApplication_RetryFromTurnValidatesTurnBeforeRunner(t *testing.T) {
 	task := createTaskForAppTest(t, ctx, store, types.Task{ID: "task_turn", Status: "failed"})
 	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_failed", TaskID: task.ID, Status: "failed"})
 
-	_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnRequest{Turn: 0})
+	_, err := app.RetryTaskRunFromTurn(ctx, task, run, taskRetryFromTurnCommand{Turn: 0})
 	if !errors.Is(err, errTaskTurnRequired) || !isTaskValidationError(err) {
 		t.Fatalf("RetryTaskRunFromTurn(turn 0) error = %v, want task validation errTaskTurnRequired", err)
 	}
@@ -553,7 +553,7 @@ func TestTaskApplication_ResumeRaisesBudgetBeforeRunner(t *testing.T) {
 	createTaskForAppTest(t, ctx, store, task)
 	createRunForAppTest(t, ctx, store, run)
 
-	_, err := app.ResumeTaskRun(ctx, task, run, ResumeTaskRunRequest{
+	_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{
 		Reason:          "raise ceiling",
 		BudgetMicrosUSD: 250,
 	})
@@ -593,7 +593,7 @@ func TestTaskApplication_ResumeRejectsLowerBudgetBeforeRunner(t *testing.T) {
 	})
 	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: task.LatestRunID, TaskID: task.ID, Status: "failed"})
 
-	_, err := app.ResumeTaskRun(ctx, task, run, ResumeTaskRunRequest{BudgetMicrosUSD: 100})
+	_, err := app.ResumeTaskRun(ctx, task, run, taskResumeCommand{BudgetMicrosUSD: 100})
 	if !errors.Is(err, errTaskBudgetLower) {
 		t.Fatalf("ResumeTaskRun(lower budget) error = %v, want errTaskBudgetLower", err)
 	}
@@ -636,7 +636,7 @@ func TestTaskApplication_ResolveApprovalEnrichesRequest(t *testing.T) {
 	app := newTestTaskApplication(taskstate.NewMemoryStore(), runner)
 	task := types.Task{ID: "task_approval"}
 
-	_, err := app.ResolveTaskApproval(ctx, orchestrator.ResolveApprovalRequest{
+	_, err := app.ResolveTaskApproval(ctx, taskResolveApprovalCommand{
 		Task:       task,
 		ApprovalID: "approval_1",
 		Decision:   "approve",
