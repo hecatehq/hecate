@@ -681,6 +681,12 @@ describe("ConsoleShell navigation", () => {
       status: "running",
       chat_session_id: "chat_external_1",
       context_snapshot_id: "ctx_external_1",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_external_1",
+        context_snapshot_id: "ctx_external_1",
+        status: "running",
+      },
       created_at: "2026-06-02T10:00:00Z",
       updated_at: "2026-06-02T11:00:00Z",
     };
