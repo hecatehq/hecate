@@ -111,7 +111,7 @@ func (r *Runner) applyTerminalRunTransition(ctx context.Context, tr terminalRunT
 	var taskUpdatedEvent *taskstate.RunEventSpec
 	if tr.EmitTaskUpdated {
 		taskUpdatedEvent = &taskstate.RunEventSpec{
-			EventType: "task.updated",
+			EventType: runtimeevents.EventTaskUpdated.String(),
 			RequestID: tr.RequestID,
 			TraceID:   tr.TraceID,
 			CreatedAt: tr.Now,

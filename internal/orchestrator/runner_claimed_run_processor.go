@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -141,7 +142,7 @@ func (p *claimedRunProcessor) startClaimedRun(ctx context.Context) bool {
 func (p *claimedRunProcessor) emitRunStarted(ctx context.Context) *ResumeCheckpoint {
 	resumeCheckpoint, checkpointErr := p.runner.resumeCheckpointForRun(ctx, p.task.ID, p.run.ID)
 	if checkpointErr != nil {
-		_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, "gap.run_disconnected", p.requestID, p.trace.TraceID, map[string]any{
+		_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, runtimeevents.EventGapRunDisconnected.String(), p.requestID, p.trace.TraceID, map[string]any{
 			"reason":  "resume_checkpoint_unavailable",
 			"action":  "start_fresh",
 			"message": checkpointErr.Error(),
@@ -153,7 +154,7 @@ func (p *claimedRunProcessor) emitRunStarted(ctx context.Context) *ResumeCheckpo
 		runEvent["resume_from_step_id"] = resumeCheckpoint.LastCompletedStepID
 		runEvent["resume_from_event_sequence"] = resumeCheckpoint.LastEventSequence
 	}
-	_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, "run.started", p.requestID, p.trace.TraceID, runEvent)
+	_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, runtimeevents.EventRunStarted.String(), p.requestID, p.trace.TraceID, runEvent)
 	return resumeCheckpoint
 }
 

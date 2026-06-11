@@ -5,12 +5,39 @@ import "github.com/hecatehq/hecate/pkg/types"
 type EventType string
 
 const (
+	EventRunCreated          EventType = "run.created"
+	EventRunQueued           EventType = "run.queued"
+	EventRunStarted          EventType = "run.started"
+	EventRunAwaitingApproval EventType = "run.awaiting_approval"
+	EventRunResumedFromEvent EventType = "run.resumed_from_event"
+	EventRunFinished         EventType = "run.finished"
+	EventRunFailed           EventType = "run.failed"
+	EventRunCancelled        EventType = "run.cancelled"
+	EventTaskUpdated         EventType = "task.updated"
+	EventGapRunDisconnected  EventType = "gap.run_disconnected"
+
+	EventTurnStarted   EventType = "turn.started"
+	EventTurnCompleted EventType = "turn.completed"
+
+	EventAssistantTextComplete     EventType = "assistant.text_complete"
+	EventAssistantToolCallProposed EventType = "assistant.tool_call_proposed"
+	EventAssistantFinalAnswer      EventType = "assistant.final_answer"
+
+	EventToolInvoked          EventType = "tool.invoked"
+	EventToolStarted          EventType = "tool.started"
+	EventToolShellCommand     EventType = "tool.shell.command"
+	EventToolShellOutputChunk EventType = "tool.shell.output_chunk"
+	EventToolShellExited      EventType = "tool.shell.exited"
+	EventToolCompleted        EventType = "tool.completed"
+	EventToolTimedOut         EventType = "tool.timed_out"
+	EventToolCancelled        EventType = "tool.cancelled"
+	EventToolFailed           EventType = "tool.failed"
+	EventFilePatch            EventType = "tool.file.patch"
+	EventPatchApplied         EventType = "tool.file.applied"
+	EventPatchReverted        EventType = "tool.file.reverted"
+
 	EventApprovalRequested EventType = "approval.requested"
 	EventApprovalResolved  EventType = "approval.resolved"
-	EventTurnCompleted     EventType = "turn.completed"
-	EventFilePatch         EventType = "tool.file.patch"
-	EventPatchApplied      EventType = "tool.file.applied"
-	EventPatchReverted     EventType = "tool.file.reverted"
 )
 
 func (t EventType) String() string {

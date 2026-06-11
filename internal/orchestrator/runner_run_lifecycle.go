@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -16,7 +17,7 @@ type disconnectedRunRequeueOptions struct {
 }
 
 func (r *Runner) emitRunQueuedAndEnqueue(ctx context.Context, taskID, runID, requestID, traceID string, eventData map[string]any) error {
-	_, _ = r.emitRunEvent(ctx, taskID, runID, "run.queued", requestID, traceID, eventData)
+	_, _ = r.emitRunEvent(ctx, taskID, runID, runtimeevents.EventRunQueued.String(), requestID, traceID, eventData)
 	return r.enqueueRun(taskID, runID)
 }
 
@@ -50,6 +51,6 @@ func (r *Runner) requeueDisconnectedRun(ctx context.Context, task types.Task, ru
 	for key, value := range opts.Extra {
 		data[key] = value
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "gap.run_disconnected", opts.RequestID, opts.TraceID, data)
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventGapRunDisconnected.String(), opts.RequestID, opts.TraceID, data)
 	_ = r.enqueueRun(task.ID, run.ID)
 }

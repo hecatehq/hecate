@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspace"
@@ -634,7 +635,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		recordOrchestratorRunFailed(trace, task.ID, run.ID, "run_create_failed", err)
 		return nil, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.created", requestID, trace.TraceID, nil)
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunCreated.String(), requestID, trace.TraceID, nil)
 	if options.ResumeFromRun != nil {
 		resumedData := map[string]any{
 			"resumed_from_run_id": options.ResumeFromRun.ID,
@@ -646,7 +647,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		if options.RetryFromTurn > 0 {
 			resumedData["retry_from_turn"] = options.RetryFromTurn
 		}
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.resumed_from_event", requestID, trace.TraceID, resumedData)
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunResumedFromEvent.String(), requestID, trace.TraceID, resumedData)
 	}
 
 	recordOrchestratorRunStarted(trace, task.ID, run)
@@ -671,7 +672,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		if err != nil {
 			return nil, err
 		}
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.awaiting_approval", requestID, trace.TraceID, nil)
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventRunAwaitingApproval.String(), requestID, trace.TraceID, nil)
 		task.Status = "awaiting_approval"
 	} else {
 		trace.Record(telemetry.EventQueueEnqueued, map[string]any{
@@ -916,7 +917,13 @@ func firstNonEmpty(values ...string) string {
 
 func terminalRunEventType(status string) string {
 	if status == "completed" {
-		return "run.finished"
+		return runtimeevents.EventRunFinished.String()
+	}
+	if status == "failed" {
+		return runtimeevents.EventRunFailed.String()
+	}
+	if status == "cancelled" {
+		return runtimeevents.EventRunCancelled.String()
 	}
 	return "run." + status
 }
