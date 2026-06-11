@@ -1107,7 +1107,9 @@ context sources, `context_source_policy=include_enabled` marks enabled source
 metadata active and includes bounded portable `AGENTS.md` workspace-instruction
 bodies. `visible_only` and `inherit` keep sources inspect-only, and `exclude`
 omits them. Host-specific guidance files remain metadata-only for Hecate prompt
-context, and `SKILL.md` bodies are never included by these policies.
+context, and `SKILL.md` bodies are never included by these policies. If the
+assignment route uses a cloud provider, included project memory and `AGENTS.md`
+bodies are sent to that provider as normal task prompt content.
 
 ## Project endpoints
 
@@ -2058,7 +2060,9 @@ so memory bodies are not snapshotted. Prompt context is capped at 12 KiB total,
 2 KiB per memory entry, and 8 KiB per source body. Only enabled
 `workspace_instruction` sources with `format="agents_md"` are body-loaded through
 WorkspaceFS; host-specific sources remain metadata-only and produce inspector
-warnings when skipped.
+warnings when skipped. If the resolved provider is a cloud route, included
+memory and workspace-instruction bodies leave the local machine as part of the
+model request.
 
 ```json
 {
