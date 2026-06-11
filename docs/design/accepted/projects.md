@@ -239,7 +239,8 @@ The Projects UI should stay lightweight but operational:
 - Show compact activity and needs-attention surfaces in the project cockpit that
   derive operational status from existing activity, assignment execution
   rollups, handoff summaries, project defaults, memory entries, memory
-  candidates, and context-source metadata.
+  candidates, context-source metadata, agent profile references, and project
+  skills registry status.
 - Keep the project details surface focused on defaults, memory, trusted docs,
   activity, and assignment drill-downs.
 - Use the cockpit as the first screen for project orchestration. The project

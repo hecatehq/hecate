@@ -3090,6 +3090,37 @@ describe("ProjectsView cockpit", () => {
     expect(screen.getByRole("dialog", { name: "New project memory" })).toBeTruthy();
   });
 
+  it("opens project skills from skill-related needs attention rows", async () => {
+    resetProjectWorkMocks();
+    vi.mocked(getProjectWorkRoles).mockResolvedValue({
+      object: "project_roles",
+      data: [{ ...role, skill_ids: ["backend"] }],
+    });
+    vi.mocked(getProjectSkills).mockResolvedValue({
+      object: "project_skills",
+      data: [{ ...projectSkill, enabled: false }],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Work Queue");
+    const health = await openProjectAttentionMenu();
+    const skillsAttentionItem = within(health).getByRole("button", {
+      name: "Open attention item Project skills need review",
+    });
+
+    await userEvent.click(skillsAttentionItem);
+
+    expect(screen.getByRole("tab", { name: /Skills/ })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("Project Skills")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Enable skill Backend" })).toBeTruthy();
+    expect(screen.getByDisplayValue("Backend")).toBeTruthy();
+  });
+
   it("surfaces stale and missing linked execution in needs attention", async () => {
     resetProjectWorkMocks();
     const staleAssignment: ProjectAssignmentRecord = {

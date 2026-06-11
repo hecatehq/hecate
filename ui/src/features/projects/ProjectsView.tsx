@@ -479,8 +479,22 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
         workItems,
         memoryEntries,
         memoryCandidates,
+        {
+          agentProfiles,
+          roles,
+          skills: projectSkills,
+        },
       ),
-    [activity, memoryCandidates, memoryEntries, selectedProject, workItems],
+    [
+      activity,
+      agentProfiles,
+      memoryCandidates,
+      memoryEntries,
+      projectSkills,
+      roles,
+      selectedProject,
+      workItems,
+    ],
   );
   const providerPresets = providersAndModels.state.providerPresets;
   const providerOptions = useMemo<ProviderOption[]>(() => {
@@ -1454,7 +1468,16 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
             setSettingsPanelOpen(true);
           }}
           onAttentionMemory={() => setWorkspaceTab("memory")}
+          onAttentionProfiles={() => {
+            setProfilesError("");
+            setProfilesModalOpen(true);
+          }}
           onAttentionReviewCandidate={setPromotingCandidate}
+          onAttentionRoles={() => {
+            setRolesError("");
+            setRolesModalOpen(true);
+          }}
+          onAttentionSkills={() => setWorkspaceTab("skills")}
           onAttentionTask={onOpenTask}
           onAttentionWorkItem={(workItemID) => {
             setWorkspaceTab("work");
@@ -2046,7 +2069,10 @@ function ProjectHeader({
   onAttentionBucket,
   onAttentionDefaults,
   onAttentionMemory,
+  onAttentionProfiles,
   onAttentionReviewCandidate,
+  onAttentionRoles,
+  onAttentionSkills,
   onAttentionTask,
   onAttentionWorkItem,
   onEditDefaults,
@@ -2061,7 +2087,10 @@ function ProjectHeader({
   onAttentionBucket: (bucket: ProjectActivityBucketKey) => void;
   onAttentionDefaults: () => void;
   onAttentionMemory: () => void;
+  onAttentionProfiles: () => void;
   onAttentionReviewCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
+  onAttentionRoles: () => void;
+  onAttentionSkills: () => void;
   onAttentionTask?: (taskID: string, runID?: string) => void;
   onAttentionWorkItem: (workItemID: string) => void;
   onEditDefaults: () => void;
@@ -2078,8 +2107,14 @@ function ProjectHeader({
     : "";
   const attentionCount = attentionItems.length;
   const handleAttentionAction = (item: ProjectHealthAttention) => {
-    if (item.id.endsWith(":defaults")) {
+    if (item.action === "settings" || item.id.endsWith(":defaults")) {
       onAttentionDefaults();
+    } else if (item.action === "skills") {
+      onAttentionSkills();
+    } else if (item.action === "profiles") {
+      onAttentionProfiles();
+    } else if (item.action === "roles") {
+      onAttentionRoles();
     } else if (item.candidateID) {
       const candidate = memoryCandidates.find((candidate) => candidate.id === item.candidateID);
       if (candidate) onAttentionReviewCandidate(candidate);
@@ -2090,7 +2125,7 @@ function ProjectHeader({
       onAttentionTask?.(item.taskID, item.runID);
     } else if (item.bucket) {
       onAttentionBucket(item.bucket);
-    } else if (item.id.endsWith(":context")) {
+    } else if (item.action === "memory" || item.id.endsWith(":context")) {
       onAttentionMemory();
     }
     attentionMenu.close();

@@ -1583,9 +1583,10 @@ plus the project defaults, memory candidates, and memory/context-source lists.
 Activity Inbox stays focused on live assignment buckets; Needs Attention
 surfaces actionable setup gaps, blocked/failed/cancelled assignments, pending
 handoffs, stale or missing linked execution, memory candidates awaiting review,
-missing provider/model defaults, and memory/context readiness. These views do
-not add a separate recommendation engine, dependency model, persisted health
-record, or new API contract.
+missing provider/model defaults, missing profile references, skill registry
+conflicts or unresolved/disabled referenced skills, and memory/context
+readiness. These views do not add a separate recommendation engine, dependency
+model, persisted health record, or new API contract.
 
 The top-level envelope follows the Hecate-native convention:
 

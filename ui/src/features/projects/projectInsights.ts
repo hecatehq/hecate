@@ -1,4 +1,5 @@
 import { formatAbsoluteTime } from "../../lib/format";
+import type { AgentProfileRecord } from "../../types/agent-profile";
 import type {
   ProjectActivityData,
   ProjectActivityItemRecord,
@@ -8,6 +9,7 @@ import type {
   ProjectMemoryCandidateRecord,
   ProjectMemoryRecord,
   ProjectRecord,
+  ProjectSkillRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
@@ -61,6 +63,7 @@ export type ProjectHealthAttention = {
   title: string;
   detail: string;
   status: string;
+  action?: "memory" | "profiles" | "roles" | "settings" | "skills";
   bucket?: ProjectActivityBucketKey;
   workItemID?: string;
   taskID?: string;
@@ -89,6 +92,12 @@ export type ProjectHealthSummary = {
     dismissed: number;
   };
   attention: ProjectHealthAttention[];
+};
+
+export type ProjectHealthSummaryOptions = {
+  agentProfiles?: AgentProfileRecord[];
+  roles?: ProjectWorkRoleRecord[];
+  skills?: ProjectSkillRecord[];
 };
 
 export function buildProjectTimelineItems({
@@ -186,6 +195,7 @@ export function buildProjectHealthSummary(
   workItems: ProjectWorkItemRecord[],
   memoryEntries: ProjectMemoryRecord[],
   memoryCandidates: ProjectMemoryCandidateRecord[],
+  options: ProjectHealthSummaryOptions = {},
 ): ProjectHealthSummary {
   const activityItems = uniqueActivityItems(activity);
   const projectedAssignments = workItems.flatMap((item) =>
@@ -221,6 +231,7 @@ export function buildProjectHealthSummary(
       detail:
         "Assignment starts need an active local workspace root for files, tools, and guidance discovery.",
       status: "stale_unknown",
+      action: "settings",
     });
   }
   if (missingDefaults && project) {
@@ -229,7 +240,21 @@ export function buildProjectHealthSummary(
       title: "Provider/model defaults missing",
       detail: "Native project starts and assignment chats need a default provider and model.",
       status: "awaiting_approval",
+      action: "settings",
     });
+  }
+  if (project) {
+    attention.push(
+      ...profileAttentionItems(project, options.roles ?? [], options.agentProfiles ?? []),
+    );
+    attention.push(
+      ...skillAttentionItems(
+        project,
+        options.roles ?? [],
+        options.agentProfiles ?? [],
+        options.skills ?? [],
+      ),
+    );
   }
   const firstPendingHandoff = activityItems.find((item) => hasPendingHandoff(item));
   if (firstPendingHandoff) {
@@ -285,6 +310,7 @@ export function buildProjectHealthSummary(
       title: "No project memory or context sources enabled",
       detail: "Project-scoped context is empty for new chats and linked context packets.",
       status: "stale_unknown",
+      action: "memory",
     });
   }
   const firstPendingCandidate = memoryCandidates.find(
@@ -297,6 +323,7 @@ export function buildProjectHealthSummary(
       detail: `${firstPendingCandidate.title} · ${firstPendingCandidate.suggested_trust_label}`,
       status: "awaiting_approval",
       candidateID: firstPendingCandidate.id,
+      action: "memory",
     });
   }
 
@@ -457,6 +484,106 @@ function addHandoffStatus(summary: ProjectHealthSummary["handoffs"], status: str
   if (status === "accepted") summary.accepted += 1;
   if (status === "superseded") summary.superseded += 1;
   if (status === "dismissed") summary.dismissed += 1;
+}
+
+function profileAttentionItems(
+  project: ProjectRecord,
+  roles: ProjectWorkRoleRecord[],
+  profiles: AgentProfileRecord[],
+): ProjectHealthAttention[] {
+  if (profiles.length === 0) return [];
+  const profileIDs = new Set(profiles.map((profile) => profile.id));
+  const missing = new Set<string>();
+  if (project.default_agent_profile && !profileIDs.has(project.default_agent_profile)) {
+    missing.add(project.default_agent_profile);
+  }
+  for (const role of roles) {
+    if (role.default_agent_profile && !profileIDs.has(role.default_agent_profile)) {
+      missing.add(role.default_agent_profile);
+    }
+  }
+  if (missing.size === 0) return [];
+  const missingList = Array.from(missing).slice(0, 3).join(", ");
+  return [
+    {
+      id: `${project.id}:profiles:missing`,
+      title: "Agent profile reference missing",
+      detail: `Project or role defaults reference ${missingList}${
+        missing.size > 3 ? ` and ${missing.size - 3} more` : ""
+      }.`,
+      status: "stale_unknown",
+      action: "profiles",
+    },
+  ];
+}
+
+function skillAttentionItems(
+  project: ProjectRecord,
+  roles: ProjectWorkRoleRecord[],
+  profiles: AgentProfileRecord[],
+  skills: ProjectSkillRecord[],
+): ProjectHealthAttention[] {
+  const skillsByID = new Map(skills.map((skill) => [skill.id, skill]));
+  const referencedSkillIDs = referencedProjectSkillIDs(project, roles, profiles);
+  const unresolved = referencedSkillIDs.filter((skillID) => !skillsByID.has(skillID));
+  const disabledReferenced = referencedSkillIDs.filter((skillID) => {
+    const skill = skillsByID.get(skillID);
+    return skill && !skill.enabled;
+  });
+  const unavailable = skills.filter(
+    (skill) =>
+      skill.status !== "available" && (skill.enabled || referencedSkillIDs.includes(skill.id)),
+  );
+  const details: string[] = [];
+  if (unresolved.length > 0) {
+    details.push(`unresolved: ${summarizeIDs(unresolved)}`);
+  }
+  if (disabledReferenced.length > 0) {
+    details.push(`disabled: ${summarizeIDs(disabledReferenced)}`);
+  }
+  if (unavailable.length > 0) {
+    details.push(`unavailable: ${summarizeIDs(unavailable.map((skill) => skill.id))}`);
+  }
+  if (details.length === 0) return [];
+  return [
+    {
+      id: `${project.id}:skills`,
+      title: "Project skills need review",
+      detail: `${details.join("; ")}.`,
+      status: disabledReferenced.length > 0 ? "awaiting_approval" : "stale_unknown",
+      action: "skills",
+    },
+  ];
+}
+
+function referencedProjectSkillIDs(
+  project: ProjectRecord,
+  roles: ProjectWorkRoleRecord[],
+  profiles: AgentProfileRecord[],
+): string[] {
+  const referenced = new Set<string>();
+  const relevantProfileIDs = new Set<string>();
+  if (project.default_agent_profile) relevantProfileIDs.add(project.default_agent_profile);
+  for (const role of roles) {
+    for (const skillID of role.skill_ids ?? []) {
+      if (skillID.trim()) referenced.add(skillID.trim());
+    }
+    if (role.default_agent_profile) relevantProfileIDs.add(role.default_agent_profile);
+  }
+  for (const profile of profiles) {
+    if (!relevantProfileIDs.has(profile.id)) continue;
+    for (const skillID of profile.skill_ids ?? []) {
+      if (skillID.trim()) referenced.add(skillID.trim());
+    }
+  }
+  return Array.from(referenced);
+}
+
+function summarizeIDs(ids: string[]): string {
+  const unique = Array.from(new Set(ids));
+  const shown = unique.slice(0, 3).join(", ");
+  if (unique.length <= 3) return shown;
+  return `${shown}, and ${unique.length - 3} more`;
 }
 
 function hasPendingHandoff(item: ProjectActivityItemRecord): boolean {
