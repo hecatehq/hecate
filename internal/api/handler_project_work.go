@@ -311,21 +311,6 @@ type ProjectHandoffResponse struct {
 	StatusChangedAt       string   `json:"status_changed_at"`
 }
 
-func (h *Handler) projectWorkApplication() *projectworkapp.Application {
-	if h == nil {
-		return projectworkapp.New(projectworkapp.Options{})
-	}
-	return projectworkapp.New(projectworkapp.Options{
-		Store:          h.projectWork,
-		TaskStore:      h.taskStore,
-		Runner:         h.taskRunner,
-		ChatStore:      h.agentChat,
-		AgentRunner:    h.agentChatRunner,
-		PrepareTimeout: agentChatPrepareTimeout,
-		IDGenerator:    newOpaqueTaskResourceID,
-	})
-}
-
 func (h *Handler) HandleProjectActivity(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	if !h.requireProject(w, r, projectID) {

@@ -30,7 +30,6 @@ import (
 	"github.com/hecatehq/hecate/internal/ratelimit"
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/secrets"
-	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/version"
@@ -98,24 +97,6 @@ type Handler struct {
 	// SIGINT/SIGTERM, so the same drain path (retention cancel, runner
 	// shutdown, http server shutdown) runs regardless of trigger.
 	quitFunc func()
-}
-
-func (h *Handler) taskApplication() *taskapp.Application {
-	if h == nil {
-		return taskapp.New(taskapp.Options{})
-	}
-	var runner taskapp.Runner
-	if h.taskRunner != nil {
-		runner = h.taskRunner
-	}
-	return taskapp.New(taskapp.Options{
-		Store:         h.taskStore,
-		Runner:        runner,
-		Projects:      h.projects,
-		SecretCipher:  h.secretCipher,
-		MaxMCPServers: h.config.Server.TaskMaxMCPServersPerTask,
-		IDGenerator:   newOpaqueTaskResourceID,
-	})
 }
 
 // approvalConfig bundles everything the coordinator needs apart from

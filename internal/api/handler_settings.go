@@ -9,17 +9,6 @@ import (
 	"github.com/hecatehq/hecate/internal/providerapp"
 )
 
-func (h *Handler) providerApplication() *providerapp.Application {
-	if h == nil {
-		return providerapp.New(providerapp.Options{})
-	}
-	return providerapp.New(providerapp.Options{
-		ControlPlane: h.controlPlane,
-		Runtime:      h.providerRuntime,
-		Config:       h.config,
-	})
-}
-
 func (h *Handler) HandleSettingsStatus(w http.ResponseWriter, r *http.Request) {
 	result, err := h.providerApplication().Status(r.Context())
 	if err != nil {

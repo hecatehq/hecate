@@ -113,6 +113,11 @@ etc.) that keep call sites readable. HTTP status-code decisions remain in
 validation/conflict/fallback cases before adding package-specific switches. Do
 not import API response types into app packages.
 
+API handler app-wiring helpers (`taskApplication`, `chatApplication`,
+`providerApplication`, `projectWorkApplication`, `modelApplication`) live in
+`internal/api/applications.go`. Keep constructors there instead of scattering
+dependency wiring through feature handlers.
+
 ### Change project work APIs
 
 Project Work HTTP handlers follow the same app-layer rule. Role, work-item,
