@@ -410,8 +410,8 @@ func executeStreamingCommand(ctx context.Context, ws workspace.Workspace, spec E
 	if commandSpec.kind == "shell" {
 		baseEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit, spec.RTKEnabled)
 		baseEvent["turn_index"] = 0
-		emitTypedShellRunEvent(spec, "tool.invoked", cloneMap(baseEvent))
-		emitTypedShellRunEvent(spec, "tool.started", cloneMap(baseEvent))
+		emitTypedShellRunEvent(spec, runtimeevents.EventToolInvoked.String(), cloneMap(baseEvent))
+		emitTypedShellRunEvent(spec, runtimeevents.EventToolStarted.String(), cloneMap(baseEvent))
 		commandEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit, spec.RTKEnabled)
 		commandEvent["argv"] = sandbox.ShellArgv(sandbox.Command{Command: commandSpec.command, RTKEnabled: spec.RTKEnabled})
 		commandEvent["cwd"] = workingDirectory
@@ -422,7 +422,7 @@ func executeStreamingCommand(ctx context.Context, ws workspace.Workspace, spec E
 		commandEvent[telemetry.AttrHecateToolTimeoutMS] = timeout
 		commandEvent["command_string"] = displayCommand
 		mergeMap(commandEvent, rtkCommandTelemetryAttrs(commandSpec.command, spec.RTKEnabled))
-		emitTypedShellRunEvent(spec, "tool.shell.command", commandEvent)
+		emitTypedShellRunEvent(spec, runtimeevents.EventToolShellCommand.String(), commandEvent)
 	}
 	step.OutputSummary = map[string]any{
 		"stdout_bytes": 0,
@@ -460,7 +460,7 @@ func executeStreamingCommand(ctx context.Context, ws workspace.Workspace, spec E
 			stdoutArtifact.SizeBytes = int64(len(stdoutArtifact.ContentText))
 			_ = upsertTaskArtifact(spec, stdoutArtifact)
 			if commandSpec.kind == "shell" {
-				emitTypedShellRunEvent(spec, "tool.shell.output_chunk", map[string]any{
+				emitTypedShellRunEvent(spec, runtimeevents.EventToolShellOutputChunk.String(), map[string]any{
 					"tool_call_id": toolCallID,
 					"stream":       "stdout",
 					"data":         chunk.Text,
@@ -474,7 +474,7 @@ func executeStreamingCommand(ctx context.Context, ws workspace.Workspace, spec E
 			stderrArtifact.SizeBytes = int64(len(stderrArtifact.ContentText))
 			_ = upsertTaskArtifact(spec, stderrArtifact)
 			if commandSpec.kind == "shell" {
-				emitTypedShellRunEvent(spec, "tool.shell.output_chunk", map[string]any{
+				emitTypedShellRunEvent(spec, runtimeevents.EventToolShellOutputChunk.String(), map[string]any{
 					"tool_call_id": toolCallID,
 					"stream":       "stderr",
 					"data":         chunk.Text,
@@ -505,17 +505,17 @@ func executeStreamingCommand(ctx context.Context, ws workspace.Workspace, spec E
 			"truncated":    sandbox.IsOutputLimitExceeded(err),
 		}
 		mergeMap(exitEvent, commandResultTelemetryAttrs(resultData, err))
-		emitTypedShellRunEvent(spec, "tool.shell.exited", exitEvent)
+		emitTypedShellRunEvent(spec, runtimeevents.EventToolShellExited.String(), exitEvent)
 	}
 	if commandSpec.kind == "shell" {
-		eventType := "tool.completed"
+		eventType := runtimeevents.EventToolCompleted.String()
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
-			eventType = "tool.timed_out"
+			eventType = runtimeevents.EventToolTimedOut.String()
 		case errors.Is(err, context.Canceled):
-			eventType = "tool.cancelled"
+			eventType = runtimeevents.EventToolCancelled.String()
 		case err != nil:
-			eventType = "tool.failed"
+			eventType = runtimeevents.EventToolFailed.String()
 		}
 		data := map[string]any{
 			"tool_call_id": toolCallID,

@@ -345,7 +345,7 @@ func emitAgentTurnStarted(spec ExecutionSpec, turn int, req types.ChatRequest) {
 	if spec.EmitRunEvent == nil {
 		return
 	}
-	spec.EmitRunEvent("turn.started", map[string]any{
+	spec.EmitRunEvent(runtimeevents.EventTurnStarted.String(), map[string]any{
 		"turn_index":            turn,
 		"model":                 req.Model,
 		"provider":              req.Scope.ProviderHint,
@@ -358,14 +358,14 @@ func emitAssistantMessageEvents(spec ExecutionSpec, turn int, msg types.Message)
 		return
 	}
 	if strings.TrimSpace(msg.Content) != "" {
-		spec.EmitRunEvent("assistant.text_complete", map[string]any{
+		spec.EmitRunEvent(runtimeevents.EventAssistantTextComplete.String(), map[string]any{
 			"turn_index":  turn,
 			"block_index": 0,
 			"text":        msg.Content,
 		})
 	}
 	for _, call := range msg.ToolCalls {
-		spec.EmitRunEvent("assistant.tool_call_proposed", map[string]any{
+		spec.EmitRunEvent(runtimeevents.EventAssistantToolCallProposed.String(), map[string]any{
 			"turn_index":   turn,
 			"tool_call_id": call.ID,
 			"tool_name":    call.Function.Name,
@@ -378,7 +378,7 @@ func emitAssistantFinalAnswer(spec ExecutionSpec, turn int, msg types.Message) {
 	if spec.EmitRunEvent == nil {
 		return
 	}
-	spec.EmitRunEvent("assistant.final_answer", map[string]any{
+	spec.EmitRunEvent(runtimeevents.EventAssistantFinalAnswer.String(), map[string]any{
 		"turn_index": turn,
 		"summary":    msg.Content,
 	})

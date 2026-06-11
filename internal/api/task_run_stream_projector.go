@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -116,7 +117,7 @@ func (p taskRunStreamProjector) decodeEventData(event types.TaskRunEvent) (TaskR
 	// `turn.completed` is a flat per-turn cost payload. It is not a
 	// full stream snapshot, but the Turn overlay must survive the
 	// live-state rebuild so the UI can render the latest turn cost.
-	if event.EventType == "turn.completed" {
+	if event.EventType == runtimeevents.EventTurnCompleted.String() {
 		turn := decodeTurnCostFromEventData(event.Data)
 		return TaskRunStreamEventData{Turn: turn}, false, nil
 	}

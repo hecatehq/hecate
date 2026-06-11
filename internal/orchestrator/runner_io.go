@@ -130,7 +130,7 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 	retryFromTurn := 0
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
-		if event.EventType != "run.resumed_from_event" {
+		if event.EventType != runtimeevents.EventRunResumedFromEvent.String() {
 			continue
 		}
 		value, ok := event.Data["resumed_from_run_id"]
