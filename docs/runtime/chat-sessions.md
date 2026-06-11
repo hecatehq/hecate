@@ -152,6 +152,12 @@ instead of split across two execution-mode values:
   artifact history.
   When the backing provider supports streaming, the running assistant message
   updates from the task conversation artifact before the task run completes.
+
+  API responses include derived `turn_kind` on messages and transcript
+  segments. Clients should prefer `turn_kind` (`direct_model`, `hecate_task`,
+  or `external_agent`) for UI routing and keep `execution_mode` /
+  `tools_enabled` as durable compatibility fields.
+
 - **External Agent** sessions map one chat session to one supervised ACP
   session such as Codex, Claude Code, Cursor Agent, or Grok Build. Composer
   controls may be ACP-owned session options or Hecate-managed launch options;

@@ -1562,6 +1562,13 @@ runtime state. The `execution` summary may include `task_status`, `run_status`,
 projected `status`, pending approval count, step/approval/artifact counts,
 model/provider, last error, run timestamps, and trace ID.
 
+Assignments also include `execution_ref`, a compact canonical link projection
+for UI clients. It prefers projected execution data when available and falls
+back to stored links, with `kind` set to `task_run`, `chat_session`, or
+`context_snapshot`. Legacy raw link fields (`task_id`, `run_id`,
+`chat_session_id`, `message_id`, `context_snapshot_id`) and the richer
+`execution` summary remain for compatibility and detail views.
+
 Work-item list and detail responses apply the same conservative rollup over
 projected assignment statuses: any active linked assignment (`queued`,
 `running`, or `awaiting_approval`) makes the work item `running`; all
@@ -1980,6 +1987,12 @@ Returns:
     "task_id": "task_...",
     "run_id": "run_...",
     "context_snapshot_id": "ctx_...",
+    "execution_ref": {
+      "kind": "task_run",
+      "task_id": "task_...",
+      "run_id": "run_...",
+      "status": "queued"
+    },
     "execution": {
       "task_id": "task_...",
       "run_id": "run_...",
@@ -2538,19 +2551,21 @@ messages produced by the backing runtime. Hecate-owned sessions include
 `provider`, `model`, and the current capability snapshot; once a tools-on turn
 creates a backing task, they also include `task_id` and `latest_run_id`.
 Individual chat messages carry the durable runtime snapshot:
-`execution_mode`, `segment_id`, optional `task_id`, optional `run_id`,
-provider/model, and capabilities. Frontends should prefer those message-level
-fields when rendering historical turns because the session header can change as
-the operator switches tools on/off. If tools are re-enabled after a direct
-model segment, Hecate creates a new task-backed segment in the same transcript;
-older messages keep their original runtime/model/task snapshots.
+`execution_mode`, derived `turn_kind`, `segment_id`, optional `task_id`,
+optional `run_id`, provider/model, and capabilities. Frontends should prefer
+message-level `turn_kind` (`direct_model`, `hecate_task`, or `external_agent`)
+for UI routing and keep `execution_mode` / `tools_enabled` as compatibility
+fields. If tools are re-enabled after a direct model segment, Hecate creates a
+new task-backed segment in the same transcript; older messages keep their
+original runtime/model/task snapshots.
 
 The response also includes a derived `segments` array. Messages remain the
 durable source of truth; segments are a render helper that groups contiguous
 turns with the same `segment_id` so clients can show transcript boundaries such
 as "tools off with smollm2" → "tools on with qwen2.5-coder". Each segment
-contains its `execution_mode`, provider/model snapshot, optional `task_id`,
-latest run id, status, message count, and first/last timestamps.
+contains its derived `turn_kind`, `execution_mode`, provider/model snapshot,
+optional `task_id`, latest run id, status, message count, and first/last
+timestamps.
 
 External Agent sessions may also include `config_options`, a normalized
 projection of ACP session configuration options reported by the agent during

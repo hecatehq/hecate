@@ -836,6 +836,7 @@ type ChatSessionItem struct {
 
 type ChatSegmentItem struct {
 	ID            string `json:"id"`
+	TurnKind      string `json:"turn_kind,omitempty"`
 	ExecutionMode string `json:"execution_mode"`
 	ToolsEnabled  bool   `json:"tools_enabled"`
 	Provider      string `json:"provider,omitempty"`
@@ -851,6 +852,7 @@ type ChatSegmentItem struct {
 
 type ChatMessageItem struct {
 	ID            string `json:"id"`
+	TurnKind      string `json:"turn_kind,omitempty"`
 	ExecutionMode string `json:"execution_mode,omitempty"`
 	// ToolsEnabled is the per-turn tools-on/off signal the gateway
 	// recorded when this message was appended. Always present on the
