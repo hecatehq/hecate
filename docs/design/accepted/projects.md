@@ -361,9 +361,9 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 9. Add project activity aggregation. Done for the read-only V1 inbox.
 10. Add structured handoffs. Done for memory + SQLite store parity, API, UI
     actions, and activity projection signals.
-11. Update docs, screenshots, and e2e coverage. Partial: docs and focused UI/API
-    tests are updated; broad end-to-end project journeys remain beta-hardening
-    work.
+11. Update docs, screenshots, and e2e coverage. Partial: docs, focused UI/API
+    tests, and an API-level project journey regression are updated; broad UI
+    end-to-end project journeys remain beta-hardening work.
 
 ## Near-Term Plan
 
@@ -377,9 +377,11 @@ The next project-orchestration slices are:
    native-assignment prompt inclusion for project memory plus portable
    `AGENTS.md` guidance exist. Chat, external-agent, host-specific guidance, and
    arbitrary source-document prompt policy remain follow-up work.
-3. Add focused end-to-end project journeys: create project, set defaults, add
-   memory, create work item, create/start assignment, resolve approval or
-   failure, inspect activity health, and follow a handoff.
+3. Broaden focused project journeys beyond the current API-level create
+   project -> discover guidance/skills -> add memory -> create/start assignment
+   -> inspect context -> follow handoff regression. Remaining hardening should
+   cover approval/failure paths, activity-health triage, and UI end-to-end
+   flows.
 4. Keep tightening the Projects cockpit UI around operator decisions: no hidden
    recommendations, no separate health persistence, and no automatic memory
    promotion.
