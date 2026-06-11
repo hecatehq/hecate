@@ -95,6 +95,13 @@ func TestProjectActivityProjection_ItemStatusSummaryAndBucket(t *testing.T) {
 			Status:               projectwork.AssignmentStatusAwaitingApproval,
 			PendingApprovalCount: 2,
 		},
+		ExecutionRef: &ProjectWorkAssignmentExecutionRefResponse{
+			Kind:                 "task_run",
+			TaskID:               "task-projected",
+			RunID:                "run-projected",
+			Status:               projectwork.AssignmentStatusAwaitingApproval,
+			PendingApprovalCount: 2,
+		},
 		UpdatedAt: formatOptionalTime(base.Add(time.Minute)),
 	}
 	artifacts := []projectwork.CollaborationArtifact{

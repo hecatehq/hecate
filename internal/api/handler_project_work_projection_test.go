@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -19,13 +20,13 @@ func TestProjectWorkProjection_StatusPrefersStoredTerminalUntilRunIsNewer(t *tes
 		UpdatedAt: storedAt,
 	}
 
-	if got := projectWorkProjectedAssignmentStatus(assignment, projectwork.AssignmentStatusCompleted, storedAt); got != projectwork.AssignmentStatusFailed {
+	if got := projectworkapp.ProjectedAssignmentStatus(assignment, projectwork.AssignmentStatusCompleted, storedAt); got != projectwork.AssignmentStatusFailed {
 		t.Fatalf("status with same projection timestamp = %q, want stored failed", got)
 	}
-	if got := projectWorkProjectedAssignmentStatus(assignment, projectwork.AssignmentStatusCompleted, storedAt.Add(-time.Second)); got != projectwork.AssignmentStatusFailed {
+	if got := projectworkapp.ProjectedAssignmentStatus(assignment, projectwork.AssignmentStatusCompleted, storedAt.Add(-time.Second)); got != projectwork.AssignmentStatusFailed {
 		t.Fatalf("status with older projection timestamp = %q, want stored failed", got)
 	}
-	if got := projectWorkProjectedAssignmentStatus(assignment, projectwork.AssignmentStatusCompleted, storedAt.Add(time.Second)); got != projectwork.AssignmentStatusCompleted {
+	if got := projectworkapp.ProjectedAssignmentStatus(assignment, projectwork.AssignmentStatusCompleted, storedAt.Add(time.Second)); got != projectwork.AssignmentStatusCompleted {
 		t.Fatalf("status with newer projection timestamp = %q, want projected completed", got)
 	}
 }

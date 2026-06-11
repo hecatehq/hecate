@@ -26,6 +26,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -2672,7 +2673,7 @@ func seedProjectWorkProjectionCase(t *testing.T, handler *Handler, workID, assig
 		Status:      runStatus,
 		LatestRunID: runID,
 		CreatedAt:   assignmentUpdated,
-		UpdatedAt:   firstNonZeroTime(runFinishedAt, runStartedAt, assignmentUpdated),
+		UpdatedAt:   projectworkapp.FirstNonZeroTime(runFinishedAt, runStartedAt, assignmentUpdated),
 	}); err != nil {
 		t.Fatalf("CreateTask(%s): %v", taskID, err)
 	}
