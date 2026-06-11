@@ -2024,6 +2024,9 @@ func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 			if running.Status != projectwork.AssignmentStatusRunning || running.Execution == nil || running.Execution.RunStatus != "running" {
 				t.Fatalf("running assignment = %+v, want projected running execution", running)
 			}
+			if running.ExecutionRef == nil || running.ExecutionRef.Kind != "task_run" || running.ExecutionRef.TaskID != running.Execution.TaskID || running.ExecutionRef.RunID != running.Execution.RunID || running.ExecutionRef.Status != running.Status {
+				t.Fatalf("running execution_ref = %+v, want projected task/run ref for %+v", running.ExecutionRef, running.Execution)
+			}
 			if running.StartedAt == "" {
 				t.Fatalf("running assignment started_at is empty, want projected run timestamp")
 			}
@@ -2038,6 +2041,9 @@ func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 			awaiting := getProjectWorkAssignmentForTest(t, server, "work_awaiting", "asgn_awaiting")
 			if awaiting.Status != projectwork.AssignmentStatusAwaitingApproval || awaiting.Execution == nil || awaiting.Execution.PendingApprovalCount != 1 {
 				t.Fatalf("awaiting assignment = %+v, want awaiting approval with one pending approval", awaiting)
+			}
+			if awaiting.ExecutionRef == nil || awaiting.ExecutionRef.PendingApprovalCount != 1 || awaiting.ExecutionRef.Status != projectwork.AssignmentStatusAwaitingApproval {
+				t.Fatalf("awaiting execution_ref = %+v, want awaiting ref with pending approval count", awaiting.ExecutionRef)
 			}
 
 			completed := getProjectWorkAssignmentForTest(t, server, "work_completed", "asgn_completed")
@@ -2067,6 +2073,9 @@ func TestProjectWorkAPI_AssignmentExecutionProjection(t *testing.T) {
 			runOnly := getProjectWorkAssignmentForTest(t, server, "work_run_only", "asgn_run_only")
 			if runOnly.Status != projectwork.AssignmentStatusQueued || runOnly.RunID == "" || runOnly.Execution != nil {
 				t.Fatalf("run-only assignment = %+v, want stored queued status without execution projection", runOnly)
+			}
+			if runOnly.ExecutionRef == nil || runOnly.ExecutionRef.Kind != "task_run" || runOnly.ExecutionRef.RunID != runOnly.RunID {
+				t.Fatalf("run-only execution_ref = %+v, want raw run ref", runOnly.ExecutionRef)
 			}
 			assertProjectWorkStatusForTest(t, server, "work_run_only", projectwork.WorkItemStatusReady)
 
@@ -2111,6 +2120,9 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 			awaiting := findProjectActivityItemForTest(t, response.Data.Buckets.Blocked, "asgn_awaiting")
 			if awaiting.BlockingSignal != "awaiting_approval" || awaiting.Assignment.Execution == nil || awaiting.Assignment.Execution.PendingApprovalCount != 1 {
 				t.Fatalf("awaiting activity = %+v, want approval blocking signal", awaiting)
+			}
+			if awaiting.Assignment.ExecutionRef == nil || awaiting.Assignment.ExecutionRef.PendingApprovalCount != 1 || awaiting.LinkedTaskID != awaiting.Assignment.ExecutionRef.TaskID || awaiting.LinkedRunID != awaiting.Assignment.ExecutionRef.RunID {
+				t.Fatalf("awaiting activity execution_ref = %+v linked=%q/%q, want ref-backed links", awaiting.Assignment.ExecutionRef, awaiting.LinkedTaskID, awaiting.LinkedRunID)
 			}
 			if awaiting.WorkItem.Status != projectwork.WorkItemStatusRunning || awaiting.Role.Name != "Projection engineer" {
 				t.Fatalf("awaiting context = %+v, want projected work item and role", awaiting)
@@ -2160,6 +2172,9 @@ func TestProjectWorkAPI_ProjectActivity(t *testing.T) {
 			external := findProjectActivityItemForTest(t, allProjectActivityItemsForTest(response.Data), "asgn_external_chat")
 			if external.LinkedChat == nil || external.LinkedChat.ID != "chat_external_projection" || external.LinkedChat.LatestMessageID != "msg_external_done" {
 				t.Fatalf("external linked chat = %+v, want chat summary with latest message", external.LinkedChat)
+			}
+			if external.Assignment.ExecutionRef == nil || external.Assignment.ExecutionRef.Kind != "chat_session" || external.LinkedChatID != external.Assignment.ExecutionRef.ChatSessionID {
+				t.Fatalf("external execution_ref = %+v linked_chat=%q, want chat-session ref", external.Assignment.ExecutionRef, external.LinkedChatID)
 			}
 			if external.BlockingSignal != "running" || external.StatusSummary != "linked chat · running · assistant completed · 2 messages" {
 				t.Fatalf("external activity = %+v, want linked chat running summary", external)

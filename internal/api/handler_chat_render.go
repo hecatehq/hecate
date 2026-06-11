@@ -58,6 +58,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 	for _, message := range session.Messages {
 		messages = append(messages, ChatMessageItem{
 			ID:              message.ID,
+			TurnKind:        chatMessageTurnKind(session, message),
 			ExecutionMode:   message.ExecutionMode,
 			ToolsEnabled:    message.ToolsEnabled,
 			SegmentID:       message.SegmentID,
@@ -202,6 +203,7 @@ func renderChatSegments(session chat.Session) []ChatSegmentItem {
 			builders = append(builders, agentChatSegmentBuilder{
 				item: ChatSegmentItem{
 					ID:            segmentID,
+					TurnKind:      chatMessageTurnKind(session, message),
 					ExecutionMode: firstNonEmpty(message.ExecutionMode, defaultMessageExecutionModeForRender(session)),
 					ToolsEnabled:  message.ToolsEnabled,
 					Provider:      firstNonEmpty(message.Provider, session.Provider),
@@ -215,6 +217,9 @@ func renderChatSegments(session chat.Session) []ChatSegmentItem {
 		builder.item.MessageCount++
 		if builder.item.ExecutionMode == "" {
 			builder.item.ExecutionMode = firstNonEmpty(message.ExecutionMode, defaultMessageExecutionModeForRender(session))
+		}
+		if builder.item.TurnKind == "" {
+			builder.item.TurnKind = chatMessageTurnKind(session, message)
 		}
 		if message.ToolsEnabled {
 			builder.item.ToolsEnabled = true
@@ -301,6 +306,33 @@ func defaultMessageExecutionModeForRender(session chat.Session) string {
 	// recorded on the per-message ToolsEnabled field, not on the
 	// execution_mode string.
 	return chat.ExecutionModeHecateTask
+}
+
+const (
+	chatTurnKindDirectModel   = "direct_model"
+	chatTurnKindHecateTask    = "hecate_task"
+	chatTurnKindExternalAgent = "external_agent"
+)
+
+func chatMessageTurnKind(session chat.Session, message chat.Message) string {
+	executionMode := firstNonEmpty(message.ExecutionMode, defaultMessageExecutionModeForRender(session))
+	switch executionMode {
+	case chat.ExecutionModeExternalAgent:
+		return chatTurnKindExternalAgent
+	case chat.ExecutionModeHecateTask:
+		if !message.ToolsEnabled {
+			return chatTurnKindDirectModel
+		}
+		return chatTurnKindHecateTask
+	default:
+		if message.AgentID != "" && message.AgentID != chat.DefaultAgentID {
+			return chatTurnKindExternalAgent
+		}
+		if message.TaskID != "" {
+			return chatTurnKindHecateTask
+		}
+		return ""
+	}
 }
 
 func agentChatUsageFromResult(usage agentadapters.Usage) chat.Usage {

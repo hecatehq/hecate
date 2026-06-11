@@ -224,6 +224,19 @@ type ProjectWorkAssignmentExecutionResponse struct {
 	Missing              bool   `json:"missing,omitempty"`
 }
 
+type ProjectWorkAssignmentExecutionRefResponse struct {
+	Kind                 string `json:"kind"`
+	TaskID               string `json:"task_id,omitempty"`
+	RunID                string `json:"run_id,omitempty"`
+	ChatSessionID        string `json:"chat_session_id,omitempty"`
+	MessageID            string `json:"message_id,omitempty"`
+	ContextSnapshotID    string `json:"context_snapshot_id,omitempty"`
+	Status               string `json:"status,omitempty"`
+	PendingApprovalCount int    `json:"pending_approval_count,omitempty"`
+	TraceID              string `json:"trace_id,omitempty"`
+	Missing              bool   `json:"missing,omitempty"`
+}
+
 type ProjectWorkAssignmentsResponse struct {
 	Object string                          `json:"object"`
 	Data   []ProjectWorkAssignmentResponse `json:"data"`
@@ -235,22 +248,23 @@ type ProjectWorkAssignmentEnvelope struct {
 }
 
 type ProjectWorkAssignmentResponse struct {
-	ID                string                                  `json:"id"`
-	ProjectID         string                                  `json:"project_id"`
-	WorkItemID        string                                  `json:"work_item_id"`
-	RoleID            string                                  `json:"role_id"`
-	DriverKind        string                                  `json:"driver_kind"`
-	Status            string                                  `json:"status"`
-	TaskID            string                                  `json:"task_id,omitempty"`
-	RunID             string                                  `json:"run_id,omitempty"`
-	ChatSessionID     string                                  `json:"chat_session_id,omitempty"`
-	MessageID         string                                  `json:"message_id,omitempty"`
-	ContextSnapshotID string                                  `json:"context_snapshot_id,omitempty"`
-	CreatedAt         string                                  `json:"created_at"`
-	UpdatedAt         string                                  `json:"updated_at"`
-	StartedAt         string                                  `json:"started_at,omitempty"`
-	CompletedAt       string                                  `json:"completed_at,omitempty"`
-	Execution         *ProjectWorkAssignmentExecutionResponse `json:"execution,omitempty"`
+	ID                string                                     `json:"id"`
+	ProjectID         string                                     `json:"project_id"`
+	WorkItemID        string                                     `json:"work_item_id"`
+	RoleID            string                                     `json:"role_id"`
+	DriverKind        string                                     `json:"driver_kind"`
+	Status            string                                     `json:"status"`
+	TaskID            string                                     `json:"task_id,omitempty"`
+	RunID             string                                     `json:"run_id,omitempty"`
+	ChatSessionID     string                                     `json:"chat_session_id,omitempty"`
+	MessageID         string                                     `json:"message_id,omitempty"`
+	ContextSnapshotID string                                     `json:"context_snapshot_id,omitempty"`
+	CreatedAt         string                                     `json:"created_at"`
+	UpdatedAt         string                                     `json:"updated_at"`
+	StartedAt         string                                     `json:"started_at,omitempty"`
+	CompletedAt       string                                     `json:"completed_at,omitempty"`
+	ExecutionRef      *ProjectWorkAssignmentExecutionRefResponse `json:"execution_ref,omitempty"`
+	Execution         *ProjectWorkAssignmentExecutionResponse    `json:"execution,omitempty"`
 }
 
 type ProjectWorkArtifactsResponse struct {
@@ -1975,7 +1989,7 @@ func renderProjectWorkItem(item projectwork.WorkItem) ProjectWorkItemResponse {
 }
 
 func renderProjectWorkAssignment(item projectwork.Assignment) ProjectWorkAssignmentResponse {
-	return ProjectWorkAssignmentResponse{
+	response := ProjectWorkAssignmentResponse{
 		ID:                item.ID,
 		ProjectID:         item.ProjectID,
 		WorkItemID:        item.WorkItemID,
@@ -1991,6 +2005,57 @@ func renderProjectWorkAssignment(item projectwork.Assignment) ProjectWorkAssignm
 		UpdatedAt:         formatOptionalTime(item.UpdatedAt),
 		StartedAt:         formatOptionalTime(item.StartedAt),
 		CompletedAt:       formatOptionalTime(item.CompletedAt),
+	}
+	response.ExecutionRef = projectWorkAssignmentExecutionRef(response)
+	return response
+}
+
+func projectWorkAssignmentExecutionRef(response ProjectWorkAssignmentResponse) *ProjectWorkAssignmentExecutionRefResponse {
+	taskID := strings.TrimSpace(response.TaskID)
+	runID := strings.TrimSpace(response.RunID)
+	status := strings.TrimSpace(response.Status)
+	pendingApprovalCount := 0
+	traceID := ""
+	missing := false
+	if response.Execution != nil {
+		taskID = firstNonEmpty(response.Execution.TaskID, taskID)
+		runID = firstNonEmpty(response.Execution.RunID, runID)
+		status = firstNonEmpty(response.Execution.Status, status)
+		pendingApprovalCount = response.Execution.PendingApprovalCount
+		traceID = response.Execution.TraceID
+		missing = response.Execution.Missing
+	}
+	chatSessionID := strings.TrimSpace(response.ChatSessionID)
+	messageID := strings.TrimSpace(response.MessageID)
+	contextSnapshotID := strings.TrimSpace(response.ContextSnapshotID)
+	kind := projectWorkAssignmentExecutionRefKind(taskID, runID, chatSessionID, messageID, contextSnapshotID)
+	if kind == "" {
+		return nil
+	}
+	return &ProjectWorkAssignmentExecutionRefResponse{
+		Kind:                 kind,
+		TaskID:               taskID,
+		RunID:                runID,
+		ChatSessionID:        chatSessionID,
+		MessageID:            messageID,
+		ContextSnapshotID:    contextSnapshotID,
+		Status:               status,
+		PendingApprovalCount: pendingApprovalCount,
+		TraceID:              traceID,
+		Missing:              missing,
+	}
+}
+
+func projectWorkAssignmentExecutionRefKind(taskID, runID, chatSessionID, messageID, contextSnapshotID string) string {
+	switch {
+	case taskID != "" || runID != "":
+		return "task_run"
+	case chatSessionID != "" || messageID != "":
+		return "chat_session"
+	case contextSnapshotID != "":
+		return "context_snapshot"
+	default:
+		return ""
 	}
 }
 

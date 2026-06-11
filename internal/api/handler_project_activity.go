@@ -271,7 +271,7 @@ func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment Proj
 		StatusSummary:   projectActivityStatusSummary(assignment, linkedChat, signal, artifactSummary.Count),
 		LinkedTaskID:    firstNonEmpty(projectActivityExecutionTaskID(assignment), assignment.TaskID),
 		LinkedRunID:     firstNonEmpty(projectActivityExecutionRunID(assignment), assignment.RunID),
-		LinkedChatID:    assignment.ChatSessionID,
+		LinkedChatID:    firstNonEmpty(projectActivityExecutionChatID(assignment), assignment.ChatSessionID),
 		LinkedChat:      linkedChat,
 		LinkedMessageID: assignment.MessageID,
 		RecentArtifacts: recentArtifacts,
@@ -551,6 +551,9 @@ func projectActivityLinkedChatSummary(linkedChat *ProjectActivityLinkedChatRespo
 }
 
 func projectActivityExecutionStatus(assignment ProjectWorkAssignmentResponse) string {
+	if assignment.ExecutionRef != nil {
+		return assignment.ExecutionRef.Status
+	}
 	if assignment.Execution == nil {
 		return ""
 	}
@@ -558,6 +561,9 @@ func projectActivityExecutionStatus(assignment ProjectWorkAssignmentResponse) st
 }
 
 func projectActivityExecutionTaskID(assignment ProjectWorkAssignmentResponse) string {
+	if assignment.ExecutionRef != nil {
+		return assignment.ExecutionRef.TaskID
+	}
 	if assignment.Execution == nil {
 		return ""
 	}
@@ -565,10 +571,20 @@ func projectActivityExecutionTaskID(assignment ProjectWorkAssignmentResponse) st
 }
 
 func projectActivityExecutionRunID(assignment ProjectWorkAssignmentResponse) string {
+	if assignment.ExecutionRef != nil {
+		return assignment.ExecutionRef.RunID
+	}
 	if assignment.Execution == nil {
 		return ""
 	}
 	return assignment.Execution.RunID
+}
+
+func projectActivityExecutionChatID(assignment ProjectWorkAssignmentResponse) string {
+	if assignment.ExecutionRef == nil {
+		return ""
+	}
+	return assignment.ExecutionRef.ChatSessionID
 }
 
 func projectActivityUpdatedAt(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse, artifacts ProjectActivityArtifactSummaryResponse, handoffs ProjectActivityHandoffSummaryResponse) string {

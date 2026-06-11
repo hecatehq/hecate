@@ -60,6 +60,7 @@ func (h *Handler) renderProjectedProjectWorkAssignment(ctx context.Context, item
 	if response.CompletedAt == "" && !projection.CompletedAt.IsZero() {
 		response.CompletedAt = formatOptionalTime(projection.CompletedAt)
 	}
+	response.ExecutionRef = projectWorkAssignmentExecutionRef(response)
 	return response, nil
 }
 
