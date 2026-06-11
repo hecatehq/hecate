@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/apperrors"
+	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 )
 
@@ -37,7 +38,10 @@ func IsConflictError(err error) bool {
 }
 
 type ControlPlane interface {
+	Backend() string
 	Snapshot(ctx context.Context) (controlplane.State, error)
+	UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error)
+	DeletePolicyRule(ctx context.Context, id string) error
 }
 
 type Runtime interface {
@@ -50,11 +54,13 @@ type Runtime interface {
 type Application struct {
 	controlPlane ControlPlane
 	runtime      Runtime
+	config       config.Config
 }
 
 type Options struct {
 	ControlPlane ControlPlane
 	Runtime      Runtime
+	Config       config.Config
 }
 
 type UpdateProviderCommand struct {
@@ -79,9 +85,45 @@ type SetAPIKeyCommand struct {
 	Key string
 }
 
+type PolicyRuleCommand struct {
+	ID                     string
+	Action                 string
+	Reason                 string
+	Providers              []string
+	ProviderKinds          []string
+	Models                 []string
+	RouteReasons           []string
+	MinPromptTokens        int
+	MinEstimatedCostMicros int64
+	RewriteModelTo         string
+}
+
 type ProviderResult struct {
 	Provider controlplane.Provider
 	State    controlplane.State
+}
+
+type StatusResult struct {
+	Backend     string
+	Providers   []ProviderRecord
+	PolicyRules []config.PolicyRuleConfig
+	Events      []controlplane.AuditEvent
+}
+
+type ProviderRecord struct {
+	ID                   string
+	Name                 string
+	PresetID             string
+	CustomName           string
+	Kind                 string
+	Protocol             string
+	BaseURL              string
+	APIVersion           string
+	DefaultModel         string
+	ExplicitFields       []string
+	InheritedFields      []string
+	CredentialConfigured bool
+	CredentialSource     string
 }
 
 type ClearAPIKeyResult struct {
@@ -90,7 +132,23 @@ type ClearAPIKeyResult struct {
 }
 
 func New(opts Options) *Application {
-	return &Application{controlPlane: opts.ControlPlane, runtime: opts.Runtime}
+	return &Application{controlPlane: opts.ControlPlane, runtime: opts.Runtime, config: opts.Config}
+}
+
+func (app *Application) Status(ctx context.Context) (*StatusResult, error) {
+	if app == nil || app.controlPlane == nil {
+		return &StatusResult{Backend: "env"}, nil
+	}
+	state, err := app.controlPlane.Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &StatusResult{
+		Backend:     app.controlPlane.Backend(),
+		Providers:   buildProviderRecords(app.config, state),
+		PolicyRules: append([]config.PolicyRuleConfig(nil), state.PolicyRules...),
+		Events:      append([]controlplane.AuditEvent(nil), state.Events...),
+	}, nil
 }
 
 func (app *Application) UpdateProvider(ctx context.Context, cmd UpdateProviderCommand) (*ProviderResult, error) {
@@ -237,6 +295,42 @@ func (app *Application) DeleteProvider(ctx context.Context, id string) error {
 	return nil
 }
 
+func (app *Application) UpsertPolicyRule(ctx context.Context, cmd PolicyRuleCommand) (config.PolicyRuleConfig, error) {
+	if app == nil || app.controlPlane == nil {
+		return config.PolicyRuleConfig{}, ErrControlPlaneNotConfigured
+	}
+	rule, err := app.controlPlane.UpsertPolicyRule(ctx, config.PolicyRuleConfig{
+		ID:                     cmd.ID,
+		Action:                 cmd.Action,
+		Reason:                 cmd.Reason,
+		Providers:              append([]string(nil), cmd.Providers...),
+		ProviderKinds:          append([]string(nil), cmd.ProviderKinds...),
+		Models:                 append([]string(nil), cmd.Models...),
+		RouteReasons:           append([]string(nil), cmd.RouteReasons...),
+		MinPromptTokens:        cmd.MinPromptTokens,
+		MinEstimatedCostMicros: cmd.MinEstimatedCostMicros,
+		RewriteModelTo:         cmd.RewriteModelTo,
+	})
+	if err != nil {
+		return config.PolicyRuleConfig{}, Validation(err)
+	}
+	return rule, nil
+}
+
+func (app *Application) DeletePolicyRule(ctx context.Context, id string) (string, error) {
+	if app == nil || app.controlPlane == nil {
+		return "", ErrControlPlaneNotConfigured
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", Validation(errors.New("policy rule id is required"))
+	}
+	if err := app.controlPlane.DeletePolicyRule(ctx, id); err != nil {
+		return "", Validation(err)
+	}
+	return id, nil
+}
+
 func findProvider(state controlplane.State, id string) *controlplane.Provider {
 	id = strings.TrimSpace(id)
 	for i := range state.Providers {
@@ -245,6 +339,70 @@ func findProvider(state controlplane.State, id string) *controlplane.Provider {
 		}
 	}
 	return nil
+}
+
+func buildProviderRecords(cfg config.Config, state controlplane.State) []ProviderRecord {
+	envKeyByID := make(map[string]bool)
+	for _, pc := range cfg.Providers.OpenAICompatible {
+		if pc.APIKey != "" {
+			envKeyByID[pc.Name] = true
+		}
+	}
+
+	presetByID := make(map[string]config.BuiltInProvider)
+	for _, b := range config.BuiltInProviders() {
+		presetByID[b.ID] = b
+	}
+
+	records := make([]ProviderRecord, 0, len(state.Providers))
+	for _, cp := range state.Providers {
+		preset, hasPreset := presetByID[cp.ID]
+		record := ProviderRecord{
+			ID:             cp.ID,
+			Name:           cp.Name,
+			CustomName:     cp.CustomName,
+			Kind:           cp.Kind,
+			Protocol:       cp.Protocol,
+			BaseURL:        cp.BaseURL,
+			DefaultModel:   cp.DefaultModel,
+			ExplicitFields: append([]string(nil), cp.ExplicitFields...),
+		}
+		if record.Name == "" {
+			record.Name = cp.ID
+		}
+		if hasPreset {
+			record.PresetID = preset.ID
+			if record.Kind == "" {
+				record.Kind = preset.Kind
+			}
+			if record.Protocol == "" {
+				record.Protocol = preset.Protocol
+			}
+			if record.BaseURL == "" {
+				record.BaseURL = preset.BaseURL
+			}
+			if record.APIVersion == "" {
+				record.APIVersion = preset.APIVersion
+			}
+			if record.DefaultModel == "" {
+				record.DefaultModel = preset.DefaultModel
+			}
+		}
+		for _, secret := range state.ProviderSecrets {
+			if secret.ProviderID == cp.ID {
+				record.CredentialConfigured = secret.APIKeyEncrypted != ""
+				record.CredentialSource = "vault"
+				break
+			}
+		}
+		if !record.CredentialConfigured && envKeyByID[cp.ID] {
+			record.CredentialConfigured = true
+			record.CredentialSource = "env"
+		}
+		records = append(records, record)
+	}
+
+	return records
 }
 
 func slugify(name string) string {

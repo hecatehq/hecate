@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/config"
@@ -17,39 +16,32 @@ func (h *Handler) providerApplication() *providerapp.Application {
 	return providerapp.New(providerapp.Options{
 		ControlPlane: h.controlPlane,
 		Runtime:      h.providerRuntime,
+		Config:       h.config,
 	})
 }
 
 func (h *Handler) HandleSettingsStatus(w http.ResponseWriter, r *http.Request) {
+	result, err := h.providerApplication().Status(r.Context())
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
 	payload := SettingsResponse{
 		Object: "settings",
 		Data: SettingsResponseItem{
-			Backend:     "env",
+			Backend:     result.Backend,
 			Providers:   []SettingsProviderRecord{},
 			PolicyRules: []SettingsPolicyRuleRecord{},
 			Events:      []SettingsAuditEventRecord{},
 		},
 	}
-
-	if h.controlPlane == nil {
-		WriteJSON(w, http.StatusOK, payload)
-		return
+	for _, record := range result.Providers {
+		payload.Data.Providers = append(payload.Data.Providers, renderProviderAppRecord(record))
 	}
-
-	state, err := h.controlPlane.Snapshot(r.Context())
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-
-	payload.Data.Backend = h.controlPlane.Backend()
-	for _, record := range buildSettingsProviderList(h.config, state) {
-		payload.Data.Providers = append(payload.Data.Providers, record)
-	}
-	for _, rule := range state.PolicyRules {
+	for _, rule := range result.PolicyRules {
 		payload.Data.PolicyRules = append(payload.Data.PolicyRules, renderSettingsPolicyRule(rule))
 	}
-	for _, event := range state.Events {
+	for _, event := range result.Events {
 		payload.Data.Events = append(payload.Data.Events, renderSettingsAuditEvent(event))
 	}
 
@@ -203,7 +195,7 @@ func (h *Handler) HandleSettingsUpsertPolicyRule(w http.ResponseWriter, r *http.
 		return
 	}
 
-	rule, err := h.controlPlane.UpsertPolicyRule(controlplane.WithActor(r.Context(), settingsActor(r)), config.PolicyRuleConfig{
+	rule, err := h.providerApplication().UpsertPolicyRule(controlplane.WithActor(r.Context(), settingsActor(r)), providerapp.PolicyRuleCommand{
 		ID:                     req.ID,
 		Action:                 req.Action,
 		Reason:                 req.Reason,
@@ -216,7 +208,7 @@ func (h *Handler) HandleSettingsUpsertPolicyRule(w http.ResponseWriter, r *http.
 		RewriteModelTo:         req.RewriteModelTo,
 	})
 	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		writeProviderAppError(w, err)
 		return
 	}
 
@@ -231,13 +223,9 @@ func (h *Handler) HandleSettingsDeletePolicyRule(w http.ResponseWriter, r *http.
 		return
 	}
 
-	id := strings.TrimSpace(r.PathValue("id"))
-	if id == "" {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "policy rule id is required")
-		return
-	}
-	if err := h.controlPlane.DeletePolicyRule(controlplane.WithActor(r.Context(), settingsActor(r)), id); err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	id, err := h.providerApplication().DeletePolicyRule(controlplane.WithActor(r.Context(), settingsActor(r)), r.PathValue("id"))
+	if err != nil {
+		writeProviderAppError(w, err)
 		return
 	}
 
@@ -278,73 +266,22 @@ func renderSettingsAuditEvent(event controlplane.AuditEvent) SettingsAuditEventR
 	return record
 }
 
-// buildSettingsProviderList returns one record per provider in the
-// settings store. Providers are explicit: the operator adds them via
-// POST /hecate/v1/settings/providers, picking from the preset catalog or
-// supplying a custom OpenAI-compatible endpoint. The list starts empty and
-// stays empty until the operator adds at least one. The preset catalog is
-// served separately at GET /hecate/v1/providers/presets.
-func buildSettingsProviderList(cfg config.Config, state controlplane.State) []SettingsProviderRecord {
-	envKeyByID := make(map[string]bool)
-	for _, pc := range cfg.Providers.OpenAICompatible {
-		if pc.APIKey != "" {
-			envKeyByID[pc.Name] = true
-		}
+func renderProviderAppRecord(record providerapp.ProviderRecord) SettingsProviderRecord {
+	return SettingsProviderRecord{
+		ID:                   record.ID,
+		Name:                 record.Name,
+		PresetID:             record.PresetID,
+		CustomName:           record.CustomName,
+		Kind:                 record.Kind,
+		Protocol:             record.Protocol,
+		BaseURL:              record.BaseURL,
+		APIVersion:           record.APIVersion,
+		DefaultModel:         record.DefaultModel,
+		ExplicitFields:       append([]string(nil), record.ExplicitFields...),
+		InheritedFields:      append([]string(nil), record.InheritedFields...),
+		CredentialConfigured: record.CredentialConfigured,
+		CredentialSource:     record.CredentialSource,
 	}
-
-	presetByID := make(map[string]config.BuiltInProvider)
-	for _, b := range config.BuiltInProviders() {
-		presetByID[b.ID] = b
-	}
-
-	records := make([]SettingsProviderRecord, 0, len(state.Providers))
-	for _, cp := range state.Providers {
-		preset, hasPreset := presetByID[cp.ID]
-		record := SettingsProviderRecord{
-			ID:           cp.ID,
-			Name:         cp.Name,
-			CustomName:   cp.CustomName,
-			Kind:         cp.Kind,
-			Protocol:     cp.Protocol,
-			BaseURL:      cp.BaseURL,
-			DefaultModel: cp.DefaultModel,
-		}
-		if record.Name == "" {
-			record.Name = cp.ID
-		}
-		if hasPreset {
-			record.PresetID = preset.ID
-			if record.Kind == "" {
-				record.Kind = preset.Kind
-			}
-			if record.Protocol == "" {
-				record.Protocol = preset.Protocol
-			}
-			if record.BaseURL == "" {
-				record.BaseURL = preset.BaseURL
-			}
-			if record.APIVersion == "" {
-				record.APIVersion = preset.APIVersion
-			}
-			if record.DefaultModel == "" {
-				record.DefaultModel = preset.DefaultModel
-			}
-		}
-		for _, secret := range state.ProviderSecrets {
-			if secret.ProviderID == cp.ID {
-				record.CredentialConfigured = secret.APIKeyEncrypted != ""
-				record.CredentialSource = "vault"
-				break
-			}
-		}
-		if !record.CredentialConfigured && envKeyByID[cp.ID] {
-			record.CredentialConfigured = true
-			record.CredentialSource = "env"
-		}
-		records = append(records, record)
-	}
-
-	return records
 }
 
 func renderSettingsProvider(provider controlplane.Provider, secrets []controlplane.ProviderSecret) SettingsProviderRecord {
