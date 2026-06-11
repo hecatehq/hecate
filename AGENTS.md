@@ -76,6 +76,11 @@ internal/
   projects/             durable project identity store (memory / sqlite)
   projectskills/        project-scoped SKILL.md metadata registry
                           (memory / sqlite; no body injection or execution)
+  projectwork/          project roles, work items, assignments, handoffs, and
+                          collaboration artifact storage (memory / sqlite)
+  projectworkapp/       project work application layer used by API handlers:
+                          command shaping, id defaults, driver defaults,
+                          store error boundaries
   storage/              sqlite client wrappers
   retention/            retention worker (subsystems: traces, usage_events, audit, provider_history, turn_events, agent_chat_approvals)
   mcp/                  stdio MCP server (read tools + write tools)

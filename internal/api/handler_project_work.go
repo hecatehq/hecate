@@ -22,6 +22,7 @@ import (
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -403,6 +404,16 @@ type ProjectActivityHandoffSummaryResponse struct {
 	TargetWorkItem string `json:"target_work_item_id,omitempty"`
 }
 
+func (h *Handler) projectWorkApplication() *projectworkapp.Application {
+	if h == nil {
+		return projectworkapp.New(projectworkapp.Options{})
+	}
+	return projectworkapp.New(projectworkapp.Options{
+		Store:       h.projectWork,
+		IDGenerator: newOpaqueTaskResourceID,
+	})
+}
+
 func (h *Handler) HandleProjectActivity(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	if !h.requireProject(w, r, projectID) {
@@ -442,13 +453,8 @@ func (h *Handler) HandleCreateProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		id = newOpaqueTaskResourceID("role")
-	}
-	role, err := h.projectWork.CreateRole(r.Context(), projectwork.AgentRoleProfile{
-		ID:                  id,
-		ProjectID:           projectID,
+	role, err := h.projectWorkApplication().CreateRole(r.Context(), projectID, projectworkapp.CreateRoleCommand{
+		ID:                  req.ID,
 		Name:                req.Name,
 		Description:         req.Description,
 		Instructions:        req.Instructions,
@@ -473,31 +479,15 @@ func (h *Handler) HandleUpdateProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	role, err := h.projectWork.UpdateRole(r.Context(), projectID, r.PathValue("role_id"), func(item *projectwork.AgentRoleProfile) {
-		if req.Name != nil {
-			item.Name = *req.Name
-		}
-		if req.Description != nil {
-			item.Description = *req.Description
-		}
-		if req.Instructions != nil {
-			item.Instructions = *req.Instructions
-		}
-		if req.DefaultDriverKind != nil {
-			item.DefaultDriverKind = *req.DefaultDriverKind
-		}
-		if req.DefaultProvider != nil {
-			item.DefaultProvider = *req.DefaultProvider
-		}
-		if req.DefaultModel != nil {
-			item.DefaultModel = *req.DefaultModel
-		}
-		if req.DefaultAgentProfile != nil {
-			item.DefaultAgentProfile = *req.DefaultAgentProfile
-		}
-		if req.SkillIDs != nil {
-			item.SkillIDs = append([]string(nil), req.SkillIDs...)
-		}
+	role, err := h.projectWorkApplication().UpdateRole(r.Context(), projectID, r.PathValue("role_id"), projectworkapp.UpdateRoleCommand{
+		Name:                req.Name,
+		Description:         req.Description,
+		Instructions:        req.Instructions,
+		DefaultDriverKind:   req.DefaultDriverKind,
+		DefaultProvider:     req.DefaultProvider,
+		DefaultModel:        req.DefaultModel,
+		DefaultAgentProfile: req.DefaultAgentProfile,
+		SkillIDs:            req.SkillIDs,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -510,7 +500,7 @@ func (h *Handler) HandleDeleteProjectWorkRole(w http.ResponseWriter, r *http.Req
 	if !h.requireProject(w, r, projectID) {
 		return
 	}
-	if err := h.projectWork.DeleteRole(r.Context(), projectID, r.PathValue("role_id")); !writeProjectWorkError(w, err) {
+	if err := h.projectWorkApplication().DeleteRole(r.Context(), projectID, r.PathValue("role_id")); !writeProjectWorkError(w, err) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -553,13 +543,8 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		id = newOpaqueTaskResourceID("work")
-	}
-	item, err := h.projectWork.CreateWorkItem(r.Context(), projectwork.WorkItem{
-		ID:              id,
-		ProjectID:       projectID,
+	item, err := h.projectWorkApplication().CreateWorkItem(r.Context(), projectID, projectworkapp.CreateWorkItemCommand{
+		ID:              req.ID,
 		Title:           req.Title,
 		Brief:           req.Brief,
 		Status:          req.Status,
@@ -609,25 +594,13 @@ func (h *Handler) HandleUpdateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	item, err := h.projectWork.UpdateWorkItem(r.Context(), projectID, r.PathValue("work_item_id"), func(item *projectwork.WorkItem) {
-		if req.Title != nil {
-			item.Title = *req.Title
-		}
-		if req.Brief != nil {
-			item.Brief = *req.Brief
-		}
-		if req.Status != nil {
-			item.Status = *req.Status
-		}
-		if req.Priority != nil {
-			item.Priority = *req.Priority
-		}
-		if req.OwnerRoleID != nil {
-			item.OwnerRoleID = *req.OwnerRoleID
-		}
-		if req.ReviewerRoleIDs != nil {
-			item.ReviewerRoleIDs = *req.ReviewerRoleIDs
-		}
+	item, err := h.projectWorkApplication().UpdateWorkItem(r.Context(), projectID, r.PathValue("work_item_id"), projectworkapp.UpdateWorkItemCommand{
+		Title:           req.Title,
+		Brief:           req.Brief,
+		Status:          req.Status,
+		Priority:        req.Priority,
+		OwnerRoleID:     req.OwnerRoleID,
+		ReviewerRoleIDs: req.ReviewerRoleIDs,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -645,7 +618,7 @@ func (h *Handler) HandleDeleteProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !h.requireProject(w, r, projectID) {
 		return
 	}
-	if err := h.projectWork.DeleteWorkItem(r.Context(), projectID, r.PathValue("work_item_id")); !writeProjectWorkError(w, err) {
+	if err := h.projectWorkApplication().DeleteWorkItem(r.Context(), projectID, r.PathValue("work_item_id")); !writeProjectWorkError(w, err) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -688,25 +661,10 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
-	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		id = newOpaqueTaskResourceID("asgn")
-	}
-	driverKind := strings.TrimSpace(req.DriverKind)
-	if driverKind == "" {
-		if role, ok, err := h.loadProjectWorkRole(r.Context(), projectID, req.RoleID); err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		} else if ok {
-			driverKind = role.DefaultDriverKind
-		}
-	}
-	item, err := h.projectWork.CreateAssignment(r.Context(), projectwork.Assignment{
-		ID:                id,
-		ProjectID:         projectID,
-		WorkItemID:        workItemID,
+	item, err := h.projectWorkApplication().CreateAssignment(r.Context(), projectID, workItemID, projectworkapp.CreateAssignmentCommand{
+		ID:                req.ID,
 		RoleID:            req.RoleID,
-		DriverKind:        driverKind,
+		DriverKind:        req.DriverKind,
 		Status:            req.Status,
 		TaskID:            req.TaskID,
 		RunID:             req.RunID,
@@ -742,37 +700,25 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !ok {
 		return
 	}
-	item, err := h.projectWork.UpdateAssignment(r.Context(), projectID, assignmentID, func(item *projectwork.Assignment) {
-		if req.RoleID != nil {
-			item.RoleID = *req.RoleID
-		}
-		if req.DriverKind != nil {
-			item.DriverKind = *req.DriverKind
-		}
-		if req.Status != nil {
-			item.Status = *req.Status
-		}
-		if req.TaskID != nil {
-			item.TaskID = *req.TaskID
-		}
-		if req.RunID != nil {
-			item.RunID = *req.RunID
-		}
-		if req.ChatSessionID != nil {
-			item.ChatSessionID = *req.ChatSessionID
-		}
-		if req.MessageID != nil {
-			item.MessageID = *req.MessageID
-		}
-		if req.ContextSnapshotID != nil {
-			item.ContextSnapshotID = *req.ContextSnapshotID
-		}
-		if req.StartedAt != nil {
-			item.StartedAt = startedAt
-		}
-		if req.CompletedAt != nil {
-			item.CompletedAt = completedAt
-		}
+	var startedAtPtr *time.Time
+	if req.StartedAt != nil {
+		startedAtPtr = &startedAt
+	}
+	var completedAtPtr *time.Time
+	if req.CompletedAt != nil {
+		completedAtPtr = &completedAt
+	}
+	item, err := h.projectWorkApplication().UpdateAssignment(r.Context(), projectID, assignmentID, projectworkapp.UpdateAssignmentCommand{
+		RoleID:            req.RoleID,
+		DriverKind:        req.DriverKind,
+		Status:            req.Status,
+		TaskID:            req.TaskID,
+		RunID:             req.RunID,
+		ChatSessionID:     req.ChatSessionID,
+		MessageID:         req.MessageID,
+		ContextSnapshotID: req.ContextSnapshotID,
+		StartedAt:         startedAtPtr,
+		CompletedAt:       completedAtPtr,
 	})
 	if !writeProjectWorkError(w, err) {
 		return
@@ -792,7 +738,7 @@ func (h *Handler) HandleDeleteProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !h.requireProjectAssignment(w, r, projectID, workItemID, assignmentID) {
 		return
 	}
-	if err := h.projectWork.DeleteAssignment(r.Context(), projectID, workItemID, assignmentID); !writeProjectWorkError(w, err) {
+	if err := h.projectWorkApplication().DeleteAssignment(r.Context(), projectID, workItemID, assignmentID); !writeProjectWorkError(w, err) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -2089,17 +2035,44 @@ func writeProjectWorkError(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return true
 	}
-	switch {
-	case errors.Is(err, projectwork.ErrNotFound):
-		WriteError(w, http.StatusNotFound, errCodeNotFound, err.Error())
-	case errors.Is(err, projectwork.ErrInvalid):
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	case errors.Is(err, projectwork.ErrBuiltInRole), errors.Is(err, projectwork.ErrDuplicateRole), errors.Is(err, projectwork.ErrDuplicate):
-		WriteError(w, http.StatusConflict, errCodeConflict, err.Error())
-	default:
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	if writeAppError(w, err, projectWorkErrorMappings) {
+		return false
 	}
+	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 	return false
+}
+
+var projectWorkErrorMappings = []appErrorMapping{
+	{
+		Match: func(err error) bool {
+			return errors.Is(err, projectworkapp.ErrStoreNotConfigured)
+		},
+		Status: http.StatusBadRequest,
+		Code:   errCodeInvalidRequest,
+	},
+	{
+		Match: func(err error) bool {
+			return errors.Is(err, projectwork.ErrNotFound)
+		},
+		Status: http.StatusNotFound,
+		Code:   errCodeNotFound,
+	},
+	{
+		Match: func(err error) bool {
+			return errors.Is(err, projectwork.ErrInvalid)
+		},
+		Status: http.StatusBadRequest,
+		Code:   errCodeInvalidRequest,
+	},
+	{
+		Match: func(err error) bool {
+			return errors.Is(err, projectwork.ErrBuiltInRole) ||
+				errors.Is(err, projectwork.ErrDuplicateRole) ||
+				errors.Is(err, projectwork.ErrDuplicate)
+		},
+		Status: http.StatusConflict,
+		Code:   errCodeConflict,
+	},
 }
 
 func parseProjectWorkRequestTimes(w http.ResponseWriter, startedRaw, completedRaw string) (time.Time, time.Time, bool) {
