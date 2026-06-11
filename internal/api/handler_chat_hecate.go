@@ -138,12 +138,10 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 
 	contextPacket := h.hecateTaskContextPacket(r.Context(), session, messageSnapshot.Provider, messageSnapshot.Model, strings.TrimSpace(req.SystemPrompt), forceNewTask)
 	contextPacket.ID = newChatID("ctx")
-	contextPacket = chatcontext.Normalize(contextPacket, chat.ContextRefs{
-		SessionID: session.ID,
-		MessageID: assistantID,
-		TaskID:    messageSnapshot.TaskID,
-		ProjectID: session.ProjectID,
-	})
+	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
+		chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
+		chatcontext.TaskRunRefs(messageSnapshot.TaskID, "", session.ProjectID),
+	))
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:            assistantID,
 		ExecutionMode: messageSnapshot.ExecutionMode,
@@ -231,13 +229,10 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		message.Provider = messageSnapshot.Provider
 		message.Model = messageSnapshot.Model
 		message.Capabilities = messageSnapshot.Capabilities
-		message.Context = chatcontext.Normalize(message.Context, chat.ContextRefs{
-			SessionID: session.ID,
-			MessageID: assistantID,
-			TaskID:    task.ID,
-			RunID:     run.ID,
-			ProjectID: session.ProjectID,
-		})
+		message.Context = chatcontext.Normalize(message.Context, chatcontext.MergeRefs(
+			chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
+			chatcontext.TaskRunRefs(task.ID, run.ID, session.ProjectID),
+		))
 		message.Activities = mergeChatActivity(message.Activities, newHecateAgentRunActivity(task.ID, run.ID, run.Status))
 	})
 	if err == nil {
@@ -395,7 +390,7 @@ func shouldStartNewHecateAgentSegment(session chat.Session, provider, model stri
 		if strings.TrimSpace(message.Content) == "" && message.Role == "assistant" {
 			continue
 		}
-		if chatMessageTurnKind(session, message) != chatTurnKindHecateTask {
+		if chat.MessageTurnKind(session, message) != chat.TurnKindHecateTask {
 			return true
 		}
 		if provider != "" && strings.TrimSpace(message.Provider) != "" && strings.TrimSpace(message.Provider) != provider {
@@ -445,12 +440,10 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 				message.RequestID = firstNonEmpty(run.RequestID, message.RequestID)
 				message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
 				message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
-				message.Context = chatcontext.Normalize(message.Context, chat.ContextRefs{
-					SessionID: sessionID,
-					MessageID: messageID,
-					TaskID:    taskID,
-					RunID:     run.ID,
-				})
+				message.Context = chatcontext.Normalize(message.Context, chatcontext.MergeRefs(
+					chatcontext.ChatMessageRefs(sessionID, messageID, ""),
+					chatcontext.TaskRunRefs(taskID, run.ID, ""),
+				))
 				message.Status = agentChatStatusFromTaskRun(run.Status)
 				if liveContent != "" {
 					message.Content = liveContent

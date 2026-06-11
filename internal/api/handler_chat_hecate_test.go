@@ -443,8 +443,8 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	if modelAssistant.ExecutionMode != chat.ExecutionModeHecateTask || modelAssistant.TaskID != "" || modelAssistant.Model != "gpt-4o-mini" {
 		t.Fatalf("model assistant snapshot = execution_mode %q task %q model %q", modelAssistant.ExecutionMode, modelAssistant.TaskID, modelAssistant.Model)
 	}
-	if modelAssistant.TurnKind != chatTurnKindDirectModel {
-		t.Fatalf("model assistant turn_kind = %q, want %q", modelAssistant.TurnKind, chatTurnKindDirectModel)
+	if modelAssistant.TurnKind != chat.TurnKindDirectModel {
+		t.Fatalf("model assistant turn_kind = %q, want %q", modelAssistant.TurnKind, chat.TurnKindDirectModel)
 	}
 	if modelAssistant.ToolsEnabled {
 		t.Errorf("model assistant tools_enabled = true, want false (hecate_task dispatch records tools-off)")
@@ -463,8 +463,8 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	if toolsAssistant.ExecutionMode != chat.ExecutionModeHecateTask || toolsAssistant.TaskID != firstTaskID || toolsAssistant.SegmentID != "task:"+firstTaskID {
 		t.Fatalf("tools assistant snapshot = execution_mode %q task %q segment %q", toolsAssistant.ExecutionMode, toolsAssistant.TaskID, toolsAssistant.SegmentID)
 	}
-	if toolsAssistant.TurnKind != chatTurnKindHecateTask {
-		t.Fatalf("tools assistant turn_kind = %q, want %q", toolsAssistant.TurnKind, chatTurnKindHecateTask)
+	if toolsAssistant.TurnKind != chat.TurnKindHecateTask {
+		t.Fatalf("tools assistant turn_kind = %q, want %q", toolsAssistant.TurnKind, chat.TurnKindHecateTask)
 	}
 	if !toolsAssistant.ToolsEnabled {
 		t.Errorf("tools assistant tools_enabled = false, want true (hecate_task dispatch records tools-on)")
@@ -479,8 +479,8 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	if secondModelAssistant.ExecutionMode != chat.ExecutionModeHecateTask || secondModelAssistant.TaskID != "" {
 		t.Fatalf("second model assistant snapshot = execution_mode %q task %q", secondModelAssistant.ExecutionMode, secondModelAssistant.TaskID)
 	}
-	if secondModelAssistant.TurnKind != chatTurnKindDirectModel {
-		t.Fatalf("second model assistant turn_kind = %q, want %q", secondModelAssistant.TurnKind, chatTurnKindDirectModel)
+	if secondModelAssistant.TurnKind != chat.TurnKindDirectModel {
+		t.Fatalf("second model assistant turn_kind = %q, want %q", secondModelAssistant.TurnKind, chat.TurnKindDirectModel)
 	}
 	if secondModelAssistant.ToolsEnabled {
 		t.Fatalf("second model assistant tools_enabled = true, want false (direct-model turn)")
@@ -495,8 +495,8 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	if secondToolsAssistant.ExecutionMode != chat.ExecutionModeHecateTask || secondToolsAssistant.TaskID != secondTools.Data.TaskID || secondToolsAssistant.SegmentID != "task:"+secondTools.Data.TaskID {
 		t.Fatalf("second tools assistant snapshot = execution_mode %q task %q segment %q", secondToolsAssistant.ExecutionMode, secondToolsAssistant.TaskID, secondToolsAssistant.SegmentID)
 	}
-	if secondToolsAssistant.TurnKind != chatTurnKindHecateTask {
-		t.Fatalf("second tools assistant turn_kind = %q, want %q", secondToolsAssistant.TurnKind, chatTurnKindHecateTask)
+	if secondToolsAssistant.TurnKind != chat.TurnKindHecateTask {
+		t.Fatalf("second tools assistant turn_kind = %q, want %q", secondToolsAssistant.TurnKind, chat.TurnKindHecateTask)
 	}
 
 	changedModelTools := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
@@ -508,8 +508,8 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	if changedModelAssistant.ExecutionMode != chat.ExecutionModeHecateTask || changedModelAssistant.TaskID != changedModelTools.Data.TaskID || changedModelAssistant.Model != "gpt-4o-mini-2024-07-18" {
 		t.Fatalf("model-change assistant snapshot = execution_mode %q task %q model %q", changedModelAssistant.ExecutionMode, changedModelAssistant.TaskID, changedModelAssistant.Model)
 	}
-	if changedModelAssistant.TurnKind != chatTurnKindHecateTask {
-		t.Fatalf("model-change assistant turn_kind = %q, want %q", changedModelAssistant.TurnKind, chatTurnKindHecateTask)
+	if changedModelAssistant.TurnKind != chat.TurnKindHecateTask {
+		t.Fatalf("model-change assistant turn_kind = %q, want %q", changedModelAssistant.TurnKind, chat.TurnKindHecateTask)
 	}
 	changedTask := mustRequestJSON[TaskResponse](client, http.MethodGet, "/hecate/v1/tasks/"+changedModelTools.Data.TaskID, "")
 	if changedTask.Data.RequestedModel != "gpt-4o-mini-2024-07-18" {
@@ -527,7 +527,7 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 		if segment.ExecutionMode != chat.ExecutionModeHecateTask {
 			t.Fatalf("segment %d execution_mode = %q, want hecate_task: %+v", i, segment.ExecutionMode, segments)
 		}
-		wantKind := []string{chatTurnKindDirectModel, chatTurnKindHecateTask, chatTurnKindDirectModel, chatTurnKindHecateTask, chatTurnKindHecateTask}[i]
+		wantKind := []string{chat.TurnKindDirectModel, chat.TurnKindHecateTask, chat.TurnKindDirectModel, chat.TurnKindHecateTask, chat.TurnKindHecateTask}[i]
 		if segment.TurnKind != wantKind {
 			t.Fatalf("segment %d turn_kind = %q, want %q: %+v", i, segment.TurnKind, wantKind, segments)
 		}

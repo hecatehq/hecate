@@ -62,11 +62,7 @@ func (h *Handler) HandleChatMessageContext(w http.ResponseWriter, r *http.Reques
 		if message.ID != messageID {
 			continue
 		}
-		writeChatContextPacket(w, chatcontext.Normalize(message.Context, chat.ContextRefs{
-			SessionID: sessionID,
-			MessageID: messageID,
-			ProjectID: session.ProjectID,
-		}))
+		writeChatContextPacket(w, chatcontext.Normalize(message.Context, chatcontext.ChatMessageRefs(sessionID, messageID, session.ProjectID)))
 		return
 	}
 	WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat message not found")
@@ -95,10 +91,7 @@ func (h *Handler) HandleTaskRunContext(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "task run context packet not found; the run may predate context snapshots or have no linked run/chat packet")
 		return
 	}
-	writeChatContextPacket(w, chatcontext.Normalize(packet, chat.ContextRefs{
-		TaskID: task.ID,
-		RunID:  run.ID,
-	}))
+	writeChatContextPacket(w, chatcontext.Normalize(packet, chatcontext.TaskRunRefs(task.ID, run.ID, task.ProjectID)))
 }
 
 func writeChatContextPacket(w http.ResponseWriter, packet chat.ContextPacket) {
@@ -140,16 +133,11 @@ func (h *Handler) HandleProjectWorkAssignmentContext(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project assignment context packet not found")
 		return
 	}
-	writeChatContextPacket(w, chatcontext.Normalize(packet, chat.ContextRefs{
-		ProjectID:    projectID,
-		WorkItemID:   workItemID,
-		AssignmentID: assignmentID,
-		RoleID:       assignment.RoleID,
-		TaskID:       assignment.TaskID,
-		RunID:        assignment.RunID,
-		SessionID:    assignment.ChatSessionID,
-		MessageID:    assignment.MessageID,
-	}))
+	writeChatContextPacket(w, chatcontext.Normalize(packet, chatcontext.MergeRefs(
+		chatcontext.ProjectAssignmentRefs(projectID, workItemID, assignmentID, assignment.RoleID),
+		chatcontext.TaskRunRefs(assignment.TaskID, assignment.RunID, projectID),
+		chatcontext.ChatMessageRefs(assignment.ChatSessionID, assignment.MessageID, projectID),
+	)))
 }
 
 func (h *Handler) contextPacketForTaskRun(ctx context.Context, task types.Task, run types.TaskRun) (chat.ContextPacket, bool, error) {
