@@ -15,11 +15,15 @@ import (
 )
 
 var (
-	ErrStoreNotConfigured  = errors.New("agent chat store is not configured")
-	ErrRunnerNotConfigured = errors.New("agent chat runner is not configured")
-	ErrExternalSessionOnly = errors.New("agent chat config options are only available for external-agent sessions")
-	ErrHecateSessionOnly   = errors.New("Hecate Chat settings are not available for external-agent sessions")
-	ErrNoSettingsProvided  = errors.New("no settings provided")
+	ErrStoreNotConfigured      = errors.New("agent chat store is not configured")
+	ErrRunnerNotConfigured     = errors.New("agent chat runner is not configured")
+	ErrExternalSessionOnly     = errors.New("agent chat config options are only available for external-agent sessions")
+	ErrHecateSessionOnly       = errors.New("Hecate Chat settings are not available for external-agent sessions")
+	ErrNoSettingsProvided      = errors.New("no settings provided")
+	ErrContentRequired         = errors.New("content is required")
+	ErrExecutionModeInvalid    = errors.New("execution_mode must be hecate_task or external_agent")
+	ErrExternalCannotRunHecate = errors.New("external agent sessions cannot run Hecate Chat turns")
+	ErrHecateCannotRunExternal = errors.New("Hecate Chat sessions cannot run external-agent turns")
 )
 
 type ValidationError = apperrors.ValidationError
@@ -104,6 +108,41 @@ type SetHecateSettingsCommand struct {
 
 type SetHecateSettingsResult struct {
 	Session chat.Session
+}
+
+type MessageLimits struct {
+	MaxTurnsPerSession int
+	MaxSessionDuration time.Duration
+	IdleTimeout        time.Duration
+}
+
+type AdmitMessageCommand struct {
+	Session       chat.Session
+	Content       string
+	ExecutionMode string
+	ToolsEnabled  *bool
+	Limits        MessageLimits
+	Now           time.Time
+}
+
+type AdmitMessageResult struct {
+	Content       string
+	ExecutionMode string
+	ToolsEnabled  bool
+}
+
+type MessageLimitError struct {
+	Code      string
+	Message   string
+	Limit     int
+	LimitMS   int64
+	StartedAt time.Time
+	UpdatedAt time.Time
+	TurnsUsed int
+}
+
+func (e MessageLimitError) Error() string {
+	return e.Message
 }
 
 type ExternalPrepareError struct {
@@ -292,6 +331,68 @@ func (app *Application) SetHecateSettings(ctx context.Context, cmd SetHecateSett
 	return &SetHecateSettingsResult{Session: session}, nil
 }
 
+func (app *Application) AdmitMessage(cmd AdmitMessageCommand) (*AdmitMessageResult, error) {
+	content := strings.TrimSpace(cmd.Content)
+	if content == "" {
+		return nil, Validation(ErrContentRequired)
+	}
+	now := cmd.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	limits := cmd.Limits
+	if limits.MaxTurnsPerSession > 0 && cmd.Session.TurnsUsed >= limits.MaxTurnsPerSession {
+		return nil, MessageLimitError{
+			Code:      "turns",
+			Message:   fmt.Sprintf("session has reached the %d-turn limit; start a new session to continue", limits.MaxTurnsPerSession),
+			Limit:     limits.MaxTurnsPerSession,
+			TurnsUsed: cmd.Session.TurnsUsed,
+		}
+	}
+	if limits.MaxSessionDuration > 0 && !cmd.Session.CreatedAt.IsZero() && now.Sub(cmd.Session.CreatedAt) >= limits.MaxSessionDuration {
+		return nil, MessageLimitError{
+			Code:      "duration",
+			Message:   fmt.Sprintf("session has reached the %s wall-clock limit; start a new session to continue", limits.MaxSessionDuration),
+			LimitMS:   limits.MaxSessionDuration.Milliseconds(),
+			StartedAt: cmd.Session.CreatedAt,
+			TurnsUsed: cmd.Session.TurnsUsed,
+		}
+	}
+	if limits.IdleTimeout > 0 && !cmd.Session.UpdatedAt.IsZero() && now.Sub(cmd.Session.UpdatedAt) >= limits.IdleTimeout {
+		return nil, MessageLimitError{
+			Code:      "idle",
+			Message:   fmt.Sprintf("session was idle for at least %s; start a new session to continue", limits.IdleTimeout),
+			LimitMS:   limits.IdleTimeout.Milliseconds(),
+			UpdatedAt: cmd.Session.UpdatedAt,
+			TurnsUsed: cmd.Session.TurnsUsed,
+		}
+	}
+
+	executionMode := normalizeExecutionMode(cmd.ExecutionMode, cmd.Session)
+	switch executionMode {
+	case chat.ExecutionModeHecateTask:
+		if isExternalSession(cmd.Session) {
+			return nil, ErrExternalCannotRunHecate
+		}
+	case chat.ExecutionModeExternalAgent:
+		if !isExternalSession(cmd.Session) {
+			return nil, ErrHecateCannotRunExternal
+		}
+	default:
+		return nil, Validation(ErrExecutionModeInvalid)
+	}
+
+	toolsEnabled := true
+	if cmd.ToolsEnabled != nil {
+		toolsEnabled = *cmd.ToolsEnabled
+	}
+	return &AdmitMessageResult{
+		Content:       content,
+		ExecutionMode: executionMode,
+		ToolsEnabled:  toolsEnabled,
+	}, nil
+}
+
 func (app *Application) cleanupExternalSession(sessionID string) {
 	cleanupCtx := context.Background()
 	cancel := func() {}
@@ -305,6 +406,17 @@ func (app *Application) cleanupExternalSession(sessionID string) {
 
 func isExternalSession(session chat.Session) bool {
 	return session.AgentID != "" && session.AgentID != chat.DefaultAgentID
+}
+
+func normalizeExecutionMode(mode string, session chat.Session) string {
+	mode = strings.TrimSpace(mode)
+	if mode != "" {
+		return mode
+	}
+	if isExternalSession(session) {
+		return chat.ExecutionModeExternalAgent
+	}
+	return chat.ExecutionModeHecateTask
 }
 
 func configOptionSetRequest(sessionID, configID string, rawValue any) (agentadapters.SetSessionConfigOptionRequest, error) {

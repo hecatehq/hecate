@@ -464,3 +464,150 @@ func TestApplication_SetHecateSettingsValidation(t *testing.T) {
 		t.Fatalf("SetHecateSettings(no settings) error = %v, want ErrNoSettingsProvided", err)
 	}
 }
+
+func TestApplication_AdmitMessageDefaultsAndTrims(t *testing.T) {
+	t.Parallel()
+
+	app := New(Options{})
+	toolsEnabled := false
+	result, err := app.AdmitMessage(AdmitMessageCommand{
+		Session:      chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID},
+		Content:      "  hello  ",
+		ToolsEnabled: &toolsEnabled,
+	})
+	if err != nil {
+		t.Fatalf("AdmitMessage() error = %v", err)
+	}
+	if result.Content != "hello" || result.ExecutionMode != chat.ExecutionModeHecateTask || result.ToolsEnabled {
+		t.Fatalf("admission = %+v, want trimmed Hecate tools-off message", result)
+	}
+}
+
+func TestApplication_AdmitMessageExplicitExecutionModeWins(t *testing.T) {
+	t.Parallel()
+
+	result, err := New(Options{}).AdmitMessage(AdmitMessageCommand{
+		Session:       chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID},
+		Content:       "hello",
+		ExecutionMode: chat.ExecutionModeHecateTask,
+	})
+	if err != nil {
+		t.Fatalf("AdmitMessage(hecate explicit) error = %v", err)
+	}
+	if result.ExecutionMode != chat.ExecutionModeHecateTask {
+		t.Fatalf("execution mode = %q, want hecate_task", result.ExecutionMode)
+	}
+
+	result, err = New(Options{}).AdmitMessage(AdmitMessageCommand{
+		Session:       chat.Session{ID: "chat_ext", AgentID: "codex"},
+		Content:       "hello",
+		ExecutionMode: chat.ExecutionModeExternalAgent,
+	})
+	if err != nil {
+		t.Fatalf("AdmitMessage(external explicit) error = %v", err)
+	}
+	if result.ExecutionMode != chat.ExecutionModeExternalAgent {
+		t.Fatalf("execution mode = %q, want external_agent", result.ExecutionMode)
+	}
+}
+
+func TestApplication_AdmitMessageExternalDefault(t *testing.T) {
+	t.Parallel()
+
+	result, err := New(Options{}).AdmitMessage(AdmitMessageCommand{
+		Session: chat.Session{ID: "chat_ext", AgentID: "codex"},
+		Content: "hello",
+	})
+	if err != nil {
+		t.Fatalf("AdmitMessage(external) error = %v", err)
+	}
+	if result.ExecutionMode != chat.ExecutionModeExternalAgent || !result.ToolsEnabled {
+		t.Fatalf("admission = %+v, want external-agent tools-on default", result)
+	}
+}
+
+func TestApplication_AdmitMessageValidationAndRuntimeMismatch(t *testing.T) {
+	t.Parallel()
+
+	app := New(Options{})
+	if _, err := app.AdmitMessage(AdmitMessageCommand{
+		Session: chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID},
+		Content: " ",
+	}); !errors.Is(err, ErrContentRequired) || !IsValidationError(err) {
+		t.Fatalf("AdmitMessage(blank content) error = %v, want content validation", err)
+	}
+	if _, err := app.AdmitMessage(AdmitMessageCommand{
+		Session:       chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID},
+		Content:       "hello",
+		ExecutionMode: "unknown",
+	}); !errors.Is(err, ErrExecutionModeInvalid) || !IsValidationError(err) {
+		t.Fatalf("AdmitMessage(invalid mode) error = %v, want mode validation", err)
+	}
+	if _, err := app.AdmitMessage(AdmitMessageCommand{
+		Session:       chat.Session{ID: "chat_ext", AgentID: "codex"},
+		Content:       "hello",
+		ExecutionMode: chat.ExecutionModeHecateTask,
+	}); !errors.Is(err, ErrExternalCannotRunHecate) {
+		t.Fatalf("AdmitMessage(external/hecate) error = %v, want ErrExternalCannotRunHecate", err)
+	}
+	if _, err := app.AdmitMessage(AdmitMessageCommand{
+		Session:       chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID},
+		Content:       "hello",
+		ExecutionMode: chat.ExecutionModeExternalAgent,
+	}); !errors.Is(err, ErrHecateCannotRunExternal) {
+		t.Fatalf("AdmitMessage(hecate/external) error = %v, want ErrHecateCannotRunExternal", err)
+	}
+}
+
+func TestApplication_AdmitMessageLimits(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	app := New(Options{})
+	tests := []struct {
+		name string
+		cmd  AdmitMessageCommand
+		code string
+	}{
+		{
+			name: "turns",
+			cmd: AdmitMessageCommand{
+				Session: chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID, TurnsUsed: 3},
+				Content: "hello",
+				Limits:  MessageLimits{MaxTurnsPerSession: 3},
+				Now:     now,
+			},
+			code: "turns",
+		},
+		{
+			name: "duration",
+			cmd: AdmitMessageCommand{
+				Session: chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID, CreatedAt: now.Add(-2 * time.Hour), TurnsUsed: 1},
+				Content: "hello",
+				Limits:  MessageLimits{MaxSessionDuration: time.Hour},
+				Now:     now,
+			},
+			code: "duration",
+		},
+		{
+			name: "idle",
+			cmd: AdmitMessageCommand{
+				Session: chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID, UpdatedAt: now.Add(-30 * time.Minute), TurnsUsed: 1},
+				Content: "hello",
+				Limits:  MessageLimits{IdleTimeout: 5 * time.Minute},
+				Now:     now,
+			},
+			code: "idle",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := app.AdmitMessage(tc.cmd)
+			var limitErr MessageLimitError
+			if !errors.As(err, &limitErr) || limitErr.Code != tc.code {
+				t.Fatalf("AdmitMessage() error = %v (%+v), want limit code %s", err, limitErr, tc.code)
+			}
+		})
+	}
+}
