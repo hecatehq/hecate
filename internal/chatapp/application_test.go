@@ -83,6 +83,90 @@ func TestApplication_CreateSessionPersistsBuiltInSession(t *testing.T) {
 	}
 }
 
+func TestApplication_ListAndGetSessions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	if _, err := store.Create(ctx, chat.Session{ID: "chat_1", Title: "One"}); err != nil {
+		t.Fatalf("Create chat_1: %v", err)
+	}
+	app := New(Options{Store: store})
+
+	list, err := app.ListSessions(ctx)
+	if err != nil {
+		t.Fatalf("ListSessions() error = %v", err)
+	}
+	if len(list.Sessions) != 1 || list.Sessions[0].ID != "chat_1" {
+		t.Fatalf("sessions = %+v, want chat_1", list.Sessions)
+	}
+	got, err := app.GetSession(ctx, " chat_1 ")
+	if err != nil {
+		t.Fatalf("GetSession() error = %v", err)
+	}
+	if got.Session.Title != "One" {
+		t.Fatalf("session = %+v, want title One", got.Session)
+	}
+}
+
+func TestApplication_GetSessionValidationAndNotFound(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := New(Options{Store: chat.NewMemoryStore()})
+	if _, err := app.GetSession(ctx, " "); !errors.Is(err, ErrSessionIDRequired) || !IsValidationError(err) {
+		t.Fatalf("GetSession(empty) error = %v, want session id validation", err)
+	}
+	if _, err := app.GetSession(ctx, "missing"); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("GetSession(missing) error = %v, want ErrSessionNotFound", err)
+	}
+	if _, err := New(Options{}).GetSession(ctx, "chat_1"); !errors.Is(err, ErrStoreNotConfigured) {
+		t.Fatalf("GetSession(no store) error = %v, want ErrStoreNotConfigured", err)
+	}
+}
+
+func TestApplication_RenameSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	if _, err := store.Create(ctx, chat.Session{ID: "chat_1", Title: "Old"}); err != nil {
+		t.Fatalf("Create chat_1: %v", err)
+	}
+	app := New(Options{Store: store})
+	title := " New title "
+
+	result, err := app.RenameSession(ctx, RenameSessionCommand{ID: " chat_1 ", Title: &title})
+	if err != nil {
+		t.Fatalf("RenameSession() error = %v", err)
+	}
+	if result.Session.Title != "New title" {
+		t.Fatalf("title = %q, want trimmed New title", result.Session.Title)
+	}
+}
+
+func TestApplication_RenameSessionValidation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	app := New(Options{Store: store})
+	if _, err := app.RenameSession(ctx, RenameSessionCommand{ID: " "}); !errors.Is(err, ErrSessionIDRequired) || !IsValidationError(err) {
+		t.Fatalf("RenameSession(empty id) error = %v, want id validation", err)
+	}
+	if _, err := app.RenameSession(ctx, RenameSessionCommand{ID: "chat_1"}); !errors.Is(err, ErrTitleRequired) || !IsValidationError(err) {
+		t.Fatalf("RenameSession(no title) error = %v, want title required", err)
+	}
+	blank := " "
+	if _, err := app.RenameSession(ctx, RenameSessionCommand{ID: "chat_1", Title: &blank}); !errors.Is(err, ErrTitleEmpty) || !IsValidationError(err) {
+		t.Fatalf("RenameSession(blank title) error = %v, want title empty", err)
+	}
+	title := "New"
+	if _, err := app.RenameSession(ctx, RenameSessionCommand{ID: "missing", Title: &title}); !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("RenameSession(missing) error = %v, want ErrSessionNotFound", err)
+	}
+}
+
 func TestApplication_CreateSessionPreparesExternalSession(t *testing.T) {
 	t.Parallel()
 

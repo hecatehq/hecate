@@ -41,13 +41,13 @@ func (h *Handler) chatApplication() *chatapp.Application {
 }
 
 func (h *Handler) HandleChatSessions(w http.ResponseWriter, r *http.Request) {
-	items, err := h.agentChat.List(r.Context())
+	result, err := h.chatApplication().ListSessions(r.Context())
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	data := make([]ChatSessionSummaryItem, 0, len(items))
-	for _, item := range items {
+	data := make([]ChatSessionSummaryItem, 0, len(result.Sessions))
+	for _, item := range result.Sessions {
 		data = append(data, renderChatSessionSummary(item))
 	}
 	WriteJSON(w, http.StatusOK, ChatSessionsResponse{Object: "chat_sessions", Data: data})
@@ -175,53 +175,35 @@ func (h *Handler) isValidChatAgentID(agentID string) bool {
 }
 
 func (h *Handler) HandleChatSession(w http.ResponseWriter, r *http.Request) {
-	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	result, err := h.chatApplication().GetSession(r.Context(), r.PathValue("id"))
 	if err != nil {
+		if writeChatAppError(w, err) {
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
-		return
-	}
-	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(session, h.agentChatSnapshotConfig())})
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
 }
 
 func (h *Handler) HandleUpdateChatSession(w http.ResponseWriter, r *http.Request) {
-	sessionID := strings.TrimSpace(r.PathValue("id"))
-	if sessionID == "" {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "session id is required")
-		return
-	}
 	var req UpdateChatSessionRequest
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.Title == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request must include title")
-		return
-	}
-	title := strings.TrimSpace(*req.Title)
-	if title == "" {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "title cannot be set to an empty string")
-		return
-	}
-	if _, ok, err := h.agentChat.Get(r.Context(), sessionID); err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	} else if !ok {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
-		return
-	}
-	updated, err := h.agentChat.UpdateSession(r.Context(), sessionID, func(item *chat.Session) {
-		item.Title = title
+	result, err := h.chatApplication().RenameSession(r.Context(), chatapp.RenameSessionCommand{
+		ID:    r.PathValue("id"),
+		Title: req.Title,
 	})
 	if err != nil {
+		if writeChatAppError(w, err) {
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.agentChatLive.publishSession(updated)
-	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+	h.agentChatLive.publishSession(result.Session)
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
 }
 
 func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request) {

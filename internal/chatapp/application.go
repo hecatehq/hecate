@@ -24,6 +24,10 @@ var (
 	ErrExecutionModeInvalid    = errors.New("execution_mode must be hecate_task or external_agent")
 	ErrExternalCannotRunHecate = errors.New("external agent sessions cannot run Hecate Chat turns")
 	ErrHecateCannotRunExternal = errors.New("Hecate Chat sessions cannot run external-agent turns")
+	ErrSessionNotFound         = errors.New("agent chat session not found")
+	ErrSessionIDRequired       = errors.New("session id is required")
+	ErrTitleRequired           = errors.New("request must include title")
+	ErrTitleEmpty              = errors.New("title cannot be set to an empty string")
 )
 
 type ValidationError = apperrors.ValidationError
@@ -38,6 +42,8 @@ func IsValidationError(err error) bool {
 
 type SessionStore interface {
 	Create(ctx context.Context, session chat.Session) (chat.Session, error)
+	Get(ctx context.Context, id string) (chat.Session, bool, error)
+	List(ctx context.Context) ([]chat.Session, error)
 	UpdateSession(ctx context.Context, id string, update func(*chat.Session)) (chat.Session, error)
 	Delete(ctx context.Context, id string) error
 }
@@ -108,6 +114,19 @@ type SetHecateSettingsCommand struct {
 
 type SetHecateSettingsResult struct {
 	Session chat.Session
+}
+
+type RenameSessionCommand struct {
+	ID    string
+	Title *string
+}
+
+type SessionResult struct {
+	Session chat.Session
+}
+
+type ListSessionsResult struct {
+	Sessions []chat.Session
 }
 
 type MessageLimits struct {
@@ -183,6 +202,64 @@ func New(opts Options) *Application {
 		prepareTimeout:      opts.PrepareTimeout,
 		configOptionTimeout: opts.ConfigOptionTimeout,
 	}
+}
+
+func (app *Application) ListSessions(ctx context.Context) (*ListSessionsResult, error) {
+	if app == nil || app.store == nil {
+		return nil, ErrStoreNotConfigured
+	}
+	sessions, err := app.store.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ListSessionsResult{Sessions: sessions}, nil
+}
+
+func (app *Application) GetSession(ctx context.Context, id string) (*SessionResult, error) {
+	if app == nil || app.store == nil {
+		return nil, ErrStoreNotConfigured
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, Validation(ErrSessionIDRequired)
+	}
+	session, ok, err := app.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrSessionNotFound
+	}
+	return &SessionResult{Session: session}, nil
+}
+
+func (app *Application) RenameSession(ctx context.Context, cmd RenameSessionCommand) (*SessionResult, error) {
+	if app == nil || app.store == nil {
+		return nil, ErrStoreNotConfigured
+	}
+	id := strings.TrimSpace(cmd.ID)
+	if id == "" {
+		return nil, Validation(ErrSessionIDRequired)
+	}
+	if cmd.Title == nil {
+		return nil, Validation(ErrTitleRequired)
+	}
+	title := strings.TrimSpace(*cmd.Title)
+	if title == "" {
+		return nil, Validation(ErrTitleEmpty)
+	}
+	if _, ok, err := app.store.Get(ctx, id); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrSessionNotFound
+	}
+	updated, err := app.store.UpdateSession(ctx, id, func(item *chat.Session) {
+		item.Title = title
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SessionResult{Session: updated}, nil
 }
 
 func (app *Application) CreateSession(ctx context.Context, cmd CreateSessionCommand) (*CreateSessionResult, error) {
