@@ -230,6 +230,9 @@ When changing this path:
    (`model_not_configured`) if it reaches the server, but UI clients are
    expected to preflight against `/v1/models` plus
    `/hecate/v1/providers/status` and block send with actionable diagnostics.
+   Model listing, refresh selection, capability resolution, and readiness-error
+   wrapping live in `internal/modelapp`; API handlers should render DTOs and
+   map `modelapp.ReadinessError` into the existing error envelope.
 3. Keep `docs/runtime/external-agents.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
    guardrails, auth/readiness probes, and troubleshooting.

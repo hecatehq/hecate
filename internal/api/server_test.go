@@ -32,6 +32,7 @@ import (
 	"github.com/hecatehq/hecate/internal/governor"
 	"github.com/hecatehq/hecate/internal/mcp"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
+	"github.com/hecatehq/hecate/internal/modelapp"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/providers"
@@ -2292,12 +2293,13 @@ func TestAgentChatModelResolutionRequiredErrorUsesValidationContract(t *testing.
 
 func TestAgentChatModelResolutionErrorIncludesReadinessFields(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writeAgentChatModelResolutionError(rec, fmt.Errorf("resolve model: %w", modelReadinessError{
-		err: errors.New("model \"gpt-5.4-mini\" is not available from provider \"ollama\""),
-		readiness: gateway.ProviderModelReadiness{
+	writeAgentChatModelResolutionError(rec, fmt.Errorf("resolve model: %w", modelapp.ReadinessError{
+		Cause: errors.New("model \"gpt-5.4-mini\" is not available from provider \"ollama\""),
+		Readiness: types.ModelReadiness{
 			Provider:              "ollama",
 			MatchedProvider:       "ollama",
 			Model:                 "gpt-5.4-mini",
+			Status:                "blocked",
 			Reason:                "model_not_discovered",
 			Message:               "Provider \"ollama\" does not report model \"gpt-5.4-mini\".",
 			OperatorAction:        "Pull or load the model locally.",

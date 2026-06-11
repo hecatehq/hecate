@@ -7,7 +7,8 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/chat"
-	"github.com/hecatehq/hecate/internal/gateway"
+	"github.com/hecatehq/hecate/internal/modelapp"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func writeAgentChatWorkspaceRequired(w http.ResponseWriter, mode string) {
@@ -38,9 +39,9 @@ func writeAgentChatModelResolutionError(w http.ResponseWriter, err error) {
 			UserMessage:    "The selected model is not available from the selected provider.",
 			OperatorAction: "Choose a discovered model, refresh provider status, or open Connections to fix model discovery.",
 		}
-		var readinessErr modelReadinessError
-		if asModelReadinessError(err, &readinessErr) {
-			details = modelReadinessErrorDetails(readinessErr.readiness)
+		var readinessErr modelapp.ReadinessError
+		if errors.As(err, &readinessErr) {
+			details = modelReadinessErrorDetails(readinessErr.Readiness)
 		}
 		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, message, ErrorDetails{
 			UserMessage:    details.UserMessage,
@@ -52,14 +53,7 @@ func writeAgentChatModelResolutionError(w http.ResponseWriter, err error) {
 	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, message)
 }
 
-func asModelReadinessError(err error, target *modelReadinessError) bool {
-	if err == nil {
-		return false
-	}
-	return errors.As(err, target)
-}
-
-func modelReadinessErrorDetails(readiness gateway.ProviderModelReadiness) ErrorDetails {
+func modelReadinessErrorDetails(readiness types.ModelReadiness) ErrorDetails {
 	details := ErrorDetails{
 		UserMessage:    "The selected model is not ready for this chat.",
 		OperatorAction: readiness.OperatorAction,
