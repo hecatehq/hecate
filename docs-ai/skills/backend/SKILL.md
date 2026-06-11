@@ -146,12 +146,12 @@ External Agent has two live/persistence layers:
 2. `internal/agentadapters` owns the live ACP/process session manager.
 
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
-Session create, external-agent prepare, native session metadata persistence, and
-cleanup after prepare/update failure belong there; handlers keep HTTP parsing,
-workspace validation, model/profile resolution, and response rendering. Extend
-that app seam before adding more chat store or adapter-runner orchestration to
-`handler_chat.go`, and keep dependencies narrow to the methods the command
-needs.
+Session create, external-agent prepare, native session metadata persistence,
+native close/delete, and cleanup after prepare/update failure belong there;
+handlers keep HTTP parsing, live-run cancellation, workspace validation,
+model/profile resolution, and response rendering. Extend that app seam before
+adding more chat store or adapter-runner orchestration to `handler_chat.go`, and
+keep dependencies narrow to the methods the command needs.
 
 Task-backed Hecate Chat additionally uses `internal/orchestrator`,
 `internal/taskstate`, and `internal/modelcaps`. Do not add a second lightweight
