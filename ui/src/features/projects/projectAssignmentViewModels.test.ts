@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   toProjectActivityAssignmentExecutionViewModel,
   toProjectActivityItemViewModel,
+  toProjectAssignmentEvidenceViewModel,
   toProjectAssignmentExecutionViewModel,
 } from "./projectAssignmentViewModels";
 import type { ProjectActivityItemRecord, ProjectAssignmentRecord } from "../../types/project";
@@ -192,5 +193,101 @@ describe("projectAssignmentViewModels", () => {
     expect(view.bucket).toBe("blocked");
     expect(view.startedAt).toBe("2026-01-01T00:00:00Z");
     expect(view.finishedAt).toBe("2026-01-01T00:03:00Z");
+  });
+
+  it("builds evidence from canonical execution refs and activity link state", () => {
+    const assignment: ProjectAssignmentRecord = {
+      id: "assign_1",
+      project_id: "proj_1",
+      work_item_id: "work_1",
+      role_id: "developer",
+      driver_kind: "external_agent",
+      status: "running",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_1",
+        message_id: "msg_1",
+        context_snapshot_id: "ctx_1",
+        status: "running",
+        pending_approval_count: 1,
+        trace_id: "trace_1",
+      },
+      execution: {
+        status: "running",
+        provider: "anthropic",
+        model: "claude-sonnet",
+        step_count: 3,
+        artifact_count: 2,
+      },
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:01:00Z",
+    };
+    const activityItem = {
+      id: "activity_1",
+      project_id: "proj_1",
+      work_item: {
+        id: "work_1",
+        title: "Build",
+        status: "running",
+        priority: "normal",
+      },
+      assignment,
+      role: {
+        id: "developer",
+        project_id: "proj_1",
+        name: "Developer",
+        built_in: true,
+      },
+      status: "running",
+      blocking_signal: "running",
+      status_summary: "running",
+      linked_chat_id: "chat_1",
+      linked_chat: {
+        id: "chat_1",
+        missing: true,
+        latest_error: "adapter exited",
+      },
+      linked_message_id: "msg_1",
+      artifact_summary: { count: 0 },
+      handoff_summary: { count: 0 },
+      updated_at: "2026-01-01T00:01:00Z",
+    } satisfies ProjectActivityItemRecord;
+
+    const evidence = toProjectAssignmentEvidenceViewModel(assignment, activityItem);
+
+    expect(evidence.hasEvidence).toBe(true);
+    expect(evidence.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Kind", value: "chat_session" }),
+        expect.objectContaining({ label: "Chat", value: "chat_1" }),
+        expect.objectContaining({ label: "Message", value: "msg_1" }),
+        expect.objectContaining({ label: "Context snapshot", value: "ctx_1" }),
+        expect.objectContaining({ label: "Provider / model", value: "anthropic / claude-sonnet" }),
+        expect.objectContaining({ label: "Steps", value: "3" }),
+        expect.objectContaining({ label: "Artifacts", value: "2" }),
+      ]),
+    );
+    expect(evidence.warnings).toEqual([
+      "1 approval pending",
+      "Linked runtime record is missing or unavailable.",
+      "adapter exited",
+    ]);
+  });
+
+  it("does not render evidence for status-only queued assignments", () => {
+    const evidence = toProjectAssignmentEvidenceViewModel({
+      id: "assign_1",
+      project_id: "proj_1",
+      work_item_id: "work_1",
+      role_id: "developer",
+      driver_kind: "hecate_task",
+      status: "queued",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+
+    expect(evidence.hasEvidence).toBe(false);
+    expect(evidence.items).toEqual([]);
+    expect(evidence.warnings).toEqual([]);
   });
 });

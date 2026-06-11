@@ -74,6 +74,7 @@ import {
 } from "./projectInsights";
 import {
   toProjectActivityItemViewModel,
+  toProjectAssignmentEvidenceViewModel,
   toProjectAssignmentExecutionViewModel,
 } from "./projectAssignmentViewModels";
 import {
@@ -5607,6 +5608,7 @@ function AssignmentRow({
   const execution = assignment.execution;
   const assignmentExecution = toProjectAssignmentExecutionViewModel(assignment);
   const activityView = activityItem ? toProjectActivityItemViewModel(activityItem) : null;
+  const evidence = toProjectAssignmentEvidenceViewModel(assignment, activityItem);
   const executionRef = assignmentExecution.hasAnyLink
     ? assignmentExecution
     : (activityView?.execution ?? assignmentExecution);
@@ -5757,6 +5759,7 @@ function AssignmentRow({
           </button>
         )}
       </div>
+      {evidence.hasEvidence && <ProjectAssignmentEvidence evidence={evidence} />}
       {activityView?.statusSummary &&
         activityView.statusSummary !== projectedStatus &&
         activityView.statusSummary !== "linked run missing" && (
@@ -5806,6 +5809,7 @@ function ProjectHandoffRow({
   starting: boolean;
 }) {
   const executionRef = assignment ? toProjectAssignmentExecutionViewModel(assignment) : null;
+  const targetEvidence = assignment ? toProjectAssignmentEvidenceViewModel(assignment) : null;
   const startable =
     (assignment?.driver_kind === "hecate_task" || assignment?.driver_kind === "external_agent") &&
     executionRef?.status === "queued";
@@ -5846,10 +5850,9 @@ function ProjectHandoffRow({
         <span>{handoff.trust_label}</span>
         {handoff.updated_at && <span>Updated {formatAbsoluteTime(handoff.updated_at)}</span>}
       </div>
-      {sourceRefs.length > 0 && (
-        <div style={{ ...subtleTextStyle, marginTop: 7 }}>
-          Source refs: {sourceRefs.join(" · ")}
-        </div>
+      {sourceRefs.length > 0 && <HandoffSourceEvidence refs={sourceRefs} />}
+      {targetEvidence?.hasEvidence && (
+        <ProjectAssignmentEvidence evidence={targetEvidence} title="Target evidence" compact />
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
         {handoff.status === "pending" && (
@@ -5906,6 +5909,64 @@ function ProjectHandoffRow({
             {starting ? "Starting…" : "Start from handoff"}
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ProjectAssignmentEvidence({
+  compact = false,
+  evidence,
+  title = "Execution evidence",
+}: {
+  compact?: boolean;
+  evidence: ReturnType<typeof toProjectAssignmentEvidenceViewModel>;
+  title?: string;
+}) {
+  if (!evidence.hasEvidence) return null;
+  return (
+    <div
+      aria-label={title}
+      role="group"
+      style={{
+        ...assignmentEvidenceStyle,
+        padding: compact ? "8px 9px" : assignmentEvidenceStyle.padding,
+      }}
+    >
+      <div className="kicker">{title}</div>
+      {evidence.items.length > 0 && (
+        <div style={assignmentEvidenceGridStyle}>
+          {evidence.items.map((item) => (
+            <div key={item.key} style={assignmentEvidenceCellStyle}>
+              <div style={assignmentEvidenceLabelStyle}>{item.label}</div>
+              <div style={assignmentEvidenceValueStyle}>{item.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {evidence.warnings.length > 0 && (
+        <div style={assignmentEvidenceWarningsStyle}>
+          {evidence.warnings.map((warning) => (
+            <span key={warning} className="badge badge-amber">
+              {warning}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HandoffSourceEvidence({ refs }: { refs: string[] }) {
+  return (
+    <div aria-label="Source evidence" role="group" style={assignmentEvidenceStyle}>
+      <div className="kicker">Source evidence</div>
+      <div style={assignmentEvidenceWarningsStyle}>
+        {refs.map((ref) => (
+          <span key={ref} className="badge badge-muted">
+            {ref}
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -7089,6 +7150,51 @@ const assignmentStyle: CSSProperties = {
   background: "var(--bg2)",
   borderRadius: "var(--radius-sm)",
   padding: 10,
+};
+
+const assignmentEvidenceStyle: CSSProperties = {
+  background: "var(--bg1)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-sm)",
+  display: "grid",
+  gap: 8,
+  marginTop: 9,
+  minWidth: 0,
+  padding: "9px 10px",
+};
+
+const assignmentEvidenceGridStyle: CSSProperties = {
+  display: "grid",
+  gap: "8px 12px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+  minWidth: 0,
+};
+
+const assignmentEvidenceCellStyle: CSSProperties = {
+  minWidth: 0,
+};
+
+const assignmentEvidenceLabelStyle: CSSProperties = {
+  color: "var(--t3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  lineHeight: 1.4,
+  textTransform: "uppercase",
+};
+
+const assignmentEvidenceValueStyle: CSSProperties = {
+  color: "var(--t1)",
+  fontFamily: "var(--font-mono)",
+  fontSize: 11,
+  lineHeight: 1.45,
+  overflowWrap: "anywhere",
+};
+
+const assignmentEvidenceWarningsStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  minWidth: 0,
 };
 
 const timelineGridStyle: CSSProperties = {

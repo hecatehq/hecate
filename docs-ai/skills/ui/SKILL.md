@@ -193,7 +193,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   `task_id`, raw `run_id`, or `chat_session_id` fields. Project rows, activity,
   health, and timeline surfaces should use
   `ui/src/features/projects/projectAssignmentViewModels.ts` instead of
-  reconstructing status/link logic in components.
+  reconstructing status/link logic in components. Keep compact assignment row
+  evidence separate from the full Context Inspector: the row summarizes
+  canonical refs and warnings, while the inspector renders the persisted packet
+  sections the agent actually saw.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.

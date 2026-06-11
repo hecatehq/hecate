@@ -260,6 +260,15 @@ The Projects UI should stay lightweight but operational:
 - Treat the selected work item as one card. The work title, brief,
   assignments, collaboration artifacts, and handoffs are one work coordination
   object with internal sections, not separate dashboard panels.
+- Show assignment execution evidence close to the assignment row using
+  canonical `execution_ref` and activity linked ids: task, run, chat, message,
+  context snapshot, trace, provider/model, counts, and missing/stale warnings.
+  Keep this as compact provenance; the full Context Inspector remains the
+  place to inspect the persisted packet sections the agent actually saw.
+- Show handoff source evidence separately from target assignment evidence.
+  Source assignment/run/chat/message/context refs explain provenance; target
+  assignment refs explain the follow-up work. Accepting or linking a handoff
+  still records operator intent only and must not auto-dispatch work.
 - Open Project Settings as the same right-side inspector pattern used by Chat
   settings, with the same right-panel width behavior. The project header stays
   above the workspace/settings split so the inspector starts below the header,
@@ -325,8 +334,11 @@ defaults, handoff summaries, memory candidates, and memory/context metadata so
 operators can separate live assignment buckets from actionable setup gaps,
 waiting approvals, blocked or stale assignments, pending handoffs, memory review
 work, missing provider/model defaults, and context readiness without adding a
-separate persisted health model. Broader task `project_id` scoping, profiles,
-and presets are not linked to `project_id` yet.
+separate persisted health model. Assignment rows now render compact execution
+evidence from canonical assignment/activity refs, while the Context Inspector
+renders the full persisted launch packet with Profile, Instructions, Skills,
+Memory, Project sources, Work context, and Runtime evidence groups. Broader task
+`project_id` scoping, profiles, and presets are not linked to `project_id` yet.
 
 Persist `project_id` on:
 
