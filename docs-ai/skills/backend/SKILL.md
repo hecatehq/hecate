@@ -110,8 +110,10 @@ Application packages should use shared app-layer wrappers from
 package-local helper aliases (`taskapp.Validation`, `providerapp.Conflict`,
 etc.) that keep call sites readable. HTTP status-code decisions remain in
 `internal/api` mapping helpers; use shared app-error mapping helpers for
-validation/conflict/fallback cases before adding package-specific switches. Do
-not import API response types into app packages.
+validation/conflict/sentinel/fallback cases (`validationAppErrorMapping`,
+`conflictAppErrorMapping`, `sentinelAppErrorMapping`,
+`writeAppErrorWithFallback`) before adding package-specific switches. Do not
+import API response types into app packages.
 
 API handler app-wiring helpers (`taskApplication`, `chatApplication`,
 `providerApplication`, `projectWorkApplication`, `modelApplication`) live in

@@ -10,13 +10,7 @@ import (
 var providerAppErrorMappings = []appErrorMapping{
 	validationAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest),
 	conflictAppErrorMapping(http.StatusConflict, errCodeInvalidRequest),
-	{
-		Match: func(err error) bool {
-			return errors.Is(err, providerapp.ErrRuntimeNotConfigured)
-		},
-		Status: http.StatusBadRequest,
-		Code:   errCodeInvalidRequest,
-	},
+	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, providerapp.ErrRuntimeNotConfigured),
 }
 
 func writeProviderAppError(w http.ResponseWriter, err error) {

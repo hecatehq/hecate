@@ -48,6 +48,26 @@ func TestConflictAppErrorMapping(t *testing.T) {
 	}
 }
 
+func TestSentinelAppErrorMapping(t *testing.T) {
+	t.Parallel()
+
+	target := errors.New("known app error")
+	rec := httptest.NewRecorder()
+	ok := writeAppError(rec, errors.Join(errors.New("context"), target), []appErrorMapping{
+		sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound, target),
+	})
+
+	if !ok {
+		t.Fatal("writeAppError(sentinel) = false, want true")
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if got := decodeAppErrorType(t, rec.Body.Bytes()); got != errCodeNotFound {
+		t.Fatalf("error type = %q, want %q", got, errCodeNotFound)
+	}
+}
+
 func TestWriteAppErrorWithFallback(t *testing.T) {
 	t.Parallel()
 
