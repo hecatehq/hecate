@@ -21,6 +21,7 @@ var (
 	errTaskProjectNotFound           = errors.New("project not found")
 	errTaskNotFound                  = errors.New("task not found")
 	errTaskRunNotFound               = errors.New("task run not found")
+	errTaskApprovalNotFound          = errors.New("task approval not found")
 	errTaskPromptRequired            = errors.New("prompt is required")
 	errTaskHasActiveRun              = errors.New("task already has an active run")
 	errTaskHasOtherActiveRun         = errors.New("task already has another active run")
@@ -385,7 +386,7 @@ func (app *taskApplication) GetTaskApproval(ctx context.Context, task types.Task
 		return types.TaskApproval{}, err
 	}
 	if !found {
-		return types.TaskApproval{}, orchestrator.ErrApprovalNotFound
+		return types.TaskApproval{}, errTaskApprovalNotFound
 	}
 	return approval, nil
 }

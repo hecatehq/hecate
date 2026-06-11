@@ -288,8 +288,8 @@ func TestTaskApplication_LoadNotFoundErrors(t *testing.T) {
 	if _, err := app.LoadTaskRun(ctx, task, "missing"); !errors.Is(err, errTaskRunNotFound) {
 		t.Fatalf("LoadTaskRun(missing) error = %v, want errTaskRunNotFound", err)
 	}
-	if _, err := app.GetTaskApproval(ctx, task, "missing"); !errors.Is(err, orchestrator.ErrApprovalNotFound) {
-		t.Fatalf("GetTaskApproval(missing) error = %v, want ErrApprovalNotFound", err)
+	if _, err := app.GetTaskApproval(ctx, task, "missing"); !errors.Is(err, errTaskApprovalNotFound) {
+		t.Fatalf("GetTaskApproval(missing) error = %v, want errTaskApprovalNotFound", err)
 	}
 }
 

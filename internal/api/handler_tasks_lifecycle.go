@@ -60,7 +60,7 @@ func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 			return
 		}
-		if errors.Is(err, orchestrator.ErrApprovalNotFound) {
+		if errors.Is(err, errTaskApprovalNotFound) {
 			WriteError(w, http.StatusNotFound, errCodeNotFound, "task approval not found")
 			return
 		}
