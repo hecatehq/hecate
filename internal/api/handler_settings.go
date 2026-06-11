@@ -1,24 +1,23 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/providerapp"
 )
 
-// slugify converts a human name into a stable URL-safe ID.
-// "My Anthropic" → "my-anthropic", leading/trailing hyphens stripped.
-func slugify(name string) string {
-	s := strings.ToLower(name)
-	re := regexp.MustCompile(`[^a-z0-9]+`)
-	s = re.ReplaceAllString(s, "-")
-	s = strings.Trim(s, "-")
-	return s
+func (h *Handler) providerApplication() *providerapp.Application {
+	if h == nil {
+		return providerapp.New(providerapp.Options{})
+	}
+	return providerapp.New(providerapp.Options{
+		ControlPlane: h.controlPlane,
+		Runtime:      h.providerRuntime,
+	})
 }
 
 func (h *Handler) HandleSettingsStatus(w http.ResponseWriter, r *http.Request) {
@@ -81,61 +80,19 @@ func (h *Handler) HandleSettingsUpdateProvider(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	ctx := controlplane.WithActor(r.Context(), settingsActor(r))
-
-	state, err := h.controlPlane.Snapshot(r.Context())
+	result, err := h.providerApplication().UpdateProvider(controlplane.WithActor(r.Context(), settingsActor(r)), providerapp.UpdateProviderCommand{
+		ID:         id,
+		BaseURL:    req.BaseURL,
+		Name:       req.Name,
+		CustomName: req.CustomName,
+	})
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		writeProviderAppError(w, err)
 		return
 	}
-	var existing *controlplane.Provider
-	for i := range state.Providers {
-		if state.Providers[i].ID == id {
-			existing = &state.Providers[i]
-			break
-		}
-	}
-	if existing == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("provider %q not found", id))
-		return
-	}
-	updated := *existing
-	if req.BaseURL != nil {
-		trimmed := strings.TrimSpace(*req.BaseURL)
-		if trimmed == "" {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "base_url cannot be empty")
-			return
-		}
-		updated.BaseURL = trimmed
-	}
-	if req.Name != nil {
-		// Preset providers keep a fixed Name (it's the catalog join key).
-		// CustomName is the disambiguator they should reach for instead.
-		if existing.PresetID != "" {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "preset providers have a fixed name; use custom_name to add a disambiguating label")
-			return
-		}
-		trimmed := strings.TrimSpace(*req.Name)
-		if trimmed == "" {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "name cannot be empty")
-			return
-		}
-		updated.Name = trimmed
-	}
-	if req.CustomName != nil {
-		// CustomName is allowed on any provider, including presets, and
-		// can be cleared by passing an empty string.
-		updated.CustomName = strings.TrimSpace(*req.CustomName)
-	}
-	provider, err := h.providerRuntime.Upsert(ctx, updated, "")
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-		return
-	}
-	state, _ = h.controlPlane.Snapshot(r.Context())
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "settings_provider",
-		"data":   renderSettingsProvider(provider, state.ProviderSecrets),
+		"data":   renderSettingsProvider(result.Provider, result.State.ProviderSecrets),
 	})
 }
 
@@ -158,28 +115,24 @@ func (h *Handler) HandleSettingsSetProviderAPIKey(w http.ResponseWriter, r *http
 		return
 	}
 
-	ctx := controlplane.WithActor(r.Context(), settingsActor(r))
-	if req.Key == "" {
-		if err := h.providerRuntime.DeleteCredential(ctx, id); err != nil {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return
-		}
+	result, cleared, err := h.providerApplication().SetAPIKey(controlplane.WithActor(r.Context(), settingsActor(r)), providerapp.SetAPIKeyCommand{
+		ID:  id,
+		Key: req.Key,
+	})
+	if err != nil {
+		writeProviderAppError(w, err)
+		return
+	}
+	if cleared != nil {
 		WriteJSON(w, http.StatusOK, map[string]any{
 			"object": "settings_provider_api_key",
-			"data":   map[string]string{"id": id, "status": "cleared"},
+			"data":   map[string]string{"id": cleared.ID, "status": cleared.Status},
 		})
 		return
 	}
-
-	provider, err := h.providerRuntime.RotateSecret(ctx, id, req.Key)
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-		return
-	}
-	state, _ := h.controlPlane.Snapshot(r.Context())
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "settings_provider_api_key",
-		"data":   renderSettingsProvider(provider, state.ProviderSecrets),
+		"data":   renderSettingsProvider(result.Provider, result.State.ProviderSecrets),
 	})
 }
 
@@ -205,81 +158,22 @@ func (h *Handler) HandleSettingsCreateProvider(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// ID is derived from name + custom_name so two instances of the same
-	// preset (Name="Anthropic" twice with different CustomName values)
-	// land at distinct ids without forcing the operator to type a unique
-	// Name. CustomName is empty for the typical single-instance case;
-	// the slug then degenerates to slugify(Name) and matches pre-custom_name
-	// records.
-	idSource := strings.TrimSpace(req.Name)
-	if cn := strings.TrimSpace(req.CustomName); cn != "" {
-		idSource = idSource + " " + cn
-	}
-	id := slugify(idSource)
-	if id == "" {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "provider name is required")
-		return
-	}
-
-	state, err := h.controlPlane.Snapshot(r.Context())
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-
-	for _, p := range state.Providers {
-		if p.ID == id {
-			WriteError(w, http.StatusConflict, errCodeInvalidRequest, fmt.Sprintf("provider with id %q already exists", id))
-			return
-		}
-	}
-
-	if strings.TrimSpace(req.BaseURL) != "" {
-		for _, p := range state.Providers {
-			existingURL := strings.TrimSpace(p.BaseURL)
-			if existingURL == "" {
-				continue
-			}
-			if existingURL == strings.TrimSpace(req.BaseURL) {
-				name := p.Name
-				if name == "" {
-					name = p.ID
-				}
-				WriteError(w, http.StatusConflict, errCodeInvalidRequest, fmt.Sprintf("base URL already used by provider %q", name))
-				return
-			}
-		}
-	}
-
-	kind := req.Kind
-	if kind == "" {
-		kind = "cloud"
-	}
-	protocol := req.Protocol
-	if protocol == "" {
-		protocol = "openai"
-	}
-
-	ctx := controlplane.WithActor(r.Context(), settingsActor(r))
-	provider, err := h.providerRuntime.Upsert(ctx, controlplane.Provider{
-		ID:         id,
+	result, err := h.providerApplication().CreateProvider(controlplane.WithActor(r.Context(), settingsActor(r)), providerapp.CreateProviderCommand{
 		Name:       req.Name,
 		PresetID:   req.PresetID,
-		CustomName: strings.TrimSpace(req.CustomName),
-		Kind:       kind,
-		Protocol:   protocol,
+		CustomName: req.CustomName,
 		BaseURL:    req.BaseURL,
-		Enabled:    true,
-	}, req.APIKey)
+		APIKey:     req.APIKey,
+		Kind:       req.Kind,
+		Protocol:   req.Protocol,
+	})
 	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		writeProviderAppError(w, err)
 		return
 	}
-
-	state, _ = h.controlPlane.Snapshot(r.Context())
 	WriteJSON(w, http.StatusCreated, map[string]any{
 		"object": "settings_provider",
-		"data":   renderSettingsProvider(provider, state.ProviderSecrets),
+		"data":   renderSettingsProvider(result.Provider, result.State.ProviderSecrets),
 	})
 }
 
@@ -292,9 +186,8 @@ func (h *Handler) HandleSettingsDeleteProvider(w http.ResponseWriter, r *http.Re
 		return
 	}
 	id := r.PathValue("id")
-	ctx := controlplane.WithActor(r.Context(), settingsActor(r))
-	if err := h.providerRuntime.Delete(ctx, id); err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	if err := h.providerApplication().DeleteProvider(controlplane.WithActor(r.Context(), settingsActor(r)), id); err != nil {
+		writeProviderAppError(w, err)
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"object": "settings_provider", "id": id, "deleted": true})
