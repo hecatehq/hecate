@@ -15,6 +15,7 @@ import type {
 } from "../../types/project";
 import {
   toProjectActivityAssignmentExecutionViewModel,
+  toProjectActivityItemViewModel,
   toProjectAssignmentExecutionViewModel,
 } from "./projectAssignmentViewModels";
 
@@ -127,25 +128,25 @@ export function buildProjectTimelineItems({
   const roleByID = new Map(roles.map((role) => [role.id, role]));
   const workByID = new Map(workItems.map((item) => [item.id, item]));
   for (const activityItem of projectActivityItems(activity)) {
+    const activityView = toProjectActivityItemViewModel(activityItem);
     const workItem =
       workByID.get(activityItem.work_item.id) ??
       projectActivityWorkItemToWorkItem(project.id, activityItem.work_item);
     const role = roleByID.get(activityItem.assignment.role_id) ?? activityItem.role;
-    if (activityItem.blocking_signal !== "not_started") {
-      const execution = toProjectActivityAssignmentExecutionViewModel(activityItem);
+    if (activityView.blockingSignal !== "not_started") {
       setTimelineItem(items, {
         id: `assignment:${activityItem.assignment.id}`,
         kind: "assignment",
         title: workItem.title,
-        summary: activityItem.status_summary,
+        summary: activityView.statusSummary,
         actor: `role ${role?.name || activityItem.assignment.role_id}`,
         source: activityItem.assignment.driver_kind,
         timestamp: activityItem.updated_at || activityItem.assignment.updated_at,
-        status: activityItem.blocking_signal,
+        status: activityView.blockingSignal,
         workItemID: workItem.id,
-        taskID: execution.taskID,
-        runID: execution.runID,
-        chatID: execution.chatSessionID,
+        taskID: activityView.execution.taskID,
+        runID: activityView.execution.runID,
+        chatID: activityView.execution.chatSessionID,
         assignment: activityItem.assignment,
       });
     }
@@ -209,8 +210,10 @@ export function buildProjectHealthSummary(
     })),
   );
   const staleItems = [
-    ...activityItems.filter((item) => item.blocking_signal === "stale_unknown"),
-    ...activityItems.filter((item) => toProjectActivityAssignmentExecutionViewModel(item).missing),
+    ...activityItems.filter(
+      (item) => toProjectActivityItemViewModel(item).blockingSignal === "stale_unknown",
+    ),
+    ...activityItems.filter((item) => toProjectActivityItemViewModel(item).execution.missing),
     ...projectedAssignments
       .filter((item) => isStaleAssignment(item.assignment, item.status))
       .map((item) => projectAssignmentToActivityAttention(project, item.workItem, item.assignment)),
@@ -295,7 +298,8 @@ export function buildProjectHealthSummary(
   const firstFailedExternal = activityItems.find(
     (item) =>
       item.assignment.driver_kind === "external_agent" &&
-      (item.blocking_signal === "failed" || item.blocking_signal === "cancelled"),
+      (toProjectActivityItemViewModel(item).blockingSignal === "failed" ||
+        toProjectActivityItemViewModel(item).blockingSignal === "cancelled"),
   );
   if (firstFailedExternal) {
     attention.push(

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   toProjectActivityAssignmentExecutionViewModel,
+  toProjectActivityItemViewModel,
   toProjectAssignmentExecutionViewModel,
 } from "./projectAssignmentViewModels";
 import type { ProjectActivityItemRecord, ProjectAssignmentRecord } from "../../types/project";
@@ -38,7 +39,7 @@ describe("projectAssignmentViewModels", () => {
     expect(execution.hasTaskRun).toBe(true);
   });
 
-  it("falls back to projected execution before raw links", () => {
+  it("does not reconstruct runtime links from legacy execution or raw fields", () => {
     const execution = toProjectAssignmentExecutionViewModel({
       id: "assign_1",
       project_id: "proj_1",
@@ -58,11 +59,12 @@ describe("projectAssignmentViewModels", () => {
       updated_at: "2026-01-01T00:00:00Z",
     });
 
-    expect(execution.kind).toBe("task_run");
-    expect(execution.taskID).toBe("task_projected");
-    expect(execution.runID).toBe("run_projected");
-    expect(execution.status).toBe("completed");
-    expect(execution.missing).toBe(true);
+    expect(execution.kind).toBe("none");
+    expect(execution.taskID).toBe("");
+    expect(execution.runID).toBe("");
+    expect(execution.status).toBe("queued");
+    expect(execution.missing).toBe(false);
+    expect(execution.hasAnyLink).toBe(false);
   });
 
   it("uses activity linked refs ahead of assignment refs", () => {
@@ -75,6 +77,12 @@ describe("projectAssignmentViewModels", () => {
       status: "running",
       chat_session_id: "chat_assignment",
       message_id: "msg_assignment",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_assignment",
+        message_id: "msg_assignment",
+        status: "running",
+      },
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     };
@@ -111,7 +119,7 @@ describe("projectAssignmentViewModels", () => {
     expect(execution.hasChatSession).toBe(true);
   });
 
-  it("infers context-only assignments", () => {
+  it("uses explicit context-only execution refs", () => {
     const execution = toProjectAssignmentExecutionViewModel({
       id: "assign_1",
       project_id: "proj_1",
@@ -120,6 +128,11 @@ describe("projectAssignmentViewModels", () => {
       driver_kind: "hecate_task",
       status: "queued",
       context_snapshot_id: "ctx_1",
+      execution_ref: {
+        kind: "context_snapshot",
+        context_snapshot_id: "ctx_1",
+        status: "queued",
+      },
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     });
@@ -128,5 +141,63 @@ describe("projectAssignmentViewModels", () => {
     expect(execution.contextSnapshotID).toBe("ctx_1");
     expect(execution.hasContextSnapshot).toBe(true);
     expect(execution.hasAnyLink).toBe(true);
+  });
+
+  it("builds activity item view models from canonical execution refs", () => {
+    const item = {
+      id: "activity_1",
+      project_id: "proj_1",
+      work_item: {
+        id: "work_1",
+        title: "Build",
+        status: "running",
+        priority: "normal",
+      },
+      assignment: {
+        id: "assign_1",
+        project_id: "proj_1",
+        work_item_id: "work_1",
+        role_id: "developer",
+        driver_kind: "hecate_task",
+        status: "queued",
+        execution_ref: {
+          kind: "task_run",
+          task_id: "task_1",
+          run_id: "run_1",
+          status: "awaiting_approval",
+          pending_approval_count: 2,
+        },
+        execution: {
+          started_at: "2026-01-01T00:00:00Z",
+          finished_at: "2026-01-01T00:03:00Z",
+        },
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:01:00Z",
+      },
+      role: {
+        id: "developer",
+        project_id: "proj_1",
+        name: "Developer",
+        built_in: true,
+      },
+      status: "awaiting_approval",
+      blocking_signal: "awaiting_approval",
+      status_summary: "2 approval pending",
+      linked_task_id: "task_1",
+      linked_run_id: "run_1",
+      artifact_summary: { count: 0 },
+      handoff_summary: { count: 0 },
+      updated_at: "2026-01-01T00:01:00Z",
+    } satisfies ProjectActivityItemRecord;
+
+    const view = toProjectActivityItemViewModel(item);
+
+    expect(view.execution.taskID).toBe("task_1");
+    expect(view.execution.pendingApprovalCount).toBe(2);
+    expect(view.status).toBe("awaiting_approval");
+    expect(view.blockingSignal).toBe("awaiting_approval");
+    expect(view.bucket).toBe("blocked");
+    expect(view.startedAt).toBe("2026-01-01T00:00:00Z");
+    expect(view.finishedAt).toBe("2026-01-01T00:03:00Z");
   });
 });

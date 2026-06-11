@@ -72,7 +72,10 @@ import {
   type ProjectHealthAttention,
   type ProjectTimelineItem,
 } from "./projectInsights";
-import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
+import {
+  toProjectActivityItemViewModel,
+  toProjectAssignmentExecutionViewModel,
+} from "./projectAssignmentViewModels";
 import {
   PROJECT_ASSISTANT_AUTO,
   ProjectAssistantPanel,
@@ -5579,20 +5582,24 @@ function AssignmentRow({
   starting: boolean;
 }) {
   const execution = assignment.execution;
-  const executionRef = toProjectAssignmentExecutionViewModel(assignment);
+  const assignmentExecution = toProjectAssignmentExecutionViewModel(assignment);
+  const activityView = activityItem ? toProjectActivityItemViewModel(activityItem) : null;
+  const executionRef = assignmentExecution.hasAnyLink
+    ? assignmentExecution
+    : (activityView?.execution ?? assignmentExecution);
   const taskID = executionRef.taskID;
   const runID = executionRef.runID;
   const chatSessionID = executionRef.chatSessionID;
   const linkedChat = activityItem?.linked_chat;
-  const projectedStatus = executionRef.status;
+  const projectedStatus = assignmentExecution.status;
   const startable =
     (assignment.driver_kind === "hecate_task" || assignment.driver_kind === "external_agent") &&
     projectedStatus === "queued";
   const external = assignment.driver_kind === "external_agent";
   const startActionLabel = external ? "Prepare chat" : "Start";
   const startingLabel = external ? "Preparing…" : "Starting…";
-  const startedAt = execution?.started_at || assignment.started_at;
-  const finishedAt = execution?.finished_at || assignment.completed_at;
+  const startedAt = activityView?.startedAt || execution?.started_at || assignment.started_at;
+  const finishedAt = activityView?.finishedAt || execution?.finished_at || assignment.completed_at;
   return (
     <div style={assignmentStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -5727,10 +5734,10 @@ function AssignmentRow({
           </button>
         )}
       </div>
-      {activityItem?.status_summary &&
-        activityItem.status_summary !== projectedStatus &&
-        activityItem.status_summary !== "linked run missing" && (
-          <div style={{ ...subtleTextStyle, marginTop: 8 }}>{activityItem.status_summary}</div>
+      {activityView?.statusSummary &&
+        activityView.statusSummary !== projectedStatus &&
+        activityView.statusSummary !== "linked run missing" && (
+          <div style={{ ...subtleTextStyle, marginTop: 8 }}>{activityView.statusSummary}</div>
         )}
       {(startedAt || finishedAt) && (
         <div style={{ ...metaLineStyle, marginTop: 8 }}>

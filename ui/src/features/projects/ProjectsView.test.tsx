@@ -320,6 +320,13 @@ const hecateAssignment: ProjectAssignmentRecord = {
   status: "queued",
   task_id: "task_1",
   run_id: "run_1",
+  execution_ref: {
+    kind: "task_run",
+    task_id: "task_1",
+    run_id: "run_1",
+    status: "awaiting_approval",
+    pending_approval_count: 2,
+  },
   execution: {
     task_id: "task_1",
     run_id: "run_1",
@@ -2163,6 +2170,7 @@ describe("ProjectsView cockpit", () => {
       status: "queued",
       task_id: "",
       run_id: "",
+      execution_ref: undefined,
       execution: undefined,
     };
     vi.mocked(getProjectWorkItems).mockResolvedValue({
@@ -2209,6 +2217,12 @@ describe("ProjectsView cockpit", () => {
         status: "running",
         chat_session_id: "chat_external_1",
         context_snapshot_id: "ctx_external_1",
+        execution_ref: {
+          kind: "chat_session",
+          chat_session_id: "chat_external_1",
+          context_snapshot_id: "ctx_external_1",
+          status: "running",
+        },
       },
     });
     await waitFor(() => {
@@ -2227,6 +2241,12 @@ describe("ProjectsView cockpit", () => {
       run_id: "",
       chat_session_id: "chat_external_1",
       context_snapshot_id: "ctx_external_1",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_external_1",
+        context_snapshot_id: "ctx_external_1",
+        status: "running",
+      },
       execution: undefined,
     };
     vi.mocked(getProjectWorkItems).mockResolvedValue({
@@ -2272,6 +2292,12 @@ describe("ProjectsView cockpit", () => {
       chat_session_id: "chat_external_1",
       message_id: "",
       context_snapshot_id: "ctx_external_1",
+      execution_ref: {
+        kind: "chat_session",
+        chat_session_id: "chat_external_1",
+        context_snapshot_id: "ctx_external_1",
+        status: "running",
+      },
       execution: undefined,
     };
     vi.mocked(getProjectActivity).mockResolvedValue({
@@ -2733,8 +2759,15 @@ describe("ProjectsView cockpit", () => {
       ...hecateAssignment,
       id: "asgn_failed",
       status: "failed",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_failed",
+        status: "failed",
+      },
       execution: {
         ...hecateAssignment.execution,
+        run_id: "run_failed",
         status: "failed",
         pending_approval_count: 0,
       },
@@ -2744,8 +2777,16 @@ describe("ProjectsView cockpit", () => {
       ...hecateAssignment,
       id: "asgn_stale_health",
       status: "running",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_missing",
+        status: "running",
+        missing: true,
+      },
       execution: {
         ...hecateAssignment.execution,
+        run_id: "run_missing",
         status: "running",
         pending_approval_count: 0,
         missing: true,
@@ -3183,8 +3224,16 @@ describe("ProjectsView cockpit", () => {
       ...hecateAssignment,
       id: "asgn_stale",
       status: "running",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_missing",
+        status: "running",
+        missing: true,
+      },
       execution: {
         ...hecateAssignment.execution,
+        run_id: "run_missing",
         status: "running",
         pending_approval_count: 0,
         missing: true,
@@ -3277,6 +3326,12 @@ describe("ProjectsView cockpit", () => {
     const completedAssignment: ProjectAssignmentRecord = {
       ...hecateAssignment,
       status: "completed",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_1",
+        status: "completed",
+      },
       execution: {
         ...hecateAssignment.execution,
         status: "completed",
@@ -3359,6 +3414,7 @@ describe("ProjectsView cockpit", () => {
       task_id: "",
       run_id: "",
       status: "queued",
+      execution_ref: undefined,
       execution: undefined,
       started_at: undefined,
     };
@@ -3534,6 +3590,7 @@ describe("ProjectsView cockpit", () => {
       ...hecateAssignment,
       task_id: "",
       run_id: "",
+      execution_ref: undefined,
       execution: undefined,
       status: "queued",
       started_at: undefined,
@@ -4235,6 +4292,12 @@ describe("ProjectsView cockpit", () => {
     const queuedAssignment = {
       ...hecateAssignment,
       status: "running",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_1",
+        status: "queued",
+      },
       execution: { ...hecateAssignment.execution, status: "queued" },
     };
     vi.mocked(getProjectAssignments).mockResolvedValue({
@@ -4293,17 +4356,27 @@ describe("ProjectsView cockpit", () => {
   it("exposes chat preparation for queued external-agent assignments", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
+    const externalAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_external",
+      driver_kind: "external_agent",
+      status: "queued",
+      task_id: "",
+      run_id: "",
+      execution_ref: undefined,
+      execution: undefined,
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [externalAssignment] }],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: { ...workItem, assignments: [externalAssignment] },
+    });
     vi.mocked(getProjectAssignments).mockResolvedValue({
       object: "project_assignments",
-      data: [
-        {
-          ...hecateAssignment,
-          id: "asgn_external",
-          driver_kind: "external_agent",
-          status: "queued",
-          execution: undefined,
-        },
-      ],
+      data: [externalAssignment],
     });
     const state = createRuntimeConsoleFixture({
       projects: [project],
