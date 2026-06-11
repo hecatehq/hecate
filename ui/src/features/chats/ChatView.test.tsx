@@ -2251,6 +2251,7 @@ describe("ChatView input", () => {
         segments: [
           {
             id: "model:first",
+            turn_kind: "direct_model",
             execution_mode: "hecate_task",
             tools_enabled: false,
             provider: "ollama",
@@ -2260,6 +2261,7 @@ describe("ChatView input", () => {
           },
           {
             id: "task:task_hecate_123456",
+            turn_kind: "hecate_task",
             execution_mode: "hecate_task",
             provider: "ollama",
             model: "qwen2.5-coder",
@@ -2484,6 +2486,7 @@ describe("ChatView input", () => {
         messages: [
           {
             id: "m1",
+            turn_kind: "hecate_task",
             execution_mode: "hecate_task",
             segment_id: "task:task_hecate_123456",
             task_id: "task_hecate_123456",
@@ -2493,6 +2496,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m2",
+            turn_kind: "hecate_task",
             execution_mode: "hecate_task",
             segment_id: "task:task_hecate_123456",
             task_id: "task_hecate_123456",
@@ -2581,6 +2585,7 @@ describe("ChatView input", () => {
         segments: [
           {
             id: "model:first",
+            turn_kind: "direct_model",
             execution_mode: "hecate_task",
             tools_enabled: false,
             provider: "ollama",
@@ -2590,6 +2595,7 @@ describe("ChatView input", () => {
           },
           {
             id: "task:task_first",
+            turn_kind: "hecate_task",
             execution_mode: "hecate_task",
             provider: "ollama",
             model: "qwen2.5-coder",
@@ -2600,6 +2606,7 @@ describe("ChatView input", () => {
           },
           {
             id: "model:second",
+            turn_kind: "direct_model",
             execution_mode: "hecate_task",
             tools_enabled: false,
             provider: "ollama",
@@ -2611,6 +2618,7 @@ describe("ChatView input", () => {
         messages: [
           {
             id: "m1",
+            turn_kind: "direct_model",
             execution_mode: "hecate_task",
             tools_enabled: false,
             segment_id: "model:first",
@@ -2620,6 +2628,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m2",
+            turn_kind: "direct_model",
             execution_mode: "hecate_task",
             tools_enabled: false,
             segment_id: "model:first",
@@ -2631,6 +2640,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m3",
+            turn_kind: "hecate_task",
             execution_mode: "hecate_task",
             segment_id: "task:task_first",
             task_id: "task_first",
@@ -2640,6 +2650,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m4",
+            turn_kind: "hecate_task",
             execution_mode: "hecate_task",
             segment_id: "task:task_first",
             task_id: "task_first",
@@ -2652,6 +2663,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m5",
+            turn_kind: "direct_model",
             execution_mode: "hecate_task",
             tools_enabled: false,
             segment_id: "model:second",
@@ -2661,6 +2673,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m6",
+            turn_kind: "direct_model",
             execution_mode: "hecate_task",
             tools_enabled: false,
             segment_id: "model:second",
@@ -4763,6 +4776,7 @@ describe("ChatView external-agent target", () => {
           segments: [
             {
               id: "seg_1",
+              turn_kind: "external_agent",
               execution_mode: "external_agent",
               workspace: "/tmp/hecate",
               status: "running",

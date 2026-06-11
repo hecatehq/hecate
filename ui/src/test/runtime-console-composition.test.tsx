@@ -2997,6 +2997,7 @@ describe("useRuntimeConsole", () => {
                 segments: [
                   {
                     id: "model:first",
+                    turn_kind: "direct_model",
                     execution_mode: "hecate_task",
                     tools_enabled: false,
                     provider: "ollama",
@@ -3006,6 +3007,7 @@ describe("useRuntimeConsole", () => {
                   },
                   {
                     id: "task:task_tools",
+                    turn_kind: "hecate_task",
                     execution_mode: "hecate_task",
                     provider: "ollama",
                     model: "qwen2.5-coder",
