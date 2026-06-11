@@ -9,6 +9,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
@@ -153,7 +154,7 @@ func (h *Handler) HandleProjectWorkAssignmentContext(w http.ResponseWriter, r *h
 }
 
 func (h *Handler) contextPacketForTaskRun(ctx context.Context, task types.Task, run types.TaskRun) (chat.ContextPacket, bool, error) {
-	if packet, ok, err := contextPacketFromRun(run); err != nil || ok {
+	if packet, ok, err := chatcontext.FromTaskRun(run); err != nil || ok {
 		return packet, ok, err
 	}
 	if h == nil || h.agentChat == nil {
@@ -164,7 +165,7 @@ func (h *Handler) contextPacketForTaskRun(ctx context.Context, task types.Task, 
 		if err != nil || !ok {
 			return chat.ContextPacket{}, false, err
 		}
-		packet, found := contextPacketFromSessionRun(session, task.ID, run.ID)
+		packet, found := chatcontext.FromSessionRun(session, task.ID, run.ID)
 		return packet, found, nil
 	}
 	sessions, err := h.agentChat.List(ctx)
@@ -179,7 +180,7 @@ func (h *Handler) contextPacketForTaskRun(ctx context.Context, task types.Task, 
 		if !ok {
 			continue
 		}
-		if packet, ok := contextPacketFromSessionRun(session, task.ID, run.ID); ok {
+		if packet, ok := chatcontext.FromSessionRun(session, task.ID, run.ID); ok {
 			return packet, true, nil
 		}
 	}
@@ -205,14 +206,8 @@ func (h *Handler) contextPacketForProjectAssignment(ctx context.Context, assignm
 			}
 		}
 	}
-	if len(assignment.ContextPacket) > 0 {
-		var packet chat.ContextPacket
-		if err := json.Unmarshal(assignment.ContextPacket, &packet); err != nil {
-			return chat.ContextPacket{}, false, fmt.Errorf("decode project assignment context packet: %w", err)
-		}
-		if !packet.Empty() {
-			return packet, true, nil
-		}
+	if packet, ok, err := chatcontext.FromProjectAssignmentPayload(assignment.ContextPacket); err != nil || ok {
+		return packet, ok, err
 	}
 	if h == nil || h.agentChat == nil || strings.TrimSpace(assignment.ChatSessionID) == "" || strings.TrimSpace(assignment.MessageID) == "" {
 		return chat.ContextPacket{}, false, nil
@@ -225,41 +220,10 @@ func (h *Handler) contextPacketForProjectAssignment(ctx context.Context, assignm
 		if message.ID != strings.TrimSpace(assignment.MessageID) {
 			continue
 		}
-		if message.Context.Empty() {
-			return chat.ContextPacket{}, false, nil
-		}
-		return message.Context, true, nil
+		packet, found := chatcontext.FromSessionMessage(session, message.ID)
+		return packet, found, nil
 	}
 	return chat.ContextPacket{}, false, nil
-}
-
-func contextPacketFromSessionRun(session chat.Session, taskID, runID string) (chat.ContextPacket, bool) {
-	taskID = strings.TrimSpace(taskID)
-	runID = strings.TrimSpace(runID)
-	for _, message := range session.Messages {
-		if strings.TrimSpace(message.TaskID) != taskID || strings.TrimSpace(message.RunID) != runID {
-			continue
-		}
-		if message.Context.Empty() {
-			return chat.ContextPacket{}, false
-		}
-		return message.Context, true
-	}
-	return chat.ContextPacket{}, false
-}
-
-func contextPacketFromRun(run types.TaskRun) (chat.ContextPacket, bool, error) {
-	if len(run.ContextPacket) == 0 {
-		return chat.ContextPacket{}, false, nil
-	}
-	var packet chat.ContextPacket
-	if err := json.Unmarshal(run.ContextPacket, &packet); err != nil {
-		return chat.ContextPacket{}, false, fmt.Errorf("decode task run context packet: %w", err)
-	}
-	if packet.Empty() {
-		return chat.ContextPacket{}, false, nil
-	}
-	return packet, true, nil
 }
 
 func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Session, provider, model, systemPrompt string) chat.ContextPacket {
