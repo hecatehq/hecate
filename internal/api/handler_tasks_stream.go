@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -251,16 +250,7 @@ func (h *Handler) loadAuthorizedTask(ctx context.Context, w http.ResponseWriter,
 
 	task, err := h.taskApplication().LoadTask(ctx, id)
 	if err != nil {
-		if errors.Is(err, errTaskStoreNotConfigured) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return types.Task{}, false
-		}
-		if isTaskValidationError(err) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return types.Task{}, false
-		}
-		if errors.Is(err, errTaskNotFound) {
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
+		if writeTaskAppError(w, err) {
 			return types.Task{}, false
 		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.load.failed",
@@ -282,16 +272,7 @@ func (h *Handler) loadAuthorizedTaskRun(ctx context.Context, w http.ResponseWrit
 
 	run, err := h.taskApplication().LoadTaskRun(ctx, task, runID)
 	if err != nil {
-		if errors.Is(err, errTaskStoreNotConfigured) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return types.TaskRun{}, false
-		}
-		if isTaskValidationError(err) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return types.TaskRun{}, false
-		}
-		if errors.Is(err, errTaskRunNotFound) {
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "task run not found")
+		if writeTaskAppError(w, err) {
 			return types.TaskRun{}, false
 		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.runs.load.failed",

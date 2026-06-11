@@ -51,18 +51,14 @@ func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) writeCreateTaskError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
-	switch {
-	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskProjectStoreNotConfigured):
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	case errors.Is(err, errTaskPromptRequired), errors.Is(err, errTaskProjectNotFound), isTaskValidationError(err):
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	default:
-		telemetry.Error(h.logger, ctx, "gateway.tasks.create.failed",
-			slog.String("event.name", "gateway.tasks.create.failed"),
-			slog.Any("error", err),
-		)
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	if writeTaskAppError(w, err) {
+		return
 	}
+	telemetry.Error(h.logger, ctx, "gateway.tasks.create.failed",
+		slog.String("event.name", "gateway.tasks.create.failed"),
+		slog.Any("error", err),
+	)
+	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 }
 
 const codingAgentProfileSystemPrompt = `You are running inside Hecate's coding-agent runtime.
@@ -146,8 +142,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.taskApplication().ListTasks(ctx, filter)
 	if err != nil {
-		if errors.Is(err, errTaskStoreNotConfigured) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		if writeTaskAppError(w, err) {
 			return
 		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.list.failed",
@@ -179,16 +174,7 @@ func (h *Handler) HandleTask(w http.ResponseWriter, r *http.Request) {
 
 	task, err := h.taskApplication().LoadTask(ctx, id)
 	if err != nil {
-		if errors.Is(err, errTaskStoreNotConfigured) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return
-		}
-		if isTaskValidationError(err) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return
-		}
-		if errors.Is(err, errTaskNotFound) {
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
+		if writeTaskAppError(w, err) {
 			return
 		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.get.failed",
@@ -214,15 +200,7 @@ func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.taskApplication().DeleteTask(ctx, id); err != nil {
-		switch {
-		case errors.Is(err, errTaskStoreNotConfigured), isTaskValidationError(err):
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return
-		case errors.Is(err, errTaskNotFound):
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
-			return
-		case errors.Is(err, errTaskDeleteActiveRun):
-			WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
+		if writeTaskAppError(w, err) {
 			return
 		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.delete.failed",
@@ -240,7 +218,7 @@ func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := h.taskApplication().RequireRunner(); err != nil {
-		writeTaskRuntimePreflightError(w, err)
+		writeTaskAppError(w, err)
 		return
 	}
 
@@ -250,12 +228,7 @@ func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.taskApplication().StartTask(ctx, task)
 	if err != nil {
-		switch {
-		case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskRunnerNotConfigured):
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return
-		case errors.Is(err, errTaskHasActiveRun):
-			WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
+		if writeTaskAppError(w, err) {
 			return
 		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.start.failed",
