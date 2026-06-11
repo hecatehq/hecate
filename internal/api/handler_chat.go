@@ -549,6 +549,12 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
+	if !isExternalChatSession(session) {
+		if busy, runStatus := h.hecateAgentSessionBusy(r.Context(), session); busy {
+			writeHecateAgentBusy(w, session, runStatus)
+			return
+		}
+	}
 	hecateToolsUnavailable := false
 	if admission.ToolsEnabled && admission.ExecutionMode == chat.ExecutionModeHecateTask && !isExternalChatSession(session) {
 		// Capability-driven downgrade lets a Hecate turn with tools on fall

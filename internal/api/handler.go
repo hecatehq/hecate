@@ -20,7 +20,7 @@ import (
 	"github.com/hecatehq/hecate/internal/gateway"
 	mcpclient "github.com/hecatehq/hecate/internal/mcp/client"
 	"github.com/hecatehq/hecate/internal/memory"
-	"github.com/hecatehq/hecate/internal/modelcaps"
+	"github.com/hecatehq/hecate/internal/modelapp"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/profiler"
 	"github.com/hecatehq/hecate/internal/projectassistant"
@@ -604,13 +604,7 @@ func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var result *gateway.ModelsResult
-	var err error
-	if requestRefresh(r) {
-		result, err = h.service.RefreshModels(ctx)
-	} else {
-		result, err = h.service.ListModels(ctx)
-	}
+	models, err := h.modelApplication().ListModels(ctx, modelapp.ListModelsCommand{Refresh: requestRefresh(r)})
 	if err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.models.list.failed",
 			slog.String("event.name", "gateway.models.list.failed"),
@@ -620,9 +614,8 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := make([]OpenAIModelData, 0, len(result.Models))
-	for _, model := range result.Models {
-		caps := modelcaps.ResolveWithProviderCapability(model.Provider, model.Kind, model.ID, model.DiscoverySource, model.Capabilities)
+	data := make([]OpenAIModelData, 0, len(models))
+	for _, model := range models {
 		data = append(data, OpenAIModelData{
 			ID:      model.ID,
 			Object:  "model",
@@ -632,7 +625,7 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 				"provider_kind":    model.Kind,
 				"default":          model.Default,
 				"discovery_source": model.DiscoverySource,
-				"capabilities":     caps,
+				"capabilities":     model.Capabilities,
 				"readiness":        renderModelReadiness(model.Readiness),
 			},
 		})

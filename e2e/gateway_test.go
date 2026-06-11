@@ -364,6 +364,39 @@ func postJSONDecode[T any](t *testing.T, url, body string) T {
 	return out
 }
 
+type e2eModelsResponse struct {
+	Data []e2eModel `json:"data"`
+}
+
+type e2eModel struct {
+	ID       string `json:"id"`
+	Metadata struct {
+		Provider     string `json:"provider"`
+		ProviderKind string `json:"provider_kind"`
+		Capabilities struct {
+			ToolCalling string `json:"tool_calling"`
+			Streaming   bool   `json:"streaming"`
+			Source      string `json:"source"`
+		} `json:"capabilities"`
+		Readiness struct {
+			Ready  bool   `json:"ready"`
+			Status string `json:"status"`
+			Reason string `json:"reason"`
+		} `json:"readiness"`
+	} `json:"metadata"`
+}
+
+func findE2EModel(t *testing.T, models e2eModelsResponse, id string) e2eModel {
+	t.Helper()
+	for _, model := range models.Data {
+		if model.ID == id {
+			return model
+		}
+	}
+	t.Fatalf("model %q not found in %+v", id, models.Data)
+	return e2eModel{}
+}
+
 type e2eAgentAdapterList struct {
 	Data []e2eAgentAdapter `json:"data"`
 }
@@ -734,6 +767,29 @@ func TestGatewayFakeUpstreamKnownModelIsRoutable(t *testing.T) {
 		}
 		defer modelsResp.Body.Close()
 		t.Fatalf("expected known model to route, got %d — body: %s; models: %s", resp.StatusCode, readBody(t, resp), readBody(t, modelsResp))
+	}
+}
+
+func TestGatewayModelsEndpointIncludesReadinessMetadataE2E(t *testing.T) {
+	t.Parallel()
+
+	upstream := fakeOpenAIServer(t, "/v1/chat/completions", `{}`, false)
+	base := gatewayServer(t,
+		"PROVIDER_FAKE_API_KEY=dummy",
+		"PROVIDER_FAKE_BASE_URL="+upstream,
+		"PROVIDER_FAKE_KIND=local",
+	)
+
+	models := getJSON[e2eModelsResponse](t, base+"/v1/models")
+	model := findE2EModel(t, models, "gpt-4o-mini")
+	if model.Metadata.Provider != "fake" || model.Metadata.ProviderKind != "local" {
+		t.Fatalf("model metadata provider = %q/%q, want fake/local", model.Metadata.Provider, model.Metadata.ProviderKind)
+	}
+	if !model.Metadata.Capabilities.Streaming || model.Metadata.Capabilities.ToolCalling != "unknown" || model.Metadata.Capabilities.Source != "provider" {
+		t.Fatalf("capabilities = %+v, want provider-resolved local streaming metadata", model.Metadata.Capabilities)
+	}
+	if !model.Metadata.Readiness.Ready || model.Metadata.Readiness.Status != "ok" || model.Metadata.Readiness.Reason != "model_available" {
+		t.Fatalf("readiness = %+v, want ready model_available", model.Metadata.Readiness)
 	}
 }
 

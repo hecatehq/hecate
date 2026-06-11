@@ -61,6 +61,8 @@ internal/
   governor/             policy + route gates + append-only usage events
   policy/               approval policy + provider/model allowlists
   catalog/, models/     provider catalog + model registry
+  modelapp/             model listing, refresh, capability resolution, readiness
+                          errors for API/chat callers
   modelcaps/            shared model capability table (streaming, tools, vision, …)
   orchestrator/         task runtime: queue, runner, agent_loop, sandbox boundary
   workspacefs/          shared workspace path resolver for Hecate-mediated
