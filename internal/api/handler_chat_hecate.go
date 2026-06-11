@@ -173,7 +173,13 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	}
 	h.agentChatLive.publishSession(updated)
 
-	task, run, err := h.startOrContinueHecateAgentRun(runCtx, session, content, strings.TrimSpace(req.SystemPrompt), forceNewTask, contextPacket)
+	task, run, err := h.hecateAgentTaskOrchestrator().StartOrContinue(runCtx, hecateAgentTaskRunCommand{
+		Session:       session,
+		Prompt:        content,
+		SystemPrompt:  strings.TrimSpace(req.SystemPrompt),
+		ForceNewTask:  forceNewTask,
+		ContextPacket: contextPacket,
+	})
 	if err != nil {
 		completedAt := time.Now().UTC()
 		trace.Record(telemetry.EventAgentChatRunFailed, hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
@@ -416,83 +422,6 @@ func isHecateTaskToolsOnMessage(message chat.Message) bool {
 		return false
 	}
 	return message.ToolsEnabled
-}
-
-func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session chat.Session, prompt, systemPrompt string, forceNewTask bool, contextPacket chat.ContextPacket) (types.Task, types.TaskRun, error) {
-	if h.taskStore == nil || h.taskRunner == nil {
-		return types.Task{}, types.TaskRun{}, fmt.Errorf("task runtime is not configured")
-	}
-	if session.TaskID == "" || forceNewTask {
-		now := time.Now().UTC()
-		title := strings.TrimSpace(session.Title)
-		if title == "" {
-			title = "Hecate Chat"
-		}
-		task := types.Task{
-			ID:                 newTaskID(),
-			Title:              title,
-			Prompt:             prompt,
-			ProjectID:          session.ProjectID,
-			SystemPrompt:       strings.TrimSpace(systemPrompt),
-			ExecutionKind:      "agent_loop",
-			ExecutionProfile:   "chat_agent",
-			OriginKind:         "chat",
-			OriginID:           session.ID,
-			WorkspaceMode:      "in_place",
-			WorkingDirectory:   session.Workspace,
-			SandboxAllowedRoot: session.Workspace,
-			RTKEnabled:         session.RTKEnabled,
-			Status:             "queued",
-			Priority:           "normal",
-			RequestedProvider:  session.Provider,
-			RequestedModel:     session.Model,
-			CreatedAt:          now,
-			UpdatedAt:          now,
-		}
-		task, err := h.taskStore.CreateTask(ctx, task)
-		if err != nil {
-			return types.Task{}, types.TaskRun{}, err
-		}
-		result, err := h.taskRunner.StartTaskWithRunInitializer(ctx, task, newOpaqueTaskResourceID, func(run *types.TaskRun) {
-			run.ContextPacket = marshalContextPacket(normalizeContextPacket(contextPacket, chat.ContextRefs{
-				SessionID: session.ID,
-				TaskID:    task.ID,
-				RunID:     run.ID,
-				ProjectID: session.ProjectID,
-			}))
-		})
-		if err != nil {
-			return types.Task{}, types.TaskRun{}, err
-		}
-		return result.Task, result.Run, nil
-	}
-
-	task, found, err := h.taskStore.GetTask(ctx, session.TaskID)
-	if err != nil {
-		return types.Task{}, types.TaskRun{}, err
-	}
-	if !found {
-		return types.Task{}, types.TaskRun{}, fmt.Errorf("backing task %q not found", session.TaskID)
-	}
-	run, found, err := h.taskStore.GetRun(ctx, task.ID, session.LatestRunID)
-	if err != nil {
-		return types.Task{}, types.TaskRun{}, err
-	}
-	if !found {
-		return types.Task{}, types.TaskRun{}, fmt.Errorf("latest task run %q not found", session.LatestRunID)
-	}
-	result, err := h.taskRunner.ContinueAgentTaskWithRunInitializer(ctx, task, run, prompt, newOpaqueTaskResourceID, func(nextRun *types.TaskRun) {
-		nextRun.ContextPacket = marshalContextPacket(normalizeContextPacket(contextPacket, chat.ContextRefs{
-			SessionID: session.ID,
-			TaskID:    task.ID,
-			RunID:     nextRun.ID,
-			ProjectID: session.ProjectID,
-		}))
-	})
-	if err != nil {
-		return types.Task{}, types.TaskRun{}, err
-	}
-	return result.Task, result.Run, nil
 }
 
 func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sessionID, messageID string) (types.TaskRun, error) {

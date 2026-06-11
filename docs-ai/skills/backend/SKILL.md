@@ -208,6 +208,12 @@ gateway/provider path where possible and publish snapshots through the chat
 live stream; do not fork a second chat-only event stream for Hecate-owned
 tools.
 
+Task-backed Hecate Chat task creation/continuation is isolated behind
+`internal/api`'s `hecateAgentTaskOrchestrator`. Extend that seam when changing
+how chat turns create backing tasks, continue terminal runs, or stamp run
+context packets; keep the HTTP handler focused on request parsing, chat message
+persistence, live publishing, and response rendering.
+
 Native `agent_loop` code is intentionally split by responsibility:
 
 - `executor_agent_loop.go` is the control-flow spine. Keep it focused on turn
