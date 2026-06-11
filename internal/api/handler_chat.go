@@ -331,10 +331,10 @@ func (h *Handler) deleteExistingChatSession(ctx context.Context, session chat.Se
 	if !settled {
 		return true, nil
 	}
-	if isExternalChatSession(session) && h.agentChatRunner != nil {
-		_ = h.agentChatRunner.CloseSession(ctx, sessionID)
-	}
-	if err := h.agentChat.Delete(ctx, sessionID); err != nil {
+	if err := h.chatApplication().DeleteSession(ctx, chatapp.DeleteSessionCommand{
+		Session:     session,
+		CloseNative: isExternalChatSession(session),
+	}); err != nil {
 		return false, err
 	}
 	return false, nil
@@ -389,18 +389,14 @@ func (h *Handler) HandleCloseChatSession(w http.ResponseWriter, r *http.Request)
 		writeChatSessionStopping(w)
 		return
 	}
-	if h.agentChatRunner != nil {
-		_ = h.agentChatRunner.CloseSession(r.Context(), session.ID)
-	}
-	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
-		item.DriverKind = ""
-		item.NativeSessionID = ""
+	result, err := h.chatApplication().CloseNativeSession(r.Context(), chatapp.CloseNativeSessionCommand{
+		Session: session,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
 }
 
 func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.Request) {

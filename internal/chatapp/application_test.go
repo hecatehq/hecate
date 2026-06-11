@@ -198,3 +198,92 @@ func TestApplication_CreateSessionNilDependencies(t *testing.T) {
 		t.Fatalf("CreateSession(nil runner) error = %v, want ErrRunnerNotConfigured", err)
 	}
 }
+
+func TestApplication_DeleteSessionClosesNativeSessionWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	runner := &recordingAgentRunner{}
+	app := New(Options{Store: store, Runner: runner})
+	session, err := store.Create(ctx, chat.Session{
+		ID:              "chat_ext",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_chat_ext",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: session, CloseNative: true}); err != nil {
+		t.Fatalf("DeleteSession() error = %v", err)
+	}
+	if runner.closeCalls != 1 || runner.closedSessions[0] != "chat_ext" {
+		t.Fatalf("closed sessions = %+v closeCalls=%d, want chat_ext closed once", runner.closedSessions, runner.closeCalls)
+	}
+	if _, ok, err := store.Get(ctx, "chat_ext"); err != nil || ok {
+		t.Fatalf("Get(chat_ext) ok=%v err=%v, want deleted session", ok, err)
+	}
+}
+
+func TestApplication_DeleteSessionWithoutRunnerStillDeletes(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	app := New(Options{Store: store})
+	session, err := store.Create(ctx, chat.Session{ID: "chat_ext", AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: session, CloseNative: true}); err != nil {
+		t.Fatalf("DeleteSession(no runner) error = %v", err)
+	}
+	if _, ok, err := store.Get(ctx, "chat_ext"); err != nil || ok {
+		t.Fatalf("Get(chat_ext) ok=%v err=%v, want deleted session", ok, err)
+	}
+}
+
+func TestApplication_CloseNativeSessionClearsRuntimeHandles(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	runner := &recordingAgentRunner{}
+	app := New(Options{Store: store, Runner: runner})
+	session, err := store.Create(ctx, chat.Session{
+		ID:              "chat_ext",
+		AgentID:         "codex",
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_chat_ext",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := app.CloseNativeSession(ctx, CloseNativeSessionCommand{Session: session})
+	if err != nil {
+		t.Fatalf("CloseNativeSession() error = %v", err)
+	}
+	if runner.closeCalls != 1 || runner.closedSessions[0] != "chat_ext" {
+		t.Fatalf("closed sessions = %+v closeCalls=%d, want chat_ext closed once", runner.closedSessions, runner.closeCalls)
+	}
+	if result.Session.DriverKind != "" || result.Session.NativeSessionID != "" {
+		t.Fatalf("session runtime handles = %q/%q, want cleared", result.Session.DriverKind, result.Session.NativeSessionID)
+	}
+}
+
+func TestApplication_DeleteAndCloseNativeSessionNilStore(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := New(Options{})
+	if err := app.DeleteSession(ctx, DeleteSessionCommand{Session: chat.Session{ID: "chat"}}); !errors.Is(err, ErrStoreNotConfigured) {
+		t.Fatalf("DeleteSession(nil store) error = %v, want ErrStoreNotConfigured", err)
+	}
+	if _, err := app.CloseNativeSession(ctx, CloseNativeSessionCommand{Session: chat.Session{ID: "chat"}}); !errors.Is(err, ErrStoreNotConfigured) {
+		t.Fatalf("CloseNativeSession(nil store) error = %v, want ErrStoreNotConfigured", err)
+	}
+}

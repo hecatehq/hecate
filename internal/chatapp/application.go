@@ -46,6 +46,19 @@ type CreateSessionResult struct {
 	Session chat.Session
 }
 
+type DeleteSessionCommand struct {
+	Session     chat.Session
+	CloseNative bool
+}
+
+type CloseNativeSessionCommand struct {
+	Session chat.Session
+}
+
+type CloseNativeSessionResult struct {
+	Session chat.Session
+}
+
 type ExternalPrepareError struct {
 	Err error
 }
@@ -113,6 +126,33 @@ func (app *Application) CreateSession(ctx context.Context, cmd CreateSessionComm
 		return &CreateSessionResult{Session: session}, err
 	}
 	return &CreateSessionResult{Session: session}, nil
+}
+
+func (app *Application) DeleteSession(ctx context.Context, cmd DeleteSessionCommand) error {
+	if app == nil || app.store == nil {
+		return ErrStoreNotConfigured
+	}
+	if cmd.CloseNative && app.runner != nil {
+		_ = app.runner.CloseSession(ctx, cmd.Session.ID)
+	}
+	return app.store.Delete(ctx, cmd.Session.ID)
+}
+
+func (app *Application) CloseNativeSession(ctx context.Context, cmd CloseNativeSessionCommand) (*CloseNativeSessionResult, error) {
+	if app == nil || app.store == nil {
+		return nil, ErrStoreNotConfigured
+	}
+	if app.runner != nil {
+		_ = app.runner.CloseSession(ctx, cmd.Session.ID)
+	}
+	session, err := app.store.UpdateSession(ctx, cmd.Session.ID, func(item *chat.Session) {
+		item.DriverKind = ""
+		item.NativeSessionID = ""
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &CloseNativeSessionResult{Session: session}, nil
 }
 
 func (app *Application) cleanupExternalSession(sessionID string) {
