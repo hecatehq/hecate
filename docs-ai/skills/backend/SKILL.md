@@ -165,6 +165,11 @@ adding more chat store, task-store, or adapter-runner orchestration to
 `handler_chat.go`, and keep dependencies narrow to the methods the command
 needs.
 
+Chat turn terminal status/output classification lives in
+`internal/api/handler_chat_turn_execution.go`. Extend that helper and its
+focused tests before reintroducing inline direct-model or External Agent
+success/failure/cancel classification in the handlers.
+
 Chat context endpoints use `internal/chatcontext` for pure context-packet
 lookup/decode helpers. Keep larger project/context assembly close to the API
 until it has a narrow dependency shape; move pure packet operations into
