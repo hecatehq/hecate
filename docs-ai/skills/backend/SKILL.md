@@ -109,8 +109,9 @@ Application packages should use shared app-layer wrappers from
 `internal/apperrors` for validation/conflict classes, while preserving any
 package-local helper aliases (`taskapp.Validation`, `providerapp.Conflict`,
 etc.) that keep call sites readable. HTTP status-code decisions remain in
-`internal/api` mapping helpers; do not import API response types into app
-packages.
+`internal/api` mapping helpers; use shared app-error mapping helpers for
+validation/conflict/fallback cases before adding package-specific switches. Do
+not import API response types into app packages.
 
 ### Change project work APIs
 
@@ -155,11 +156,14 @@ External Agent has two live/persistence layers:
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
 Session create, external-agent prepare, native session metadata persistence,
 native close/delete, adapter config option writes, Hecate Chat settings, and
-cleanup after prepare/update failure belong there; handlers keep HTTP parsing,
-live-run cancellation, workspace validation, model/profile resolution, live
-publish, and response rendering. Extend that app seam before adding more chat
-store, task-store, or adapter-runner orchestration to `handler_chat.go`, and
-keep dependencies narrow to the methods the command needs.
+cleanup after prepare/update failure belong there. Session reads/rename and
+message admission / dispatch planning also belong in `chatapp` so handlers do
+not re-own transcript validation or execution-mode branching. Handlers keep
+HTTP parsing, live-run cancellation, workspace validation, model/profile
+resolution, live publish, and response rendering. Extend that app seam before
+adding more chat store, task-store, or adapter-runner orchestration to
+`handler_chat.go`, and keep dependencies narrow to the methods the command
+needs.
 
 Chat context endpoints use `internal/chatcontext` for pure context-packet
 lookup/decode helpers. Keep larger project/context assembly close to the API
@@ -169,11 +173,12 @@ until it has a narrow dependency shape; move pure packet operations into
 ### Change provider settings APIs
 
 Provider settings HTTP handlers follow the app-layer rule too. Provider
-create/update/delete, duplicate/base-URL guards, provider id derivation, API key
-rotate/clear, and dynamic provider-runtime dispatch live behind
-`internal/providerapp.Application`. Handlers parse request DTOs, attach the
-settings actor to context, render `SettingsProviderRecord`, and map known
-provider-app validation/conflict errors through `writeAppError`.
+settings status aggregation, policy-rule commands, provider create/update/delete,
+duplicate/base-URL guards, provider id derivation, API key rotate/clear, and
+dynamic provider-runtime dispatch live behind `internal/providerapp.Application`.
+Handlers parse request DTOs, attach the settings actor to context, render
+`SettingsProviderRecord`, and map known provider-app validation/conflict errors
+through `writeAppError`.
 
 Keep providerapp dependencies narrow: it needs a control-plane snapshot reader
 and the small provider runtime interface for `Upsert`, `RotateSecret`,
