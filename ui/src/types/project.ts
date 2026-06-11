@@ -544,6 +544,19 @@ export type ProjectAssignmentExecutionSummary = {
   missing?: boolean;
 };
 
+export type ProjectAssignmentExecutionRefRecord = {
+  kind: "task_run" | "chat_session" | "context_snapshot" | "none" | string;
+  task_id?: string;
+  run_id?: string;
+  chat_session_id?: string;
+  message_id?: string;
+  context_snapshot_id?: string;
+  status?: ProjectAssignmentStatus | string;
+  pending_approval_count?: number;
+  trace_id?: string;
+  missing?: boolean;
+};
+
 export type ProjectAssignmentRecord = {
   id: string;
   project_id: string;
@@ -560,6 +573,7 @@ export type ProjectAssignmentRecord = {
   updated_at: string;
   started_at?: string;
   completed_at?: string;
+  execution_ref?: ProjectAssignmentExecutionRefRecord;
   execution?: ProjectAssignmentExecutionSummary;
 };
 
