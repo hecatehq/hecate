@@ -18,6 +18,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
@@ -779,7 +780,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		},
 		InitializeRun: func(task types.Task, run *types.TaskRun) {
 			contextPacket.Refs.RunID = run.ID
-			run.ContextPacket = marshalContextPacket(normalizeContextPacket(contextPacket, chat.ContextRefs{
+			run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(contextPacket, chat.ContextRefs{
 				TaskID:       task.ID,
 				RunID:        run.ID,
 				ProjectID:    project.ID,
@@ -900,14 +901,14 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		ConfigOptions:   configOptions,
 	}
 	contextPacket.Refs.SessionID = session.ID
-	contextPacket = normalizeContextPacket(contextPacket, chat.ContextRefs{
+	contextPacket = chatcontext.Normalize(contextPacket, chat.ContextRefs{
 		SessionID:    session.ID,
 		ProjectID:    project.ID,
 		WorkItemID:   workItem.ID,
 		AssignmentID: assignment.ID,
 		RoleID:       role.ID,
 	})
-	packetBytes := marshalContextPacket(contextPacket)
+	packetBytes := chatcontext.Marshal(contextPacket)
 	result, err := h.projectWorkApplication().StartExternalAgentAssignment(ctx, projectworkapp.StartExternalAgentAssignmentCommand{
 		ProjectID:         project.ID,
 		Assignment:        assignment,

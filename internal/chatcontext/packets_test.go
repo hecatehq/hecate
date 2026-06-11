@@ -59,3 +59,60 @@ func TestFromProjectAssignmentPayload(t *testing.T) {
 		t.Fatalf("FromProjectAssignmentPayload() = %+v ok=%v err=%v, want decoded packet", got, ok, err)
 	}
 }
+
+func TestNormalizeMergesRefsAndDefaultSections(t *testing.T) {
+	t.Parallel()
+
+	originalRefs := &chat.ContextRefs{SessionID: "session_original"}
+	packet := chat.ContextPacket{
+		Version: "chat.context.v1",
+		Refs:    originalRefs,
+		Items: []chat.ContextItem{
+			{Kind: "system_prompt", Title: "System prompt"},
+			{Kind: "workspace_doc", Title: "Workspace doc"},
+			{Kind: "unknown_runtime", Title: "Runtime"},
+		},
+	}
+
+	got := Normalize(packet, chat.ContextRefs{
+		SessionID: "session_new",
+		MessageID: "msg_1",
+		TaskID:    "task_1",
+		RunID:     "run_1",
+		ProjectID: "proj_1",
+	})
+	if got.Refs == nil {
+		t.Fatalf("Normalize refs are nil, want merged refs")
+	}
+	if got.Refs.SessionID != "session_original" || got.Refs.MessageID != "msg_1" || got.Refs.TaskID != "task_1" || got.Refs.RunID != "run_1" || got.Refs.ProjectID != "proj_1" {
+		t.Fatalf("Normalize refs = %+v, want original session plus supplied refs", *got.Refs)
+	}
+	if got.Items[0].Section != "instructions" || got.Items[1].Section != "sources" || got.Items[2].Section != "runtime" {
+		t.Fatalf("Normalize sections = %q/%q/%q, want instructions/sources/runtime", got.Items[0].Section, got.Items[1].Section, got.Items[2].Section)
+	}
+	if got.Refs == originalRefs {
+		t.Fatalf("Normalize reused refs pointer, want cloned packet")
+	}
+	if packet.Items[0].Section != "" {
+		t.Fatalf("Normalize mutated original packet item section = %q", packet.Items[0].Section)
+	}
+}
+
+func TestMarshalEmptyAndNonEmptyPackets(t *testing.T) {
+	t.Parallel()
+
+	if got := Marshal(chat.ContextPacket{}); got != nil {
+		t.Fatalf("Marshal(empty) = %s, want nil", string(got))
+	}
+	raw := Marshal(chat.ContextPacket{Version: "chat.context.v1", MessageCount: 1})
+	if len(raw) == 0 {
+		t.Fatalf("Marshal(non-empty) returned empty payload")
+	}
+	var got chat.ContextPacket
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode Marshal output: %v", err)
+	}
+	if got.Version != "chat.context.v1" || got.MessageCount != 1 {
+		t.Fatalf("Marshal decoded packet = %+v, want source fields", got)
+	}
+}

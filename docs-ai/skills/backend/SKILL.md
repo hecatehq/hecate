@@ -181,9 +181,10 @@ focused tests before reintroducing inline direct-model or External Agent
 success/failure/cancel classification in the handlers.
 
 Chat context endpoints use `internal/chatcontext` for pure context-packet
-lookup/decode helpers. Keep larger project/context assembly close to the API
-until it has a narrow dependency shape; move pure packet operations into
-`chatcontext` instead of duplicating JSON decode or transcript scans.
+lookup/decode, normalization, cloning, and marshaling helpers. Keep larger
+project/context assembly close to the API until it has a narrow dependency
+shape; move pure packet operations into `chatcontext` instead of duplicating
+JSON decode, reference merging, or transcript scans.
 
 ### Change provider settings APIs
 

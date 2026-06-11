@@ -11,6 +11,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -137,7 +138,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 
 	contextPacket := h.hecateTaskContextPacket(r.Context(), session, messageSnapshot.Provider, messageSnapshot.Model, strings.TrimSpace(req.SystemPrompt), forceNewTask)
 	contextPacket.ID = newChatID("ctx")
-	contextPacket = normalizeContextPacket(contextPacket, chat.ContextRefs{
+	contextPacket = chatcontext.Normalize(contextPacket, chat.ContextRefs{
 		SessionID: session.ID,
 		MessageID: assistantID,
 		TaskID:    messageSnapshot.TaskID,
@@ -230,7 +231,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 		message.Provider = messageSnapshot.Provider
 		message.Model = messageSnapshot.Model
 		message.Capabilities = messageSnapshot.Capabilities
-		message.Context = normalizeContextPacket(message.Context, chat.ContextRefs{
+		message.Context = chatcontext.Normalize(message.Context, chat.ContextRefs{
 			SessionID: session.ID,
 			MessageID: assistantID,
 			TaskID:    task.ID,
@@ -460,7 +461,7 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 				message.RequestID = firstNonEmpty(run.RequestID, message.RequestID)
 				message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
 				message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
-				message.Context = normalizeContextPacket(message.Context, chat.ContextRefs{
+				message.Context = chatcontext.Normalize(message.Context, chat.ContextRefs{
 					SessionID: sessionID,
 					MessageID: messageID,
 					TaskID:    taskID,
