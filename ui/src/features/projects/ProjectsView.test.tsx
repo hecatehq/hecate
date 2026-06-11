@@ -1315,6 +1315,62 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
+  it("discovers guidance and skills before drafting project bootstrap proposals", async () => {
+    resetProjectWorkMocks();
+    const user = userEvent.setup();
+    const discoveredProject: ProjectRecord = {
+      ...project,
+      context_sources: [
+        {
+          id: "ctx_agents",
+          kind: "workspace_instruction",
+          title: "AGENTS.md",
+          path: "AGENTS.md",
+          enabled: true,
+          source_category: "workspace_guidance",
+          trust_label: "workspace_guidance",
+          created_at: "2026-06-02T09:00:00Z",
+          updated_at: "2026-06-02T09:00:00Z",
+        },
+      ],
+    };
+    vi.mocked(discoverProjectContextSources).mockResolvedValue({
+      object: "project",
+      data: discoveredProject,
+    });
+    vi.mocked(discoverProjectSkills).mockResolvedValue({
+      object: "project_skills",
+      data: [projectSkill],
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await screen.findByText("Selected work: Build cockpit UI");
+    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
+    await user.click(within(assistant).getByRole("button", { name: "Bootstrap project" }));
+
+    await waitFor(() => {
+      expect(discoverProjectContextSources).toHaveBeenCalledWith(project.id);
+      expect(discoverProjectSkills).toHaveBeenCalledWith(project.id);
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        request: "Bootstrap project guidance",
+        draft_mode: "bootstrap",
+      });
+    });
+    expect(vi.mocked(discoverProjectContextSources).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(discoverProjectSkills).mock.invocationCallOrder[0],
+    );
+    expect(vi.mocked(discoverProjectSkills).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(draftProjectAssistant).mock.invocationCallOrder[0],
+    );
+    expect(screen.getByRole("tab", { name: /Skills/ })).toHaveTextContent("1");
+  });
+
   it("inspects Project Assistant context selection before drafting", async () => {
     resetProjectWorkMocks();
     const user = userEvent.setup();

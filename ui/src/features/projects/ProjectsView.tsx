@@ -405,6 +405,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [assistantContextError, setAssistantContextError] = useState("");
   const [assistantStatus, setAssistantStatus] = useState<ProjectAssistantStatus>("idle");
   const [assistantError, setAssistantError] = useState("");
+  const [assistantBootstrapPending, setAssistantBootstrapPending] = useState(false);
 
   function updateRightPanelWidth(width: number) {
     setRightPanelWidth(width);
@@ -1305,6 +1306,49 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }
 
+  async function handleProjectAssistantBootstrap() {
+    if (!selectedProjectID) return;
+    const projectID = selectedProjectID;
+    setAssistantBootstrapPending(true);
+    setAssistantStatus("proposing");
+    setAssistantError("");
+    setAssistantProposal(null);
+    setAssistantApplyResult(null);
+    setMemoryError("");
+    setSkillsError("");
+    setDiscoveringContext(true);
+    setDiscoveringSkills(true);
+    try {
+      const projectPayload = await discoverProjectContextSources(projectID);
+      projects.actions.setProjects((current) => upsertProject(current, projectPayload.data));
+      const skillsPayload = await discoverProjectSkills(projectID);
+      setProjectSkills(skillsPayload.data ?? []);
+      setSkillsLoadState("loaded");
+      const proposal = await draftProjectAssistant(
+        projectAssistantDraftPayload(
+          {
+            request: "Bootstrap project guidance",
+            roleID: PROJECT_ASSISTANT_AUTO,
+            driverKind: PROJECT_ASSISTANT_AUTO,
+            draftMode: "bootstrap",
+          },
+          projectID,
+        ),
+      );
+      setAssistantProposal(proposal.data);
+      setAssistantContext(null);
+      setAssistantContextError("");
+      setAssistantContextStatus("idle");
+    } catch (error) {
+      setAssistantError(errorMessage(error, "Failed to bootstrap project assistant context."));
+    } finally {
+      setDiscoveringContext(false);
+      setDiscoveringSkills(false);
+      setAssistantBootstrapPending(false);
+      setAssistantStatus("idle");
+    }
+  }
+
   async function handleProjectAssistantContext(form: ProjectAssistantDraftForm) {
     if (!selectedProject) return;
     setAssistantContextStatus("loading");
@@ -1504,11 +1548,13 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
               <section style={domainSectionStyle} aria-label="Project workspace">
                 <ProjectAssistantPanel
                   applyResult={assistantApplyResult}
+                  bootstrapPending={assistantBootstrapPending}
                   context={assistantContext}
                   contextError={assistantContextError}
                   contextStatus={assistantContextStatus}
                   error={assistantError}
                   onApply={() => void handleProjectAssistantApply()}
+                  onBootstrap={() => void handleProjectAssistantBootstrap()}
                   onInspectContext={(form) => void handleProjectAssistantContext(form)}
                   onDismiss={dismissProjectAssistantProposal}
                   onPropose={(form) => void handleProjectAssistantPropose(form)}
