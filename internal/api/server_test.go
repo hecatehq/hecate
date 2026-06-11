@@ -5727,6 +5727,45 @@ func TestTaskStartAndDeleteCheckLatestRunWhenTaskSummaryIsStale(t *testing.T) {
 	}
 }
 
+func TestTaskRunnerPreflightBeforeLoadingResources(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	apiHandler.taskRunner = nil
+	handler := NewServer(logger, apiHandler)
+	tasks := newTaskTestClient(t, handler)
+
+	cases := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "start missing task",
+			path: "/hecate/v1/tasks/missing/start",
+		},
+		{
+			name: "resolve missing approval",
+			path: "/hecate/v1/tasks/missing/approvals/missing/resolve",
+			body: `{"decision":"approve"}`,
+		},
+		{
+			name: "cancel missing run",
+			path: "/hecate/v1/tasks/missing/runs/missing/cancel",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			rec := tasks.mustRequestStatus(http.StatusBadRequest, http.MethodPost, tc.path, tc.body)
+			if !strings.Contains(rec.Body.String(), "task runner is not configured") {
+				t.Fatalf("error body = %s, want task runner preflight error", rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestTaskRunRetryReturnsConflictForActiveRun(t *testing.T) {
 	t.Parallel()
 

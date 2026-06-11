@@ -229,6 +229,10 @@ func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if err := h.taskApplication().RequireRunner(); err != nil {
+		writeTaskRuntimePreflightError(w, err)
+		return
+	}
 
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {

@@ -264,8 +264,14 @@ func TestTaskApplication_NilStoreAndRunnerErrors(t *testing.T) {
 	if _, err := app.GetTaskApproval(ctx, types.Task{ID: "task"}, "approval"); !errors.Is(err, errTaskStoreNotConfigured) {
 		t.Fatalf("GetTaskApproval(nil store) error = %v, want errTaskStoreNotConfigured", err)
 	}
+	if err := app.RequireRunner(); !errors.Is(err, errTaskStoreNotConfigured) {
+		t.Fatalf("RequireRunner(nil store) error = %v, want errTaskStoreNotConfigured", err)
+	}
 
 	app = newTestTaskApplication(taskstate.NewMemoryStore(), nil)
+	if err := app.RequireRunner(); !errors.Is(err, errTaskRunnerNotConfigured) {
+		t.Fatalf("RequireRunner(nil runner) error = %v, want errTaskRunnerNotConfigured", err)
+	}
 	if _, err := app.StartTask(ctx, types.Task{ID: "task"}); !errors.Is(err, errTaskRunnerNotConfigured) {
 		t.Fatalf("StartTask(nil runner) error = %v, want errTaskRunnerNotConfigured", err)
 	}

@@ -207,6 +207,16 @@ func (app *taskApplication) LoadTask(ctx context.Context, id string) (types.Task
 	return task, nil
 }
 
+func (app *taskApplication) RequireRunner() error {
+	if app == nil || app.store == nil {
+		return errTaskStoreNotConfigured
+	}
+	if app.runner == nil {
+		return errTaskRunnerNotConfigured
+	}
+	return nil
+}
+
 func (app *taskApplication) DeleteTask(ctx context.Context, id string) error {
 	if app == nil || app.store == nil {
 		return errTaskStoreNotConfigured

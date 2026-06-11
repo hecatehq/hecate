@@ -80,6 +80,10 @@ func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if err := h.taskApplication().RequireRunner(); err != nil {
+		writeTaskRuntimePreflightError(w, err)
+		return
+	}
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
@@ -143,6 +147,10 @@ func (h *Handler) writeResolveTaskApprovalError(w http.ResponseWriter, r *http.R
 
 func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	if err := h.taskApplication().RequireRunner(); err != nil {
+		writeTaskRuntimePreflightError(w, err)
+		return
+	}
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
@@ -311,4 +319,13 @@ func (h *Handler) writeTaskLifecycleAppError(w http.ResponseWriter, err error) b
 		return false
 	}
 	return true
+}
+
+func writeTaskRuntimePreflightError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskRunnerNotConfigured):
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	default:
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	}
 }
