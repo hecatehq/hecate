@@ -828,6 +828,20 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusConflict, errCodeConflict, fmt.Sprintf("assignment driver_kind %q is not supported; V1 supports %q and %q", assignment.DriverKind, projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent))
 		return
 	}
+	active, err := projectWorkAssignmentHasActiveExecution(ctx, h.taskStore, assignment)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if active {
+		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+		if projectErr != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+			return
+		}
+		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+		return
+	}
 
 	workingDirectory, workspaceMode, err := resolveProjectAssignmentWorkspace(project)
 	if err != nil {
