@@ -1444,6 +1444,17 @@ func TestService_ApplyRejectsNonQueuedAssignmentProposal(t *testing.T) {
 			errContains: "cannot bind chats, tasks, runs",
 		},
 		{
+			name: "execution ref",
+			patch: map[string]any{
+				"status": projectwork.AssignmentStatusQueued,
+				"execution_ref": map[string]any{
+					"kind":    "task_run",
+					"task_id": "task_existing",
+				},
+			},
+			errContains: "cannot bind chats, tasks, runs",
+		},
+		{
 			name: "running status",
 			patch: map[string]any{
 				"status": projectwork.AssignmentStatusRunning,
