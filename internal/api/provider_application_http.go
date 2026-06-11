@@ -8,19 +8,13 @@ import (
 )
 
 var providerAppErrorMappings = []appErrorMapping{
+	validationAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest),
+	conflictAppErrorMapping(http.StatusConflict, errCodeInvalidRequest),
 	{
 		Match: func(err error) bool {
-			return errors.Is(err, providerapp.ErrRuntimeNotConfigured) ||
-				providerapp.IsValidationError(err)
+			return errors.Is(err, providerapp.ErrRuntimeNotConfigured)
 		},
 		Status: http.StatusBadRequest,
-		Code:   errCodeInvalidRequest,
-	},
-	{
-		Match: func(err error) bool {
-			return providerapp.IsConflictError(err)
-		},
-		Status: http.StatusConflict,
 		Code:   errCodeInvalidRequest,
 	},
 }
@@ -30,8 +24,5 @@ func writeProviderAppError(w http.ResponseWriter, err error) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if writeAppError(w, err, providerAppErrorMappings) {
-		return
-	}
-	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	writeAppErrorWithFallback(w, err, providerAppErrorMappings, http.StatusInternalServerError, errCodeGatewayError)
 }
