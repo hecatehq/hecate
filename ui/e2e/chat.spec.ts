@@ -963,12 +963,14 @@ test("agent chat previews failed tool stdout and stderr in Advanced details", as
       {
         id: "m-user",
         role: "user",
+        turn_kind: "hecate_task",
         content: "why did git fail?",
         created_at: "2026-04-21T10:00:00Z",
       },
       {
         id: "m-agent",
         role: "assistant",
+        turn_kind: "hecate_task",
         execution_mode: "hecate_task",
         content: "The command failed while inspecting git state.",
         provider: "ollama",
@@ -1758,10 +1760,12 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       : isHecateAgent
         ? `Tools answer ${taskID.endsWith("-1") ? "one" : "two"} from ${body.model}`
         : `Direct model answer from ${body.model}`;
+    const turnKind = isHecateAgent ? "hecate_task" : "direct_model";
 
     messages.push(
       {
         id: `msg-user-${turn}`,
+        turn_kind: turnKind,
         execution_mode: executionMode,
         tools_enabled: isHecateAgent,
         segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
@@ -1774,6 +1778,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       },
       {
         id: `msg-assistant-${turn}`,
+        turn_kind: turnKind,
         execution_mode: executionMode,
         tools_enabled: isHecateAgent,
         segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
