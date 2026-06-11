@@ -567,29 +567,30 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	content := admission.Content
-	executionMode := admission.ExecutionMode
-	toolsEnabled := admission.ToolsEnabled
-	// Capability-driven downgrade lets a Hecate turn with tools on fall
-	// back to the direct model path without changing its runtime owner.
-	if toolsEnabled && !isExternalChatSession(session) && h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req) {
-		toolsEnabled = false
+	hecateToolsUnavailable := false
+	if admission.ToolsEnabled && admission.ExecutionMode == chat.ExecutionModeHecateTask && !isExternalChatSession(session) {
+		// Capability-driven downgrade lets a Hecate turn with tools on fall
+		// back to the direct model path without changing its runtime owner.
+		hecateToolsUnavailable = h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req)
 	}
-	switch executionMode {
-	case chat.ExecutionModeHecateTask:
+	plan := chatapp.ResolveMessageDispatch(session, *admission, hecateToolsUnavailable)
+	switch plan.Route {
+	case chatapp.MessageDispatchHecateTask, chatapp.MessageDispatchDirectModel:
 		// One unified entry point for every Hecate-side turn,
 		// regardless of tools_enabled. handleCreateHecateChatMessage
 		// branches at the top: tools-off delegates to
 		// `handleDirectModelTurn`; tools-on runs the existing
 		// agent_loop task-creation path.
-		h.handleCreateHecateChatMessage(w, r, session, req, toolsEnabled)
+		h.handleCreateHecateChatMessage(w, r, session, req, plan.ToolsEnabled)
 		return
-	case chat.ExecutionModeExternalAgent:
-	default:
-		writeChatExecutionModeInvalid(w)
+	case chatapp.MessageDispatchExternalAgent:
+		h.handleCreateExternalAgentChatMessage(w, r, session, req, plan)
 		return
 	}
+	writeChatExecutionModeInvalid(w)
+}
 
+func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest, plan chatapp.MessageDispatchPlan) {
 	adapter, ok := agentadapters.BuiltInByID(session.AgentID)
 	if !ok {
 		writeAgentChatAdapterNotFound(w, session.AgentID)
@@ -616,7 +617,7 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		ID:            newChatID("msg"),
 		ExecutionMode: chat.ExecutionModeExternalAgent,
 		Role:          "user",
-		Content:       content,
+		Content:       plan.Content,
 		CreatedAt:     time.Now().UTC(),
 	})
 	if err != nil {
@@ -720,7 +721,7 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		Workspace:               session.Workspace,
 		PreviousNativeSessionID: session.NativeSessionID,
 		ConfigOptions:           session.ConfigOptions,
-		Prompt:                  content,
+		Prompt:                  plan.Content,
 		Timeout:                 agentChatTimeout,
 		MaxOutputBytes:          agentChatMaxOutputBytes,
 		OnOutput: func(display string) {

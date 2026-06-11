@@ -526,6 +526,71 @@ func TestApplication_AdmitMessageExternalDefault(t *testing.T) {
 	}
 }
 
+func TestResolveMessageDispatchRoutesHecateToolsToTask(t *testing.T) {
+	t.Parallel()
+
+	plan := ResolveMessageDispatch(chat.Session{AgentID: chat.DefaultAgentID}, AdmitMessageResult{
+		Content:       "run tests",
+		ExecutionMode: chat.ExecutionModeHecateTask,
+		ToolsEnabled:  true,
+	}, false)
+
+	if plan.Route != MessageDispatchHecateTask || !plan.ToolsEnabled {
+		t.Fatalf("plan = %+v, want tools-on hecate task", plan)
+	}
+}
+
+func TestResolveMessageDispatchDowngradesHecateWithoutTools(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name             string
+		admission        AdmitMessageResult
+		toolsUnavailable bool
+	}{
+		{
+			name: "explicit tools off",
+			admission: AdmitMessageResult{
+				Content:       "hello",
+				ExecutionMode: chat.ExecutionModeHecateTask,
+				ToolsEnabled:  false,
+			},
+		},
+		{
+			name: "capability fallback",
+			admission: AdmitMessageResult{
+				Content:       "hello",
+				ExecutionMode: chat.ExecutionModeHecateTask,
+				ToolsEnabled:  true,
+			},
+			toolsUnavailable: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			plan := ResolveMessageDispatch(chat.Session{AgentID: chat.DefaultAgentID}, tc.admission, tc.toolsUnavailable)
+			if plan.Route != MessageDispatchDirectModel || plan.ToolsEnabled {
+				t.Fatalf("plan = %+v, want direct model with tools disabled", plan)
+			}
+		})
+	}
+}
+
+func TestResolveMessageDispatchRoutesExternalAgent(t *testing.T) {
+	t.Parallel()
+
+	plan := ResolveMessageDispatch(chat.Session{AgentID: "codex"}, AdmitMessageResult{
+		Content:       "work",
+		ExecutionMode: chat.ExecutionModeExternalAgent,
+		ToolsEnabled:  true,
+	}, true)
+
+	if plan.Route != MessageDispatchExternalAgent || !plan.ToolsEnabled {
+		t.Fatalf("plan = %+v, want external-agent route preserving tools flag", plan)
+	}
+}
+
 func TestApplication_AdmitMessageValidationAndRuntimeMismatch(t *testing.T) {
 	t.Parallel()
 
