@@ -8,6 +8,7 @@ import (
 )
 
 var taskAppErrorMappings = []appErrorMapping{
+	validationAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest),
 	{
 		Match: func(err error) bool {
 			return errors.Is(err, taskapp.ErrStoreNotConfigured) ||
@@ -16,8 +17,7 @@ var taskAppErrorMappings = []appErrorMapping{
 				errors.Is(err, taskapp.ErrProjectNotFound) ||
 				errors.Is(err, taskapp.ErrPromptRequired) ||
 				errors.Is(err, taskapp.ErrRunNotTurnRetryable) ||
-				errors.Is(err, taskapp.ErrBudgetLower) ||
-				taskapp.IsValidationError(err)
+				errors.Is(err, taskapp.ErrBudgetLower)
 		},
 		Status: http.StatusBadRequest,
 		Code:   errCodeInvalidRequest,

@@ -8,10 +8,10 @@ import (
 )
 
 var chatAppErrorMappings = []appErrorMapping{
+	validationAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest),
 	{
 		Match: func(err error) bool {
-			return errors.Is(err, chatapp.ErrNoSettingsProvided) ||
-				chatapp.IsValidationError(err)
+			return errors.Is(err, chatapp.ErrNoSettingsProvided)
 		},
 		Status: http.StatusBadRequest,
 		Code:   errCodeInvalidRequest,

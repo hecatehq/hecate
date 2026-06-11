@@ -1929,10 +1929,7 @@ func writeProjectWorkError(w http.ResponseWriter, err error) bool {
 	if err == nil {
 		return true
 	}
-	if writeAppError(w, err, projectWorkErrorMappings) {
-		return false
-	}
-	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+	writeAppErrorWithFallback(w, err, projectWorkErrorMappings, http.StatusInternalServerError, errCodeGatewayError)
 	return false
 }
 

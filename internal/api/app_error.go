@@ -1,6 +1,10 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/hecatehq/hecate/internal/apperrors"
+)
 
 type appErrorMapping struct {
 	Match  func(error) bool
@@ -17,4 +21,27 @@ func writeAppError(w http.ResponseWriter, err error, mappings []appErrorMapping)
 		return true
 	}
 	return false
+}
+
+func writeAppErrorWithFallback(w http.ResponseWriter, err error, mappings []appErrorMapping, status int, code string) {
+	if writeAppError(w, err, mappings) {
+		return
+	}
+	WriteError(w, status, code, err.Error())
+}
+
+func validationAppErrorMapping(status int, code string) appErrorMapping {
+	return appErrorMapping{
+		Match:  apperrors.IsValidationError,
+		Status: status,
+		Code:   code,
+	}
+}
+
+func conflictAppErrorMapping(status int, code string) appErrorMapping {
+	return appErrorMapping{
+		Match:  apperrors.IsConflictError,
+		Status: status,
+		Code:   code,
+	}
 }
