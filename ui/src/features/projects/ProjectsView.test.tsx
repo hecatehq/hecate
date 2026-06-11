@@ -322,6 +322,7 @@ const hecateAssignment: ProjectAssignmentRecord = {
     kind: "task_run",
     task_id: "task_1",
     run_id: "run_1",
+    context_snapshot_id: "ctx_assignment_1",
     status: "awaiting_approval",
     pending_approval_count: 2,
   },
@@ -2089,7 +2090,7 @@ describe("ProjectsView cockpit", () => {
     expect(within(detail).getAllByText("approval").length).toBeGreaterThan(0);
     expect(within(detail).getAllByText("2 approval pending").length).toBeGreaterThan(0);
     expect(within(detail).getByText("4 steps")).toBeTruthy();
-    expect(within(detail).getByText("ollama / qwen2.5-coder")).toBeTruthy();
+    expect(within(detail).getAllByText("ollama / qwen2.5-coder").length).toBeGreaterThan(0);
   });
 
   it("renders project activity inbox states and actions", async () => {
@@ -2119,6 +2120,15 @@ describe("ProjectsView cockpit", () => {
 
     const detail = screen.getByRole("region", { name: "Selected work item" });
     expect(within(detail).getAllByText("2 approval pending").length).toBeGreaterThan(0);
+    const evidence = within(detail).getByRole("group", { name: "Execution evidence" });
+    expect(within(evidence).getByText("Task")).toBeTruthy();
+    expect(within(evidence).getByText("task_1")).toBeTruthy();
+    expect(within(evidence).getByText("Run")).toBeTruthy();
+    expect(within(evidence).getByText("run_1")).toBeTruthy();
+    expect(within(evidence).getByText("Context snapshot")).toBeTruthy();
+    expect(within(evidence).getByText("ctx_assignment_1")).toBeTruthy();
+    expect(within(evidence).getByText("Provider / model")).toBeTruthy();
+    expect(within(evidence).getByText("ollama / qwen2.5-coder")).toBeTruthy();
 
     await userEvent.click(within(detail).getByRole("button", { name: "Open task" }));
     expect(onOpenTask).toHaveBeenCalledWith("task_1", "run_1");
@@ -3771,9 +3781,10 @@ describe("ProjectsView cockpit", () => {
     await waitFor(() => {
       expect(within(detail).getAllByText("QA handoff").length).toBeGreaterThan(0);
     });
-    expect(within(detail).getByText(/Source refs: assignment asgn_1/)).toBeTruthy();
-    expect(within(detail).getByText(/chat chat_1/)).toBeTruthy();
-    expect(within(detail).getByText(/context ctx_1/)).toBeTruthy();
+    const sourceEvidence = within(detail).getByRole("group", { name: "Source evidence" });
+    expect(within(sourceEvidence).getByText("assignment asgn_1")).toBeTruthy();
+    expect(within(sourceEvidence).getByText("chat chat_1")).toBeTruthy();
+    expect(within(sourceEvidence).getByText("context ctx_1")).toBeTruthy();
     await userEvent.click(
       within(detail).getByRole("button", { name: "Create follow-up assignment" }),
     );
@@ -4111,6 +4122,7 @@ describe("ProjectsView cockpit", () => {
           kind: "task_run",
           task_id: "task_1",
           run_id: "run_1",
+          context_snapshot_id: "ctx_assignment_1",
         },
       },
     );

@@ -34,6 +34,18 @@ export type ProjectActivityItemViewModel = {
   finishedAt: string;
 };
 
+export type ProjectAssignmentEvidenceItem = {
+  key: string;
+  label: string;
+  value: string;
+};
+
+export type ProjectAssignmentEvidenceViewModel = {
+  items: ProjectAssignmentEvidenceItem[];
+  warnings: string[];
+  hasEvidence: boolean;
+};
+
 type LinkedExecutionOverrides = {
   taskID?: string;
   runID?: string;
@@ -99,6 +111,69 @@ export function toProjectActivityItemViewModel(
   };
 }
 
+export function toProjectAssignmentEvidenceViewModel(
+  assignment: ProjectAssignmentRecord,
+  activityItem?: ProjectActivityItemRecord,
+): ProjectAssignmentEvidenceViewModel {
+  const assignmentExecution = toProjectAssignmentExecutionViewModel(assignment);
+  const activityView = activityItem ? toProjectActivityItemViewModel(activityItem) : null;
+  const execution =
+    assignmentExecution.hasAnyLink || !activityView ? assignmentExecution : activityView.execution;
+  const summary = assignment.execution;
+  const items: ProjectAssignmentEvidenceItem[] = [];
+
+  pushEvidenceItem(items, "kind", "Kind", execution.kind === "none" ? "" : execution.kind);
+  pushEvidenceItem(items, "status", "Status", firstNonEmpty(execution.status, assignment.status));
+  pushEvidenceItem(items, "task", "Task", execution.taskID);
+  pushEvidenceItem(items, "run", "Run", execution.runID);
+  pushEvidenceItem(items, "chat", "Chat", execution.chatSessionID);
+  pushEvidenceItem(items, "message", "Message", execution.messageID);
+  pushEvidenceItem(items, "context", "Context snapshot", execution.contextSnapshotID);
+  pushEvidenceItem(items, "trace", "Trace", execution.traceID);
+  pushEvidenceItem(
+    items,
+    "provider_model",
+    "Provider / model",
+    [summary?.provider, summary?.model].filter(Boolean).join(" / "),
+  );
+  pushEvidenceItem(
+    items,
+    "steps",
+    "Steps",
+    typeof summary?.step_count === "number" ? String(summary.step_count) : "",
+  );
+  pushEvidenceItem(
+    items,
+    "artifacts",
+    "Artifacts",
+    typeof summary?.artifact_count === "number" ? String(summary.artifact_count) : "",
+  );
+  const warnings: string[] = [];
+  if (execution.pendingApprovalCount > 0) {
+    addEvidenceWarning(warnings, `${execution.pendingApprovalCount} approval pending`);
+  }
+  if (execution.missing || summary?.missing || activityItem?.linked_chat?.missing) {
+    addEvidenceWarning(warnings, "Linked runtime record is missing or unavailable.");
+  }
+  if (activityItem?.linked_chat?.latest_error) {
+    addEvidenceWarning(warnings, activityItem.linked_chat.latest_error);
+  }
+  if (!execution.hasAnyLink && assignment.status !== "queued") {
+    addEvidenceWarning(warnings, "No canonical execution refs are stored for this assignment.");
+  }
+  if (summary?.last_error) {
+    addEvidenceWarning(warnings, summary.last_error);
+  }
+
+  const hasEvidence = items.some((item) => item.key !== "status") || warnings.length > 0;
+
+  return {
+    items: hasEvidence ? items : [],
+    warnings,
+    hasEvidence,
+  };
+}
+
 function activityBucket(signal: string): ProjectActivityItemViewModel["bucket"] {
   switch (signal) {
     case "awaiting_approval":
@@ -112,6 +187,23 @@ function activityBucket(signal: string): ProjectActivityItemViewModel["bucket"] 
     default:
       return "active";
   }
+}
+
+function pushEvidenceItem(
+  items: ProjectAssignmentEvidenceItem[],
+  key: string,
+  label: string,
+  value: string,
+) {
+  const trimmed = value.trim();
+  if (!trimmed) return;
+  items.push({ key, label, value: trimmed });
+}
+
+function addEvidenceWarning(warnings: string[], value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || warnings.includes(trimmed)) return;
+  warnings.push(trimmed);
 }
 
 function firstNonEmpty(...values: Array<string | undefined | null>): string {
