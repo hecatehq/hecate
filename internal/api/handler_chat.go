@@ -13,6 +13,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/requestscope"
@@ -26,6 +27,17 @@ const (
 	agentChatConfigOptionTimeout = 10 * time.Second
 	agentChatMaxOutputBytes      = 4 * 1024 * 1024
 )
+
+func (h *Handler) chatApplication() *chatapp.Application {
+	if h == nil {
+		return chatapp.New(chatapp.Options{})
+	}
+	return chatapp.New(chatapp.Options{
+		Store:          h.agentChat,
+		Runner:         h.agentChatRunner,
+		PrepareTimeout: agentChatPrepareTimeout,
+	})
+}
 
 func (h *Handler) HandleChatSessions(w http.ResponseWriter, r *http.Request) {
 	items, err := h.agentChat.List(r.Context())
@@ -130,41 +142,20 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 		session.DriverKind = agentadapters.DriverKindACP
 		session.ConfigOptions = req.ConfigOptions
 	}
-	session, err = h.agentChat.Create(r.Context(), session)
+	result, err := h.chatApplication().CreateSession(r.Context(), chatapp.CreateSessionCommand{
+		Session:         session,
+		PrepareExternal: isExternalAgent,
+	})
 	if err != nil {
+		var prepareErr chatapp.ExternalPrepareError
+		if errors.As(err, &prepareErr) {
+			writeAgentChatPrepareError(w, externalAdapter.Name, prepareErr.Unwrap())
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if isExternalAgent {
-		prepareCtx, cancel := context.WithTimeout(r.Context(), agentChatPrepareTimeout)
-		result, prepareErr := h.agentChatRunner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
-			SessionID:               session.ID,
-			AdapterID:               session.AgentID,
-			Workspace:               session.Workspace,
-			PreviousNativeSessionID: session.NativeSessionID,
-			ConfigOptions:           session.ConfigOptions,
-		})
-		cancel()
-		if prepareErr != nil {
-			_ = h.agentChat.Delete(context.Background(), session.ID)
-			writeAgentChatPrepareError(w, externalAdapter.Name, prepareErr)
-			return
-		}
-		session, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
-			item.DriverKind = result.DriverKind
-			item.NativeSessionID = result.NativeSessionID
-			item.ConfigOptions = result.ConfigOptions
-		})
-		if err != nil {
-			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
-			_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
-			cleanupCancel()
-			_ = h.agentChat.Delete(context.Background(), session.ID)
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		}
-	}
-	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(session, h.agentChatSnapshotConfig())})
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
 }
 
 func normalizeChatAgentID(agentID string) string {

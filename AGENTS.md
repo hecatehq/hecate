@@ -73,6 +73,8 @@ internal/
   agentadapters/        ACP/process adapters for Codex, Claude Code, Cursor
   eventprotocol/        agent-runtime event protocol v1 envelopes (API-facing shape)
   chat/                 chat transcript persistence (memory / sqlite)
+  chatapp/              chat-session application layer used by API handlers:
+                          create, external-agent prepare, native session cleanup
   projects/             durable project identity store (memory / sqlite)
   projectskills/        project-scoped SKILL.md metadata registry
                           (memory / sqlite; no body injection or execution)
