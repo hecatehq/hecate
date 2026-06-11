@@ -794,14 +794,10 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		},
 		InitializeRun: func(task types.Task, run *types.TaskRun) {
 			contextPacket.Refs.RunID = run.ID
-			run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(contextPacket, chat.ContextRefs{
-				TaskID:       task.ID,
-				RunID:        run.ID,
-				ProjectID:    project.ID,
-				WorkItemID:   workItem.ID,
-				AssignmentID: assignment.ID,
-				RoleID:       role.ID,
-			}))
+			run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
+				chatcontext.TaskRunRefs(task.ID, run.ID, project.ID),
+				chatcontext.ProjectAssignmentRefs(project.ID, workItem.ID, assignment.ID, role.ID),
+			)))
 		},
 	})
 	if err != nil {
@@ -915,13 +911,10 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		ConfigOptions:   configOptions,
 	}
 	contextPacket.Refs.SessionID = session.ID
-	contextPacket = chatcontext.Normalize(contextPacket, chat.ContextRefs{
-		SessionID:    session.ID,
-		ProjectID:    project.ID,
-		WorkItemID:   workItem.ID,
-		AssignmentID: assignment.ID,
-		RoleID:       role.ID,
-	})
+	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
+		chatcontext.ChatMessageRefs(session.ID, "", project.ID),
+		chatcontext.ProjectAssignmentRefs(project.ID, workItem.ID, assignment.ID, role.ID),
+	))
 	packetBytes := chatcontext.Marshal(contextPacket)
 	result, err := h.projectWorkApplication().StartExternalAgentAssignment(ctx, projectworkapp.StartExternalAgentAssignmentCommand{
 		ProjectID:         project.ID,
@@ -2006,56 +1999,25 @@ func renderProjectWorkAssignment(item projectwork.Assignment) ProjectWorkAssignm
 		StartedAt:         formatOptionalTime(item.StartedAt),
 		CompletedAt:       formatOptionalTime(item.CompletedAt),
 	}
-	response.ExecutionRef = projectWorkAssignmentExecutionRef(response)
+	response.ExecutionRef = renderProjectWorkAssignmentExecutionRef(projectworkapp.AssignmentExecutionRefFor(item, nil, response.Status))
 	return response
 }
 
-func projectWorkAssignmentExecutionRef(response ProjectWorkAssignmentResponse) *ProjectWorkAssignmentExecutionRefResponse {
-	taskID := strings.TrimSpace(response.TaskID)
-	runID := strings.TrimSpace(response.RunID)
-	status := strings.TrimSpace(response.Status)
-	pendingApprovalCount := 0
-	traceID := ""
-	missing := false
-	if response.Execution != nil {
-		taskID = firstNonEmpty(response.Execution.TaskID, taskID)
-		runID = firstNonEmpty(response.Execution.RunID, runID)
-		status = firstNonEmpty(response.Execution.Status, status)
-		pendingApprovalCount = response.Execution.PendingApprovalCount
-		traceID = response.Execution.TraceID
-		missing = response.Execution.Missing
-	}
-	chatSessionID := strings.TrimSpace(response.ChatSessionID)
-	messageID := strings.TrimSpace(response.MessageID)
-	contextSnapshotID := strings.TrimSpace(response.ContextSnapshotID)
-	kind := projectWorkAssignmentExecutionRefKind(taskID, runID, chatSessionID, messageID, contextSnapshotID)
-	if kind == "" {
+func renderProjectWorkAssignmentExecutionRef(ref *projectworkapp.AssignmentExecutionRef) *ProjectWorkAssignmentExecutionRefResponse {
+	if ref == nil {
 		return nil
 	}
 	return &ProjectWorkAssignmentExecutionRefResponse{
-		Kind:                 kind,
-		TaskID:               taskID,
-		RunID:                runID,
-		ChatSessionID:        chatSessionID,
-		MessageID:            messageID,
-		ContextSnapshotID:    contextSnapshotID,
-		Status:               status,
-		PendingApprovalCount: pendingApprovalCount,
-		TraceID:              traceID,
-		Missing:              missing,
-	}
-}
-
-func projectWorkAssignmentExecutionRefKind(taskID, runID, chatSessionID, messageID, contextSnapshotID string) string {
-	switch {
-	case taskID != "" || runID != "":
-		return "task_run"
-	case chatSessionID != "" || messageID != "":
-		return "chat_session"
-	case contextSnapshotID != "":
-		return "context_snapshot"
-	default:
-		return ""
+		Kind:                 ref.Kind,
+		TaskID:               ref.TaskID,
+		RunID:                ref.RunID,
+		ChatSessionID:        ref.ChatSessionID,
+		MessageID:            ref.MessageID,
+		ContextSnapshotID:    ref.ContextSnapshotID,
+		Status:               ref.Status,
+		PendingApprovalCount: ref.PendingApprovalCount,
+		TraceID:              ref.TraceID,
+		Missing:              ref.Missing,
 	}
 }
 

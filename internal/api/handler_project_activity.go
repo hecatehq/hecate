@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/projectworkapp"
 )
 
 type ProjectActivityEnvelope struct {
@@ -255,30 +255,94 @@ func latestProjectActivityChatMessage(messages []chat.Message) *chat.Message {
 func renderProjectActivityItem(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, role projectwork.AgentRoleProfile, artifacts []projectwork.CollaborationArtifact, handoffs []projectwork.Handoff, linkedChat *ProjectActivityLinkedChatResponse) ProjectActivityItemResponse {
 	artifactSummary, recentArtifacts := renderProjectActivityArtifactSignals(artifacts)
 	handoffSummary, recentHandoffs := renderProjectActivityHandoffSignals(handoffs)
-	status := strings.TrimSpace(projectActivityProjectedStatus(assignment, linkedChat))
-	if status == "" {
-		status = "unknown"
-	}
-	signal := projectActivityBlockingSignal(assignment, linkedChat)
+	state := projectworkapp.ProjectActivityAssignmentState(projectActivityAssignmentInput(assignment, linkedChat, artifactSummary.Count))
 	return ProjectActivityItemResponse{
 		ID:              assignment.ID,
 		ProjectID:       assignment.ProjectID,
 		WorkItem:        renderProjectActivityWorkItem(workItem),
 		Assignment:      assignment,
 		Role:            renderProjectWorkRole(role),
-		Status:          status,
-		BlockingSignal:  signal,
-		StatusSummary:   projectActivityStatusSummary(assignment, linkedChat, signal, artifactSummary.Count),
-		LinkedTaskID:    firstNonEmpty(projectActivityExecutionTaskID(assignment), assignment.TaskID),
-		LinkedRunID:     firstNonEmpty(projectActivityExecutionRunID(assignment), assignment.RunID),
-		LinkedChatID:    firstNonEmpty(projectActivityExecutionChatID(assignment), assignment.ChatSessionID),
+		Status:          state.Status,
+		BlockingSignal:  state.BlockingSignal,
+		StatusSummary:   state.StatusSummary,
+		LinkedTaskID:    state.LinkedTaskID,
+		LinkedRunID:     state.LinkedRunID,
+		LinkedChatID:    state.LinkedChatID,
 		LinkedChat:      linkedChat,
-		LinkedMessageID: assignment.MessageID,
+		LinkedMessageID: projectActivityExecutionMessageID(assignment),
 		RecentArtifacts: recentArtifacts,
 		ArtifactSummary: artifactSummary,
 		RecentHandoffs:  recentHandoffs,
 		HandoffSummary:  handoffSummary,
 		UpdatedAt:       projectActivityUpdatedAt(workItem, assignment, linkedChat, artifactSummary, handoffSummary),
+	}
+}
+
+func projectActivityAssignmentInput(assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse, artifactCount int) projectworkapp.ActivityAssignmentInput {
+	return projectworkapp.ActivityAssignmentInput{
+		Status:        assignment.Status,
+		TaskID:        assignment.TaskID,
+		RunID:         assignment.RunID,
+		ChatSessionID: assignment.ChatSessionID,
+		Execution:     projectActivityExecutionSummaryForApp(assignment.Execution),
+		ExecutionRef:  projectActivityExecutionRefForApp(assignment.ExecutionRef),
+		LinkedChat:    projectActivityLinkedChatForApp(linkedChat),
+		ArtifactCount: artifactCount,
+	}
+}
+
+func projectActivityExecutionSummaryForApp(execution *ProjectWorkAssignmentExecutionResponse) *projectworkapp.AssignmentExecutionSummary {
+	if execution == nil {
+		return nil
+	}
+	return &projectworkapp.AssignmentExecutionSummary{
+		TaskID:               execution.TaskID,
+		RunID:                execution.RunID,
+		TaskStatus:           execution.TaskStatus,
+		RunStatus:            execution.RunStatus,
+		Status:               execution.Status,
+		PendingApprovalCount: execution.PendingApprovalCount,
+		StepCount:            execution.StepCount,
+		ApprovalCount:        execution.ApprovalCount,
+		ArtifactCount:        execution.ArtifactCount,
+		Model:                execution.Model,
+		Provider:             execution.Provider,
+		LastError:            execution.LastError,
+		TraceID:              execution.TraceID,
+		Missing:              execution.Missing,
+	}
+}
+
+func projectActivityExecutionRefForApp(ref *ProjectWorkAssignmentExecutionRefResponse) *projectworkapp.AssignmentExecutionRef {
+	if ref == nil {
+		return nil
+	}
+	return &projectworkapp.AssignmentExecutionRef{
+		Kind:                 ref.Kind,
+		TaskID:               ref.TaskID,
+		RunID:                ref.RunID,
+		ChatSessionID:        ref.ChatSessionID,
+		MessageID:            ref.MessageID,
+		ContextSnapshotID:    ref.ContextSnapshotID,
+		Status:               ref.Status,
+		PendingApprovalCount: ref.PendingApprovalCount,
+		TraceID:              ref.TraceID,
+		Missing:              ref.Missing,
+	}
+}
+
+func projectActivityLinkedChatForApp(linkedChat *ProjectActivityLinkedChatResponse) *projectworkapp.ActivityLinkedChat {
+	if linkedChat == nil {
+		return nil
+	}
+	return &projectworkapp.ActivityLinkedChat{
+		ID:           linkedChat.ID,
+		Status:       linkedChat.Status,
+		LatestRole:   linkedChat.LatestRole,
+		LatestStatus: linkedChat.LatestStatus,
+		LatestError:  linkedChat.LatestError,
+		MessageCount: linkedChat.MessageCount,
+		Missing:      linkedChat.Missing,
 	}
 }
 
@@ -311,7 +375,7 @@ func renderProjectActivityArtifactSignals(artifacts []projectwork.CollaborationA
 		Count:        len(items),
 		LatestKind:   latest.Kind,
 		LatestTitle:  firstNonEmpty(latest.Title, latest.ID),
-		LatestAt:     formatOptionalTime(firstNonZeroTime(latest.UpdatedAt, latest.CreatedAt)),
+		LatestAt:     formatOptionalTime(projectworkapp.FirstNonZeroTime(latest.UpdatedAt, latest.CreatedAt)),
 		AssignmentID: latest.AssignmentID,
 	}
 	limit := len(items)
@@ -358,7 +422,7 @@ func renderProjectActivityHandoffSignals(handoffs []projectwork.Handoff) (Projec
 		Count:          len(items),
 		LatestStatus:   latest.Status,
 		LatestTitle:    firstNonEmpty(latest.Title, latest.ID),
-		LatestAt:       formatOptionalTime(firstNonZeroTime(latest.UpdatedAt, latest.CreatedAt)),
+		LatestAt:       formatOptionalTime(projectworkapp.FirstNonZeroTime(latest.UpdatedAt, latest.CreatedAt)),
 		AssignmentID:   latest.SourceAssignmentID,
 		TargetRoleID:   latest.TargetRoleID,
 		TargetWorkItem: latest.TargetWorkItemID,
@@ -423,168 +487,14 @@ func boundedProjectActivityItems(items []ProjectActivityItemResponse, limit int)
 }
 
 func projectActivityBucket(item ProjectActivityItemResponse) string {
-	switch item.BlockingSignal {
-	case "awaiting_approval", "failed", "cancelled", "not_started", "stale_unknown":
-		return "blocked"
-	case "completed":
-		return "completed"
-	case "running":
-		return "active"
-	default:
-		return "active"
-	}
+	return projectworkapp.ProjectActivityBucket(item.BlockingSignal)
 }
 
-func projectActivityBlockingSignal(assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse) string {
-	if linkedChat != nil && linkedChat.Missing {
-		return "stale_unknown"
-	}
-	status := strings.TrimSpace(projectActivityProjectedStatus(assignment, linkedChat))
-	switch status {
-	case projectwork.AssignmentStatusAwaitingApproval:
-		return "awaiting_approval"
-	case projectwork.AssignmentStatusFailed:
-		return "failed"
-	case projectwork.AssignmentStatusCancelled, "closed":
-		return "cancelled"
-	case projectwork.AssignmentStatusCompleted:
-		return "completed"
-	case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusQueued:
-		if assignment.Execution == nil && assignment.TaskID == "" && assignment.RunID != "" {
-			return "stale_unknown"
-		}
-		if assignment.Execution != nil && assignment.Execution.Missing {
-			return "stale_unknown"
-		}
-		if status == projectwork.AssignmentStatusQueued && assignment.TaskID == "" && assignment.RunID == "" && assignment.ChatSessionID == "" {
-			return "not_started"
-		}
-		return "running"
-	default:
-		if assignment.Execution != nil && assignment.Execution.Missing {
-			return "stale_unknown"
-		}
-		return "stale_unknown"
-	}
-}
-
-func projectActivityStatusSummary(assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse, signal string, artifactCount int) string {
-	switch signal {
-	case "awaiting_approval":
-		count := 0
-		if assignment.Execution != nil {
-			count = assignment.Execution.PendingApprovalCount
-		}
-		if count > 0 {
-			return fmt.Sprintf("%d approval pending", count)
-		}
-		return "awaiting approval"
-	case "failed":
-		if linkedChat != nil && linkedChat.LatestError != "" {
-			return linkedChat.LatestError
-		}
-		if assignment.Execution != nil && assignment.Execution.LastError != "" {
-			return assignment.Execution.LastError
-		}
-		if linkedChat != nil {
-			return "linked chat failed"
-		}
-		return "failed run"
-	case "cancelled":
-		if linkedChat != nil {
-			return "linked chat cancelled"
-		}
-		return "cancelled"
-	case "not_started":
-		return "not started"
-	case "running":
-		if linkedChat != nil {
-			return projectActivityLinkedChatSummary(linkedChat)
-		}
-		return "running"
-	case "completed":
-		if artifactCount > 0 {
-			return fmt.Sprintf("completed with %d artifact%s", artifactCount, pluralSuffix(artifactCount))
-		}
-		return "completed"
-	default:
-		if linkedChat != nil && linkedChat.Missing {
-			return "linked chat missing"
-		}
-		return "stale or unknown"
-	}
-}
-
-func projectActivityProjectedStatus(assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse) string {
-	if linkedChat != nil {
-		if linkedChat.Missing {
-			return "stale_unknown"
-		}
-		if status := strings.TrimSpace(linkedChat.Status); status != "" && status != "idle" {
-			return status
-		}
-		if status := strings.TrimSpace(linkedChat.LatestStatus); status != "" {
-			return status
-		}
-		if strings.TrimSpace(linkedChat.Status) == "idle" {
-			return firstNonEmpty(projectActivityExecutionStatus(assignment), assignment.Status, projectwork.AssignmentStatusRunning)
-		}
-	}
-	return firstNonEmpty(projectActivityExecutionStatus(assignment), assignment.Status)
-}
-
-func projectActivityLinkedChatSummary(linkedChat *ProjectActivityLinkedChatResponse) string {
-	if linkedChat == nil {
-		return ""
-	}
-	parts := []string{"linked chat"}
-	if linkedChat.Status != "" {
-		parts = append(parts, linkedChat.Status)
-	}
-	if linkedChat.LatestRole != "" && linkedChat.LatestStatus != "" {
-		parts = append(parts, linkedChat.LatestRole+" "+linkedChat.LatestStatus)
-	}
-	if linkedChat.MessageCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d message%s", linkedChat.MessageCount, pluralSuffix(linkedChat.MessageCount)))
-	}
-	return strings.Join(parts, " · ")
-}
-
-func projectActivityExecutionStatus(assignment ProjectWorkAssignmentResponse) string {
-	if assignment.ExecutionRef != nil {
-		return assignment.ExecutionRef.Status
-	}
-	if assignment.Execution == nil {
-		return ""
-	}
-	return assignment.Execution.Status
-}
-
-func projectActivityExecutionTaskID(assignment ProjectWorkAssignmentResponse) string {
-	if assignment.ExecutionRef != nil {
-		return assignment.ExecutionRef.TaskID
-	}
-	if assignment.Execution == nil {
-		return ""
-	}
-	return assignment.Execution.TaskID
-}
-
-func projectActivityExecutionRunID(assignment ProjectWorkAssignmentResponse) string {
-	if assignment.ExecutionRef != nil {
-		return assignment.ExecutionRef.RunID
-	}
-	if assignment.Execution == nil {
-		return ""
-	}
-	return assignment.Execution.RunID
-}
-
-func projectActivityExecutionChatID(assignment ProjectWorkAssignmentResponse) string {
+func projectActivityExecutionMessageID(assignment ProjectWorkAssignmentResponse) string {
 	if assignment.ExecutionRef == nil {
 		return ""
 	}
-	return assignment.ExecutionRef.ChatSessionID
+	return assignment.ExecutionRef.MessageID
 }
 
 func projectActivityUpdatedAt(workItem ProjectWorkItemResponse, assignment ProjectWorkAssignmentResponse, linkedChat *ProjectActivityLinkedChatResponse, artifacts ProjectActivityArtifactSummaryResponse, handoffs ProjectActivityHandoffSummaryResponse) string {
