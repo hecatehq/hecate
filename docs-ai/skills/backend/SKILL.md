@@ -105,6 +105,13 @@ wrappers through `writeAppError` mapping slices before adding handler-local
 switch blocks. Extend the seam before adding more store/runner orchestration
 directly to handlers.
 
+Application packages should use shared app-layer wrappers from
+`internal/apperrors` for validation/conflict classes, while preserving any
+package-local helper aliases (`taskapp.Validation`, `providerapp.Conflict`,
+etc.) that keep call sites readable. HTTP status-code decisions remain in
+`internal/api` mapping helpers; do not import API response types into app
+packages.
+
 ### Change project work APIs
 
 Project Work HTTP handlers follow the same app-layer rule. Role, work-item,
@@ -147,11 +154,31 @@ External Agent has two live/persistence layers:
 
 Chat session lifecycle orchestration starts in `internal/chatapp.Application`.
 Session create, external-agent prepare, native session metadata persistence,
-native close/delete, and cleanup after prepare/update failure belong there;
-handlers keep HTTP parsing, live-run cancellation, workspace validation,
-model/profile resolution, and response rendering. Extend that app seam before
-adding more chat store or adapter-runner orchestration to `handler_chat.go`, and
+native close/delete, adapter config option writes, Hecate Chat settings, and
+cleanup after prepare/update failure belong there; handlers keep HTTP parsing,
+live-run cancellation, workspace validation, model/profile resolution, live
+publish, and response rendering. Extend that app seam before adding more chat
+store, task-store, or adapter-runner orchestration to `handler_chat.go`, and
 keep dependencies narrow to the methods the command needs.
+
+Chat context endpoints use `internal/chatcontext` for pure context-packet
+lookup/decode helpers. Keep larger project/context assembly close to the API
+until it has a narrow dependency shape; move pure packet operations into
+`chatcontext` instead of duplicating JSON decode or transcript scans.
+
+### Change provider settings APIs
+
+Provider settings HTTP handlers follow the app-layer rule too. Provider
+create/update/delete, duplicate/base-URL guards, provider id derivation, API key
+rotate/clear, and dynamic provider-runtime dispatch live behind
+`internal/providerapp.Application`. Handlers parse request DTOs, attach the
+settings actor to context, render `SettingsProviderRecord`, and map known
+provider-app validation/conflict errors through `writeAppError`.
+
+Keep providerapp dependencies narrow: it needs a control-plane snapshot reader
+and the small provider runtime interface for `Upsert`, `RotateSecret`,
+`DeleteCredential`, and `Delete`. It should not import API DTOs or renderer
+helpers.
 
 Task-backed Hecate Chat additionally uses `internal/orchestrator`,
 `internal/taskstate`, and `internal/modelcaps`. Do not add a second lightweight

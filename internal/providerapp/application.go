@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/hecatehq/hecate/internal/apperrors"
 	"github.com/hecatehq/hecate/internal/controlplane"
 )
 
@@ -15,52 +16,24 @@ var (
 	ErrRuntimeNotConfigured      = errors.New("dynamic provider runtime is not configured")
 )
 
-type ValidationError struct {
-	err error
-}
-
-func (e ValidationError) Error() string {
-	return e.err.Error()
-}
-
-func (e ValidationError) Unwrap() error {
-	return e.err
-}
+type ValidationError = apperrors.ValidationError
 
 func Validation(err error) error {
-	if err == nil {
-		return nil
-	}
-	return ValidationError{err: err}
+	return apperrors.Validation(err)
 }
 
 func IsValidationError(err error) bool {
-	var validation ValidationError
-	return errors.As(err, &validation)
+	return apperrors.IsValidationError(err)
 }
 
-type ConflictError struct {
-	err error
-}
-
-func (e ConflictError) Error() string {
-	return e.err.Error()
-}
-
-func (e ConflictError) Unwrap() error {
-	return e.err
-}
+type ConflictError = apperrors.ConflictError
 
 func Conflict(err error) error {
-	if err == nil {
-		return nil
-	}
-	return ConflictError{err: err}
+	return apperrors.Conflict(err)
 }
 
 func IsConflictError(err error) bool {
-	var conflict ConflictError
-	return errors.As(err, &conflict)
+	return apperrors.IsConflictError(err)
 }
 
 type ControlPlane interface {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/apperrors"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/secrets"
@@ -40,28 +41,14 @@ var (
 	ErrBudgetLower               = errors.New("budget_micros_usd cannot be lower than the current task ceiling")
 )
 
-type ValidationError struct {
-	err error
-}
-
-func (e ValidationError) Error() string {
-	return e.err.Error()
-}
-
-func (e ValidationError) Unwrap() error {
-	return e.err
-}
+type ValidationError = apperrors.ValidationError
 
 func Validation(err error) error {
-	if err == nil {
-		return nil
-	}
-	return ValidationError{err: err}
+	return apperrors.Validation(err)
 }
 
 func IsValidationError(err error) bool {
-	var validation ValidationError
-	return errors.As(err, &validation)
+	return apperrors.IsValidationError(err)
 }
 
 type Runner interface {
