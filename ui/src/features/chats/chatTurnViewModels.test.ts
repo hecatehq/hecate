@@ -7,7 +7,7 @@ import {
 } from "./chatTurnViewModels";
 
 describe("chatTurnViewModels", () => {
-  it("prefers explicit turn_kind over legacy execution fields", () => {
+  it("uses explicit turn_kind without reconstructing legacy execution fields", () => {
     expect(
       chatTurnKindFromWire({
         turn_kind: "direct_model",
@@ -18,7 +18,7 @@ describe("chatTurnViewModels", () => {
     ).toBe("direct_model");
   });
 
-  it("maps legacy Hecate tools-off turns to direct model turns", () => {
+  it("treats missing turn_kind as unknown instead of inferring from legacy fields", () => {
     const turn = toChatMessageViewModel({
       id: "msg_1",
       role: "assistant",
@@ -28,15 +28,16 @@ describe("chatTurnViewModels", () => {
       task_id: "task_legacy_should_not_link",
     });
 
-    expect(turn.turnKind).toBe("direct_model");
-    expect(turn.isDirectModel).toBe(true);
+    expect(turn.turnKind).toBe("unknown");
+    expect(turn.isDirectModel).toBe(false);
     expect(turn.isTaskBacked).toBe(false);
     expect(turn.taskID).toBe("");
   });
 
-  it("maps legacy Hecate tools-on segments to task-backed turns", () => {
+  it("maps explicit Hecate task-backed segments", () => {
     const turn = toChatSegmentViewModel({
       id: "seg_1",
+      turn_kind: "hecate_task",
       execution_mode: "hecate_task",
       tools_enabled: true,
       task_id: "task_1",
@@ -53,9 +54,10 @@ describe("chatTurnViewModels", () => {
     expect(turn.messageCount).toBe(2);
   });
 
-  it("maps external-agent segments independently of tools_enabled", () => {
+  it("maps explicit external-agent segments independently of tools_enabled", () => {
     const turn = toChatSegmentViewModel({
       id: "seg_1",
+      turn_kind: "external_agent",
       execution_mode: "external_agent",
       tools_enabled: false,
       status: "running",

@@ -45,15 +45,6 @@ export type ChatSegmentViewModel = ChatTurnViewModel & {
 export function chatTurnKindFromWire(input: ChatTurnWire): ChatTurnKind {
   const explicit = normalizeChatTurnKind(input.turn_kind);
   if (explicit) return explicit;
-  if (input.execution_mode === "external_agent") return "external_agent";
-  // Legacy snapshots can carry stale Hecate execution_mode values; a foreign
-  // agent_id is the stronger owner signal when turn_kind is absent.
-  if (input.agent_id && input.agent_id !== "hecate") return "external_agent";
-  if (input.execution_mode === "hecate_task") {
-    return input.tools_enabled === false ? "direct_model" : "hecate_task";
-  }
-  if (input.task_id) return "hecate_task";
-  if (input.native_session_id || input.driver_kind) return "external_agent";
   return "unknown";
 }
 

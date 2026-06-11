@@ -66,8 +66,63 @@ func FromProjectAssignmentPayload(raw json.RawMessage) (chat.ContextPacket, bool
 	return packet, true, nil
 }
 
+func Refs(refs chat.ContextRefs) chat.ContextRefs {
+	return chat.ContextRefs{
+		SessionID:    strings.TrimSpace(refs.SessionID),
+		MessageID:    strings.TrimSpace(refs.MessageID),
+		TaskID:       strings.TrimSpace(refs.TaskID),
+		RunID:        strings.TrimSpace(refs.RunID),
+		ProjectID:    strings.TrimSpace(refs.ProjectID),
+		WorkItemID:   strings.TrimSpace(refs.WorkItemID),
+		AssignmentID: strings.TrimSpace(refs.AssignmentID),
+		RoleID:       strings.TrimSpace(refs.RoleID),
+	}
+}
+
+func MergeRefs(values ...chat.ContextRefs) chat.ContextRefs {
+	merged := chat.ContextRefs{}
+	for _, value := range values {
+		value = Refs(value)
+		merged.SessionID = firstNonEmpty(merged.SessionID, value.SessionID)
+		merged.MessageID = firstNonEmpty(merged.MessageID, value.MessageID)
+		merged.TaskID = firstNonEmpty(merged.TaskID, value.TaskID)
+		merged.RunID = firstNonEmpty(merged.RunID, value.RunID)
+		merged.ProjectID = firstNonEmpty(merged.ProjectID, value.ProjectID)
+		merged.WorkItemID = firstNonEmpty(merged.WorkItemID, value.WorkItemID)
+		merged.AssignmentID = firstNonEmpty(merged.AssignmentID, value.AssignmentID)
+		merged.RoleID = firstNonEmpty(merged.RoleID, value.RoleID)
+	}
+	return merged
+}
+
+func ChatMessageRefs(sessionID, messageID, projectID string) chat.ContextRefs {
+	return Refs(chat.ContextRefs{
+		SessionID: sessionID,
+		MessageID: messageID,
+		ProjectID: projectID,
+	})
+}
+
+func TaskRunRefs(taskID, runID, projectID string) chat.ContextRefs {
+	return Refs(chat.ContextRefs{
+		TaskID:    taskID,
+		RunID:     runID,
+		ProjectID: projectID,
+	})
+}
+
+func ProjectAssignmentRefs(projectID, workItemID, assignmentID, roleID string) chat.ContextRefs {
+	return Refs(chat.ContextRefs{
+		ProjectID:    projectID,
+		WorkItemID:   workItemID,
+		AssignmentID: assignmentID,
+		RoleID:       roleID,
+	})
+}
+
 func Normalize(packet chat.ContextPacket, refs chat.ContextRefs) chat.ContextPacket {
 	packet = Clone(packet)
+	refs = Refs(refs)
 	if packet.Refs == nil && !refsEmpty(refs) {
 		packet.Refs = &chat.ContextRefs{}
 	}

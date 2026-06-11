@@ -98,6 +98,22 @@ func TestNormalizeMergesRefsAndDefaultSections(t *testing.T) {
 	}
 }
 
+func TestRefsMergeCanonicalContextRefs(t *testing.T) {
+	t.Parallel()
+
+	refs := MergeRefs(
+		ChatMessageRefs(" session_1 ", " msg_1 ", " proj_1 "),
+		TaskRunRefs(" task_1 ", " run_1 ", "ignored_project"),
+		ProjectAssignmentRefs("proj_1", " work_1 ", " asgn_1 ", " role_1 "),
+	)
+	if refs.SessionID != "session_1" || refs.MessageID != "msg_1" || refs.TaskID != "task_1" || refs.RunID != "run_1" {
+		t.Fatalf("runtime refs = %+v, want trimmed chat/task refs", refs)
+	}
+	if refs.ProjectID != "proj_1" || refs.WorkItemID != "work_1" || refs.AssignmentID != "asgn_1" || refs.RoleID != "role_1" {
+		t.Fatalf("project refs = %+v, want project assignment refs", refs)
+	}
+}
+
 func TestMarshalEmptyAndNonEmptyPackets(t *testing.T) {
 	t.Parallel()
 

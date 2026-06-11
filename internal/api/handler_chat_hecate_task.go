@@ -102,12 +102,10 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		return types.Task{}, types.TaskRun{}, err
 	}
 	result, err := o.runner.StartTaskWithRunInitializer(ctx, task, o.resourceID, func(run *types.TaskRun) {
-		run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(cmd.ContextPacket, chat.ContextRefs{
-			SessionID: cmd.Session.ID,
-			TaskID:    task.ID,
-			RunID:     run.ID,
-			ProjectID: cmd.Session.ProjectID,
-		}))
+		run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(cmd.ContextPacket, chatcontext.MergeRefs(
+			chatcontext.ChatMessageRefs(cmd.Session.ID, "", cmd.Session.ProjectID),
+			chatcontext.TaskRunRefs(task.ID, run.ID, cmd.Session.ProjectID),
+		)))
 	})
 	if err != nil {
 		return types.Task{}, types.TaskRun{}, err
@@ -131,12 +129,10 @@ func (o hecateAgentTaskOrchestrator) continueTask(ctx context.Context, cmd hecat
 		return types.Task{}, types.TaskRun{}, fmt.Errorf("latest task run %q not found", cmd.Session.LatestRunID)
 	}
 	result, err := o.runner.ContinueAgentTaskWithRunInitializer(ctx, task, run, cmd.Prompt, o.resourceID, func(nextRun *types.TaskRun) {
-		nextRun.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(cmd.ContextPacket, chat.ContextRefs{
-			SessionID: cmd.Session.ID,
-			TaskID:    task.ID,
-			RunID:     nextRun.ID,
-			ProjectID: cmd.Session.ProjectID,
-		}))
+		nextRun.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(cmd.ContextPacket, chatcontext.MergeRefs(
+			chatcontext.ChatMessageRefs(cmd.Session.ID, "", cmd.Session.ProjectID),
+			chatcontext.TaskRunRefs(task.ID, nextRun.ID, cmd.Session.ProjectID),
+		)))
 	})
 	if err != nil {
 		return types.Task{}, types.TaskRun{}, err
