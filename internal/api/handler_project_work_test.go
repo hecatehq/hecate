@@ -1791,6 +1791,55 @@ func TestProjectWorkAPI_StartAssignmentRepeatedReturnsCurrentAssignment(t *testi
 	}
 }
 
+func TestProjectWorkAPI_StartAssignmentActiveConflictBeatsModelValidation(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: t.TempDir(),
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first start status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var first ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
+		t.Fatalf("decode first assignment: %v", err)
+	}
+	if first.Data.TaskID == "" || first.Data.RunID == "" {
+		t.Fatalf("first assignment links = %q/%q, want task and run", first.Data.TaskID, first.Data.RunID)
+	}
+
+	handler.config.Router.DefaultModel = ""
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.DefaultModel = ""
+		project.DefaultAgentProfile = ""
+	}); err != nil {
+		t.Fatalf("Update project defaults: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultModel = ""
+		role.DefaultAgentProfile = ""
+	}); err != nil {
+		t.Fatalf("Update role defaults: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("second start status = %d body=%s, want 409 before model validation", rec.Code, rec.Body.String())
+	}
+	var second ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
+		t.Fatalf("decode second assignment: %v", err)
+	}
+	if second.Data.TaskID != first.Data.TaskID || second.Data.RunID != first.Data.RunID {
+		t.Fatalf("second assignment links = %q/%q, want existing %q/%q", second.Data.TaskID, second.Data.RunID, first.Data.TaskID, first.Data.RunID)
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentLinklessActiveStatusReturnsConflict(t *testing.T) {
 	t.Parallel()
 	for _, status := range []string{projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval} {
