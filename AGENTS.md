@@ -81,8 +81,8 @@ internal/
                           create, external-agent prepare, native session cleanup,
                           session reads/rename, config option writes, Hecate
                           Chat settings, message admission/dispatch planning
-  chatcontext/          pure context-packet lookup/decode helpers shared by API
-                          context endpoints
+  chatcontext/          pure context-packet lookup/decode/normalize helpers and
+                          canonical ref builders shared by API context endpoints
   projects/             durable project identity store (memory / sqlite)
   projectskills/        project-scoped SKILL.md metadata registry
                           (memory / sqlite; no body injection or execution)
@@ -90,7 +90,8 @@ internal/
                           collaboration artifact storage (memory / sqlite)
   projectworkapp/       project work application layer used by API handlers:
                           command shaping, id defaults, driver defaults,
-                          store error boundaries
+                          store error boundaries, execution refs, activity
+                          projection/status signals
   providerapp/          settings provider application layer used by API handlers:
                           settings status, policy rules, provider
                           create/update/delete, API key rotate/clear

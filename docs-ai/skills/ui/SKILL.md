@@ -186,6 +186,14 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - External Agent file changes are already applied to the selected workspace when
   Hecate captures them. UI copy should say "inspect" / "revert" / "keep", not
   "apply", unless the backend grows a true staged-artifact flow.
+- Project assignment UI reads canonical backend contracts. `turn_kind` is the
+  chat turn discriminator, and project assignment runtime links come from
+  `execution_ref` / activity linked ids. Do not infer task-backed, direct-model,
+  or external-agent state from legacy `execution_mode`, `tools_enabled`, raw
+  `task_id`, raw `run_id`, or `chat_session_id` fields. Project rows, activity,
+  health, and timeline surfaces should use
+  `ui/src/features/projects/projectAssignmentViewModels.ts` instead of
+  reconstructing status/link logic in components.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.

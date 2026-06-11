@@ -133,10 +133,13 @@ runner orchestration to `handler_project_work.go`. Keep app-layer dependencies
 narrow: define the minimal store/runner interfaces the command needs instead
 of accepting broad subsystem stores by habit.
 
-Project activity is a read/projection surface: keep its response DTOs,
-linked-chat summaries, artifact/handoff signal grouping, and bucket/status
-summaries in `internal/api/handler_project_activity.go`. Avoid adding activity
-projection helpers back to `handler_project_work.go`.
+Project activity is a read/projection surface with split ownership:
+`internal/projectworkapp` owns assignment execution refs, task/run projection,
+blocking signals, bucket/status summaries, stale/missing detection, and
+canonical linked runtime ids. `internal/api/handler_project_activity.go` owns
+HTTP response DTOs, linked-chat loading/rendering, and artifact/handoff grouping.
+Do not rebuild assignment activity decisions in UI or handlers from raw
+`task_id`/`run_id`/`chat_session_id`; use the `execution_ref` / projection seams.
 
 ### Change chat-session / ACP adapter behavior
 
@@ -186,7 +189,10 @@ Chat context endpoints use `internal/chatcontext` for pure context-packet
 lookup/decode, normalization, cloning, and marshaling helpers. Keep larger
 project/context assembly close to the API until it has a narrow dependency
 shape; move pure packet operations into `chatcontext` instead of duplicating
-JSON decode, reference merging, or transcript scans.
+JSON decode, reference merging, or transcript scans. Compose refs with
+`chatcontext.ChatMessageRefs`, `TaskRunRefs`, `ProjectAssignmentRefs`, and
+`MergeRefs`; do not hand-roll ad hoc `chat.ContextRefs` structs in new
+call sites unless you are constructing the packet body itself.
 
 ### Change provider settings APIs
 
