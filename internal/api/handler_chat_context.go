@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -63,7 +62,7 @@ func (h *Handler) HandleChatMessageContext(w http.ResponseWriter, r *http.Reques
 		if message.ID != messageID {
 			continue
 		}
-		writeChatContextPacket(w, normalizeContextPacket(message.Context, chat.ContextRefs{
+		writeChatContextPacket(w, chatcontext.Normalize(message.Context, chat.ContextRefs{
 			SessionID: sessionID,
 			MessageID: messageID,
 			ProjectID: session.ProjectID,
@@ -96,7 +95,7 @@ func (h *Handler) HandleTaskRunContext(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "task run context packet not found; the run may predate context snapshots or have no linked run/chat packet")
 		return
 	}
-	writeChatContextPacket(w, normalizeContextPacket(packet, chat.ContextRefs{
+	writeChatContextPacket(w, chatcontext.Normalize(packet, chat.ContextRefs{
 		TaskID: task.ID,
 		RunID:  run.ID,
 	}))
@@ -141,7 +140,7 @@ func (h *Handler) HandleProjectWorkAssignmentContext(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "project assignment context packet not found")
 		return
 	}
-	writeChatContextPacket(w, normalizeContextPacket(packet, chat.ContextRefs{
+	writeChatContextPacket(w, chatcontext.Normalize(packet, chat.ContextRefs{
 		ProjectID:    projectID,
 		WorkItemID:   workItemID,
 		AssignmentID: assignmentID,
@@ -1044,91 +1043,6 @@ func projectContextSourceKind(kind string) string {
 		return kind
 	default:
 		return "project_" + strings.NewReplacer(" ", "_", "-", "_").Replace(kind)
-	}
-}
-
-func normalizeContextPacket(packet chat.ContextPacket, refs chat.ContextRefs) chat.ContextPacket {
-	packet = cloneContextPacket(packet)
-	if packet.Refs == nil && !contextRefsEmpty(refs) {
-		packet.Refs = &chat.ContextRefs{}
-	}
-	if packet.Refs != nil {
-		packet.Refs.SessionID = firstNonEmptyString(packet.Refs.SessionID, refs.SessionID)
-		packet.Refs.MessageID = firstNonEmptyString(packet.Refs.MessageID, refs.MessageID)
-		packet.Refs.TaskID = firstNonEmptyString(packet.Refs.TaskID, refs.TaskID)
-		packet.Refs.RunID = firstNonEmptyString(packet.Refs.RunID, refs.RunID)
-		packet.Refs.ProjectID = firstNonEmptyString(packet.Refs.ProjectID, refs.ProjectID)
-		packet.Refs.WorkItemID = firstNonEmptyString(packet.Refs.WorkItemID, refs.WorkItemID)
-		packet.Refs.AssignmentID = firstNonEmptyString(packet.Refs.AssignmentID, refs.AssignmentID)
-		packet.Refs.RoleID = firstNonEmptyString(packet.Refs.RoleID, refs.RoleID)
-		if contextRefsEmpty(*packet.Refs) {
-			packet.Refs = nil
-		}
-	}
-	for idx := range packet.Items {
-		if strings.TrimSpace(packet.Items[idx].Section) == "" {
-			packet.Items[idx].Section = defaultContextItemSection(packet.Items[idx].Kind)
-		}
-	}
-	return packet
-}
-
-func cloneContextPacket(packet chat.ContextPacket) chat.ContextPacket {
-	if packet.Refs != nil {
-		refs := *packet.Refs
-		packet.Refs = &refs
-	}
-	if len(packet.Sources) > 0 {
-		packet.Sources = append([]chat.ContextSource(nil), packet.Sources...)
-	}
-	if len(packet.Items) > 0 {
-		packet.Items = append([]chat.ContextItem(nil), packet.Items...)
-	}
-	return packet
-}
-
-func marshalContextPacket(packet chat.ContextPacket) json.RawMessage {
-	if packet.Empty() {
-		return nil
-	}
-	data, err := json.Marshal(packet)
-	if err != nil {
-		return nil
-	}
-	return data
-}
-
-func contextRefsEmpty(refs chat.ContextRefs) bool {
-	return refs.SessionID == "" &&
-		refs.MessageID == "" &&
-		refs.TaskID == "" &&
-		refs.RunID == "" &&
-		refs.ProjectID == "" &&
-		refs.WorkItemID == "" &&
-		refs.AssignmentID == "" &&
-		refs.RoleID == ""
-}
-
-func defaultContextItemSection(kind string) string {
-	switch {
-	case kind == "system_prompt":
-		return contextSectionInstructions
-	case kind == "project_skills":
-		return contextSectionSkills
-	case kind == "memory":
-		return contextSectionMemory
-	case kind == "workspace":
-		return contextSectionWorkspace
-	case kind == "project":
-		return contextSectionProject
-	case kind == "work_item" || kind == "assignment" || kind == "role" || kind == "execution_hints" || kind == "handoff" || kind == "artifact_ref":
-		return contextSectionProjectWork
-	case kind == "transcript" || kind == "task_runtime" || kind == "external_agent_session":
-		return contextSectionRuntime
-	case strings.HasPrefix(kind, "workspace_") || strings.HasPrefix(kind, "project_"):
-		return contextSectionSources
-	default:
-		return contextSectionRuntime
 	}
 }
 

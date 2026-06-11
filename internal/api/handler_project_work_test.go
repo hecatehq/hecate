@@ -19,6 +19,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
@@ -1541,7 +1542,7 @@ func TestProjectWorkAPI_AssignmentContextFallsBackToLinkedChatPacket(t *testing.
 	if _, err := handler.agentChat.Create(t.Context(), chat.Session{ID: "chat_linked", ProjectID: "proj_start"}); err != nil {
 		t.Fatalf("Create chat session: %v", err)
 	}
-	packet := normalizeContextPacket(chat.ContextPacket{
+	packet := chatcontext.Normalize(chat.ContextPacket{
 		ID:            "ctx_linked",
 		Version:       chatContextPacketVersion,
 		ExecutionMode: chat.ExecutionModeExternalAgent,

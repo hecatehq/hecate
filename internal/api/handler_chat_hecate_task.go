@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -101,7 +102,7 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		return types.Task{}, types.TaskRun{}, err
 	}
 	result, err := o.runner.StartTaskWithRunInitializer(ctx, task, o.resourceID, func(run *types.TaskRun) {
-		run.ContextPacket = marshalContextPacket(normalizeContextPacket(cmd.ContextPacket, chat.ContextRefs{
+		run.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(cmd.ContextPacket, chat.ContextRefs{
 			SessionID: cmd.Session.ID,
 			TaskID:    task.ID,
 			RunID:     run.ID,
@@ -130,7 +131,7 @@ func (o hecateAgentTaskOrchestrator) continueTask(ctx context.Context, cmd hecat
 		return types.Task{}, types.TaskRun{}, fmt.Errorf("latest task run %q not found", cmd.Session.LatestRunID)
 	}
 	result, err := o.runner.ContinueAgentTaskWithRunInitializer(ctx, task, run, cmd.Prompt, o.resourceID, func(nextRun *types.TaskRun) {
-		nextRun.ContextPacket = marshalContextPacket(normalizeContextPacket(cmd.ContextPacket, chat.ContextRefs{
+		nextRun.ContextPacket = chatcontext.Marshal(chatcontext.Normalize(cmd.ContextPacket, chat.ContextRefs{
 			SessionID: cmd.Session.ID,
 			TaskID:    task.ID,
 			RunID:     nextRun.ID,

@@ -13,6 +13,7 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatapp"
+	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/gitrunner"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/requestscope"
@@ -606,7 +607,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 	}))
 	contextPacket := h.externalAgentContextPacket(r.Context(), session, adapter.Name)
 	contextPacket.ID = newChatID("ctx")
-	contextPacket = normalizeContextPacket(contextPacket, chat.ContextRefs{
+	contextPacket = chatcontext.Normalize(contextPacket, chat.ContextRefs{
 		SessionID: session.ID,
 		MessageID: assistantID,
 		RunID:     runID,
@@ -793,7 +794,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		if result.DiffStat != "" {
 			message.Activities = append(message.Activities, newChatActivity("files_changed", "completed", "Files changed", result.DiffStat))
 		}
-		message.Context = normalizeContextPacket(message.Context, chat.ContextRefs{
+		message.Context = chatcontext.Normalize(message.Context, chat.ContextRefs{
 			SessionID: session.ID,
 			MessageID: assistantID,
 			RunID:     runID,
@@ -926,7 +927,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	history := agentChatModelHistory(session, strings.TrimSpace(req.SystemPrompt), content)
 	contextPacket := h.directModelContextPacket(r.Context(), session, provider, model, strings.TrimSpace(req.SystemPrompt))
 	contextPacket.ID = newChatID("ctx")
-	contextPacket = normalizeContextPacket(contextPacket, chat.ContextRefs{
+	contextPacket = chatcontext.Normalize(contextPacket, chat.ContextRefs{
 		SessionID: session.ID,
 		MessageID: assistantID,
 		RunID:     runID,
@@ -991,7 +992,7 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 				ContextUsed: result.Metadata.TotalTokens,
 			}
 		}
-		message.Context = normalizeContextPacket(message.Context, chat.ContextRefs{
+		message.Context = chatcontext.Normalize(message.Context, chat.ContextRefs{
 			SessionID: session.ID,
 			MessageID: assistantID,
 			RunID:     message.RunID,

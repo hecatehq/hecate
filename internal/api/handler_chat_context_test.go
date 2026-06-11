@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/storage"
@@ -577,7 +578,7 @@ func TestNormalizeContextPacketDoesNotMutateInput(t *testing.T) {
 		}},
 	}
 
-	normalized := normalizeContextPacket(packet, chat.ContextRefs{
+	normalized := chatcontext.Normalize(packet, chat.ContextRefs{
 		SessionID: "chat_1",
 		RunID:     "run_1",
 	})
