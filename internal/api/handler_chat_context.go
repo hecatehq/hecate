@@ -413,7 +413,7 @@ func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.S
 	return packet
 }
 
-func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string, profile resolvedAgentProfile, skills resolvedProjectSkills) chat.ContextPacket {
+func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string, profile resolvedAgentProfile, skills resolvedProjectSkills, promptContext projectAssignmentPromptContext) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, workingDirectory)
 	driverKind := firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask)
 	includedReason := "Included in the native project assignment launch context"
@@ -422,7 +422,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 	}
 	packet.ID = newChatID("ctx")
 	packet.ExecutionProfile = strings.TrimSpace(executionProfile)
-	packet.SystemPromptIncluded = strings.TrimSpace(projectAssignmentSystemPrompt(project, role, profile)) != ""
+	packet.SystemPromptIncluded = strings.TrimSpace(projectAssignmentSystemPrompt(project, role, profile, promptContext)) != ""
 	packet.Refs = &chat.ContextRefs{
 		TaskID:       strings.TrimSpace(assignment.TaskID),
 		RunID:        strings.TrimSpace(assignment.RunID),
@@ -511,6 +511,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 	})
 	appendResolvedAgentProfile(&packet, profile)
 	appendResolvedProjectSkills(&packet, skills)
+	appendProjectAssignmentPromptContext(&packet, promptContext)
 	if packet.SystemPromptIncluded {
 		promptOrigin := "task.system_prompt"
 		promptBodyRef := "task_system_prompt"
@@ -709,7 +710,7 @@ func appendProjectContextSourcesForProfilePolicy(packet *chat.ContextPacket, sou
 	case agentprofiles.ContextExclude:
 		return
 	case agentprofiles.ContextIncludeEnabled:
-		appendProjectContextSourcesWithInclusion(packet, sources, true, "Activated by agent profile context_source_policy=include_enabled; source bodies are not loaded")
+		appendProjectContextSourcesWithInclusion(packet, sources, true, "Activated by agent profile context_source_policy=include_enabled; eligible source bodies may be loaded into the native assignment prompt")
 	default:
 		appendProjectContextSourcesWithInclusion(packet, sources, false, "Visible only by agent profile context_source_policy="+firstNonEmptyString(strings.TrimSpace(profile.ContextSourcePolicy), agentprofiles.ContextInherit))
 	}
@@ -912,6 +913,34 @@ func appendResolvedProjectSkills(packet *chat.ContextPacket, skills resolvedProj
 		Body:            strings.Join(body, "\n"),
 		Included:        len(skills.Resolved) > 0,
 		InclusionReason: "Skill metadata resolved for this assignment; skill bodies are not injected",
+	})
+}
+
+func appendProjectAssignmentPromptContext(packet *chat.ContextPacket, promptContext projectAssignmentPromptContext) {
+	if len(promptContext.Sections) == 0 && len(promptContext.Warnings) == 0 {
+		return
+	}
+	body := []string{
+		fmt.Sprintf("Included project memory entries: %d", promptContext.IncludedMemory),
+		fmt.Sprintf("Included workspace instruction sources: %d", promptContext.IncludedSources),
+		fmt.Sprintf("Truncated prompt context items: %d", promptContext.Truncated),
+	}
+	if len(promptContext.Warnings) > 0 {
+		body = append(body, "Warnings: "+strings.Join(promptContext.Warnings, " "))
+	}
+	appendContextPacketSourceWithSection(packet, contextSectionInstructions, chat.ContextSource{
+		Kind:   "prompt_context",
+		Label:  "Prompt context policy",
+		Detail: "project assignment profile policies",
+		Trust:  contextTrustRuntimeState,
+	}, chat.ContextItem{
+		Kind:            "prompt_context",
+		TrustLevel:      contextTrustRuntimeState,
+		Origin:          "project_assignment.prompt_context",
+		Title:           "Prompt context policy",
+		Body:            strings.Join(body, "\n"),
+		Included:        len(promptContext.Sections) > 0,
+		InclusionReason: "Profile memory/source policies applied to the native assignment prompt",
 	})
 }
 

@@ -148,7 +148,7 @@ sequenceDiagram
     participant Store
     Worker->>Agent: Execute
     Agent->>Store: load conversation if resume
-    Note over Agent: prepend workspace env message + three-layer system prompt
+    Note over Agent: prepend workspace env message + system prompt layers (workspace layer may be task-disabled)
     Note over Agent,MCP: bring up cached MCP clients and merge their tools into the catalog
     loop turn cycle
         Agent->>LLM: Chat with messages, tools, and ProviderHint

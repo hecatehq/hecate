@@ -186,34 +186,35 @@ type EventsResponse struct {
 }
 
 type TaskItem struct {
-	ID                 string `json:"id"`
-	Title              string `json:"title"`
-	Prompt             string `json:"prompt"`
-	ProjectID          string `json:"project_id,omitempty"`
-	SystemPrompt       string `json:"system_prompt,omitempty"`
-	ExecutionProfile   string `json:"execution_profile,omitempty"`
-	OriginKind         string `json:"origin_kind,omitempty"`
-	OriginID           string `json:"origin_id,omitempty"`
-	Repo               string `json:"repo,omitempty"`
-	BaseBranch         string `json:"base_branch,omitempty"`
-	WorkspaceMode      string `json:"workspace_mode,omitempty"`
-	ExecutionKind      string `json:"execution_kind,omitempty"`
-	ShellCommand       string `json:"shell_command,omitempty"`
-	GitCommand         string `json:"git_command,omitempty"`
-	WorkingDirectory   string `json:"working_directory,omitempty"`
-	FileOperation      string `json:"file_operation,omitempty"`
-	FilePath           string `json:"file_path,omitempty"`
-	FileContent        string `json:"file_content,omitempty"`
-	SandboxAllowedRoot string `json:"sandbox_allowed_root,omitempty"`
-	SandboxReadOnly    bool   `json:"sandbox_read_only,omitempty"`
-	SandboxNetwork     bool   `json:"sandbox_network,omitempty"`
-	TimeoutMS          int    `json:"timeout_ms,omitempty"`
-	Status             string `json:"status"`
-	Priority           string `json:"priority,omitempty"`
-	RequestedModel     string `json:"requested_model,omitempty"`
-	RequestedProvider  string `json:"requested_provider,omitempty"`
-	BudgetMicrosUSD    int64  `json:"budget_micros_usd,omitempty"`
-	LatestRunID        string `json:"latest_run_id,omitempty"`
+	ID                          string `json:"id"`
+	Title                       string `json:"title"`
+	Prompt                      string `json:"prompt"`
+	ProjectID                   string `json:"project_id,omitempty"`
+	SystemPrompt                string `json:"system_prompt,omitempty"`
+	WorkspaceSystemPromptPolicy string `json:"workspace_system_prompt_policy,omitempty"`
+	ExecutionProfile            string `json:"execution_profile,omitempty"`
+	OriginKind                  string `json:"origin_kind,omitempty"`
+	OriginID                    string `json:"origin_id,omitempty"`
+	Repo                        string `json:"repo,omitempty"`
+	BaseBranch                  string `json:"base_branch,omitempty"`
+	WorkspaceMode               string `json:"workspace_mode,omitempty"`
+	ExecutionKind               string `json:"execution_kind,omitempty"`
+	ShellCommand                string `json:"shell_command,omitempty"`
+	GitCommand                  string `json:"git_command,omitempty"`
+	WorkingDirectory            string `json:"working_directory,omitempty"`
+	FileOperation               string `json:"file_operation,omitempty"`
+	FilePath                    string `json:"file_path,omitempty"`
+	FileContent                 string `json:"file_content,omitempty"`
+	SandboxAllowedRoot          string `json:"sandbox_allowed_root,omitempty"`
+	SandboxReadOnly             bool   `json:"sandbox_read_only,omitempty"`
+	SandboxNetwork              bool   `json:"sandbox_network,omitempty"`
+	TimeoutMS                   int    `json:"timeout_ms,omitempty"`
+	Status                      string `json:"status"`
+	Priority                    string `json:"priority,omitempty"`
+	RequestedModel              string `json:"requested_model,omitempty"`
+	RequestedProvider           string `json:"requested_provider,omitempty"`
+	BudgetMicrosUSD             int64  `json:"budget_micros_usd,omitempty"`
+	LatestRunID                 string `json:"latest_run_id,omitempty"`
 	// LatestModel / LatestProvider are the model + provider the
 	// most recent run actually used (after routing). They differ
 	// from RequestedModel / RequestedProvider when the operator

@@ -371,11 +371,12 @@ The next project-orchestration slices are:
 
 1. Finish durable task/run project linkage so native tasks, project assignments,
    and chat-origin work all expose the same `project_id` boundary.
-2. Design explicit prompt/source-content injection policy for project memory and
-   Hecate-owned workspace instructions. Profile-management UI, role/project
-   default profile selection, project-skill pickers, and profile-driven
-   assignment context-packet memory/source activation exist; source file bodies
-   are still not loaded by profile policy.
+2. Extend explicit prompt/source-content policy beyond native project
+   assignments. Profile-management UI, role/project default profile selection,
+   project-skill pickers, profile-driven context-packet activation, and bounded
+   native-assignment prompt inclusion for project memory plus portable
+   `AGENTS.md` guidance exist. Chat, external-agent, host-specific guidance, and
+   arbitrary source-document prompt policy remain follow-up work.
 3. Add focused end-to-end project journeys: create project, set defaults, add
    memory, create work item, create/start assignment, resolve approval or
    failure, inspect activity health, and follow a handoff.

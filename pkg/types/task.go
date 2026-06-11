@@ -17,23 +17,29 @@ type Task struct {
 	// becomes the narrowest layer in the composition: global default →
 	// workspace CLAUDE.md/AGENTS.md → this. Concatenated, broadest
 	// first. Empty = no per-task add (still honors the broader layers).
-	SystemPrompt       string
-	Repo               string
-	BaseBranch         string
-	WorkspaceMode      string
-	ExecutionKind      string
-	ExecutionProfile   string
-	OriginKind         string
-	OriginID           string
-	ShellCommand       string
-	GitCommand         string
-	WorkingDirectory   string
-	FileOperation      string
-	FilePath           string
-	FileContent        string
-	SandboxAllowedRoot string
-	SandboxReadOnly    bool
-	SandboxNetwork     bool
+	SystemPrompt string
+	// WorkspaceSystemPromptPolicy controls the broad workspace prompt
+	// compatibility layer. Empty / inherit keeps the default CLAUDE.md /
+	// AGENTS.md behavior. Project assignments set exclude so profile
+	// context-source policy is the only way to load workspace instruction
+	// bodies into their prompt.
+	WorkspaceSystemPromptPolicy string
+	Repo                        string
+	BaseBranch                  string
+	WorkspaceMode               string
+	ExecutionKind               string
+	ExecutionProfile            string
+	OriginKind                  string
+	OriginID                    string
+	ShellCommand                string
+	GitCommand                  string
+	WorkingDirectory            string
+	FileOperation               string
+	FilePath                    string
+	FileContent                 string
+	SandboxAllowedRoot          string
+	SandboxReadOnly             bool
+	SandboxNetwork              bool
 	// RTKEnabled runs shell/git tool subprocesses through RTK for compact
 	// command output. It is persisted on the task so Hecate Chat follow-up
 	// runs keep the chat's command-output setting.
@@ -62,6 +68,11 @@ type Task struct {
 	// don't need external tools.
 	MCPServers []MCPServerConfig
 }
+
+const (
+	WorkspaceSystemPromptInherit = "inherit"
+	WorkspaceSystemPromptExclude = "exclude"
+)
 
 // MCPEnvEncPrefix is the storage prefix for env values that were
 // encrypted at task-creation time with the control-plane AES-GCM
