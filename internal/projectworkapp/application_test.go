@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -300,5 +302,238 @@ func TestApplication_StartTaskAssignmentRunnerFailureMarksFailed(t *testing.T) {
 	}
 	if result.Assignment.Status != projectwork.AssignmentStatusFailed || result.Assignment.TaskID != "task_fixed" || result.Assignment.CompletedAt.IsZero() {
 		t.Fatalf("assignment after runner failure = %+v, want failed linked task", result.Assignment)
+	}
+}
+
+type recordingAgentRunner struct {
+	prepareCalls int
+	closeCalls   int
+	prepareErr   error
+}
+
+func (r *recordingAgentRunner) PrepareSession(_ context.Context, req agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
+	r.prepareCalls++
+	if r.prepareErr != nil {
+		return agentadapters.PrepareSessionResult{}, r.prepareErr
+	}
+	return agentadapters.PrepareSessionResult{
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: "native_" + req.SessionID,
+		ConfigOptions:   req.ConfigOptions,
+	}, nil
+}
+
+func (r *recordingAgentRunner) CloseSession(_ context.Context, _ string) error {
+	r.closeCalls++
+	return nil
+}
+
+func newExternalStartTestApplication(workStore projectwork.Store, chatStore chat.Store, runner AgentRunner) *Application {
+	return New(Options{
+		Store:          workStore,
+		ChatStore:      chatStore,
+		AgentRunner:    runner,
+		PrepareTimeout: time.Second,
+		IDGenerator:    func(prefix string) string { return prefix + "_fixed" },
+		Now: func() time.Time {
+			return time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+		},
+	})
+}
+
+func seedExternalStartTestAssignment(t *testing.T, ctx context.Context, app *Application) projectwork.Assignment {
+	t.Helper()
+	if _, err := app.CreateWorkItem(ctx, "proj_1", CreateWorkItemCommand{ID: "work_1", Title: "Build"}); err != nil {
+		t.Fatalf("CreateWorkItem() error = %v", err)
+	}
+	assignment, err := app.CreateAssignment(ctx, "proj_1", "work_1", CreateAssignmentCommand{
+		ID:         "asgn_ext",
+		RoleID:     "software_developer",
+		DriverKind: projectwork.AssignmentDriverExternalAgent,
+	})
+	if err != nil {
+		t.Fatalf("CreateAssignment() error = %v", err)
+	}
+	return assignment
+}
+
+func TestApplication_StartExternalAgentAssignmentPreparesAndLinksSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workStore := projectwork.NewMemoryStore()
+	chatStore := chat.NewMemoryStore()
+	runner := &recordingAgentRunner{}
+	app := newExternalStartTestApplication(workStore, chatStore, runner)
+	assignment := seedExternalStartTestAssignment(t, ctx, app)
+
+	result, err := app.StartExternalAgentAssignment(ctx, StartExternalAgentAssignmentCommand{
+		ProjectID:         "proj_1",
+		Assignment:        assignment,
+		ContextSnapshotID: "ctx_ext",
+		ContextPacket:     []byte(`{"refs":{"assignment_id":"asgn_ext"}}`),
+		Session: chat.Session{
+			ID:        "chat_ext",
+			ProjectID: "proj_1",
+			AgentID:   "codex",
+			Workspace: "/tmp/hecate",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartExternalAgentAssignment() error = %v", err)
+	}
+	if runner.prepareCalls != 1 || runner.closeCalls != 0 {
+		t.Fatalf("runner prepare/close = %d/%d, want 1/0", runner.prepareCalls, runner.closeCalls)
+	}
+	if result.Assignment.ChatSessionID != "chat_ext" || result.Assignment.ContextSnapshotID != "ctx_ext" || result.Assignment.Status != projectwork.AssignmentStatusRunning {
+		t.Fatalf("assignment = %+v, want linked running session", result.Assignment)
+	}
+	session, ok, err := chatStore.Get(ctx, "chat_ext")
+	if err != nil || !ok {
+		t.Fatalf("Get(chat_ext) ok=%v err=%v, want session", ok, err)
+	}
+	if session.NativeSessionID != "native_chat_ext" || session.DriverKind != agentadapters.DriverKindACP {
+		t.Fatalf("session = %+v, want prepared native metadata", session)
+	}
+}
+
+func TestApplication_StartExternalAgentAssignmentPrepareFailureDeletesSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workStore := projectwork.NewMemoryStore()
+	chatStore := chat.NewMemoryStore()
+	runner := &recordingAgentRunner{prepareErr: fmt.Errorf("prepare boom")}
+	app := newExternalStartTestApplication(workStore, chatStore, runner)
+	assignment := seedExternalStartTestAssignment(t, ctx, app)
+
+	_, err := app.StartExternalAgentAssignment(ctx, StartExternalAgentAssignmentCommand{
+		ProjectID:  "proj_1",
+		Assignment: assignment,
+		Session: chat.Session{
+			ID:        "chat_ext",
+			ProjectID: "proj_1",
+			AgentID:   "codex",
+			Workspace: "/tmp/hecate",
+		},
+	})
+	var prepareErr ExternalAgentPrepareError
+	if !errors.As(err, &prepareErr) || !strings.Contains(err.Error(), "prepare boom") {
+		t.Fatalf("StartExternalAgentAssignment(prepare failure) error = %v, want ExternalAgentPrepareError", err)
+	}
+	if _, ok, err := chatStore.Get(ctx, "chat_ext"); err != nil || ok {
+		t.Fatalf("Get(chat_ext) ok=%v err=%v, want deleted session", ok, err)
+	}
+	items, err := workStore.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: "proj_1", WorkItemID: "work_1"})
+	if err != nil {
+		t.Fatalf("ListAssignments() error = %v", err)
+	}
+	if items[0].ChatSessionID != "" || items[0].Status != projectwork.AssignmentStatusQueued {
+		t.Fatalf("assignment after prepare failure = %+v, want unlinked queued", items[0])
+	}
+}
+
+func TestApplication_StartExternalAgentAssignmentNilDependencies(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workStore := projectwork.NewMemoryStore()
+	app := newExternalStartTestApplication(workStore, nil, &recordingAgentRunner{})
+	assignment := seedExternalStartTestAssignment(t, ctx, app)
+
+	_, err := app.StartExternalAgentAssignment(ctx, StartExternalAgentAssignmentCommand{
+		ProjectID:  "proj_1",
+		Assignment: assignment,
+		Session:    chat.Session{ID: "chat_ext", ProjectID: "proj_1", AgentID: "codex", Workspace: "/tmp/hecate"},
+	})
+	if !errors.Is(err, ErrChatStoreNotConfigured) {
+		t.Fatalf("StartExternalAgentAssignment(nil chat store) error = %v, want ErrChatStoreNotConfigured", err)
+	}
+
+	app = newExternalStartTestApplication(workStore, chat.NewMemoryStore(), nil)
+	_, err = app.StartExternalAgentAssignment(ctx, StartExternalAgentAssignmentCommand{
+		ProjectID:  "proj_1",
+		Assignment: assignment,
+		Session:    chat.Session{ID: "chat_ext", ProjectID: "proj_1", AgentID: "codex", Workspace: "/tmp/hecate"},
+	})
+	if !errors.Is(err, ErrAgentRunnerNotConfigured) {
+		t.Fatalf("StartExternalAgentAssignment(nil agent runner) error = %v, want ErrAgentRunnerNotConfigured", err)
+	}
+}
+
+type racingAssignmentStore struct {
+	projectwork.Store
+	raced bool
+}
+
+func (s *racingAssignmentStore) UpdateAssignment(ctx context.Context, projectID, assignmentID string, update func(*projectwork.Assignment)) (projectwork.Assignment, error) {
+	if !s.raced && assignmentID == "asgn_ext" {
+		s.raced = true
+		if _, err := s.Store.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
+			item.ChatSessionID = "chat_winner"
+			item.Status = projectwork.AssignmentStatusRunning
+		}); err != nil {
+			return projectwork.Assignment{}, err
+		}
+	}
+	return s.Store.UpdateAssignment(ctx, projectID, assignmentID, update)
+}
+
+func TestApplication_StartExternalAgentAssignmentCleansPreparedSessionWhenClaimLost(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseStore := projectwork.NewMemoryStore()
+	workStore := &racingAssignmentStore{Store: baseStore}
+	chatStore := chat.NewMemoryStore()
+	runner := &recordingAgentRunner{}
+	app := newExternalStartTestApplication(workStore, chatStore, runner)
+	assignment := seedExternalStartTestAssignment(t, ctx, app)
+
+	result, err := app.StartExternalAgentAssignment(ctx, StartExternalAgentAssignmentCommand{
+		ProjectID:  "proj_1",
+		Assignment: assignment,
+		Session:    chat.Session{ID: "chat_ext", ProjectID: "proj_1", AgentID: "codex", Workspace: "/tmp/hecate"},
+	})
+	if !errors.Is(err, ErrAssignmentStartConflict) {
+		t.Fatalf("StartExternalAgentAssignment(raced claim) error = %v, want ErrAssignmentStartConflict", err)
+	}
+	if result == nil || result.Assignment.ChatSessionID != "chat_winner" {
+		t.Fatalf("result = %+v, want winning assignment", result)
+	}
+	if runner.prepareCalls != 1 || runner.closeCalls != 1 {
+		t.Fatalf("runner prepare/close = %d/%d, want 1/1 cleanup", runner.prepareCalls, runner.closeCalls)
+	}
+	if _, ok, err := chatStore.Get(ctx, "chat_ext"); err != nil || ok {
+		t.Fatalf("Get(chat_ext) ok=%v err=%v, want cleaned session", ok, err)
+	}
+}
+
+func TestApplication_StartExternalAgentAssignmentRejectsExistingChatBeforePrepare(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	workStore := projectwork.NewMemoryStore()
+	chatStore := chat.NewMemoryStore()
+	runner := &recordingAgentRunner{}
+	app := newExternalStartTestApplication(workStore, chatStore, runner)
+	assignment := seedExternalStartTestAssignment(t, ctx, app)
+	assignment, err := workStore.UpdateAssignment(ctx, "proj_1", assignment.ID, func(item *projectwork.Assignment) {
+		item.ChatSessionID = "chat_existing"
+	})
+	if err != nil {
+		t.Fatalf("UpdateAssignment() error = %v", err)
+	}
+
+	_, err = app.StartExternalAgentAssignment(ctx, StartExternalAgentAssignmentCommand{
+		ProjectID:  "proj_1",
+		Assignment: assignment,
+		Session:    chat.Session{ID: "chat_ext", ProjectID: "proj_1", AgentID: "codex", Workspace: "/tmp/hecate"},
+	})
+	if !errors.Is(err, ErrAssignmentStartConflict) {
+		t.Fatalf("StartExternalAgentAssignment(existing chat) error = %v, want ErrAssignmentStartConflict", err)
+	}
+	if runner.prepareCalls != 0 {
+		t.Fatalf("prepareCalls = %d, want 0 before conflict", runner.prepareCalls)
 	}
 }
