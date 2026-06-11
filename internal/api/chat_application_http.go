@@ -9,28 +9,12 @@ import (
 
 var chatAppErrorMappings = []appErrorMapping{
 	validationAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest),
-	{
-		Match: func(err error) bool {
-			return errors.Is(err, chatapp.ErrSessionNotFound)
-		},
-		Status: http.StatusNotFound,
-		Code:   errCodeNotFound,
-	},
-	{
-		Match: func(err error) bool {
-			return errors.Is(err, chatapp.ErrNoSettingsProvided)
-		},
-		Status: http.StatusBadRequest,
-		Code:   errCodeInvalidRequest,
-	},
-	{
-		Match: func(err error) bool {
-			return errors.Is(err, chatapp.ErrExternalSessionOnly) ||
-				errors.Is(err, chatapp.ErrHecateSessionOnly)
-		},
-		Status: http.StatusConflict,
-		Code:   errCodeRuntimeMismatch,
-	},
+	sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound, chatapp.ErrSessionNotFound),
+	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, chatapp.ErrNoSettingsProvided),
+	sentinelAppErrorMapping(http.StatusConflict, errCodeRuntimeMismatch,
+		chatapp.ErrExternalSessionOnly,
+		chatapp.ErrHecateSessionOnly,
+	),
 }
 
 func writeChatAppError(w http.ResponseWriter, err error) bool {

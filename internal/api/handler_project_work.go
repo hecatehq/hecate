@@ -1827,40 +1827,20 @@ func writeProjectWorkError(w http.ResponseWriter, err error) bool {
 }
 
 var projectWorkErrorMappings = []appErrorMapping{
-	{
-		Match: func(err error) bool {
-			return errors.Is(err, projectworkapp.ErrStoreNotConfigured) ||
-				errors.Is(err, projectworkapp.ErrTaskStoreNotConfigured) ||
-				errors.Is(err, projectworkapp.ErrRunnerNotConfigured) ||
-				errors.Is(err, projectworkapp.ErrChatStoreNotConfigured) ||
-				errors.Is(err, projectworkapp.ErrAgentRunnerNotConfigured)
-		},
-		Status: http.StatusBadRequest,
-		Code:   errCodeInvalidRequest,
-	},
-	{
-		Match: func(err error) bool {
-			return errors.Is(err, projectwork.ErrNotFound)
-		},
-		Status: http.StatusNotFound,
-		Code:   errCodeNotFound,
-	},
-	{
-		Match: func(err error) bool {
-			return errors.Is(err, projectwork.ErrInvalid)
-		},
-		Status: http.StatusBadRequest,
-		Code:   errCodeInvalidRequest,
-	},
-	{
-		Match: func(err error) bool {
-			return errors.Is(err, projectwork.ErrBuiltInRole) ||
-				errors.Is(err, projectwork.ErrDuplicateRole) ||
-				errors.Is(err, projectwork.ErrDuplicate)
-		},
-		Status: http.StatusConflict,
-		Code:   errCodeConflict,
-	},
+	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest,
+		projectworkapp.ErrStoreNotConfigured,
+		projectworkapp.ErrTaskStoreNotConfigured,
+		projectworkapp.ErrRunnerNotConfigured,
+		projectworkapp.ErrChatStoreNotConfigured,
+		projectworkapp.ErrAgentRunnerNotConfigured,
+	),
+	sentinelAppErrorMapping(http.StatusNotFound, errCodeNotFound, projectwork.ErrNotFound),
+	sentinelAppErrorMapping(http.StatusBadRequest, errCodeInvalidRequest, projectwork.ErrInvalid),
+	sentinelAppErrorMapping(http.StatusConflict, errCodeConflict,
+		projectwork.ErrBuiltInRole,
+		projectwork.ErrDuplicateRole,
+		projectwork.ErrDuplicate,
+	),
 }
 
 func parseProjectWorkRequestTimes(w http.ResponseWriter, startedRaw, completedRaw string) (time.Time, time.Time, bool) {

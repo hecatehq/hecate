@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/hecatehq/hecate/internal/apperrors"
@@ -41,6 +42,21 @@ func validationAppErrorMapping(status int, code string) appErrorMapping {
 func conflictAppErrorMapping(status int, code string) appErrorMapping {
 	return appErrorMapping{
 		Match:  apperrors.IsConflictError,
+		Status: status,
+		Code:   code,
+	}
+}
+
+func sentinelAppErrorMapping(status int, code string, targets ...error) appErrorMapping {
+	return appErrorMapping{
+		Match: func(err error) bool {
+			for _, target := range targets {
+				if errors.Is(err, target) {
+					return true
+				}
+			}
+			return false
+		},
 		Status: status,
 		Code:   code,
 	}
