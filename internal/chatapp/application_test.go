@@ -10,13 +10,17 @@ import (
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
 type recordingAgentRunner struct {
 	prepareCalls   int
 	closeCalls     int
 	prepareErr     error
+	setCalls       int
+	setErr         error
 	prepareReq     agentadapters.PrepareSessionRequest
+	setReq         agentadapters.SetSessionConfigOptionRequest
 	closedSessions []string
 	configOptions  []agentcontrols.ConfigOption
 }
@@ -32,6 +36,15 @@ func (r *recordingAgentRunner) PrepareSession(_ context.Context, req agentadapte
 		NativeSessionID: "native_" + req.SessionID,
 		ConfigOptions:   r.configOptions,
 	}, nil
+}
+
+func (r *recordingAgentRunner) SetSessionConfigOption(_ context.Context, req agentadapters.SetSessionConfigOptionRequest) (agentadapters.SetSessionConfigOptionResult, error) {
+	r.setCalls++
+	r.setReq = req
+	if r.setErr != nil {
+		return agentadapters.SetSessionConfigOptionResult{}, r.setErr
+	}
+	return agentadapters.SetSessionConfigOptionResult{ConfigOptions: r.configOptions}, nil
 }
 
 func (r *recordingAgentRunner) CloseSession(_ context.Context, sessionID string) error {
@@ -285,5 +298,169 @@ func TestApplication_DeleteAndCloseNativeSessionNilStore(t *testing.T) {
 	}
 	if _, err := app.CloseNativeSession(ctx, CloseNativeSessionCommand{Session: chat.Session{ID: "chat"}}); !errors.Is(err, ErrStoreNotConfigured) {
 		t.Fatalf("CloseNativeSession(nil store) error = %v, want ErrStoreNotConfigured", err)
+	}
+}
+
+func TestApplication_SetConfigOptionPersistsRunnerOptions(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	runner := &recordingAgentRunner{
+		configOptions: []agentcontrols.ConfigOption{{
+			ID:           "model",
+			Type:         agentcontrols.ConfigOptionTypeSelect,
+			CurrentValue: "sonnet",
+		}},
+	}
+	app := New(Options{Store: store, Runner: runner, ConfigOptionTimeout: time.Second})
+	session, err := store.Create(ctx, chat.Session{ID: "chat_ext", AgentID: "codex"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := app.SetConfigOption(ctx, SetConfigOptionCommand{
+		Session:  session,
+		ConfigID: "model",
+		Value:    "sonnet",
+	})
+	if err != nil {
+		t.Fatalf("SetConfigOption() error = %v", err)
+	}
+	if runner.setCalls != 1 || runner.setReq.SessionID != "chat_ext" || runner.setReq.ConfigID != "model" || runner.setReq.Value != "sonnet" {
+		t.Fatalf("set request = %+v calls=%d, want model update", runner.setReq, runner.setCalls)
+	}
+	if len(result.Session.ConfigOptions) != 1 || result.Session.ConfigOptions[0].CurrentValue != "sonnet" {
+		t.Fatalf("config options = %+v, want runner options persisted", result.Session.ConfigOptions)
+	}
+}
+
+func TestApplication_SetConfigOptionInactiveSessionUpdatesStoredLaunchOption(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	runner := &recordingAgentRunner{setErr: agentadapters.ErrSessionNotActive}
+	app := New(Options{Store: store, Runner: runner})
+	session, err := store.Create(ctx, chat.Session{
+		ID:      "chat_ext",
+		AgentID: "codex",
+		ConfigOptions: []agentcontrols.ConfigOption{{
+			ID:           "model",
+			Name:         "Model",
+			Source:       agentcontrols.ConfigOptionSourceLaunch,
+			Type:         agentcontrols.ConfigOptionTypeSelect,
+			CurrentValue: "old",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := app.SetConfigOption(ctx, SetConfigOptionCommand{
+		Session:  session,
+		ConfigID: "model",
+		Value:    "new",
+	})
+	if err != nil {
+		t.Fatalf("SetConfigOption(inactive launch option) error = %v", err)
+	}
+	if len(result.Session.ConfigOptions) != 1 || result.Session.ConfigOptions[0].CurrentValue != "new" {
+		t.Fatalf("config options = %+v, want stored launch option updated", result.Session.ConfigOptions)
+	}
+}
+
+func TestApplication_SetConfigOptionValidationAndRuntime(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	runner := &recordingAgentRunner{}
+	app := New(Options{Store: store, Runner: runner})
+
+	if _, err := app.SetConfigOption(ctx, SetConfigOptionCommand{
+		Session:  chat.Session{ID: "chat", AgentID: chat.DefaultAgentID},
+		ConfigID: "model",
+		Value:    "sonnet",
+	}); !errors.Is(err, ErrExternalSessionOnly) {
+		t.Fatalf("SetConfigOption(hecate) error = %v, want ErrExternalSessionOnly", err)
+	}
+	if _, err := app.SetConfigOption(ctx, SetConfigOptionCommand{
+		Session:  chat.Session{ID: "chat_ext", AgentID: "codex"},
+		ConfigID: " ",
+		Value:    "sonnet",
+	}); !IsValidationError(err) {
+		t.Fatalf("SetConfigOption(blank config id) error = %v, want validation", err)
+	}
+	if _, err := New(Options{Store: store}).SetConfigOption(ctx, SetConfigOptionCommand{
+		Session:  chat.Session{ID: "chat_ext", AgentID: "codex"},
+		ConfigID: "model",
+		Value:    "sonnet",
+	}); !errors.Is(err, ErrRunnerNotConfigured) {
+		t.Fatalf("SetConfigOption(no runner) error = %v, want ErrRunnerNotConfigured", err)
+	}
+}
+
+type recordingTaskStore struct {
+	tasks   map[string]types.Task
+	updates []types.Task
+}
+
+func (s *recordingTaskStore) GetTask(_ context.Context, id string) (types.Task, bool, error) {
+	if s == nil {
+		return types.Task{}, false, nil
+	}
+	task, ok := s.tasks[id]
+	return task, ok, nil
+}
+
+func (s *recordingTaskStore) UpdateTask(_ context.Context, task types.Task) (types.Task, error) {
+	s.updates = append(s.updates, task)
+	s.tasks[task.ID] = task
+	return task, nil
+}
+
+func TestApplication_SetHecateSettingsUpdatesTaskBeforeSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	taskStore := &recordingTaskStore{tasks: map[string]types.Task{
+		"task_chat": {ID: "task_chat", RTKEnabled: false},
+	}}
+	app := New(Options{Store: store, TaskStore: taskStore})
+	session, err := store.Create(ctx, chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID, TaskID: "task_chat"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	rtkEnabled := true
+
+	result, err := app.SetHecateSettings(ctx, SetHecateSettingsCommand{Session: session, RTKEnabled: &rtkEnabled})
+	if err != nil {
+		t.Fatalf("SetHecateSettings() error = %v", err)
+	}
+	if len(taskStore.updates) != 1 || !taskStore.updates[0].RTKEnabled {
+		t.Fatalf("task updates = %+v, want RTK enabled task update", taskStore.updates)
+	}
+	if !result.Session.RTKEnabled {
+		t.Fatalf("session RTKEnabled = false, want true")
+	}
+}
+
+func TestApplication_SetHecateSettingsValidation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := chat.NewMemoryStore()
+	app := New(Options{Store: store})
+	if _, err := app.SetHecateSettings(ctx, SetHecateSettingsCommand{
+		Session: chat.Session{ID: "chat_ext", AgentID: "codex"},
+	}); !errors.Is(err, ErrHecateSessionOnly) {
+		t.Fatalf("SetHecateSettings(external) error = %v, want ErrHecateSessionOnly", err)
+	}
+	if _, err := app.SetHecateSettings(ctx, SetHecateSettingsCommand{
+		Session: chat.Session{ID: "chat_hecate", AgentID: chat.DefaultAgentID},
+	}); !errors.Is(err, ErrNoSettingsProvided) {
+		t.Fatalf("SetHecateSettings(no settings) error = %v, want ErrNoSettingsProvided", err)
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
-	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/gitrunner"
@@ -33,9 +32,11 @@ func (h *Handler) chatApplication() *chatapp.Application {
 		return chatapp.New(chatapp.Options{})
 	}
 	return chatapp.New(chatapp.Options{
-		Store:          h.agentChat,
-		Runner:         h.agentChatRunner,
-		PrepareTimeout: agentChatPrepareTimeout,
+		Store:               h.agentChat,
+		TaskStore:           h.taskStore,
+		Runner:              h.agentChatRunner,
+		PrepareTimeout:      agentChatPrepareTimeout,
+		ConfigOptionTimeout: agentChatConfigOptionTimeout,
 	})
 }
 
@@ -419,74 +420,24 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	setReq, err := agentChatConfigOptionSetRequest(sessionID, configID, req.Value)
+	result, err := h.chatApplication().SetConfigOption(r.Context(), chatapp.SetConfigOptionCommand{
+		Session:  session,
+		ConfigID: configID,
+		Value:    req.Value,
+	})
 	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-		return
-	}
-	if h.agentChatRunner == nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent chat runner is not configured")
-		return
-	}
-	setCtx, cancel := context.WithTimeout(r.Context(), agentChatConfigOptionTimeout)
-	result, err := h.agentChatRunner.SetSessionConfigOption(setCtx, setReq)
-	cancel()
-	if err != nil {
-		allowStoredOption := errors.Is(err, agentadapters.ErrSessionNotActive) ||
-			agentadapters.IsLaunchConfigOption(session.AgentID, setReq.ConfigID)
-		configOptions, updateErr := updateStoredAgentChatConfigOption(
-			seedLaunchConfigOptionForSet(session.ConfigOptions, session.AgentID, setReq),
-			setReq,
-			allowStoredOption,
-		)
-		if updateErr == nil {
-			updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
-				item.ConfigOptions = configOptions
-			})
-			if err != nil {
-				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-				return
-			}
-			h.agentChatLive.publishSession(updated)
-			WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+		if errors.Is(err, chatapp.ErrStoreNotConfigured) || errors.Is(err, chatapp.ErrRunnerNotConfigured) {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		if writeChatAppError(w, err) {
 			return
 		}
 		writeAgentChatConfigOptionError(w, session, err)
 		return
 	}
-	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
-		item.ConfigOptions = result.ConfigOptions
-	})
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	h.agentChatLive.publishSession(updated)
-	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
-}
-
-func seedLaunchConfigOptionForSet(options []agentcontrols.ConfigOption, agentID string, req agentadapters.SetSessionConfigOptionRequest) []agentcontrols.ConfigOption {
-	if req.BoolValue != nil {
-		return options
-	}
-	seed, ok := agentadapters.LaunchConfigOptionForSet(agentID, req.ConfigID, req.Value)
-	if !ok {
-		return options
-	}
-	out := append([]agentcontrols.ConfigOption(nil), options...)
-	for i := range out {
-		if out[i].ID != req.ConfigID {
-			continue
-		}
-		if out[i].Source == "" {
-			out[i].Source = agentcontrols.ConfigOptionSourceLaunch
-		}
-		if out[i].Type == agentcontrols.ConfigOptionTypeSelect && !storedConfigOptionAllowsValue(out[i], req.Value) {
-			out[i].Options = seed.Options
-		}
-		return out
-	}
-	return append(out, seed)
+	h.agentChatLive.publishSession(result.Session)
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
 }
 
 func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Request) {
@@ -508,43 +459,23 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if req.RTKEnabled == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "no settings provided")
-		return
-	}
-
-	rtkEnabled := *req.RTKEnabled
-	// Update the task row first, then the session row. The two writes
-	// are NOT atomic — Hecate's controlplane has no cross-table
-	// transactions today and this handler matches that pattern. The
-	// task-first order is deliberate: task.RTKEnabled drives the
-	// executor's sandbox-arg construction for existing continuations.
-	// The reverse order — session first, task fails — would leave the
-	// UI reporting RTK on while the backing task still runs without it.
-	if session.TaskID != "" && h.taskStore != nil {
-		task, found, err := h.taskStore.GetTask(r.Context(), session.TaskID)
-		if err != nil {
+	result, err := h.chatApplication().SetHecateSettings(r.Context(), chatapp.SetHecateSettingsCommand{
+		Session:    session,
+		RTKEnabled: req.RTKEnabled,
+	})
+	if err != nil {
+		if errors.Is(err, chatapp.ErrStoreNotConfigured) {
 			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 			return
 		}
-		if found {
-			task.RTKEnabled = rtkEnabled
-			if _, err := h.taskStore.UpdateTask(r.Context(), task); err != nil {
-				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-				return
-			}
+		if writeChatAppError(w, err) {
+			return
 		}
-	}
-
-	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
-		item.RTKEnabled = rtkEnabled
-	})
-	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	h.agentChatLive.publishSession(updated)
-	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
+	h.agentChatLive.publishSession(result.Session)
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(result.Session, h.agentChatSnapshotConfig())})
 }
 
 func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err error) {
@@ -620,70 +551,6 @@ func (h *Handler) cancelHecateChatTaskRun(ctx context.Context, session chat.Sess
 		return types.TaskRun{}, true, err
 	}
 	return run, true, nil
-}
-
-func agentChatConfigOptionSetRequest(sessionID, configID string, rawValue any) (agentadapters.SetSessionConfigOptionRequest, error) {
-	if sessionID == "" {
-		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("agent chat session id is required")
-	}
-	if configID == "" {
-		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("config option id is required")
-	}
-	switch value := rawValue.(type) {
-	case string:
-		value = strings.TrimSpace(value)
-		if value == "" {
-			return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("value is required")
-		}
-		return agentadapters.SetSessionConfigOptionRequest{SessionID: sessionID, ConfigID: configID, Value: value}, nil
-	case bool:
-		return agentadapters.SetSessionConfigOptionRequest{SessionID: sessionID, ConfigID: configID, BoolValue: &value}, nil
-	default:
-		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("value must be a string or boolean")
-	}
-}
-
-func updateStoredAgentChatConfigOption(options []agentcontrols.ConfigOption, req agentadapters.SetSessionConfigOptionRequest, allowInactiveAdapterOption bool) ([]agentcontrols.ConfigOption, error) {
-	out := append([]agentcontrols.ConfigOption(nil), options...)
-	for i := range out {
-		if out[i].ID != req.ConfigID {
-			continue
-		}
-		if !allowInactiveAdapterOption && out[i].Source != agentcontrols.ConfigOptionSourceLaunch {
-			return nil, fmt.Errorf("config option %q is not launch-managed", req.ConfigID)
-		}
-		switch {
-		case req.BoolValue != nil:
-			if out[i].Type != agentcontrols.ConfigOptionTypeBoolean {
-				return nil, fmt.Errorf("config option %q is not boolean", req.ConfigID)
-			}
-			value := *req.BoolValue
-			out[i].CurrentBool = &value
-		default:
-			value := strings.TrimSpace(req.Value)
-			if value == "" {
-				return nil, fmt.Errorf("value is required")
-			}
-			if out[i].Type == agentcontrols.ConfigOptionTypeSelect && !storedConfigOptionAllowsValue(out[i], value) {
-				return nil, fmt.Errorf("value %q is not available for %s", value, out[i].Name)
-			}
-			out[i].CurrentValue = value
-		}
-		return out, nil
-	}
-	return nil, fmt.Errorf("config option %q not found", req.ConfigID)
-}
-
-func storedConfigOptionAllowsValue(option agentcontrols.ConfigOption, value string) bool {
-	if len(option.Options) == 0 {
-		return true
-	}
-	for _, candidate := range option.Options {
-		if candidate.Value == value {
-			return true
-		}
-	}
-	return false
 }
 
 func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request) {
