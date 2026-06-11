@@ -27,19 +27,6 @@ const (
 	agentChatMaxOutputBytes      = 4 * 1024 * 1024
 )
 
-func (h *Handler) chatApplication() *chatapp.Application {
-	if h == nil {
-		return chatapp.New(chatapp.Options{})
-	}
-	return chatapp.New(chatapp.Options{
-		Store:               h.agentChat,
-		TaskStore:           h.taskStore,
-		Runner:              h.agentChatRunner,
-		PrepareTimeout:      agentChatPrepareTimeout,
-		ConfigOptionTimeout: agentChatConfigOptionTimeout,
-	})
-}
-
 func (h *Handler) HandleChatSessions(w http.ResponseWriter, r *http.Request) {
 	result, err := h.chatApplication().ListSessions(r.Context())
 	if err != nil {
