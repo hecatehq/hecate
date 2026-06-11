@@ -77,7 +77,8 @@ internal/
   chat/                 chat transcript persistence (memory / sqlite)
   chatapp/              chat-session application layer used by API handlers:
                           create, external-agent prepare, native session cleanup,
-                          config option writes, Hecate Chat settings
+                          session reads/rename, config option writes, Hecate
+                          Chat settings, message admission/dispatch planning
   chatcontext/          pure context-packet lookup/decode helpers shared by API
                           context endpoints
   projects/             durable project identity store (memory / sqlite)
@@ -89,7 +90,8 @@ internal/
                           command shaping, id defaults, driver defaults,
                           store error boundaries
   providerapp/          settings provider application layer used by API handlers:
-                          provider create/update/delete, API key rotate/clear
+                          settings status, policy rules, provider
+                          create/update/delete, API key rotate/clear
   storage/              sqlite client wrappers
   retention/            retention worker (subsystems: traces, usage_events, audit, provider_history, turn_events, agent_chat_approvals)
   mcp/                  stdio MCP server (read tools + write tools)
