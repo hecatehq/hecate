@@ -148,6 +148,12 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 - `mcp_servers` — `agent_loop`-only array of external MCP server configs whose tools join the LLM's tool catalog under `mcp__<name>__<tool>` aliases. Each entry picks one transport (stdio: `command` + optional `args` / `env`; HTTP: `url` + optional `headers`), and may set `approval_policy` (`auto` / `require_approval` / `block`). Capped per-task by `HECATE_TASK_MAX_MCP_SERVERS_PER_TASK`. Full schema, secret handling, and lifecycle in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
 - `priority` / `timeout_ms`
 
+Task responses may also include `workspace_system_prompt_policy`. Empty /
+omitted means the normal workspace `CLAUDE.md` / `AGENTS.md` prompt layer is
+eligible. `exclude` means the runner skips that compatibility layer for the
+task; native project assignments set this so profile context-source policy
+controls any workspace-instruction body inclusion.
+
 `execution_profile` applies task-create defaults:
 
 | Profile        | Defaults                                                                                                                                                              |
@@ -1093,14 +1099,15 @@ Project assignment starts resolve profiles in this order: role default,
 project default, built-in `project_assignment` fallback. The start path
 snapshots the resolved profile, provider/model hints, execution profile,
 memory policy, context-source policy, skill ids, and warnings into the task/run
-context packet. For project assignments, `project_memory_policy=include` marks
-enabled project memory active in the context packet, `visible_only` and
-`inherit` keep enabled memory as inspect-only context, and `exclude` omits
-memory records from the packet. For context sources,
-`context_source_policy=include_enabled` marks enabled source metadata active,
-`visible_only` and `inherit` keep it inspect-only, and `exclude` omits it.
-Hecate still does not load workspace instruction/source file bodies or
-`SKILL.md` bodies through these policies.
+context packet. For native project assignments, `project_memory_policy=include`
+marks enabled project memory active and includes bounded memory bodies in the
+assignment task system prompt. `visible_only` and `inherit` keep enabled memory
+as inspect-only context, and `exclude` omits memory records from the packet. For
+context sources, `context_source_policy=include_enabled` marks enabled source
+metadata active and includes bounded portable `AGENTS.md` workspace-instruction
+bodies. `visible_only` and `inherit` keep sources inspect-only, and `exclude`
+omits them. Host-specific guidance files remain metadata-only for Hecate prompt
+context, and `SKILL.md` bodies are never included by these policies.
 
 ## Project endpoints
 
@@ -2023,7 +2030,10 @@ creates a normal Task with `execution_kind="agent_loop"`,
 `origin_kind="project_work_item"`, and `origin_id` set to the work item ID. The
 task title, prompt, and system prompt are composed from a visible launch-context
 block covering project, work item, assignment, role, execution hints, role
-defaults, and project defaults. Role default provider/model/profile override
+defaults, project defaults, and any profile-activated prompt context. Project
+assignment tasks set `workspace_system_prompt_policy="exclude"` so the legacy
+root `CLAUDE.md` / `AGENTS.md` compatibility layer cannot bypass profile
+context-source policy. Role default provider/model/profile override
 project defaults for the backing task when configured; project
 provider/model/workspace settings remain the fallback. Provider and model
 defaults are route hints, so catalog/routing validation happens during task
@@ -2041,10 +2051,14 @@ assignment:
 
 The persisted context packet records the resolved profile and applies its
 project memory/context-source policies. `include` / `include_enabled` make the
-enabled project records active in the packet, `visible_only` / `inherit` keep
-them inspect-only, and `exclude` omits them so memory bodies are not snapshotted.
-Source-content loading remains explicit future work; source records are still
-metadata and `BodyRef` values, not file bodies.
+enabled project records active in the packet and add a `prompt_context`
+instructions item summarizing what was loaded into the native assignment prompt.
+`visible_only` / `inherit` keep records inspect-only, and `exclude` omits them
+so memory bodies are not snapshotted. Prompt context is capped at 12 KiB total,
+2 KiB per memory entry, and 8 KiB per source body. Only enabled
+`workspace_instruction` sources with `format="agents_md"` are body-loaded through
+WorkspaceFS; host-specific sources remain metadata-only and produce inspector
+warnings when skipped.
 
 ```json
 {
@@ -2877,9 +2891,12 @@ GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../context
 Existing top-level fields and `sources` remain for older clients. Newer clients
 should prefer `items` plus `refs` for trust-labelled, provenance-aware
 inspection. Each item carries a stable `section` value so later inspectors can
-group without inferring from `kind`. Current packets intentionally snapshot
-visible metadata only; they do not store full system prompts, raw transcript
-text, file contents, or external-agent private prompt packing.
+group without inferring from `kind`. Current packets intentionally avoid storing
+full system prompts, raw transcript text, source file contents, or
+external-agent private prompt packing. Project assignment packets may include
+project memory bodies because memory entries are first-class inspectable
+context; source file bodies are represented by `BodyRef` plus `prompt_context`
+summaries rather than copied into the packet.
 
 Operator UI note: the current React console renders these packets as a compact
 "what the agent saw" inspector. Chats expose it inline on assistant transcript
@@ -2892,7 +2909,7 @@ snapshot does not expose the full system prompt text.
 
 Section values currently used by the runtime are:
 
-- `instructions` for system-prompt and instruction-layer metadata
+- `instructions` for system-prompt, prompt-context, and instruction-layer metadata
 - `skills` for resolved and skipped project skill metadata; `SKILL.md` bodies are not included
 - `memory` for project memory entries
 - `workspace` for the selected workspace path

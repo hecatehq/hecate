@@ -3,14 +3,16 @@
 > **Status:** proposal; Agent Profiles V1 core, workspace-guidance discovery,
 > project skills registry core/UI, role skill ids, assignment skill resolution,
 > profile-management UI, skill pickers, and Bootstrap V2 registry-based role
-> suggestions are implemented.
+> suggestions, and native-assignment prompt inclusion for project memory plus
+> portable `AGENTS.md` guidance are implemented.
 > **Current source of truth:** [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md),
 > [Agent memory](agent-memory.md), [Projects](../accepted/projects.md), and
 > [Runtime API](../../runtime/runtime-api.md) for today's context-packet,
 > memory, project, and task behavior.
-> **Next action:** add compatibility warnings, profile-driven prompt/source
-> content injection policy, and broader chat/external-agent profile selection.
-> Remote skill install and skill execution remain separate later slices.
+> **Next action:** extend profile-driven prompt/source content policy to chats
+> and external-agent starts, then add compatibility warnings for host-specific
+> guidance. Remote skill install and skill execution remain separate later
+> slices.
 
 Hecate needs a clean vocabulary for several things that are easy to blur:
 workspace `AGENTS.md` files, other Markdown instruction files, reusable
@@ -394,6 +396,9 @@ Recommended sequence:
    - Context packet fields for resolved profile metadata.
    - Implemented: profile memory/source policies drive project-assignment
      context packet active / visible-only / omitted state.
+   - Implemented: native project assignments include bounded project memory and
+     portable `AGENTS.md` bodies only when the resolved profile policy explicitly
+     includes them.
 
 2. **Workspace Instructions V1 Core** — partially implemented.
    - Discover `AGENTS.md` and nested `AGENTS.md` under project workspace roots.

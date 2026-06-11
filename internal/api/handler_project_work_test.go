@@ -536,6 +536,9 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	if task.WorkingDirectory != workspace || task.SandboxAllowedRoot != workspace || task.WorkspaceMode != "in_place" {
 		t.Fatalf("task workspace = dir %q root %q mode %q, want %q in_place", task.WorkingDirectory, task.SandboxAllowedRoot, task.WorkspaceMode, workspace)
 	}
+	if task.WorkspaceSystemPromptPolicy != types.WorkspaceSystemPromptExclude {
+		t.Fatalf("task workspace prompt policy = %q, want exclude for profile-controlled project assignment context", task.WorkspaceSystemPromptPolicy)
+	}
 	for _, want := range []string{"Implement the native assignment start path.", "Follow backend invariants."} {
 		if !strings.Contains(task.Prompt, want) {
 			t.Fatalf("task prompt = %q, want %q", task.Prompt, want)
@@ -800,6 +803,244 @@ func TestProjectWorkAPI_StartAssignmentAppliesProfileContextPolicies(t *testing.
 				t.Fatalf("source item = %+v, want omitted by profile policy", sourceItem)
 			}
 		})
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentIncludesExplicitPromptContext(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("Use the portable workspace guidance."), 0o644); err != nil {
+		t.Fatalf("Write AGENTS.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "CLAUDE.md"), []byte("Host-specific Claude guidance should stay out of Hecate prompt context."), 0o644); err != nil {
+		t.Fatalf("Write CLAUDE.md: %v", err)
+	}
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                  "implementation",
+		Name:                "Implementation",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ExecutionProfile:    "implementation",
+		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
+		ContextSourcePolicy: agentprofiles.ContextIncludeEnabled,
+	}); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.ContextSources = []projects.ContextSource{
+			{
+				ID:             "ctx_agents",
+				Kind:           "workspace_instruction",
+				Title:          "AGENTS.md",
+				Path:           "AGENTS.md",
+				Enabled:        true,
+				Format:         "agents_md",
+				TrustLabel:     "workspace_guidance",
+				SourceCategory: "workspace_guidance",
+				Metadata:       map[string]string{"root_id": "root_start"},
+			},
+			{
+				ID:             "ctx_claude",
+				Kind:           "host_instruction",
+				Title:          "CLAUDE.md",
+				Path:           "CLAUDE.md",
+				Enabled:        true,
+				Format:         "claude_md",
+				TrustLabel:     "workspace_guidance",
+				SourceCategory: "workspace_guidance",
+				Metadata:       map[string]string{"root_id": "root_start", "host": "claude"},
+			},
+		}
+	}); err != nil {
+		t.Fatalf("Update project context sources: %v", err)
+	}
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:         "mem_runtime",
+		ProjectID:  "proj_start",
+		Title:      "Runtime preference",
+		Body:       "Keep explicit prompt context visible in the task system prompt.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create project memory: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+	}
+	for _, want := range []string{
+		"Project memory: Runtime preference",
+		"Keep explicit prompt context visible in the task system prompt.",
+		"Workspace instruction: AGENTS.md",
+		"Use the portable workspace guidance.",
+	} {
+		if !strings.Contains(task.SystemPrompt, want) {
+			t.Fatalf("task system_prompt = %q, want explicit prompt context fragment %q", task.SystemPrompt, want)
+		}
+	}
+	if strings.Contains(task.SystemPrompt, "Host-specific Claude guidance") {
+		t.Fatalf("task system_prompt = %q, want host-specific source body omitted", task.SystemPrompt)
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	promptItem := findRenderedContextItemByKind(packetResp.Data, "prompt_context")
+	if promptItem == nil || !promptItem.Included || promptItem.Section != contextSectionInstructions {
+		t.Fatalf("prompt context item = %+v, want included instructions item", promptItem)
+	}
+	for _, want := range []string{
+		"Included project memory entries: 1",
+		"Included workspace instruction sources: 1",
+		"CLAUDE.md is metadata-only",
+	} {
+		if !strings.Contains(promptItem.Body, want) {
+			t.Fatalf("prompt context body = %q, want %q", promptItem.Body, want)
+		}
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentKeepsVisibleOnlyPromptContextOutOfSystemPrompt(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("Do not include this visible-only source body."), 0o644); err != nil {
+		t.Fatalf("Write AGENTS.md: %v", err)
+	}
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                  "implementation",
+		Name:                "Implementation",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ExecutionProfile:    "implementation",
+		ProjectMemoryPolicy: agentprofiles.MemoryVisibleOnly,
+		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
+	}); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.ContextSources = []projects.ContextSource{{
+			ID:             "ctx_agents",
+			Kind:           "workspace_instruction",
+			Title:          "AGENTS.md",
+			Path:           "AGENTS.md",
+			Enabled:        true,
+			Format:         "agents_md",
+			TrustLabel:     "workspace_guidance",
+			SourceCategory: "workspace_guidance",
+			Metadata:       map[string]string{"root_id": "root_start"},
+		}}
+	}); err != nil {
+		t.Fatalf("Update project context sources: %v", err)
+	}
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:         "mem_runtime",
+		ProjectID:  "proj_start",
+		Title:      "Runtime preference",
+		Body:       "Do not include this visible-only memory body.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create project memory: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+	}
+	for _, notWant := range []string{
+		"Do not include this visible-only memory body.",
+		"Do not include this visible-only source body.",
+	} {
+		if strings.Contains(task.SystemPrompt, notWant) {
+			t.Fatalf("task system_prompt = %q, want visible-only body %q omitted", task.SystemPrompt, notWant)
+		}
+	}
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	if item := findRenderedContextItemByKind(packetResp.Data, "prompt_context"); item != nil {
+		t.Fatalf("prompt context item = %+v, want omitted when no prompt context was loaded", item)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentTruncatesPromptContext(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	handler.SetMemoryStore(memory.NewMemoryStore())
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                  "implementation",
+		Name:                "Implementation",
+		Surface:             agentprofiles.SurfaceHecateTask,
+		ExecutionProfile:    "implementation",
+		ProjectMemoryPolicy: agentprofiles.MemoryInclude,
+		ContextSourcePolicy: agentprofiles.ContextVisibleOnly,
+	}); err != nil {
+		t.Fatalf("Create profile: %v", err)
+	}
+	if _, err := handler.memory.Create(t.Context(), memory.Entry{
+		ID:         "mem_long",
+		ProjectID:  "proj_start",
+		Title:      "Long memory",
+		Body:       strings.Repeat("memory-context ", 400),
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create project memory: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	task, found, err := handler.taskStore.GetTask(t.Context(), assignment.Data.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", assignment.Data.TaskID, found, err)
+	}
+	if !strings.Contains(task.SystemPrompt, "[truncated]") {
+		t.Fatalf("task system_prompt = %q, want truncated prompt context marker", task.SystemPrompt)
+	}
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+assignment.Data.TaskID+"/runs/"+assignment.Data.RunID+"/context", "")
+	promptItem := findRenderedContextItemByKind(packetResp.Data, "prompt_context")
+	if promptItem == nil || !strings.Contains(promptItem.Body, "Truncated prompt context items: 1") || !strings.Contains(promptItem.Body, "mem_long was truncated") {
+		t.Fatalf("prompt context item = %+v, want truncation summary", promptItem)
 	}
 }
 

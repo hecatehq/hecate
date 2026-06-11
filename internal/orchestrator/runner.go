@@ -794,7 +794,11 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 	executor := r.executorForTask(task)
 	systemPrompt := ""
 	if r.resolveSysPrompt != nil {
-		systemPrompt = r.resolveSysPrompt(ctx, "", task.SystemPrompt, run.WorkspacePath)
+		workspacePromptPath := run.WorkspacePath
+		if task.WorkspaceSystemPromptPolicy == types.WorkspaceSystemPromptExclude {
+			workspacePromptPath = ""
+		}
+		systemPrompt = r.resolveSysPrompt(ctx, "", task.SystemPrompt, workspacePromptPath)
 	}
 	execution, err := executor.Execute(ctx, ExecutionSpec{
 		Task:             taskForRun(task, run),

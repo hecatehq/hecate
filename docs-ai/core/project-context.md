@@ -29,8 +29,10 @@ without granting tools, injecting bodies, or executing skill scripts. The
 operator UI can manage agent profiles and pick registered project skills for
 roles/profiles; those selections remain metadata until launch-time resolution.
 Profile memory/source policies now control whether assignment context packets
-mark project memory and source metadata active, visible-only, or omitted. They
-do not load source file bodies or skill bodies into prompts.
+mark project memory and source metadata active, visible-only, or omitted. Native
+project assignments can include bounded project memory and portable `AGENTS.md`
+workspace-instruction bodies only when the resolved profile explicitly includes
+them; host-specific guidance files and skill bodies remain metadata-only.
 Model-backed assistant turns should carry a small context-inspector packet:
 execution mode, route/workspace metadata, source provenance, and visible
 transcript counts. Do not store full prompt bodies, raw transcript text, file

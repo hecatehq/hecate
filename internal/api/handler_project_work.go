@@ -12,14 +12,17 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/agentprofiles"
 	"github.com/hecatehq/hecate/internal/chat"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
@@ -914,7 +917,8 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	resolvedSkills := h.resolveProjectAssignmentSkills(ctx, project.ID, role, profile)
-	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workingDirectory, requestedProvider, requestedModel, executionProfile, profile, resolvedSkills)
+	promptContext := h.projectAssignmentPromptContext(ctx, project, profile, workingDirectory)
+	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workingDirectory, requestedProvider, requestedModel, executionProfile, profile, resolvedSkills, promptContext)
 	if contextPacket.ID == "" {
 		contextPacket.ID = newChatID("ctx")
 	}
@@ -946,7 +950,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	task, err := h.createProjectAssignmentTask(ctx, taskID, project, workItem, assignment, role, profile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile)
+	task, err := h.createProjectAssignmentTask(ctx, taskID, project, workItem, assignment, role, profile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile, promptContext)
 	if err != nil {
 		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
 			if item.TaskID == taskID && item.RunID == "" {
@@ -1071,7 +1075,7 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 	}
 	sessionID := newChatID("chat")
 	resolvedSkills := h.resolveProjectAssignmentSkills(ctx, project.ID, role, profile)
-	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workspace, "", "", firstNonEmptyString(profile.ExecutionProfile, "external_agent_assignment"), profile, resolvedSkills)
+	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workspace, "", "", firstNonEmptyString(profile.ExecutionProfile, "external_agent_assignment"), profile, resolvedSkills, projectAssignmentPromptContext{})
 	contextPacket.ID = firstNonEmptyString(contextPacket.ID, newChatID("ctx"))
 	contextPacket.ExecutionMode = chat.ExecutionModeExternalAgent
 	contextPacket.Provider = ""
@@ -1296,27 +1300,28 @@ func selectProjectAssignmentRoot(project projects.Project) (projects.Root, bool)
 	return projects.Root{}, false
 }
 
-func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, profile resolvedAgentProfile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile string) (types.Task, error) {
+func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, profile resolvedAgentProfile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile string, promptContext projectAssignmentPromptContext) (types.Task, error) {
 	now := time.Now().UTC()
 	task := types.Task{
-		ID:                 taskID,
-		Title:              projectAssignmentTaskTitle(workItem, role),
-		Prompt:             projectAssignmentPrompt(project, workItem, assignment, role),
-		ProjectID:          project.ID,
-		SystemPrompt:       projectAssignmentSystemPrompt(project, role, profile),
-		ExecutionKind:      "agent_loop",
-		ExecutionProfile:   executionProfile,
-		OriginKind:         "project_work_item",
-		OriginID:           workItem.ID,
-		WorkspaceMode:      workspaceMode,
-		WorkingDirectory:   workingDirectory,
-		SandboxAllowedRoot: workingDirectory,
-		Status:             "queued",
-		Priority:           firstNonEmpty(workItem.Priority, "normal"),
-		RequestedProvider:  requestedProvider,
-		RequestedModel:     requestedModel,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		ID:                          taskID,
+		Title:                       projectAssignmentTaskTitle(workItem, role),
+		Prompt:                      projectAssignmentPrompt(project, workItem, assignment, role),
+		ProjectID:                   project.ID,
+		SystemPrompt:                projectAssignmentSystemPrompt(project, role, profile, promptContext),
+		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
+		ExecutionKind:               "agent_loop",
+		ExecutionProfile:            executionProfile,
+		OriginKind:                  "project_work_item",
+		OriginID:                    workItem.ID,
+		WorkspaceMode:               workspaceMode,
+		WorkingDirectory:            workingDirectory,
+		SandboxAllowedRoot:          workingDirectory,
+		Status:                      "queued",
+		Priority:                    firstNonEmpty(workItem.Priority, "normal"),
+		RequestedProvider:           requestedProvider,
+		RequestedModel:              requestedModel,
+		CreatedAt:                   now,
+		UpdatedAt:                   now,
 	}
 	return h.taskStore.CreateTask(ctx, task)
 }
@@ -1387,7 +1392,7 @@ func projectAssignmentPrompt(project projects.Project, workItem projectwork.Work
 	return strings.Join(sections, "\n\n")
 }
 
-func projectAssignmentSystemPrompt(project projects.Project, role projectwork.AgentRoleProfile, profile resolvedAgentProfile) string {
+func projectAssignmentSystemPrompt(project projects.Project, role projectwork.AgentRoleProfile, profile resolvedAgentProfile, promptContext projectAssignmentPromptContext) string {
 	var parts []string
 	if prompt := strings.TrimSpace(project.DefaultSystemPrompt); prompt != "" {
 		parts = append(parts, "Project system prompt:\n"+prompt)
@@ -1400,7 +1405,200 @@ func projectAssignmentSystemPrompt(project projects.Project, role projectwork.Ag
 	} else if role.Name != "" {
 		parts = append(parts, "Act as the "+strings.TrimSpace(role.Name)+" for this project work assignment.")
 	}
+	if contextText := promptContext.SystemPrompt(); contextText != "" {
+		parts = append(parts, contextText)
+	}
 	return strings.Join(parts, "\n\n")
+}
+
+const (
+	projectAssignmentPromptContextMaxBytes       = 12 * 1024
+	projectAssignmentPromptContextMemoryMaxBytes = 2 * 1024
+	projectAssignmentPromptContextSourceMaxBytes = 8 * 1024
+	projectAssignmentPromptContextMaxWarnings    = 8
+)
+
+type projectAssignmentPromptContext struct {
+	Sections        []string
+	IncludedMemory  int
+	IncludedSources int
+	Truncated       int
+	Warnings        []string
+}
+
+func (ctx projectAssignmentPromptContext) SystemPrompt() string {
+	if len(ctx.Sections) == 0 {
+		return ""
+	}
+	return strings.Join(ctx.Sections, "\n\n")
+}
+
+func (h *Handler) projectAssignmentPromptContext(ctx context.Context, project projects.Project, profile resolvedAgentProfile, workingDirectory string) projectAssignmentPromptContext {
+	builder := projectPromptContextBuilder{Remaining: projectAssignmentPromptContextMaxBytes}
+	if effectiveProjectMemoryPolicy(profile.ProjectMemoryPolicy) == agentprofiles.MemoryInclude {
+		builder.AppendMemory(h.enabledProjectMemoryEntries(ctx, project.ID))
+	}
+	if effectiveContextSourcePolicy(profile.ContextSourcePolicy) == agentprofiles.ContextIncludeEnabled {
+		builder.AppendSources(project, workingDirectory)
+	}
+	return builder.Result()
+}
+
+type projectPromptContextBuilder struct {
+	Remaining int
+	ResultCtx projectAssignmentPromptContext
+}
+
+func (builder *projectPromptContextBuilder) AppendMemory(entries []memory.Entry) {
+	for _, entry := range entries {
+		if builder.Remaining <= 0 {
+			builder.Warn("project memory prompt context budget exhausted; remaining memory entries were skipped")
+			return
+		}
+		title := firstNonEmptyString(strings.TrimSpace(entry.Title), strings.TrimSpace(entry.ID))
+		body := strings.TrimSpace(entry.Body)
+		if body == "" {
+			continue
+		}
+		header := fmt.Sprintf("Project memory: %s\nID: %s\nTrust: %s", title, strings.TrimSpace(entry.ID), firstNonEmptyString(strings.TrimSpace(entry.TrustLabel), contextTrustOperatorMemory))
+		section, truncated := boundedPromptContextSection(header, body, projectAssignmentPromptContextMemoryMaxBytes, &builder.Remaining)
+		if section == "" {
+			builder.Warn("project memory prompt context budget exhausted before " + strings.TrimSpace(entry.ID))
+			return
+		}
+		if truncated {
+			builder.ResultCtx.Truncated++
+			builder.Warn("project memory " + strings.TrimSpace(entry.ID) + " was truncated for prompt context")
+		}
+		builder.ResultCtx.IncludedMemory++
+		builder.ResultCtx.Sections = append(builder.ResultCtx.Sections, section)
+	}
+}
+
+func (builder *projectPromptContextBuilder) AppendSources(project projects.Project, workingDirectory string) {
+	for _, source := range project.ContextSources {
+		if !source.Enabled {
+			continue
+		}
+		if builder.Remaining <= 0 {
+			builder.Warn("project source prompt context budget exhausted; remaining sources were skipped")
+			return
+		}
+		if !projectContextSourcePromptEligible(source) {
+			if strings.TrimSpace(source.Path) != "" {
+				builder.Warn("project source " + strings.TrimSpace(source.Path) + " is metadata-only for Hecate prompt context")
+			}
+			continue
+		}
+		rootPath := projectContextSourceRootPath(project, source, workingDirectory)
+		if strings.TrimSpace(rootPath) == "" {
+			builder.Warn("project source " + strings.TrimSpace(source.Path) + " could not resolve an active root")
+			continue
+		}
+		fsys, err := workspacefs.New(rootPath)
+		if err != nil {
+			builder.Warn("project source " + strings.TrimSpace(source.Path) + " could not open its workspace root")
+			continue
+		}
+		raw, _, err := fsys.ReadFile(source.Path)
+		if err != nil {
+			builder.Warn("project source " + strings.TrimSpace(source.Path) + " could not be read for prompt context")
+			continue
+		}
+		body := strings.TrimSpace(string(raw))
+		if body == "" {
+			continue
+		}
+		title := firstNonEmptyString(strings.TrimSpace(source.Title), strings.TrimSpace(source.Path))
+		header := fmt.Sprintf("Workspace instruction: %s\nPath: %s\nTrust: %s", title, strings.TrimSpace(source.Path), firstNonEmptyString(strings.TrimSpace(source.TrustLabel), contextTrustWorkspaceGuidance))
+		section, truncated := boundedPromptContextSection(header, body, projectAssignmentPromptContextSourceMaxBytes, &builder.Remaining)
+		if section == "" {
+			builder.Warn("project source prompt context budget exhausted before " + strings.TrimSpace(source.Path))
+			return
+		}
+		if truncated {
+			builder.ResultCtx.Truncated++
+			builder.Warn("project source " + strings.TrimSpace(source.Path) + " was truncated for prompt context")
+		}
+		builder.ResultCtx.IncludedSources++
+		builder.ResultCtx.Sections = append(builder.ResultCtx.Sections, section)
+	}
+}
+
+func (builder *projectPromptContextBuilder) Warn(warning string) {
+	warning = strings.TrimSpace(warning)
+	if warning == "" || len(builder.ResultCtx.Warnings) >= projectAssignmentPromptContextMaxWarnings {
+		return
+	}
+	builder.ResultCtx.Warnings = append(builder.ResultCtx.Warnings, warning)
+}
+
+func (builder projectPromptContextBuilder) Result() projectAssignmentPromptContext {
+	return builder.ResultCtx
+}
+
+func projectContextSourcePromptEligible(source projects.ContextSource) bool {
+	return strings.TrimSpace(source.Kind) == "workspace_instruction" && strings.TrimSpace(source.Format) == "agents_md"
+}
+
+func projectContextSourceRootPath(project projects.Project, source projects.ContextSource, fallback string) string {
+	rootID := ""
+	if source.Metadata != nil {
+		rootID = strings.TrimSpace(source.Metadata["root_id"])
+	}
+	if rootID != "" {
+		for _, root := range project.Roots {
+			if root.Active && strings.TrimSpace(root.ID) == rootID {
+				return strings.TrimSpace(root.Path)
+			}
+		}
+		return ""
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func boundedPromptContextSection(header, body string, itemMaxBytes int, remaining *int) (string, bool) {
+	if remaining == nil || *remaining <= 0 {
+		return "", false
+	}
+	header = strings.TrimSpace(header)
+	body = strings.TrimSpace(body)
+	if header == "" || body == "" {
+		return "", false
+	}
+	limit := itemMaxBytes
+	if *remaining < limit {
+		limit = *remaining
+	}
+	text := header + "\n" + body
+	text, truncated := truncatePromptContextText(text, limit)
+	if text == "" {
+		return "", truncated
+	}
+	*remaining -= len(text)
+	return text, truncated
+}
+
+func truncatePromptContextText(text string, maxBytes int) (string, bool) {
+	text = strings.TrimSpace(text)
+	if maxBytes <= 0 {
+		return "", text != ""
+	}
+	if len(text) <= maxBytes {
+		return text, false
+	}
+	if maxBytes <= len("\n[truncated]") {
+		return "", true
+	}
+	cut := maxBytes - len("\n[truncated]")
+	raw := []byte(text)
+	for cut > 0 && !utf8.Valid(raw[:cut]) {
+		cut--
+	}
+	if cut <= 0 {
+		return "", true
+	}
+	return strings.TrimSpace(string(raw[:cut])) + "\n[truncated]", true
 }
 
 type assignmentHint struct {

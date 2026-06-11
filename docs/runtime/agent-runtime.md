@@ -239,10 +239,18 @@ Without this, the model would read `/Users/foo/myrepo` from the user prompt and 
 The operator-tunable system prompt is composed from three layers, broadest first:
 
 1. **Global** — `HECATE_TASK_AGENT_SYSTEM_PROMPT` (env). Applies to every agent_loop run gateway-wide.
-2. **Workspace** — `CLAUDE.md` or `AGENTS.md` in the task's working directory, capped at 8 KiB. Read once per run.
+2. **Workspace** — `CLAUDE.md` or `AGENTS.md` in the task's working directory, capped at 8 KiB. Read once per run unless the task sets `workspace_system_prompt_policy="exclude"`.
 3. **Per-task** — `Task.SystemPrompt` set when the task is created.
 
 Layers are concatenated with blank lines between them. Empty layers are skipped (no wasted message). The composed prompt is the second system message in the conversation; the workspace-environment message above is the first.
+
+Project assignment tasks set `workspace_system_prompt_policy="exclude"` and use
+the project/profile context builder instead. That keeps project memory and
+workspace-instruction bodies controlled by the resolved agent profile:
+`project_memory_policy=include` can include bounded project memory bodies, and
+`context_source_policy=include_enabled` can include bounded portable `AGENTS.md`
+workspace-instruction bodies. Host-specific guidance files and `SKILL.md` bodies
+remain metadata-only for this path.
 
 ## Approval gating
 

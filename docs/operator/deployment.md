@@ -221,10 +221,12 @@ Deployment-specific notes:
 - To make Docker ephemeral, override the backend via `.env` or compose env:
   `HECATE_BACKEND=memory`.
 - Projects are the durable identity foundation for project-scoped history,
-  defaults, memory, and context. Chat sessions can already carry `project_id`
-  for UI grouping, and chat context packets snapshot enabled project
-  context-source metadata. Tasks, memory, profiles, and source-content
-  injection are not linked to projects yet.
+  defaults, memory, profiles, skills, context sources, and project work. Chat
+  sessions and tasks can carry `project_id` for UI grouping and runtime
+  inspection, and context packets snapshot project-scoped memory/source
+  decisions. Native project assignments can include bounded project memory and
+  portable `AGENTS.md` prompt context when the resolved profile asks for it;
+  broader chat/external-agent source-content policy remains follow-up work.
 - When `HECATE_BACKEND=sqlite`, Hecate runs a startup reconcile pass that flips
   any pending external-agent approvals from a prior process to
   `status=timed_out`, `path=startup_reconcile` before serving requests, so an
