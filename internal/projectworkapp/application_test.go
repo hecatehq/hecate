@@ -328,7 +328,7 @@ func (r *recordingAgentRunner) CloseSession(_ context.Context, _ string) error {
 	return nil
 }
 
-func newExternalStartTestApplication(workStore projectwork.Store, chatStore chat.Store, runner AgentRunner) *Application {
+func newExternalStartTestApplication(workStore projectwork.Store, chatStore ChatSessionStore, runner AgentRunner) *Application {
 	return New(Options{
 		Store:          workStore,
 		ChatStore:      chatStore,

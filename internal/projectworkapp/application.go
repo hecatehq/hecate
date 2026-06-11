@@ -40,11 +40,17 @@ type AgentRunner interface {
 	CloseSession(context.Context, string) error
 }
 
+type ChatSessionStore interface {
+	Create(ctx context.Context, session chat.Session) (chat.Session, error)
+	UpdateSession(ctx context.Context, id string, update func(*chat.Session)) (chat.Session, error)
+	Delete(ctx context.Context, id string) error
+}
+
 type Application struct {
 	store          projectwork.Store
 	taskStore      TaskStore
 	runner         TaskRunner
-	chatStore      chat.Store
+	chatStore      ChatSessionStore
 	agentRunner    AgentRunner
 	prepareTimeout time.Duration
 	idgen          func(string) string
@@ -55,7 +61,7 @@ type Options struct {
 	Store          projectwork.Store
 	TaskStore      TaskStore
 	Runner         TaskRunner
-	ChatStore      chat.Store
+	ChatStore      ChatSessionStore
 	AgentRunner    AgentRunner
 	PrepareTimeout time.Duration
 	IDGenerator    func(string) string
