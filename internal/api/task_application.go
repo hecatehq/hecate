@@ -273,9 +273,6 @@ func (app *taskApplication) RetryTaskRun(ctx context.Context, task types.Task, r
 	if app == nil || app.store == nil {
 		return nil, errTaskStoreNotConfigured
 	}
-	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
-	}
 	if !types.IsTerminalTaskRunStatus(run.Status) {
 		return nil, errTaskRunNotRetryable
 	}
@@ -286,15 +283,15 @@ func (app *taskApplication) RetryTaskRun(ctx context.Context, task types.Task, r
 	if active {
 		return nil, errTaskHasOtherActiveRun
 	}
+	if app.runner == nil {
+		return nil, errTaskRunnerNotConfigured
+	}
 	return app.runner.StartTask(ctx, task, app.idgen)
 }
 
 func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, run types.TaskRun, req ResumeTaskRunRequest) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
 		return nil, errTaskStoreNotConfigured
-	}
-	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
 	}
 	if run.Status != "failed" && run.Status != "cancelled" {
 		return nil, errTaskRunNotResumable
@@ -310,6 +307,9 @@ func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, 
 		if req.BudgetMicrosUSD < task.BudgetMicrosUSD {
 			return nil, errTaskBudgetLower
 		}
+		if app.runner == nil {
+			return nil, errTaskRunnerNotConfigured
+		}
 		// Persist the raised ceiling before queueing; the resumed
 		// agent loop reads the task ceiling on its first turn.
 		task.BudgetMicrosUSD = req.BudgetMicrosUSD
@@ -319,15 +319,15 @@ func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, 
 		}
 		task = updated
 	}
+	if app.runner == nil {
+		return nil, errTaskRunnerNotConfigured
+	}
 	return app.runner.ResumeTask(ctx, task, run, strings.TrimSpace(req.Reason), app.idgen)
 }
 
 func (app *taskApplication) ContinueTaskRun(ctx context.Context, task types.Task, run types.TaskRun, prompt string) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
 		return nil, errTaskStoreNotConfigured
-	}
-	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
 	}
 	active, err := taskHasOtherActiveRun(ctx, app.store, task, run.ID)
 	if err != nil {
@@ -336,15 +336,15 @@ func (app *taskApplication) ContinueTaskRun(ctx context.Context, task types.Task
 	if active {
 		return nil, errTaskHasOtherActiveRun
 	}
+	if app.runner == nil {
+		return nil, errTaskRunnerNotConfigured
+	}
 	return app.runner.ContinueAgentTask(ctx, task, run, prompt, app.idgen)
 }
 
 func (app *taskApplication) RetryTaskRunFromTurn(ctx context.Context, task types.Task, run types.TaskRun, req RetryFromTurnRequest) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
 		return nil, errTaskStoreNotConfigured
-	}
-	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
 	}
 	if !types.IsTerminalTaskRunStatus(run.Status) {
 		return nil, errTaskRunNotTurnRetryable
@@ -358,6 +358,9 @@ func (app *taskApplication) RetryTaskRunFromTurn(ctx context.Context, task types
 	}
 	if active {
 		return nil, errTaskHasOtherActiveRun
+	}
+	if app.runner == nil {
+		return nil, errTaskRunnerNotConfigured
 	}
 	return app.runner.RetryTaskFromTurn(ctx, task, run, req.Turn, strings.TrimSpace(req.Reason), app.idgen)
 }

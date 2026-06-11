@@ -407,6 +407,117 @@ func TestTaskApplication_LifecycleRejectsOtherActiveRunBeforeRunner(t *testing.T
 	}
 }
 
+func TestTaskApplication_LifecycleValidationPrecedesRunnerConfiguration(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		call func(context.Context, *taskApplication, types.Task, types.TaskRun) error
+		want error
+	}{
+		{
+			name: "retry_nonterminal",
+			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+				_, err := app.RetryTaskRun(ctx, task, run)
+				return err
+			},
+			want: errTaskRunNotRetryable,
+		},
+		{
+			name: "resume_nonterminal",
+			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+				_, err := app.ResumeTaskRun(ctx, task, run, ResumeTaskRunRequest{Reason: "try again"})
+				return err
+			},
+			want: errTaskRunNotResumable,
+		},
+		{
+			name: "turn_retry_nonterminal",
+			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+				_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnRequest{Turn: 1})
+				return err
+			},
+			want: errTaskRunNotTurnRetryable,
+		},
+		{
+			name: "resume_other_active_before_lower_budget",
+			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+				run.Status = "failed"
+				task.BudgetMicrosUSD = 500
+				_, err := app.ResumeTaskRun(ctx, task, run, ResumeTaskRunRequest{BudgetMicrosUSD: 100})
+				return err
+			},
+			want: errTaskHasOtherActiveRun,
+		},
+		{
+			name: "continue_other_active",
+			call: func(ctx context.Context, app *taskApplication, task types.Task, run types.TaskRun) error {
+				_, err := app.ContinueTaskRun(ctx, task, run, "continue")
+				return err
+			},
+			want: errTaskHasOtherActiveRun,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+			store := taskstate.NewMemoryStore()
+			app := newTestTaskApplication(store, nil)
+			task := createTaskForAppTest(t, ctx, store, types.Task{
+				ID:          "task_" + tc.name,
+				Status:      "failed",
+				LatestRunID: "run_active",
+			})
+			createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_active", TaskID: task.ID, Status: "running"})
+			run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_source", TaskID: task.ID, Status: "running"})
+
+			err := tc.call(ctx, app, task, run)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("%s error = %v, want %v", tc.name, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestTaskApplication_ResumeLowerBudgetPrecedesRunnerConfiguration(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	app := newTestTaskApplication(store, nil)
+	task := createTaskForAppTest(t, ctx, store, types.Task{
+		ID:              "task_lower_budget_no_runner",
+		Status:          "failed",
+		BudgetMicrosUSD: 500,
+		LatestRunID:     "run_failed",
+	})
+	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: task.LatestRunID, TaskID: task.ID, Status: "failed"})
+
+	_, err := app.ResumeTaskRun(ctx, task, run, ResumeTaskRunRequest{BudgetMicrosUSD: 100})
+	if !errors.Is(err, errTaskBudgetLower) {
+		t.Fatalf("ResumeTaskRun(lower budget, nil runner) error = %v, want errTaskBudgetLower", err)
+	}
+}
+
+func TestTaskApplication_RetryFromTurnValidatesTurnBeforeRunner(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	app := newTestTaskApplication(store, nil)
+	task := createTaskForAppTest(t, ctx, store, types.Task{ID: "task_turn", Status: "failed"})
+	run := createRunForAppTest(t, ctx, store, types.TaskRun{ID: "run_failed", TaskID: task.ID, Status: "failed"})
+
+	_, err := app.RetryTaskRunFromTurn(ctx, task, run, RetryFromTurnRequest{Turn: 0})
+	if err == nil || err.Error() != "turn must be >= 1" {
+		t.Fatalf("RetryTaskRunFromTurn(turn 0) error = %v, want turn must be >= 1", err)
+	}
+}
+
 func TestTaskApplication_ResumeRaisesBudgetBeforeRunner(t *testing.T) {
 	t.Parallel()
 
