@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
 )
 
@@ -86,6 +87,65 @@ func TestApplication_CreateProviderBuildsRuntimeProvider(t *testing.T) {
 	}
 }
 
+func TestApplication_StatusBuildsProviderRecordsAndPolicyRules(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := controlplane.NewMemoryStore()
+	if _, err := store.UpsertProvider(ctx, controlplane.Provider{
+		ID:       "anthropic",
+		Name:     "Anthropic",
+		PresetID: "anthropic",
+		Kind:     "cloud",
+		Protocol: "openai",
+		BaseURL:  "https://api.anthropic.com",
+		Enabled:  true,
+	}, &controlplane.ProviderSecret{ProviderID: "anthropic", APIKeyEncrypted: "cipher"}); err != nil {
+		t.Fatalf("UpsertProvider: %v", err)
+	}
+	if _, err := store.UpsertPolicyRule(ctx, config.PolicyRuleConfig{
+		ID:     "deny-cloud",
+		Action: "deny",
+		Reason: "local only",
+	}); err != nil {
+		t.Fatalf("UpsertPolicyRule: %v", err)
+	}
+	app := New(Options{ControlPlane: store})
+
+	result, err := app.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if result.Backend == "" {
+		t.Fatal("backend is empty, want control-plane backend")
+	}
+	if len(result.Providers) != 1 {
+		t.Fatalf("providers = %+v, want one provider", result.Providers)
+	}
+	provider := result.Providers[0]
+	if provider.ID != "anthropic" || provider.PresetID != "anthropic" || provider.BaseURL == "" {
+		t.Fatalf("provider record = %+v, want preset metadata joined", provider)
+	}
+	if !provider.CredentialConfigured || provider.CredentialSource != "vault" {
+		t.Fatalf("credential fields = %v/%q, want vault credential", provider.CredentialConfigured, provider.CredentialSource)
+	}
+	if len(result.PolicyRules) != 1 || result.PolicyRules[0].ID != "deny-cloud" {
+		t.Fatalf("policy rules = %+v, want deny-cloud", result.PolicyRules)
+	}
+}
+
+func TestApplication_StatusWithoutControlPlaneReturnsEnvDefaults(t *testing.T) {
+	t.Parallel()
+
+	result, err := New(Options{}).Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status(no control plane) error = %v", err)
+	}
+	if result.Backend != "env" || len(result.Providers) != 0 || len(result.PolicyRules) != 0 || len(result.Events) != 0 {
+		t.Fatalf("result = %+v, want env empty status", result)
+	}
+}
+
 func TestApplication_CreateProviderRejectsDuplicates(t *testing.T) {
 	t.Parallel()
 
@@ -106,6 +166,56 @@ func TestApplication_CreateProviderRejectsDuplicates(t *testing.T) {
 	}
 	if _, err := app.CreateProvider(ctx, CreateProviderCommand{Name: "Other", BaseURL: "https://api.anthropic.com"}); !IsConflictError(err) {
 		t.Fatalf("CreateProvider(duplicate base url) error = %v, want conflict", err)
+	}
+}
+
+func TestApplication_UpsertAndDeletePolicyRule(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := controlplane.NewMemoryStore()
+	app := New(Options{ControlPlane: store})
+
+	rule, err := app.UpsertPolicyRule(ctx, PolicyRuleCommand{
+		ID:        "deny-cloud",
+		Action:    "deny",
+		Providers: []string{"anthropic"},
+	})
+	if err != nil {
+		t.Fatalf("UpsertPolicyRule() error = %v", err)
+	}
+	if rule.ID != "deny-cloud" || rule.Action != "deny" {
+		t.Fatalf("rule = %+v, want deny-cloud deny", rule)
+	}
+	deleted, err := app.DeletePolicyRule(ctx, " deny-cloud ")
+	if err != nil {
+		t.Fatalf("DeletePolicyRule() error = %v", err)
+	}
+	if deleted != "deny-cloud" {
+		t.Fatalf("deleted id = %q, want deny-cloud", deleted)
+	}
+	result, err := app.Status(ctx)
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if len(result.PolicyRules) != 0 {
+		t.Fatalf("policy rules = %+v, want deleted", result.PolicyRules)
+	}
+}
+
+func TestApplication_PolicyRuleValidationAndDependencies(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	if _, err := New(Options{}).UpsertPolicyRule(ctx, PolicyRuleCommand{ID: "x", Action: "deny"}); !errors.Is(err, ErrControlPlaneNotConfigured) {
+		t.Fatalf("UpsertPolicyRule(no control plane) error = %v, want ErrControlPlaneNotConfigured", err)
+	}
+	app := New(Options{ControlPlane: controlplane.NewMemoryStore()})
+	if _, err := app.UpsertPolicyRule(ctx, PolicyRuleCommand{ID: "x", Action: ""}); !IsValidationError(err) {
+		t.Fatalf("UpsertPolicyRule(invalid) error = %v, want validation", err)
+	}
+	if _, err := app.DeletePolicyRule(ctx, " "); !IsValidationError(err) {
+		t.Fatalf("DeletePolicyRule(empty) error = %v, want validation", err)
 	}
 }
 
