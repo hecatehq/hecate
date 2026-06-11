@@ -410,6 +410,8 @@ func (h *Handler) projectWorkApplication() *projectworkapp.Application {
 	}
 	return projectworkapp.New(projectworkapp.Options{
 		Store:       h.projectWork,
+		TaskStore:   h.taskStore,
+		Runner:      h.taskRunner,
 		IDGenerator: newOpaqueTaskResourceID,
 	})
 }
@@ -823,20 +825,6 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		WriteError(w, http.StatusConflict, errCodeConflict, fmt.Sprintf("assignment driver_kind %q is not supported; V1 supports %q and %q", assignment.DriverKind, projectwork.AssignmentDriverHecateTask, projectwork.AssignmentDriverExternalAgent))
 		return
 	}
-	active, err := projectWorkAssignmentHasActiveExecution(ctx, h.taskStore, assignment)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if active {
-		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
-		if projectErr != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
-			return
-		}
-		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
-		return
-	}
 
 	workingDirectory, workspaceMode, err := resolveProjectAssignmentWorkspace(project)
 	if err != nil {
@@ -869,78 +857,52 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		contextPacket.ID = newChatID("ctx")
 	}
 
-	taskID := newTaskID()
-	claimRejected := false
-	assignment, err = h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
-		if item.TaskID != "" || item.RunID != "" || projectWorkAssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverHecateTask {
-			claimRejected = true
-			return
-		}
-		item.TaskID = taskID
-		item.Status = projectwork.AssignmentStatusQueued
-		if item.StartedAt.IsZero() {
-			item.StartedAt = time.Now().UTC()
-		}
+	result, err := h.projectWorkApplication().StartTaskAssignment(ctx, projectworkapp.StartTaskAssignmentCommand{
+		ProjectID:         projectID,
+		WorkItemID:        workItemID,
+		Assignment:        assignment,
+		ContextSnapshotID: contextPacket.ID,
+		BuildTask: func(taskID string) (types.Task, error) {
+			return h.buildProjectAssignmentTask(taskID, project, workItem, assignment, role, profile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile, promptContext), nil
+		},
+		OnTaskCreated: func(task types.Task) {
+			contextPacket.Refs.TaskID = task.ID
+		},
+		InitializeRun: func(task types.Task, run *types.TaskRun) {
+			contextPacket.Refs.RunID = run.ID
+			run.ContextPacket = marshalContextPacket(normalizeContextPacket(contextPacket, chat.ContextRefs{
+				TaskID:       task.ID,
+				RunID:        run.ID,
+				ProjectID:    project.ID,
+				WorkItemID:   workItem.ID,
+				AssignmentID: assignment.ID,
+				RoleID:       role.ID,
+			}))
+		},
 	})
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if claimRejected {
-		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
-		if projectErr != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
-			return
+		resultAssignment := assignment
+		if result != nil && result.Assignment.ID != "" {
+			resultAssignment = result.Assignment
 		}
-		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
-		return
-	}
-
-	task, err := h.createProjectAssignmentTask(ctx, taskID, project, workItem, assignment, role, profile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile, promptContext)
-	if err != nil {
-		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
-			if item.TaskID == taskID && item.RunID == "" {
-				item.TaskID = ""
-				item.Status = projectwork.AssignmentStatusQueued
-				item.StartedAt = time.Time{}
-				item.CompletedAt = time.Time{}
+		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
+			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, resultAssignment)
+			if projectErr != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+				return
 			}
-		})
-		if updateErr != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("%s; assignment status update failed: %v", err.Error(), updateErr))
-			return
-		}
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task could not be created for assignment %s: %s", assignment.ID, err.Error()))
-		return
-	}
-	contextPacket.Refs.TaskID = task.ID
-
-	result, err := h.taskRunner.StartTaskWithRunInitializer(ctx, task, newOpaqueTaskResourceID, func(run *types.TaskRun) {
-		contextPacket.Refs.RunID = run.ID
-		run.ContextPacket = marshalContextPacket(normalizeContextPacket(contextPacket, chat.ContextRefs{
-			TaskID:       task.ID,
-			RunID:        run.ID,
-			ProjectID:    project.ID,
-			WorkItemID:   workItem.ID,
-			AssignmentID: assignment.ID,
-			RoleID:       role.ID,
-		}))
-	})
-	if err != nil {
-		assignment, updateErr := h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
-			item.TaskID = task.ID
-			item.Status = projectwork.AssignmentStatusFailed
-			item.CompletedAt = time.Now().UTC()
-		})
-		if updateErr != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("%s; assignment status update failed: %v", err.Error(), updateErr))
+			WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 			return
 		}
 		if errors.Is(err, orchestrator.ErrAgentLoopMisconfigured) {
 			WriteError(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, err.Error())
 			return
 		}
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task %s was created but start failed: %s", assignment.TaskID, err.Error()))
+		if result != nil && result.Task.ID != "" {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task %s was created but start failed: %s", result.Task.ID, err.Error()))
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("task could not be created for assignment %s: %s", resultAssignment.ID, err.Error()))
 		return
 	}
 	if result.TraceID != "" {
@@ -949,20 +911,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 	if result.SpanID != "" {
 		w.Header().Set("X-Span-Id", result.SpanID)
 	}
-	assignment, err = h.projectWork.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
-		item.TaskID = result.Task.ID
-		item.RunID = result.Run.ID
-		item.ContextSnapshotID = contextPacket.ID
-		item.Status = projectWorkAssignmentStatusFromRun(result.Run.Status)
-		if item.StartedAt.IsZero() {
-			item.StartedAt = time.Now().UTC()
-		}
-	})
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	projected, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -1168,32 +1117,11 @@ func (h *Handler) loadProjectWorkRole(ctx context.Context, projectID, roleID str
 }
 
 func projectWorkAssignmentIsTerminal(status string) bool {
-	switch strings.TrimSpace(status) {
-	case projectwork.AssignmentStatusCompleted, projectwork.AssignmentStatusFailed, projectwork.AssignmentStatusCancelled:
-		return true
-	default:
-		return false
-	}
+	return projectworkapp.AssignmentIsTerminal(status)
 }
 
 func projectWorkAssignmentHasActiveExecution(ctx context.Context, store taskRunLookupStore, assignment projectwork.Assignment) (bool, error) {
-	if strings.TrimSpace(assignment.RunID) != "" && strings.TrimSpace(assignment.TaskID) != "" && store != nil {
-		run, found, err := store.GetRun(ctx, assignment.TaskID, assignment.RunID)
-		if err != nil {
-			return false, err
-		}
-		if found {
-			return !types.IsTerminalTaskRunStatus(run.Status), nil
-		}
-	}
-	switch strings.TrimSpace(assignment.Status) {
-	case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval:
-		return true, nil
-	case projectwork.AssignmentStatusQueued:
-		return strings.TrimSpace(assignment.TaskID) != "" || strings.TrimSpace(assignment.RunID) != "", nil
-	default:
-		return false, nil
-	}
+	return projectworkapp.AssignmentHasActiveExecution(ctx, store, assignment)
 }
 
 type taskRunLookupStore interface {
@@ -1246,9 +1174,9 @@ func selectProjectAssignmentRoot(project projects.Project) (projects.Root, bool)
 	return projects.Root{}, false
 }
 
-func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, profile resolvedAgentProfile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile string, promptContext projectAssignmentPromptContext) (types.Task, error) {
+func (h *Handler) buildProjectAssignmentTask(taskID string, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, profile resolvedAgentProfile, workingDirectory, workspaceMode, requestedProvider, requestedModel, executionProfile string, promptContext projectAssignmentPromptContext) types.Task {
 	now := time.Now().UTC()
-	task := types.Task{
+	return types.Task{
 		ID:                          taskID,
 		Title:                       projectAssignmentTaskTitle(workItem, role),
 		Prompt:                      projectAssignmentPrompt(project, workItem, assignment, role),
@@ -1269,7 +1197,6 @@ func (h *Handler) createProjectAssignmentTask(ctx context.Context, taskID string
 		CreatedAt:                   now,
 		UpdatedAt:                   now,
 	}
-	return h.taskStore.CreateTask(ctx, task)
 }
 
 func projectAssignmentTaskTitle(workItem projectwork.WorkItem, role projectwork.AgentRoleProfile) string {
@@ -1729,20 +1656,7 @@ func launchContextBullet(label, value string) string {
 }
 
 func projectWorkAssignmentStatusFromRun(status string) string {
-	switch strings.TrimSpace(status) {
-	case "awaiting_approval":
-		return projectwork.AssignmentStatusAwaitingApproval
-	case "running":
-		return projectwork.AssignmentStatusRunning
-	case "completed":
-		return projectwork.AssignmentStatusCompleted
-	case "failed":
-		return projectwork.AssignmentStatusFailed
-	case "cancelled":
-		return projectwork.AssignmentStatusCancelled
-	default:
-		return projectwork.AssignmentStatusQueued
-	}
+	return projectworkapp.AssignmentStatusFromRun(status)
 }
 
 func (h *Handler) HandleProjectWorkArtifacts(w http.ResponseWriter, r *http.Request) {
@@ -2045,7 +1959,9 @@ func writeProjectWorkError(w http.ResponseWriter, err error) bool {
 var projectWorkErrorMappings = []appErrorMapping{
 	{
 		Match: func(err error) bool {
-			return errors.Is(err, projectworkapp.ErrStoreNotConfigured)
+			return errors.Is(err, projectworkapp.ErrStoreNotConfigured) ||
+				errors.Is(err, projectworkapp.ErrTaskStoreNotConfigured) ||
+				errors.Is(err, projectworkapp.ErrRunnerNotConfigured)
 		},
 		Status: http.StatusBadRequest,
 		Code:   errCodeInvalidRequest,
