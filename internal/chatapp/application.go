@@ -9,6 +9,7 @@ import (
 
 	"github.com/hecatehq/hecate/internal/agentadapters"
 	"github.com/hecatehq/hecate/internal/agentcontrols"
+	"github.com/hecatehq/hecate/internal/apperrors"
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/pkg/types"
 )
@@ -21,28 +22,14 @@ var (
 	ErrNoSettingsProvided  = errors.New("no settings provided")
 )
 
-type ValidationError struct {
-	err error
-}
-
-func (e ValidationError) Error() string {
-	return e.err.Error()
-}
-
-func (e ValidationError) Unwrap() error {
-	return e.err
-}
+type ValidationError = apperrors.ValidationError
 
 func Validation(err error) error {
-	if err == nil {
-		return nil
-	}
-	return ValidationError{err: err}
+	return apperrors.Validation(err)
 }
 
 func IsValidationError(err error) bool {
-	var validation ValidationError
-	return errors.As(err, &validation)
+	return apperrors.IsValidationError(err)
 }
 
 type SessionStore interface {

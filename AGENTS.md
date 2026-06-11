@@ -49,6 +49,8 @@ docs-ai/                canonical agent guidance (this file points there for dep
 
 internal/
   api/                  inbound HTTP shapes + handlers (OpenAIChatMessage, uppercase)
+  apperrors/            shared app-layer validation/conflict wrappers used by
+                          taskapp/chatapp/providerapp without coupling them to HTTP
   taskapp/              task lifecycle application layer used by API handlers:
                           creation defaults, load helpers, active-run guards,
                           approval resolution dispatch, runner calls
@@ -74,7 +76,10 @@ internal/
   eventprotocol/        agent-runtime event protocol v1 envelopes (API-facing shape)
   chat/                 chat transcript persistence (memory / sqlite)
   chatapp/              chat-session application layer used by API handlers:
-                          create, external-agent prepare, native session cleanup
+                          create, external-agent prepare, native session cleanup,
+                          config option writes, Hecate Chat settings
+  chatcontext/          pure context-packet lookup/decode helpers shared by API
+                          context endpoints
   projects/             durable project identity store (memory / sqlite)
   projectskills/        project-scoped SKILL.md metadata registry
                           (memory / sqlite; no body injection or execution)
@@ -83,6 +88,8 @@ internal/
   projectworkapp/       project work application layer used by API handlers:
                           command shaping, id defaults, driver defaults,
                           store error boundaries
+  providerapp/          settings provider application layer used by API handlers:
+                          provider create/update/delete, API key rotate/clear
   storage/              sqlite client wrappers
   retention/            retention worker (subsystems: traces, usage_events, audit, provider_history, turn_events, agent_chat_approvals)
   mcp/                  stdio MCP server (read tools + write tools)
