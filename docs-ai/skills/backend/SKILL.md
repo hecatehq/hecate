@@ -114,7 +114,9 @@ external-agent session start / cleanup live behind
 API-specific context packets, project response DTOs, and map known
 project-work/app errors through `writeAppError`. Extend that app seam before
 adding more project-work store, task runner, chat store, or external-agent
-runner orchestration to `handler_project_work.go`.
+runner orchestration to `handler_project_work.go`. Keep app-layer dependencies
+narrow: define the minimal store/runner interfaces the command needs instead
+of accepting broad subsystem stores by habit.
 
 ### Change chat-session / ACP adapter behavior
 
