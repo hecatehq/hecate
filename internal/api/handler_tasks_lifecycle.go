@@ -9,22 +9,21 @@ import (
 
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/telemetry"
-	"github.com/hecatehq/hecate/pkg/types"
 )
 
 func (h *Handler) HandleTaskApprovals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
 
-	approvals, err := h.taskStore.ListApprovals(ctx, task.ID)
+	approvals, err := h.taskApplication().ListTaskApprovals(ctx, task)
 	if err != nil {
+		if errors.Is(err, errTaskStoreNotConfigured) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.approvals.list.failed",
 			slog.String("event.name", "gateway.tasks.approvals.list.failed"),
 			slog.Any("error", err),
@@ -45,10 +44,6 @@ func (h *Handler) HandleTaskApprovals(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
@@ -59,17 +54,21 @@ func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	approval, found, err := h.taskStore.GetApproval(ctx, task.ID, approvalID)
+	approval, err := h.taskApplication().GetTaskApproval(ctx, task, approvalID)
 	if err != nil {
+		if errors.Is(err, errTaskStoreNotConfigured) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+		if errors.Is(err, orchestrator.ErrApprovalNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "task approval not found")
+			return
+		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.approvals.get.failed",
 			slog.String("event.name", "gateway.tasks.approvals.get.failed"),
 			slog.Any("error", err),
 		)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	if !found {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "task approval not found")
 		return
 	}
 
@@ -81,14 +80,6 @@ func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
-	if h.taskRunner == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task runner is not configured")
-		return
-	}
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
@@ -104,14 +95,12 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := h.taskRunner.ResolveTaskApproval(ctx, orchestrator.ResolveApprovalRequest{
-		Task:        task,
-		ApprovalID:  approvalID,
-		Decision:    req.Decision,
-		Note:        req.Note,
-		ResolvedBy:  "operator",
-		RequestID:   RequestIDFromContext(ctx),
-		IDGenerator: newOpaqueTaskResourceID,
+	result, err := h.taskApplication().ResolveTaskApproval(ctx, orchestrator.ResolveApprovalRequest{
+		Task:       task,
+		ApprovalID: approvalID,
+		Decision:   req.Decision,
+		Note:       req.Note,
+		RequestID:  RequestIDFromContext(ctx),
 	})
 	if err != nil {
 		h.writeResolveTaskApprovalError(w, r, err)
@@ -133,6 +122,8 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 func (h *Handler) writeResolveTaskApprovalError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
 	switch {
+	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskRunnerNotConfigured):
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 	case errors.Is(err, orchestrator.ErrInvalidApprovalDecision):
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "decision must be approve or reject")
 	case errors.Is(err, orchestrator.ErrApprovalNotFound):
@@ -152,14 +143,6 @@ func (h *Handler) writeResolveTaskApprovalError(w http.ResponseWriter, r *http.R
 
 func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.taskStore == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
-		return
-	}
-	if h.taskRunner == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task runner is not configured")
-		return
-	}
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
@@ -176,8 +159,12 @@ func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 	}
 
-	run, err := h.taskRunner.CancelRun(ctx, task, run.ID, body.Reason)
+	run, err := h.taskApplication().CancelTaskRun(ctx, task, run, body.Reason)
 	if err != nil {
+		if errors.Is(err, errTaskStoreNotConfigured) || errors.Is(err, errTaskRunnerNotConfigured) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -197,19 +184,11 @@ func (h *Handler) HandleRetryTaskRun(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !types.IsTerminalTaskRunStatus(run.Status) {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "run is not retryable until it reaches a terminal state")
-		return
-	}
-	if active, err := taskHasOtherActiveRun(ctx, h.taskStore, task, run.ID); err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	} else if active {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has another active run")
-		return
-	}
-	result, err := h.taskRunner.StartTask(ctx, task, newOpaqueTaskResourceID)
+	result, err := h.taskApplication().RetryTaskRun(ctx, task, run)
 	if err != nil {
+		if h.writeTaskLifecycleAppError(w, err) {
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -230,41 +209,11 @@ func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if run.Status != "failed" && run.Status != "cancelled" {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "run is not resumable")
-		return
-	}
-	if active, err := taskHasOtherActiveRun(ctx, h.taskStore, task, run.ID); err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	} else if active {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has another active run")
-		return
-	}
-	// Optional ceiling raise — used by the "Raise ceiling and
-	// resume" UI affordance after a cost_ceiling_exceeded failure.
-	// We persist the new ceiling on the task BEFORE queueing the
-	// resumed run so the agent loop's per-task ceiling check
-	// (priorCost + costSpent vs Task.BudgetMicrosUSD) sees the
-	// raised value on its first turn. The ceiling can only go up
-	// here — a request to lower it is rejected, since the obvious
-	// failure would be to silently strand a run below its
-	// already-spent prior cost.
-	if req.BudgetMicrosUSD > 0 {
-		if req.BudgetMicrosUSD < task.BudgetMicrosUSD {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "budget_micros_usd cannot be lower than the current task ceiling")
-			return
-		}
-		task.BudgetMicrosUSD = req.BudgetMicrosUSD
-		if updated, err := h.taskStore.UpdateTask(ctx, task); err != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-			return
-		} else {
-			task = updated
-		}
-	}
-	result, err := h.taskRunner.ResumeTask(ctx, task, run, strings.TrimSpace(req.Reason), newOpaqueTaskResourceID)
+	result, err := h.taskApplication().ResumeTaskRun(ctx, task, run, req)
 	if err != nil {
+		if h.writeTaskLifecycleAppError(w, err) {
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -285,15 +234,11 @@ func (h *Handler) HandleContinueTaskRun(w http.ResponseWriter, r *http.Request) 
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if active, err := taskHasOtherActiveRun(ctx, h.taskStore, task, run.ID); err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	} else if active {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has another active run")
-		return
-	}
-	result, err := h.taskRunner.ContinueAgentTask(ctx, task, run, req.Prompt, newOpaqueTaskResourceID)
+	result, err := h.taskApplication().ContinueTaskRun(ctx, task, run, req.Prompt)
 	if err != nil {
+		if h.writeTaskLifecycleAppError(w, err) {
+			return
+		}
 		msg := err.Error()
 		if strings.Contains(msg, "not continuable") {
 			WriteError(w, http.StatusConflict, errCodeInvalidRequest, msg)
@@ -333,23 +278,11 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if !types.IsTerminalTaskRunStatus(run.Status) {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "run is not retryable from a turn (must be terminal)")
-		return
-	}
-	if req.Turn < 1 {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "turn must be >= 1")
-		return
-	}
-	if active, err := taskHasOtherActiveRun(ctx, h.taskStore, task, run.ID); err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	} else if active {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has another active run")
-		return
-	}
-	result, err := h.taskRunner.RetryTaskFromTurn(ctx, task, run, req.Turn, strings.TrimSpace(req.Reason), newOpaqueTaskResourceID)
+	result, err := h.taskApplication().RetryTaskRunFromTurn(ctx, task, run, req)
 	if err != nil {
+		if h.writeTaskLifecycleAppError(w, err) {
+			return
+		}
 		// Validation failures (missing conversation, turn out of
 		// range, malformed artifact) are user errors — return 400 so
 		// the UI can render an actionable message rather than a 500.
@@ -364,4 +297,18 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run)})
+}
+
+func (h *Handler) writeTaskLifecycleAppError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskRunnerNotConfigured):
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	case errors.Is(err, errTaskHasActiveRun), errors.Is(err, errTaskHasOtherActiveRun), errors.Is(err, errTaskRunNotRetryable), errors.Is(err, errTaskRunNotResumable):
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
+	case errors.Is(err, errTaskRunNotTurnRetryable), errors.Is(err, errTaskBudgetLower):
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	default:
+		return false
+	}
+	return true
 }

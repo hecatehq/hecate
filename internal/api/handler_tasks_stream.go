@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -248,17 +249,21 @@ func (h *Handler) loadAuthorizedTask(ctx context.Context, w http.ResponseWriter,
 		return types.Task{}, false
 	}
 
-	task, found, err := h.taskStore.GetTask(ctx, id)
+	task, err := h.taskApplication().LoadTask(ctx, id)
 	if err != nil {
+		if errors.Is(err, errTaskStoreNotConfigured) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return types.Task{}, false
+		}
+		if errors.Is(err, errTaskNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
+			return types.Task{}, false
+		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.load.failed",
 			slog.String("event.name", "gateway.tasks.load.failed"),
 			slog.Any("error", err),
 		)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return types.Task{}, false
-	}
-	if !found {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
 		return types.Task{}, false
 	}
 	return task, true
@@ -271,17 +276,21 @@ func (h *Handler) loadAuthorizedTaskRun(ctx context.Context, w http.ResponseWrit
 		return types.TaskRun{}, false
 	}
 
-	run, found, err := h.taskStore.GetRun(ctx, task.ID, runID)
+	run, err := h.taskApplication().LoadTaskRun(ctx, task, runID)
 	if err != nil {
+		if errors.Is(err, errTaskStoreNotConfigured) {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return types.TaskRun{}, false
+		}
+		if errors.Is(err, errTaskRunNotFound) {
+			WriteError(w, http.StatusNotFound, errCodeNotFound, "task run not found")
+			return types.TaskRun{}, false
+		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.runs.load.failed",
 			slog.String("event.name", "gateway.tasks.runs.load.failed"),
 			slog.Any("error", err),
 		)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return types.TaskRun{}, false
-	}
-	if !found {
-		WriteError(w, http.StatusNotFound, errCodeNotFound, "task run not found")
 		return types.TaskRun{}, false
 	}
 	return run, true
