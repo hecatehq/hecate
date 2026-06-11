@@ -34,6 +34,24 @@ func TestPayloads_ApprovalRequested(t *testing.T) {
 	}
 }
 
+func TestEventTypes(t *testing.T) {
+	t.Parallel()
+
+	cases := map[runtimeevents.EventType]string{
+		runtimeevents.EventApprovalRequested: "approval.requested",
+		runtimeevents.EventApprovalResolved:  "approval.resolved",
+		runtimeevents.EventTurnCompleted:     "turn.completed",
+		runtimeevents.EventFilePatch:         "tool.file.patch",
+		runtimeevents.EventPatchApplied:      "tool.file.applied",
+		runtimeevents.EventPatchReverted:     "tool.file.reverted",
+	}
+	for eventType, want := range cases {
+		if got := eventType.String(); got != want {
+			t.Fatalf("%s.String() = %q, want %q", want, got, want)
+		}
+	}
+}
+
 func TestPayloads_ApprovalRequestedOmitsEmptyOptionalFields(t *testing.T) {
 	t.Parallel()
 

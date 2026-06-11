@@ -715,7 +715,7 @@ func (s *SQLiteStore) ApplyRunTerminalTransition(ctx context.Context, tr Termina
 		return TerminalRunTransitionResult{}, err
 	}
 	events := make([]types.TaskRunEvent, 0, len(cancelledApprovals)+2)
-	approvalEventType := firstNonEmptyString(tr.ApprovalResolvedEventType, "approval.resolved")
+	approvalEventType := firstNonEmptyString(tr.ApprovalResolvedEventType, runtimeevents.EventApprovalResolved.String())
 	for _, approval := range cancelledApprovals {
 		event := types.TaskRunEvent{
 			TaskID:    task.ID,

@@ -140,7 +140,7 @@ func (p executionResultPersister) emitTurnCostEvents(ctx context.Context, turnCo
 	// includes prior runs in the resume chain so a long chain shows
 	// total task spend, not just per-run.
 	for _, tc := range turnCosts {
-		_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, "turn.completed", p.requestID, p.trace.TraceID, runtimeevents.TurnCompleted(runtimeevents.TurnCompletedFields{
+		_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, runtimeevents.EventTurnCompleted.String(), p.requestID, p.trace.TraceID, runtimeevents.TurnCompleted(runtimeevents.TurnCompletedFields{
 			TurnIndex:                   tc.Turn,
 			StepID:                      tc.StepID,
 			CostMicrosUSD:               tc.CostMicrosUSD,
@@ -164,7 +164,7 @@ func (p executionResultPersister) persistPendingApprovals(ctx context.Context, a
 		if _, err := p.runner.store.CreateApproval(ctx, approval); err != nil {
 			return err
 		}
-		_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, "approval.requested", p.requestID, p.trace.TraceID, runtimeevents.ApprovalRequested(approval))
+		_, _ = p.runner.emitRunEvent(ctx, p.task.ID, p.run.ID, runtimeevents.EventApprovalRequested.String(), p.requestID, p.trace.TraceID, runtimeevents.ApprovalRequested(approval))
 	}
 	return nil
 }

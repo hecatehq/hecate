@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspace"
@@ -777,7 +778,7 @@ func emitFilePatchEvent(spec ExecutionSpec, stepID, operation string, artifact t
 		telemetry.AttrHecateToolFileBeforeExisted:  beforeExists,
 		telemetry.AttrHecateToolFileArtifactStatus: artifact.Status,
 	}
-	spec.EmitRunEvent("tool.file.patch", data)
+	spec.EmitRunEvent(runtimeevents.EventFilePatch.String(), data)
 }
 
 func unifiedPatch(path, before, after string, beforeExists bool) string {

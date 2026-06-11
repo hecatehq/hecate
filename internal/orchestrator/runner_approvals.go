@@ -109,7 +109,7 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 		return nil, err
 	}
 
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, runtimeevents.ApprovalResolved(approval))
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventApprovalResolved.String(), requestID, trace.TraceID, runtimeevents.ApprovalResolved(approval))
 	if err := r.emitRunQueuedAndEnqueue(ctx, task.ID, run.ID, requestID, trace.TraceID, map[string]any{"resume": true}); err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 	if err != nil {
 		return nil, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, trace.TraceID, runtimeevents.ApprovalResolved(approval))
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventApprovalResolved.String(), requestID, trace.TraceID, runtimeevents.ApprovalResolved(approval))
 	return &StartTaskResult{
 		Task:    task,
 		Run:     run,
@@ -375,6 +375,6 @@ func (r *Runner) createApprovalForTask(ctx context.Context, trace *profiler.Trac
 		})
 		return types.TaskApproval{}, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.requested", requestID, trace.TraceID, runtimeevents.ApprovalRequested(approval))
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, runtimeevents.EventApprovalRequested.String(), requestID, trace.TraceID, runtimeevents.ApprovalRequested(approval))
 	return approval, nil
 }

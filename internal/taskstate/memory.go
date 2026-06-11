@@ -521,7 +521,7 @@ func (s *MemoryStore) ApplyRunTerminalTransition(_ context.Context, tr TerminalR
 	steps := s.listStepsLocked(run.ID)
 	artifacts := s.listArtifactsLocked(ArtifactFilter{TaskID: task.ID, RunID: run.ID})
 	events := make([]types.TaskRunEvent, 0, len(cancelledApprovals)+2)
-	approvalEventType := firstNonEmptyString(tr.ApprovalResolvedEventType, "approval.resolved")
+	approvalEventType := firstNonEmptyString(tr.ApprovalResolvedEventType, runtimeevents.EventApprovalResolved.String())
 	for _, approval := range cancelledApprovals {
 		event := types.TaskRunEvent{
 			TaskID:    task.ID,
@@ -723,12 +723,12 @@ func (s *MemoryStore) Prune(_ context.Context, maxAge time.Duration, maxCount in
 	for runID, list := range s.events {
 		kept := list[:0]
 		for _, evt := range list {
-			if evt.EventType == "turn.completed" && maxAge > 0 && evt.CreatedAt.Before(cutoff) {
+			if evt.EventType == runtimeevents.EventTurnCompleted.String() && maxAge > 0 && evt.CreatedAt.Before(cutoff) {
 				deleted++
 				continue
 			}
 			kept = append(kept, evt)
-			if evt.EventType == "turn.completed" {
+			if evt.EventType == runtimeevents.EventTurnCompleted.String() {
 				survivingTurns = append(survivingTurns, turnRef{
 					runID:    runID,
 					idx:      len(kept) - 1,
@@ -761,7 +761,7 @@ func (s *MemoryStore) Prune(_ context.Context, maxAge time.Duration, maxCount in
 			list := s.events[runID]
 			kept := list[:0]
 			for _, evt := range list {
-				if evt.EventType == "turn.completed" {
+				if evt.EventType == runtimeevents.EventTurnCompleted.String() {
 					if _, ok := seqs[evt.Sequence]; ok {
 						deleted++
 						continue

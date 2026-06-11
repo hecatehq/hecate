@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/gitrunner"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspacefs"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -955,7 +956,7 @@ func proposedFileEditToolResult(spec ExecutionSpec, args fileEditArgs, stepIndex
 	artifact.Status = "proposed"
 	artifact.Description = "Proposed unified diff produced by file_edit"
 	if spec.EmitRunEvent != nil {
-		spec.EmitRunEvent("tool.file.patch", map[string]any{
+		spec.EmitRunEvent(runtimeevents.EventFilePatch.String(), map[string]any{
 			"tool_call_id":    firstNonEmpty(toolCallID, step.ID),
 			"tool_name":       toolName,
 			"kind":            "file",
@@ -1928,7 +1929,7 @@ func emitInlinePatchEvent(spec ExecutionSpec, stepID, toolCallID, toolName, oper
 		status = "proposed"
 		bytesWritten = 0
 	}
-	spec.EmitRunEvent("tool.file.patch", map[string]any{
+	spec.EmitRunEvent(runtimeevents.EventFilePatch.String(), map[string]any{
 		"tool_call_id":    firstNonEmpty(toolCallID, stepID),
 		"tool_name":       toolName,
 		"kind":            "file",
