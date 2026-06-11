@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/orchestrator"
-	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -61,12 +61,8 @@ func (h *Handler) writeCreateTaskError(w http.ResponseWriter, r *http.Request, e
 	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 }
 
-const codingAgentProfileSystemPrompt = `You are running inside Hecate's coding-agent runtime.
-
-Use read_file and list_dir before editing. Prefer file_edit for targeted changes and file_write only for new files or full rewrites. Keep changes scoped to the user's request. Explain important tradeoffs in the final answer, and mention files changed when useful.`
-
-func taskCreateCommandFromRequest(req CreateTaskRequest) taskCreateCommand {
-	return taskCreateCommand{
+func taskCreateCommandFromRequest(req CreateTaskRequest) taskapp.CreateCommand {
+	return taskapp.CreateCommand{
 		Title:              req.Title,
 		Prompt:             req.Prompt,
 		ProjectID:          req.ProjectID,
@@ -94,13 +90,13 @@ func taskCreateCommandFromRequest(req CreateTaskRequest) taskCreateCommand {
 	}
 }
 
-func taskMCPServerCommandsFromRequest(items []MCPServerConfigItem) []taskMCPServerCommand {
+func taskMCPServerCommandsFromRequest(items []MCPServerConfigItem) []taskapp.MCPServerCommand {
 	if len(items) == 0 {
 		return nil
 	}
-	out := make([]taskMCPServerCommand, 0, len(items))
+	out := make([]taskapp.MCPServerCommand, 0, len(items))
 	for _, item := range items {
-		out = append(out, taskMCPServerCommand{
+		out = append(out, taskapp.MCPServerCommand{
 			Name:           item.Name,
 			Command:        item.Command,
 			Args:           append([]string(nil), item.Args...),
@@ -648,141 +644,7 @@ func renderTaskItem(task types.Task) TaskItem {
 	return item
 }
 
-// normalizeMCPServerConfigs converts the wire shape into the internal
-// types.MCPServerConfig slice used by the orchestrator. Trims whitespace
-// on string fields, enforces non-empty Name, rejects duplicate names,
-// validates that exactly one of command or url is set per entry, and
-// caps the number of entries.
-//
-// maxEntries is the per-task cap. Zero or negative disables the cap
-// (used by tests that don't care about the limit). When exceeded the
-// caller surfaces this as a 400 — a malformed task configuring 1000
-// servers would otherwise burn N initialize handshakes and N file
-// descriptors before the run even started.
-//
-// Env and Header values are stored in three forms depending on cipher
-// availability:
-//   - "$VAR_NAME" references are stored verbatim — resolved from the
-//     Hecate process environment at subprocess spawn time.
-//   - Literal values are encrypted with cipher when available →
-//     stored as "enc:<base64>". When cipher is nil they are stored
-//     as-is; operators should prefer $VAR_NAME references in that case.
-//
-// Returns nil for an empty input (the agent loop skips MCP-host
-// startup when MCPServers is nil/empty).
-func normalizeMCPServerConfigs(items []taskMCPServerCommand, cipher secrets.Cipher, maxEntries int) ([]types.MCPServerConfig, error) {
-	if len(items) == 0 {
-		return nil, nil
-	}
-	if maxEntries > 0 && len(items) > maxEntries {
-		return nil, fmt.Errorf("mcp_servers: %d entries exceeds per-task cap of %d (raise HECATE_TASK_MAX_MCP_SERVERS_PER_TASK if you genuinely need more)", len(items), maxEntries)
-	}
-	out := make([]types.MCPServerConfig, 0, len(items))
-	seen := make(map[string]struct{}, len(items))
-	for i, item := range items {
-		name := strings.TrimSpace(item.Name)
-		command := strings.TrimSpace(item.Command)
-		rawURL := strings.TrimSpace(item.URL)
-		if name == "" {
-			return nil, fmt.Errorf("mcp_servers[%d]: name is required", i)
-		}
-		if command != "" && rawURL != "" {
-			return nil, fmt.Errorf("mcp_servers[%d] (%s): command and url are mutually exclusive", i, name)
-		}
-		if command == "" && rawURL == "" {
-			return nil, fmt.Errorf("mcp_servers[%d] (%s): either command or url is required", i, name)
-		}
-		if _, dup := seen[name]; dup {
-			return nil, fmt.Errorf("mcp_servers[%d]: duplicate name %q", i, name)
-		}
-		seen[name] = struct{}{}
-		policy := strings.TrimSpace(item.ApprovalPolicy)
-		if !types.IsValidMCPApprovalPolicy(policy) {
-			return nil, fmt.Errorf("mcp_servers[%d] (%s): approval_policy %q is invalid; must be one of \"auto\", \"require_approval\", \"block\"", i, name, policy)
-		}
-		// Defensive copies — callers may reuse the request struct.
-		args := append([]string(nil), item.Args...)
-		env, err := storeSecretMap(item.Env, cipher, fmt.Sprintf("mcp_servers[%d] (%s): env", i, name))
-		if err != nil {
-			return nil, err
-		}
-		headers, err := storeSecretMap(item.Headers, cipher, fmt.Sprintf("mcp_servers[%d] (%s): headers", i, name))
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, types.MCPServerConfig{
-			Name:           name,
-			Command:        command,
-			Args:           args,
-			Env:            env,
-			URL:            rawURL,
-			Headers:        headers,
-			ApprovalPolicy: policy,
-		})
-	}
-	return out, nil
-}
-
-// storeSecretMap applies storeMCPEnvValue to every value in m, returning
-// a new defensive copy. Returns nil for a nil or empty input. errPrefix
-// is prepended to any encryption error for context (e.g. "mcp_servers[0] (github): env").
-func storeSecretMap(m map[string]string, cipher secrets.Cipher, errPrefix string) (map[string]string, error) {
-	if len(m) == 0 {
-		return nil, nil
-	}
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		stored, err := storeMCPEnvValue(v, cipher)
-		if err != nil {
-			return nil, fmt.Errorf("%s %q: %w", errPrefix, k, err)
-		}
-		out[k] = stored
-	}
-	return out, nil
-}
-
-// storeMCPEnvValue prepares a single env value for storage:
-//   - "$VAR_NAME" references are stored verbatim.
-//   - Already "enc:"-prefixed values pass through (idempotent on re-create).
-//   - Literal values are encrypted with cipher when non-nil, else stored as-is.
-func storeMCPEnvValue(v string, cipher secrets.Cipher) (string, error) {
-	if isMCPEnvRef(v) || strings.HasPrefix(v, types.MCPEnvEncPrefix) {
-		return v, nil
-	}
-	if cipher == nil {
-		return v, nil
-	}
-	ct, err := cipher.Encrypt(v)
-	if err != nil {
-		return "", fmt.Errorf("encrypt: %w", err)
-	}
-	return types.MCPEnvEncPrefix + ct, nil
-}
-
-// isMCPEnvRef reports whether v is a $VAR_NAME reference. Mirrors the
-// same check in the orchestrator's resolveEnvValue so that both the
-// storage path (api) and the spawn path (orchestrator) agree on what
-// counts as a reference vs. a value that should be redacted or encrypted.
-func isMCPEnvRef(v string) bool {
-	if len(v) < 2 || v[0] != '$' {
-		return false
-	}
-	for i, c := range v[1:] {
-		switch {
-		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c == '_':
-			// valid in any position
-		case c >= '0' && c <= '9':
-			if i == 0 {
-				return false
-			}
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-// renderMCPServerConfigs is the inverse of normalizeMCPServerConfigs:
+// renderMCPServerConfigs is the inverse of taskapp MCP normalization:
 // internal slice → wire shape on TaskItem responses. Env and Headers
 // values are selectively redacted:
 //   - "$VAR_NAME" references are returned verbatim (they name a variable,
@@ -817,7 +679,7 @@ func redactSecretMap(m map[string]string) map[string]string {
 	}
 	out := make(map[string]string, len(m))
 	for k, v := range m {
-		if isMCPEnvRef(v) {
+		if taskapp.IsMCPEnvRef(v) {
 			out[k] = v
 		} else {
 			out[k] = "[redacted]"

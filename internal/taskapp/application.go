@@ -1,4 +1,4 @@
-package api
+package taskapp
 
 import (
 	"context"
@@ -14,53 +14,57 @@ import (
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
+const codingAgentProfileSystemPrompt = `You are running inside Hecate's coding-agent runtime.
+
+Use read_file and list_dir before editing. Prefer file_edit for targeted changes and file_write only for new files or full rewrites. Keep changes scoped to the user's request. Explain important tradeoffs in the final answer, and mention files changed when useful.`
+
 var (
-	errTaskStoreNotConfigured        = errors.New("task store is not configured")
-	errTaskRunnerNotConfigured       = errors.New("task runner is not configured")
-	errTaskProjectStoreNotConfigured = errors.New("project store is not configured")
-	errTaskProjectNotFound           = errors.New("project not found")
-	errTaskNotFound                  = errors.New("task not found")
-	errTaskRunNotFound               = errors.New("task run not found")
-	errTaskApprovalNotFound          = errors.New("task approval not found")
-	errTaskIDRequired                = errors.New("task id is required")
-	errTaskRunIDRequired             = errors.New("run id is required")
-	errTaskApprovalIDRequired        = errors.New("approval id is required")
-	errTaskTurnRequired              = errors.New("turn must be >= 1")
-	errTaskPromptRequired            = errors.New("prompt is required")
-	errTaskHasActiveRun              = errors.New("task already has an active run")
-	errTaskHasOtherActiveRun         = errors.New("task already has another active run")
-	errTaskDeleteActiveRun           = errors.New("cannot delete a task with an active run; cancel it first")
-	errTaskRunNotRetryable           = errors.New("run is not retryable until it reaches a terminal state")
-	errTaskRunNotResumable           = errors.New("run is not resumable")
-	errTaskRunNotTurnRetryable       = errors.New("run is not retryable from a turn (must be terminal)")
-	errTaskBudgetLower               = errors.New("budget_micros_usd cannot be lower than the current task ceiling")
+	ErrStoreNotConfigured        = errors.New("task store is not configured")
+	ErrRunnerNotConfigured       = errors.New("task runner is not configured")
+	ErrProjectStoreNotConfigured = errors.New("project store is not configured")
+	ErrProjectNotFound           = errors.New("project not found")
+	ErrTaskNotFound              = errors.New("task not found")
+	ErrRunNotFound               = errors.New("task run not found")
+	ErrApprovalNotFound          = errors.New("task approval not found")
+	ErrTaskIDRequired            = errors.New("task id is required")
+	ErrRunIDRequired             = errors.New("run id is required")
+	ErrApprovalIDRequired        = errors.New("approval id is required")
+	ErrTurnRequired              = errors.New("turn must be >= 1")
+	ErrPromptRequired            = errors.New("prompt is required")
+	ErrActiveRun                 = errors.New("task already has an active run")
+	ErrOtherActiveRun            = errors.New("task already has another active run")
+	ErrDeleteActiveRun           = errors.New("cannot delete a task with an active run; cancel it first")
+	ErrRunNotRetryable           = errors.New("run is not retryable until it reaches a terminal state")
+	ErrRunNotResumable           = errors.New("run is not resumable")
+	ErrRunNotTurnRetryable       = errors.New("run is not retryable from a turn (must be terminal)")
+	ErrBudgetLower               = errors.New("budget_micros_usd cannot be lower than the current task ceiling")
 )
 
-type taskValidationError struct {
+type ValidationError struct {
 	err error
 }
 
-func (e taskValidationError) Error() string {
+func (e ValidationError) Error() string {
 	return e.err.Error()
 }
 
-func (e taskValidationError) Unwrap() error {
+func (e ValidationError) Unwrap() error {
 	return e.err
 }
 
-func taskValidation(err error) error {
+func Validation(err error) error {
 	if err == nil {
 		return nil
 	}
-	return taskValidationError{err: err}
+	return ValidationError{err: err}
 }
 
-func isTaskValidationError(err error) bool {
-	var validation taskValidationError
+func IsValidationError(err error) bool {
+	var validation ValidationError
 	return errors.As(err, &validation)
 }
 
-type taskApplicationRunner interface {
+type Runner interface {
 	StartTask(context.Context, types.Task, func(string) string) (*orchestrator.StartTaskResult, error)
 	ResumeTask(context.Context, types.Task, types.TaskRun, string, func(string) string) (*orchestrator.StartTaskResult, error)
 	ContinueAgentTask(context.Context, types.Task, types.TaskRun, string, func(string) string) (*orchestrator.StartTaskResult, error)
@@ -69,9 +73,9 @@ type taskApplicationRunner interface {
 	ResolveTaskApproval(context.Context, orchestrator.ResolveApprovalRequest) (*orchestrator.ResolveApprovalResult, error)
 }
 
-type taskApplication struct {
+type Application struct {
 	store         taskstate.Store
-	runner        taskApplicationRunner
+	runner        Runner
 	projects      projects.Store
 	secretCipher  secrets.Cipher
 	maxMCPServers int
@@ -79,9 +83,9 @@ type taskApplication struct {
 	now           func() time.Time
 }
 
-type taskApplicationOptions struct {
+type Options struct {
 	Store         taskstate.Store
-	Runner        taskApplicationRunner
+	Runner        Runner
 	Projects      projects.Store
 	SecretCipher  secrets.Cipher
 	MaxMCPServers int
@@ -89,7 +93,7 @@ type taskApplicationOptions struct {
 	Now           func() time.Time
 }
 
-type taskCreateCommand struct {
+type CreateCommand struct {
 	Title              string
 	Prompt             string
 	ProjectID          string
@@ -113,10 +117,10 @@ type taskCreateCommand struct {
 	RequestedModel     string
 	RequestedProvider  string
 	BudgetMicrosUSD    int64
-	MCPServers         []taskMCPServerCommand
+	MCPServers         []MCPServerCommand
 }
 
-type taskMCPServerCommand struct {
+type MCPServerCommand struct {
 	Name           string
 	Command        string
 	Args           []string
@@ -126,17 +130,17 @@ type taskMCPServerCommand struct {
 	ApprovalPolicy string
 }
 
-type taskResumeCommand struct {
+type ResumeCommand struct {
 	Reason          string
 	BudgetMicrosUSD int64
 }
 
-type taskRetryFromTurnCommand struct {
+type RetryFromTurnCommand struct {
 	Turn   int
 	Reason string
 }
 
-type taskResolveApprovalCommand struct {
+type ResolveApprovalCommand struct {
 	Task       types.Task
 	ApprovalID string
 	Decision   string
@@ -145,8 +149,8 @@ type taskResolveApprovalCommand struct {
 	RequestID  string
 }
 
-func newTaskApplication(opts taskApplicationOptions) *taskApplication {
-	app := &taskApplication{
+func New(opts Options) *Application {
+	app := &Application{
 		store:         opts.Store,
 		runner:        opts.Runner,
 		projects:      opts.Projects,
@@ -164,9 +168,9 @@ func newTaskApplication(opts taskApplicationOptions) *taskApplication {
 	return app
 }
 
-func (app *taskApplication) CreateTask(ctx context.Context, cmd taskCreateCommand) (types.Task, error) {
+func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (types.Task, error) {
 	if app == nil || app.store == nil {
-		return types.Task{}, errTaskStoreNotConfigured
+		return types.Task{}, ErrStoreNotConfigured
 	}
 	applyExecutionProfileDefaults(&cmd)
 
@@ -185,12 +189,12 @@ func (app *taskApplication) CreateTask(ctx context.Context, cmd taskCreateComman
 	effectiveKind := strings.TrimSpace(cmd.ExecutionKind)
 	isAgentLoop := effectiveKind == "" || effectiveKind == "agent_loop"
 	if prompt == "" && isAgentLoop {
-		return types.Task{}, errTaskPromptRequired
+		return types.Task{}, ErrPromptRequired
 	}
 
 	mcpServers, err := normalizeMCPServerConfigs(cmd.MCPServers, app.secretCipher, app.maxMCPServers)
 	if err != nil {
-		return types.Task{}, taskValidation(err)
+		return types.Task{}, Validation(err)
 	}
 
 	workspaceMode := strings.TrimSpace(cmd.WorkspaceMode)
@@ -204,12 +208,12 @@ func (app *taskApplication) CreateTask(ctx context.Context, cmd taskCreateComman
 	projectID := strings.TrimSpace(cmd.ProjectID)
 	if projectID != "" {
 		if app.projects == nil {
-			return types.Task{}, errTaskProjectStoreNotConfigured
+			return types.Task{}, ErrProjectStoreNotConfigured
 		}
 		if _, ok, err := app.projects.Get(ctx, projectID); err != nil {
 			return types.Task{}, err
 		} else if !ok {
-			return types.Task{}, errTaskProjectNotFound
+			return types.Task{}, ErrProjectNotFound
 		}
 	}
 
@@ -247,7 +251,7 @@ func (app *taskApplication) CreateTask(ctx context.Context, cmd taskCreateComman
 	return app.store.CreateTask(ctx, task)
 }
 
-func applyExecutionProfileDefaults(cmd *taskCreateCommand) {
+func applyExecutionProfileDefaults(cmd *CreateCommand) {
 	if cmd == nil {
 		return
 	}
@@ -287,144 +291,144 @@ func applyExecutionProfileDefaults(cmd *taskCreateCommand) {
 	}
 }
 
-func (app *taskApplication) ListTasks(ctx context.Context, filter taskstate.TaskFilter) ([]types.Task, error) {
+func (app *Application) ListTasks(ctx context.Context, filter taskstate.TaskFilter) ([]types.Task, error) {
 	if app == nil || app.store == nil {
-		return nil, errTaskStoreNotConfigured
+		return nil, ErrStoreNotConfigured
 	}
 	return app.store.ListTasks(ctx, filter)
 }
 
-func (app *taskApplication) LoadTask(ctx context.Context, id string) (types.Task, error) {
+func (app *Application) LoadTask(ctx context.Context, id string) (types.Task, error) {
 	if app == nil || app.store == nil {
-		return types.Task{}, errTaskStoreNotConfigured
+		return types.Task{}, ErrStoreNotConfigured
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return types.Task{}, taskValidation(errTaskIDRequired)
+		return types.Task{}, Validation(ErrTaskIDRequired)
 	}
 	task, found, err := app.store.GetTask(ctx, id)
 	if err != nil {
 		return types.Task{}, err
 	}
 	if !found {
-		return types.Task{}, errTaskNotFound
+		return types.Task{}, ErrTaskNotFound
 	}
 	return task, nil
 }
 
-func (app *taskApplication) RequireRunner() error {
+func (app *Application) RequireRunner() error {
 	if app == nil || app.store == nil {
-		return errTaskStoreNotConfigured
+		return ErrStoreNotConfigured
 	}
 	if app.runner == nil {
-		return errTaskRunnerNotConfigured
+		return ErrRunnerNotConfigured
 	}
 	return nil
 }
 
-func (app *taskApplication) DeleteTask(ctx context.Context, id string) error {
+func (app *Application) DeleteTask(ctx context.Context, id string) error {
 	if app == nil || app.store == nil {
-		return errTaskStoreNotConfigured
+		return ErrStoreNotConfigured
 	}
 	task, err := app.LoadTask(ctx, id)
 	if err != nil {
 		return err
 	}
-	active, err := taskHasActiveRun(ctx, app.store, task)
+	active, err := HasActiveRun(ctx, app.store, task)
 	if err != nil {
 		return err
 	}
 	if active {
-		return errTaskDeleteActiveRun
+		return ErrDeleteActiveRun
 	}
 	return app.store.DeleteTask(ctx, strings.TrimSpace(id))
 }
 
-func (app *taskApplication) LoadTaskRun(ctx context.Context, task types.Task, runID string) (types.TaskRun, error) {
+func (app *Application) LoadTaskRun(ctx context.Context, task types.Task, runID string) (types.TaskRun, error) {
 	if app == nil || app.store == nil {
-		return types.TaskRun{}, errTaskStoreNotConfigured
+		return types.TaskRun{}, ErrStoreNotConfigured
 	}
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
-		return types.TaskRun{}, taskValidation(errTaskRunIDRequired)
+		return types.TaskRun{}, Validation(ErrRunIDRequired)
 	}
 	run, found, err := app.store.GetRun(ctx, task.ID, runID)
 	if err != nil {
 		return types.TaskRun{}, err
 	}
 	if !found {
-		return types.TaskRun{}, errTaskRunNotFound
+		return types.TaskRun{}, ErrRunNotFound
 	}
 	return run, nil
 }
 
-func (app *taskApplication) StartTask(ctx context.Context, task types.Task) (*orchestrator.StartTaskResult, error) {
+func (app *Application) StartTask(ctx context.Context, task types.Task) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
-		return nil, errTaskStoreNotConfigured
+		return nil, ErrStoreNotConfigured
 	}
 	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
+		return nil, ErrRunnerNotConfigured
 	}
-	active, err := taskHasActiveRun(ctx, app.store, task)
+	active, err := HasActiveRun(ctx, app.store, task)
 	if err != nil {
 		return nil, err
 	}
 	if active {
-		return nil, errTaskHasActiveRun
+		return nil, ErrActiveRun
 	}
 	return app.runner.StartTask(ctx, task, app.idgen)
 }
 
-func (app *taskApplication) CancelTaskRun(ctx context.Context, task types.Task, run types.TaskRun, reason string) (types.TaskRun, error) {
+func (app *Application) CancelTaskRun(ctx context.Context, task types.Task, run types.TaskRun, reason string) (types.TaskRun, error) {
 	if app == nil || app.store == nil {
-		return types.TaskRun{}, errTaskStoreNotConfigured
+		return types.TaskRun{}, ErrStoreNotConfigured
 	}
 	if app.runner == nil {
-		return types.TaskRun{}, errTaskRunnerNotConfigured
+		return types.TaskRun{}, ErrRunnerNotConfigured
 	}
 	return app.runner.CancelRun(ctx, task, run.ID, reason)
 }
 
-func (app *taskApplication) RetryTaskRun(ctx context.Context, task types.Task, run types.TaskRun) (*orchestrator.StartTaskResult, error) {
+func (app *Application) RetryTaskRun(ctx context.Context, task types.Task, run types.TaskRun) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
-		return nil, errTaskStoreNotConfigured
+		return nil, ErrStoreNotConfigured
 	}
 	if !types.IsTerminalTaskRunStatus(run.Status) {
-		return nil, errTaskRunNotRetryable
+		return nil, ErrRunNotRetryable
 	}
 	active, err := taskHasOtherActiveRun(ctx, app.store, task, run.ID)
 	if err != nil {
 		return nil, err
 	}
 	if active {
-		return nil, errTaskHasOtherActiveRun
+		return nil, ErrOtherActiveRun
 	}
 	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
+		return nil, ErrRunnerNotConfigured
 	}
 	return app.runner.StartTask(ctx, task, app.idgen)
 }
 
-func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, run types.TaskRun, cmd taskResumeCommand) (*orchestrator.StartTaskResult, error) {
+func (app *Application) ResumeTaskRun(ctx context.Context, task types.Task, run types.TaskRun, cmd ResumeCommand) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
-		return nil, errTaskStoreNotConfigured
+		return nil, ErrStoreNotConfigured
 	}
 	if run.Status != "failed" && run.Status != "cancelled" {
-		return nil, errTaskRunNotResumable
+		return nil, ErrRunNotResumable
 	}
 	active, err := taskHasOtherActiveRun(ctx, app.store, task, run.ID)
 	if err != nil {
 		return nil, err
 	}
 	if active {
-		return nil, errTaskHasOtherActiveRun
+		return nil, ErrOtherActiveRun
 	}
 	if cmd.BudgetMicrosUSD > 0 {
 		if cmd.BudgetMicrosUSD < task.BudgetMicrosUSD {
-			return nil, errTaskBudgetLower
+			return nil, ErrBudgetLower
 		}
 		if app.runner == nil {
-			return nil, errTaskRunnerNotConfigured
+			return nil, ErrRunnerNotConfigured
 		}
 		// Persist the raised ceiling before queueing; the resumed
 		// agent loop reads the task ceiling on its first turn.
@@ -436,82 +440,82 @@ func (app *taskApplication) ResumeTaskRun(ctx context.Context, task types.Task, 
 		task = updated
 	}
 	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
+		return nil, ErrRunnerNotConfigured
 	}
 	return app.runner.ResumeTask(ctx, task, run, strings.TrimSpace(cmd.Reason), app.idgen)
 }
 
-func (app *taskApplication) ContinueTaskRun(ctx context.Context, task types.Task, run types.TaskRun, prompt string) (*orchestrator.StartTaskResult, error) {
+func (app *Application) ContinueTaskRun(ctx context.Context, task types.Task, run types.TaskRun, prompt string) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
-		return nil, errTaskStoreNotConfigured
+		return nil, ErrStoreNotConfigured
 	}
 	active, err := taskHasOtherActiveRun(ctx, app.store, task, run.ID)
 	if err != nil {
 		return nil, err
 	}
 	if active {
-		return nil, errTaskHasOtherActiveRun
+		return nil, ErrOtherActiveRun
 	}
 	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
+		return nil, ErrRunnerNotConfigured
 	}
 	return app.runner.ContinueAgentTask(ctx, task, run, prompt, app.idgen)
 }
 
-func (app *taskApplication) RetryTaskRunFromTurn(ctx context.Context, task types.Task, run types.TaskRun, cmd taskRetryFromTurnCommand) (*orchestrator.StartTaskResult, error) {
+func (app *Application) RetryTaskRunFromTurn(ctx context.Context, task types.Task, run types.TaskRun, cmd RetryFromTurnCommand) (*orchestrator.StartTaskResult, error) {
 	if app == nil || app.store == nil {
-		return nil, errTaskStoreNotConfigured
+		return nil, ErrStoreNotConfigured
 	}
 	if !types.IsTerminalTaskRunStatus(run.Status) {
-		return nil, errTaskRunNotTurnRetryable
+		return nil, ErrRunNotTurnRetryable
 	}
 	if cmd.Turn < 1 {
-		return nil, taskValidation(errTaskTurnRequired)
+		return nil, Validation(ErrTurnRequired)
 	}
 	active, err := taskHasOtherActiveRun(ctx, app.store, task, run.ID)
 	if err != nil {
 		return nil, err
 	}
 	if active {
-		return nil, errTaskHasOtherActiveRun
+		return nil, ErrOtherActiveRun
 	}
 	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
+		return nil, ErrRunnerNotConfigured
 	}
 	return app.runner.RetryTaskFromTurn(ctx, task, run, cmd.Turn, strings.TrimSpace(cmd.Reason), app.idgen)
 }
 
-func (app *taskApplication) ListTaskApprovals(ctx context.Context, task types.Task) ([]types.TaskApproval, error) {
+func (app *Application) ListTaskApprovals(ctx context.Context, task types.Task) ([]types.TaskApproval, error) {
 	if app == nil || app.store == nil {
-		return nil, errTaskStoreNotConfigured
+		return nil, ErrStoreNotConfigured
 	}
 	return app.store.ListApprovals(ctx, task.ID)
 }
 
-func (app *taskApplication) GetTaskApproval(ctx context.Context, task types.Task, approvalID string) (types.TaskApproval, error) {
+func (app *Application) GetTaskApproval(ctx context.Context, task types.Task, approvalID string) (types.TaskApproval, error) {
 	if app == nil || app.store == nil {
-		return types.TaskApproval{}, errTaskStoreNotConfigured
+		return types.TaskApproval{}, ErrStoreNotConfigured
 	}
 	approvalID = strings.TrimSpace(approvalID)
 	if approvalID == "" {
-		return types.TaskApproval{}, taskValidation(errTaskApprovalIDRequired)
+		return types.TaskApproval{}, Validation(ErrApprovalIDRequired)
 	}
 	approval, found, err := app.store.GetApproval(ctx, task.ID, approvalID)
 	if err != nil {
 		return types.TaskApproval{}, err
 	}
 	if !found {
-		return types.TaskApproval{}, errTaskApprovalNotFound
+		return types.TaskApproval{}, ErrApprovalNotFound
 	}
 	return approval, nil
 }
 
-func (app *taskApplication) ResolveTaskApproval(ctx context.Context, cmd taskResolveApprovalCommand) (*orchestrator.ResolveApprovalResult, error) {
+func (app *Application) ResolveTaskApproval(ctx context.Context, cmd ResolveApprovalCommand) (*orchestrator.ResolveApprovalResult, error) {
 	if app == nil || app.store == nil {
-		return nil, errTaskStoreNotConfigured
+		return nil, ErrStoreNotConfigured
 	}
 	if app.runner == nil {
-		return nil, errTaskRunnerNotConfigured
+		return nil, ErrRunnerNotConfigured
 	}
 	req := orchestrator.ResolveApprovalRequest{
 		Task:       cmd.Task,
@@ -528,7 +532,7 @@ func (app *taskApplication) ResolveTaskApproval(ctx context.Context, cmd taskRes
 	return app.runner.ResolveTaskApproval(ctx, req)
 }
 
-func taskHasActiveRun(ctx context.Context, store taskstate.Store, task types.Task) (bool, error) {
+func HasActiveRun(ctx context.Context, store taskstate.Store, task types.Task) (bool, error) {
 	latestRunID := strings.TrimSpace(task.LatestRunID)
 	if latestRunID != "" && store != nil {
 		run, found, err := store.GetRun(ctx, task.ID, latestRunID)
@@ -547,5 +551,5 @@ func taskHasOtherActiveRun(ctx context.Context, store taskstate.Store, task type
 	if latestRunID == "" || latestRunID == strings.TrimSpace(currentRunID) {
 		return false, nil
 	}
-	return taskHasActiveRun(ctx, store, task)
+	return HasActiveRun(ctx, store, task)
 }

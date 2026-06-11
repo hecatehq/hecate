@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hecatehq/hecate/internal/orchestrator"
+	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/telemetry"
 )
 
@@ -93,7 +94,7 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	result, err := h.taskApplication().ResolveTaskApproval(ctx, taskResolveApprovalCommand{
+	result, err := h.taskApplication().ResolveTaskApproval(ctx, taskapp.ResolveApprovalCommand{
 		Task:       task,
 		ApprovalID: approvalID,
 		Decision:   req.Decision,
@@ -209,7 +210,7 @@ func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := h.taskApplication().ResumeTaskRun(ctx, task, run, taskResumeCommand{
+	result, err := h.taskApplication().ResumeTaskRun(ctx, task, run, taskapp.ResumeCommand{
 		Reason:          req.Reason,
 		BudgetMicrosUSD: req.BudgetMicrosUSD,
 	})
@@ -281,7 +282,7 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := h.taskApplication().RetryTaskRunFromTurn(ctx, task, run, taskRetryFromTurnCommand{
+	result, err := h.taskApplication().RetryTaskRunFromTurn(ctx, task, run, taskapp.RetryFromTurnCommand{
 		Turn:   req.Turn,
 		Reason: req.Reason,
 	})

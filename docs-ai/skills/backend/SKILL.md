@@ -98,12 +98,12 @@ focused on request setup, polling, and cancellation.
 Task HTTP handlers should stay thin: parse path/query/body, choose the
 HTTP status/error envelope, and render response DTOs. Task creation,
 task/run loading, active-run conflict checks, approval resolution dispatch,
-resume budget raising, and runner calls live behind `internal/api`
-`taskApplication`. Keep that seam on internal command structs rather than
-HTTP request DTOs, and route known app sentinels / validation wrappers through
-the shared task app HTTP error mapper before adding handler-local switch
-blocks. Extend the seam before adding more store/runner orchestration directly
-to handlers.
+resume budget raising, and runner calls live behind
+`internal/taskapp.Application`. Keep that seam on `taskapp` command structs
+rather than HTTP request DTOs, and route known app sentinels / validation
+wrappers through `writeAppError` mapping slices before adding handler-local
+switch blocks. Extend the seam before adding more store/runner orchestration
+directly to handlers.
 
 ### Change chat-session / ACP adapter behavior
 

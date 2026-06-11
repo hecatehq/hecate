@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/hecatehq/hecate/internal/taskapp"
 )
 
 func TestWriteTaskAppError(t *testing.T) {
@@ -19,35 +21,35 @@ func TestWriteTaskAppError(t *testing.T) {
 	}{
 		{
 			name:    "store_not_configured",
-			err:     errTaskStoreNotConfigured,
+			err:     taskapp.ErrStoreNotConfigured,
 			status:  http.StatusBadRequest,
 			code:    errCodeInvalidRequest,
 			message: "task store is not configured",
 		},
 		{
 			name:    "validation",
-			err:     taskValidation(errTaskIDRequired),
+			err:     taskapp.Validation(taskapp.ErrTaskIDRequired),
 			status:  http.StatusBadRequest,
 			code:    errCodeInvalidRequest,
 			message: "task id is required",
 		},
 		{
 			name:    "not_found",
-			err:     errTaskRunNotFound,
+			err:     taskapp.ErrRunNotFound,
 			status:  http.StatusNotFound,
 			code:    errCodeNotFound,
 			message: "task run not found",
 		},
 		{
 			name:    "conflict",
-			err:     errTaskHasOtherActiveRun,
+			err:     taskapp.ErrOtherActiveRun,
 			status:  http.StatusConflict,
 			code:    errCodeInvalidRequest,
 			message: "task already has another active run",
 		},
 		{
 			name:    "turn_retry_nonterminal",
-			err:     errTaskRunNotTurnRetryable,
+			err:     taskapp.ErrRunNotTurnRetryable,
 			status:  http.StatusBadRequest,
 			code:    errCodeInvalidRequest,
 			message: "run is not retryable from a turn (must be terminal)",

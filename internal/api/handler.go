@@ -30,6 +30,7 @@ import (
 	"github.com/hecatehq/hecate/internal/ratelimit"
 	"github.com/hecatehq/hecate/internal/sandbox"
 	"github.com/hecatehq/hecate/internal/secrets"
+	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/version"
@@ -99,15 +100,15 @@ type Handler struct {
 	quitFunc func()
 }
 
-func (h *Handler) taskApplication() *taskApplication {
+func (h *Handler) taskApplication() *taskapp.Application {
 	if h == nil {
-		return newTaskApplication(taskApplicationOptions{})
+		return taskapp.New(taskapp.Options{})
 	}
-	var runner taskApplicationRunner
+	var runner taskapp.Runner
 	if h.taskRunner != nil {
 		runner = h.taskRunner
 	}
-	return newTaskApplication(taskApplicationOptions{
+	return taskapp.New(taskapp.Options{
 		Store:         h.taskStore,
 		Runner:        runner,
 		Projects:      h.projects,
