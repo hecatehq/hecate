@@ -714,53 +714,21 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		},
 	})
 	streamCoalescer.close()
-	status := "completed"
-	if runErr != nil {
-		status = "failed"
-	}
-	if errors.Is(runCtx.Err(), context.Canceled) {
-		status = "cancelled"
-	}
-	output := strings.TrimSpace(result.Output)
-	displayErr := ""
-	if runErr != nil {
-		displayErr = agentadapters.NormalizeError(adapter.Name, runErr)
-	}
-	if status != "cancelled" && runErr != nil {
-		if output == "" {
-			output = displayErr
-		} else {
-			output = output + "\n\n" + displayErr
-		}
-	}
-	if status != "cancelled" && output == "" {
-		output = "(agent completed without output)"
-	}
-	completedAt := time.Now().UTC()
-	if !result.StartedAt.IsZero() {
-		startedAt = result.StartedAt
-	}
-	if !result.CompletedAt.IsZero() {
-		completedAt = result.CompletedAt
-	}
-	errorText := ""
-	if runErr != nil && status != "cancelled" {
-		errorText = displayErr
-	}
+	outcome := newExternalAgentTurnOutcome(adapter.Name, result, runErr, runCtx.Err(), startedAt, time.Now().UTC())
+	status := outcome.Status
+	output := outcome.Output
+	errorText := outcome.ErrorText
+	startedAt = outcome.StartedAt
+	completedAt := outcome.CompletedAt
 	if result.DiffStat != "" {
 		trace.Record(telemetry.EventAgentChatFilesChanged, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
 			telemetry.AttrHecateRunStatus:         status,
 			telemetry.AttrHecateAgentDiffCaptured: true,
 		}))
 	}
-	durationMS := completedAt.Sub(startedAt).Milliseconds()
-	resultLabel := telemetry.ResultSuccess
-	if runErr != nil || status == "cancelled" {
-		resultLabel = telemetry.ResultError
-	}
 	terminalAttrs := agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
 		telemetry.AttrHecateRunStatus:            status,
-		telemetry.AttrHecateRunDurationMS:        durationMS,
+		telemetry.AttrHecateRunDurationMS:        outcome.DurationMS,
 		telemetry.AttrHecateAgentOutputBytes:     int64(len(output)),
 		telemetry.AttrHecateAgentRawOutputBytes:  int64(len(result.RawOutput)),
 		telemetry.AttrHecateAgentDiffCaptured:    result.Diff != "",
@@ -772,7 +740,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
 		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
 		terminalAttrs[telemetry.AttrErrorType] = "agent_adapter_failed"
-		terminalAttrs[telemetry.AttrErrorMessage] = displayErr
+		terminalAttrs[telemetry.AttrErrorMessage] = outcome.DisplayErr
 	}
 	trace.Record(agentChatTerminalEvent(status), terminalAttrs)
 	driverKind := result.DriverKind
@@ -783,8 +751,8 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		AdapterID:  adapter.ID,
 		DriverKind: driverKind,
 		Status:     status,
-		Result:     resultLabel,
-		DurationMS: durationMS,
+		Result:     outcome.ResultLabel,
+		DurationMS: outcome.DurationMS,
 	})
 	if status == "cancelled" {
 		// Reason classification: cancelRun / cancelRunAndWait stamp
@@ -1007,27 +975,10 @@ func (h *Handler) handleDirectModelTurn(w http.ResponseWriter, r *http.Request, 
 	}
 	result, runErr := h.service.HandleChat(runCtx, chatReq)
 	completedAt := time.Now().UTC()
-	status := "completed"
-	output := ""
-	errorText := ""
-	if runErr != nil {
-		status = "failed"
-		errorText = runErr.Error()
-		output = errorText
-	}
-	if errors.Is(runCtx.Err(), context.Canceled) {
-		status = "cancelled"
-		errorText = "cancelled"
-		output = "model request cancelled"
-	}
-	if result != nil && result.Response != nil {
-		if len(result.Response.Choices) > 0 {
-			output = strings.TrimSpace(result.Response.Choices[0].Message.Content)
-		}
-		if output == "" {
-			output = "(model completed without output)"
-		}
-	}
+	outcome := newDirectModelTurnOutcome(result, runErr, runCtx.Err())
+	status := outcome.Status
+	output := outcome.Output
+	errorText := outcome.ErrorText
 	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *chat.Message) {
 		message.Status = status
 		message.Content = output
