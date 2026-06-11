@@ -52,6 +52,10 @@ import {
 import { modelSelectionHasNoToolCalling } from "../../../lib/chat-setup-readiness";
 import { projectByID, projectDefaultWorkspace } from "../../../lib/project-workspace";
 import {
+  toChatMessageViewModel,
+  toChatSegmentViewModel,
+} from "../../../features/chats/chatTurnViewModels";
+import {
   type ChatExecutionMode,
   type ChatTarget,
   type QueuedChatMessage,
@@ -135,12 +139,12 @@ function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null)
     return { provider: "", model: "" };
   }
   const segments = [...(session.segments ?? [])].reverse();
-  const segment = segments.find((item) => item.execution_mode === "hecate_task");
+  const segment = segments.find((item) => toChatSegmentViewModel(item).isHecateOwned);
   if (segment?.provider || segment?.model) {
     return { provider: segment.provider ?? "", model: segment.model ?? "" };
   }
   const messages = [...(session.messages ?? [])].reverse();
-  const message = messages.find((item) => item.execution_mode === "hecate_task");
+  const message = messages.find((item) => toChatMessageViewModel(item).isHecateOwned);
   if (message?.provider || message?.model) {
     return { provider: message.provider ?? "", model: message.model ?? "" };
   }

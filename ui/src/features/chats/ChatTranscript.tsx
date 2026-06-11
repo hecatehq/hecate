@@ -21,9 +21,11 @@ import {
   compactWorkspaceChangeLabel,
   workspaceChangeSummaryLabel,
 } from "./ChatWorkspaceChangesPanel";
+import { toChatMessageViewModel, toChatSegmentViewModel } from "./chatTurnViewModels";
 
 export type VisibleChatMessage = {
   id: string;
+  turn_kind?: string;
   execution_mode?: string;
   tools_enabled?: boolean;
   segment_id?: string;
@@ -395,7 +397,8 @@ const ChatTranscriptRow = memo(function ChatTranscriptRow({
     role === "assistant"
       ? formatAgentRuntimeMetaTitle(m.run_id, m.duration_ms, m.native_session_id)
       : "";
-  const taskID = m.execution_mode === "hecate_task" ? m.task_id : "";
+  const turn = toChatMessageViewModel(m);
+  const taskID = turn.isTaskBacked ? turn.taskID : "";
   const taskRunID = taskID ? m.run_id : "";
   const traceRequestID = m.request_id;
   const traceID = m.trace_id;
@@ -522,6 +525,7 @@ export function projectVisibleMessage(
 function buildVisibleMessage(m: ChatMessageRecord, id: string): VisibleChatMessage {
   return {
     id,
+    turn_kind: m.turn_kind,
     execution_mode: m.execution_mode,
     tools_enabled: m.tools_enabled,
     segment_id: m.segment_id,
@@ -560,6 +564,7 @@ function fallbackSegmentID(message: VisibleChatMessage): string {
 function segmentFromMessage(message: VisibleChatMessage, segmentID: string): ChatSegmentRecord {
   return {
     id: segmentID,
+    turn_kind: message.turn_kind,
     execution_mode: message.execution_mode || "hecate_task",
     tools_enabled: message.tools_enabled,
     provider: message.provider,
@@ -667,23 +672,20 @@ function describeChatSegment(segment: ChatSegmentRecord): {
 } {
   const model = segment.model || "selected model";
   const provider = segment.provider && segment.provider !== "auto" ? segment.provider : "";
-  switch (segment.execution_mode) {
+  const turn = toChatSegmentViewModel(segment);
+  switch (turn.turnKind) {
+    case "direct_model": {
+      const meta = [provider, "direct model chat"].filter(Boolean).join(" · ");
+      return {
+        kicker: "Tools off",
+        title: model,
+        meta,
+        label: `Tools off segment using ${model}`,
+        tone: "off",
+      };
+    }
     case "hecate_task": {
-      if (segment.tools_enabled === false) {
-        const meta = [provider, "direct model chat"].filter(Boolean).join(" · ");
-        return {
-          kicker: "Tools off",
-          title: model,
-          meta,
-          label: `Tools off segment using ${model}`,
-          tone: "off",
-        };
-      }
-      const meta = [
-        provider,
-        segment.task_id ? formatTaskLinkLabel(segment.task_id) : "",
-        segment.status,
-      ]
+      const meta = [provider, turn.taskID ? formatTaskLinkLabel(turn.taskID) : "", turn.status]
         .filter(Boolean)
         .join(" · ");
       return {
@@ -695,9 +697,7 @@ function describeChatSegment(segment: ChatSegmentRecord): {
       };
     }
     case "external_agent": {
-      const meta = [segment.status, segment.workspace ? "workspace" : ""]
-        .filter(Boolean)
-        .join(" · ");
+      const meta = [turn.status, turn.workspace ? "workspace" : ""].filter(Boolean).join(" · ");
       return {
         kicker: "External",
         title: model === "selected model" ? "External Agent" : model,

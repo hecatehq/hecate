@@ -9,6 +9,7 @@ import { useContext, useMemo } from "react";
 
 import { buildLocalProviderIssue, type LocalProviderIssue } from "../../lib/provider-issues";
 import { filterModelsByKind, filterModelsByProvider } from "../../lib/runtime-utils";
+import { toChatSegmentViewModel } from "../../features/chats/chatTurnViewModels";
 import { useChat } from "./chat";
 import { CoordinatorOverridesContext } from "./coordinators/overrides";
 import { useProvidersAndModels } from "./providersAndModels";
@@ -30,12 +31,10 @@ function hecateTaskStatusIsActive(status?: string): boolean {
 function sessionHasActiveHecateTaskSegment(session: ChatSessionRecord | null): boolean {
   if (!session) return false;
   if (session.task_id && hecateTaskStatusIsActive(session.status)) return true;
-  return (session.segments ?? []).some(
-    (segment) =>
-      segment.execution_mode === "hecate_task" &&
-      Boolean(segment.task_id) &&
-      hecateTaskStatusIsActive(segment.status),
-  );
+  return (session.segments ?? []).some((segment) => {
+    const turn = toChatSegmentViewModel(segment);
+    return turn.isTaskBacked && hecateTaskStatusIsActive(turn.status);
+  });
 }
 
 // chatTarget gates several views' route/copy decisions. The active
