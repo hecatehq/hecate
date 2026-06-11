@@ -20,8 +20,7 @@ func (h *Handler) HandleTaskApprovals(w http.ResponseWriter, r *http.Request) {
 
 	approvals, err := h.taskApplication().ListTaskApprovals(ctx, task)
 	if err != nil {
-		if errors.Is(err, errTaskStoreNotConfigured) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		if writeTaskAppError(w, err) {
 			return
 		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.approvals.list.failed",
@@ -56,16 +55,7 @@ func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
 
 	approval, err := h.taskApplication().GetTaskApproval(ctx, task, approvalID)
 	if err != nil {
-		if errors.Is(err, errTaskStoreNotConfigured) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return
-		}
-		if isTaskValidationError(err) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-			return
-		}
-		if errors.Is(err, errTaskApprovalNotFound) {
-			WriteError(w, http.StatusNotFound, errCodeNotFound, "task approval not found")
+		if writeTaskAppError(w, err) {
 			return
 		}
 		telemetry.Error(h.logger, ctx, "gateway.tasks.approvals.get.failed",
@@ -85,7 +75,7 @@ func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := h.taskApplication().RequireRunner(); err != nil {
-		writeTaskRuntimePreflightError(w, err)
+		writeTaskAppError(w, err)
 		return
 	}
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
@@ -130,8 +120,7 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 func (h *Handler) writeResolveTaskApprovalError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
 	switch {
-	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskRunnerNotConfigured):
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	case writeTaskAppError(w, err):
 	case errors.Is(err, orchestrator.ErrInvalidApprovalDecision):
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "decision must be approve or reject")
 	case errors.Is(err, orchestrator.ErrApprovalNotFound):
@@ -152,7 +141,7 @@ func (h *Handler) writeResolveTaskApprovalError(w http.ResponseWriter, r *http.R
 func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := h.taskApplication().RequireRunner(); err != nil {
-		writeTaskRuntimePreflightError(w, err)
+		writeTaskAppError(w, err)
 		return
 	}
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
@@ -173,8 +162,7 @@ func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 
 	run, err := h.taskApplication().CancelTaskRun(ctx, task, run, body.Reason)
 	if err != nil {
-		if errors.Is(err, errTaskStoreNotConfigured) || errors.Is(err, errTaskRunnerNotConfigured) {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		if writeTaskAppError(w, err) {
 			return
 		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -198,7 +186,7 @@ func (h *Handler) HandleRetryTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.taskApplication().RetryTaskRun(ctx, task, run)
 	if err != nil {
-		if h.writeTaskLifecycleAppError(w, err) {
+		if writeTaskAppError(w, err) {
 			return
 		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -226,7 +214,7 @@ func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
 		BudgetMicrosUSD: req.BudgetMicrosUSD,
 	})
 	if err != nil {
-		if h.writeTaskLifecycleAppError(w, err) {
+		if writeTaskAppError(w, err) {
 			return
 		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -251,7 +239,7 @@ func (h *Handler) HandleContinueTaskRun(w http.ResponseWriter, r *http.Request) 
 	}
 	result, err := h.taskApplication().ContinueTaskRun(ctx, task, run, req.Prompt)
 	if err != nil {
-		if h.writeTaskLifecycleAppError(w, err) {
+		if writeTaskAppError(w, err) {
 			return
 		}
 		msg := err.Error()
@@ -298,7 +286,7 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 		Reason: req.Reason,
 	})
 	if err != nil {
-		if h.writeTaskLifecycleAppError(w, err) {
+		if writeTaskAppError(w, err) {
 			return
 		}
 		// Validation failures (missing conversation, turn out of
@@ -315,29 +303,4 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run)})
-}
-
-func (h *Handler) writeTaskLifecycleAppError(w http.ResponseWriter, err error) bool {
-	switch {
-	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskRunnerNotConfigured):
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	case isTaskValidationError(err):
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	case errors.Is(err, errTaskHasActiveRun), errors.Is(err, errTaskHasOtherActiveRun), errors.Is(err, errTaskRunNotRetryable), errors.Is(err, errTaskRunNotResumable):
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
-	case errors.Is(err, errTaskRunNotTurnRetryable), errors.Is(err, errTaskBudgetLower):
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	default:
-		return false
-	}
-	return true
-}
-
-func writeTaskRuntimePreflightError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, errTaskStoreNotConfigured), errors.Is(err, errTaskRunnerNotConfigured):
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	default:
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-	}
 }
