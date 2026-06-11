@@ -409,10 +409,13 @@ func (h *Handler) projectWorkApplication() *projectworkapp.Application {
 		return projectworkapp.New(projectworkapp.Options{})
 	}
 	return projectworkapp.New(projectworkapp.Options{
-		Store:       h.projectWork,
-		TaskStore:   h.taskStore,
-		Runner:      h.taskRunner,
-		IDGenerator: newOpaqueTaskResourceID,
+		Store:          h.projectWork,
+		TaskStore:      h.taskStore,
+		Runner:         h.taskRunner,
+		ChatStore:      h.agentChat,
+		AgentRunner:    h.agentChatRunner,
+		PrepareTimeout: agentChatPrepareTimeout,
+		IDGenerator:    newOpaqueTaskResourceID,
 	})
 }
 
@@ -990,37 +993,6 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		WorkspaceBranch: workspaceGitBranch(workspace),
 		ConfigOptions:   configOptions,
 	}
-	session, err = h.agentChat.Create(ctx, session)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	prepareCtx, cancel := context.WithTimeout(ctx, agentChatPrepareTimeout)
-	result, prepareErr := h.agentChatRunner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
-		SessionID:     session.ID,
-		AdapterID:     session.AgentID,
-		Workspace:     session.Workspace,
-		ConfigOptions: session.ConfigOptions,
-	})
-	cancel()
-	if prepareErr != nil {
-		_ = h.agentChat.Delete(context.Background(), session.ID)
-		writeAgentChatPrepareError(w, adapter.Name, prepareErr)
-		return
-	}
-	session, err = h.agentChat.UpdateSession(ctx, session.ID, func(item *chat.Session) {
-		item.DriverKind = result.DriverKind
-		item.NativeSessionID = result.NativeSessionID
-		item.ConfigOptions = result.ConfigOptions
-	})
-	if err != nil {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
-		_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
-		cleanupCancel()
-		_ = h.agentChat.Delete(context.Background(), session.ID)
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
 	contextPacket.Refs.SessionID = session.ID
 	contextPacket = normalizeContextPacket(contextPacket, chat.ContextRefs{
 		SessionID:    session.ID,
@@ -1030,42 +1002,36 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		RoleID:       role.ID,
 	})
 	packetBytes := marshalContextPacket(contextPacket)
-	assignment, err = h.projectWork.UpdateAssignment(ctx, project.ID, assignment.ID, func(item *projectwork.Assignment) {
-		if item.ChatSessionID != "" || projectWorkAssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverExternalAgent {
-			return
-		}
-		item.ChatSessionID = session.ID
-		item.ContextSnapshotID = contextPacket.ID
-		item.ContextPacket = packetBytes
-		item.Status = projectwork.AssignmentStatusRunning
-		if item.StartedAt.IsZero() {
-			item.StartedAt = time.Now().UTC()
-		}
+	result, err := h.projectWorkApplication().StartExternalAgentAssignment(ctx, projectworkapp.StartExternalAgentAssignmentCommand{
+		ProjectID:         project.ID,
+		Assignment:        assignment,
+		Session:           session,
+		ContextSnapshotID: contextPacket.ID,
+		ContextPacket:     packetBytes,
 	})
 	if err != nil {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
-		_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
-		cleanupCancel()
-		_ = h.agentChat.Delete(context.Background(), session.ID)
+		var prepareErr projectworkapp.ExternalAgentPrepareError
+		if errors.As(err, &prepareErr) {
+			writeAgentChatPrepareError(w, adapter.Name, prepareErr.Unwrap())
+			return
+		}
+		resultAssignment := assignment
+		if result != nil && result.Assignment.ID != "" {
+			resultAssignment = result.Assignment
+		}
+		if errors.Is(err, projectworkapp.ErrAssignmentStartConflict) {
+			projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, resultAssignment)
+			if projectErr != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
+				return
+			}
+			WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	// Create-then-detect-loss-then-cleanup: if another starter won the assignment
-	// update race, discard the prepared native session before returning conflict.
-	if assignment.ChatSessionID != session.ID {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
-		_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
-		cleanupCancel()
-		_ = h.agentChat.Delete(context.Background(), session.ID)
-		projected, projectErr := h.renderProjectedProjectWorkAssignment(ctx, assignment)
-		if projectErr != nil {
-			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, projectErr.Error())
-			return
-		}
-		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
-		return
-	}
-	projected, err := h.renderProjectedProjectWorkAssignment(ctx, assignment)
+	projected, err := h.renderProjectedProjectWorkAssignment(ctx, result.Assignment)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -1961,7 +1927,9 @@ var projectWorkErrorMappings = []appErrorMapping{
 		Match: func(err error) bool {
 			return errors.Is(err, projectworkapp.ErrStoreNotConfigured) ||
 				errors.Is(err, projectworkapp.ErrTaskStoreNotConfigured) ||
-				errors.Is(err, projectworkapp.ErrRunnerNotConfigured)
+				errors.Is(err, projectworkapp.ErrRunnerNotConfigured) ||
+				errors.Is(err, projectworkapp.ErrChatStoreNotConfigured) ||
+				errors.Is(err, projectworkapp.ErrAgentRunnerNotConfigured)
 		},
 		Status: http.StatusBadRequest,
 		Code:   errCodeInvalidRequest,

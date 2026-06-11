@@ -6,16 +6,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/agentadapters"
+	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/pkg/types"
 )
 
 var (
-	ErrStoreNotConfigured      = errors.New("project work store is not configured")
-	ErrTaskStoreNotConfigured  = errors.New("task store is not configured")
-	ErrRunnerNotConfigured     = errors.New("task runner is not configured")
-	ErrAssignmentStartConflict = errors.New("project assignment start conflicts with current state")
+	ErrStoreNotConfigured       = errors.New("project work store is not configured")
+	ErrTaskStoreNotConfigured   = errors.New("task store is not configured")
+	ErrRunnerNotConfigured      = errors.New("task runner is not configured")
+	ErrChatStoreNotConfigured   = errors.New("agent chat store is not configured")
+	ErrAgentRunnerNotConfigured = errors.New("agent chat runner is not configured")
+	ErrAssignmentStartConflict  = errors.New("project assignment start conflicts with current state")
 )
 
 type TaskStore interface {
@@ -31,20 +35,31 @@ type TaskRunner interface {
 	StartTaskWithRunInitializer(ctx context.Context, task types.Task, idgen func(string) string, init func(*types.TaskRun)) (*orchestrator.StartTaskResult, error)
 }
 
+type AgentRunner interface {
+	PrepareSession(context.Context, agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error)
+	CloseSession(context.Context, string) error
+}
+
 type Application struct {
-	store     projectwork.Store
-	taskStore TaskStore
-	runner    TaskRunner
-	idgen     func(string) string
-	now       func() time.Time
+	store          projectwork.Store
+	taskStore      TaskStore
+	runner         TaskRunner
+	chatStore      chat.Store
+	agentRunner    AgentRunner
+	prepareTimeout time.Duration
+	idgen          func(string) string
+	now            func() time.Time
 }
 
 type Options struct {
-	Store       projectwork.Store
-	TaskStore   TaskStore
-	Runner      TaskRunner
-	IDGenerator func(string) string
-	Now         func() time.Time
+	Store          projectwork.Store
+	TaskStore      TaskStore
+	Runner         TaskRunner
+	ChatStore      chat.Store
+	AgentRunner    AgentRunner
+	PrepareTimeout time.Duration
+	IDGenerator    func(string) string
+	Now            func() time.Time
 }
 
 type CreateRoleCommand struct {
@@ -134,13 +149,44 @@ type StartTaskAssignmentResult struct {
 	SpanID     string
 }
 
+type StartExternalAgentAssignmentCommand struct {
+	ProjectID         string
+	Assignment        projectwork.Assignment
+	Session           chat.Session
+	ContextSnapshotID string
+	ContextPacket     []byte
+}
+
+type StartExternalAgentAssignmentResult struct {
+	Assignment projectwork.Assignment
+	Session    chat.Session
+}
+
+type ExternalAgentPrepareError struct {
+	Err error
+}
+
+func (e ExternalAgentPrepareError) Error() string {
+	if e.Err == nil {
+		return "external agent prepare failed"
+	}
+	return e.Err.Error()
+}
+
+func (e ExternalAgentPrepareError) Unwrap() error {
+	return e.Err
+}
+
 func New(opts Options) *Application {
 	app := &Application{
-		store:     opts.Store,
-		taskStore: opts.TaskStore,
-		runner:    opts.Runner,
-		idgen:     opts.IDGenerator,
-		now:       opts.Now,
+		store:          opts.Store,
+		taskStore:      opts.TaskStore,
+		runner:         opts.Runner,
+		chatStore:      opts.ChatStore,
+		agentRunner:    opts.AgentRunner,
+		prepareTimeout: opts.PrepareTimeout,
+		idgen:          opts.IDGenerator,
+		now:            opts.Now,
 	}
 	if app.idgen == nil {
 		app.idgen = func(prefix string) string { return strings.TrimSpace(prefix) }
@@ -442,6 +488,76 @@ func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAs
 	}, nil
 }
 
+func (app *Application) StartExternalAgentAssignment(ctx context.Context, cmd StartExternalAgentAssignmentCommand) (*StartExternalAgentAssignmentResult, error) {
+	if app == nil || app.store == nil {
+		return nil, ErrStoreNotConfigured
+	}
+	if app.chatStore == nil {
+		return nil, ErrChatStoreNotConfigured
+	}
+	if app.agentRunner == nil {
+		return nil, ErrAgentRunnerNotConfigured
+	}
+	if strings.TrimSpace(cmd.Assignment.ChatSessionID) != "" ||
+		AssignmentIsTerminal(cmd.Assignment.Status) ||
+		cmd.Assignment.DriverKind != projectwork.AssignmentDriverExternalAgent {
+		return &StartExternalAgentAssignmentResult{Assignment: cmd.Assignment}, ErrAssignmentStartConflict
+	}
+
+	session, err := app.chatStore.Create(ctx, cmd.Session)
+	if err != nil {
+		return nil, err
+	}
+	prepareCtx := ctx
+	cancel := func() {}
+	if app.prepareTimeout > 0 {
+		prepareCtx, cancel = context.WithTimeout(ctx, app.prepareTimeout)
+	}
+	prepared, prepareErr := app.agentRunner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
+		SessionID:     session.ID,
+		AdapterID:     session.AgentID,
+		Workspace:     session.Workspace,
+		ConfigOptions: session.ConfigOptions,
+	})
+	cancel()
+	if prepareErr != nil {
+		_ = app.chatStore.Delete(context.Background(), session.ID)
+		return &StartExternalAgentAssignmentResult{Session: session}, ExternalAgentPrepareError{Err: prepareErr}
+	}
+
+	session, err = app.chatStore.UpdateSession(ctx, session.ID, func(item *chat.Session) {
+		item.DriverKind = prepared.DriverKind
+		item.NativeSessionID = prepared.NativeSessionID
+		item.ConfigOptions = prepared.ConfigOptions
+	})
+	if err != nil {
+		app.cleanupExternalSession(session.ID)
+		return &StartExternalAgentAssignmentResult{Session: session}, err
+	}
+
+	assignment, err := app.store.UpdateAssignment(ctx, cmd.ProjectID, cmd.Assignment.ID, func(item *projectwork.Assignment) {
+		if item.ChatSessionID != "" || AssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverExternalAgent {
+			return
+		}
+		item.ChatSessionID = session.ID
+		item.ContextSnapshotID = cmd.ContextSnapshotID
+		item.ContextPacket = append([]byte(nil), cmd.ContextPacket...)
+		item.Status = projectwork.AssignmentStatusRunning
+		if item.StartedAt.IsZero() {
+			item.StartedAt = app.now().UTC()
+		}
+	})
+	if err != nil {
+		app.cleanupExternalSession(session.ID)
+		return &StartExternalAgentAssignmentResult{Session: session}, err
+	}
+	if assignment.ChatSessionID != session.ID {
+		app.cleanupExternalSession(session.ID)
+		return &StartExternalAgentAssignmentResult{Assignment: assignment, Session: session}, ErrAssignmentStartConflict
+	}
+	return &StartExternalAgentAssignmentResult{Assignment: assignment, Session: session}, nil
+}
+
 func (app *Application) loadRole(ctx context.Context, projectID, roleID string) (projectwork.AgentRoleProfile, bool, error) {
 	roles, err := app.store.ListRoles(ctx, projectID)
 	if err != nil {
@@ -465,6 +581,17 @@ func (app *Application) clearTaskClaim(ctx context.Context, projectID, assignmen
 			item.CompletedAt = time.Time{}
 		}
 	})
+}
+
+func (app *Application) cleanupExternalSession(sessionID string) {
+	cleanupCtx := context.Background()
+	cancel := func() {}
+	if app.prepareTimeout > 0 {
+		cleanupCtx, cancel = context.WithTimeout(cleanupCtx, app.prepareTimeout)
+	}
+	_ = app.agentRunner.CloseSession(cleanupCtx, sessionID)
+	cancel()
+	_ = app.chatStore.Delete(context.Background(), sessionID)
 }
 
 func AssignmentIsTerminal(status string) bool {

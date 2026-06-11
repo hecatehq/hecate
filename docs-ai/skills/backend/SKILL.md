@@ -108,12 +108,13 @@ directly to handlers.
 ### Change project work APIs
 
 Project Work HTTP handlers follow the same app-layer rule. Role, work-item,
-assignment command shaping, and task-backed assignment start state transitions
-live behind `internal/projectworkapp.Application`; handlers parse request DTOs,
-build API-specific context packets, project response DTOs, and map known
-project-work/app errors through `writeAppError`. Keep assignment execution
-boundaries explicit: external-agent starts should move behind a focused app seam
-before adding more orchestration to `handler_project_work.go`.
+assignment command shaping, task-backed assignment start state transitions, and
+external-agent session start / cleanup live behind
+`internal/projectworkapp.Application`; handlers parse request DTOs, build
+API-specific context packets, project response DTOs, and map known
+project-work/app errors through `writeAppError`. Extend that app seam before
+adding more project-work store, task runner, chat store, or external-agent
+runner orchestration to `handler_project_work.go`.
 
 ### Change chat-session / ACP adapter behavior
 
