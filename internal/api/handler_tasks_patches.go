@@ -204,7 +204,7 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 	_, _ = h.taskRunEventRecorder().Append(ctx, runtimeevents.Event{
 		TaskID:    updated.TaskID,
 		RunID:     updated.RunID,
-		EventType: "tool.file.reverted",
+		EventType: runtimeevents.EventPatchReverted.String(),
 		Data:      runtimeevents.PatchReverted(updated, beforeExisted),
 		RequestID: RequestIDFromContext(ctx),
 		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,
@@ -262,7 +262,7 @@ func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request
 	_, _ = h.taskRunEventRecorder().Append(ctx, runtimeevents.Event{
 		TaskID:    updated.TaskID,
 		RunID:     updated.RunID,
-		EventType: "tool.file.applied",
+		EventType: runtimeevents.EventPatchApplied.String(),
 		Data:      runtimeevents.PatchApplied(updated),
 		RequestID: RequestIDFromContext(ctx),
 		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,

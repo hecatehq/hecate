@@ -2,6 +2,21 @@ package runtimeevents
 
 import "github.com/hecatehq/hecate/pkg/types"
 
+type EventType string
+
+const (
+	EventApprovalRequested EventType = "approval.requested"
+	EventApprovalResolved  EventType = "approval.resolved"
+	EventTurnCompleted     EventType = "turn.completed"
+	EventFilePatch         EventType = "tool.file.patch"
+	EventPatchApplied      EventType = "tool.file.applied"
+	EventPatchReverted     EventType = "tool.file.reverted"
+)
+
+func (t EventType) String() string {
+	return string(t)
+}
+
 type TurnCompletedFields struct {
 	TurnIndex                   int
 	StepID                      string

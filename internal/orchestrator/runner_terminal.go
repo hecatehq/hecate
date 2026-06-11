@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/hecatehq/hecate/internal/profiler"
+	"github.com/hecatehq/hecate/internal/runtimeevents"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -129,7 +130,7 @@ func (r *Runner) applyTerminalRunTransition(ctx context.Context, tr terminalRunT
 		PendingApprovalStatus:         "cancelled",
 		PendingApprovalResolvedBy:     "system",
 		PendingApprovalResolutionNote: tr.Message,
-		ApprovalResolvedEventType:     "approval.resolved",
+		ApprovalResolvedEventType:     runtimeevents.EventApprovalResolved.String(),
 		TerminalEvent:                 terminalEvent,
 		TaskUpdatedEvent:              taskUpdatedEvent,
 	})
