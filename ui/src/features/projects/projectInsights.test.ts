@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { buildProjectHealthSummary, projectHealthMetrics } from "./projectInsights";
+import type { AgentProfileRecord } from "../../types/agent-profile";
 import type {
   ProjectActivityData,
   ProjectActivityItemRecord,
   ProjectHandoffRecord,
   ProjectRecord,
+  ProjectSkillRecord,
+  ProjectWorkRoleRecord,
 } from "../../types/project";
 
 describe("projectInsights", () => {
@@ -24,6 +27,78 @@ describe("projectInsights", () => {
     const health = buildProjectHealthSummary(project, null, [], [], []);
 
     expect(health.attention.some((item) => item.title === "No project root configured")).toBe(true);
+  });
+
+  it("surfaces unresolved and disabled project skill references", () => {
+    const project = readyProject();
+    const role = projectRole({
+      skill_ids: ["backend", "review"],
+    });
+    const skills = [
+      projectSkill({
+        id: "backend",
+        enabled: false,
+      }),
+    ];
+
+    const health = buildProjectHealthSummary(project, null, [], [], [], {
+      roles: [role],
+      skills,
+    });
+
+    expect(health.attention).toContainEqual(
+      expect.objectContaining({
+        title: "Project skills need review",
+        detail: expect.stringContaining("unresolved: review"),
+        action: "skills",
+      }),
+    );
+    expect(health.attention).toContainEqual(
+      expect.objectContaining({
+        title: "Project skills need review",
+        detail: expect.stringContaining("disabled: backend"),
+        action: "skills",
+      }),
+    );
+  });
+
+  it("surfaces enabled project skills that are not available", () => {
+    const project = readyProject();
+    const health = buildProjectHealthSummary(project, null, [], [], [], {
+      skills: [
+        projectSkill({
+          id: "backend",
+          status: "conflict",
+        }),
+      ],
+    });
+
+    expect(health.attention).toContainEqual(
+      expect.objectContaining({
+        title: "Project skills need review",
+        detail: expect.stringContaining("backend"),
+        action: "skills",
+      }),
+    );
+  });
+
+  it("surfaces missing agent profile references when the profile catalog is loaded", () => {
+    const project = {
+      ...readyProject(),
+      default_agent_profile: "missing_profile",
+    };
+    const health = buildProjectHealthSummary(project, null, [], [], [], {
+      agentProfiles: [agentProfile("implementation")],
+      roles: [projectRole({ default_agent_profile: "implementation" })],
+    });
+
+    expect(health.attention).toContainEqual(
+      expect.objectContaining({
+        title: "Agent profile reference missing",
+        detail: expect.stringContaining("missing_profile"),
+        action: "profiles",
+      }),
+    );
   });
 
   it("labels handoff health metrics as recent when they come from bounded activity handoffs", () => {
@@ -131,6 +206,86 @@ describe("projectInsights", () => {
     expect(attention?.actionLabel).toBe("View blocked");
   });
 });
+
+function readyProject(): ProjectRecord {
+  return {
+    id: "proj_ready",
+    name: "Project",
+    roots: [
+      {
+        id: "root_1",
+        path: "/tmp/project",
+        kind: "git",
+        active: true,
+        created_at: "2026-06-04T10:00:00Z",
+        updated_at: "2026-06-04T10:00:00Z",
+      },
+    ],
+    default_provider: "openai",
+    default_model: "gpt-4.1",
+    context_sources: [
+      {
+        id: "ctx_1",
+        kind: "workspace_instruction",
+        title: "AGENTS.md",
+        path: "AGENTS.md",
+        enabled: true,
+        created_at: "2026-06-04T10:00:00Z",
+        updated_at: "2026-06-04T10:00:00Z",
+      },
+    ],
+    created_at: "2026-06-04T10:00:00Z",
+    updated_at: "2026-06-04T10:00:00Z",
+  };
+}
+
+function projectRole(patch: Partial<ProjectWorkRoleRecord> = {}): ProjectWorkRoleRecord {
+  return {
+    id: "role_1",
+    project_id: "proj_ready",
+    name: "Developer",
+    built_in: false,
+    created_at: "2026-06-04T10:00:00Z",
+    updated_at: "2026-06-04T10:00:00Z",
+    ...patch,
+  };
+}
+
+function projectSkill(patch: Partial<ProjectSkillRecord> = {}): ProjectSkillRecord {
+  return {
+    id: "backend",
+    project_id: "proj_ready",
+    title: "Backend",
+    description: "Backend project skill.",
+    path: ".hecate/skills/backend/SKILL.md",
+    root_id: "root_1",
+    format: "skill_md",
+    enabled: true,
+    status: "available",
+    trust_label: "workspace_skill",
+    source_context_source_ids: ["ctx_1"],
+    warnings: [],
+    discovered_at: "2026-06-04T10:00:00Z",
+    created_at: "2026-06-04T10:00:00Z",
+    updated_at: "2026-06-04T10:00:00Z",
+    ...patch,
+  };
+}
+
+function agentProfile(id: string): AgentProfileRecord {
+  return {
+    id,
+    name: id,
+    surface: "any",
+    tools_enabled: true,
+    writes_allowed: true,
+    network_allowed: false,
+    approval_policy: "inherit",
+    project_memory_policy: "inherit",
+    context_source_policy: "inherit",
+    skill_ids: [],
+  };
+}
 
 function activityItem(
   projectID: string,

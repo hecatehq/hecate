@@ -28,8 +28,7 @@ when the task is maintenance-shaped rather than feature-shaped.
 
 ## Default flow
 
-1. Start from current `master`, preferably in
-   `/Users/chicoxyzzy/dev/hecate-maintainance`.
+1. Start from current `master`, preferably in a fresh maintenance worktree.
 2. Run `git fetch origin master --prune` before starting a new maintenance PR.
 3. Run `just branches-report` when cleanup might involve branches or worktrees.
 4. Make only maintenance-scoped edits. Keep behavior changes and dependency
