@@ -6,19 +6,45 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/projectwork"
+	"github.com/hecatehq/hecate/pkg/types"
 )
 
-var ErrStoreNotConfigured = errors.New("project work store is not configured")
+var (
+	ErrStoreNotConfigured      = errors.New("project work store is not configured")
+	ErrTaskStoreNotConfigured  = errors.New("task store is not configured")
+	ErrRunnerNotConfigured     = errors.New("task runner is not configured")
+	ErrAssignmentStartConflict = errors.New("project assignment start conflicts with current state")
+)
+
+type TaskStore interface {
+	TaskRunLookupStore
+	CreateTask(ctx context.Context, task types.Task) (types.Task, error)
+}
+
+type TaskRunLookupStore interface {
+	GetRun(ctx context.Context, taskID, runID string) (types.TaskRun, bool, error)
+}
+
+type TaskRunner interface {
+	StartTaskWithRunInitializer(ctx context.Context, task types.Task, idgen func(string) string, init func(*types.TaskRun)) (*orchestrator.StartTaskResult, error)
+}
 
 type Application struct {
-	store projectwork.Store
-	idgen func(string) string
+	store     projectwork.Store
+	taskStore TaskStore
+	runner    TaskRunner
+	idgen     func(string) string
+	now       func() time.Time
 }
 
 type Options struct {
 	Store       projectwork.Store
+	TaskStore   TaskStore
+	Runner      TaskRunner
 	IDGenerator func(string) string
+	Now         func() time.Time
 }
 
 type CreateRoleCommand struct {
@@ -90,13 +116,37 @@ type UpdateAssignmentCommand struct {
 	CompletedAt       *time.Time
 }
 
+type StartTaskAssignmentCommand struct {
+	ProjectID         string
+	WorkItemID        string
+	Assignment        projectwork.Assignment
+	ContextSnapshotID string
+	BuildTask         func(taskID string) (types.Task, error)
+	OnTaskCreated     func(types.Task)
+	InitializeRun     func(types.Task, *types.TaskRun)
+}
+
+type StartTaskAssignmentResult struct {
+	Assignment projectwork.Assignment
+	Task       types.Task
+	Run        types.TaskRun
+	TraceID    string
+	SpanID     string
+}
+
 func New(opts Options) *Application {
 	app := &Application{
-		store: opts.Store,
-		idgen: opts.IDGenerator,
+		store:     opts.Store,
+		taskStore: opts.TaskStore,
+		runner:    opts.Runner,
+		idgen:     opts.IDGenerator,
+		now:       opts.Now,
 	}
 	if app.idgen == nil {
 		app.idgen = func(prefix string) string { return strings.TrimSpace(prefix) }
+	}
+	if app.now == nil {
+		app.now = func() time.Time { return time.Now().UTC() }
 	}
 	return app
 }
@@ -293,6 +343,105 @@ func (app *Application) DeleteAssignment(ctx context.Context, projectID, workIte
 	return app.store.DeleteAssignment(ctx, projectID, workItemID, assignmentID)
 }
 
+func (app *Application) StartTaskAssignment(ctx context.Context, cmd StartTaskAssignmentCommand) (*StartTaskAssignmentResult, error) {
+	if app == nil || app.store == nil {
+		return nil, ErrStoreNotConfigured
+	}
+	if app.taskStore == nil {
+		return nil, ErrTaskStoreNotConfigured
+	}
+	if app.runner == nil {
+		return nil, ErrRunnerNotConfigured
+	}
+	if AssignmentIsTerminal(cmd.Assignment.Status) || cmd.Assignment.DriverKind != projectwork.AssignmentDriverHecateTask {
+		return &StartTaskAssignmentResult{Assignment: cmd.Assignment}, ErrAssignmentStartConflict
+	}
+	active, err := AssignmentHasActiveExecution(ctx, app.taskStore, cmd.Assignment)
+	if err != nil {
+		return nil, err
+	}
+	if active {
+		return &StartTaskAssignmentResult{Assignment: cmd.Assignment}, ErrAssignmentStartConflict
+	}
+
+	taskID := app.idgen("task")
+	claimRejected := false
+	assignment, err := app.store.UpdateAssignment(ctx, cmd.ProjectID, cmd.Assignment.ID, func(item *projectwork.Assignment) {
+		if item.TaskID != "" || item.RunID != "" || AssignmentIsTerminal(item.Status) || item.DriverKind != projectwork.AssignmentDriverHecateTask {
+			claimRejected = true
+			return
+		}
+		item.TaskID = taskID
+		item.Status = projectwork.AssignmentStatusQueued
+		if item.StartedAt.IsZero() {
+			item.StartedAt = app.now().UTC()
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if claimRejected {
+		return &StartTaskAssignmentResult{Assignment: assignment}, ErrAssignmentStartConflict
+	}
+
+	task, err := cmd.BuildTask(taskID)
+	if err != nil {
+		assignment, updateErr := app.clearTaskClaim(ctx, cmd.ProjectID, cmd.Assignment.ID, taskID)
+		if updateErr != nil {
+			return &StartTaskAssignmentResult{Assignment: assignment}, errors.Join(err, updateErr)
+		}
+		return &StartTaskAssignmentResult{Assignment: assignment}, err
+	}
+	task, err = app.taskStore.CreateTask(ctx, task)
+	if err != nil {
+		assignment, updateErr := app.clearTaskClaim(ctx, cmd.ProjectID, cmd.Assignment.ID, taskID)
+		if updateErr != nil {
+			return &StartTaskAssignmentResult{Assignment: assignment}, errors.Join(err, updateErr)
+		}
+		return &StartTaskAssignmentResult{Assignment: assignment}, err
+	}
+	if cmd.OnTaskCreated != nil {
+		cmd.OnTaskCreated(task)
+	}
+
+	result, err := app.runner.StartTaskWithRunInitializer(ctx, task, app.idgen, func(run *types.TaskRun) {
+		if cmd.InitializeRun != nil {
+			cmd.InitializeRun(task, run)
+		}
+	})
+	if err != nil {
+		assignment, updateErr := app.store.UpdateAssignment(ctx, cmd.ProjectID, cmd.Assignment.ID, func(item *projectwork.Assignment) {
+			item.TaskID = task.ID
+			item.Status = projectwork.AssignmentStatusFailed
+			item.CompletedAt = app.now().UTC()
+		})
+		if updateErr != nil {
+			return &StartTaskAssignmentResult{Assignment: assignment, Task: task}, errors.Join(err, updateErr)
+		}
+		return &StartTaskAssignmentResult{Assignment: assignment, Task: task}, err
+	}
+
+	assignment, err = app.store.UpdateAssignment(ctx, cmd.ProjectID, cmd.Assignment.ID, func(item *projectwork.Assignment) {
+		item.TaskID = result.Task.ID
+		item.RunID = result.Run.ID
+		item.ContextSnapshotID = cmd.ContextSnapshotID
+		item.Status = AssignmentStatusFromRun(result.Run.Status)
+		if item.StartedAt.IsZero() {
+			item.StartedAt = app.now().UTC()
+		}
+	})
+	if err != nil {
+		return &StartTaskAssignmentResult{Task: result.Task, Run: result.Run, TraceID: result.TraceID, SpanID: result.SpanID}, err
+	}
+	return &StartTaskAssignmentResult{
+		Assignment: assignment,
+		Task:       result.Task,
+		Run:        result.Run,
+		TraceID:    result.TraceID,
+		SpanID:     result.SpanID,
+	}, nil
+}
+
 func (app *Application) loadRole(ctx context.Context, projectID, roleID string) (projectwork.AgentRoleProfile, bool, error) {
 	roles, err := app.store.ListRoles(ctx, projectID)
 	if err != nil {
@@ -305,4 +454,64 @@ func (app *Application) loadRole(ctx context.Context, projectID, roleID string) 
 		}
 	}
 	return projectwork.AgentRoleProfile{}, false, nil
+}
+
+func (app *Application) clearTaskClaim(ctx context.Context, projectID, assignmentID, taskID string) (projectwork.Assignment, error) {
+	return app.store.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
+		if item.TaskID == taskID && item.RunID == "" {
+			item.TaskID = ""
+			item.Status = projectwork.AssignmentStatusQueued
+			item.StartedAt = time.Time{}
+			item.CompletedAt = time.Time{}
+		}
+	})
+}
+
+func AssignmentIsTerminal(status string) bool {
+	switch strings.TrimSpace(status) {
+	case projectwork.AssignmentStatusCompleted, projectwork.AssignmentStatusFailed, projectwork.AssignmentStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func AssignmentStatusFromRun(status string) string {
+	switch strings.TrimSpace(status) {
+	case "awaiting_approval":
+		return projectwork.AssignmentStatusAwaitingApproval
+	case "running":
+		return projectwork.AssignmentStatusRunning
+	case "completed":
+		return projectwork.AssignmentStatusCompleted
+	case "failed":
+		return projectwork.AssignmentStatusFailed
+	case "cancelled":
+		return projectwork.AssignmentStatusCancelled
+	default:
+		return projectwork.AssignmentStatusQueued
+	}
+}
+
+func AssignmentHasActiveExecution(ctx context.Context, store TaskRunLookupStore, assignment projectwork.Assignment) (bool, error) {
+	if strings.TrimSpace(assignment.RunID) != "" && strings.TrimSpace(assignment.TaskID) != "" && store == nil {
+		return false, ErrTaskStoreNotConfigured
+	}
+	if strings.TrimSpace(assignment.RunID) != "" && strings.TrimSpace(assignment.TaskID) != "" {
+		run, ok, err := store.GetRun(ctx, assignment.TaskID, assignment.RunID)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return !types.IsTerminalTaskRunStatus(run.Status), nil
+		}
+	}
+	switch strings.TrimSpace(assignment.Status) {
+	case projectwork.AssignmentStatusRunning, projectwork.AssignmentStatusAwaitingApproval:
+		return true, nil
+	case projectwork.AssignmentStatusQueued:
+		return strings.TrimSpace(assignment.TaskID) != "" || strings.TrimSpace(assignment.RunID) != "", nil
+	default:
+		return false, nil
+	}
 }
