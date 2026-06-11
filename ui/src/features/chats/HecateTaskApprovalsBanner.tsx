@@ -1,6 +1,7 @@
 import { formatLocaleTime } from "../../lib/format";
 import type { ChatActivityRecord, ChatSegmentRecord, ChatSessionRecord } from "../../types/chat";
 import { ChatNoticeFrame, ChatNoticeHeader, ChatNoticeRow } from "./ChatNotice";
+import { toChatSegmentViewModel } from "./chatTurnViewModels";
 
 export type HecateTaskApproval = {
   approvalID: string;
@@ -74,12 +75,10 @@ export function activeTaskBackedHecateSegment(
   session: ChatSessionRecord | null,
 ): ChatSegmentRecord | null {
   const segments = [...(session?.segments ?? [])].reverse();
-  const activeSegment = segments.find(
-    (segment) =>
-      segment.execution_mode === "hecate_task" &&
-      Boolean(segment.task_id) &&
-      hecateAgentSessionIsActive(segment.status),
-  );
+  const activeSegment = segments.find((segment) => {
+    const turn = toChatSegmentViewModel(segment);
+    return turn.isTaskBacked && hecateAgentSessionIsActive(turn.status);
+  });
   if (activeSegment) {
     return activeSegment;
   }

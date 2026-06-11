@@ -47,6 +47,7 @@ export type ChatSessionSummaryRecord = {
 
 export type ChatMessageRecord = {
   id: string;
+  turn_kind?: "direct_model" | "hecate_task" | "external_agent" | string;
   execution_mode?: "external_agent" | "hecate_task" | string;
   // tools_enabled is the per-turn tools-on/off signal the gateway
   // recorded when this message was appended.
@@ -91,6 +92,7 @@ export type ChatContextItemRecord = ContextPacketItemRecord;
 
 export type ChatSegmentRecord = {
   id: string;
+  turn_kind?: "direct_model" | "hecate_task" | "external_agent" | string;
   execution_mode: "external_agent" | "hecate_task" | string;
   tools_enabled?: boolean;
   provider?: string;

@@ -51,6 +51,7 @@ import {
 import { ChatWorkspaceChangesPanel } from "./ChatWorkspaceChangesPanel";
 import { externalAgentRequiresModelSelection, mergeAgentConfigOptions } from "./agentConfigOptions";
 import { chatAgentOption } from "./ChatAgentControls";
+import { toChatSegmentViewModel } from "./chatTurnViewModels";
 import {
   HecateTaskApprovalsBanner,
   activeTaskBackedHecateSegment,
@@ -1199,9 +1200,10 @@ function externalAgentSessionIsBusy(session: ChatSessionRecord | null): boolean 
   if (!session?.agent_id || session.agent_id === "hecate") return false;
   if (busy(session.status)) return true;
   if (
-    (session.segments ?? []).some(
-      (segment) => segment.execution_mode === "external_agent" && busy(segment.status),
-    )
+    (session.segments ?? []).some((segment) => {
+      const turn = toChatSegmentViewModel(segment);
+      return turn.isExternalAgent && busy(turn.status);
+    })
   ) {
     return true;
   }
