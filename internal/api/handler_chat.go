@@ -547,48 +547,29 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	content := strings.TrimSpace(req.Content)
-	if content == "" {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "content is required")
-		return
-	}
-
 	limits := h.agentChatSnapshotConfig()
-	maxTurns := limits.MaxTurnsPerSession
-	if maxTurns > 0 && session.TurnsUsed >= maxTurns {
-		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeSessionLimitExceeded, fmt.Sprintf("session has reached the %d-turn limit; start a new session to continue", maxTurns), ErrorDetails{
-			Fields: map[string]any{
-				"limit":      maxTurns,
-				"turns_used": session.TurnsUsed,
-			},
-		})
+	admission, err := h.chatApplication().AdmitMessage(chatapp.AdmitMessageCommand{
+		Session:       session,
+		Content:       req.Content,
+		ExecutionMode: req.ExecutionMode,
+		ToolsEnabled:  req.ToolsEnabled,
+		Limits: chatapp.MessageLimits{
+			MaxTurnsPerSession: limits.MaxTurnsPerSession,
+			MaxSessionDuration: limits.MaxSessionDuration,
+			IdleTimeout:        limits.IdleTimeout,
+		},
+		Now: time.Now(),
+	})
+	if err != nil {
+		if writeChatAdmissionError(w, err) {
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if limits.MaxSessionDuration > 0 && !session.CreatedAt.IsZero() && time.Since(session.CreatedAt) >= limits.MaxSessionDuration {
-		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeSessionDurationLimit, fmt.Sprintf("session has reached the %s wall-clock limit; start a new session to continue", limits.MaxSessionDuration), ErrorDetails{
-			Fields: map[string]any{
-				"limit_ms":   limits.MaxSessionDuration.Milliseconds(),
-				"started_at": formatOptionalTime(session.CreatedAt),
-				"turns_used": session.TurnsUsed,
-			},
-		})
-		return
-	}
-	if limits.IdleTimeout > 0 && !session.UpdatedAt.IsZero() && time.Since(session.UpdatedAt) >= limits.IdleTimeout {
-		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeSessionIdleTimeout, fmt.Sprintf("session was idle for at least %s; start a new session to continue", limits.IdleTimeout), ErrorDetails{
-			Fields: map[string]any{
-				"limit_ms":   limits.IdleTimeout.Milliseconds(),
-				"updated_at": formatOptionalTime(session.UpdatedAt),
-				"turns_used": session.TurnsUsed,
-			},
-		})
-		return
-	}
-	executionMode := normalizeChatExecutionMode(req.ExecutionMode, session)
-	toolsEnabled := true
-	if req.ToolsEnabled != nil {
-		toolsEnabled = *req.ToolsEnabled
-	}
+	content := admission.Content
+	executionMode := admission.ExecutionMode
+	toolsEnabled := admission.ToolsEnabled
 	// Capability-driven downgrade lets a Hecate turn with tools on fall
 	// back to the direct model path without changing its runtime owner.
 	if toolsEnabled && !isExternalChatSession(session) && h.hecateTaskShouldFallbackToDirectModel(r.Context(), session, req) {
@@ -601,17 +582,9 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		// branches at the top: tools-off delegates to
 		// `handleDirectModelTurn`; tools-on runs the existing
 		// agent_loop task-creation path.
-		if isExternalChatSession(session) {
-			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run Hecate Chat turns")
-			return
-		}
 		h.handleCreateHecateChatMessage(w, r, session, req, toolsEnabled)
 		return
 	case chat.ExecutionModeExternalAgent:
-		if !isExternalChatSession(session) {
-			writeAgentChatRuntimeMismatch(w, "Hecate Chat sessions cannot run external-agent turns")
-			return
-		}
 	default:
 		writeChatExecutionModeInvalid(w)
 		return
@@ -935,19 +908,6 @@ func (h *Handler) hecateTaskShouldFallbackToDirectModel(ctx context.Context, ses
 		return false
 	}
 	return !modelcaps.ToolCapable(caps)
-}
-
-// normalizeChatExecutionMode resolves the runtime owner for this turn.
-// Tools-on/off is tracked separately via tools_enabled.
-func normalizeChatExecutionMode(mode string, session chat.Session) string {
-	mode = strings.TrimSpace(mode)
-	if mode != "" {
-		return mode
-	}
-	if isExternalChatSession(session) {
-		return chat.ExecutionModeExternalAgent
-	}
-	return chat.ExecutionModeHecateTask
 }
 
 // handleDirectModelTurn runs the tools-off sub-path of
