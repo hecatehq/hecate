@@ -243,14 +243,12 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 	defer unsubscribe()
 
 	writeSSEHeaders(w)
-	sendAgentChatSSE(w, flusher, "snapshot", ChatSessionResponse{
-		Object: "chat_session",
-		Data:   renderChatSession(session, h.agentChatSnapshotConfig()),
-	})
+	projector := newAgentChatStreamProjector(session, h.agentChatSnapshotConfig())
+	initial := projector.initialFrame(session)
+	sendAgentChatSSE(w, flusher, initial.Event, initial.Data)
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 
-	observedRun := session.Status == "running"
 	for {
 		select {
 		case <-r.Context().Done():
@@ -259,29 +257,11 @@ func (h *Handler) HandleChatSessionStream(w http.ResponseWriter, r *http.Request
 			if !ok {
 				return
 			}
-			switch payload.Type {
-			case AgentChatLiveEventSessionUpdate:
-				if payload.SessionUpdate == nil {
-					continue
-				}
-				sendAgentChatSSE(w, flusher, "snapshot", *payload.SessionUpdate)
-				if payload.SessionUpdate.Data.Status == "running" {
-					observedRun = true
-				}
-				if observedRun && isTerminalAgentChatStatus(payload.SessionUpdate.Data.Status) {
-					sendAgentChatSSE(w, flusher, "done", *payload.SessionUpdate)
+			for _, frame := range projector.project(payload) {
+				sendAgentChatSSE(w, flusher, frame.Event, frame.Data)
+				if frame.Done {
 					return
 				}
-			case AgentChatLiveEventApprovalRequested:
-				if payload.ApprovalRequested == nil {
-					continue
-				}
-				sendAgentChatSSE(w, flusher, string(AgentChatLiveEventApprovalRequested), *payload.ApprovalRequested)
-			case AgentChatLiveEventApprovalResolved:
-				if payload.ApprovalResolved == nil {
-					continue
-				}
-				sendAgentChatSSE(w, flusher, string(AgentChatLiveEventApprovalResolved), *payload.ApprovalResolved)
 			}
 		case <-heartbeat.C:
 			fmt.Fprint(w, ": heartbeat\n\n")
