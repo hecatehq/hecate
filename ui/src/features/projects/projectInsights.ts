@@ -13,6 +13,10 @@ import type {
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
 } from "../../types/project";
+import {
+  toProjectActivityAssignmentExecutionViewModel,
+  toProjectAssignmentExecutionViewModel,
+} from "./projectAssignmentViewModels";
 
 export type ProjectActivityBucketKey = "all" | "active" | "blocked" | "completed" | "recent";
 
@@ -128,8 +132,7 @@ export function buildProjectTimelineItems({
       projectActivityWorkItemToWorkItem(project.id, activityItem.work_item);
     const role = roleByID.get(activityItem.assignment.role_id) ?? activityItem.role;
     if (activityItem.blocking_signal !== "not_started") {
-      const taskID = activityItem.linked_task_id || activityItem.assignment.task_id || "";
-      const runID = activityItem.linked_run_id || activityItem.assignment.run_id || "";
+      const execution = toProjectActivityAssignmentExecutionViewModel(activityItem);
       setTimelineItem(items, {
         id: `assignment:${activityItem.assignment.id}`,
         kind: "assignment",
@@ -140,9 +143,9 @@ export function buildProjectTimelineItems({
         timestamp: activityItem.updated_at || activityItem.assignment.updated_at,
         status: activityItem.blocking_signal,
         workItemID: workItem.id,
-        taskID,
-        runID,
-        chatID: activityItem.linked_chat_id || activityItem.assignment.chat_session_id,
+        taskID: execution.taskID,
+        runID: execution.runID,
+        chatID: execution.chatSessionID,
         assignment: activityItem.assignment,
       });
     }
@@ -202,12 +205,12 @@ export function buildProjectHealthSummary(
     (item.assignments ?? []).map((assignment) => ({
       assignment,
       workItem: item,
-      status: assignment.execution?.status || assignment.status,
+      status: toProjectAssignmentExecutionViewModel(assignment).status,
     })),
   );
   const staleItems = [
     ...activityItems.filter((item) => item.blocking_signal === "stale_unknown"),
-    ...activityItems.filter((item) => item.assignment.execution?.missing),
+    ...activityItems.filter((item) => toProjectActivityAssignmentExecutionViewModel(item).missing),
     ...projectedAssignments
       .filter((item) => isStaleAssignment(item.assignment, item.status))
       .map((item) => projectAssignmentToActivityAttention(project, item.workItem, item.assignment)),
@@ -694,6 +697,7 @@ function projectAssignmentToActivityAttention(
   assignment: ProjectAssignmentRecord,
 ): ProjectActivityItemRecord | null {
   if (!project) return null;
+  const execution = toProjectAssignmentExecutionViewModel(assignment);
   return {
     id: assignment.id,
     project_id: project.id,
@@ -710,12 +714,12 @@ function projectAssignmentToActivityAttention(
       name: assignment.role_id,
       built_in: false,
     },
-    status: assignment.execution?.status || assignment.status,
+    status: execution.status,
     blocking_signal: "stale_unknown",
     status_summary: "active assignment has not changed recently",
-    linked_task_id: assignment.execution?.task_id || assignment.task_id,
-    linked_run_id: assignment.execution?.run_id || assignment.run_id,
-    linked_chat_id: assignment.chat_session_id,
+    linked_task_id: execution.taskID,
+    linked_run_id: execution.runID,
+    linked_chat_id: execution.chatSessionID,
     artifact_summary: { count: assignment.execution?.artifact_count ?? 0 },
     updated_at: assignment.updated_at,
   };
@@ -727,10 +731,7 @@ function activityAttention(
   actionLabel: string,
   bucket: ProjectActivityBucketKey,
 ): ProjectHealthAttention {
-  const taskID =
-    item.linked_task_id || item.assignment.execution?.task_id || item.assignment.task_id;
-  const runID = item.linked_run_id || item.assignment.execution?.run_id || item.assignment.run_id;
-  const chatID = item.linked_chat_id || item.assignment.chat_session_id;
+  const execution = toProjectActivityAssignmentExecutionViewModel(item);
   return {
     id: item.id,
     title: `${title}: ${item.work_item.title}`,
@@ -744,9 +745,9 @@ function activityAttention(
     status: item.blocking_signal || item.status,
     bucket,
     workItemID: item.work_item.id,
-    taskID,
-    runID,
-    chatID,
+    taskID: execution.taskID,
+    runID: execution.runID,
+    chatID: execution.chatSessionID,
     actionLabel,
   };
 }

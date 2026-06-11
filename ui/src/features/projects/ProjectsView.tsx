@@ -72,6 +72,7 @@ import {
   type ProjectHealthAttention,
   type ProjectTimelineItem,
 } from "./projectInsights";
+import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
 import {
   PROJECT_ASSISTANT_AUTO,
   ProjectAssistantPanel,
@@ -3713,12 +3714,13 @@ function WorkItemDetail({
                   onEdit={() => onEditAssignment(assignment)}
                   onOpenChat={
                     project
-                      ? () =>
+                      ? () => {
+                          const executionRef = toProjectAssignmentExecutionViewModel(assignment);
                           onOpenChat?.(
-                            assignment.chat_session_id
+                            executionRef.chatSessionID
                               ? {
                                   projectID: project.id,
-                                  chatSessionID: assignment.chat_session_id,
+                                  chatSessionID: executionRef.chatSessionID,
                                 }
                               : buildProjectAssignmentChatLaunchRequest({
                                   project,
@@ -3726,7 +3728,8 @@ function WorkItemDetail({
                                   assignment,
                                   role: roleByID.get(assignment.role_id) ?? null,
                                 }),
-                          )
+                          );
+                        }
                       : undefined
                   }
                   onOpenTask={onOpenTask}
@@ -5576,11 +5579,12 @@ function AssignmentRow({
   starting: boolean;
 }) {
   const execution = assignment.execution;
-  const taskID = execution?.task_id || assignment.task_id || "";
-  const runID = execution?.run_id || assignment.run_id || "";
-  const chatSessionID = assignment.chat_session_id || "";
+  const executionRef = toProjectAssignmentExecutionViewModel(assignment);
+  const taskID = executionRef.taskID;
+  const runID = executionRef.runID;
+  const chatSessionID = executionRef.chatSessionID;
   const linkedChat = activityItem?.linked_chat;
-  const projectedStatus = execution?.status || assignment.status;
+  const projectedStatus = executionRef.status;
   const startable =
     (assignment.driver_kind === "hecate_task" || assignment.driver_kind === "external_agent") &&
     projectedStatus === "queued";
@@ -5632,7 +5636,7 @@ function AssignmentRow({
             {starting ? startingLabel : startActionLabel}
           </button>
         )}
-        {external && !startable && !assignment.chat_session_id && (
+        {external && !startable && !executionRef.chatSessionID && (
           <span
             style={subtleTextStyle}
             title="Prepare this assignment to create a supervised External Agent chat session."
@@ -5694,9 +5698,9 @@ function AssignmentRow({
               : `chat ${linkedChat.latest_status || linkedChat.status || "active"}`}
           </span>
         )}
-        {execution?.pending_approval_count ? (
+        {executionRef.pendingApprovalCount ? (
           <span className="badge badge-amber">
-            {execution.pending_approval_count} approval pending
+            {executionRef.pendingApprovalCount} approval pending
           </span>
         ) : null}
         {typeof execution?.step_count === "number" && (
@@ -5710,8 +5714,8 @@ function AssignmentRow({
             {[execution.provider, execution.model].filter(Boolean).join(" / ")}
           </span>
         ) : null}
-        {execution?.missing && <span className="badge badge-amber">linked run missing</span>}
-        {(taskID || runID || chatSessionID || assignment.context_snapshot_id) && (
+        {executionRef.missing && <span className="badge badge-amber">linked run missing</span>}
+        {executionRef.hasAnyLink && (
           <button
             aria-label={`Create handoff from assignment ${assignment.id}`}
             className="btn btn-ghost btn-sm"
@@ -5771,9 +5775,10 @@ function ProjectHandoffRow({
   role?: ProjectWorkRoleRecord;
   starting: boolean;
 }) {
+  const executionRef = assignment ? toProjectAssignmentExecutionViewModel(assignment) : null;
   const startable =
     (assignment?.driver_kind === "hecate_task" || assignment?.driver_kind === "external_agent") &&
-    (assignment.execution?.status || assignment.status) === "queued";
+    executionRef?.status === "queued";
   const canCreateAssignment = !assignment && handoff.status !== "dismissed";
   const sourceRefs = handoffSourceRefs(handoff);
   return (
@@ -5892,7 +5897,7 @@ function EmptyBlock({ title, detail }: { title: string; detail: string }) {
 function summarizeAssignments(assignments: ProjectAssignmentRecord[]): WorkItemSummary {
   return assignments.reduce<WorkItemSummary>(
     (summary, assignment) => {
-      const status = assignment.execution?.status || assignment.status;
+      const status = toProjectAssignmentExecutionViewModel(assignment).status;
       summary.assignmentCount += 1;
       if (status === "running" || status === "queued" || status === "awaiting_approval") {
         summary.activeCount += 1;
@@ -6160,16 +6165,17 @@ function handoffFormFromAssignment(
   role: ProjectWorkRoleRecord | null,
   activityItem?: ProjectActivityItemRecord,
 ): HandoffForm {
-  const sourceChatSessionID = assignment.chat_session_id ?? "";
-  const sourceRunID = assignment.execution?.run_id || assignment.run_id || "";
+  const execution = toProjectAssignmentExecutionViewModel(assignment);
+  const sourceChatSessionID = execution.chatSessionID;
+  const sourceRunID = execution.runID;
   const sourceMessageID =
-    assignment.message_id ||
+    execution.messageID ||
     activityItem?.linked_message_id ||
     activityItem?.linked_chat?.latest_message_id ||
     "";
   const contextRefs = [
-    assignment.context_snapshot_id,
-    assignment.execution?.task_id || assignment.task_id,
+    execution.contextSnapshotID,
+    execution.taskID,
     sourceRunID,
     sourceChatSessionID,
     sourceMessageID,
@@ -6325,6 +6331,7 @@ function projectAssignmentLaunchDraft({
   provider: string;
   model: string;
 }): string {
+  const execution = toProjectAssignmentExecutionViewModel(assignment);
   const resolvedDriver = firstNonEmpty(
     assignment.driver_kind,
     role?.default_driver_kind,
@@ -6344,7 +6351,7 @@ function projectAssignmentLaunchDraft({
     "",
     "Assignment:",
     `- ID: ${assignment.id}`,
-    `- Status: ${firstNonEmpty(assignment.execution?.status, assignment.status, "queued")}`,
+    `- Status: ${firstNonEmpty(execution.status, "queued")}`,
     `- Driver: ${resolvedDriver}`,
     "",
     "Role:",
@@ -6377,11 +6384,11 @@ function projectAssignmentLaunchDraft({
     ])}`,
   ];
   const linkedIDs = formatHintList([
-    ["task", assignment.execution?.task_id || assignment.task_id],
-    ["run", assignment.execution?.run_id || assignment.run_id],
-    ["chat", assignment.chat_session_id],
-    ["message", assignment.message_id],
-    ["context", assignment.context_snapshot_id],
+    ["task", execution.taskID],
+    ["run", execution.runID],
+    ["chat", execution.chatSessionID],
+    ["message", execution.messageID],
+    ["context", execution.contextSnapshotID],
   ]);
   if (linkedIDs !== "none") {
     lines.push("", "Linked runtime ids:", `- ${linkedIDs}`);
