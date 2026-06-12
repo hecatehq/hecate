@@ -482,6 +482,64 @@ func TestBuiltInProviderCatalogMetadata(t *testing.T) {
 		t.Fatalf("anthropic protocol = %q, want anthropic", anthropic.Protocol)
 	}
 
+	for _, tc := range []struct {
+		id      string
+		baseURL string
+		env     string
+	}{
+		{
+			id:      "alibaba",
+			baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			env:     "PROVIDER_ALIBABA_API_KEY",
+		},
+		{
+			id:      "cerebras",
+			baseURL: "https://api.cerebras.ai/v1",
+			env:     "PROVIDER_CEREBRAS_API_KEY",
+		},
+		{
+			id:      "deepinfra",
+			baseURL: "https://api.deepinfra.com/v1/openai",
+			env:     "PROVIDER_DEEPINFRA_API_KEY",
+		},
+		{
+			id:      "moonshot",
+			baseURL: "https://api.moonshot.ai/v1",
+			env:     "PROVIDER_MOONSHOT_API_KEY",
+		},
+		{
+			id:      "openrouter",
+			baseURL: "https://openrouter.ai/api/v1",
+			env:     "PROVIDER_OPENROUTER_API_KEY",
+		},
+		{
+			id:      "requesty",
+			baseURL: "https://router.requesty.ai/v1",
+			env:     "PROVIDER_REQUESTY_API_KEY",
+		},
+		{
+			id:      "vercel_ai_gateway",
+			baseURL: "https://ai-gateway.vercel.sh/v1",
+			env:     "PROVIDER_VERCEL_AI_GATEWAY_API_KEY",
+		},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			provider, ok := BuiltInProviderByID(tc.id)
+			if !ok {
+				t.Fatalf("BuiltInProviderByID(%s) = not found", tc.id)
+			}
+			if provider.Protocol != "openai" {
+				t.Fatalf("%s protocol = %q, want openai", tc.id, provider.Protocol)
+			}
+			if provider.BaseURL != tc.baseURL {
+				t.Fatalf("%s base url = %q, want %s", tc.id, provider.BaseURL, tc.baseURL)
+			}
+			if provider.APIKeyEnv != tc.env {
+				t.Fatalf("%s api key env = %q, want %s", tc.id, provider.APIKeyEnv, tc.env)
+			}
+		})
+	}
+
 	deepseek, ok := BuiltInProviderByID("deepseek")
 	if !ok {
 		t.Fatal("BuiltInProviderByID(deepseek) = not found")

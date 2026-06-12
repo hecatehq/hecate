@@ -24,6 +24,16 @@ type BuiltInProvider struct {
 
 var builtInProviders = []BuiltInProvider{
 	{
+		ID:          "alibaba",
+		Name:        "Alibaba Cloud Qwen",
+		Kind:        "cloud",
+		Protocol:    "openai",
+		BaseURL:     "https://dashscope.aliyuncs.com/compatible-mode/v1",
+		APIKeyEnv:   "PROVIDER_ALIBABA_API_KEY",
+		DocsURL:     "https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope",
+		Description: "Alibaba Cloud Model Studio through DashScope's OpenAI-compatible endpoint. Hosts Qwen, Qwen-Coder, and other Alibaba-served models.",
+	},
+	{
 		ID:          "anthropic",
 		Name:        "Anthropic",
 		Kind:        "cloud",
@@ -35,6 +45,16 @@ var builtInProviders = []BuiltInProvider{
 		Description: "Anthropic's hosted API. Claude Opus, Sonnet, and Haiku tiers via the native Messages protocol, with prompt caching and native tool use.",
 	},
 	{
+		ID:          "cerebras",
+		Name:        "Cerebras",
+		Kind:        "cloud",
+		Protocol:    "openai",
+		BaseURL:     "https://api.cerebras.ai/v1",
+		APIKeyEnv:   "PROVIDER_CEREBRAS_API_KEY",
+		DocsURL:     "https://inference-docs.cerebras.ai/api-reference/chat-completions",
+		Description: "Cerebras Inference. OpenAI-shaped chat completions on fast Cerebras-hosted models, including GPT-OSS and other reasoning-capable models.",
+	},
+	{
 		ID:          "cohere",
 		Name:        "Cohere",
 		Kind:        "cloud",
@@ -43,6 +63,16 @@ var builtInProviders = []BuiltInProvider{
 		APIKeyEnv:   "PROVIDER_COHERE_API_KEY",
 		DocsURL:     "https://docs.cohere.com/docs/compatibility-api",
 		Description: "Cohere's hosted API. Command-family models tuned for RAG, multi-step tool use, and citation-grounded answers.",
+	},
+	{
+		ID:          "deepinfra",
+		Name:        "DeepInfra",
+		Kind:        "cloud",
+		Protocol:    "openai",
+		BaseURL:     "https://api.deepinfra.com/v1/openai",
+		APIKeyEnv:   "PROVIDER_DEEPINFRA_API_KEY",
+		DocsURL:     "https://docs.deepinfra.com/chat/overview",
+		Description: "DeepInfra OpenAI-compatible chat completions for hosted open-weight models, including DeepSeek, Qwen, Llama, and coding-focused variants.",
 	},
 	{
 		ID:          "deepseek",
@@ -122,6 +152,16 @@ var builtInProviders = []BuiltInProvider{
 		Description: "Local LocalAI server. Self-hosted OpenAI drop-in with backends for GGUF, MLX, Transformers, Whisper, and image generation.",
 	},
 	{
+		ID:          "moonshot",
+		Name:        "Moonshot AI",
+		Kind:        "cloud",
+		Protocol:    "openai",
+		BaseURL:     "https://api.moonshot.ai/v1",
+		APIKeyEnv:   "PROVIDER_MOONSHOT_API_KEY",
+		DocsURL:     "https://platform.moonshot.ai/docs",
+		Description: "Moonshot AI's hosted Kimi models through an OpenAI-compatible endpoint. Useful for long-context and agentic coding workflows.",
+	},
+	{
 		ID:          "mistral",
 		Name:        "Mistral",
 		Kind:        "cloud",
@@ -161,6 +201,16 @@ var builtInProviders = []BuiltInProvider{
 		Description: "OpenAI's hosted API. GPT chat models and the o-series reasoning models via the canonical Chat Completions endpoint.",
 	},
 	{
+		ID:          "openrouter",
+		Name:        "OpenRouter",
+		Kind:        "cloud",
+		Protocol:    "openai",
+		BaseURL:     "https://openrouter.ai/api/v1",
+		APIKeyEnv:   "PROVIDER_OPENROUTER_API_KEY",
+		DocsURL:     "https://openrouter.ai/docs/api/reference/overview",
+		Description: "OpenRouter model router. One OpenAI-shaped endpoint for a broad multi-provider catalog with provider routing and fallback options.",
+	},
+	{
 		ID:          "perplexity",
 		Name:        "Perplexity",
 		Kind:        "cloud",
@@ -173,6 +223,16 @@ var builtInProviders = []BuiltInProvider{
 		Description: "Perplexity Sonar API. Search-grounded responses with inline citations; the Sonar Pro tier adds deeper research synthesis.",
 	},
 	{
+		ID:          "requesty",
+		Name:        "Requesty",
+		Kind:        "cloud",
+		Protocol:    "openai",
+		BaseURL:     "https://router.requesty.ai/v1",
+		APIKeyEnv:   "PROVIDER_REQUESTY_API_KEY",
+		DocsURL:     "https://docs.requesty.ai/",
+		Description: "Requesty model router. OpenAI-compatible gateway for routing requests across hosted model providers from a single API key.",
+	},
+	{
 		ID:          "together_ai",
 		Name:        "Together AI",
 		Kind:        "cloud",
@@ -181,6 +241,16 @@ var builtInProviders = []BuiltInProvider{
 		APIKeyEnv:   "PROVIDER_TOGETHER_AI_API_KEY",
 		DocsURL:     "https://docs.together.ai/docs/inference-models",
 		Description: "Together AI inference. Broad catalog of open-weight models at competitive per-token pricing.",
+	},
+	{
+		ID:          "vercel_ai_gateway",
+		Name:        "Vercel AI Gateway",
+		Kind:        "cloud",
+		Protocol:    "openai",
+		BaseURL:     "https://ai-gateway.vercel.sh/v1",
+		APIKeyEnv:   "PROVIDER_VERCEL_AI_GATEWAY_API_KEY",
+		DocsURL:     "https://vercel.com/docs/ai-gateway",
+		Description: "Vercel AI Gateway. OpenAI-compatible hosted gateway for routing through Vercel-managed model provider integrations.",
 	},
 	{
 		ID:          "xai",

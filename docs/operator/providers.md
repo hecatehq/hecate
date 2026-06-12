@@ -79,26 +79,35 @@ Each row has a trash button. Clicking it confirms via a browser dialog and then 
 
 ## Built-in presets
 
-The gateway ships with eighteen provider presets. None of them are auto-added — operators pick from the catalog when adding a provider.
+Hecate ships with twenty-five provider presets. None of them are auto-added — operators pick from the catalog when adding a provider.
 
 ### Cloud presets
 
-| ID            | Name          | Default base URL                                          |
-| ------------- | ------------- | --------------------------------------------------------- |
-| `anthropic`   | Anthropic     | `https://api.anthropic.com/v1`                            |
-| `cohere`      | Cohere        | `https://api.cohere.ai/compatibility/v1`                  |
-| `deepseek`    | DeepSeek      | `https://api.deepseek.com/v1`                             |
-| `fireworks`   | Fireworks AI  | `https://api.fireworks.ai/inference/v1`                   |
-| `gemini`      | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` |
-| `groq`        | Groq          | `https://api.groq.com/openai/v1`                          |
-| `huggingface` | Hugging Face  | `https://router.huggingface.co/v1`                        |
-| `mistral`     | Mistral       | `https://api.mistral.ai/v1`                               |
-| `nvidia`      | NVIDIA        | `https://integrate.api.nvidia.com/v1`                     |
-| `openai`      | OpenAI        | `https://api.openai.com/v1`                               |
-| `perplexity`  | Perplexity    | `https://api.perplexity.ai`                               |
-| `together_ai` | Together AI   | `https://api.together.xyz/v1`                             |
-| `xai`         | xAI           | `https://api.x.ai/v1`                                     |
-| `zai`         | z.ai          | `https://api.z.ai/api/paas/v4`                            |
+| ID                  | Name               | Default base URL                                          |
+| ------------------- | ------------------ | --------------------------------------------------------- |
+| `alibaba`           | Alibaba Cloud Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1`       |
+| `anthropic`         | Anthropic          | `https://api.anthropic.com`                               |
+| `cerebras`          | Cerebras           | `https://api.cerebras.ai/v1`                              |
+| `cohere`            | Cohere             | `https://api.cohere.ai/compatibility/v1`                  |
+| `deepinfra`         | DeepInfra          | `https://api.deepinfra.com/v1/openai`                     |
+| `deepseek`          | DeepSeek           | `https://api.deepseek.com/v1`                             |
+| `fireworks`         | Fireworks AI       | `https://api.fireworks.ai/inference/v1`                   |
+| `gemini`            | Google Gemini      | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| `groq`              | Groq               | `https://api.groq.com/openai/v1`                          |
+| `huggingface`       | Hugging Face       | `https://router.huggingface.co/v1`                        |
+| `mistral`           | Mistral            | `https://api.mistral.ai/v1`                               |
+| `moonshot`          | Moonshot AI        | `https://api.moonshot.ai/v1`                              |
+| `nvidia`            | NVIDIA             | `https://integrate.api.nvidia.com/v1`                     |
+| `openai`            | OpenAI             | `https://api.openai.com`                                  |
+| `openrouter`        | OpenRouter         | `https://openrouter.ai/api/v1`                            |
+| `perplexity`        | Perplexity         | `https://api.perplexity.ai`                               |
+| `requesty`          | Requesty           | `https://router.requesty.ai/v1`                           |
+| `together_ai`       | Together AI        | `https://api.together.xyz/v1`                             |
+| `vercel_ai_gateway` | Vercel AI Gateway  | `https://ai-gateway.vercel.sh/v1`                         |
+| `xai`               | xAI                | `https://api.x.ai/v1`                                     |
+| `zai`               | z.ai               | `https://api.z.ai/api/paas/v4`                            |
+
+Providers whose endpoint is account-, gateway-, deployment-, or header-specific should still use the Custom flow. That includes Cloudflare AI Gateway, Baseten deployments, and Portkey-style gateways for now.
 
 ### Local presets
 

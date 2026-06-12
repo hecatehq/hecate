@@ -19,6 +19,7 @@ import {
   MetaIcon,
   OllamaIcon,
   OpenaiIcon,
+  VercelIcon,
   Xai,
   Zai,
 } from "@dev.icons/react/mono";
@@ -65,6 +66,8 @@ const BRAND_ICONS: Record<string, BrandIconSpec> = {
   openai: { component: OpenaiIcon, monochrome: true },
   perplexity: { component: PerplexityIcon },
   together_ai: { component: Together },
+  vercel: { component: VercelIcon, monochrome: true },
+  vercel_ai_gateway: { component: VercelIcon, monochrome: true },
   xai: { component: Xai, monochrome: true },
   zai: { component: Zai, monochrome: true },
 };

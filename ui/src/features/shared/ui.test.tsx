@@ -161,6 +161,15 @@ describe("BrandAvatar", () => {
     expect(container.querySelector("path")?.getAttribute("fill")).toBe("currentColor");
     expect(container.querySelector("svg")).toHaveStyle({ color: "var(--mono-icon)" });
   });
+
+  it("uses the Vercel icon for Vercel AI Gateway", () => {
+    const { container } = render(
+      <BrandAvatar brand="vercel_ai_gateway" title="Vercel AI Gateway" />,
+    );
+    expect(screen.getByLabelText("Vercel AI Gateway")).toBeTruthy();
+    expect(container.querySelector("svg")).toBeTruthy();
+    expect(screen.queryByText("V")).toBeNull();
+  });
 });
 
 describe("CopyBtn", () => {
