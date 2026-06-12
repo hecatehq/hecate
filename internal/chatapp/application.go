@@ -300,7 +300,7 @@ func (app *Application) CreateSession(ctx context.Context, cmd CreateSessionComm
 		item.DriverKind = prepared.DriverKind
 		item.NativeSessionID = prepared.NativeSessionID
 		item.ConfigOptions = prepared.ConfigOptions
-		if prepared.AvailableCommandsUpdated {
+		if prepared.AvailableCommandsKnown {
 			item.AvailableCommands = prepared.AvailableCommands
 		}
 	})
@@ -381,7 +381,7 @@ func (app *Application) SetConfigOption(ctx context.Context, cmd SetConfigOption
 	}
 	session, err := app.store.UpdateSession(ctx, cmd.Session.ID, func(item *chat.Session) {
 		item.ConfigOptions = result.ConfigOptions
-		if result.AvailableCommandsUpdated {
+		if result.AvailableCommandsKnown {
 			item.AvailableCommands = result.AvailableCommands
 		}
 	})

@@ -290,7 +290,7 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 	output, raw, usage := turn.snapshot()
 	result, err := captureACPTurnResult(ctx, s.adapter, req, s.nativeID, output, raw, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
 	result.ConfigOptions = s.configOptionsSnapshot()
-	result.AvailableCommands, result.AvailableCommandsUpdated = s.availableCommandsSnapshot()
+	result.AvailableCommands, result.AvailableCommandsKnown = s.availableCommandsSnapshot()
 	return result, err
 }
 
@@ -479,11 +479,11 @@ func (s *acpSession) SetConfigOption(ctx context.Context, req SetSessionConfigOp
 }
 
 func (s *acpSession) setSessionConfigOptionResult(options []agentcontrols.ConfigOption) SetSessionConfigOptionResult {
-	commands, commandsUpdated := s.availableCommandsSnapshot()
+	commands, commandsKnown := s.availableCommandsSnapshot()
 	return SetSessionConfigOptionResult{
-		ConfigOptions:            options,
-		AvailableCommands:        commands,
-		AvailableCommandsUpdated: commandsUpdated,
+		ConfigOptions:          options,
+		AvailableCommands:      commands,
+		AvailableCommandsKnown: commandsKnown,
 	}
 }
 
