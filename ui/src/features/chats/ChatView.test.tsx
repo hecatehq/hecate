@@ -2937,16 +2937,88 @@ describe("ChatView input", () => {
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
-    const commands = screen.getByLabelText("External agent commands");
-    expect(within(commands).getByRole("button", { name: "Insert /web command" })).toHaveTextContent(
+    const textarea = screen.getByRole("textbox", { name: "Message" });
+    const picker = screen.getByRole("combobox", { name: "Message command picker" });
+    const commands = screen.getByRole("listbox", { name: "External agent commands" });
+    expect(picker).toHaveAttribute("aria-expanded", "true");
+    expect(textarea).toHaveAttribute("aria-controls", commands.id);
+    expect(picker).toHaveAttribute("aria-controls", commands.id);
+    expect(within(commands).getByRole("option", { name: "Insert /web command" })).toHaveTextContent(
       "/web",
+    );
+    expect(within(commands).getByRole("option", { selected: true })).toHaveAttribute(
+      "aria-label",
+      "Insert /web command",
+    );
+    expect(textarea).toHaveAttribute(
+      "aria-activedescendant",
+      within(commands).getByRole("option", { selected: true }).id,
     );
     expect(within(commands).getByText("Search the web")).toBeTruthy();
 
     const user = userEvent.setup();
-    await user.click(within(commands).getByRole("button", { name: "Insert /web command" }));
+    await user.click(within(commands).getByRole("option", { name: "Insert /web command" }));
 
     expect(setMessage).toHaveBeenLastCalledWith("/web ");
+  });
+
+  it("filters external-agent slash commands by typed prefix", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "claude_code",
+      message: "/w",
+      activeChatSession: {
+        id: "chat_commands",
+        title: "Agent commands",
+        agent_id: "claude_code",
+        driver_kind: "acp",
+        execution_mode: "external_agent",
+        status: "idle",
+        workspace: "/tmp/hecate",
+        available_commands: [
+          { name: "web", description: "Search the web" },
+          { name: "plan", description: "Create a plan" },
+        ],
+        messages: [],
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const commands = screen.getByRole("listbox", { name: "External agent commands" });
+    expect(within(commands).getByRole("option", { name: "Insert /web command" })).toBeTruthy();
+    expect(within(commands).queryByRole("option", { name: "Insert /plan command" })).toBeNull();
+  });
+
+  it("dismisses external-agent slash command suggestions with Escape", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "claude_code",
+      message: "/",
+      activeChatSession: {
+        id: "chat_commands",
+        title: "Agent commands",
+        agent_id: "claude_code",
+        driver_kind: "acp",
+        execution_mode: "external_agent",
+        status: "idle",
+        workspace: "/tmp/hecate",
+        available_commands: [
+          { name: "web", description: "Search the web" },
+          { name: "plan", description: "Create a plan" },
+        ],
+        messages: [],
+      },
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const textarea = screen.getByRole("textbox", { name: "Message" });
+    const picker = screen.getByRole("combobox", { name: "Message command picker" });
+    expect(screen.getByRole("listbox", { name: "External agent commands" })).toBeTruthy();
+
+    fireEvent.keyDown(textarea, { key: "Escape" });
+
+    expect(screen.queryByRole("listbox", { name: "External agent commands" })).toBeNull();
+    expect(picker).toHaveAttribute("aria-expanded", "false");
   });
 
   it("selects external-agent slash commands with Enter without sending", () => {
@@ -2978,6 +3050,15 @@ describe("ChatView input", () => {
 
     const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    const commands = screen.getByRole("listbox", { name: "External agent commands" });
+    expect(within(commands).getByRole("option", { selected: true })).toHaveAttribute(
+      "aria-label",
+      "Insert /plan command",
+    );
+    expect(textarea).toHaveAttribute(
+      "aria-activedescendant",
+      within(commands).getByRole("option", { selected: true }).id,
+    );
     fireEvent.keyDown(textarea, { key: "Enter" });
 
     expect(setMessage).toHaveBeenLastCalledWith("/plan ");

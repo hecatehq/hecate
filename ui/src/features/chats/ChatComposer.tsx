@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type RefObject, type SyntheticEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+  type SyntheticEvent,
+} from "react";
 
 import { useChat } from "../../app/state/chat";
 import { useProvidersAndModels } from "../../app/state/providersAndModels";
@@ -219,6 +227,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const messageHistoryCursorRef = useRef<number | null>(null);
   const messageHistoryPendingTextRef = useRef("");
+  const commandListboxID = useId();
   const [commandPickerDismissed, setCommandPickerDismissed] = useState(false);
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const commandQuery = externalAgentCommandQuery(message);
@@ -236,6 +245,9 @@ export function ChatComposer(props: ChatComposerProps) {
     isExternalAgentChat &&
     !commandPickerDismissed &&
     commandSuggestions.length > 0;
+  const activeCommandOptionID = commandPickerVisible
+    ? `${commandListboxID}-option-${activeCommandIndex}`
+    : undefined;
 
   useEffect(() => {
     setCommandPickerDismissed(false);
@@ -591,6 +603,11 @@ export function ChatComposer(props: ChatComposerProps) {
             </div>
           )}
           <div
+            role="combobox"
+            aria-controls={commandPickerVisible ? commandListboxID : undefined}
+            aria-expanded={commandPickerVisible}
+            aria-haspopup="listbox"
+            aria-label="Message command picker"
             style={{
               maxWidth: 820,
               margin: "0 auto",
@@ -599,7 +616,8 @@ export function ChatComposer(props: ChatComposerProps) {
           >
             {commandPickerVisible && (
               <div
-                role="group"
+                id={commandListboxID}
+                role="listbox"
                 aria-label="External agent commands"
                 style={{
                   position: "absolute",
@@ -620,12 +638,14 @@ export function ChatComposer(props: ChatComposerProps) {
                   const commandText = externalAgentCommandInsertion(command).trim();
                   const selected = index === activeCommandIndex;
                   return (
-                    <button
+                    <div
                       key={`${externalAgentCommandName(command)}:${index}`}
-                      type="button"
+                      id={`${commandListboxID}-option-${index}`}
+                      role="option"
                       aria-label={`Insert ${commandText} command`}
-                      aria-current={selected ? "true" : undefined}
+                      aria-selected={selected}
                       onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setActiveCommandIndex(index)}
                       onClick={() => selectCommandSuggestion(command)}
                       style={{
                         width: "100%",
@@ -667,7 +687,7 @@ export function ChatComposer(props: ChatComposerProps) {
                       >
                         {externalAgentCommandDetail(command)}
                       </span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -675,6 +695,9 @@ export function ChatComposer(props: ChatComposerProps) {
             <textarea
               ref={textareaRef}
               aria-label="Message"
+              aria-activedescendant={activeCommandOptionID}
+              aria-controls={commandPickerVisible ? commandListboxID : undefined}
+              aria-haspopup="listbox"
               value={message}
               onChange={(e) => handleMessageChange(e.target.value)}
               onKeyDown={handleKeyDown}
