@@ -23,7 +23,7 @@ import (
 	"github.com/hecatehq/hecate/internal/modelapp"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/profiler"
-	"github.com/hecatehq/hecate/internal/projectassistant"
+	"github.com/hecatehq/hecate/internal/projectassistantapp"
 	"github.com/hecatehq/hecate/internal/projects"
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
@@ -52,7 +52,7 @@ type Handler struct {
 	projectWork              projectwork.Store
 	projectSkills            projectskills.Store
 	projectAssistantMu       sync.Mutex
-	projectAssistant         *projectassistant.Service
+	projectAssistant         *projectassistantapp.Application
 	agentProfiles            agentprofiles.Store
 	agentChatRunner          agentadapters.Runner
 	agentChatLive            *agentChatLive

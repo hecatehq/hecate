@@ -92,6 +92,12 @@ internal/
                           command shaping, id defaults, driver defaults,
                           store error boundaries, execution refs, activity
                           projection/status signals
+  projectassistant/     Project Assistant proposal domain: context building,
+                          deterministic/model/bootstrap drafting, validation,
+                          confirmed apply semantics
+  projectassistantapp/  Project Assistant application layer used by API
+                          handlers: cached service boundary, store/LLM wiring,
+                          context/draft/propose/apply commands
   providerapp/          settings provider application layer used by API handlers:
                           settings status, policy rules, provider
                           create/update/delete, API key rotate/clear
