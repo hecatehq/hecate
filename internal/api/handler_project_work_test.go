@@ -28,6 +28,7 @@ import (
 	"github.com/hecatehq/hecate/internal/projectskills"
 	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
+	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/storage"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/pkg/types"
@@ -35,6 +36,13 @@ import (
 
 func newProjectWorkTestServer() (*Handler, http.Handler) {
 	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	handler.SetProjectStore(projects.NewMemoryStore())
+	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
+	return handler, NewServer(quietLogger(), handler)
+}
+
+func newProjectWorkTestServerWithProviders(items ...providers.Provider) (*Handler, http.Handler) {
+	handler := newTestAPIHandlerWithSettings(quietLogger(), items, config.Config{}, nil)
 	handler.SetProjectStore(projects.NewMemoryStore())
 	handler.SetProjectWorkStore(projectwork.NewMemoryStore())
 	return handler, NewServer(quietLogger(), handler)
@@ -703,6 +711,58 @@ func TestProjectWorkAPI_PreflightAssignmentReturnsLaunchContextWithoutSideEffect
 	}
 }
 
+func TestProjectWorkAPI_PreflightAssignmentShowsBlockedModelReadiness(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServerWithProviders(&fakeProvider{
+		name:         "openai",
+		defaultModel: "gpt-4o-mini",
+	})
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverHecateTask,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.DefaultProvider = ""
+		project.DefaultModel = "dogfood-model"
+	}); err != nil {
+		t.Fatalf("Update project defaults: %v", err)
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
+	readiness := findRenderedContextItemByKind(packetResp.Data, "launch_readiness")
+	if readiness == nil || readiness.Section != contextSectionRuntime || readiness.Included {
+		t.Fatalf("readiness item = %+v, want inspect-only runtime launch readiness", readiness)
+	}
+	if readiness.Metadata["ready"] != "false" || readiness.Metadata["status"] != "blocked" || readiness.Metadata["reason"] != "model_not_discovered" {
+		t.Fatalf("readiness metadata = %+v, want blocked model_not_discovered", readiness.Metadata)
+	}
+	for _, want := range []string{
+		"Ready: false",
+		"Status: blocked",
+		"Provider: auto",
+		"Model: dogfood-model",
+		"Reason: model_not_discovered",
+		"No routable provider reports model \"dogfood-model\".",
+		"Operator action:",
+	} {
+		if !strings.Contains(readiness.Body, want) {
+			t.Fatalf("readiness body = %q, want %q", readiness.Body, want)
+		}
+	}
+	if packetResp.Data.Refs == nil || packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" {
+		t.Fatalf("preflight refs = %+v, want no task/run side effects", packetResp.Data.Refs)
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want no task created by blocked readiness preflight", tasks)
+	}
+}
+
 func TestProjectWorkAPI_PreflightAndStartShareNativeLaunchPlan(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -744,6 +804,54 @@ func TestProjectWorkAPI_PreflightAndStartShareNativeLaunchPlan(t *testing.T) {
 		t.Fatalf("task launch shape = provider/model/profile/workspace %q/%q/%q/%q, want preflight %q/%q/%q/%q",
 			task.RequestedProvider, task.RequestedModel, task.ExecutionProfile, task.WorkingDirectory,
 			preflight.Data.Provider, preflight.Data.Model, preflight.Data.ExecutionProfile, preflight.Data.Workspace)
+	}
+}
+
+func TestProjectWorkAPI_PreflightAndStartSnapshotModelReadiness(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServerWithProviders(&fakeProvider{
+		name:     "anthropic",
+		response: &types.ChatResponse{},
+		capabilities: providers.Capabilities{
+			Name:         "anthropic",
+			Kind:         providers.KindCloud,
+			DefaultModel: "claude-sonnet-4",
+			Models:       []string{"claude-sonnet-4"},
+		},
+	})
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	client := newAPITestClient(t, server)
+	preflight := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
+	preflightReadiness := findRenderedContextItemByKind(preflight.Data, "launch_readiness")
+	if preflightReadiness == nil || !strings.Contains(preflightReadiness.Body, "Ready: true") || !strings.Contains(preflightReadiness.Body, "Matched provider: anthropic") {
+		t.Fatalf("preflight readiness = %+v, want ready anthropic metadata", preflightReadiness)
+	}
+	if preflightReadiness.Metadata["ready"] != "true" || preflightReadiness.Metadata["matched_provider"] != "anthropic" {
+		t.Fatalf("preflight readiness metadata = %+v, want ready anthropic", preflightReadiness.Metadata)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	started := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
+	startedReadiness := findRenderedContextItemByKind(started.Data, "launch_readiness")
+	if startedReadiness == nil {
+		t.Fatal("started context missing launch_readiness item")
+	}
+	if startedReadiness.Body != preflightReadiness.Body {
+		t.Fatalf("started readiness body = %q, want preflight body %q", startedReadiness.Body, preflightReadiness.Body)
 	}
 }
 

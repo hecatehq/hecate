@@ -2299,10 +2299,23 @@ from an assignment override, work-item default, or project default/fallback.
 The response is a normal `context_packet` envelope with assignment refs only;
 task, run, chat session, and message refs remain empty because preflight is
 inspect-only. The packet includes a `runtime` / `launch_preflight` item with
-`included=false` describing what will be created on confirm. The Projects
-cockpit uses this endpoint before `Start assignment`, `Prepare chat`, and
-`Start from handoff` so the operator can review the effective launch context
-before dispatch.
+`included=false` describing what will be created on confirm. For native Hecate
+task assignments, the packet also includes a `runtime` / `launch_readiness`
+item when the gateway is wired. That item snapshots the resolved provider/model
+readiness using the same reason and repair vocabulary as `metadata.readiness`
+on `/v1/models`: `Ready: false` means the selected model is not currently
+routable through the configured providers and should be repaired before start.
+Its body is human-readable, and `metadata` carries stable keys such as `ready`,
+`status`, `provider`, `model`, `matched_provider`, `reason`, `message`, and
+`operator_action` for clients that need to gate UI actions without parsing
+copy. It is operator evidence, not injected prompt content.
+
+The Projects cockpit uses this endpoint before `Start assignment`, `Prepare
+chat`, and `Start from handoff` so the operator can review the effective launch
+context before dispatch. The UI disables native assignment confirmation when
+preflight reports blocked provider/model readiness, but `POST /start` remains
+the authoritative mutation path and the task runner/gateway still performs the
+actual route checks during execution.
 
 Unqueued, terminal, already-linked, unsupported, misconfigured, or invalid
 assignments return the same operator-facing error classes as start would use,
@@ -2332,7 +2345,9 @@ context-source policy. Role default provider/model/profile override
 project defaults for the backing task when configured; project
 provider/model/workspace settings remain the fallback. Provider and model
 defaults are route hints, so catalog/routing validation happens during task
-start instead of role save. The workspace root must
+start instead of role save. Preflight snapshots the selected model's current
+readiness so the operator can fix stale provider/model defaults before a task
+and run are created. The workspace root must
 resolve to an absolute existing project root before a task is created; missing
 or defaultless roots return `400 invalid_request`. A missing model returns
 `422 model_not_configured`.
@@ -2345,7 +2360,10 @@ assignment with `execution_ref.task_id`, latest `execution_ref.run_id`, status,
 and timestamps before returning the updated assignment:
 
 The persisted context packet records the resolved profile and applies its
-project memory/context-source policies. `include` / `include_enabled` make the
+project memory/context-source policies. For native assignments, it also records
+the same `runtime` / `launch_readiness` metadata captured by preflight so later
+run-context inspection can show what provider/model readiness looked like when
+the assignment was started. `include` / `include_enabled` make the
 enabled project records active in the packet and add a `prompt_context`
 instructions item summarizing what was loaded into the native assignment prompt.
 `visible_only` / `inherit` keep records inspect-only, and `exclude` omits them

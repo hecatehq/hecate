@@ -194,6 +194,10 @@ type AssignmentPreflightState =
   | { status: "ready"; packet: ContextPacketRecord }
   | { status: "error"; detail: string };
 
+type AssignmentLaunchReadinessNoticeRecord = {
+  detail: string;
+};
+
 function projectAssignmentExecutionKindFromForm(form: EditAssignmentForm) {
   if (form.taskID.trim() || form.runID.trim()) return "task_run";
   if (form.chatSessionID.trim() || form.messageID.trim()) return "chat_session";
@@ -5238,6 +5242,8 @@ function AssignmentLaunchPreflightModal({
   state: AssignmentPreflightState;
 }) {
   const ready = state.status === "ready";
+  const readinessNotice = ready ? assignmentLaunchReadinessNotice(state.packet) : null;
+  const canConfirm = ready && !readinessNotice;
   return (
     <Modal
       title={`Assignment ${assignmentID} launch preflight`}
@@ -5255,7 +5261,12 @@ function AssignmentLaunchPreflightModal({
             className="btn btn-primary"
             type="button"
             onClick={onConfirm}
-            disabled={!ready || pending}
+            disabled={!canConfirm || pending}
+            title={
+              readinessNotice
+                ? "Fix the provider/model readiness issue before starting this assignment."
+                : undefined
+            }
           >
             {pending ? loadingLabel : confirmLabel}
           </button>
@@ -5274,13 +5285,52 @@ function AssignmentLaunchPreflightModal({
         ) : null}
         {state.status === "error" ? <InlineError message={state.detail} /> : null}
         {ready ? (
-          <ContextInspectorPanel
-            packet={state.packet}
-            emptyDetail="No launch context metadata returned."
-          />
+          <div style={{ display: "grid", gap: 12 }}>
+            {readinessNotice && <AssignmentLaunchReadinessNotice notice={readinessNotice} />}
+            <ContextInspectorPanel
+              packet={state.packet}
+              emptyDetail="No launch context metadata returned."
+            />
+          </div>
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+function AssignmentLaunchReadinessNotice({
+  notice,
+}: {
+  notice: AssignmentLaunchReadinessNoticeRecord;
+}) {
+  return (
+    <div
+      role="status"
+      style={{
+        background: "var(--amber-bg)",
+        border: "1px solid var(--amber-border)",
+        borderRadius: "var(--radius-sm)",
+        display: "grid",
+        gap: 6,
+        padding: "10px 12px",
+      }}
+    >
+      <div
+        style={{
+          alignItems: "center",
+          color: "var(--amber)",
+          display: "flex",
+          fontWeight: 600,
+          gap: 8,
+        }}
+      >
+        <Icon d={Icons.warning} size={13} />
+        Provider/model not ready
+      </div>
+      <div style={{ color: "var(--amber-lo)", fontSize: 12, lineHeight: 1.45 }}>
+        {notice.detail}
+      </div>
+    </div>
   );
 }
 
@@ -5976,6 +6026,32 @@ function rememberRightPanelWidth(width: number) {
 
 function splitRoleIDs(value: string): string[] {
   return splitIDs(value);
+}
+
+function assignmentLaunchReadinessNotice(
+  packet: ContextPacketRecord,
+): AssignmentLaunchReadinessNoticeRecord | null {
+  const item = packet.items?.find((candidate) => candidate.kind === "launch_readiness");
+  if (!item) return null;
+  const ready = (item.metadata?.ready || contextBodyField(item.body || "", "Ready")).toLowerCase();
+  if (ready !== "false") return null;
+  const message = item.metadata?.message || contextBodyField(item.body || "", "Message");
+  const action =
+    item.metadata?.operator_action || contextBodyField(item.body || "", "Operator action");
+  const reason = item.metadata?.reason || contextBodyField(item.body || "", "Reason");
+  const detail = [message, action].filter(Boolean).join(" ");
+  return {
+    detail: detail || reason || "The selected provider/model cannot be routed for this assignment.",
+  };
+}
+
+function contextBodyField(body: string, label: string): string {
+  const prefix = `${label}:`;
+  for (const rawLine of body.split("\n")) {
+    const line = rawLine.trim();
+    if (line.startsWith(prefix)) return line.slice(prefix.length).trim();
+  }
+  return "";
 }
 
 function errorMessage(error: unknown, fallback: string): string {

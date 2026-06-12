@@ -169,6 +169,9 @@ func (h *Handler) projectHecateTaskAssignmentPreflightContext(ctx context.Contex
 		return chat.ContextPacket{}, err
 	}
 	packet := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, plan.Root, plan.WorkingDirectory, plan.RequestedProvider, plan.RequestedModel, plan.ExecutionProfile, plan.Profile, plan.ResolvedSkills, plan.PromptContext)
+	if err := h.appendProjectAssignmentLaunchReadiness(ctx, &packet, plan.RequestedProvider, plan.RequestedModel); err != nil {
+		return chat.ContextPacket{}, err
+	}
 	appendProjectAssignmentLaunchPreflight(&packet, projectwork.AssignmentDriverHecateTask, []string{
 		"Task: created on start",
 		"Run: created on start",
@@ -307,6 +310,9 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, plan.Root, plan.WorkingDirectory, plan.RequestedProvider, plan.RequestedModel, plan.ExecutionProfile, plan.Profile, plan.ResolvedSkills, plan.PromptContext)
+	if err := h.appendProjectAssignmentLaunchReadiness(ctx, &contextPacket, plan.RequestedProvider, plan.RequestedModel); err != nil {
+		h.logProjectAssignmentLaunchReadinessError(ctx, err)
+	}
 	if contextPacket.ID == "" {
 		contextPacket.ID = newChatID("ctx")
 	}
@@ -535,6 +541,96 @@ func appendProjectAssignmentLaunchPreflight(packet *chat.ContextPacket, driverKi
 		Included:        false,
 		InclusionReason: "Preflight metadata for operator review before assignment start",
 	})
+}
+
+func (h *Handler) appendProjectAssignmentLaunchReadiness(ctx context.Context, packet *chat.ContextPacket, provider, model string) error {
+	if h.service == nil {
+		return nil
+	}
+	result, err := h.service.ProviderModelReadiness(ctx, provider, model)
+	if err != nil {
+		return err
+	}
+	appendProjectAssignmentLaunchReadinessItem(packet, result.Readiness.ToModelReadiness())
+	return nil
+}
+
+func (h *Handler) logProjectAssignmentLaunchReadinessError(ctx context.Context, err error) {
+	if h == nil || h.logger == nil || err == nil {
+		return
+	}
+	h.logger.WarnContext(ctx, "project_assignment.launch_readiness.failed", "error", err)
+}
+
+func appendProjectAssignmentLaunchReadinessItem(packet *chat.ContextPacket, readiness types.ModelReadiness) {
+	status := firstNonEmptyString(strings.TrimSpace(readiness.Status), "unknown")
+	body := []string{
+		fmt.Sprintf("Ready: %t", readiness.Ready),
+		"Status: " + status,
+		"Provider: " + firstNonEmptyString(strings.TrimSpace(readiness.Provider), "auto"),
+		"Model: " + firstNonEmptyString(strings.TrimSpace(readiness.Model), "none"),
+	}
+	if readiness.MatchedProvider != "" {
+		body = append(body, "Matched provider: "+readiness.MatchedProvider)
+	}
+	if readiness.Reason != "" {
+		body = append(body, "Reason: "+readiness.Reason)
+	}
+	if readiness.Message != "" {
+		body = append(body, "Message: "+readiness.Message)
+	}
+	if readiness.OperatorAction != "" {
+		body = append(body, "Operator action: "+readiness.OperatorAction)
+	}
+	if readiness.ProviderStatus != "" {
+		body = append(body, "Provider status: "+readiness.ProviderStatus)
+	}
+	if readiness.ProviderBlockedReason != "" {
+		body = append(body, "Provider blocked reason: "+readiness.ProviderBlockedReason)
+	}
+	if len(readiness.SuggestedModels) > 0 {
+		body = append(body, "Suggested models: "+strings.Join(readiness.SuggestedModels, ", "))
+	}
+	appendContextPacketSourceWithSection(packet, contextSectionRuntime, chat.ContextSource{
+		Kind:   "launch_readiness",
+		Label:  "Launch readiness",
+		Detail: status,
+		Trust:  contextTrustRuntimeState,
+	}, chat.ContextItem{
+		Kind:            "launch_readiness",
+		TrustLevel:      contextTrustRuntimeState,
+		Origin:          "project_assignment.launch_readiness",
+		Title:           "Launch readiness",
+		Body:            strings.Join(body, "\n"),
+		Included:        false,
+		InclusionReason: "Provider/model readiness metadata for operator review before assignment start",
+		Metadata:        projectAssignmentLaunchReadinessMetadata(readiness, status),
+	})
+}
+
+func projectAssignmentLaunchReadinessMetadata(readiness types.ModelReadiness, status string) map[string]string {
+	metadata := map[string]string{
+		"ready":         fmt.Sprintf("%t", readiness.Ready),
+		"routing_ready": fmt.Sprintf("%t", readiness.RoutingReady),
+		"status":        strings.TrimSpace(status),
+		"provider":      firstNonEmptyString(strings.TrimSpace(readiness.Provider), "auto"),
+		"model":         strings.TrimSpace(readiness.Model),
+	}
+	setMetadata := func(key, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			metadata[key] = value
+		}
+	}
+	setMetadata("matched_provider", readiness.MatchedProvider)
+	setMetadata("reason", readiness.Reason)
+	setMetadata("message", readiness.Message)
+	setMetadata("operator_action", readiness.OperatorAction)
+	setMetadata("provider_status", readiness.ProviderStatus)
+	setMetadata("provider_blocked_reason", readiness.ProviderBlockedReason)
+	if len(readiness.SuggestedModels) > 0 {
+		setMetadata("suggested_models", strings.Join(readiness.SuggestedModels, ", "))
+	}
+	return metadata
 }
 
 func formatProjectExternalAgentConfigOptions(options []agentcontrols.ConfigOption) string {
