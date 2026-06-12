@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { projectByID, projectDefaultWorkspace } from "./project-workspace";
-import type { ProjectRecord, ProjectRootRecord } from "../types/project";
+import {
+  projectByID,
+  projectDefaultWorkspace,
+  projectDefaultWorkspaceFromRoots,
+} from "./project-workspace";
+import type { ProjectRecord, ProjectRootPayload, ProjectRootRecord } from "../types/project";
 
 function root(overrides: Partial<ProjectRootRecord>): ProjectRootRecord {
   return {
@@ -58,6 +62,17 @@ describe("project workspace helpers", () => {
         }),
       ),
     ).toBe("/workspace/first");
+  });
+
+  it("selects a default workspace from editable root payloads", () => {
+    const roots: ProjectRootPayload[] = [
+      { id: "root_first", path: "/workspace/first" },
+      { id: "root_form_default", path: "/workspace/form-default", active: true },
+    ];
+
+    expect(projectDefaultWorkspaceFromRoots(roots, "root_form_default")).toBe(
+      "/workspace/form-default",
+    );
   });
 
   it("returns an empty workspace for no project or root", () => {

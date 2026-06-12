@@ -56,7 +56,10 @@ import {
   updateProjectWorkItem,
 } from "../../lib/api";
 import { formatAbsoluteTime } from "../../lib/format";
-import { projectDefaultWorkspace } from "../../lib/project-workspace";
+import {
+  projectDefaultWorkspace,
+  projectDefaultWorkspaceFromRoots,
+} from "../../lib/project-workspace";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { ChatRightPanel } from "../chats/ChatRightPanel";
 import { ContextInspectorModalTrigger, ContextInspectorPanel } from "../shared/ContextInspector";
@@ -4285,7 +4288,7 @@ function ProjectSettingsPanel({
   }
   const submitForm = () => onSave(form);
 
-  const workspace = projectDefaultWorkspace(project);
+  const workspace = projectDefaultWorkspaceFromRoots(form.roots, form.defaultRootID);
   const rootCount = form.roots.length;
 
   return (
