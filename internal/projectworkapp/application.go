@@ -106,6 +106,7 @@ type CreateWorkItemCommand struct {
 	Status          string
 	Priority        string
 	OwnerRoleID     string
+	RootID          string
 	ReviewerRoleIDs []string
 }
 
@@ -115,12 +116,14 @@ type UpdateWorkItemCommand struct {
 	Status          *string
 	Priority        *string
 	OwnerRoleID     *string
+	RootID          *string
 	ReviewerRoleIDs *[]string
 }
 
 type CreateAssignmentCommand struct {
 	ID           string
 	RoleID       string
+	RootID       string
 	DriverKind   string
 	Status       string
 	ExecutionRef projectwork.AssignmentExecutionRef
@@ -130,6 +133,7 @@ type CreateAssignmentCommand struct {
 
 type UpdateAssignmentCommand struct {
 	RoleID       *string
+	RootID       *string
 	DriverKind   *string
 	Status       *string
 	ExecutionRef *projectwork.AssignmentExecutionRef
@@ -284,6 +288,7 @@ func (app *Application) CreateWorkItem(ctx context.Context, projectID string, cm
 		Status:          cmd.Status,
 		Priority:        cmd.Priority,
 		OwnerRoleID:     cmd.OwnerRoleID,
+		RootID:          cmd.RootID,
 		ReviewerRoleIDs: append([]string(nil), cmd.ReviewerRoleIDs...),
 	})
 }
@@ -307,6 +312,9 @@ func (app *Application) UpdateWorkItem(ctx context.Context, projectID, workItemI
 		}
 		if cmd.OwnerRoleID != nil {
 			item.OwnerRoleID = *cmd.OwnerRoleID
+		}
+		if cmd.RootID != nil {
+			item.RootID = *cmd.RootID
 		}
 		if cmd.ReviewerRoleIDs != nil {
 			item.ReviewerRoleIDs = append([]string(nil), *cmd.ReviewerRoleIDs...)
@@ -342,6 +350,7 @@ func (app *Application) CreateAssignment(ctx context.Context, projectID, workIte
 		ProjectID:    projectID,
 		WorkItemID:   workItemID,
 		RoleID:       cmd.RoleID,
+		RootID:       cmd.RootID,
 		DriverKind:   driverKind,
 		Status:       cmd.Status,
 		ExecutionRef: cmd.ExecutionRef,
@@ -357,6 +366,9 @@ func (app *Application) UpdateAssignment(ctx context.Context, projectID, assignm
 	return app.store.UpdateAssignment(ctx, projectID, assignmentID, func(item *projectwork.Assignment) {
 		if cmd.RoleID != nil {
 			item.RoleID = *cmd.RoleID
+		}
+		if cmd.RootID != nil {
+			item.RootID = *cmd.RootID
 		}
 		if cmd.DriverKind != nil {
 			item.DriverKind = *cmd.DriverKind

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hecatehq/hecate/internal/config"
@@ -65,6 +66,103 @@ func TestProjectRootsDiscovery_MergesGitWorktrees(t *testing.T) {
 	}
 	if resp.Data.DefaultRootID != "root_main" {
 		t.Fatalf("default_root_id = %q, want root_main", resp.Data.DefaultRootID)
+	}
+}
+
+func TestProjectRoots_CreateWorktreeRoot(t *testing.T) {
+	t.Parallel()
+	repo := initProjectRootDiscoveryRepo(t)
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+	if _, err := projectStore.Create(t.Context(), projects.Project{
+		ID:            "proj_roots",
+		Name:          "Roots",
+		DefaultRootID: "root_main",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   repo,
+			Kind:   "git",
+			Active: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_roots/roots/worktrees", bytes.NewReader([]byte(`{
+		"base_root_id":"root_main",
+		"branch":"feature/create-root",
+		"active":true,
+		"set_default":true
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create worktree status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var resp ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode create worktree response: %v", err)
+	}
+	if len(resp.Data.Roots) != 2 {
+		t.Fatalf("roots = %+v, want main plus created worktree", resp.Data.Roots)
+	}
+	created := resp.Data.Roots[1]
+	wantPath := filepath.Join(repo, ".worktrees", "feature-create-root")
+	if created.ID == "" || created.Kind != "git_worktree" || created.GitBranch != "feature/create-root" || !created.Active || resp.Data.DefaultRootID != created.ID {
+		t.Fatalf("created root = %+v default=%q, want active default git worktree", created, resp.Data.DefaultRootID)
+	}
+	if canonicalProjectRootDiscoveryTestPath(t, created.Path) != canonicalProjectRootDiscoveryTestPath(t, wantPath) {
+		t.Fatalf("created path = %q, want %q", created.Path, wantPath)
+	}
+	branch, err := exec.Command("git", "-C", created.Path, "branch", "--show-current").Output()
+	if err != nil {
+		t.Fatalf("git branch in created worktree: %v", err)
+	}
+	if strings.TrimSpace(string(branch)) != "feature/create-root" {
+		t.Fatalf("created worktree branch = %q, want feature/create-root", strings.TrimSpace(string(branch)))
+	}
+}
+
+func TestProjectRoots_CreateWorktreeRootRejectsOutsidePath(t *testing.T) {
+	t.Parallel()
+	repo := initProjectRootDiscoveryRepo(t)
+	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
+	projectStore := projects.NewMemoryStore()
+	handler.SetProjectStore(projectStore)
+	server := NewServer(quietLogger(), handler)
+	if _, err := projectStore.Create(t.Context(), projects.Project{
+		ID:            "proj_roots",
+		Name:          "Roots",
+		DefaultRootID: "root_main",
+		Roots: []projects.Root{{
+			ID:     "root_main",
+			Path:   repo,
+			Kind:   "git",
+			Active: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_roots/roots/worktrees", bytes.NewReader([]byte(`{
+		"base_root_id":"root_main",
+		"branch":"feature/outside",
+		"path":"../outside"
+	}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("outside worktree status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_roots/roots/worktrees", bytes.NewReader([]byte(`{
+		"base_root_id":"root_main",
+		"branch":"feature/nested",
+		"path":".worktrees/nested/feature"
+	}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("nested worktree status = %d body=%s, want 400", rec.Code, rec.Body.String())
 	}
 }
 

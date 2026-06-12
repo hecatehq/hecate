@@ -1340,6 +1340,54 @@ POST /hecate/v1/projects/proj_.../roots/discover
 }
 ```
 
+### `POST /hecate/v1/projects/{id}/roots/worktrees`
+
+Creates a linked Git worktree from an existing project root and appends the
+created checkout as a project root. This is an explicit operator action. V1
+constrains the target path to a direct child of the selected base root's
+`.worktrees/` directory so Hecate does not create sibling, nested, or arbitrary
+filesystem workspaces through this endpoint.
+
+Request fields:
+
+- `branch` is required and becomes the new worktree branch.
+- `base_root_id` selects the Git root to run `git worktree add` from; omitted
+  means project default root, then first active root, then first root.
+- `start_point` is optional and is passed to Git after the target path.
+- `path` is optional. Relative paths resolve under the base root and must be a
+  direct child of `.worktrees/`.
+- `active` defaults to `true`.
+- `set_default` makes the new root the project's `default_root_id`.
+
+```json
+POST /hecate/v1/projects/proj_.../roots/worktrees
+{
+  "base_root_id": "root_main",
+  "branch": "feature/project-roots",
+  "start_point": "origin/main",
+  "active": true,
+  "set_default": true
+}
+
+→ 201
+{
+  "object": "project",
+  "data": {
+    "id": "proj_...",
+    "default_root_id": "root_...",
+    "roots": [
+      {
+        "id": "root_...",
+        "path": "/Users/alice/src/hecate/.worktrees/feature-project-roots",
+        "kind": "git_worktree",
+        "git_branch": "feature/project-roots",
+        "active": true
+      }
+    ]
+  }
+}
+```
+
 ### `POST /hecate/v1/projects/{id}/context-sources/discover`
 
 Discovers workspace guidance metadata from active absolute project roots and
@@ -1592,6 +1640,9 @@ Supported assignment driver kinds are `hecate_task` and `external_agent`.
 Assignment start dispatches `hecate_task` assignments through the native task
 runtime and prepares `external_agent` assignments as supervised External Agent
 chat sessions.
+Work items and assignments may carry `root_id` to select a concrete project
+root. Launch workspace resolution uses assignment `root_id`, then work-item
+`root_id`, then project `default_root_id`, then the first active project root.
 Supported collaboration artifact kinds are `brief`, `handoff`, `review`, and
 `decision_note`.
 Supported structured handoff statuses are `pending`, `accepted`, `superseded`,
@@ -1977,6 +2028,7 @@ or `urgent`.
   "status": "ready",
   "priority": "high",
   "owner_role_id": "software_developer",
+  "root_id": "root_...",
   "reviewer_role_ids": ["architect", "reviewer_qa"]
 }
 ```
@@ -1994,6 +2046,7 @@ Returns:
     "status": "ready",
     "priority": "high",
     "owner_role_id": "software_developer",
+    "root_id": "root_...",
     "reviewer_role_ids": ["architect", "reviewer_qa"],
     "created_at": "2026-06-03T12:00:00Z",
     "updated_at": "2026-06-03T12:00:00Z"
@@ -2007,8 +2060,8 @@ Returns one work item or `404 not_found`.
 
 #### `PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}`
 
-Updates `title`, `brief`, `status`, `priority`, `owner_role_id`, or
-`reviewer_role_ids`.
+Updates `title`, `brief`, `status`, `priority`, `owner_role_id`, `root_id`, or
+`reviewer_role_ids`. An empty `root_id` clears the work-item root override.
 
 #### `DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}`
 
@@ -2027,6 +2080,7 @@ defaults to `hecate_task`. Optional execution links are stored under
 ```json
 {
   "role_id": "software_developer",
+  "root_id": "root_...",
   "driver_kind": "hecate_task",
   "execution_ref": {
     "kind": "task_run",
@@ -2047,6 +2101,7 @@ Returns:
     "project_id": "proj_...",
     "work_item_id": "work_...",
     "role_id": "software_developer",
+    "root_id": "root_...",
     "driver_kind": "hecate_task",
     "status": "queued",
     "execution_ref": {
@@ -2070,8 +2125,9 @@ Returns:
 
 #### `PATCH /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}`
 
-Updates assignment status, role, link fields, `started_at`, or `completed_at`.
-It does not mutate or start the linked Task or Chat.
+Updates assignment status, role, `root_id`, link fields, `started_at`, or
+`completed_at`. An empty `root_id` clears the assignment root override. It does
+not mutate or start the linked Task or Chat.
 
 #### `DELETE /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}`
 
@@ -2100,6 +2156,9 @@ start: project/work/assignment/role lookup, stored driver support, active
 execution checks, workspace resolution, resolved profile, provider/model hints
 for native assignments, External Agent adapter/options for external-agent
 assignments, skill metadata resolution, and prompt-context policy metadata.
+The packet includes a `project_work` / `project_root` item describing the
+selected root, path, Git branch/remote when known, and whether the root came
+from an assignment override, work-item default, or project default/fallback.
 
 The response is a normal `context_packet` envelope with assignment refs only;
 task, run, chat session, and message refs remain empty because preflight is

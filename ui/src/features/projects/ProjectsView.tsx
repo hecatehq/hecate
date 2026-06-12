@@ -19,6 +19,7 @@ import {
   discoverProjectContextSources,
   discoverProjectRoots,
   discoverProjectSkills,
+  createProjectWorktreeRoot,
   createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
@@ -85,6 +86,7 @@ import type {
   ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
   ProjectContextSourceRecord,
+  CreateProjectWorktreeRootPayload,
   CreateProjectHandoffPayload,
   ProjectHandoffRecord,
   ProjectMemoryRecord,
@@ -154,11 +156,13 @@ type NewWorkItemForm = {
   brief: string;
   priority: string;
   ownerRoleID: string;
+  rootID: string;
 };
 
 type NewAssignmentForm = {
   roleID: string;
   driverKind: string;
+  rootID: string;
 };
 
 type EditWorkItemForm = NewWorkItemForm & {
@@ -234,6 +238,15 @@ type ProjectDefaultsForm = {
   workspaceMode: string;
   defaultRootID: string;
   roots: ProjectRootPayload[];
+};
+
+type CreateWorktreeForm = {
+  baseRootID: string;
+  branch: string;
+  startPoint: string;
+  path: string;
+  active: boolean;
+  setDefault: boolean;
 };
 
 type MemoryForm = {
@@ -385,6 +398,9 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [defaultsPending, setDefaultsPending] = useState(false);
   const [defaultsError, setDefaultsError] = useState("");
   const [discoveringRoots, setDiscoveringRoots] = useState(false);
+  const [createWorktreeOpen, setCreateWorktreeOpen] = useState(false);
+  const [createWorktreePending, setCreateWorktreePending] = useState(false);
+  const [createWorktreeError, setCreateWorktreeError] = useState("");
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [rolesPending, setRolesPending] = useState(false);
   const [rolesError, setRolesError] = useState("");
@@ -827,6 +843,31 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }
 
+  async function handleCreateWorktreeRoot(form: CreateWorktreeForm) {
+    if (!selectedProject) return;
+    const branch = form.branch.trim();
+    if (!branch) return;
+    const payload: CreateProjectWorktreeRootPayload = {
+      branch,
+      base_root_id: form.baseRootID.trim() || undefined,
+      start_point: form.startPoint.trim() || undefined,
+      path: form.path.trim() || undefined,
+      active: form.active,
+      set_default: form.setDefault,
+    };
+    setCreateWorktreePending(true);
+    setCreateWorktreeError("");
+    try {
+      const result = await createProjectWorktreeRoot(selectedProject.id, payload);
+      projects.actions.setProjects((current) => upsertProject(current, result.data));
+      setCreateWorktreeOpen(false);
+    } catch (error) {
+      setCreateWorktreeError(errorMessage(error, "Failed to create project worktree."));
+    } finally {
+      setCreateWorktreePending(false);
+    }
+  }
+
   async function handleDiscoverContextSources() {
     if (!selectedProjectID) return;
     setDiscoveringContext(true);
@@ -1074,12 +1115,14 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setNewWorkPending(true);
     setNewWorkError("");
     try {
+      const rootID = form.rootID.trim();
       const payload = await createProjectWorkItem(selectedProjectID, {
         title,
         brief: form.brief.trim() || undefined,
         status: "ready",
         priority: form.priority || "normal",
         owner_role_id: form.ownerRoleID || undefined,
+        ...(rootID ? { root_id: rootID } : {}),
       });
       setWorkItems((current) => upsertWorkItem(current, payload.data));
       setWorkItemSummaries((current) => ({
@@ -1113,6 +1156,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       status: form.status,
       priority: form.priority || "normal",
       owner_role_id: form.ownerRoleID,
+      root_id: form.rootID.trim(),
       reviewer_role_ids: splitRoleIDs(form.reviewerRoleIDs),
     };
     try {
@@ -1147,9 +1191,11 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setNewAssignmentPending(true);
     setNewAssignmentError("");
     try {
+      const rootID = form.rootID.trim();
       const payload = await createProjectAssignment(selectedProjectID, selectedWorkItemID, {
         role_id: roleID,
         driver_kind: form.driverKind || "hecate_task",
+        ...(rootID ? { root_id: rootID } : {}),
       });
       setAssignments((current) => upsertAssignment(current, payload.data));
       setNewAssignmentModalOpen(false);
@@ -1169,6 +1215,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setEditAssignmentError("");
     const patch: UpdateProjectAssignmentPayload = {
       role_id: roleID,
+      root_id: form.rootID.trim(),
       driver_kind: form.driverKind || "hecate_task",
       status: form.status || "queued",
       execution_ref: projectAssignmentExecutionRefFromForm(form),
@@ -1735,6 +1782,10 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                 project={selectedProject}
                 rootsPending={discoveringRoots}
                 onDiscoverRoots={handleDiscoverProjectRoots}
+                onOpenCreateWorktree={() => {
+                  setCreateWorktreeError("");
+                  setCreateWorktreeOpen(true);
+                }}
                 onSave={handleSaveProjectDefaults}
               />
             </ChatRightPanel>
@@ -1774,41 +1825,57 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           <NewWorkItemModal
             error={newWorkError}
             pending={newWorkPending}
+            project={selectedProject}
             roles={roles}
             onClose={() => setNewWorkModalOpen(false)}
             onCreate={handleCreateWorkItem}
           />
         )}
 
-        {selectedWorkItem && newAssignmentModalOpen && (
+        {selectedProject && selectedWorkItem && newAssignmentModalOpen && (
           <NewAssignmentModal
             error={newAssignmentError}
             pending={newAssignmentPending}
+            project={selectedProject}
+            workItem={selectedWorkItem}
             roles={roles}
             onClose={() => setNewAssignmentModalOpen(false)}
             onCreate={handleCreateAssignment}
           />
         )}
 
-        {editingWorkItem && (
+        {selectedProject && editingWorkItem && (
           <EditWorkItemModal
             error={editWorkError}
             item={editingWorkItem}
             pending={editWorkPending}
+            project={selectedProject}
             roles={roles}
             onClose={() => setEditingWorkItem(null)}
             onSave={handleUpdateWorkItem}
           />
         )}
 
-        {editingAssignment && (
+        {selectedProject && editingAssignment && (
           <EditAssignmentModal
             assignment={editingAssignment}
             error={editAssignmentError}
             pending={editAssignmentPending}
+            project={selectedProject}
+            workItem={selectedWorkItem}
             roles={roles}
             onClose={() => setEditingAssignment(null)}
             onSave={handleUpdateAssignment}
+          />
+        )}
+
+        {selectedProject && createWorktreeOpen && (
+          <CreateProjectWorktreeModal
+            error={createWorktreeError}
+            pending={createWorktreePending}
+            project={selectedProject}
+            onClose={() => setCreateWorktreeOpen(false)}
+            onCreate={handleCreateWorktreeRoot}
           />
         )}
 
@@ -3713,6 +3780,11 @@ function WorkItemDetail({
                   Owner {roleByID.get(workItem.owner_role_id)?.name ?? workItem.owner_role_id}
                 </span>
               )}
+              {workItem.root_id && project && (
+                <span title={projectRootTitle(project, workItem.root_id)}>
+                  Root {projectRootDisplayLabel(project, workItem.root_id)}
+                </span>
+              )}
             </div>
           </div>
           <div style={workItemHeaderActionsStyle}>
@@ -3813,6 +3885,7 @@ function WorkItemDetail({
                       activityByAssignmentID.get(assignment.id),
                     )
                   }
+                  project={project}
                   role={roleByID.get(assignment.role_id)}
                   starting={startingAssignmentID === assignment.id}
                   loadContext={
@@ -3937,6 +4010,7 @@ function ProjectSettingsPanel({
   project,
   rootsPending,
   onDiscoverRoots,
+  onOpenCreateWorktree,
   onSave,
 }: {
   agentProfiles: AgentProfileRecord[];
@@ -3949,6 +4023,7 @@ function ProjectSettingsPanel({
   project: ProjectRecord;
   rootsPending: boolean;
   onDiscoverRoots: () => void | Promise<void>;
+  onOpenCreateWorktree: () => void;
   onSave: (form: ProjectDefaultsForm) => void | Promise<void>;
 }) {
   const [form, setForm] = useState<ProjectDefaultsForm>(() =>
@@ -4174,6 +4249,13 @@ function ProjectSettingsPanel({
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <button
+                  className="btn btn-primary btn-sm"
+                  type="button"
+                  onClick={onOpenCreateWorktree}
+                >
+                  Create worktree
+                </button>
+                <button
                   className="btn btn-ghost btn-sm"
                   type="button"
                   disabled={rootsPending}
@@ -4287,20 +4369,55 @@ function projectRootPayloadFromRecord(root: ProjectRootRecord): ProjectRootPaylo
   return payload;
 }
 
-function projectRootOptionLabel(root: ProjectRootPayload) {
+function projectRootOptionLabel(root: ProjectRootPayload | ProjectRootRecord) {
   const parts = [root.path];
   if (root.git_branch) parts.push(`git:${root.git_branch}`);
   if (root.kind) parts.push(root.kind);
   return parts.join(" · ");
 }
 
-function projectRootSummary(root: ProjectRootPayload) {
+function projectRootSummary(root: ProjectRootPayload | ProjectRootRecord) {
   const parts = [
     root.active ? "active" : "inactive",
     root.kind || "root",
     root.git_branch ? `git:${root.git_branch}` : "",
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+function ProjectRootSelect({
+  inheritLabel,
+  label = "Root",
+  project,
+  value,
+  onChange,
+}: {
+  inheritLabel: string;
+  label?: string;
+  project: ProjectRecord;
+  value: string;
+  onChange: (rootID: string) => void;
+}) {
+  if (project.roots.length === 0) return null;
+  return (
+    <label style={fieldStyle}>
+      <span style={fieldLabelStyle}>{label}</span>
+      <select
+        aria-label={label}
+        className="input"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
+      >
+        <option value="">{inheritLabel}</option>
+        {project.roots.map((root) => (
+          <option key={root.id || root.path} value={root.id}>
+            {projectRootOptionLabel(root)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
 function ProjectSettingsSection({ title, children }: { title: string; children: ReactNode }) {
@@ -4341,6 +4458,136 @@ function ProfilePosturePreview({ profile }: { profile: AgentProfileRecord | null
 function normalizeWorkspaceMode(value: string) {
   if (value === "persistent" || value === "ephemeral") return value;
   return "in_place";
+}
+
+function CreateProjectWorktreeModal({
+  error,
+  pending,
+  project,
+  onClose,
+  onCreate,
+}: {
+  error: string;
+  pending: boolean;
+  project: ProjectRecord;
+  onClose: () => void;
+  onCreate: (form: CreateWorktreeForm) => void | Promise<void>;
+}) {
+  const defaultBaseRootID =
+    project.default_root_id ||
+    project.roots.find((root) => root.active)?.id ||
+    project.roots[0]?.id ||
+    "";
+  const [form, setForm] = useState<CreateWorktreeForm>({
+    baseRootID: defaultBaseRootID,
+    branch: "",
+    startPoint: "",
+    path: "",
+    active: true,
+    setDefault: false,
+  });
+  const valid = project.roots.length > 0 && form.branch.trim().length > 0;
+  return (
+    <Modal
+      title="Create project worktree"
+      onClose={onClose}
+      width={560}
+      footer={
+        <button
+          className="btn btn-primary"
+          type="button"
+          disabled={pending || !valid}
+          onClick={() => void onCreate(form)}
+          style={{ width: "100%", justifyContent: "center" }}
+        >
+          {pending ? "Creating…" : "Create worktree"}
+        </button>
+      }
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (valid) void onCreate(form);
+        }}
+        style={{ display: "grid", gap: 12 }}
+      >
+        {error && <InlineError message={error} />}
+        {project.roots.length === 0 && <InlineError message="Add a project root first." />}
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Base root</span>
+          <select
+            aria-label="Base root"
+            className="input"
+            value={form.baseRootID}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, baseRootID: event.target.value }))
+            }
+            style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
+          >
+            {project.roots.map((root) => (
+              <option key={root.id || root.path} value={root.id}>
+                {projectRootOptionLabel(root)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={fieldStyle}>
+          <span style={fieldLabelStyle}>Branch</span>
+          <input
+            className="input"
+            autoFocus
+            value={form.branch}
+            onChange={(event) => setForm((current) => ({ ...current, branch: event.target.value }))}
+            placeholder="feature/project-worktrees"
+          />
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Start point</span>
+            <input
+              className="input"
+              value={form.startPoint}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, startPoint: event.target.value }))
+              }
+              placeholder="origin/main"
+            />
+          </label>
+          <label style={fieldStyle}>
+            <span style={fieldLabelStyle}>Path</span>
+            <input
+              className="input"
+              value={form.path}
+              onChange={(event) => setForm((current) => ({ ...current, path: event.target.value }))}
+              placeholder=".worktrees/feature-project-worktrees"
+            />
+          </label>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <label style={{ ...fieldStyle, display: "flex", flexDirection: "row", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={form.active}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, active: event.target.checked }))
+              }
+            />
+            <span style={fieldLabelStyle}>Active root</span>
+          </label>
+          <label style={{ ...fieldStyle, display: "flex", flexDirection: "row", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={form.setDefault}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, setDefault: event.target.checked }))
+              }
+            />
+            <span style={fieldLabelStyle}>Make default root</span>
+          </label>
+        </div>
+      </form>
+    </Modal>
+  );
 }
 
 function ProfilesModal({
@@ -5072,12 +5319,14 @@ function RolesModal({
 function NewWorkItemModal({
   error,
   pending,
+  project,
   roles,
   onClose,
   onCreate,
 }: {
   error: string;
   pending: boolean;
+  project: ProjectRecord;
   roles: ProjectWorkRoleRecord[];
   onClose: () => void;
   onCreate: (form: NewWorkItemForm) => void | Promise<void>;
@@ -5087,6 +5336,7 @@ function NewWorkItemModal({
     brief: "",
     priority: "normal",
     ownerRoleID: roles.find((role) => role.id === "software_developer")?.id ?? roles[0]?.id ?? "",
+    rootID: "",
   });
   const valid = form.title.trim().length > 0;
   return (
@@ -5169,6 +5419,12 @@ function NewWorkItemModal({
             </select>
           </label>
         </div>
+        <ProjectRootSelect
+          inheritLabel="project default root"
+          project={project}
+          value={form.rootID}
+          onChange={(rootID) => setForm((current) => ({ ...current, rootID }))}
+        />
       </form>
     </Modal>
   );
@@ -5178,6 +5434,7 @@ function EditWorkItemModal({
   error,
   item,
   pending,
+  project,
   roles,
   onClose,
   onSave,
@@ -5185,6 +5442,7 @@ function EditWorkItemModal({
   error: string;
   item: ProjectWorkItemRecord;
   pending: boolean;
+  project: ProjectRecord;
   roles: ProjectWorkRoleRecord[];
   onClose: () => void;
   onSave: (form: EditWorkItemForm) => void | Promise<void>;
@@ -5196,6 +5454,7 @@ function EditWorkItemModal({
     status: item.status,
     priority: item.priority || "normal",
     ownerRoleID: item.owner_role_id ?? "",
+    rootID: item.root_id ?? "",
     reviewerRoleIDs: (item.reviewer_role_ids ?? []).join(", "),
   });
   const valid = form.title.trim().length > 0;
@@ -5307,6 +5566,12 @@ function EditWorkItemModal({
             />
           </label>
         </div>
+        <ProjectRootSelect
+          inheritLabel="project default root"
+          project={project}
+          value={form.rootID}
+          onChange={(rootID) => setForm((current) => ({ ...current, rootID }))}
+        />
       </form>
     </Modal>
   );
@@ -5315,12 +5580,16 @@ function EditWorkItemModal({
 function NewAssignmentModal({
   error,
   pending,
+  project,
+  workItem,
   roles,
   onClose,
   onCreate,
 }: {
   error: string;
   pending: boolean;
+  project: ProjectRecord;
+  workItem: ProjectWorkItemRecord | null;
   roles: ProjectWorkRoleRecord[];
   onClose: () => void;
   onCreate: (form: NewAssignmentForm) => void | Promise<void>;
@@ -5329,6 +5598,7 @@ function NewAssignmentModal({
   const [form, setForm] = useState<NewAssignmentForm>({
     roleID: defaultRole?.id ?? "",
     driverKind: defaultDriverForRole(defaultRole),
+    rootID: "",
   });
   const valid = form.roleID.trim().length > 0;
   return (
@@ -5392,6 +5662,12 @@ function NewAssignmentModal({
             <option value="external_agent">external_agent</option>
           </select>
         </label>
+        <ProjectRootSelect
+          inheritLabel={workItem?.root_id ? "work item root" : "work item/project root"}
+          project={project}
+          value={form.rootID}
+          onChange={(rootID) => setForm((current) => ({ ...current, rootID }))}
+        />
         {form.driverKind === "external_agent" && (
           <div style={subtleTextStyle}>
             External assignment execution is recorded here but still starts from Chats.
@@ -5406,6 +5682,8 @@ function EditAssignmentModal({
   assignment,
   error,
   pending,
+  project,
+  workItem,
   roles,
   onClose,
   onSave,
@@ -5413,6 +5691,8 @@ function EditAssignmentModal({
   assignment: ProjectAssignmentRecord;
   error: string;
   pending: boolean;
+  project: ProjectRecord;
+  workItem: ProjectWorkItemRecord | null;
   roles: ProjectWorkRoleRecord[];
   onClose: () => void;
   onSave: (form: EditAssignmentForm) => void | Promise<void>;
@@ -5421,6 +5701,7 @@ function EditAssignmentModal({
     id: assignment.id,
     roleID: assignment.role_id,
     driverKind: assignment.driver_kind || "hecate_task",
+    rootID: assignment.root_id ?? "",
     status: assignment.status || "queued",
     taskID: assignment.execution_ref?.task_id ?? "",
     runID: assignment.execution_ref?.run_id ?? "",
@@ -5502,6 +5783,12 @@ function EditAssignmentModal({
             <option value="external_agent">external_agent</option>
           </select>
         </label>
+        <ProjectRootSelect
+          inheritLabel={workItem?.root_id ? "work item root" : "work item/project root"}
+          project={project}
+          value={form.rootID}
+          onChange={(rootID) => setForm((current) => ({ ...current, rootID }))}
+        />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <label style={fieldStyle}>
             <span style={fieldLabelStyle}>Task ID</span>
@@ -5805,6 +6092,7 @@ function AssignmentRow({
   onOpenChat,
   onOpenTask,
   onStart,
+  project,
   role,
   starting,
 }: {
@@ -5820,6 +6108,7 @@ function AssignmentRow({
   onOpenChat?: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onStart: () => void;
+  project: ProjectRecord | null;
   role?: ProjectWorkRoleRecord;
   starting: boolean;
 }) {
@@ -5987,6 +6276,11 @@ function AssignmentRow({
             {[execution.provider, execution.model].filter(Boolean).join(" / ")}
           </span>
         ) : null}
+        {assignment.root_id && project && (
+          <span className="badge badge-muted" title={projectRootTitle(project, assignment.root_id)}>
+            root {projectRootDisplayLabel(project, assignment.root_id)}
+          </span>
+        )}
         {executionRef.missing && <span className="badge badge-amber">linked run missing</span>}
         {executionRef.hasAnyLink && (
           <button
@@ -6801,6 +7095,20 @@ function formatLaunchContextBullet(label: string, value: string): string {
 
 function defaultDriverForRole(role: ProjectWorkRoleRecord | null): string {
   return role?.default_driver_kind || "hecate_task";
+}
+
+function projectRootDisplayLabel(project: ProjectRecord, rootID: string): string {
+  const root = project.roots.find((item) => item.id === rootID);
+  if (!root) return shortID(rootID);
+  if (root.git_branch) return root.git_branch;
+  const parts = root.path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || root.id;
+}
+
+function projectRootTitle(project: ProjectRecord, rootID: string): string {
+  const root = project.roots.find((item) => item.id === rootID);
+  if (!root) return rootID;
+  return projectRootOptionLabel(root);
 }
 
 function shortID(id: string): string {

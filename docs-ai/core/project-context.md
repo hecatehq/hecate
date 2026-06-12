@@ -33,6 +33,12 @@ the main checkout and linked Git worktrees, while newly discovered worktree root
 stay inactive until the operator enables them. Context discovery must not treat
 nested `.worktrees`, `.claude/worktrees`, or other nested Git checkouts as
 inherited guidance for the parent root.
+Work items and assignments may select a concrete project root; launch resolution
+uses assignment root, then work-item root, then project default root, then the
+first active root. Worktree creation is an explicit operator action and is
+bounded to a direct child of the selected base root's `.worktrees/` directory
+in V1; do not create or assume sibling/nested checkout paths outside registered
+roots.
 Profile memory/source policies now control whether assignment context packets
 mark project memory and source metadata active, visible-only, or omitted. Native
 project assignments can include bounded project memory and portable `AGENTS.md`

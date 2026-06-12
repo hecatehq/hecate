@@ -65,6 +65,7 @@ type ProjectSkillStore interface {
 type TaskAssignmentLaunchPlan struct {
 	WorkingDirectory  string
 	WorkspaceMode     string
+	Root              projects.Root
 	RequestedProvider string
 	RequestedModel    string
 	ExecutionProfile  string
@@ -75,6 +76,7 @@ type TaskAssignmentLaunchPlan struct {
 
 type ExternalAgentAssignmentLaunchPlan struct {
 	Workspace        string
+	Root             projects.Root
 	AdapterID        string
 	Adapter          agentadapters.Adapter
 	ConfigOptions    []agentcontrols.ConfigOption
@@ -141,8 +143,8 @@ func (ctx AssignmentPromptContext) SystemPrompt() string {
 	return strings.Join(ctx.Sections, "\n\n")
 }
 
-func (app *Application) ResolveTaskAssignmentLaunchPlan(ctx context.Context, project projects.Project, role projectwork.AgentRoleProfile) (TaskAssignmentLaunchPlan, error) {
-	workingDirectory, workspaceMode, err := ResolveAssignmentWorkspace(project)
+func (app *Application) ResolveTaskAssignmentLaunchPlan(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) (TaskAssignmentLaunchPlan, error) {
+	root, workingDirectory, workspaceMode, err := ResolveAssignmentWorkspace(project, workItem, assignment)
 	if err != nil {
 		return TaskAssignmentLaunchPlan{}, launchPlanError(LaunchPlanInvalidRequest, err.Error())
 	}
@@ -166,6 +168,7 @@ func (app *Application) ResolveTaskAssignmentLaunchPlan(ctx context.Context, pro
 	return TaskAssignmentLaunchPlan{
 		WorkingDirectory:  workingDirectory,
 		WorkspaceMode:     workspaceMode,
+		Root:              root,
 		RequestedProvider: requestedProvider,
 		RequestedModel:    requestedModel,
 		ExecutionProfile:  executionProfile,
@@ -175,8 +178,8 @@ func (app *Application) ResolveTaskAssignmentLaunchPlan(ctx context.Context, pro
 	}, nil
 }
 
-func (app *Application) ResolveExternalAgentAssignmentLaunchPlan(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, role projectwork.AgentRoleProfile) (ExternalAgentAssignmentLaunchPlan, error) {
-	workingDirectory, _, err := ResolveAssignmentWorkspace(project)
+func (app *Application) ResolveExternalAgentAssignmentLaunchPlan(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) (ExternalAgentAssignmentLaunchPlan, error) {
+	root, workingDirectory, _, err := ResolveAssignmentWorkspace(project, workItem, assignment)
 	if err != nil {
 		return ExternalAgentAssignmentLaunchPlan{}, launchPlanError(LaunchPlanInvalidRequest, err.Error())
 	}
@@ -202,6 +205,7 @@ func (app *Application) ResolveExternalAgentAssignmentLaunchPlan(ctx context.Con
 	}
 	return ExternalAgentAssignmentLaunchPlan{
 		Workspace:        workspace,
+		Root:             root,
 		AdapterID:        adapterID,
 		Adapter:          adapter,
 		ConfigOptions:    configOptions,
@@ -212,40 +216,47 @@ func (app *Application) ResolveExternalAgentAssignmentLaunchPlan(ctx context.Con
 	}, nil
 }
 
-func ResolveAssignmentWorkspace(project projects.Project) (string, string, error) {
-	root, ok := SelectAssignmentRoot(project)
+func ResolveAssignmentWorkspace(project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment) (projects.Root, string, string, error) {
+	root, ok := SelectAssignmentRoot(project, workItem, assignment)
 	if !ok {
-		return "", "", fmt.Errorf("project has no workspace root; add a project root before starting an assignment")
+		return projects.Root{}, "", "", fmt.Errorf("project has no workspace root; add a project root before starting an assignment")
 	}
 	path := strings.TrimSpace(root.Path)
 	if path == "" {
-		return "", "", fmt.Errorf("project root %q has no path", root.ID)
+		return projects.Root{}, "", "", fmt.Errorf("project root %q has no path", root.ID)
 	}
 	if !filepath.IsAbs(path) {
-		return "", "", fmt.Errorf("project root %q path must be absolute", root.ID)
+		return projects.Root{}, "", "", fmt.Errorf("project root %q path must be absolute", root.ID)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", "", fmt.Errorf("project root %q is not accessible: %w", root.ID, err)
+		return projects.Root{}, "", "", fmt.Errorf("project root %q is not accessible: %w", root.ID, err)
 	}
 	if !info.IsDir() {
-		return "", "", fmt.Errorf("project root %q is not a directory", root.ID)
+		return projects.Root{}, "", "", fmt.Errorf("project root %q is not a directory", root.ID)
 	}
 	workspaceMode := strings.TrimSpace(project.DefaultWorkspaceMode)
 	if workspaceMode == "" {
 		workspaceMode = "ephemeral"
 	}
-	return path, workspaceMode, nil
+	return root, path, workspaceMode, nil
 }
 
-func SelectAssignmentRoot(project projects.Project) (projects.Root, bool) {
-	defaultRootID := strings.TrimSpace(project.DefaultRootID)
-	if defaultRootID != "" {
+func SelectAssignmentRoot(project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment) (projects.Root, bool) {
+	for _, id := range []string{
+		strings.TrimSpace(assignment.RootID),
+		strings.TrimSpace(workItem.RootID),
+		strings.TrimSpace(project.DefaultRootID),
+	} {
+		if id == "" {
+			continue
+		}
 		for _, root := range project.Roots {
-			if root.ID == defaultRootID {
+			if root.ID == id {
 				return root, true
 			}
 		}
+		return projects.Root{}, false
 	}
 	for _, root := range project.Roots {
 		if root.Active {

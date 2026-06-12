@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -435,6 +436,82 @@ func TestProjectWorkAPI_CRUD(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_WorkAndAssignmentRootIDs(t *testing.T) {
+	t.Parallel()
+	_, server := newProjectWorkTestServer()
+	rootA := filepath.Join(t.TempDir(), "feature")
+	rootB := filepath.Join(t.TempDir(), "review")
+	projectBody := fmt.Sprintf(`{
+		"name":"Rooted",
+		"roots":[
+			{"id":"root_feature","path":%q,"kind":"git","active":true},
+			{"id":"root_review","path":%q,"kind":"git_worktree","active":true}
+		],
+		"default_root_id":"root_feature"
+	}`, rootA, rootB)
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects", bytes.NewReader([]byte(projectBody))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create project status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var project ProjectResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &project); err != nil {
+		t.Fatalf("decode project: %v", err)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items", bytes.NewReader([]byte(`{
+		"id":"work_rooted",
+		"title":"Rooted work",
+		"root_id":"root_feature"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create rooted work status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var work ProjectWorkItemEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &work); err != nil {
+		t.Fatalf("decode rooted work: %v", err)
+	}
+	if work.Data.RootID != "root_feature" {
+		t.Fatalf("work root_id = %q, want root_feature", work.Data.RootID)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_rooted", bytes.NewReader([]byte(`{"root_id":"root_review"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch rooted work status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &work); err != nil {
+		t.Fatalf("decode patched rooted work: %v", err)
+	}
+	if work.Data.RootID != "root_review" {
+		t.Fatalf("patched work root_id = %q, want root_review", work.Data.RootID)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_rooted/assignments", bytes.NewReader([]byte(`{
+		"id":"asgn_rooted",
+		"role_id":"software_developer",
+		"root_id":"root_feature"
+	}`))))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create rooted assignment status = %d body=%s, want 201", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode rooted assignment: %v", err)
+	}
+	if assignment.Data.RootID != "root_feature" {
+		t.Fatalf("assignment root_id = %q, want root_feature", assignment.Data.RootID)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPatch, "/hecate/v1/projects/"+project.Data.ID+"/work-items/work_rooted/assignments/asgn_rooted", bytes.NewReader([]byte(`{"root_id":"root_missing"}`))))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("patch assignment invalid root status = %d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_ProjectDeletionCleansRows(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -667,6 +744,67 @@ func TestProjectWorkAPI_PreflightAndStartShareNativeLaunchPlan(t *testing.T) {
 		t.Fatalf("task launch shape = provider/model/profile/workspace %q/%q/%q/%q, want preflight %q/%q/%q/%q",
 			task.RequestedProvider, task.RequestedModel, task.ExecutionProfile, task.WorkingDirectory,
 			preflight.Data.Provider, preflight.Data.Model, preflight.Data.ExecutionProfile, preflight.Data.Workspace)
+	}
+}
+
+func TestProjectWorkAPI_StartAssignmentUsesSelectedProjectRoot(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	defaultRoot := t.TempDir()
+	workRoot := t.TempDir()
+	assignmentRoot := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: defaultRoot,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+	if _, err := handler.projects.Update(t.Context(), "proj_start", func(project *projects.Project) {
+		project.DefaultRootID = "root_default"
+		project.Roots = []projects.Root{
+			{ID: "root_default", Path: defaultRoot, Kind: "git", Active: true},
+			{ID: "root_work", Path: workRoot, Kind: "git_worktree", GitBranch: "work-root", Active: true},
+			{ID: "root_assignment", Path: assignmentRoot, Kind: "git_worktree", GitBranch: "assignment-root", Active: true},
+		}
+	}); err != nil {
+		t.Fatalf("Update project roots: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateWorkItem(t.Context(), "proj_start", "work_start", func(item *projectwork.WorkItem) {
+		item.RootID = "root_work"
+	}); err != nil {
+		t.Fatalf("Update work root: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateAssignment(t.Context(), "proj_start", "asgn_start", func(item *projectwork.Assignment) {
+		item.RootID = "root_assignment"
+	}); err != nil {
+		t.Fatalf("Update assignment root: %v", err)
+	}
+
+	preflightResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
+	preflightRoot := findRenderedContextItemByKind(preflightResp.Data, "project_root")
+	if preflightRoot == nil || !strings.Contains(preflightRoot.Body, "Root ID: root_assignment") || !strings.Contains(preflightRoot.Body, assignmentRoot) || !strings.Contains(preflightRoot.Body, "Selection: assignment override") {
+		t.Fatalf("preflight project_root item = %+v, want assignment root metadata", preflightRoot)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
+	}
+	if task.WorkingDirectory != assignmentRoot || task.SandboxAllowedRoot != assignmentRoot {
+		t.Fatalf("task workspace = (%q, %q), want assignment root %q", task.WorkingDirectory, task.SandboxAllowedRoot, assignmentRoot)
+	}
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
+	startRoot := findRenderedContextItemByKind(packetResp.Data, "project_root")
+	if startRoot == nil || !strings.Contains(startRoot.Body, "Git branch: assignment-root") {
+		t.Fatalf("stored project_root item = %+v, want assignment root branch", startRoot)
 	}
 }
 

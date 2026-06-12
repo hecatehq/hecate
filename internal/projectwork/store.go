@@ -76,6 +76,7 @@ type WorkItem struct {
 	Status          string
 	Priority        string
 	OwnerRoleID     string
+	RootID          string
 	ReviewerRoleIDs []string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -86,6 +87,7 @@ type Assignment struct {
 	ProjectID     string
 	WorkItemID    string
 	RoleID        string
+	RootID        string
 	DriverKind    string
 	Status        string
 	ExecutionRef  AssignmentExecutionRef
@@ -786,6 +788,7 @@ func normalizeWorkItem(item WorkItem, now time.Time) WorkItem {
 	item.Status = strings.TrimSpace(item.Status)
 	item.Priority = strings.TrimSpace(item.Priority)
 	item.OwnerRoleID = strings.TrimSpace(item.OwnerRoleID)
+	item.RootID = strings.TrimSpace(item.RootID)
 	item.ReviewerRoleIDs = normalizeStringList(item.ReviewerRoleIDs)
 	if item.Status == "" {
 		item.Status = WorkItemStatusBacklog
@@ -810,6 +813,7 @@ func normalizeAssignment(item Assignment, now time.Time) Assignment {
 	item.ProjectID = strings.TrimSpace(item.ProjectID)
 	item.WorkItemID = strings.TrimSpace(item.WorkItemID)
 	item.RoleID = strings.TrimSpace(item.RoleID)
+	item.RootID = strings.TrimSpace(item.RootID)
 	item.DriverKind = strings.TrimSpace(item.DriverKind)
 	item.Status = strings.TrimSpace(item.Status)
 	item.ExecutionRef = NormalizeAssignmentExecutionRef(item.ExecutionRef)

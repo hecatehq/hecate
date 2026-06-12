@@ -141,6 +141,7 @@ export type ProjectAssistantContextWorkItem = {
   status: string;
   priority?: string;
   owner_role_id?: string;
+  root_id?: string;
   reviewer_role_ids?: string[];
   created_at: string;
   updated_at: string;
@@ -181,6 +182,7 @@ export type ProjectAssistantContextAssignment = {
   id: string;
   work_item_id: string;
   role_id: string;
+  root_id?: string;
   driver_kind: string;
   status: string;
   execution_ref?: ProjectAssignmentExecutionRefRecord;
@@ -419,6 +421,15 @@ export type UpdateProjectPayload = Partial<CreateProjectPayload> & {
   last_opened_at?: string;
 };
 
+export type CreateProjectWorktreeRootPayload = {
+  base_root_id?: string;
+  branch: string;
+  path?: string;
+  start_point?: string;
+  active?: boolean;
+  set_default?: boolean;
+};
+
 export type ProjectWorkRoleRecord = {
   id: string;
   project_id: string;
@@ -493,6 +504,7 @@ export type ProjectWorkItemRecord = {
   status: ProjectWorkItemStatus | string;
   priority: ProjectWorkItemPriority | string;
   owner_role_id?: string;
+  root_id?: string;
   reviewer_role_ids?: string[];
   assignments?: ProjectAssignmentRecord[];
   created_at: string;
@@ -506,6 +518,7 @@ export type CreateProjectWorkItemPayload = {
   status?: ProjectWorkItemStatus | string;
   priority?: ProjectWorkItemPriority | string;
   owner_role_id?: string;
+  root_id?: string;
   reviewer_role_ids?: string[];
 };
 
@@ -558,6 +571,7 @@ export type ProjectAssignmentRecord = {
   project_id: string;
   work_item_id: string;
   role_id: string;
+  root_id?: string;
   driver_kind: ProjectAssignmentDriverKind | string;
   status: ProjectAssignmentStatus | string;
   created_at: string;
@@ -571,6 +585,7 @@ export type ProjectAssignmentRecord = {
 export type CreateProjectAssignmentPayload = {
   id?: string;
   role_id: string;
+  root_id?: string;
   driver_kind?: ProjectAssignmentDriverKind | string;
   status?: ProjectAssignmentStatus | string;
   execution_ref?: ProjectAssignmentExecutionRefRecord;
