@@ -24,6 +24,10 @@ func TestProjectContextDiscovery_FindsWorkspaceGuidanceMetadata(t *testing.T) {
 	writeDiscoveryFile(t, root, ".github/instructions/go.instructions.md")
 	writeDiscoveryFile(t, root, "vendor/AGENTS.md")
 	writeDiscoveryFile(t, root, "node_modules/pkg/AGENTS.md")
+	writeDiscoveryFile(t, root, ".claude/worktrees/agent/AGENTS.md")
+	writeDiscoveryFile(t, root, ".worktrees/agent/AGENTS.md")
+	writeDiscoveryFile(t, root, "nested-checkout/AGENTS.md")
+	writeDiscoveryFile(t, root, "nested-checkout/.git")
 
 	handler := NewHandler(config.Config{}, quietLogger(), nil, nil, nil, nil)
 	projectStore := projects.NewMemoryStore()
@@ -84,6 +88,15 @@ func TestProjectContextDiscovery_FindsWorkspaceGuidanceMetadata(t *testing.T) {
 	}
 	if _, ok := sources["node_modules/pkg/AGENTS.md"]; ok {
 		t.Fatalf("node_modules AGENTS.md was discovered: %+v", sources["node_modules/pkg/AGENTS.md"])
+	}
+	if _, ok := sources[".claude/worktrees/agent/AGENTS.md"]; ok {
+		t.Fatalf("nested Claude worktree AGENTS.md was discovered: %+v", sources[".claude/worktrees/agent/AGENTS.md"])
+	}
+	if _, ok := sources[".worktrees/agent/AGENTS.md"]; ok {
+		t.Fatalf("nested worktree AGENTS.md was discovered: %+v", sources[".worktrees/agent/AGENTS.md"])
+	}
+	if _, ok := sources["nested-checkout/AGENTS.md"]; ok {
+		t.Fatalf("nested git checkout AGENTS.md was discovered: %+v", sources["nested-checkout/AGENTS.md"])
 	}
 }
 

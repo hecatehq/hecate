@@ -284,6 +284,9 @@ Implemented registry behavior:
   active project roots and enabled guidance-linked local skill roots.
 - `PATCH /hecate/v1/projects/{id}/skills/{skill_id}` updates operator-owned
   metadata: `enabled`, `title`, `description`, and `trust_label`.
+- Discovery ignores nested worktree containers such as `.worktrees` and
+  `.claude/worktrees`; worktrees should be explicit project roots when the
+  operator wants them represented.
 - Discovery parses bounded metadata only: frontmatter `name`/`title` and
   `description`, then H1/title fallback and directory id.
 - Hecate does not return, store, inject, execute, install, or fetch skill

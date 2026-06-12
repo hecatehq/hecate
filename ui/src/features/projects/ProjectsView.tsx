@@ -18,6 +18,7 @@ import {
   createProjectAssignment,
   createProjectHandoff,
   discoverProjectContextSources,
+  discoverProjectRoots,
   discoverProjectSkills,
   draftProjectAssistant,
   getProjectAssistantContext,
@@ -102,6 +103,8 @@ import type {
   ProjectSkillRecord,
   ProjectAssignmentExecutionRefRecord,
   ProjectRecord,
+  ProjectRootPayload,
+  ProjectRootRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
   UpdateProjectAssignmentPayload,
@@ -241,6 +244,8 @@ type ProjectDefaultsForm = {
   model: string;
   defaultAgentProfile: string;
   workspaceMode: string;
+  defaultRootID: string;
+  roots: ProjectRootPayload[];
 };
 
 type MemoryForm = {
@@ -391,6 +396,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [rightPanelWidth, setRightPanelWidth] = useState(() => readStoredRightPanelWidth());
   const [defaultsPending, setDefaultsPending] = useState(false);
   const [defaultsError, setDefaultsError] = useState("");
+  const [discoveringRoots, setDiscoveringRoots] = useState(false);
   const [rolesModalOpen, setRolesModalOpen] = useState(false);
   const [rolesPending, setRolesPending] = useState(false);
   const [rolesError, setRolesError] = useState("");
@@ -802,6 +808,8 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       default_model: form.model.trim(),
       default_agent_profile: form.defaultAgentProfile.trim(),
       default_workspace_mode: form.workspaceMode.trim(),
+      default_root_id: form.defaultRootID.trim(),
+      roots: form.roots,
     };
     try {
       const payload = await updateProject(selectedProject.id, patch);
@@ -811,6 +819,20 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
       setDefaultsError(errorMessage(error, "Failed to update project defaults."));
     } finally {
       setDefaultsPending(false);
+    }
+  }
+
+  async function handleDiscoverProjectRoots() {
+    if (!selectedProject) return;
+    setDiscoveringRoots(true);
+    setDefaultsError("");
+    try {
+      const payload = await discoverProjectRoots(selectedProject.id);
+      projects.actions.setProjects((current) => upsertProject(current, payload.data));
+    } catch (error) {
+      setDefaultsError(errorMessage(error, "Failed to discover project roots."));
+    } finally {
+      setDiscoveringRoots(false);
     }
   }
 
@@ -1794,6 +1816,8 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                 providerOptions={providerOptions}
                 providerPresets={providerPresets}
                 project={selectedProject}
+                rootsPending={discoveringRoots}
+                onDiscoverRoots={handleDiscoverProjectRoots}
                 onSave={handleSaveProjectDefaults}
               />
             </ChatRightPanel>
@@ -3895,6 +3919,8 @@ function ProjectSettingsPanel({
   providerOptions,
   providerPresets,
   project,
+  rootsPending,
+  onDiscoverRoots,
   onSave,
 }: {
   agentProfiles: AgentProfileRecord[];
@@ -3905,14 +3931,16 @@ function ProjectSettingsPanel({
   providerOptions: ProviderOption[];
   providerPresets: ProviderPresetRecord[];
   project: ProjectRecord;
+  rootsPending: boolean;
+  onDiscoverRoots: () => void | Promise<void>;
   onSave: (form: ProjectDefaultsForm) => void | Promise<void>;
 }) {
-  const [form, setForm] = useState<ProjectDefaultsForm>({
-    provider: project.default_provider ?? "",
-    model: project.default_model ?? "",
-    defaultAgentProfile: project.default_agent_profile ?? "",
-    workspaceMode: project.default_workspace_mode || "in_place",
-  });
+  const [form, setForm] = useState<ProjectDefaultsForm>(() =>
+    projectDefaultsFormFromProject(project),
+  );
+  useEffect(() => {
+    setForm(projectDefaultsFormFromProject(project));
+  }, [project]);
   const scopedModels = useMemo(() => {
     if (!form.provider) return models;
     return models.filter((model) => model.metadata?.provider === form.provider);
@@ -3940,9 +3968,24 @@ function ProjectSettingsPanel({
       };
     });
   }
+  function handleDefaultRootChange(rootID: string) {
+    setForm((current) => ({
+      ...current,
+      defaultRootID: rootID,
+      roots: current.roots.map((root) => (root.id === rootID ? { ...root, active: true } : root)),
+    }));
+  }
+  function handleRootActiveChange(rootID: string, active: boolean) {
+    setForm((current) => ({
+      ...current,
+      defaultRootID: !active && current.defaultRootID === rootID ? "" : current.defaultRootID,
+      roots: current.roots.map((root) => (root.id === rootID ? { ...root, active } : root)),
+    }));
+  }
   const submitForm = () => onSave(form);
 
   const workspace = projectDefaultWorkspace(project);
+  const rootCount = form.roots.length;
 
   return (
     <div
@@ -4091,6 +4134,89 @@ function ProjectSettingsPanel({
             </div>
           </ProjectSettingsSection>
           <ProjectSettingsSection title="Project context">
+            <div style={{ ...subtleTextStyle, marginBottom: 12 }}>
+              Project roots are concrete checkouts. Linked worktrees discovered from Git stay
+              inactive until enabled here.
+            </div>
+            <div style={{ display: "grid", gap: 12, marginBottom: 14 }}>
+              <div style={fieldStyle}>
+                <span style={fieldLabelStyle}>Default root</span>
+                <select
+                  aria-label="Default project root"
+                  className="input"
+                  value={form.defaultRootID}
+                  onChange={(event) => handleDefaultRootChange(event.target.value)}
+                  style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
+                >
+                  <option value="">no default root</option>
+                  {form.roots.map((root) => (
+                    <option key={root.id || root.path} value={root.id ?? ""}>
+                      {projectRootOptionLabel(root)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={rootsPending}
+                  onClick={() => void onDiscoverRoots()}
+                >
+                  {rootsPending ? "Discovering…" : "Discover worktrees"}
+                </button>
+                <span style={subtleTextStyle}>
+                  {rootCount === 0
+                    ? "No roots configured."
+                    : `${rootCount} root${rootCount === 1 ? "" : "s"}`}
+                </span>
+              </div>
+              {form.roots.length > 0 && (
+                <div style={{ display: "grid", gap: 8 }}>
+                  {form.roots.map((root) => {
+                    const rootID = root.id ?? root.path;
+                    const isDefault = form.defaultRootID !== "" && root.id === form.defaultRootID;
+                    return (
+                      <label
+                        key={rootID}
+                        style={{
+                          border: "1px solid var(--border)",
+                          borderRadius: 8,
+                          display: "grid",
+                          gap: 5,
+                          padding: "9px 10px",
+                        }}
+                      >
+                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <input
+                            aria-label={`Active project root ${root.path}`}
+                            type="checkbox"
+                            checked={Boolean(root.active)}
+                            onChange={(event) =>
+                              handleRootActiveChange(root.id ?? "", event.target.checked)
+                            }
+                          />
+                          <span
+                            style={{
+                              color: "var(--t1)",
+                              fontFamily: "var(--font-mono)",
+                              fontSize: 11,
+                              wordBreak: "break-all",
+                            }}
+                          >
+                            {root.path}
+                          </span>
+                        </span>
+                        <span style={{ ...subtleTextStyle, paddingLeft: 22 }}>
+                          {projectRootSummary(root)}
+                          {isDefault ? " · default" : ""}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <div
               style={{
                 display: "grid",
@@ -4120,6 +4246,45 @@ function ProjectSettingsPanel({
       </div>
     </div>
   );
+}
+
+function projectDefaultsFormFromProject(project: ProjectRecord): ProjectDefaultsForm {
+  return {
+    provider: project.default_provider ?? "",
+    model: project.default_model ?? "",
+    defaultAgentProfile: project.default_agent_profile ?? "",
+    workspaceMode: project.default_workspace_mode || "in_place",
+    defaultRootID: project.default_root_id || project.roots[0]?.id || "",
+    roots: project.roots.map(projectRootPayloadFromRecord),
+  };
+}
+
+function projectRootPayloadFromRecord(root: ProjectRootRecord): ProjectRootPayload {
+  const payload: ProjectRootPayload = {
+    id: root.id,
+    path: root.path,
+    kind: root.kind,
+    active: root.active,
+  };
+  if (root.git_remote) payload.git_remote = root.git_remote;
+  if (root.git_branch) payload.git_branch = root.git_branch;
+  return payload;
+}
+
+function projectRootOptionLabel(root: ProjectRootPayload) {
+  const parts = [root.path];
+  if (root.git_branch) parts.push(`git:${root.git_branch}`);
+  if (root.kind) parts.push(root.kind);
+  return parts.join(" · ");
+}
+
+function projectRootSummary(root: ProjectRootPayload) {
+  const parts = [
+    root.active ? "active" : "inactive",
+    root.kind || "root",
+    root.git_branch ? `git:${root.git_branch}` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function ProjectSettingsSection({ title, children }: { title: string; children: ReactNode }) {

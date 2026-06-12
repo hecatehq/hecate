@@ -22,8 +22,9 @@ The current composer defaults to deterministic drafting. `Auto` for `Run as`
 resolves to the selected work item's owner role, then the first loaded project
 role. `Auto` for `Via` resolves to the selected role's default driver, then
 `hecate_task`. Operators can also choose model-backed drafting when the project
-has a default model, or deterministic Bootstrap drafting to turn discovered
-guidance metadata and registered project skills into reviewable setup proposals.
+has a default model. Project onboarding uses deterministic Bootstrap drafting to
+turn discovered guidance metadata and registered project skills into reviewable
+setup proposals.
 In model mode the model may author only typed proposal actions from the same
 context packet, and the server still validates those actions before the operator
 can apply them. Bootstrap mode does not call a model and does not start work.
@@ -218,16 +219,18 @@ candidates with source provenance, and uses enabled, available project skills
 from `/hecate/v1/projects/{id}/skills`. The skill registry is refreshed through
 `POST /hecate/v1/projects/{id}/skills/discover`, which reads bounded local
 metadata from `.agents/skills`, `.hecate/skills`, and enabled `AGENTS.md` /
-`CLAUDE.md` context-source references. Bootstrap itself does not perform a
-second filesystem scan. It deduplicates against existing role ids and existing
-memory/candidate source refs. It does not treat host-specific guidance as
-Hecate policy authority, call a model, create durable memory, start tasks, or
-launch agents.
+`CLAUDE.md` context-source references. The refresh ignores nested worktree
+containers such as `.worktrees` and `.claude/worktrees`; linked worktrees should
+be explicit project roots, not inherited onboarding input. Bootstrap itself does
+not perform a second filesystem scan. It deduplicates against existing role ids
+and existing memory/candidate source refs. It does not treat host-specific
+guidance as Hecate policy authority, call a model, create durable memory, start
+tasks, or launch agents.
 
-In the operator UI, **Bootstrap project** is a convenience command around the
-same API contract: it refreshes workspace guidance context sources, refreshes
-the project skills registry, then requests a project-scoped Bootstrap draft.
-The resulting proposal is still review/apply gated and does not attach to the
+In the operator UI, **Bootstrap project** is the project onboarding action, not a
+regular draft mode. It refreshes workspace guidance context sources, refreshes
+the project skills registry, then requests a project-scoped Bootstrap draft. The
+resulting proposal is still review/apply gated and does not attach to the
 currently selected work item.
 
 `draft_mode: "model"` asks the configured gateway model to author the proposal

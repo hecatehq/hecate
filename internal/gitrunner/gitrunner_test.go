@@ -46,6 +46,91 @@ func TestLocalRunner_CurrentRef(t *testing.T) {
 	}
 }
 
+func TestLocalRunner_Worktrees(t *testing.T) {
+	dir := initRepo(t)
+	worktree := filepath.Join(t.TempDir(), "feature worktree")
+	if err := exec.Command("git", "-C", dir, "worktree", "add", "-b", "feature/worktrees", worktree).Run(); err != nil {
+		t.Fatalf("git worktree add: %v", err)
+	}
+	runner := NewLocalRunner()
+
+	items, err := runner.Worktrees(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("Worktrees: %v", err)
+	}
+
+	byPath := make(map[string]Worktree)
+	for _, item := range items {
+		byPath[canonicalTestPath(t, item.Path)] = item
+	}
+	if got := byPath[canonicalTestPath(t, dir)]; got.Branch != "main" {
+		t.Fatalf("main worktree = %+v, want main branch", got)
+	}
+	if got := byPath[canonicalTestPath(t, worktree)]; got.Branch != "feature/worktrees" {
+		t.Fatalf("linked worktree = %+v, want feature/worktrees branch", got)
+	}
+}
+
+func TestLocalRunner_WorktreesUsesPorcelainZ(t *testing.T) {
+	dir := t.TempDir()
+	process := &recordingProcessRunner{}
+	runner := &LocalRunner{Process: process}
+
+	if _, err := runner.Worktrees(context.Background(), dir); err != nil {
+		t.Fatalf("Worktrees: %v", err)
+	}
+	if got := strings.Join(process.request.Args, " "); got != "worktree list --porcelain -z" {
+		t.Fatalf("git args = %q, want porcelain -z worktree list", got)
+	}
+}
+
+func TestParseWorktreeListPorcelain(t *testing.T) {
+	items := parseWorktreeListPorcelain(strings.Join([]string{
+		"worktree /tmp/project main",
+		"HEAD abc123",
+		"branch refs/heads/main",
+		"",
+		"worktree /tmp/project-detached",
+		"HEAD def456",
+		"detached",
+		"",
+	}, "\n"))
+
+	if len(items) != 2 {
+		t.Fatalf("items = %+v, want two worktrees", items)
+	}
+	if items[0].Path != "/tmp/project main" || items[0].Branch != "main" || items[0].Head != "abc123" {
+		t.Fatalf("first item = %+v, want path with spaces and main branch", items[0])
+	}
+	if items[1].Path != "/tmp/project-detached" || !items[1].Detached || items[1].Head != "def456" {
+		t.Fatalf("second item = %+v, want detached worktree", items[1])
+	}
+}
+
+func TestParseWorktreeListPorcelainNUL(t *testing.T) {
+	items := parseWorktreeListPorcelain(strings.Join([]string{
+		"worktree /tmp/project",
+		"HEAD abc123",
+		"branch refs/heads/main",
+		"",
+		"worktree /tmp/project\nnewline",
+		"HEAD def456",
+		"detached",
+		"",
+		"",
+	}, "\x00"))
+
+	if len(items) != 2 {
+		t.Fatalf("items = %+v, want two worktrees", items)
+	}
+	if items[0].Path != "/tmp/project" || items[0].Branch != "main" || items[0].Head != "abc123" {
+		t.Fatalf("first item = %+v, want main branch", items[0])
+	}
+	if items[1].Path != "/tmp/project\nnewline" || !items[1].Detached || items[1].Head != "def456" {
+		t.Fatalf("second item = %+v, want NUL-delimited detached worktree", items[1])
+	}
+}
+
 func TestLocalRunner_DiffCapturesStatAndPatch(t *testing.T) {
 	dir := initRepo(t)
 	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hello\nworld\n"), 0o644); err != nil {
@@ -128,6 +213,15 @@ func TestSanitizedEnvDropsProviderSecrets(t *testing.T) {
 
 type recordingProcessRunner struct {
 	request processrunner.Request
+}
+
+func canonicalTestPath(t *testing.T, path string) string {
+	t.Helper()
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return path
 }
 
 func (r *recordingProcessRunner) Run(_ context.Context, req processrunner.Request) (processrunner.Result, error) {

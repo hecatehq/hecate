@@ -28,6 +28,11 @@ project skills registry exposes local `SKILL.md` metadata for roles/profiles
 without granting tools, injecting bodies, or executing skill scripts. The
 operator UI can manage agent profiles and pick registered project skills for
 roles/profiles; those selections remain metadata until launch-time resolution.
+Project roots are concrete checkouts, not project identity: one project can span
+the main checkout and linked Git worktrees, while newly discovered worktree roots
+stay inactive until the operator enables them. Context discovery must not treat
+nested `.worktrees`, `.claude/worktrees`, or other nested Git checkouts as
+inherited guidance for the parent root.
 Profile memory/source policies now control whether assignment context packets
 mark project memory and source metadata active, visible-only, or omitted. Native
 project assignments can include bounded project memory and portable `AGENTS.md`

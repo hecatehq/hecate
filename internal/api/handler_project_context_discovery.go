@@ -79,7 +79,7 @@ func discoverProjectInstructionSources(project projects.Project) ([]projects.Con
 			}
 			depth := pathDepth(rel)
 			if d.IsDir() {
-				if shouldSkipInstructionDiscoveryDir(d.Name()) || depth > maxProjectInstructionDiscoveryDepth {
+				if shouldSkipInstructionDiscoveryDir(d.Name()) || shouldSkipInstructionDiscoveryPath(rel) || isNestedGitCheckout(path) || depth > maxProjectInstructionDiscoveryDepth {
 					return filepath.SkipDir
 				}
 				return nil
@@ -239,11 +239,22 @@ func instructionScopeForPath(rel string) string {
 
 func shouldSkipInstructionDiscoveryDir(name string) bool {
 	switch name {
-	case ".git", "node_modules", "vendor", "dist", "build", ".next", ".turbo", ".cache", ".gomodcache", "target", "coverage":
+	case ".git", ".worktrees", "node_modules", "vendor", "dist", "build", ".next", ".turbo", ".cache", ".gomodcache", "target", "coverage":
 		return true
 	default:
 		return false
 	}
+}
+
+func shouldSkipInstructionDiscoveryPath(rel string) bool {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	return rel == ".worktrees" || strings.HasPrefix(rel, ".worktrees/") ||
+		rel == ".claude/worktrees" || strings.HasPrefix(rel, ".claude/worktrees/")
+}
+
+func isNestedGitCheckout(path string) bool {
+	info, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil && (info.IsDir() || info.Mode().IsRegular())
 }
 
 func pathDepth(rel string) int {
