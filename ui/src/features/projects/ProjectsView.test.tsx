@@ -1145,6 +1145,8 @@ describe("ProjectsView index", () => {
     expect(within(tabs).getByRole("tab", { name: /Timeline \/ Decision Log/ })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: /Memory \/ Context/ })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: /Skills/ })).toBeTruthy();
+    expect(tabs.style.gridTemplateColumns).toBe("repeat(4, minmax(148px, 1fr))");
+    expect(tabs.style.overflowX).toBe("auto");
     const workPanel = within(workspace).getByRole("region", { name: "Work coordination" });
     expect(workPanel).toBeTruthy();
     expect(within(workPanel).queryByRole("region", { name: "Project Assistant" })).toBeNull();

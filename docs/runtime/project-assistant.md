@@ -460,6 +460,8 @@ The first visible UI should stay small and inspectable:
 - place the composer at the top of the project workspace because the assistant
   is project-scoped, above workspace tabs and tab panels even when it uses the
   selected work item as context;
+- keep the workspace tabs as one stable row below the composer; narrow surfaces
+  may scroll the tab strip, but should not wrap tabs into a second row;
 - keep the request and primary draft action in the first row; route controls,
   bootstrap, and context inspection stay secondary so the assistant reads as a
   project command band rather than a work-detail editor;
