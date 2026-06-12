@@ -159,7 +159,9 @@ API-local context-packet assembly. Do not add launch planning, workspace
 resolution, profile/skill resolution, adapter-option validation, or start
 orchestration back to the broad `handler_project_work.go`; either extend the
 dedicated launch helper or move the narrow behavior into `projectworkapp` when
-the dependency shape is ready.
+the dependency shape is ready. Preflight and start must share the same launch
+plan helpers; do not resolve provider/model/profile/workspace or External Agent
+adapter/options separately for preview and dispatch.
 
 Project activity is a read/projection surface with split ownership:
 `internal/projectworkapp` owns assignment execution refs, task/run projection,
