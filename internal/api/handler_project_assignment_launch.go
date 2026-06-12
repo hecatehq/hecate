@@ -167,45 +167,22 @@ func (h *Handler) projectExternalAgentAssignmentPreflightContext(ctx context.Con
 	if strings.TrimSpace(assignment.ExecutionRef.ChatSessionID) != "" {
 		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusConflict, errCodeConflict, "external-agent assignment already has a prepared chat session")
 	}
-	workingDirectory, _, err := resolveProjectAssignmentWorkspace(project)
+	plan, err := h.resolveProjectExternalAgentAssignmentLaunchPlan(ctx, project, workItem, role)
 	if err != nil {
-		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	}
-	profile, err := h.resolveProjectAssignmentProfile(ctx, role, project)
-	if err != nil {
+		var adapterErr projectAssignmentAdapterNotFoundError
+		if errors.As(err, &adapterErr) {
+			return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, err.Error())
+		}
 		return chat.ContextPacket{}, err
 	}
-	adapterID := strings.TrimSpace(profile.ExternalAgentKind)
-	if adapterID == "" {
-		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusUnprocessableEntity, errCodeInvalidRequest, "external-agent assignment requires an agent profile with external_agent_kind")
-	}
-	adapter, ok := agentadapters.BuiltInByID(adapterID)
-	if !ok {
-		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusNotFound, errCodeNotFound, "external-agent adapter not found: "+adapterID)
-	}
-	configOptions, err := projectExternalAgentConfigOptions(adapterID, profile.ExternalAgentOptions)
-	if err != nil {
-		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	}
-	workspace, err := agentadapters.ValidateWorkspace(workingDirectory)
-	if err != nil {
-		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-	}
-	resolvedSkills := h.resolveProjectAssignmentSkills(ctx, project.ID, role, profile)
-	packet := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workspace, "", "", firstNonEmptyString(profile.ExecutionProfile, "external_agent_assignment"), profile, resolvedSkills, projectAssignmentPromptContext{})
-	packet.ExecutionMode = chat.ExecutionModeExternalAgent
-	packet.Provider = ""
-	packet.Model = ""
-	packet.Workspace = workspace
-	packet.Refs.TaskID = ""
-	packet.Refs.RunID = ""
+	packet := h.projectExternalAgentAssignmentContextPacket(ctx, project, workItem, assignment, role, plan, "")
 	appendProjectAssignmentLaunchPreflight(&packet, projectwork.AssignmentDriverExternalAgent, []string{
-		"External agent: " + firstNonEmptyString(adapter.Name, adapterID),
-		"Adapter ID: " + adapterID,
+		"External agent: " + firstNonEmptyString(plan.Adapter.Name, plan.AdapterID),
+		"Adapter ID: " + plan.AdapterID,
 		"Chat session: created when the assignment is prepared",
-		"Session title: " + projectExternalAgentAssignmentTitle(workItem, role, adapter),
-		"Workspace: " + workspace,
-		"Config options: " + formatProjectExternalAgentConfigOptions(configOptions),
+		"Session title: " + plan.SessionTitle,
+		"Workspace: " + plan.Workspace,
+		"Config options: " + formatProjectExternalAgentConfigOptions(plan.ConfigOptions),
 	})
 	return chatcontext.Normalize(packet, chatcontext.ProjectAssignmentRefs(project.ID, workItem.ID, assignment.ID, role.ID)), nil
 }
@@ -417,6 +394,78 @@ func (h *Handler) resolveProjectAssignmentLaunchPlan(ctx context.Context, projec
 	}, nil
 }
 
+type projectExternalAgentAssignmentLaunchPlan struct {
+	Workspace        string
+	AdapterID        string
+	Adapter          agentadapters.Adapter
+	ConfigOptions    []agentcontrols.ConfigOption
+	SessionTitle     string
+	ExecutionProfile string
+	Profile          resolvedAgentProfile
+	ResolvedSkills   resolvedProjectSkills
+}
+
+type projectAssignmentAdapterNotFoundError struct {
+	adapterID string
+}
+
+func (err projectAssignmentAdapterNotFoundError) Error() string {
+	return "external-agent adapter not found: " + err.adapterID
+}
+
+func (err projectAssignmentAdapterNotFoundError) AdapterID() string {
+	return err.adapterID
+}
+
+func (h *Handler) resolveProjectExternalAgentAssignmentLaunchPlan(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, role projectwork.AgentRoleProfile) (projectExternalAgentAssignmentLaunchPlan, error) {
+	workingDirectory, _, err := resolveProjectAssignmentWorkspace(project)
+	if err != nil {
+		return projectExternalAgentAssignmentLaunchPlan{}, newProjectAssignmentPreflightError(http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	}
+	profile, err := h.resolveProjectAssignmentProfile(ctx, role, project)
+	if err != nil {
+		return projectExternalAgentAssignmentLaunchPlan{}, err
+	}
+	adapterID := strings.TrimSpace(profile.ExternalAgentKind)
+	if adapterID == "" {
+		return projectExternalAgentAssignmentLaunchPlan{}, newProjectAssignmentPreflightError(http.StatusUnprocessableEntity, errCodeInvalidRequest, "external-agent assignment requires an agent profile with external_agent_kind")
+	}
+	adapter, ok := agentadapters.BuiltInByID(adapterID)
+	if !ok {
+		return projectExternalAgentAssignmentLaunchPlan{}, projectAssignmentAdapterNotFoundError{adapterID: adapterID}
+	}
+	configOptions, err := projectExternalAgentConfigOptions(adapterID, profile.ExternalAgentOptions)
+	if err != nil {
+		return projectExternalAgentAssignmentLaunchPlan{}, newProjectAssignmentPreflightError(http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	}
+	workspace, err := agentadapters.ValidateWorkspace(workingDirectory)
+	if err != nil {
+		return projectExternalAgentAssignmentLaunchPlan{}, newProjectAssignmentPreflightError(http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+	}
+	return projectExternalAgentAssignmentLaunchPlan{
+		Workspace:        workspace,
+		AdapterID:        adapterID,
+		Adapter:          adapter,
+		ConfigOptions:    configOptions,
+		SessionTitle:     projectExternalAgentAssignmentTitle(workItem, role, adapter),
+		ExecutionProfile: firstNonEmptyString(profile.ExecutionProfile, "external_agent_assignment"),
+		Profile:          profile,
+		ResolvedSkills:   h.resolveProjectAssignmentSkills(ctx, project.ID, role, profile),
+	}, nil
+}
+
+func (h *Handler) projectExternalAgentAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, plan projectExternalAgentAssignmentLaunchPlan, sessionID string) chat.ContextPacket {
+	packet := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, plan.Workspace, "", "", plan.ExecutionProfile, plan.Profile, plan.ResolvedSkills, projectAssignmentPromptContext{})
+	packet.ExecutionMode = chat.ExecutionModeExternalAgent
+	packet.Provider = ""
+	packet.Model = ""
+	packet.Workspace = plan.Workspace
+	packet.Refs.SessionID = strings.TrimSpace(sessionID)
+	packet.Refs.TaskID = ""
+	packet.Refs.RunID = ""
+	return packet
+}
+
 func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *http.Request, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile) {
 	ctx := r.Context()
 	if h.agentChat == nil {
@@ -436,57 +485,29 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 		return
 	}
-	workingDirectory, _, err := resolveProjectAssignmentWorkspace(project)
+	plan, err := h.resolveProjectExternalAgentAssignmentLaunchPlan(ctx, project, workItem, role)
 	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-		return
-	}
-	profile, err := h.resolveProjectAssignmentProfile(ctx, role, project)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-	adapterID := strings.TrimSpace(profile.ExternalAgentKind)
-	if adapterID == "" {
-		WriteError(w, http.StatusUnprocessableEntity, errCodeInvalidRequest, "external-agent assignment requires an agent profile with external_agent_kind")
-		return
-	}
-	adapter, ok := agentadapters.BuiltInByID(adapterID)
-	if !ok {
-		writeAgentChatAdapterNotFound(w, adapterID)
-		return
-	}
-	configOptions, err := projectExternalAgentConfigOptions(adapterID, profile.ExternalAgentOptions)
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-		return
-	}
-	workspace, err := agentadapters.ValidateWorkspace(workingDirectory)
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		var adapterErr projectAssignmentAdapterNotFoundError
+		if errors.As(err, &adapterErr) {
+			writeAgentChatAdapterNotFound(w, adapterErr.AdapterID())
+			return
+		}
+		WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
 		return
 	}
 	sessionID := newChatID("chat")
-	resolvedSkills := h.resolveProjectAssignmentSkills(ctx, project.ID, role, profile)
-	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, workspace, "", "", firstNonEmptyString(profile.ExecutionProfile, "external_agent_assignment"), profile, resolvedSkills, projectAssignmentPromptContext{})
+	contextPacket := h.projectExternalAgentAssignmentContextPacket(ctx, project, workItem, assignment, role, plan, sessionID)
 	contextPacket.ID = firstNonEmptyString(contextPacket.ID, newChatID("ctx"))
-	contextPacket.ExecutionMode = chat.ExecutionModeExternalAgent
-	contextPacket.Provider = ""
-	contextPacket.Model = ""
-	contextPacket.Workspace = workspace
-	contextPacket.Refs.SessionID = sessionID
-	contextPacket.Refs.TaskID = ""
-	contextPacket.Refs.RunID = ""
 
 	session := chat.Session{
 		ID:              sessionID,
-		Title:           projectExternalAgentAssignmentTitle(workItem, role, adapter),
+		Title:           plan.SessionTitle,
 		ProjectID:       project.ID,
-		AgentID:         adapterID,
+		AgentID:         plan.AdapterID,
 		DriverKind:      agentadapters.DriverKindACP,
-		Workspace:       workspace,
-		WorkspaceBranch: workspaceGitBranch(workspace),
-		ConfigOptions:   configOptions,
+		Workspace:       plan.Workspace,
+		WorkspaceBranch: workspaceGitBranch(plan.Workspace),
+		ConfigOptions:   plan.ConfigOptions,
 	}
 	contextPacket.Refs.SessionID = session.ID
 	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
@@ -504,7 +525,7 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 	if err != nil {
 		var prepareErr projectworkapp.ExternalAgentPrepareError
 		if errors.As(err, &prepareErr) {
-			writeAgentChatPrepareError(w, adapter.Name, prepareErr.Unwrap())
+			writeAgentChatPrepareError(w, plan.Adapter.Name, prepareErr.Unwrap())
 			return
 		}
 		resultAssignment := assignment

@@ -626,6 +626,50 @@ func TestProjectWorkAPI_PreflightAssignmentReturnsLaunchContextWithoutSideEffect
 	}
 }
 
+func TestProjectWorkAPI_PreflightAndStartShareNativeLaunchPlan(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	client := newAPITestClient(t, server)
+	preflight := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	task, found, err := handler.taskStore.GetTask(t.Context(), ref.TaskID)
+	if err != nil || !found {
+		t.Fatalf("GetTask(%q) found=%v err=%v, want task", ref.TaskID, found, err)
+	}
+	started := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
+
+	if preflight.Data.ExecutionMode != started.Data.ExecutionMode ||
+		preflight.Data.Provider != started.Data.Provider ||
+		preflight.Data.Model != started.Data.Model ||
+		preflight.Data.ExecutionProfile != started.Data.ExecutionProfile ||
+		preflight.Data.Workspace != started.Data.Workspace {
+		t.Fatalf("preflight launch shape = mode/provider/model/profile/workspace %q/%q/%q/%q/%q, started = %q/%q/%q/%q/%q",
+			preflight.Data.ExecutionMode, preflight.Data.Provider, preflight.Data.Model, preflight.Data.ExecutionProfile, preflight.Data.Workspace,
+			started.Data.ExecutionMode, started.Data.Provider, started.Data.Model, started.Data.ExecutionProfile, started.Data.Workspace)
+	}
+	if task.RequestedProvider != preflight.Data.Provider || task.RequestedModel != preflight.Data.Model || task.ExecutionProfile != preflight.Data.ExecutionProfile || task.WorkingDirectory != preflight.Data.Workspace {
+		t.Fatalf("task launch shape = provider/model/profile/workspace %q/%q/%q/%q, want preflight %q/%q/%q/%q",
+			task.RequestedProvider, task.RequestedModel, task.ExecutionProfile, task.WorkingDirectory,
+			preflight.Data.Provider, preflight.Data.Model, preflight.Data.ExecutionProfile, preflight.Data.Workspace)
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentPersistsInspectableContextPacket(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -1380,6 +1424,76 @@ func TestProjectWorkAPI_PreflightExternalAgentAssignmentShowsSessionTargetWithou
 	}
 	if len(sessions) != 0 {
 		t.Fatalf("sessions = %+v, want no chat session created by preflight", sessions)
+	}
+}
+
+func TestProjectWorkAPI_PreflightAndStartShareExternalAgentLaunchPlan(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	runner := &fakeAgentChatRunner{nativeSessionID: "native_project_external"}
+	handler.SetAgentChatRunner(runner)
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverExternalAgent,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                "prof_external",
+		Name:              "External implementer",
+		Surface:           agentprofiles.SurfaceExternalAgent,
+		ExecutionProfile:  "external_implementation",
+		ExternalAgentKind: "codex",
+		SkillIDs:          []string{"project-handoff"},
+	}); err != nil {
+		t.Fatalf("Create external profile: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultAgentProfile = "prof_external"
+	}); err != nil {
+		t.Fatalf("Update role profile: %v", err)
+	}
+
+	client := newAPITestClient(t, server)
+	preflight := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{"driver_kind":"external_agent"}`))))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start assignment status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	var assignment ProjectWorkAssignmentEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &assignment); err != nil {
+		t.Fatalf("decode assignment: %v", err)
+	}
+	ref := assignmentExecutionRefForTest(t, assignment.Data)
+	started := mustRequestJSON[ChatContextPacketResponse](client, http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/context", "")
+
+	if preflight.Data.ExecutionMode != started.Data.ExecutionMode ||
+		preflight.Data.Provider != started.Data.Provider ||
+		preflight.Data.Model != started.Data.Model ||
+		preflight.Data.ExecutionProfile != started.Data.ExecutionProfile ||
+		preflight.Data.Workspace != started.Data.Workspace {
+		t.Fatalf("preflight external shape = mode/provider/model/profile/workspace %q/%q/%q/%q/%q, started = %q/%q/%q/%q/%q",
+			preflight.Data.ExecutionMode, preflight.Data.Provider, preflight.Data.Model, preflight.Data.ExecutionProfile, preflight.Data.Workspace,
+			started.Data.ExecutionMode, started.Data.Provider, started.Data.Model, started.Data.ExecutionProfile, started.Data.Workspace)
+	}
+	if started.Data.Refs == nil || started.Data.Refs.SessionID != ref.ChatSessionID || started.Data.Refs.TaskID != "" || started.Data.Refs.RunID != "" {
+		t.Fatalf("started refs = %+v, want external chat session only", started.Data.Refs)
+	}
+	if len(runner.prepareRequests) != 1 {
+		t.Fatalf("prepare requests = %d, want 1", len(runner.prepareRequests))
+	}
+	prepare := runner.prepareRequests[0]
+	if prepare.AdapterID != "codex" || prepare.SessionID != ref.ChatSessionID || prepare.Workspace != preflight.Data.Workspace {
+		t.Fatalf("prepare request = %+v, want codex session %q in preflight workspace %q", prepare, ref.ChatSessionID, preflight.Data.Workspace)
+	}
+	session, ok, err := handler.agentChat.Get(t.Context(), ref.ChatSessionID)
+	if err != nil || !ok {
+		t.Fatalf("Get chat session found=%v err=%v, want linked session", ok, err)
+	}
+	if session.Title != "Native assignment start - Backend engineer - Codex" || session.Workspace != preflight.Data.Workspace || session.AgentID != "codex" {
+		t.Fatalf("session = %+v, want preflight launch target", session)
 	}
 }
 
