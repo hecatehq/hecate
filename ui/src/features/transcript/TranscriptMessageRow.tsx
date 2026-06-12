@@ -694,10 +694,10 @@ function cspMetadata(meta: unknown): {
   const ui = objectRecord(objectRecord(meta).ui);
   const csp = objectRecord(ui.csp);
   return {
-    connectDomains: stringArray(csp.connectDomains),
-    resourceDomains: stringArray(csp.resourceDomains),
-    frameDomains: stringArray(csp.frameDomains),
-    baseUriDomains: stringArray(csp.baseUriDomains),
+    connectDomains: cspSourceArray(csp.connectDomains, "connect"),
+    resourceDomains: cspSourceArray(csp.resourceDomains, "resource"),
+    frameDomains: cspSourceArray(csp.frameDomains, "frame"),
+    baseUriDomains: cspSourceArray(csp.baseUriDomains, "base"),
   };
 }
 
@@ -720,12 +720,48 @@ function stringRecord(value: unknown): Record<string, string> {
   return objectRecord(value) as Record<string, string>;
 }
 
-function stringArray(value: unknown): string[] {
+type CSPSourceKind = "resource" | "connect" | "frame" | "base";
+
+function cspSourceArray(value: unknown, kind: CSPSourceKind): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(
-    (item): item is string =>
-      typeof item === "string" && item.trim() !== "" && /^[^\s;]+$/.test(item),
-  );
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const source = cspSource(item, kind);
+    if (!source || seen.has(source)) continue;
+    seen.add(source);
+    out.push(source);
+  }
+  return out;
+}
+
+function cspSource(value: unknown, kind: CSPSourceKind): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (trimmed === "" || !/^[^\s;]+$/.test(trimmed)) return "";
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return "";
+  }
+  if (parsed.protocol === "https:") return parsed.origin;
+  if (kind === "connect" && parsed.protocol === "wss:") return parsed.origin;
+  if (
+    (parsed.protocol === "http:" || parsed.protocol === "ws:") &&
+    isLoopbackHost(parsed.hostname)
+  ) {
+    return parsed.origin;
+  }
+  return "";
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (normalized === "localhost" || normalized === "::1") return true;
+  const parts = normalized.split(".");
+  if (parts.length !== 4 || parts[0] !== "127") return false;
+  return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
 }
 
 function escapeHTMLAttribute(value: string): string {

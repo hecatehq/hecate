@@ -1066,6 +1066,63 @@ describe("TranscriptMessageRow", () => {
     expect(frame.srcdoc).toContain("https://cdn.example.com");
   });
 
+  it("filters unsafe MCP App CSP sources from resource metadata", () => {
+    const activities = [
+      weatherMCPAppActivity({
+        resource_meta: {
+          ui: {
+            csp: {
+              resourceDomains: [
+                "https://cdn.example.com/assets",
+                "http://localhost:5173/static/app.js",
+                "*",
+                "'unsafe-eval'",
+                "javascript:alert(1)",
+                "http://cdn.example.com",
+                "http://127.example.com/static/app.js",
+              ],
+              connectDomains: [
+                "https://api.example.com/v1",
+                "wss://events.example.com/socket",
+                "ws://localhost:4000/socket",
+                "http://127.0.0.1:8787/mcp",
+                "http://api.example.com",
+                "http://127.0.0.1.example.com/mcp",
+              ],
+              frameDomains: [
+                "https://frames.example.com/embed",
+                "http://localhost:4173/frame",
+                "http://frames.example.com/embed",
+              ],
+              baseUriDomains: ["https://base.example.com/path", "data:"],
+            },
+          },
+        },
+      }),
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    const frame = screen.getByTestId("mcp-app-frame") as HTMLIFrameElement;
+    const csp = frame.srcdoc.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] ?? "";
+    expect(csp).toContain(
+      "script-src 'self' 'unsafe-inline' https://cdn.example.com http://localhost:5173",
+    );
+    expect(csp).toContain(
+      "connect-src https://api.example.com wss://events.example.com ws://localhost:4000 http://127.0.0.1:8787",
+    );
+    expect(csp).toContain("frame-src https://frames.example.com http://localhost:4173");
+    expect(csp).toContain("base-uri https://base.example.com");
+    expect(csp).not.toContain("*");
+    expect(csp).not.toContain("unsafe-eval");
+    expect(csp).not.toContain("javascript:");
+    expect(csp).not.toContain("http://cdn.example.com");
+    expect(csp).not.toContain("http://api.example.com");
+    expect(csp).not.toContain("http://frames.example.com");
+    expect(csp).not.toContain("http://127.example.com");
+    expect(csp).not.toContain("http://127.0.0.1.example.com");
+  });
+
   it("exchanges initialization and tool payloads with inline MCP Apps", () => {
     const activities = [
       weatherMCPAppActivity({

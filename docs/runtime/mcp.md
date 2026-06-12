@@ -371,8 +371,8 @@ The Go tests cover initialize capabilities, tool `_meta` passthrough,
 `structuredContent`, `resources/read`, visibility filtering, app-resource
 capture on tool calls, registry discovery, and chat activity projection. The UI
 test pins inline rendering, sandbox attributes, the Apps JSON-RPC host bridge,
-tool-input/tool-result delivery, iframe resizing, and the no-empty-iframe error
-fallback.
+tool-input/tool-result delivery, iframe resizing, CSP source filtering, and the
+no-empty-iframe error fallback.
 
 ### Approval policy
 
@@ -411,6 +411,11 @@ Hecate maintains a shared client cache so multiple tasks targeting the same upst
 `GET /hecate/v1/mcp/registry/servers` queries the read-only MCP Registry REST API. It defaults to `https://registry.modelcontextprotocol.io` and forwards the registry's list/search filters: `search`, `cursor`, `limit`, `updated_since`, `version`, and `include_deleted`. `registry_url` can point at a private registry, but the endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected before Hecate performs any outbound fetch.
 
 The response keeps registry server metadata intact (`server`, `_meta`) and adds Hecate-specific `install_hints`. A `streamable-http` remote with a URL gets a ready-to-probe `hecate_config` containing `name`, `url`, and header placeholders such as `$MCP_AUTHORIZATION`. Package entries and legacy `sse` remotes remain visible for discovery, but Hecate does not treat them as one-click runnable configs. Operators still review the selected config and can use `POST /hecate/v1/mcp/probe` to inspect the actual tool catalog before adding it to a task.
+
+Registry discovery is API-only for the initial MCP Apps PR. The UI follow-up
+should present registry search results, install hints, required secret
+placeholders, and a probe-before-use review step together instead of silently
+adding servers to Chat.
 
 ### Resource limits
 
