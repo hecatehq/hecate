@@ -154,6 +154,10 @@ eligible. `exclude` means the runner skips that compatibility layer for the
 task; native project assignments set this so profile context-source policy
 controls any workspace-instruction body inclusion.
 
+Task responses also include `work_item_id` and `assignment_id` when a
+project-work assignment created the task. These fields are inspection links only
+and do not replace the task's generic `origin_kind` / `origin_id` fields.
+
 `execution_profile` applies task-create defaults:
 
 | Profile        | Defaults                                                                                                                                                              |
@@ -165,6 +169,9 @@ controls any workspace-instruction body inclusion.
 
 `task_run` carries the cost figures the operator UI surfaces:
 
+- `project_id` / `work_item_id` / `assignment_id` — project-work inspection
+  links when Hecate can derive them from the parent task or the run context
+  packet refs.
 - `total_cost_micros_usd` — this run's LLM spend (after routing).
 - `prior_cost_micros_usd` — cumulative spend of every prior run in this run's resume chain. Cumulative-across-task = `prior + total`.
 - `model` / `provider` / `provider_kind` — what was actually used (after routing). May differ from the task's `requested_*` when the operator picked auto. Agent-loop runs preserve these fields for both streaming and non-streaming model turns.
@@ -2339,6 +2346,9 @@ For `driver_kind="hecate_task"`, starting verifies that the project, work item,
 assignment, and role exist, then
 creates a normal Task with `execution_kind="agent_loop"`,
 `origin_kind="project_work_item"`, and `origin_id` set to the work item ID. The
+task response also exposes `work_item_id` and `assignment_id` for direct
+inspection, and the created run response exposes `project_id`, `work_item_id`,
+and `assignment_id` from the parent task and stored context packet refs. The
 task title, prompt, and system prompt are composed from a visible launch-context
 block covering project, work item, assignment, role, execution hints, role
 defaults, project defaults, and any profile-activated prompt context. Project

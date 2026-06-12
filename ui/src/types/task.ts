@@ -3,6 +3,8 @@ export type TaskRecord = {
   title: string;
   prompt: string;
   project_id?: string;
+  work_item_id?: string;
+  assignment_id?: string;
   // Per-task agent_loop system prompt — narrowest layer in the
   // composition (global → workspace CLAUDE.md/AGENTS.md → this).
   system_prompt?: string;
@@ -76,6 +78,9 @@ export type TaskResponse = {
 export type TaskRunRecord = {
   id: string;
   task_id: string;
+  project_id?: string;
+  work_item_id?: string;
+  assignment_id?: string;
   number: number;
   status: string;
   orchestrator?: string;

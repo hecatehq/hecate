@@ -171,7 +171,7 @@ func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	WriteJSON(w, http.StatusOK, TaskRunResponse{
 		Object: "task_run",
-		Data:   renderTaskRun(run),
+		Data:   renderTaskRun(run, task),
 	})
 }
 
@@ -193,7 +193,7 @@ func (h *Handler) HandleRetryTaskRun(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run)})
+	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run, result.Task)})
 }
 
 func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +221,7 @@ func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run)})
+	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run, result.Task)})
 }
 
 func (h *Handler) HandleContinueTaskRun(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +258,7 @@ func (h *Handler) HandleContinueTaskRun(w http.ResponseWriter, r *http.Request) 
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, msg)
 		return
 	}
-	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run)})
+	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run, result.Task)})
 }
 
 // HandleRetryTaskRunFromTurn re-runs an agent_loop run from turn N,
@@ -303,5 +303,5 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, msg)
 		return
 	}
-	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run)})
+	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run, result.Task)})
 }

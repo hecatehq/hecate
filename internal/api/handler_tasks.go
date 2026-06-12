@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecatehq/hecate/internal/chatcontext"
 	"github.com/hecatehq/hecate/internal/orchestrator"
 	"github.com/hecatehq/hecate/internal/taskapp"
 	"github.com/hecatehq/hecate/internal/taskstate"
@@ -246,7 +247,7 @@ func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 	}
 	WriteJSON(w, http.StatusOK, TaskRunResponse{
 		Object: "task_run",
-		Data:   renderTaskRun(result.Run),
+		Data:   renderTaskRun(result.Run, result.Task),
 	})
 }
 
@@ -273,7 +274,7 @@ func (h *Handler) HandleTaskRuns(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]TaskRunItem, 0, len(runs))
 	for _, run := range runs {
-		items = append(items, renderTaskRun(run))
+		items = append(items, renderTaskRun(run, task))
 	}
 	WriteJSON(w, http.StatusOK, TaskRunsResponse{
 		Object: "task_runs",
@@ -298,7 +299,7 @@ func (h *Handler) HandleTaskRun(w http.ResponseWriter, r *http.Request) {
 
 	WriteJSON(w, http.StatusOK, TaskRunResponse{
 		Object: "task_run",
-		Data:   renderTaskRun(run),
+		Data:   renderTaskRun(run, task),
 	})
 }
 
@@ -598,6 +599,8 @@ func renderTaskItem(task types.Task) TaskItem {
 		Title:                       task.Title,
 		Prompt:                      task.Prompt,
 		ProjectID:                   task.ProjectID,
+		WorkItemID:                  task.WorkItemID,
+		AssignmentID:                task.AssignmentID,
 		SystemPrompt:                task.SystemPrompt,
 		WorkspaceSystemPromptPolicy: task.WorkspaceSystemPromptPolicy,
 		ExecutionProfile:            task.ExecutionProfile,
@@ -714,7 +717,7 @@ func loadTaskItemCounts(ctx context.Context, store taskstate.Store, taskID strin
 	return counts
 }
 
-func renderTaskRun(run types.TaskRun) TaskRunItem {
+func renderTaskRun(run types.TaskRun, parentTasks ...types.Task) TaskRunItem {
 	item := TaskRunItem{
 		ID:                 run.ID,
 		TaskID:             run.TaskID,
@@ -737,6 +740,18 @@ func renderTaskRun(run types.TaskRun) TaskRunItem {
 		RootSpanID:         run.RootSpanID,
 		OtelStatusCode:     run.OtelStatusCode,
 		OtelStatusMessage:  run.OtelStatusMessage,
+	}
+	if len(parentTasks) > 0 {
+		task := parentTasks[0]
+		item.ProjectID = task.ProjectID
+		item.WorkItemID = task.WorkItemID
+		item.AssignmentID = task.AssignmentID
+	}
+	if packet, ok, err := chatcontext.FromTaskRun(run); err == nil && ok && packet.Refs != nil {
+		refs := chatcontext.Refs(*packet.Refs)
+		item.ProjectID = firstNonEmptyString(refs.ProjectID, item.ProjectID)
+		item.WorkItemID = firstNonEmptyString(refs.WorkItemID, item.WorkItemID)
+		item.AssignmentID = firstNonEmptyString(refs.AssignmentID, item.AssignmentID)
 	}
 	if !run.StartedAt.IsZero() {
 		item.StartedAt = run.StartedAt.UTC().Format(time.RFC3339Nano)

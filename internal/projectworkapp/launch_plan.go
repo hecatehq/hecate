@@ -409,6 +409,8 @@ func NewAssignmentTask(taskID string, project projects.Project, workItem project
 		Title:                       AssignmentTaskTitle(workItem, role),
 		Prompt:                      AssignmentPrompt(project, workItem, assignment, role),
 		ProjectID:                   project.ID,
+		WorkItemID:                  workItem.ID,
+		AssignmentID:                assignment.ID,
 		SystemPrompt:                AssignmentSystemPrompt(project, role, plan.Profile, plan.PromptContext),
 		WorkspaceSystemPromptPolicy: types.WorkspaceSystemPromptExclude,
 		ExecutionKind:               "agent_loop",
