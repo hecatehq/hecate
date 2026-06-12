@@ -802,7 +802,7 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if result.DriverKind != "" || result.NativeSessionID != "" || result.ConfigOptions != nil {
+	if result.DriverKind != "" || result.NativeSessionID != "" || result.ConfigOptions != nil || result.AvailableCommandsUpdated {
 		updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
 			if result.DriverKind != "" {
 				item.DriverKind = result.DriverKind
@@ -812,6 +812,9 @@ func (h *Handler) handleCreateExternalAgentChatMessage(w http.ResponseWriter, r 
 			}
 			if result.ConfigOptions != nil {
 				item.ConfigOptions = result.ConfigOptions
+			}
+			if result.AvailableCommandsUpdated {
+				item.AvailableCommands = result.AvailableCommands
 			}
 		})
 		if err != nil {

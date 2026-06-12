@@ -108,37 +108,44 @@ describe("reconcileChatSession", () => {
     expect(reconcileChatSession(prev, nextEmpty).messages).toBe(nextEmpty.messages);
   });
 
-  it("reuses segments and config_options when deep-equal", () => {
+  it("reuses segments, config_options, and available_commands when deep-equal", () => {
     const segments = [{ id: "s1", execution_mode: "external_agent", message_count: 1 }];
     const configOptions = [{ id: "c1", name: "Mode", type: "select", current_value: "auto" }];
+    const availableCommands = [{ name: "web", description: "Search the web", input_hint: "query" }];
     const prev = session("chat-1", [message("m1", "hi")], {
       segments: [{ id: "s1", execution_mode: "external_agent", message_count: 1 }],
       config_options: [{ id: "c1", name: "Mode", type: "select", current_value: "auto" }],
+      available_commands: [{ name: "web", description: "Search the web", input_hint: "query" }],
     });
     const next = session("chat-1", [message("m1", "hi")], {
       segments,
       config_options: configOptions,
+      available_commands: availableCommands,
     });
 
     const result = reconcileChatSession(prev, next);
 
     expect(result.segments).toBe(prev.segments);
     expect(result.config_options).toBe(prev.config_options);
+    expect(result.available_commands).toBe(prev.available_commands);
   });
 
-  it("takes next segments and config_options when they changed", () => {
+  it("takes next segments, config_options, and available_commands when they changed", () => {
     const prev = session("chat-1", [message("m1", "hi")], {
       segments: [{ id: "s1", execution_mode: "external_agent", message_count: 1 }],
       config_options: [{ id: "c1", name: "Mode", type: "select", current_value: "auto" }],
+      available_commands: [{ name: "web" }],
     });
     const next = session("chat-1", [message("m1", "hi")], {
       segments: [{ id: "s1", execution_mode: "external_agent", message_count: 2 }],
       config_options: [{ id: "c1", name: "Mode", type: "select", current_value: "plan" }],
+      available_commands: [{ name: "plan" }],
     });
 
     const result = reconcileChatSession(prev, next);
 
     expect(result.segments).toBe(next.segments);
     expect(result.config_options).toBe(next.config_options);
+    expect(result.available_commands).toBe(next.available_commands);
   });
 });

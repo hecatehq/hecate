@@ -90,6 +90,16 @@ different agent. Hecate stores the latest reported control state with the chat
 session and sends ACP-owned changes back with ACP `session/set_config_option`;
 it does not translate those controls into Hecate provider/model settings.
 
+ACP agents may also advertise **available slash commands** with
+`available_commands_update`. Hecate stores the latest advertised command
+metadata on the chat session as `available_commands` so clients can render
+agent-native command hints. Commands are still submitted as normal
+`session/prompt` text such as `/web agent client protocol`; ACP does not define
+a separate execute-command RPC. These are external-agent-native commands, not
+Hecate-owned project mutations. Future Hecate Chat shortcuts such as `/plan` or
+`/remember` should remain intent hints that go through the usual proposal,
+validation, and operator-apply boundaries.
+
 Check discovery:
 
 ```sh

@@ -98,6 +98,11 @@ that every counted message was packed into the provider or agent prompt. Context
 packets are snapshots on assistant messages; changing project context sources,
 skills, or work records later does not rewrite old message packets.
 
+External Agent sessions may expose ACP-advertised `available_commands` on the
+session snapshot. These are agent-native slash command hints, not Hecate
+project commands; selecting one still sends ordinary prompt text to the
+external agent.
+
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct
 model calls or enter the Hecate task runtime. If tools are on but the selected

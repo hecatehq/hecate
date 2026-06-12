@@ -116,6 +116,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 		MaxSessionDurationMS: limits.MaxSessionDuration.Milliseconds(),
 		IdleTimeoutMS:        limits.IdleTimeout.Milliseconds(),
 		ConfigOptions:        session.ConfigOptions,
+		AvailableCommands:    session.AvailableCommands,
 		CreatedAt:            formatOptionalTime(session.CreatedAt),
 		UpdatedAt:            formatOptionalTime(session.UpdatedAt),
 		Segments:             renderChatSegments(session),

@@ -163,6 +163,12 @@ export type ChatConfigOptionRecord = {
   options?: ChatConfigSelectOptionRecord[];
 };
 
+export type ChatAvailableCommandRecord = {
+  name: string;
+  description?: string;
+  input_hint?: string;
+};
+
 export type ChatSessionRecord = {
   id: string;
   title: string;
@@ -187,6 +193,7 @@ export type ChatSessionRecord = {
   created_at?: string;
   updated_at?: string;
   config_options?: ChatConfigOptionRecord[];
+  available_commands?: ChatAvailableCommandRecord[];
   segments?: ChatSegmentRecord[];
   messages?: ChatMessageRecord[];
 };

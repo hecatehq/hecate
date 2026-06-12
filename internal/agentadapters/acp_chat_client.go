@@ -9,15 +9,17 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
+	"github.com/hecatehq/hecate/internal/agentcontrols"
 	"github.com/hecatehq/hecate/internal/telemetry"
 	"github.com/hecatehq/hecate/internal/workspacefs"
 )
 
 type acpChatClient struct {
-	sessionID   string
-	adapterID   string
-	workspace   string
-	coordinator *ApprovalCoordinator
+	sessionID           string
+	adapterID           string
+	workspace           string
+	coordinator         *ApprovalCoordinator
+	onAvailableCommands func([]agentcontrols.Command)
 	// metrics is optional; nil-safe across every Record* call.
 	// Populated by the SessionManager when an *AgentAdapterMetrics
 	// has been wired (see SessionManager.SetAdapterMetrics).
@@ -59,6 +61,9 @@ func (c *acpChatClient) currentTurn() *acpTurn {
 }
 
 func (c *acpChatClient) SessionUpdate(_ context.Context, params acp.SessionNotification) error {
+	if params.Update.AvailableCommandsUpdate != nil && c.onAvailableCommands != nil {
+		c.onAvailableCommands(agentcontrols.FromACPCommands(params.Update.AvailableCommandsUpdate.AvailableCommands))
+	}
 	turn := c.currentTurn()
 	if turn == nil {
 		return nil

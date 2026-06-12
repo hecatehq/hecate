@@ -2619,6 +2619,11 @@ starting the agent process. After the ACP session exists, agent-owned
 the first prompt. If the adapter binary is missing, unauthenticated, missing a
 required launch option, or fails its ACP handshake, session creation fails and
 Hecate removes the empty chat record.
+If an ACP agent advertises native slash commands with
+`available_commands_update`, Hecate stores the latest command metadata on the
+session as `available_commands`. Clients send those commands back as ordinary
+prompt text, for example `/web agent client protocol`; there is no separate ACP
+execute-command RPC.
 
 ```json
 POST /hecate/v1/chat/sessions
@@ -2692,6 +2697,13 @@ POST /hecate/v1/chat/sessions
         "current_value": "chosen-model-id"
       }
     ],
+    "available_commands": [
+      {
+        "name": "web",
+        "description": "Search the web",
+        "input_hint": "query"
+      }
+    ],
     "messages": []
   }
 }
@@ -2729,6 +2741,12 @@ session controls before the first prompt. Catalog launch controls can be shown
 even earlier from `GET /hecate/v1/agent-adapters`. Common `category` values
 include `model`, `mode`, and `thought_level`, but clients must handle missing
 or custom categories.
+
+External Agent sessions may also include `available_commands`, the latest ACP
+available slash command list advertised by the agent. Each item has `name`,
+optional `description`, and optional `input_hint`. The `name` is agent-owned;
+clients should render it as a slash command hint but submit the chosen command
+as normal prompt text.
 
 ### `PATCH /hecate/v1/chat/sessions/{id}`
 
