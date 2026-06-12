@@ -159,6 +159,17 @@ func (s *SQLiteStore) Create(ctx context.Context, project Project) (Project, err
 	if err != nil {
 		return Project{}, err
 	}
+	if _, err := s.loadProjectWith(ctx, tx, project.ID); err == nil {
+		_ = tx.Rollback()
+		return Project{}, fmt.Errorf("%w: project id %q already exists", ErrAlreadyExists, project.ID)
+	} else if !errors.Is(err, ErrNotFound) {
+		_ = tx.Rollback()
+		return Project{}, err
+	}
+	if err := s.ensureProjectUniqueWith(ctx, tx, project, project.ID); err != nil {
+		_ = tx.Rollback()
+		return Project{}, err
+	}
 	if err := s.upsertProject(ctx, tx, project); err != nil {
 		_ = tx.Rollback()
 		return Project{}, err
@@ -283,6 +294,10 @@ func (s *SQLiteStore) Update(ctx context.Context, id string, update func(*Projec
 		_ = tx.Rollback()
 		return Project{}, err
 	}
+	if err := s.ensureProjectUniqueWith(ctx, tx, project, originalID); err != nil {
+		_ = tx.Rollback()
+		return Project{}, err
+	}
 	if err := s.upsertProject(ctx, tx, project); err != nil {
 		_ = tx.Rollback()
 		return Project{}, err
@@ -324,6 +339,62 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return tx.Commit()
+}
+
+func (s *SQLiteStore) ensureProjectUniqueWith(ctx context.Context, q sqliteQuerier, project Project, currentID string) error {
+	currentID = strings.TrimSpace(currentID)
+	nameKey := projectNameKey(project.Name)
+	rows, err := q.QueryContext(ctx, fmt.Sprintf(`SELECT id, name FROM %s`, s.projectsTbl))
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if strings.TrimSpace(id) == currentID {
+			continue
+		}
+		if projectNameKey(name) == nameKey {
+			_ = rows.Close()
+			return fmt.Errorf("%w: project name %q already exists", ErrAlreadyExists, project.Name)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	rootPathKeys := projectRootPathKeys(project.Roots)
+	if len(rootPathKeys) == 0 {
+		return nil
+	}
+	rows, err = q.QueryContext(ctx, fmt.Sprintf(`SELECT project_id, path FROM %s`, s.rootsTbl))
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var projectID, path string
+		if err := rows.Scan(&projectID, &path); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if strings.TrimSpace(projectID) == currentID {
+			continue
+		}
+		if conflictPath, ok := rootPathKeys[projectRootPathKey(path)]; ok {
+			_ = rows.Close()
+			return fmt.Errorf("%w: project root path %q already belongs to project %q", ErrAlreadyExists, conflictPath, projectID)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	return rows.Err()
 }
 
 func (s *SQLiteStore) upsertProject(ctx context.Context, tx *sql.Tx, project Project) error {

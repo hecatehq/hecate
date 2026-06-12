@@ -1043,8 +1043,9 @@ describe("ProjectsView index", () => {
     expect((await screen.findAllByText("Build cockpit UI")).length).toBeGreaterThan(0);
   });
 
-  it("keeps work coordination in the cockpit when the selected project has no work", async () => {
+  it("shows project onboarding before the selected project has work", async () => {
     resetProjectWorkMocks();
+    const user = userEvent.setup();
     vi.mocked(getProjectActivity).mockResolvedValue({
       object: "project_activity",
       data: emptyActivityData(),
@@ -1060,17 +1061,27 @@ describe("ProjectsView index", () => {
       wrapper: directWrapper({ projects: [project] }),
     });
 
-    expect(await screen.findByText("Work Queue")).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "Project onboarding" })).toBeTruthy();
+    expect(screen.getByText("Set up Hecate")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bootstrap project" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Projects" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open project Hecate" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Collapse projects panel" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Expand projects panel" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Collapsed projects panel" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Project work items" })).toBeNull();
-    const workPanel = screen.getByRole("region", { name: "Work coordination" });
-    expect(workPanel).toBeTruthy();
-    expect(screen.getByText("No work items for this project.")).toBeTruthy();
-    expect(within(workPanel).getByRole("button", { name: "Work" })).toBeTruthy();
+    expect(screen.queryByRole("tablist", { name: "Project workspace views" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Work coordination" })).toBeNull();
+    expect(screen.queryByText("No work items for this project.")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Bootstrap project" }));
+    await waitFor(() => {
+      expect(draftProjectAssistant).toHaveBeenCalledWith({
+        project_id: project.id,
+        request: "Bootstrap project guidance",
+        draft_mode: "bootstrap",
+      });
+    });
   });
 
   it("keeps cockpit controls and work coordination in stable regions when work items exist", async () => {
@@ -1204,6 +1215,10 @@ describe("ProjectsView index", () => {
       wrapper: directWrapper({ projects: [] }),
     });
     expect(screen.getByText("No projects yet")).toBeTruthy();
+    expect(screen.getByText("Add a project to begin")).toBeTruthy();
+    expect(screen.queryByRole("tablist", { name: "Project workspace views" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Project settings" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
     empty.unmount();
 
     render(<ProjectsView />, {
@@ -1546,10 +1561,14 @@ describe("ProjectsView cockpit", () => {
     expect(within(assistant).queryByLabelText("Project Assistant context")).toBeNull();
   });
 
-  it("drafts Project Assistant work proposals without an owner role when none exists", async () => {
+  it("routes empty projects through onboarding bootstrap before drafting work", async () => {
     resetProjectWorkMocks();
     vi.mocked(getProjectWorkRoles).mockResolvedValue({ object: "project_work_roles", data: [] });
     vi.mocked(getProjectWorkItems).mockResolvedValue({ object: "project_work_items", data: [] });
+    vi.mocked(getProjectActivity).mockResolvedValue({
+      object: "project_activity",
+      data: emptyActivityData(),
+    });
     const user = userEvent.setup();
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
@@ -1558,18 +1577,17 @@ describe("ProjectsView cockpit", () => {
     });
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
-    const assistant = await screen.findByRole("region", { name: "Project Assistant" });
-    await screen.findByText("No work items for this project.");
-    expect(within(assistant).getByText("Project queue")).toBeTruthy();
-    fireEvent.change(within(assistant).getByLabelText("Request"), {
-      target: { value: "Write project brief\nCapture the next operator task." },
-    });
-    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
+    const onboarding = await screen.findByRole("region", { name: "Project onboarding" });
+    expect(within(onboarding).getByText("Set up Hecate")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Project Assistant" })).toBeNull();
+    expect(screen.queryByText("No work items for this project.")).toBeNull();
+    await user.click(within(onboarding).getByRole("button", { name: "Bootstrap project" }));
 
     await waitFor(() => {
       expect(draftProjectAssistant).toHaveBeenCalledWith({
         project_id: project.id,
-        request: "Write project brief\nCapture the next operator task.",
+        request: "Bootstrap project guidance",
+        draft_mode: "bootstrap",
       });
     });
   });

@@ -1188,6 +1188,65 @@ func TestService_ApplyCreateProjectWorkspacePathAcrossStores(t *testing.T) {
 	}
 }
 
+func TestService_ApplyCreateProjectRejectsDuplicateIdentityAcrossStores(t *testing.T) {
+	t.Parallel()
+	for _, builder := range assistantFixtureBuilders() {
+		t.Run(builder.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			fixture := builder.build(t)
+			workspacePath := filepath.Join(t.TempDir(), "workspace")
+			if _, err := fixture.projects.Create(ctx, projects.Project{
+				ID:   "proj_existing",
+				Name: "Existing",
+				Roots: []projects.Root{{
+					ID:     "root_existing",
+					Path:   workspacePath,
+					Active: true,
+				}},
+			}); err != nil {
+				t.Fatalf("Create existing project: %v", err)
+			}
+
+			for _, tc := range []struct {
+				name  string
+				patch map[string]any
+			}{
+				{
+					name: "duplicate name",
+					patch: map[string]any{
+						"id":   "proj_duplicate_name",
+						"name": " existing ",
+					},
+				},
+				{
+					name: "duplicate workspace path",
+					patch: map[string]any{
+						"id":             "proj_duplicate_workspace",
+						"name":           "Duplicate workspace",
+						"workspace_path": workspacePath + string(filepath.Separator),
+						"workspace_kind": "git",
+					},
+				},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					_, err := fixture.service.Apply(ctx, Proposal{
+						ID:                   "pa_" + strings.ReplaceAll(tc.name, " ", "_"),
+						RequiresConfirmation: true,
+						Actions: []Action{{
+							Kind:  ActionCreateProject,
+							Patch: rawPatch(t, tc.patch),
+						}},
+					}, true)
+					if !errors.Is(err, ErrConflict) {
+						t.Fatalf("Apply err = %v, want ErrConflict", err)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestService_ApplyCreateProjectWithoutWorkspaceAcrossStores(t *testing.T) {
 	t.Parallel()
 	for _, builder := range assistantFixtureBuilders() {

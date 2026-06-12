@@ -230,7 +230,9 @@ tasks, or launch agents.
 In the operator UI, **Bootstrap project** is the project onboarding action, not a
 regular draft mode. It refreshes workspace guidance context sources, refreshes
 the project skills registry, then requests a project-scoped Bootstrap draft. The
-resulting proposal is still review/apply gated and does not attach to the
+Projects with a workspace root but no work items use Bootstrap as their primary
+onboarding action before showing the full work cockpit.
+The resulting proposal is still review/apply gated and does not attach to the
 currently selected work item.
 
 `draft_mode: "model"` asks the configured gateway model to author the proposal

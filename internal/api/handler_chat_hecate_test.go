@@ -286,6 +286,26 @@ func TestDirectHecateChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 	}
 }
 
+func TestProjectChatPromptHelpersBoundUTF8Text(t *testing.T) {
+	remaining := 64
+	section, truncated := boundedPromptContextSection("Header", strings.Repeat("é", 80), 48, &remaining)
+	if !truncated {
+		t.Fatalf("truncated = false, want true")
+	}
+	if section == "" || !strings.HasSuffix(section, "\n[truncated]") {
+		t.Fatalf("section = %q, want truncated section", section)
+	}
+	if !utf8.ValidString(section) {
+		t.Fatalf("section is not valid UTF-8: %q", section)
+	}
+	if len(section) > 48 {
+		t.Fatalf("section length = %d, want <= 48", len(section))
+	}
+	if remaining != 64-len(section) {
+		t.Fatalf("remaining = %d, want %d", remaining, 64-len(section))
+	}
+}
+
 func TestChatSessionsProjectID(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	provider := &fakeProvider{name: "openai"}
