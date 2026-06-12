@@ -144,6 +144,7 @@ import {
 
 type Props = {
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
+  onOpenConnections?: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
 };
 
@@ -177,6 +178,13 @@ type AssignmentPreflightState =
 
 type AssignmentLaunchReadinessNoticeRecord = {
   detail: string;
+};
+
+type AssignmentLaunchRepairActions = {
+  onManageProfiles?: () => void;
+  onManageRoles?: () => void;
+  onOpenConnections?: () => void;
+  onOpenProjectSettings?: () => void;
 };
 
 type MemoryForm = {
@@ -259,7 +267,7 @@ const detailStyle: CSSProperties = {
   alignContent: "start",
 };
 
-export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
+export function ProjectsView({ onOpenChat, onOpenConnections, onOpenTask }: Props) {
   const projects = useProjects();
   const providersAndModels = useProvidersAndModels();
   const settings = useSettings();
@@ -1440,6 +1448,15 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
             }}
             onNewMemory={() => setEditingMemory("new")}
             onOpenChat={onOpenChat}
+            onOpenConnections={onOpenConnections}
+            onManageProfiles={() => {
+              setProfilesError("");
+              setProfilesModalOpen(true);
+            }}
+            onManageRoles={() => {
+              setRolesError("");
+              setRolesModalOpen(true);
+            }}
             onOpenSettings={() => {
               setDefaultsError("");
               setSettingsPanelOpen(true);
@@ -1747,8 +1764,11 @@ type ProjectWorkspaceViewProps = {
   onEditHandoff: (handoff: ProjectHandoffRecord) => void;
   onEditMemory: (entry: ProjectMemoryRecord) => void;
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
+  onManageProfiles: () => void;
+  onManageRoles: () => void;
   onNewMemory: () => void;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
+  onOpenConnections?: () => void;
   onOpenSettings: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onPromoteCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
@@ -1819,8 +1839,11 @@ function ProjectWorkspaceView({
   onEditHandoff,
   onEditMemory,
   onEditWorkItem,
+  onManageProfiles,
+  onManageRoles,
   onNewMemory,
   onOpenChat,
+  onOpenConnections,
   onOpenSettings,
   onOpenTask,
   onPromoteCandidate,
@@ -1964,7 +1987,11 @@ function ProjectWorkspaceView({
                         onEditAssignment={onEditAssignment}
                         onEditWorkItem={onEditWorkItem}
                         onDeleteAssignment={onDeleteAssignment}
+                        onManageProfiles={onManageProfiles}
+                        onManageRoles={onManageRoles}
                         onOpenChat={onOpenChat}
+                        onOpenConnections={onOpenConnections}
+                        onOpenSettings={onOpenSettings}
                         onStartAssignment={onStartAssignment}
                         onStartHandoff={onStartHandoff}
                         onSetHandoffStatus={onSetHandoffStatus}
@@ -3761,7 +3788,11 @@ function WorkItemDetail({
   onEditAssignment,
   onEditHandoff,
   onEditWorkItem,
+  onManageProfiles,
+  onManageRoles,
   onOpenChat,
+  onOpenConnections,
+  onOpenSettings,
   onOpenTask,
   onRefresh,
   onStartAssignment,
@@ -3794,7 +3825,11 @@ function WorkItemDetail({
   onEditAssignment: (assignment: ProjectAssignmentRecord) => void;
   onEditHandoff: (handoff: ProjectHandoffRecord) => void;
   onEditWorkItem: (item: ProjectWorkItemRecord) => void;
+  onManageProfiles: () => void;
+  onManageRoles: () => void;
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
+  onOpenConnections?: () => void;
+  onOpenSettings: () => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onRefresh: () => void;
   onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
@@ -3936,6 +3971,12 @@ function WorkItemDetail({
                     )
                   }
                   project={project}
+                  repairActions={{
+                    onManageProfiles,
+                    onManageRoles,
+                    onOpenConnections,
+                    onOpenProjectSettings: onOpenSettings,
+                  }}
                   role={roleByID.get(assignment.role_id)}
                   starting={startingAssignmentID === assignment.id}
                   loadContext={
@@ -4024,6 +4065,12 @@ function WorkItemDetail({
                     onEdit={() => onEditHandoff(handoff)}
                     onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
                     onStart={() => onStartHandoff(handoff)}
+                    repairActions={{
+                      onManageProfiles,
+                      onManageRoles,
+                      onOpenConnections,
+                      onOpenProjectSettings: onOpenSettings,
+                    }}
                     role={handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined}
                     starting={startingAssignmentID === handoff.target_assignment_id}
                     loadPreflight={
@@ -4063,6 +4110,7 @@ function AssignmentRow({
   onOpenTask,
   onStart,
   project,
+  repairActions,
   role,
   starting,
 }: {
@@ -4079,6 +4127,7 @@ function AssignmentRow({
   onOpenTask?: (taskID: string, runID?: string) => void;
   onStart: () => void;
   project: ProjectRecord | null;
+  repairActions?: AssignmentLaunchRepairActions;
   role?: ProjectWorkRoleRecord;
   starting: boolean;
 }) {
@@ -4298,6 +4347,7 @@ function AssignmentRow({
           }}
           onReload={() => void openPreflight()}
           pending={starting}
+          repairActions={repairActions}
           state={preflightState}
         />
       )}
@@ -4313,6 +4363,7 @@ function AssignmentLaunchPreflightModal({
   onConfirm,
   onReload,
   pending,
+  repairActions,
   state,
 }: {
   assignmentID: string;
@@ -4322,11 +4373,19 @@ function AssignmentLaunchPreflightModal({
   onConfirm: () => void;
   onReload: () => void;
   pending: boolean;
+  repairActions?: AssignmentLaunchRepairActions;
   state: AssignmentPreflightState;
 }) {
   const ready = state.status === "ready";
   const readinessNotice = ready ? assignmentLaunchReadinessNotice(state.packet) : null;
   const canConfirm = ready && !readinessNotice;
+  const runRepairAction = useCallback(
+    (action?: () => void) => {
+      onClose();
+      action?.();
+    },
+    [onClose],
+  );
   return (
     <Modal
       title={`Assignment ${assignmentID} launch preflight`}
@@ -4369,7 +4428,13 @@ function AssignmentLaunchPreflightModal({
         {state.status === "error" ? <InlineError message={state.detail} /> : null}
         {ready ? (
           <div style={{ display: "grid", gap: 12 }}>
-            {readinessNotice && <AssignmentLaunchReadinessNotice notice={readinessNotice} />}
+            {readinessNotice && (
+              <AssignmentLaunchReadinessNotice
+                notice={readinessNotice}
+                onRepairAction={runRepairAction}
+                repairActions={repairActions}
+              />
+            )}
             <ContextInspectorPanel
               packet={state.packet}
               emptyDetail="No launch context metadata returned."
@@ -4383,12 +4448,25 @@ function AssignmentLaunchPreflightModal({
 
 function AssignmentLaunchReadinessNotice({
   notice,
+  onRepairAction,
+  repairActions,
 }: {
   notice: AssignmentLaunchReadinessNoticeRecord;
+  onRepairAction: (action?: () => void) => void;
+  repairActions?: AssignmentLaunchRepairActions;
 }) {
+  const actions = [
+    {
+      key: "project-settings",
+      label: "Open project settings",
+      onClick: repairActions?.onOpenProjectSettings,
+    },
+    { key: "roles", label: "Manage roles", onClick: repairActions?.onManageRoles },
+    { key: "profiles", label: "Agent profiles", onClick: repairActions?.onManageProfiles },
+    { key: "connections", label: "Open Connections", onClick: repairActions?.onOpenConnections },
+  ].filter((action) => action.onClick);
   return (
     <div
-      role="status"
       style={{
         background: "var(--amber-bg)",
         border: "1px solid var(--amber-border)",
@@ -4398,21 +4476,37 @@ function AssignmentLaunchReadinessNotice({
         padding: "10px 12px",
       }}
     >
-      <div
-        style={{
-          alignItems: "center",
-          color: "var(--amber)",
-          display: "flex",
-          fontWeight: 600,
-          gap: 8,
-        }}
-      >
-        <Icon d={Icons.warning} size={13} />
-        Provider/model not ready
+      <div role="status" style={{ display: "grid", gap: 6 }}>
+        <div
+          style={{
+            alignItems: "center",
+            color: "var(--amber)",
+            display: "flex",
+            fontWeight: 600,
+            gap: 8,
+          }}
+        >
+          <Icon d={Icons.warning} size={13} />
+          Provider/model not ready
+        </div>
+        <div style={{ color: "var(--amber-lo)", fontSize: 12, lineHeight: 1.45 }}>
+          {notice.detail}
+        </div>
       </div>
-      <div style={{ color: "var(--amber-lo)", fontSize: 12, lineHeight: 1.45 }}>
-        {notice.detail}
-      </div>
+      {actions.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 }}>
+          {actions.map((action) => (
+            <button
+              key={action.key}
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onRepairAction(action.onClick)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -4427,6 +4521,7 @@ function ProjectHandoffRow({
   onEdit,
   onSetStatus,
   onStart,
+  repairActions,
   role,
   starting,
 }: {
@@ -4439,6 +4534,7 @@ function ProjectHandoffRow({
   onEdit: () => void;
   onSetStatus: (status: string) => void;
   onStart: () => void;
+  repairActions?: AssignmentLaunchRepairActions;
   role?: ProjectWorkRoleRecord;
   starting: boolean;
 }) {
@@ -4586,6 +4682,7 @@ function ProjectHandoffRow({
           }}
           onReload={() => void openPreflight()}
           pending={starting}
+          repairActions={repairActions}
           state={preflightState}
         />
       )}

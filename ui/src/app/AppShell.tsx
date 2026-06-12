@@ -436,7 +436,11 @@ function AuthenticatedShell({
                 />
               )}
               {activeWorkspace === "projects" && (
-                <ProjectsView onOpenChat={openChatFromProject} onOpenTask={openTaskFromProject} />
+                <ProjectsView
+                  onOpenChat={openChatFromProject}
+                  onOpenConnections={() => onSelectWorkspace("connections")}
+                  onOpenTask={openTaskFromProject}
+                />
               )}
               {activeWorkspace === "connections" && <ProvidersView />}
               {activeWorkspace === "usage" && <UsageView />}

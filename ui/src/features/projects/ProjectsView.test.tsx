@@ -4807,7 +4807,13 @@ describe("ProjectsView cockpit", () => {
       projects: [project],
       activeProjectID: project.id,
     });
-    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+    const onOpenConnections = vi.fn();
+    render(
+      withRuntimeConsole(<ProjectsView onOpenConnections={onOpenConnections} />, {
+        state,
+        actions: createRuntimeConsoleActions(),
+      }),
+    );
 
     await userEvent.click(await screen.findByRole("button", { name: "Start" }));
     const preflight = await screen.findByRole("dialog", {
@@ -4816,9 +4822,15 @@ describe("ProjectsView cockpit", () => {
     const notice = within(preflight).getByRole("status");
     expect(within(notice).getByText("Provider/model not ready")).toBeTruthy();
     expect(notice.textContent).toContain('No routable provider reports model "dogfood-model"');
+    expect(within(preflight).getByRole("button", { name: "Open project settings" })).toBeTruthy();
+    expect(within(preflight).getByRole("button", { name: "Manage roles" })).toBeTruthy();
+    expect(within(preflight).getByRole("button", { name: "Agent profiles" })).toBeTruthy();
+    expect(within(preflight).getByRole("button", { name: "Open Connections" })).toBeTruthy();
     const confirm = within(preflight).getByRole("button", { name: "Start assignment" });
     expect(confirm).toBeDisabled();
     expect(startProjectAssignment).not.toHaveBeenCalled();
+    await userEvent.click(within(preflight).getByRole("button", { name: "Open Connections" }));
+    expect(onOpenConnections).toHaveBeenCalledTimes(1);
   });
 
   it("renders finished-only assignment timestamps without a blank started label", async () => {

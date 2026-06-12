@@ -281,9 +281,11 @@ chat or names the next repair, while the provider rows carry the full
 credential, discovery, health, routing, and model-count details. The summary can
 offer safe first-step actions such as **Add provider**, **Open provider**, or
 **Refresh providers**; deeper edits still happen in the provider detail panel.
-Chats link back to Connections rather than duplicating provider-editing
-controls, except for safe one-click repairs such as accepting a
-backend-suggested model or refreshing provider readiness.
+Chats and Projects link back to Connections rather than duplicating
+provider-editing controls, except for safe one-click repairs such as accepting a
+backend-suggested model or refreshing provider readiness. Project assignment
+preflight may also point at Project Settings, Roles, or Agent Profiles when the
+bad provider/model choice came from project-local defaults.
 
 The Chats workspace consumes the same readiness model at composition time. A
 provider can be configured and healthy while the selected model is still not
