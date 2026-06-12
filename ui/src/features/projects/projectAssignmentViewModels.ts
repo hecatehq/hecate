@@ -1,4 +1,5 @@
 import type { ProjectActivityItemRecord, ProjectAssignmentRecord } from "../../types/project";
+import { firstNonEmpty } from "./projectUtils";
 
 export type ProjectAssignmentExecutionKind =
   | "task_run"
@@ -204,12 +205,4 @@ function addEvidenceWarning(warnings: string[], value: string) {
   const trimmed = value.trim();
   if (!trimmed || warnings.includes(trimmed)) return;
   warnings.push(trimmed);
-}
-
-function firstNonEmpty(...values: Array<string | undefined | null>): string {
-  for (const value of values) {
-    const trimmed = value?.trim();
-    if (trimmed) return trimmed;
-  }
-  return "";
 }

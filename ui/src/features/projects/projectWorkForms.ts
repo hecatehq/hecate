@@ -9,11 +9,39 @@ import type {
   UpdateProjectWorkItemPayload,
 } from "../../types/project";
 import { toProjectAssignmentExecutionViewModel } from "./projectAssignmentViewModels";
+import { splitIDs, splitRoleIDs } from "./projectUtils";
+
+export const WORK_ITEM_STATUSES = [
+  "backlog",
+  "ready",
+  "running",
+  "review",
+  "blocked",
+  "done",
+  "cancelled",
+] as const;
+export type WorkItemStatus = (typeof WORK_ITEM_STATUSES)[number];
+
+export const WORK_ITEM_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+export type WorkItemPriority = (typeof WORK_ITEM_PRIORITIES)[number];
+
+export const ASSIGNMENT_STATUSES = [
+  "queued",
+  "running",
+  "awaiting_approval",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
+
+export const HANDOFF_STATUSES = ["pending", "accepted", "superseded", "dismissed"] as const;
+export type HandoffStatus = (typeof HANDOFF_STATUSES)[number];
 
 export type NewWorkItemForm = {
   title: string;
   brief: string;
-  priority: string;
+  priority: WorkItemPriority;
   ownerRoleID: string;
   rootID: string;
 };
@@ -26,13 +54,13 @@ export type NewAssignmentForm = {
 
 export type EditWorkItemForm = NewWorkItemForm & {
   id: string;
-  status: string;
+  status: WorkItemStatus;
   reviewerRoleIDs: string;
 };
 
 export type EditAssignmentForm = NewAssignmentForm & {
   id: string;
-  status: string;
+  status: AssignmentStatus;
   taskID: string;
   runID: string;
   chatSessionID: string;
@@ -54,33 +82,29 @@ export type HandoffForm = {
   linkedArtifactIDs: string;
   linkedMemoryIDs: string;
   contextRefs: string;
-  status: string;
+  status: HandoffStatus;
   provenanceKind: string;
   trustLabel: string;
 };
 
-export const WORK_ITEM_STATUSES = [
-  "backlog",
-  "ready",
-  "running",
-  "review",
-  "blocked",
-  "done",
-  "cancelled",
-];
-export const WORK_ITEM_PRIORITIES = ["low", "normal", "high", "urgent"];
-export const ASSIGNMENT_STATUSES = [
-  "queued",
-  "running",
-  "awaiting_approval",
-  "completed",
-  "failed",
-  "cancelled",
-];
-export const HANDOFF_STATUSES = ["pending", "accepted", "superseded", "dismissed"];
-
 export function defaultDriverForRole(role: ProjectWorkRoleRecord | null): string {
   return role?.default_driver_kind || "hecate_task";
+}
+
+export function workItemStatusFromValue(value: string | undefined | null): WorkItemStatus {
+  return choiceFromValue(WORK_ITEM_STATUSES, value, "ready");
+}
+
+export function workItemPriorityFromValue(value: string | undefined | null): WorkItemPriority {
+  return choiceFromValue(WORK_ITEM_PRIORITIES, value, "normal");
+}
+
+export function assignmentStatusFromValue(value: string | undefined | null): AssignmentStatus {
+  return choiceFromValue(ASSIGNMENT_STATUSES, value, "queued");
+}
+
+export function handoffStatusFromValue(value: string | undefined | null): HandoffStatus {
+  return choiceFromValue(HANDOFF_STATUSES, value, "pending");
 }
 
 export function projectAssignmentExecutionKindFromForm(form: EditAssignmentForm) {
@@ -115,7 +139,7 @@ export function workItemCreatePayloadFromForm(form: NewWorkItemForm) {
     title: form.title.trim(),
     brief: form.brief.trim() || undefined,
     status: "ready",
-    priority: form.priority || "normal",
+    priority: form.priority,
     owner_role_id: form.ownerRoleID || undefined,
     ...(rootID ? { root_id: rootID } : {}),
   };
@@ -128,7 +152,7 @@ export function workItemUpdatePayloadFromForm(
     title: form.title.trim(),
     brief: form.brief.trim(),
     status: form.status,
-    priority: form.priority || "normal",
+    priority: form.priority,
     owner_role_id: form.ownerRoleID,
     root_id: form.rootID.trim(),
     reviewer_role_ids: splitRoleIDs(form.reviewerRoleIDs),
@@ -151,7 +175,7 @@ export function assignmentUpdatePayloadFromForm(
     role_id: form.roleID.trim(),
     root_id: form.rootID.trim(),
     driver_kind: form.driverKind || "hecate_task",
-    status: form.status || "queued",
+    status: form.status,
     execution_ref: projectAssignmentExecutionRefFromForm(form),
   };
 }
@@ -170,7 +194,7 @@ export function handoffPayloadFromForm(form: HandoffForm): CreateProjectHandoffP
     linked_artifact_ids: splitIDs(form.linkedArtifactIDs),
     linked_memory_ids: splitIDs(form.linkedMemoryIDs),
     context_refs: splitIDs(form.contextRefs),
-    status: form.status || "pending",
+    status: form.status,
     provenance_kind: form.provenanceKind.trim() || "operator",
     trust_label: form.trustLabel.trim() || "operator_reviewed",
   };
@@ -191,7 +215,7 @@ export function handoffFormFromRecord(handoff: ProjectHandoffRecord | null): Han
     linkedArtifactIDs: (handoff?.linked_artifact_ids ?? []).join(", "),
     linkedMemoryIDs: (handoff?.linked_memory_ids ?? []).join(", "),
     contextRefs: (handoff?.context_refs ?? []).join(", "),
-    status: handoff?.status ?? "pending",
+    status: handoffStatusFromValue(handoff?.status),
     provenanceKind: handoff?.provenance_kind ?? "operator",
     trustLabel: handoff?.trust_label ?? "operator_reviewed",
   };
@@ -239,13 +263,13 @@ export function handoffFormFromAssignment(
   };
 }
 
-export function splitRoleIDs(value: string): string[] {
-  return splitIDs(value);
-}
-
-export function splitIDs(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+function choiceFromValue<T extends readonly string[]>(
+  values: T,
+  value: string | undefined | null,
+  fallback: T[number],
+): T[number] {
+  const candidate = value?.trim();
+  return candidate && (values as readonly string[]).includes(candidate)
+    ? (candidate as T[number])
+    : fallback;
 }

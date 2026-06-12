@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import type { ProjectActivityItemRecord, ProjectAssignmentRecord } from "../../types/project";
 import {
+  assignmentStatusFromValue,
   assignmentUpdatePayloadFromForm,
   handoffFormFromAssignment,
   handoffPayloadFromForm,
+  handoffStatusFromValue,
   workItemCreatePayloadFromForm,
+  workItemPriorityFromValue,
+  workItemStatusFromValue,
 } from "./projectWorkForms";
 
 describe("projectWorkForms", () => {
@@ -14,7 +18,7 @@ describe("projectWorkForms", () => {
       workItemCreatePayloadFromForm({
         title: "  Build cockpit  ",
         brief: "  Ship the UI slice  ",
-        priority: "",
+        priority: "normal",
         ownerRoleID: "",
         rootID: " root_main ",
       }),
@@ -35,7 +39,7 @@ describe("projectWorkForms", () => {
         roleID: " developer ",
         driverKind: "",
         rootID: " root_main ",
-        status: "",
+        status: "queued",
         taskID: " task_1 ",
         runID: " run_1 ",
         chatSessionID: "",
@@ -72,7 +76,7 @@ describe("projectWorkForms", () => {
         linkedArtifactIDs: " art_1, art_2 ",
         linkedMemoryIDs: " mem_1 ",
         contextRefs: " ctx_1, task_1 ",
-        status: "",
+        status: "pending",
         provenanceKind: "",
         trustLabel: "",
       }),
@@ -93,6 +97,17 @@ describe("projectWorkForms", () => {
       provenance_kind: "operator",
       trust_label: "operator_reviewed",
     });
+  });
+
+  it("normalizes backend status and priority strings into form-safe options", () => {
+    expect(workItemStatusFromValue(" review ")).toBe("review");
+    expect(workItemStatusFromValue("unknown")).toBe("ready");
+    expect(workItemPriorityFromValue("urgent")).toBe("urgent");
+    expect(workItemPriorityFromValue("unknown")).toBe("normal");
+    expect(assignmentStatusFromValue("awaiting_approval")).toBe("awaiting_approval");
+    expect(assignmentStatusFromValue("paused")).toBe("queued");
+    expect(handoffStatusFromValue("accepted")).toBe("accepted");
+    expect(handoffStatusFromValue("unknown")).toBe("pending");
   });
 
   it("drafts handoff forms from assignment execution evidence", () => {

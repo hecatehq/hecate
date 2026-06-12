@@ -6,8 +6,14 @@ import type {
   ProjectWorkRoleRecord,
 } from "../../types/project";
 import { InlineError, Modal } from "../shared/ui";
-import { HANDOFF_STATUSES, handoffFormFromRecord, type HandoffForm } from "./projectWorkForms";
+import {
+  HANDOFF_STATUSES,
+  handoffFormFromRecord,
+  handoffStatusFromValue,
+  type HandoffForm,
+} from "./projectWorkForms";
 import { projectWorkFieldLabelStyle, projectWorkFieldStyle } from "./projectWorkModalStyles";
+import { shortID } from "./projectUtils";
 
 type ProjectHandoffModalProps = {
   assignments: ProjectAssignmentRecord[];
@@ -155,7 +161,10 @@ export function ProjectHandoffModal({
               className="input"
               value={form.status}
               onChange={(event) =>
-                setForm((current) => ({ ...current, status: event.target.value }))
+                setForm((current) => ({
+                  ...current,
+                  status: handoffStatusFromValue(event.target.value),
+                }))
               }
             >
               {HANDOFF_STATUSES.map((status) => (
@@ -239,9 +248,4 @@ export function ProjectHandoffModal({
       </form>
     </Modal>
   );
-}
-
-function shortID(id: string): string {
-  if (id.length <= 12) return id;
-  return id.slice(0, 10) + "...";
 }

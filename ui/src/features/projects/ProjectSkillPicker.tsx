@@ -3,7 +3,6 @@ import {
   projectSkillBadgeClass,
   projectSkillSelectionWarnings,
   sortProjectSkillsForPicker,
-  splitIDs,
   uniqueSkillIDs,
 } from "./projectProfilesRoles";
 import {
@@ -12,6 +11,7 @@ import {
   profileRoleSubtleTextStyle,
   profileRoleTitleStyle,
 } from "./projectProfileRoleStyles";
+import { splitIDs } from "./projectUtils";
 
 type ProjectSkillPickerProps = {
   disabled?: boolean;

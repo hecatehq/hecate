@@ -10,6 +10,7 @@ import { InlineError, Modal } from "../shared/ui";
 import { ProjectRootSelect } from "./ProjectRootSelect";
 import {
   ASSIGNMENT_STATUSES,
+  assignmentStatusFromValue,
   defaultDriverForRole,
   type EditAssignmentForm,
   type NewAssignmentForm,
@@ -149,7 +150,7 @@ export function EditAssignmentModal({
     roleID: assignment.role_id,
     driverKind: assignment.driver_kind || "hecate_task",
     rootID: assignment.root_id ?? "",
-    status: assignment.status || "queued",
+    status: assignmentStatusFromValue(assignment.status),
     taskID: assignment.execution_ref?.task_id ?? "",
     runID: assignment.execution_ref?.run_id ?? "",
     chatSessionID: assignment.execution_ref?.chat_session_id ?? "",
@@ -206,7 +207,10 @@ export function EditAssignmentModal({
               className="input"
               value={form.status}
               onChange={(event) =>
-                setForm((current) => ({ ...current, status: event.target.value }))
+                setForm((current) => ({
+                  ...current,
+                  status: assignmentStatusFromValue(event.target.value),
+                }))
               }
             >
               {ASSIGNMENT_STATUSES.map((status) => (

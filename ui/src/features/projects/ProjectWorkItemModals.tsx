@@ -12,6 +12,8 @@ import {
   WORK_ITEM_STATUSES,
   type EditWorkItemForm,
   type NewWorkItemForm,
+  workItemPriorityFromValue,
+  workItemStatusFromValue,
 } from "./projectWorkForms";
 import { projectWorkFieldLabelStyle, projectWorkFieldStyle } from "./projectWorkModalStyles";
 
@@ -93,7 +95,10 @@ export function NewWorkItemModal({
               className="input"
               value={form.priority}
               onChange={(event) =>
-                setForm((current) => ({ ...current, priority: event.target.value }))
+                setForm((current) => ({
+                  ...current,
+                  priority: workItemPriorityFromValue(event.target.value),
+                }))
               }
             >
               <option value="low">low</option>
@@ -154,8 +159,8 @@ export function EditWorkItemModal({
     id: item.id,
     title: item.title,
     brief: item.brief ?? "",
-    status: item.status,
-    priority: item.priority || "normal",
+    status: workItemStatusFromValue(item.status),
+    priority: workItemPriorityFromValue(item.priority),
     ownerRoleID: item.owner_role_id ?? "",
     rootID: item.root_id ?? "",
     reviewerRoleIDs: (item.reviewer_role_ids ?? []).join(", "),
@@ -212,7 +217,10 @@ export function EditWorkItemModal({
               className="input"
               value={form.status}
               onChange={(event) =>
-                setForm((current) => ({ ...current, status: event.target.value }))
+                setForm((current) => ({
+                  ...current,
+                  status: workItemStatusFromValue(event.target.value),
+                }))
               }
             >
               {WORK_ITEM_STATUSES.map((status) => (
@@ -228,7 +236,10 @@ export function EditWorkItemModal({
               className="input"
               value={form.priority}
               onChange={(event) =>
-                setForm((current) => ({ ...current, priority: event.target.value }))
+                setForm((current) => ({
+                  ...current,
+                  priority: workItemPriorityFromValue(event.target.value),
+                }))
               }
             >
               {WORK_ITEM_PRIORITIES.map((priority) => (
