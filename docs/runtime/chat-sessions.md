@@ -86,16 +86,17 @@ visible transcript message count for that turn, the legacy high-level
 `sources`, and itemized `items` with `kind`, `trust_level`, `origin`, `title`,
 optional `body` / `body_ref`, `included`, and `inclusion_reason`. Current items
 cover visible metadata only: system prompt presence, transcript count, enabled
-project context-source metadata, workspace path metadata, Hecate task-runtime
-state, and external-agent session metadata. It deliberately does not persist
-full system prompts, raw transcript text, file contents, or agent-private prompt
-packing. External Agent packets explicitly note that Hecate can show adapter
-metadata and transcript rows it receives but cannot inspect the agent's private
-prompt or packed model context. The message count is an operator-facing
-transcript count, not a provider token count or a guarantee that every counted
-message was packed into the provider or agent prompt. Context packets are
-snapshots on assistant messages; changing project context sources later does
-not rewrite old message packets.
+project context-source metadata, enabled project skill metadata, current
+project work metadata, accepted project memory, workspace path metadata, Hecate
+task-runtime state, and external-agent session metadata. It deliberately does
+not persist full system prompts, raw transcript text, file contents, `SKILL.md`
+bodies, or agent-private prompt packing. External Agent packets explicitly note
+that Hecate can show adapter metadata and transcript rows it receives but cannot
+inspect the agent's private prompt or packed model context. The message count is
+an operator-facing transcript count, not a provider token count or a guarantee
+that every counted message was packed into the provider or agent prompt. Context
+packets are snapshots on assistant messages; changing project context sources,
+skills, or work records later does not rewrite old message packets.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct

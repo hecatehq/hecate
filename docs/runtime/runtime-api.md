@@ -2766,10 +2766,11 @@ the user message and assistant output.
 - `system_prompt` — applied to tools-off turns and new task-backed Hecate Chat
   segments. When the chat is linked to a project, Hecate prepends hidden
   project workflow guidance and bounded project context before the operator
-  prompt. That guidance uses the same project/role/memory vocabulary as
-  project assignment launch context and keeps Chat conversational while telling
-  the model to treat project-planning intent as proposal-only Project
-  Assistant work; it does not grant direct project mutation rights. If the
+  prompt. That guidance uses the same project/role/skill/current-work/memory
+  vocabulary as project assignment launch context and keeps Chat conversational
+  while telling the model to treat project-planning intent as proposal-only
+  Project Assistant work; it does not grant direct project mutation rights.
+  Skill entries are metadata only and do not inject `SKILL.md` bodies. If the
   selected model routes to a cloud provider, the bounded project prompt context
   is sent through the normal model gateway route like any other chat prompt.
 - `workspace` — required when starting a task-backed Hecate Chat turn
@@ -3035,11 +3036,11 @@ snapshot does not expose the full system prompt text.
 Section values currently used by the runtime are:
 
 - `instructions` for system-prompt, prompt-context, and instruction-layer metadata
-- `skills` for resolved and skipped project skill metadata; `SKILL.md` bodies are not included
+- `skills` for resolved, skipped, or chat-visible project skill metadata; `SKILL.md` bodies are not included
 - `memory` for project memory entries
 - `workspace` for the selected workspace path
 - `project` for project identity metadata
-- `project_work` for work-item, assignment, role, execution-hint, handoff, and artifact-reference metadata
+- `project_work` for chat-visible current work metadata and assignment launch work-item, assignment, role, execution-hint, handoff, and artifact-reference metadata
 - `sources` for enabled project context-source metadata such as `workspace_doc` and `project_notes`
 - `runtime` for transcript counts, task-runtime metadata, and external-agent session metadata
 

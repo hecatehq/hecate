@@ -221,6 +221,8 @@ func (h *Handler) directModelContextPacket(ctx context.Context, session chat.Ses
 	packet.MessageCount = chatTranscriptMessageCount(session.Messages) + 1
 	populateProjectRefs(&packet, session.ProjectID)
 	appendProjectSummary(&packet, h.projectSummary(ctx, session.ProjectID), true, "Project linked to this chat session")
+	appendProjectChatSkills(&packet, h.projectChatEnabledSkills(ctx, session.ProjectID), true, "Enabled project skill metadata for this direct model turn; skill bodies are not injected")
+	appendProjectChatWork(&packet, h.projectChatWorkSnapshot(ctx, session.ProjectID), true, "Current project work metadata for this direct model turn")
 	if packet.SystemPromptIncluded {
 		appendContextPacketSourceWithSection(&packet, contextSectionInstructions, chat.ContextSource{
 			Kind:   "system_prompt",
@@ -266,6 +268,8 @@ func (h *Handler) hecateTaskContextPacket(ctx context.Context, session chat.Sess
 	packet.ExecutionProfile = "chat_agent"
 	populateProjectRefs(&packet, session.ProjectID)
 	appendProjectSummary(&packet, h.projectSummary(ctx, session.ProjectID), true, "Project linked to this chat session")
+	appendProjectChatSkills(&packet, h.projectChatEnabledSkills(ctx, session.ProjectID), true, "Enabled project skill metadata for this task-backed turn; skill bodies are not injected")
+	appendProjectChatWork(&packet, h.projectChatWorkSnapshot(ctx, session.ProjectID), true, "Current project work metadata for this task-backed turn")
 	if packet.SystemPromptIncluded {
 		appendContextPacketSourceWithSection(&packet, contextSectionInstructions, chat.ContextSource{
 			Kind:   "system_prompt",
@@ -613,6 +617,48 @@ func (h *Handler) assignmentRelevantHandoffs(ctx context.Context, assignment pro
 
 func appendProjectMemory(packet *chat.ContextPacket, entries []memory.Entry) {
 	appendProjectMemoryWithInclusion(packet, entries, true, "Enabled project memory entry")
+}
+
+func appendProjectChatSkills(packet *chat.ContextPacket, skills []projectskills.Skill, included bool, reason string) {
+	body := projectChatSkillHintText(skills, projectChatPromptSkillMaxItems)
+	if body == "" {
+		return
+	}
+	appendContextPacketSourceWithSection(packet, contextSectionSkills, chat.ContextSource{
+		Kind:   "project_skills",
+		Label:  "Project skills",
+		Detail: fmt.Sprintf("%d enabled", len(skills)),
+		Trust:  projectskills.TrustWorkspaceSkill,
+	}, chat.ContextItem{
+		Kind:            "project_skills",
+		TrustLevel:      projectskills.TrustWorkspaceSkill,
+		Origin:          "project_skills",
+		Title:           "Project skills",
+		Body:            body,
+		Included:        included,
+		InclusionReason: reason,
+	})
+}
+
+func appendProjectChatWork(packet *chat.ContextPacket, snapshot projectChatWorkSnapshot, included bool, reason string) {
+	body := projectChatWorkHintText(snapshot, projectChatPromptWorkMaxItems, projectChatPromptAssignmentMaxItems)
+	if body == "" {
+		return
+	}
+	appendContextPacketSourceWithSection(packet, contextSectionProjectWork, chat.ContextSource{
+		Kind:   "project_work",
+		Label:  "Project work",
+		Detail: fmt.Sprintf("%d work items, %d assignments", len(snapshot.WorkItems), len(snapshot.Assignments)),
+		Trust:  contextTrustProject,
+	}, chat.ContextItem{
+		Kind:            "project_work",
+		TrustLevel:      contextTrustProject,
+		Origin:          "project_work",
+		Title:           "Project work",
+		Body:            body,
+		Included:        included,
+		InclusionReason: reason,
+	})
 }
 
 func appendProjectMemoryForProfilePolicy(packet *chat.ContextPacket, entries []memory.Entry, profile projectworkapp.ResolvedAgentProfile) {
