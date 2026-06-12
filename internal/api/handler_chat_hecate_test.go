@@ -15,8 +15,10 @@ import (
 	"github.com/hecatehq/hecate/internal/chat"
 	"github.com/hecatehq/hecate/internal/config"
 	"github.com/hecatehq/hecate/internal/controlplane"
+	"github.com/hecatehq/hecate/internal/memory"
 	"github.com/hecatehq/hecate/internal/modelcaps"
 	"github.com/hecatehq/hecate/internal/projects"
+	"github.com/hecatehq/hecate/internal/projectwork"
 	"github.com/hecatehq/hecate/internal/providers"
 	"github.com/hecatehq/hecate/internal/taskstate"
 	"github.com/hecatehq/hecate/internal/telemetry"
@@ -148,6 +150,137 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if secondAssistant.RequestID != secondRun.RequestID || secondAssistant.TraceID != secondRun.TraceID || secondAssistant.SpanID != secondRun.RootSpanID {
 		t.Fatalf("second assistant trace linkage = request %q trace %q span %q, want backing run request %q trace %q span %q",
 			secondAssistant.RequestID, secondAssistant.TraceID, secondAssistant.SpanID, secondRun.RequestID, secondRun.TraceID, secondRun.RootSpanID)
+	}
+}
+
+func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-hecate-project-agent",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "I will keep project changes reviewable."},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	project, err := apiHandler.projects.Create(context.Background(), projects.Project{
+		ID:          "proj_hecate",
+		Name:        "Hecate",
+		Description: "Local AI operations console.",
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	if _, err := apiHandler.projectWork.CreateRole(context.Background(), projectwork.AgentRoleProfile{
+		ID:          "role_planner",
+		ProjectID:   project.ID,
+		Name:        "A Project Planner",
+		Description: "Shapes reviewable project work.",
+	}); err != nil {
+		t.Fatalf("Create role: %v", err)
+	}
+	if _, err := apiHandler.memory.Create(context.Background(), memory.Entry{
+		ID:         "mem_boundary",
+		Scope:      memory.ScopeProject,
+		ProjectID:  project.ID,
+		Title:      "Project Assistant boundary",
+		Body:       "Project changes should be drafted as typed proposals and applied only after operator review.",
+		TrustLabel: memory.TrustLabelOperatorMemory,
+		SourceKind: memory.SourceKindOperator,
+		Enabled:    true,
+	}); err != nil {
+		t.Fatalf("Create memory: %v", err)
+	}
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","title":"Project chat","project_id":%q,"workspace":%q,"provider":"openai","model":"gpt-4o-mini"}`, project.ID, workspace))
+	started := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","content":"split this into backend and UI work","system_prompt":"Prefer concise answers."}`)
+	if started.Data.TaskID == "" {
+		t.Fatalf("started chat missing task id: %+v", started.Data)
+	}
+	backingTask, found, err := apiHandler.taskStore.GetTask(context.Background(), started.Data.TaskID)
+	if err != nil {
+		t.Fatalf("GetTask() error = %v", err)
+	}
+	if !found {
+		t.Fatalf("backing task %q not found", started.Data.TaskID)
+	}
+	for _, want := range []string{
+		"Hecate project chat guidance:",
+		`This chat is linked to project "Hecate" (proj_hecate).`,
+		"Project Assistant is a proposal author only.",
+		"Do not create or start chats, tasks, runs, external-agent sessions, promoted memory, or durable project records through generic tools or direct API calls.",
+		"Assignments proposed from chat must stay queued and unstarted.",
+		"Available project responsibilities:",
+		"A Project Planner (role_planner): Shapes reviewable project work.",
+		"Accepted project memory excerpts:",
+		"Project changes should be drafted as typed proposals and applied only after operator review.",
+		"Operator system prompt:\nPrefer concise answers.",
+	} {
+		if !strings.Contains(backingTask.SystemPrompt, want) {
+			t.Fatalf("task system_prompt missing %q:\n%s", want, backingTask.SystemPrompt)
+		}
+	}
+}
+
+func TestDirectHecateChatProjectSessionInjectsProposalGuidance(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-hecate-project-direct",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "Project changes should stay reviewable."},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, handler)
+
+	project, err := apiHandler.projects.Create(context.Background(), projects.Project{
+		ID:   "proj_direct",
+		Name: "Direct Project",
+	})
+	if err != nil {
+		t.Fatalf("Create project: %v", err)
+	}
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"hecate","project_id":%q,"provider":"openai","model":"gpt-4o-mini"}`, project.ID))
+	_ = mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"hecate_task","tools_enabled":false,"content":"what should we plan?","system_prompt":"Answer plainly."}`)
+
+	request := provider.LastRequest()
+	if len(request.Messages) < 2 {
+		t.Fatalf("provider messages = %+v, want system and user messages", request.Messages)
+	}
+	if request.Messages[0].Role != "system" {
+		t.Fatalf("first provider message role = %q, want system", request.Messages[0].Role)
+	}
+	for _, want := range []string{
+		"Hecate project chat guidance:",
+		`This chat is linked to project "Direct Project" (proj_direct).`,
+		"Project Assistant is a proposal author only.",
+		"Operator system prompt:\nAnswer plainly.",
+	} {
+		if !strings.Contains(request.Messages[0].Content, want) {
+			t.Fatalf("direct model system prompt missing %q:\n%s", want, request.Messages[0].Content)
+		}
 	}
 }
 

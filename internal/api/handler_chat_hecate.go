@@ -136,7 +136,8 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	}
 	h.agentChatLive.publishSession(updated)
 
-	contextPacket := h.hecateTaskContextPacket(r.Context(), session, messageSnapshot.Provider, messageSnapshot.Model, strings.TrimSpace(req.SystemPrompt), forceNewTask)
+	taskSystemPrompt := h.hecateChatTaskSystemPrompt(r.Context(), session, req.SystemPrompt, forceNewTask)
+	contextPacket := h.hecateTaskContextPacket(r.Context(), session, messageSnapshot.Provider, messageSnapshot.Model, taskSystemPrompt, forceNewTask)
 	contextPacket.ID = newChatID("ctx")
 	contextPacket = chatcontext.Normalize(contextPacket, chatcontext.MergeRefs(
 		chatcontext.ChatMessageRefs(session.ID, assistantID, session.ProjectID),
@@ -175,7 +176,7 @@ func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.R
 	task, run, err := h.hecateAgentTaskOrchestrator().StartOrContinue(runCtx, hecateAgentTaskRunCommand{
 		Session:       session,
 		Prompt:        content,
-		SystemPrompt:  strings.TrimSpace(req.SystemPrompt),
+		SystemPrompt:  taskSystemPrompt,
 		ForceNewTask:  forceNewTask,
 		ContextPacket: contextPacket,
 	})
