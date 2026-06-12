@@ -457,9 +457,12 @@ The first visible UI should stay small and inspectable:
 - place the composer at the top of the project workspace because the assistant
   is project-scoped, above workspace tabs and tab panels even when it uses the
   selected work item as context;
+- keep the request and primary draft action in the first row; route controls,
+  bootstrap, and context inspection stay secondary so the assistant reads as a
+  project command band rather than a work-detail editor;
 - keep route controls contextual, with an automatic choice for the common path;
-- show proposal cards with exact actions before apply, either inline or behind
-  an inspect affordance;
+- show context details only after explicit inspection, and proposal cards with
+  exact actions only after drafting;
 - show `Apply` and `Dismiss`;
 - require explicit confirmation for durable/destructive proposals;
 - show stale-state failures as "State changed, refresh proposal";
@@ -471,8 +474,9 @@ V0 uses a composer-style request box that drafts typed proposals from the
 selected project/work item. The `Rules` draft option uses deterministic server
 logic; `Bootstrap` proposes project setup records from guidance and skill
 registry metadata; the `Assistant` draft option asks the project default model
-to author the same typed proposal shape. Later Hecate Chat can call the same proposal API,
-but durable mutations should still stop at the same explicit review/apply card.
+to author the same typed proposal shape. Later Hecate Chat can call the same
+proposal API, but durable mutations should still stop at the same explicit
+review/apply card.
 Applying a proposal always calls `/project-assistant/apply` with `confirm: true`
 after the operator reviews the action rows. A successful apply refreshes the
 project list, project work, selected work-item detail, and project memory.
