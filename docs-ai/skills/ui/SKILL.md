@@ -411,13 +411,15 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
   Memory / Skills are workspace tabs. Needs Attention rows should route to the
   matching operator surface: settings for setup gaps, Memory for context and
   candidates, Skills for project skill registry issues, Profiles/Roles for
-  broken references, and Work Coordination for assignment/activity issues. Work
-  with Project Assistant Bootstrap through one reviewable proposal path: UI
-  helpers may refresh guidance/skills first, but they should still call the
-  normal draft/apply flow rather than mutating setup directly. Work Coordination
-  uses one Work Queue with All / activity filters plus one selected work-item
-  card; don't split the same work state across a separate Activity Inbox, Work
-  Items list, and detail card.
+  broken references, and Work Coordination for assignment/activity issues.
+  Assignment launch preflight must keep Connections as the provider/model
+  readiness repair surface while linking project-local defaults back to Project
+  Settings, Roles, and Agent Profiles. Work with Project Assistant Bootstrap
+  through one reviewable proposal path: UI helpers may refresh guidance/skills
+  first, but they should still call the normal draft/apply flow rather than
+  mutating setup directly. Work Coordination uses one Work Queue with All /
+  activity filters plus one selected work-item card; don't split the same work
+  state across a separate Activity Inbox, Work Items list, and detail card.
   Keep the Projects index as a fixed left panel; don't add or restore a
   collapsed mini-rail until the navigation pattern is redesigned.
 - **`render1()` + `render2()` in the same `it` block** — don't. React Testing Library cleanup runs between tests, not within. Split into two `it`s if you need fresh mounts.

@@ -2313,9 +2313,12 @@ copy. It is operator evidence, not injected prompt content.
 The Projects cockpit uses this endpoint before `Start assignment`, `Prepare
 chat`, and `Start from handoff` so the operator can review the effective launch
 context before dispatch. The UI disables native assignment confirmation when
-preflight reports blocked provider/model readiness, but `POST /start` remains
-the authoritative mutation path and the task runner/gateway still performs the
-actual route checks during execution.
+preflight reports blocked provider/model readiness and offers repair actions for
+Project Settings, Roles, Agent Profiles, and Connections. Project-local actions
+repair defaults that feed assignment resolution; Connections remains the
+provider/model readiness surface. `POST /start` remains the authoritative
+mutation path and the task runner/gateway still performs the actual route
+checks during execution.
 
 Unqueued, terminal, already-linked, unsupported, misconfigured, or invalid
 assignments return the same operator-facing error classes as start would use,
