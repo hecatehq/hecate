@@ -1865,7 +1865,7 @@ func TestProjectWorkAPI_StartAssignmentFallsBackToProjectDefaults(t *testing.T) 
 
 func TestProjectWorkAPI_AssignmentPromptIndentsMultilineLaunchContextValues(t *testing.T) {
 	t.Parallel()
-	prompt := projectAssignmentPrompt(
+	prompt := projectworkapp.AssignmentPrompt(
 		projects.Project{
 			ID:              "proj_multiline",
 			Name:            "Hecate",
