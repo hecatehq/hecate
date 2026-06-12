@@ -1126,6 +1126,7 @@ describe("ProjectsView index", () => {
     const assistant = within(workspace).getByRole("region", { name: "Project Assistant" });
     const tabs = within(workspace).getByRole("tablist", { name: "Project workspace views" });
     expect(assistant.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(assistant).getByLabelText("Request")).toHaveAttribute("rows", "1");
     expect(screen.getByRole("region", { name: "Work queue" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Project attention/ })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Needs attention" })).toBeNull();
@@ -1139,6 +1140,7 @@ describe("ProjectsView index", () => {
     expect(within(tabs).getByRole("tab", { name: /Skills/ })).toBeTruthy();
     const workPanel = within(workspace).getByRole("region", { name: "Work coordination" });
     expect(workPanel).toBeTruthy();
+    expect(within(workPanel).queryByRole("region", { name: "Project Assistant" })).toBeNull();
     expect(workPanel.querySelector(".project-work-coordination-grid")).toBeTruthy();
     expect(within(workspace).getByRole("heading", { name: "Build cockpit UI" })).toBeTruthy();
     expect(within(workspace).queryByLabelText("Project timeline")).toBeNull();

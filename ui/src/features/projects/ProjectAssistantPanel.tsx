@@ -102,18 +102,31 @@ export function ProjectAssistantPanel({
         }}
         style={assistantComposerStyle}
       >
-        <label style={requestFieldStyle}>
-          <span style={fieldLabelStyle}>Request</span>
-          <textarea
-            className="input"
-            rows={workItem ? 2 : 3}
-            value={form.request}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, request: event.target.value }))
-            }
-            style={assistantRequestInputStyle}
-          />
-        </label>
+        <div style={assistantPrimaryRowStyle}>
+          <label style={requestFieldStyle}>
+            <span style={fieldLabelStyle}>Request</span>
+            <textarea
+              className="input"
+              rows={workItem ? 1 : 2}
+              value={form.request}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, request: event.target.value }))
+              }
+              style={assistantRequestInputStyle}
+            />
+          </label>
+          <div style={assistantPrimaryActionsStyle}>
+            <button
+              className="btn btn-primary btn-sm"
+              type="submit"
+              disabled={!valid || busy}
+              style={assistantSubmitStyle}
+            >
+              <Icon d={Icons.send} size={13} />
+              {status === "proposing" ? "Drafting..." : "Draft proposal"}
+            </button>
+          </div>
+        </div>
         <div style={assistantRouteBarStyle}>
           <div style={assistantRouteFieldsStyle}>
             <label style={routeFieldStyle}>
@@ -177,33 +190,26 @@ export function ProjectAssistantPanel({
               </select>
             </label>
           </div>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            disabled={!valid || busy || contextBusy}
-            onClick={() => onInspectContext(form)}
-          >
-            <Icon d={Icons.eye} size={13} />
-            {contextBusy ? "Inspecting..." : "Inspect context"}
-          </button>
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            disabled={bootstrapBusy || contextBusy}
-            onClick={onBootstrap}
-          >
-            <Icon d={Icons.refresh} size={13} />
-            {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
-          </button>
-          <button
-            className="btn btn-primary btn-sm"
-            type="submit"
-            disabled={!valid || busy}
-            style={assistantSubmitStyle}
-          >
-            <Icon d={Icons.send} size={13} />
-            {status === "proposing" ? "Drafting..." : "Draft proposal"}
-          </button>
+          <div style={assistantSecondaryActionsStyle}>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={!valid || busy || contextBusy}
+              onClick={() => onInspectContext(form)}
+            >
+              <Icon d={Icons.eye} size={13} />
+              {contextBusy ? "Inspecting..." : "Inspect context"}
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              disabled={bootstrapBusy || contextBusy}
+              onClick={onBootstrap}
+            >
+              <Icon d={Icons.refresh} size={13} />
+              {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
+            </button>
+          </div>
         </div>
       </form>
       {contextError && (
@@ -493,48 +499,63 @@ function formatAssistantValue(value: unknown): string {
 }
 
 const assistantPanelStyle: CSSProperties = {
-  background: "var(--bg1)",
+  background: "var(--bg0)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius-sm)",
   boxSizing: "border-box",
   display: "grid",
-  gap: 10,
+  gap: 8,
   maxWidth: "100%",
   minWidth: 0,
-  padding: 12,
+  padding: "10px 12px",
 };
 
 const assistantComposerStyle: CSSProperties = {
   display: "grid",
-  gap: 10,
+  gap: 8,
+  minWidth: 0,
+};
+
+const assistantPrimaryRowStyle: CSSProperties = {
+  alignItems: "end",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
   minWidth: 0,
 };
 
 const requestFieldStyle: CSSProperties = {
   display: "grid",
+  flex: "1 1 360px",
   gap: 6,
+  minWidth: 220,
 };
 
 const assistantRequestInputStyle: CSSProperties = {
   lineHeight: 1.45,
-  minHeight: 78,
+  minHeight: 40,
   resize: "vertical",
+};
+
+const assistantPrimaryActionsStyle: CSSProperties = {
+  display: "flex",
+  flex: "0 0 auto",
+  justifyContent: "flex-end",
+  minWidth: 0,
 };
 
 const assistantRouteBarStyle: CSSProperties = {
   alignItems: "end",
-  borderTop: "1px solid var(--border)",
   display: "flex",
   flexWrap: "wrap",
   gap: 8,
   justifyContent: "space-between",
   minWidth: 0,
-  paddingTop: 10,
 };
 
 const assistantRouteFieldsStyle: CSSProperties = {
   display: "flex",
-  flex: "1 1 320px",
+  flex: "1 1 420px",
   flexWrap: "wrap",
   gap: 8,
   minWidth: 0,
@@ -542,16 +563,25 @@ const assistantRouteFieldsStyle: CSSProperties = {
 
 const routeFieldStyle: CSSProperties = {
   display: "grid",
-  flex: "1 1 150px",
+  flex: "0 1 190px",
   gap: 5,
-  maxWidth: 260,
-  minWidth: 140,
+  maxWidth: 220,
+  minWidth: 128,
+};
+
+const assistantSecondaryActionsStyle: CSSProperties = {
+  display: "flex",
+  flex: "0 1 auto",
+  flexWrap: "wrap",
+  gap: 8,
+  justifyContent: "flex-end",
+  minWidth: 0,
 };
 
 const assistantSubmitStyle: CSSProperties = {
   flex: "0 0 auto",
   justifyContent: "center",
-  minWidth: 150,
+  minWidth: 140,
 };
 
 const assistantProposalStyle: CSSProperties = {
