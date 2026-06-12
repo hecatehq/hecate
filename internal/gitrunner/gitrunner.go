@@ -20,9 +20,18 @@ type Runner interface {
 	Run(ctx context.Context, workspace string, args ...string) (Result, error)
 	CurrentRef(ctx context.Context, workspace string) string
 	IsWorkTree(ctx context.Context, workspace string) bool
+	Worktrees(ctx context.Context, workspace string) ([]Worktree, error)
 	Diff(ctx context.Context, workspace string, maxBytes int64) (string, string)
 	Restore(ctx context.Context, workspace string, paths []string) (Result, error)
 	Clone(ctx context.Context, sourcePath, workspacePath string) (Result, error)
+}
+
+type Worktree struct {
+	Path     string
+	Head     string
+	Branch   string
+	Detached bool
+	Bare     bool
 }
 
 type LocalRunner struct {
@@ -70,6 +79,66 @@ func (r *LocalRunner) CurrentRef(ctx context.Context, workspace string) string {
 func (r *LocalRunner) IsWorkTree(ctx context.Context, workspace string) bool {
 	result, err := r.Run(ctx, workspace, "rev-parse", "--is-inside-work-tree")
 	return err == nil && strings.TrimSpace(result.Stdout) == "true"
+}
+
+func (r *LocalRunner) Worktrees(ctx context.Context, workspace string) ([]Worktree, error) {
+	result, err := r.Run(ctx, workspace, "worktree", "list", "--porcelain", "-z")
+	if err != nil {
+		return nil, err
+	}
+	return parseWorktreeListPorcelain(result.Stdout), nil
+}
+
+func parseWorktreeListPorcelain(stdout string) []Worktree {
+	var out []Worktree
+	var current Worktree
+	flush := func() {
+		if strings.TrimSpace(current.Path) == "" {
+			current = Worktree{}
+			return
+		}
+		current.Path = strings.TrimSpace(current.Path)
+		current.Head = strings.TrimSpace(current.Head)
+		current.Branch = strings.TrimSpace(current.Branch)
+		out = append(out, current)
+		current = Worktree{}
+	}
+	for _, rawLine := range splitWorktreeListPorcelain(stdout) {
+		line := strings.TrimRight(rawLine, "\r\n")
+		if line == "" {
+			flush()
+			continue
+		}
+		key, value, ok := strings.Cut(line, " ")
+		if !ok {
+			key = line
+			value = ""
+		}
+		switch key {
+		case "worktree":
+			flush()
+			current.Path = strings.TrimSpace(value)
+		case "HEAD":
+			current.Head = strings.TrimSpace(value)
+		case "branch":
+			branch := strings.TrimSpace(value)
+			branch = strings.TrimPrefix(branch, "refs/heads/")
+			current.Branch = branch
+		case "detached":
+			current.Detached = true
+		case "bare":
+			current.Bare = true
+		}
+	}
+	flush()
+	return out
+}
+
+func splitWorktreeListPorcelain(stdout string) []string {
+	if strings.Contains(stdout, "\x00") {
+		return strings.Split(stdout, "\x00")
+	}
+	return strings.Split(strings.ReplaceAll(stdout, "\r\n", "\n"), "\n")
 }
 
 func (r *LocalRunner) Diff(ctx context.Context, workspace string, maxBytes int64) (string, string) {

@@ -22,6 +22,7 @@ import {
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   discoverProjectContextSources,
+  discoverProjectRoots,
   discoverProjectSkills,
   getProjectActivity,
   getAgentProfiles,
@@ -266,6 +267,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
     updateProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
     deleteProjectAssignment: vi.fn(async () => undefined),
     updateProject: vi.fn(async () => ({ object: "project", data: null })),
+    discoverProjectRoots: vi.fn(async () => ({ object: "project", data: null })),
     discoverProjectContextSources: vi.fn(async () => ({ object: "project", data: null })),
   };
 });
@@ -938,6 +940,10 @@ function resetProjectWorkMocks() {
       default_workspace_mode: "in_place",
     },
   });
+  vi.mocked(discoverProjectRoots).mockResolvedValue({
+    object: "project",
+    data: project,
+  });
   vi.mocked(discoverProjectContextSources).mockResolvedValue({
     object: "project",
     data: project,
@@ -1011,6 +1017,7 @@ afterEach(() => {
   vi.mocked(updateProjectAssignment).mockReset();
   vi.mocked(deleteProjectAssignment).mockReset();
   vi.mocked(updateProject).mockReset();
+  vi.mocked(discoverProjectRoots).mockReset();
   vi.mocked(discoverProjectContextSources).mockReset();
 });
 
@@ -1333,9 +1340,8 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
-  it("can request bootstrap Project Assistant drafts", async () => {
+  it("surfaces bootstrap as project onboarding instead of a draft mode", async () => {
     resetProjectWorkMocks();
-    const user = userEvent.setup();
     window.localStorage.setItem("hecate.project", project.id);
     const state = createRuntimeConsoleFixture({
       projects: [project],
@@ -1345,17 +1351,12 @@ describe("ProjectsView cockpit", () => {
 
     await screen.findByText("Selected work: Build cockpit UI");
     const assistant = await screen.findByRole("region", { name: "Project Assistant" });
-    await user.selectOptions(within(assistant).getByLabelText("Draft"), "bootstrap");
-    await user.click(within(assistant).getByRole("button", { name: "Draft proposal" }));
 
-    await waitFor(() => {
-      expect(draftProjectAssistant).toHaveBeenCalledWith({
-        project_id: project.id,
-        work_item_id: workItem.id,
-        request: "Queue Software developer for Build cockpit UI",
-        draft_mode: "bootstrap",
-      });
-    });
+    expect(within(assistant).getByText("Project onboarding")).toBeInTheDocument();
+    expect(within(assistant).getByRole("button", { name: "Bootstrap project" })).toHaveClass(
+      "btn-primary",
+    );
+    expect(within(assistant).queryByRole("option", { name: "Bootstrap" })).toBeNull();
   });
 
   it("discovers guidance and skills before drafting project bootstrap proposals", async () => {
@@ -4401,6 +4402,16 @@ describe("ProjectsView cockpit", () => {
       default_model: "qwen2.5-coder",
       default_agent_profile: "",
       default_workspace_mode: "ephemeral",
+      default_root_id: "root_1",
+      roots: [
+        {
+          id: "root_1",
+          path: "/Users/alice/dev/hecate",
+          kind: "git",
+          git_branch: "main",
+          active: true,
+        },
+      ],
     });
   });
 
@@ -4463,7 +4474,59 @@ describe("ProjectsView cockpit", () => {
       default_model: "",
       default_agent_profile: "",
       default_workspace_mode: "ephemeral",
+      default_root_id: "root_1",
+      roots: [
+        {
+          id: "root_1",
+          path: "/Users/alice/dev/hecate",
+          kind: "git",
+          git_branch: "main",
+          active: true,
+        },
+      ],
     });
+  });
+
+  it("discovers project worktrees from settings", async () => {
+    resetProjectWorkMocks();
+    const projectWithWorktree: ProjectRecord = {
+      ...project,
+      roots: [
+        ...project.roots,
+        {
+          id: "root_worktree",
+          path: "/Users/alice/dev/hecate/.claude/worktrees/fix-array-sort",
+          kind: "git_worktree",
+          git_branch: "fix-array-sort",
+          active: false,
+          created_at: "2026-06-01T10:00:00Z",
+          updated_at: "2026-06-01T10:00:00Z",
+        },
+      ],
+    };
+    vi.mocked(discoverProjectRoots).mockResolvedValue({
+      object: "project",
+      data: projectWithWorktree,
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Discover worktrees" }));
+
+    expect(discoverProjectRoots).toHaveBeenCalledWith(project.id);
+    expect(
+      await screen.findByText("/Users/alice/dev/hecate/.claude/worktrees/fix-array-sort"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("checkbox", {
+        name: "Active project root /Users/alice/dev/hecate/.claude/worktrees/fix-array-sort",
+      }),
+    ).not.toBeChecked();
   });
 
   it("starts native Hecate assignments and refreshes detail state", async () => {

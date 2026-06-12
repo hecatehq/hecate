@@ -94,6 +94,24 @@ export function ProjectAssistantPanel({
           ) : null
         }
       />
+      <div style={assistantOnboardingStyle} aria-label="Project onboarding">
+        <div style={assistantOnboardingCopyStyle}>
+          <div style={sectionLabelStyle}>Project onboarding</div>
+          <div style={{ ...subtleTextStyle, marginTop: 3 }}>
+            {bootstrapPending ? "Preparing setup proposal" : "Setup proposal"}
+          </div>
+        </div>
+        <button
+          className="btn btn-primary"
+          type="button"
+          disabled={bootstrapBusy || contextBusy}
+          onClick={onBootstrap}
+          style={assistantOnboardingButtonStyle}
+        >
+          <Icon d={Icons.refresh} size={14} />
+          {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
+        </button>
+      </div>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -142,7 +160,6 @@ export function ProjectAssistantPanel({
                 }
               >
                 <option value="deterministic">Rules</option>
-                <option value="bootstrap">Bootstrap</option>
                 <option value="model" disabled={!modelDraftAvailable}>
                   Assistant{modelDraftAvailable ? "" : " (set model)"}
                 </option>
@@ -199,15 +216,6 @@ export function ProjectAssistantPanel({
             >
               <Icon d={Icons.eye} size={13} />
               {contextBusy ? "Inspecting..." : "Inspect context"}
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              disabled={bootstrapBusy || contextBusy}
-              onClick={onBootstrap}
-            >
-              <Icon d={Icons.refresh} size={13} />
-              {bootstrapPending ? "Bootstrapping..." : "Bootstrap project"}
             </button>
           </div>
         </div>
@@ -514,6 +522,28 @@ const assistantComposerStyle: CSSProperties = {
   display: "grid",
   gap: 8,
   minWidth: 0,
+};
+
+const assistantOnboardingStyle: CSSProperties = {
+  alignItems: "center",
+  borderBottom: "1px solid var(--border)",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 10,
+  justifyContent: "space-between",
+  minWidth: 0,
+  padding: "2px 0 10px",
+};
+
+const assistantOnboardingCopyStyle: CSSProperties = {
+  flex: "1 1 240px",
+  minWidth: 0,
+};
+
+const assistantOnboardingButtonStyle: CSSProperties = {
+  flex: "0 0 auto",
+  justifyContent: "center",
+  minWidth: 170,
 };
 
 const assistantPrimaryRowStyle: CSSProperties = {

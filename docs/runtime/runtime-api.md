@@ -1286,6 +1286,55 @@ PATCH /hecate/v1/projects/proj_...
 }
 ```
 
+### `POST /hecate/v1/projects/{id}/roots/discover`
+
+Refreshes Git metadata for active project roots and discovers linked Git
+worktrees for the same repository. This is an explicit operator action. It
+does not create branches, create worktrees, delete roots, change
+`default_root_id`, or start work.
+
+Discovered linked worktrees are appended to `roots` with:
+
+- `kind: "git_worktree"`
+- `git_branch` from `git worktree list --porcelain`
+- `git_remote` from `origin` when configured
+- `active: false` by default
+
+Inactive discovered roots are visible to the operator but are not scanned for
+workspace guidance or used for assignment launch until the operator enables
+them or makes one the default root. Existing roots are matched by path; their
+IDs and active state are preserved while branch/remote metadata is refreshed.
+
+```json
+POST /hecate/v1/projects/proj_.../roots/discover
+→ 200
+{
+  "object": "project",
+  "data": {
+    "id": "proj_...",
+    "roots": [
+      {
+        "id": "root_main",
+        "path": "/Users/alice/src/cynic",
+        "kind": "git",
+        "git_remote": "git@github.com:owner/cynic.git",
+        "git_branch": "main",
+        "active": true
+      },
+      {
+        "id": "root_...",
+        "path": "/Users/alice/src/cynic/.claude/worktrees/fix-array-sort",
+        "kind": "git_worktree",
+        "git_remote": "git@github.com:owner/cynic.git",
+        "git_branch": "fix-array-sort",
+        "active": false
+      }
+    ],
+    "default_root_id": "root_main"
+  }
+}
+```
+
 ### `POST /hecate/v1/projects/{id}/context-sources/discover`
 
 Discovers workspace guidance metadata from active absolute project roots and
@@ -1301,8 +1350,12 @@ are labelled for visibility but remain metadata-only: `CLAUDE.md`,
 
 Discovery skips common vendor/build directories such as `.git`, `node_modules`,
 `vendor`, `dist`, `build`, `.next`, `.turbo`, `.cache`, `target`, and
-`coverage`. Existing sources are matched by `(kind,path)` so operator disabled
-state and source IDs are preserved on rediscovery.
+`coverage`. It also skips nested Git checkouts plus `.worktrees` and
+`.claude/worktrees` under an active root. Linked worktrees should be added as
+explicit project roots through root discovery; their guidance is discovered only
+when that root is active.
+Existing sources are matched by `(kind,path)` plus root metadata so operator
+disabled state and source IDs are preserved on rediscovery.
 
 ```json
 POST /hecate/v1/projects/proj_.../context-sources/discover
@@ -1797,6 +1850,10 @@ Discovery scans:
 - `.hecate/skills/*/SKILL.md`
 - local skill roots explicitly linked from enabled `AGENTS.md` or `CLAUDE.md`
   context sources.
+
+Discovery ignores nested worktree containers such as `.worktrees` and
+`.claude/worktrees` when reading guidance-linked skill roots. Add a linked
+worktree as its own project root when the operator wants it represented.
 
 Only safe metadata is parsed from bounded `SKILL.md` files: frontmatter
 `name`/`title` and `description`, then H1/title fallback and directory id.

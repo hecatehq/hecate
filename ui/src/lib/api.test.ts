@@ -18,6 +18,7 @@ import {
   deleteProjectWorkRole,
   deleteProjectWorkItem,
   discoverLocalProviders,
+  discoverProjectRoots,
   dispatchChatStreamEvent,
   getChatMessageContext,
   getChatMessageFileDiff,
@@ -765,6 +766,20 @@ describe("api client", () => {
           default_model: "ministral-3:latest",
           default_workspace_mode: "in_place",
         }),
+      }),
+    );
+  });
+
+  it("discovers project roots and worktrees", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ object: "project", data: { id: "proj_1" } }));
+
+    await discoverProjectRoots("proj/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/proj%2F1/roots/discover",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({}),
       }),
     );
   });

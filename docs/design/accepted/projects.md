@@ -37,16 +37,17 @@ Raw paths are not stable enough to be the durable identity:
 
 ## Terminology
 
-| Term           | Meaning                                                                                                                                                    |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Project        | Durable Hecate object representing a codebase or work area. Identified by `project_id`. Owns defaults, memories, history grouping, and context sources.    |
-| Workspace      | Concrete filesystem root used for execution. A project can have one or more workspaces over time.                                                          |
-| Chat           | Conversation attached to an optional project and, when running, a concrete workspace.                                                                      |
-| Task           | Durable runtime object attached to an optional project and a concrete workspace mode.                                                                      |
-| Run            | One execution attempt under a task. Runs never define project identity by themselves.                                                                      |
-| Agent profile  | Reusable agent configuration for Hecate Chat or an external agent: model/adapter controls, tools, memory sources, system instructions, and safety posture. |
-| Preset         | Template for creating or updating a project default or agent profile. Presets are not used directly at runtime once applied.                               |
-| Context packet | A snapshot of what Hecate assembled for a model/agent call, including project and workspace metadata.                                                      |
+| Term           | Meaning                                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Project        | Durable Hecate object representing a codebase or work area. Identified by `project_id`. Owns defaults, memories, history grouping, and context sources.      |
+| Workspace      | Concrete filesystem root used for execution. A project can have one or more workspaces over time.                                                            |
+| Project root   | A saved checkout/workspace path for a project. Roots can represent the main checkout, a linked Git worktree, an editor-owned workspace, or a temporary root. |
+| Chat           | Conversation attached to an optional project and, when running, a concrete workspace.                                                                        |
+| Task           | Durable runtime object attached to an optional project and a concrete workspace mode.                                                                        |
+| Run            | One execution attempt under a task. Runs never define project identity by themselves.                                                                        |
+| Agent profile  | Reusable agent configuration for Hecate Chat or an external agent: model/adapter controls, tools, memory sources, system instructions, and safety posture.   |
+| Preset         | Template for creating or updating a project default or agent profile. Presets are not used directly at runtime once applied.                                 |
+| Context packet | A snapshot of what Hecate assembled for a model/agent call, including project and workspace metadata.                                                        |
 
 ## Goals
 
@@ -57,6 +58,9 @@ Raw paths are not stable enough to be the durable identity:
   project activity, and reviewed memory/context without replacing Tasks or
   Chats as execution surfaces.
 - Keep workspace modes explicit: in-place, isolated clone, temporary workspace, editor-owned workspace.
+- Treat branches and Git worktrees as concrete root metadata, not project
+  identity. A project can span the main checkout and linked worktrees while
+  preserving one memory/context/work history.
 - Let project defaults feed new chats and tasks: provider, model, agent profile, tools, command-output compaction, approval posture, workspace mode, and system prompt where applicable.
 - Let context assembly use project-level sources: project instructions, selected docs, saved memories, and trusted files.
 - Let Hecate Chat and external-agent chats share project memory when their active agent profile opts into it.
@@ -103,7 +107,7 @@ type Project struct {
 type ProjectRoot struct {
     ID        string
     Path      string
-    Kind      string // local, isolated_clone, editor_owned, temporary
+    Kind      string // local, git, git_worktree, editor_owned, temporary
     GitRemote string
     GitBranch string
     Active    bool
@@ -128,6 +132,10 @@ Rules:
   those files, inject them into prompts, or create memory entries.
 - Operators can rename projects later.
 - Multiple roots can map to one project, but one root should not silently attach to many projects without operator confirmation.
+- Git worktrees are roots, not separate projects by default. Root discovery can
+  register linked worktrees for visibility, but newly discovered worktree roots
+  start inactive so context discovery and assignment launch stay scoped to the
+  operator-selected roots.
 
 ## API Shape
 
@@ -233,6 +241,8 @@ The Projects UI should stay lightweight but operational:
 - Group chat history by selected project, while keeping **No project** valid.
 - Let “New Hecate chat” and External Agent chats attach to the selected project.
 - Show project identity in Task detail once task linkage exists.
+- Show project roots/worktrees with branch and active/default status so the
+  operator knows which checkout an assignment will use.
 - Let future “Use model” and “Use external agent” flows attach to the same project when started from the same workspace.
 - Let agent profiles expose whether project memory is injected, visible only,
   or disabled for that agent.
@@ -292,9 +302,10 @@ The product layers should stay separate:
 | Manager           | Future project run  | Active-state monitoring, blocker detection, sequencing suggestions, follow-up proposals.               |
 | Orchestrator      | Runtime execution   | Approved task/agent coordination, waits, approvals, event emission, and state transitions.             |
 
-Project Assistant can help create a new project or draft a follow-up assignment,
-and the Projects UI can prepare Bootstrap proposals by refreshing workspace
-guidance and project skills before drafting. It does not auto-start work, run
+Project Assistant can help create a new project or draft a follow-up assignment.
+In the Projects UI, Bootstrap is project onboarding: it prepares setup proposals
+by refreshing workspace guidance and project skills, without inheriting nested
+worktree containers as parent-root input. It does not auto-start work, run
 agents, or write durable memory directly.
 Planner and Manager are future proposal/monitoring layers. The orchestrator is
 the runtime coordinator that executes approved work through Tasks, External

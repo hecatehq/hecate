@@ -18,8 +18,12 @@ func TestDiscoverFindsLocalAndGuidanceLinkedSkillMetadata(t *testing.T) {
 	writeSkillFile(t, root, ".hecate/skills/qa/SKILL.md", "# QA Review\n")
 	writeSkillFile(t, root, "docs-ai/skills/research/SKILL.md", "# Research\n")
 	writeSkillFile(t, root, "claude-skills/review/SKILL.md", "---\ntitle: Claude Review\ndescription: Host-specific review posture.\n---\n")
+	writeSkillFile(t, root, ".worktrees/refactor/docs-ai/skills/backend/SKILL.md", "# Worktree Backend\n")
+	writeSkillFile(t, root, ".claude/worktrees/refactor/docs-ai/skills/qa/SKILL.md", "# Claude Worktree QA\n")
 	writeFileForDiscoveryTest(t, root, "AGENTS.md", "Use [`docs-ai/skills/research/SKILL.md`](docs-ai/skills/research/SKILL.md).")
 	writeFileForDiscoveryTest(t, root, "CLAUDE.md", "Use [`claude-skills/review/SKILL.md`](claude-skills/review/SKILL.md).")
+	writeFileForDiscoveryTest(t, root, ".worktrees/refactor/AGENTS.md", "Use `.worktrees/refactor/docs-ai/skills/backend/SKILL.md`.")
+	writeFileForDiscoveryTest(t, root, ".claude/worktrees/refactor/AGENTS.md", "Use `.claude/worktrees/refactor/docs-ai/skills/qa/SKILL.md`.")
 	writeSkillFile(t, root, "unreferenced/skills/ignore/SKILL.md", "# Ignore\n")
 
 	skills, warnings := Discover(ctx, projects.Project{
@@ -51,6 +55,26 @@ func TestDiscoverFindsLocalAndGuidanceLinkedSkillMetadata(t *testing.T) {
 					"root_id": "root_a",
 				},
 			},
+			{
+				ID:      "ctx_worktree",
+				Kind:    "workspace_instruction",
+				Path:    ".worktrees/refactor/AGENTS.md",
+				Enabled: true,
+				Format:  "agents_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+			{
+				ID:      "ctx_claude_worktree",
+				Kind:    "workspace_instruction",
+				Path:    ".claude/worktrees/refactor/AGENTS.md",
+				Enabled: true,
+				Format:  "agents_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
 		},
 	})
 	if len(warnings) != 0 {
@@ -65,6 +89,56 @@ func TestDiscoverFindsLocalAndGuidanceLinkedSkillMetadata(t *testing.T) {
 	assertSkillForDiscoveryTest(t, skills, "review", "Claude Review", "Host-specific review posture.", "claude-skills/review/SKILL.md", []string{"ctx_claude"})
 	if findSkillForTest(skills, "ignore") != nil {
 		t.Fatalf("skills = %+v, want unreferenced skill root ignored", skills)
+	}
+}
+
+func TestDiscoverSkipsWorktreeGuidanceAndSkillRoots(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeSkillFile(t, root, ".agents/skills/backend/SKILL.md", "# Backend\n")
+	writeSkillFile(t, root, ".worktrees/branch/docs-ai/skills/backend/SKILL.md", "# Worktree Backend\n")
+	writeSkillFile(t, root, ".claude/worktrees/branch/docs-ai/skills/frontend/SKILL.md", "# Worktree Frontend\n")
+	writeFileForDiscoveryTest(t, root, ".worktrees/branch/AGENTS.md", "Use `.worktrees/branch/docs-ai/skills/backend/SKILL.md`.")
+	writeFileForDiscoveryTest(t, root, "AGENTS.md", "Use `.claude/worktrees/branch/docs-ai/skills/frontend/SKILL.md`.")
+
+	skills, warnings := Discover(context.Background(), projects.Project{
+		ID: "proj_worktree_skills",
+		Roots: []projects.Root{{
+			ID:     "root_a",
+			Path:   root,
+			Active: true,
+		}},
+		ContextSources: []projects.ContextSource{
+			{
+				ID:      "ctx_stale_worktree",
+				Kind:    "workspace_instruction",
+				Path:    ".worktrees/branch/AGENTS.md",
+				Enabled: true,
+				Format:  "agents_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+			{
+				ID:      "ctx_agents",
+				Kind:    "workspace_instruction",
+				Path:    "AGENTS.md",
+				Enabled: true,
+				Format:  "agents_md",
+				Metadata: map[string]string{
+					"root_id": "root_a",
+				},
+			},
+		},
+	})
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %+v, want none", warnings)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("skills = %+v, want only non-worktree skill", skills)
+	}
+	if skills[0].ID != "backend" || skills[0].Path != ".agents/skills/backend/SKILL.md" || skills[0].Status != StatusAvailable {
+		t.Fatalf("skill = %+v, want canonical backend skill only", skills[0])
 	}
 }
 

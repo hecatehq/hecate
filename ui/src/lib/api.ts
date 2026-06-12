@@ -357,6 +357,16 @@ export async function updateProject(
   });
 }
 
+export async function discoverProjectRoots(id: string): Promise<ProjectResponse> {
+  return fetchJSON<ProjectResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(id)}/roots/discover`,
+    {
+      method: "POST",
+      body: {},
+    },
+  );
+}
+
 export async function deleteProject(id: string): Promise<void> {
   return fetchJSON<void>(`${HECATE_API}/projects/${encodeURIComponent(id)}`, {
     method: "DELETE",

@@ -96,6 +96,9 @@ func skillBaseDirs(fsys *workspacefs.FS, root projects.Root, sources []projects.
 			continue
 		}
 		for _, dir := range skillBaseDirsFromGuidance(source.Path, body) {
+			if shouldSkipSkillDiscoveryPath(dir) {
+				continue
+			}
 			if idx, ok := seen[dir]; ok {
 				dirs[idx].SourceContextSourceIDs = appendUniqueStrings(dirs[idx].SourceContextSourceIDs, source.ID)
 				continue
@@ -112,6 +115,9 @@ func skillBaseDirs(fsys *workspacefs.FS, root projects.Root, sources []projects.
 
 func guidanceSourceForRoot(source projects.ContextSource, rootID string) bool {
 	if !source.Enabled || strings.TrimSpace(source.Path) == "" {
+		return false
+	}
+	if shouldSkipSkillDiscoveryPath(source.Path) {
 		return false
 	}
 	if source.Metadata != nil {
@@ -146,6 +152,9 @@ func readGuidanceSource(fsys *workspacefs.FS, source projects.ContextSource, war
 }
 
 func discoverInBaseDir(fsys *workspacefs.FS, rootID string, base skillBaseDir, warnings *[]string) []Skill {
+	if shouldSkipSkillDiscoveryPath(base.Path) {
+		return nil
+	}
 	entries, _, err := fsys.ReadDir(base.Path)
 	if err != nil {
 		return nil
@@ -342,4 +351,15 @@ func skillBaseDirsFromToken(sourceDir, token string) []string {
 		}
 	}
 	return nil
+}
+
+func shouldSkipSkillDiscoveryPath(rel string) bool {
+	rel = filepath.ToSlash(strings.TrimSpace(rel))
+	rel = strings.TrimPrefix(rel, "./")
+	if rel == "" {
+		return false
+	}
+	rel = path.Clean(rel)
+	return rel == ".worktrees" || strings.HasPrefix(rel, ".worktrees/") ||
+		rel == ".claude/worktrees" || strings.HasPrefix(rel, ".claude/worktrees/")
 }
