@@ -171,6 +171,11 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   `ui/src/lib/chat-setup-readiness.ts`. Keep the empty state, composer notice,
   and disabled-send copy aligned there instead of adding one-off branches to
   `ChatView`.
+- Projects UI keeps Project Assistant orchestration in
+  `useProjectAssistantController`; do not put propose/apply/bootstrap request
+  state back into `ProjectsView`. The workspace rendering branches live behind
+  `ProjectWorkspaceView`, while project state loading and mutations stay in the
+  parent page.
 - External Agent readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.

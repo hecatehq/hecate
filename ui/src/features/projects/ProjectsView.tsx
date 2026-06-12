@@ -1532,238 +1532,110 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
           }}
         />
         <div style={projectMainBodyStyle}>
-          <section style={detailStyle} aria-label="Selected work item">
-            <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
-              {selectedProject ? (
-                <section style={domainSectionStyle} aria-label="Project workspace">
-                  {projectNeedsOnboarding ? (
-                    <ProjectOnboardingPanel
-                      bootstrapPending={assistant.bootstrapPending}
-                      contextSourceCount={
-                        (selectedProject.context_sources ?? []).filter((source) => source.enabled)
-                          .length
-                      }
-                      onBootstrap={() => void assistant.bootstrap()}
-                      onCreateWork={() => {
-                        setNewWorkError("");
-                        setNewWorkModalOpen(true);
-                      }}
-                      onOpenSettings={() => {
-                        setDefaultsError("");
-                        setSettingsPanelOpen(true);
-                      }}
-                      project={selectedProject}
-                      roleCount={roles.length}
-                      skillCount={projectSkills.length}
-                    />
-                  ) : (
-                    <>
-                      <ProjectAssistantPanel
-                        applyResult={assistant.applyResult}
-                        bootstrapPending={assistant.bootstrapPending}
-                        context={assistant.context}
-                        contextError={assistant.contextError}
-                        contextStatus={assistant.contextStatus}
-                        error={assistant.error}
-                        onApply={() => void assistant.apply()}
-                        onBootstrap={() => void assistant.bootstrap()}
-                        onInspectContext={(form) => void assistant.inspectContext(form)}
-                        onDismiss={assistant.dismiss}
-                        onPropose={(form) => void assistant.propose(form)}
-                        project={selectedProject}
-                        proposal={assistant.proposal}
-                        roles={roles}
-                        status={assistant.status}
-                        workItem={selectedWorkItem}
-                      />
-                      <ProjectWorkspaceTabs
-                        activeTab={workspaceTab}
-                        memoryCandidateCount={memoryCandidates.length}
-                        memoryEntryCount={memoryEntries.length}
-                        onChange={setWorkspaceTab}
-                        projectSkillCount={projectSkills.length}
-                        workItemCount={workItems.length}
-                      />
-                    </>
-                  )}
-                  {!projectNeedsOnboarding && workspaceTab === "work" && (
-                    <section style={projectTabPanelStyle} aria-label="Work coordination">
-                      <section aria-label="Work activity" style={workActivityPanelStyle}>
-                        <SectionHeader
-                          title="Work Queue"
-                          detail={
-                            workLoadState === "loading" && workItems.length === 0
-                              ? "Loading project work..."
-                              : undefined
-                          }
-                          actions={
-                            <button
-                              className="btn btn-primary btn-sm"
-                              type="button"
-                              onClick={() => {
-                                setNewWorkError("");
-                                setNewWorkModalOpen(true);
-                              }}
-                            >
-                              <Icon d={Icons.plus} size={13} />
-                              Work
-                            </button>
-                          }
-                        />
-                        <ProjectActivityBucketTabs
-                          activity={activity}
-                          bucket={activityBucket}
-                          onBucketChange={setActivityBucket}
-                          workItemCount={workItems.length}
-                        />
-                      </section>
-                      {workError && <InlineError message={workError} />}
-                      <div
-                        className="project-work-coordination-grid"
-                        style={workCoordinationGridStyle}
-                      >
-                        <ProjectActivityInbox
-                          activity={activity}
-                          bucket={activityBucket}
-                          loading={workLoadState === "loading"}
-                          onSelectWorkItem={setSelectedWorkItemID}
-                          project={selectedProject}
-                          roleByID={roleByID}
-                          selectedWorkItemID={selectedWorkItemID}
-                          workItemSummaries={workItemSummaries}
-                          workItems={workItems}
-                        />
-                        <div style={workDetailColumnStyle}>
-                          {hasWorkItemDetail ? (
-                            <WorkItemDetail
-                              assignments={assignments}
-                              artifacts={artifacts}
-                              handoffActionID={handoffActionID}
-                              handoffError={handoffError}
-                              handoffs={handoffs}
-                              assignmentErrors={assignmentErrors}
-                              detailError={detailError}
-                              loading={detailLoadState === "loading"}
-                              onOpenTask={onOpenTask}
-                              onRefresh={refreshSelectedWorkItem}
-                              onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
-                              activityByAssignmentID={activityByAssignmentID}
-                              onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
-                              onDeleteWorkItem={(item) => setDeleteWorkItem(item)}
-                              onEditHandoff={(handoff) => {
-                                setHandoffError("");
-                                setNewHandoffDraft(null);
-                                setEditingHandoff(handoff);
-                              }}
-                              onEditAssignment={(assignment) => {
-                                setEditAssignmentError("");
-                                setEditingAssignment(assignment);
-                              }}
-                              onEditWorkItem={(item) => {
-                                setEditWorkError("");
-                                setEditingWorkItem(item);
-                              }}
-                              onDeleteAssignment={(assignment) => setDeleteAssignment(assignment)}
-                              onOpenChat={onOpenChat}
-                              onStartAssignment={handleStartAssignment}
-                              onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
-                              onSetHandoffStatus={(handoff, status) =>
-                                void handleSetHandoffStatus(handoff, status)
-                              }
-                              project={selectedProject}
-                              roleByID={roleByID}
-                              startingAssignmentID={startingAssignmentID}
-                              workItem={selectedWorkItem}
-                              onAddAssignment={() => {
-                                setNewAssignmentError("");
-                                setNewAssignmentModalOpen(true);
-                              }}
-                              onAddHandoff={() => {
-                                setHandoffError("");
-                                setNewHandoffDraft(null);
-                                setEditingHandoff("new");
-                              }}
-                              onAddHandoffFromAssignment={(assignment, activityItem) => {
-                                setHandoffError("");
-                                setNewHandoffDraft(
-                                  handoffFormFromAssignment(
-                                    assignment,
-                                    roleByID.get(assignment.role_id) ?? null,
-                                    activityItem,
-                                  ),
-                                );
-                                setEditingHandoff("new");
-                              }}
-                            />
-                          ) : (
-                            <EmptyBlock
-                              title={
-                                workLoadState === "loading"
-                                  ? "Loading detail..."
-                                  : "No work selected"
-                              }
-                              detail="Create or select a work item to manage assignments and collaboration artifacts."
-                            />
-                          )}
-                        </div>
-                      </div>
-                    </section>
-                  )}
-                  {!projectNeedsOnboarding && workspaceTab === "timeline" && (
-                    <ProjectTimelinePanel
-                      activity={activity}
-                      artifacts={artifacts}
-                      handoffs={handoffs}
-                      memoryCandidates={memoryCandidates}
-                      memoryEntries={memoryEntries}
-                      onEditMemory={setEditingMemory}
-                      onOpenChat={onOpenChat}
-                      onOpenTask={onOpenTask}
-                      onSelectWorkItem={setSelectedWorkItemID}
-                      project={selectedProject}
-                      roles={roles}
-                      workItems={workItems}
-                    />
-                  )}
-                  {!projectNeedsOnboarding && workspaceTab === "memory" && (
-                    <ProjectMemoryPanel
-                      candidates={memoryCandidates}
-                      discoveringContext={discoveringContext}
-                      entries={memoryEntries}
-                      error={memoryError}
-                      loading={memoryLoadState === "loading"}
-                      onDiscoverContextSources={handleDiscoverContextSources}
-                      onPromoteCandidate={setPromotingCandidate}
-                      onRejectCandidate={handleRejectCandidate}
-                      onDelete={setDeleteMemory}
-                      onEdit={setEditingMemory}
-                      onNew={() => setEditingMemory("new")}
-                      onRefresh={() => void loadProjectMemory(selectedProjectID)}
-                      project={selectedProject}
-                      rejectingCandidateID={rejectingCandidateID}
-                    />
-                  )}
-                  {!projectNeedsOnboarding && workspaceTab === "skills" && (
-                    <ProjectSkillsPanel
-                      discovering={discoveringSkills}
-                      error={skillsError}
-                      loading={skillsLoadState === "loading"}
-                      onDiscover={handleDiscoverProjectSkills}
-                      onRefresh={() => void loadProjectSkills(selectedProjectID)}
-                      onUpdate={(skill, patch) => void handleUpdateProjectSkill(skill, patch)}
-                      project={selectedProject}
-                      skills={projectSkills}
-                      updatingSkillID={updatingSkillID}
-                    />
-                  )}
-                </section>
-              ) : (
-                <section aria-label="Project empty state" style={projectEmptyStateStyle}>
-                  <EmptyBlock title={projectEmptyTitle} detail={projectEmptyDetail} />
-                </section>
-              )}
-            </div>
-          </section>
+          <ProjectWorkspaceView
+            activity={activity}
+            activityBucket={activityBucket}
+            activityByAssignmentID={activityByAssignmentID}
+            artifacts={artifacts}
+            assignmentErrors={assignmentErrors}
+            assignments={assignments}
+            assistant={assistant}
+            detailError={detailError}
+            detailLoadState={detailLoadState}
+            discoveringContext={discoveringContext}
+            discoveringSkills={discoveringSkills}
+            handoffActionID={handoffActionID}
+            handoffError={handoffError}
+            handoffs={handoffs}
+            hasWorkItemDetail={hasWorkItemDetail}
+            memoryCandidates={memoryCandidates}
+            memoryEntries={memoryEntries}
+            memoryError={memoryError}
+            memoryLoadState={memoryLoadState}
+            onActivityBucketChange={setActivityBucket}
+            onAddAssignment={() => {
+              setNewAssignmentError("");
+              setNewAssignmentModalOpen(true);
+            }}
+            onAddHandoff={() => {
+              setHandoffError("");
+              setNewHandoffDraft(null);
+              setEditingHandoff("new");
+            }}
+            onAddHandoffFromAssignment={(assignment, activityItem) => {
+              setHandoffError("");
+              setNewHandoffDraft(
+                handoffFormFromAssignment(
+                  assignment,
+                  roleByID.get(assignment.role_id) ?? null,
+                  activityItem,
+                ),
+              );
+              setEditingHandoff("new");
+            }}
+            onCreateAssignmentFromHandoff={handleCreateAssignmentFromHandoff}
+            onCreateWork={() => {
+              setNewWorkError("");
+              setNewWorkModalOpen(true);
+            }}
+            onDeleteAssignment={setDeleteAssignment}
+            onDeleteHandoff={(handoff) => void handleDeleteHandoff(handoff)}
+            onDeleteMemory={setDeleteMemory}
+            onDeleteWorkItem={setDeleteWorkItem}
+            onDiscoverContextSources={handleDiscoverContextSources}
+            onDiscoverProjectSkills={handleDiscoverProjectSkills}
+            onEditAssignment={(assignment) => {
+              setEditAssignmentError("");
+              setEditingAssignment(assignment);
+            }}
+            onEditHandoff={(handoff) => {
+              setHandoffError("");
+              setNewHandoffDraft(null);
+              setEditingHandoff(handoff);
+            }}
+            onEditMemory={setEditingMemory}
+            onEditWorkItem={(item) => {
+              setEditWorkError("");
+              setEditingWorkItem(item);
+            }}
+            onNewMemory={() => setEditingMemory("new")}
+            onOpenChat={onOpenChat}
+            onOpenSettings={() => {
+              setDefaultsError("");
+              setSettingsPanelOpen(true);
+            }}
+            onOpenTask={onOpenTask}
+            onPromoteCandidate={setPromotingCandidate}
+            onRefreshMemory={() => void loadProjectMemory(selectedProjectID)}
+            onRefreshProjectSkills={() => void loadProjectSkills(selectedProjectID)}
+            onRefreshWorkItem={refreshSelectedWorkItem}
+            onRejectCandidate={handleRejectCandidate}
+            onSelectWorkItem={setSelectedWorkItemID}
+            onSetHandoffStatus={(handoff, status) => void handleSetHandoffStatus(handoff, status)}
+            onStartAssignment={handleStartAssignment}
+            onStartHandoff={(handoff) => void handleStartHandoff(handoff)}
+            onUpdateProjectSkill={(skill, patch) => void handleUpdateProjectSkill(skill, patch)}
+            onWorkspaceTabChange={setWorkspaceTab}
+            project={selectedProject}
+            projectEmptyDetail={projectEmptyDetail}
+            projectEmptyTitle={projectEmptyTitle}
+            projectNeedsOnboarding={projectNeedsOnboarding}
+            projectSkills={projectSkills}
+            rejectingCandidateID={rejectingCandidateID}
+            roleByID={roleByID}
+            roles={roles}
+            selectedWorkItem={selectedWorkItem}
+            selectedWorkItemID={selectedWorkItemID}
+            skillsError={skillsError}
+            skillsLoadState={skillsLoadState}
+            startingAssignmentID={startingAssignmentID}
+            updatingSkillID={updatingSkillID}
+            workError={workError}
+            workItemSummaries={workItemSummaries}
+            workItems={workItems}
+            workLoadState={workLoadState}
+            workspaceTab={workspaceTab}
+          />
 
           {selectedProject && settingsPanelOpen && (
             <ChatRightPanel
@@ -1993,6 +1865,344 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+type ProjectWorkspaceViewProps = {
+  activity: ProjectActivityData | null;
+  activityBucket: ProjectActivityBucketKey;
+  activityByAssignmentID: Map<string, ProjectActivityItemRecord>;
+  artifacts: ProjectCollaborationArtifactRecord[];
+  assignmentErrors: Record<string, string>;
+  assignments: ProjectAssignmentRecord[];
+  assistant: ReturnType<typeof useProjectAssistantController>;
+  detailError: string;
+  detailLoadState: LoadState;
+  discoveringContext: boolean;
+  discoveringSkills: boolean;
+  handoffActionID: string;
+  handoffError: string;
+  handoffs: ProjectHandoffRecord[];
+  hasWorkItemDetail: boolean;
+  memoryCandidates: ProjectMemoryCandidateRecord[];
+  memoryEntries: ProjectMemoryRecord[];
+  memoryError: string;
+  memoryLoadState: LoadState;
+  onActivityBucketChange: (bucket: ProjectActivityBucketKey) => void;
+  onAddAssignment: () => void;
+  onAddHandoff: () => void;
+  onAddHandoffFromAssignment: (
+    assignment: ProjectAssignmentRecord,
+    activityItem?: ProjectActivityItemRecord,
+  ) => void;
+  onCreateAssignmentFromHandoff: (handoff: ProjectHandoffRecord) => void;
+  onCreateWork: () => void;
+  onDeleteAssignment: (assignment: ProjectAssignmentRecord) => void;
+  onDeleteHandoff: (handoff: ProjectHandoffRecord) => void;
+  onDeleteMemory: (entry: ProjectMemoryRecord) => void;
+  onDeleteWorkItem: (item: ProjectWorkItemRecord) => void;
+  onDiscoverContextSources: () => void;
+  onDiscoverProjectSkills: () => void;
+  onEditAssignment: (assignment: ProjectAssignmentRecord) => void;
+  onEditHandoff: (handoff: ProjectHandoffRecord) => void;
+  onEditMemory: (entry: ProjectMemoryRecord) => void;
+  onEditWorkItem: (item: ProjectWorkItemRecord) => void;
+  onNewMemory: () => void;
+  onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
+  onOpenSettings: () => void;
+  onOpenTask?: (taskID: string, runID?: string) => void;
+  onPromoteCandidate: (candidate: ProjectMemoryCandidateRecord) => void;
+  onRefreshMemory: () => void;
+  onRefreshProjectSkills: () => void;
+  onRefreshWorkItem: () => void;
+  onRejectCandidate: (candidate: ProjectMemoryCandidateRecord) => void | Promise<void>;
+  onSelectWorkItem: (workItemID: string) => void;
+  onSetHandoffStatus: (handoff: ProjectHandoffRecord, status: string) => void;
+  onStartAssignment: (assignment: ProjectAssignmentRecord) => void;
+  onStartHandoff: (handoff: ProjectHandoffRecord) => void;
+  onUpdateProjectSkill: (skill: ProjectSkillRecord, patch: UpdateProjectSkillPayload) => void;
+  onWorkspaceTabChange: (tab: ProjectWorkspaceTab) => void;
+  project: ProjectRecord | null;
+  projectEmptyDetail: string;
+  projectEmptyTitle: string;
+  projectNeedsOnboarding: boolean;
+  projectSkills: ProjectSkillRecord[];
+  rejectingCandidateID: string;
+  roleByID: Map<string, ProjectWorkRoleRecord>;
+  roles: ProjectWorkRoleRecord[];
+  selectedWorkItem: ProjectWorkItemRecord | null;
+  selectedWorkItemID: string;
+  skillsError: string;
+  skillsLoadState: LoadState;
+  startingAssignmentID: string;
+  updatingSkillID: string;
+  workError: string;
+  workItemSummaries: Record<string, WorkItemSummary>;
+  workItems: ProjectWorkItemRecord[];
+  workLoadState: LoadState;
+  workspaceTab: ProjectWorkspaceTab;
+};
+
+function ProjectWorkspaceView({
+  activity,
+  activityBucket,
+  activityByAssignmentID,
+  artifacts,
+  assignmentErrors,
+  assignments,
+  assistant,
+  detailError,
+  detailLoadState,
+  discoveringContext,
+  discoveringSkills,
+  handoffActionID,
+  handoffError,
+  handoffs,
+  hasWorkItemDetail,
+  memoryCandidates,
+  memoryEntries,
+  memoryError,
+  memoryLoadState,
+  onActivityBucketChange,
+  onAddAssignment,
+  onAddHandoff,
+  onAddHandoffFromAssignment,
+  onCreateAssignmentFromHandoff,
+  onCreateWork,
+  onDeleteAssignment,
+  onDeleteHandoff,
+  onDeleteMemory,
+  onDeleteWorkItem,
+  onDiscoverContextSources,
+  onDiscoverProjectSkills,
+  onEditAssignment,
+  onEditHandoff,
+  onEditMemory,
+  onEditWorkItem,
+  onNewMemory,
+  onOpenChat,
+  onOpenSettings,
+  onOpenTask,
+  onPromoteCandidate,
+  onRefreshMemory,
+  onRefreshProjectSkills,
+  onRefreshWorkItem,
+  onRejectCandidate,
+  onSelectWorkItem,
+  onSetHandoffStatus,
+  onStartAssignment,
+  onStartHandoff,
+  onUpdateProjectSkill,
+  onWorkspaceTabChange,
+  project,
+  projectEmptyDetail,
+  projectEmptyTitle,
+  projectNeedsOnboarding,
+  projectSkills,
+  rejectingCandidateID,
+  roleByID,
+  roles,
+  selectedWorkItem,
+  selectedWorkItemID,
+  skillsError,
+  skillsLoadState,
+  startingAssignmentID,
+  updatingSkillID,
+  workError,
+  workItemSummaries,
+  workItems,
+  workLoadState,
+  workspaceTab,
+}: ProjectWorkspaceViewProps) {
+  return (
+    <section style={detailStyle} aria-label="Selected work item">
+      <div className="project-cockpit-workspace" style={cockpitWorkspaceStyle}>
+        {project ? (
+          <section style={domainSectionStyle} aria-label="Project workspace">
+            {projectNeedsOnboarding ? (
+              <ProjectOnboardingPanel
+                bootstrapPending={assistant.bootstrapPending}
+                contextSourceCount={
+                  (project.context_sources ?? []).filter((source) => source.enabled).length
+                }
+                onBootstrap={() => void assistant.bootstrap()}
+                onCreateWork={onCreateWork}
+                onOpenSettings={onOpenSettings}
+                project={project}
+                roleCount={roles.length}
+                skillCount={projectSkills.length}
+              />
+            ) : (
+              <>
+                <ProjectAssistantPanel
+                  applyResult={assistant.applyResult}
+                  bootstrapPending={assistant.bootstrapPending}
+                  context={assistant.context}
+                  contextError={assistant.contextError}
+                  contextStatus={assistant.contextStatus}
+                  error={assistant.error}
+                  onApply={() => void assistant.apply()}
+                  onBootstrap={() => void assistant.bootstrap()}
+                  onInspectContext={(form) => void assistant.inspectContext(form)}
+                  onDismiss={assistant.dismiss}
+                  onPropose={(form) => void assistant.propose(form)}
+                  project={project}
+                  proposal={assistant.proposal}
+                  roles={roles}
+                  status={assistant.status}
+                  workItem={selectedWorkItem}
+                />
+                <ProjectWorkspaceTabs
+                  activeTab={workspaceTab}
+                  memoryCandidateCount={memoryCandidates.length}
+                  memoryEntryCount={memoryEntries.length}
+                  onChange={onWorkspaceTabChange}
+                  projectSkillCount={projectSkills.length}
+                  workItemCount={workItems.length}
+                />
+              </>
+            )}
+            {!projectNeedsOnboarding && workspaceTab === "work" && (
+              <section style={projectTabPanelStyle} aria-label="Work coordination">
+                <section aria-label="Work activity" style={workActivityPanelStyle}>
+                  <SectionHeader
+                    title="Work Queue"
+                    detail={
+                      workLoadState === "loading" && workItems.length === 0
+                        ? "Loading project work..."
+                        : undefined
+                    }
+                    actions={
+                      <button
+                        className="btn btn-primary btn-sm"
+                        type="button"
+                        onClick={onCreateWork}
+                      >
+                        <Icon d={Icons.plus} size={13} />
+                        Work
+                      </button>
+                    }
+                  />
+                  <ProjectActivityBucketTabs
+                    activity={activity}
+                    bucket={activityBucket}
+                    onBucketChange={onActivityBucketChange}
+                    workItemCount={workItems.length}
+                  />
+                </section>
+                {workError && <InlineError message={workError} />}
+                <div className="project-work-coordination-grid" style={workCoordinationGridStyle}>
+                  <ProjectActivityInbox
+                    activity={activity}
+                    bucket={activityBucket}
+                    loading={workLoadState === "loading"}
+                    onSelectWorkItem={onSelectWorkItem}
+                    project={project}
+                    roleByID={roleByID}
+                    selectedWorkItemID={selectedWorkItemID}
+                    workItemSummaries={workItemSummaries}
+                    workItems={workItems}
+                  />
+                  <div style={workDetailColumnStyle}>
+                    {hasWorkItemDetail ? (
+                      <WorkItemDetail
+                        assignments={assignments}
+                        artifacts={artifacts}
+                        handoffActionID={handoffActionID}
+                        handoffError={handoffError}
+                        handoffs={handoffs}
+                        assignmentErrors={assignmentErrors}
+                        detailError={detailError}
+                        loading={detailLoadState === "loading"}
+                        onOpenTask={onOpenTask}
+                        onRefresh={onRefreshWorkItem}
+                        onCreateAssignmentFromHandoff={onCreateAssignmentFromHandoff}
+                        activityByAssignmentID={activityByAssignmentID}
+                        onDeleteHandoff={onDeleteHandoff}
+                        onDeleteWorkItem={onDeleteWorkItem}
+                        onEditHandoff={onEditHandoff}
+                        onEditAssignment={onEditAssignment}
+                        onEditWorkItem={onEditWorkItem}
+                        onDeleteAssignment={onDeleteAssignment}
+                        onOpenChat={onOpenChat}
+                        onStartAssignment={onStartAssignment}
+                        onStartHandoff={onStartHandoff}
+                        onSetHandoffStatus={onSetHandoffStatus}
+                        project={project}
+                        roleByID={roleByID}
+                        startingAssignmentID={startingAssignmentID}
+                        workItem={selectedWorkItem}
+                        onAddAssignment={onAddAssignment}
+                        onAddHandoff={onAddHandoff}
+                        onAddHandoffFromAssignment={onAddHandoffFromAssignment}
+                      />
+                    ) : (
+                      <EmptyBlock
+                        title={
+                          workLoadState === "loading" ? "Loading detail..." : "No work selected"
+                        }
+                        detail="Create or select a work item to manage assignments and collaboration artifacts."
+                      />
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+            {!projectNeedsOnboarding && workspaceTab === "timeline" && (
+              <ProjectTimelinePanel
+                activity={activity}
+                artifacts={artifacts}
+                handoffs={handoffs}
+                memoryCandidates={memoryCandidates}
+                memoryEntries={memoryEntries}
+                onEditMemory={onEditMemory}
+                onOpenChat={onOpenChat}
+                onOpenTask={onOpenTask}
+                onSelectWorkItem={onSelectWorkItem}
+                project={project}
+                roles={roles}
+                workItems={workItems}
+              />
+            )}
+            {!projectNeedsOnboarding && workspaceTab === "memory" && (
+              <ProjectMemoryPanel
+                candidates={memoryCandidates}
+                discoveringContext={discoveringContext}
+                entries={memoryEntries}
+                error={memoryError}
+                loading={memoryLoadState === "loading"}
+                onDiscoverContextSources={onDiscoverContextSources}
+                onPromoteCandidate={onPromoteCandidate}
+                onRejectCandidate={onRejectCandidate}
+                onDelete={onDeleteMemory}
+                onEdit={onEditMemory}
+                onNew={onNewMemory}
+                onRefresh={onRefreshMemory}
+                project={project}
+                rejectingCandidateID={rejectingCandidateID}
+              />
+            )}
+            {!projectNeedsOnboarding && workspaceTab === "skills" && (
+              <ProjectSkillsPanel
+                discovering={discoveringSkills}
+                error={skillsError}
+                loading={skillsLoadState === "loading"}
+                onDiscover={onDiscoverProjectSkills}
+                onRefresh={onRefreshProjectSkills}
+                onUpdate={onUpdateProjectSkill}
+                project={project}
+                skills={projectSkills}
+                updatingSkillID={updatingSkillID}
+              />
+            )}
+          </section>
+        ) : (
+          <section aria-label="Project empty state" style={projectEmptyStateStyle}>
+            <EmptyBlock title={projectEmptyTitle} detail={projectEmptyDetail} />
+          </section>
+        )}
+      </div>
+    </section>
   );
 }
 
