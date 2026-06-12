@@ -153,6 +153,11 @@ type AssignmentFilter struct {
 	WorkItemID string
 }
 
+type ListOptions struct {
+	Limit    int
+	Statuses []string
+}
+
 type ArtifactFilter struct {
 	ProjectID    string
 	WorkItemID   string
@@ -171,12 +176,12 @@ type Store interface {
 	CreateRole(ctx context.Context, role AgentRoleProfile) (AgentRoleProfile, error)
 	UpdateRole(ctx context.Context, projectID, id string, update func(*AgentRoleProfile)) (AgentRoleProfile, error)
 	DeleteRole(ctx context.Context, projectID, id string) error
-	ListWorkItems(ctx context.Context, projectID string) ([]WorkItem, error)
+	ListWorkItems(ctx context.Context, projectID string, options ...ListOptions) ([]WorkItem, error)
 	CreateWorkItem(ctx context.Context, item WorkItem) (WorkItem, error)
 	GetWorkItem(ctx context.Context, projectID, id string) (WorkItem, bool, error)
 	UpdateWorkItem(ctx context.Context, projectID, id string, update func(*WorkItem)) (WorkItem, error)
 	DeleteWorkItem(ctx context.Context, projectID, id string) error
-	ListAssignments(ctx context.Context, filter AssignmentFilter) ([]Assignment, error)
+	ListAssignments(ctx context.Context, filter AssignmentFilter, options ...ListOptions) ([]Assignment, error)
 	CreateAssignment(ctx context.Context, assignment Assignment) (Assignment, error)
 	UpdateAssignment(ctx context.Context, projectID, id string, update func(*Assignment)) (Assignment, error)
 	DeleteAssignment(ctx context.Context, projectID, workItemID, id string) error
@@ -328,18 +333,25 @@ func (s *MemoryStore) DeleteRole(_ context.Context, projectID, id string) error 
 	return nil
 }
 
-func (s *MemoryStore) ListWorkItems(_ context.Context, projectID string) ([]WorkItem, error) {
+func (s *MemoryStore) ListWorkItems(_ context.Context, projectID string, options ...ListOptions) ([]WorkItem, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	projectID = strings.TrimSpace(projectID)
+	opts := normalizeListOptions(options)
+	statuses := listStatusSet(opts.Statuses)
 	items := make([]WorkItem, 0, len(s.workItems))
 	for _, item := range s.workItems {
 		if item.ProjectID == projectID {
+			if len(statuses) > 0 {
+				if _, ok := statuses[item.Status]; !ok {
+					continue
+				}
+			}
 			items = append(items, cloneWorkItem(item))
 		}
 	}
 	sortWorkItems(items)
-	return items, nil
+	return limitWorkItems(items, opts.Limit), nil
 }
 
 func (s *MemoryStore) CreateWorkItem(_ context.Context, item WorkItem) (WorkItem, error) {
@@ -425,11 +437,13 @@ func (s *MemoryStore) DeleteWorkItem(_ context.Context, projectID, id string) er
 	return nil
 }
 
-func (s *MemoryStore) ListAssignments(_ context.Context, filter AssignmentFilter) ([]Assignment, error) {
+func (s *MemoryStore) ListAssignments(_ context.Context, filter AssignmentFilter, options ...ListOptions) ([]Assignment, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	filter.ProjectID = strings.TrimSpace(filter.ProjectID)
 	filter.WorkItemID = strings.TrimSpace(filter.WorkItemID)
+	opts := normalizeListOptions(options)
+	statuses := listStatusSet(opts.Statuses)
 	items := make([]Assignment, 0, len(s.assignments))
 	for _, item := range s.assignments {
 		if item.ProjectID != filter.ProjectID {
@@ -438,10 +452,15 @@ func (s *MemoryStore) ListAssignments(_ context.Context, filter AssignmentFilter
 		if filter.WorkItemID != "" && item.WorkItemID != filter.WorkItemID {
 			continue
 		}
+		if len(statuses) > 0 {
+			if _, ok := statuses[item.Status]; !ok {
+				continue
+			}
+		}
 		items = append(items, cloneAssignment(item))
 	}
 	sortAssignments(items)
-	return items, nil
+	return limitAssignments(items, opts.Limit), nil
 }
 
 func (s *MemoryStore) CreateAssignment(_ context.Context, assignment Assignment) (Assignment, error) {
@@ -1084,6 +1103,46 @@ func normalizeStringList(values []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func normalizeListOptions(options []ListOptions) ListOptions {
+	var out ListOptions
+	for _, option := range options {
+		if option.Limit > 0 {
+			out.Limit = option.Limit
+		}
+		out.Statuses = append(out.Statuses, option.Statuses...)
+	}
+	out.Statuses = normalizeStringList(out.Statuses)
+	return out
+}
+
+func listStatusSet(statuses []string) map[string]struct{} {
+	if len(statuses) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(statuses))
+	for _, status := range statuses {
+		status = strings.TrimSpace(status)
+		if status != "" {
+			out[status] = struct{}{}
+		}
+	}
+	return out
+}
+
+func limitWorkItems(items []WorkItem, limit int) []WorkItem {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	return items[:limit]
+}
+
+func limitAssignments(items []Assignment, limit int) []Assignment {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	return items[:limit]
 }
 
 func roleKey(projectID, id string) string {

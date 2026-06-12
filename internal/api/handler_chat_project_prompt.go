@@ -25,6 +25,21 @@ const (
 	projectChatPromptInlineMaxRunes     = 220
 )
 
+var (
+	projectChatPromptWorkItemStatuses = []string{
+		projectwork.WorkItemStatusBacklog,
+		projectwork.WorkItemStatusReady,
+		projectwork.WorkItemStatusRunning,
+		projectwork.WorkItemStatusReview,
+		projectwork.WorkItemStatusBlocked,
+	}
+	projectChatPromptAssignmentStatuses = []string{
+		projectwork.AssignmentStatusQueued,
+		projectwork.AssignmentStatusRunning,
+		projectwork.AssignmentStatusAwaitingApproval,
+	}
+)
+
 func (h *Handler) hecateChatEffectiveSystemPrompt(ctx context.Context, session chat.Session, operatorPrompt string) string {
 	operatorPrompt = strings.TrimSpace(operatorPrompt)
 	projectPrompt := h.projectChatWorkflowSystemPrompt(ctx, session)
@@ -174,8 +189,10 @@ func projectChatMemorySection(entry memory.Entry, remaining *int) (string, bool)
 }
 
 type projectChatWorkSnapshot struct {
-	WorkItems   []projectwork.WorkItem
-	Assignments []projectwork.Assignment
+	WorkItems            []projectwork.WorkItem
+	Assignments          []projectwork.Assignment
+	WorkItemsTruncated   bool
+	AssignmentsTruncated bool
 }
 
 func (h *Handler) projectChatEnabledSkills(ctx context.Context, projectID string) []projectskills.Skill {
@@ -213,15 +230,34 @@ func (h *Handler) projectChatWorkSnapshot(ctx context.Context, projectID string)
 		return projectChatWorkSnapshot{}
 	}
 	projectID = strings.TrimSpace(projectID)
-	workItems, err := h.projectWork.ListWorkItems(ctx, projectID)
+	workItems, err := h.projectWork.ListWorkItems(ctx, projectID, projectwork.ListOptions{
+		Statuses: projectChatPromptWorkItemStatuses,
+		Limit:    projectChatPromptWorkMaxItems + 1,
+	})
 	if err != nil {
 		workItems = nil
 	}
-	assignments, err := h.projectWork.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: projectID})
+	workItemsTruncated := len(workItems) > projectChatPromptWorkMaxItems
+	if workItemsTruncated {
+		workItems = workItems[:projectChatPromptWorkMaxItems]
+	}
+	assignments, err := h.projectWork.ListAssignments(ctx, projectwork.AssignmentFilter{ProjectID: projectID}, projectwork.ListOptions{
+		Statuses: projectChatPromptAssignmentStatuses,
+		Limit:    projectChatPromptAssignmentMaxItems + 1,
+	})
 	if err != nil {
 		assignments = nil
 	}
-	return projectChatWorkSnapshot{WorkItems: workItems, Assignments: assignments}
+	assignmentsTruncated := len(assignments) > projectChatPromptAssignmentMaxItems
+	if assignmentsTruncated {
+		assignments = assignments[:projectChatPromptAssignmentMaxItems]
+	}
+	return projectChatWorkSnapshot{
+		WorkItems:            workItems,
+		Assignments:          assignments,
+		WorkItemsTruncated:   workItemsTruncated,
+		AssignmentsTruncated: assignmentsTruncated,
+	}
 }
 
 func projectChatSkillHintText(skills []projectskills.Skill, maxItems int) string {
@@ -255,13 +291,13 @@ func projectChatWorkHintText(snapshot projectChatWorkSnapshot, maxWorkItems, max
 	if len(snapshot.WorkItems) == 0 && len(snapshot.Assignments) == 0 {
 		return ""
 	}
-	lines := []string{"Project work snapshot:"}
+	lines := []string{"Active project work snapshot:"}
 	if len(snapshot.WorkItems) > 0 {
-		lines = append(lines, "Work item status counts: "+projectChatWorkStatusCounts(snapshot.WorkItems))
+		lines = append(lines, "Shown active work item status counts: "+projectChatWorkStatusCounts(snapshot.WorkItems))
 		included := 0
 		for _, item := range snapshot.WorkItems {
 			if included >= maxWorkItems {
-				lines = append(lines, fmt.Sprintf("- %d additional work items omitted.", len(snapshot.WorkItems)-included))
+				lines = append(lines, "- Additional active work items omitted.")
 				break
 			}
 			line := "- Work item " + labelWithID(item.Title, item.ID) + ": status=" + firstNonEmptyString(strings.TrimSpace(item.Status), projectwork.WorkItemStatusBacklog)
@@ -277,13 +313,16 @@ func projectChatWorkHintText(snapshot projectChatWorkSnapshot, maxWorkItems, max
 			lines = append(lines, line)
 			included++
 		}
+		if snapshot.WorkItemsTruncated {
+			lines = append(lines, "- Additional active work items omitted.")
+		}
 	}
 	if len(snapshot.Assignments) > 0 {
-		lines = append(lines, "Assignments:")
+		lines = append(lines, "Active assignments:")
 		included := 0
 		for _, assignment := range snapshot.Assignments {
 			if included >= maxAssignments {
-				lines = append(lines, fmt.Sprintf("- %d additional assignments omitted.", len(snapshot.Assignments)-included))
+				lines = append(lines, "- Additional active assignments omitted.")
 				break
 			}
 			line := "- Assignment " + firstNonEmptyString(strings.TrimSpace(assignment.ID), "assignment") +
@@ -293,6 +332,9 @@ func projectChatWorkHintText(snapshot projectChatWorkSnapshot, maxWorkItems, max
 				", driver=" + firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask)
 			lines = append(lines, line)
 			included++
+		}
+		if snapshot.AssignmentsTruncated {
+			lines = append(lines, "- Additional active assignments omitted.")
 		}
 	}
 	return strings.Join(lines, "\n")

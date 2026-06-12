@@ -373,6 +373,80 @@ func TestStoreConformance_ProjectCleanup(t *testing.T) {
 	}
 }
 
+func TestStoreConformance_ListOptionsLimitAndStatuses(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		new  func(*testing.T) Store
+	}{
+		{name: "memory", new: func(t *testing.T) Store { return NewMemoryStore() }},
+		{name: "sqlite", new: func(t *testing.T) Store { return newSQLiteTestStore(t) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			store := tc.new(t)
+			for _, item := range []WorkItem{
+				{ID: "work_backlog", ProjectID: "proj_alpha", Title: "Backlog", Status: WorkItemStatusBacklog},
+				{ID: "work_ready", ProjectID: "proj_alpha", Title: "Ready", Status: WorkItemStatusReady},
+				{ID: "work_done", ProjectID: "proj_alpha", Title: "Done", Status: WorkItemStatusDone},
+			} {
+				if _, err := store.CreateWorkItem(ctx, item); err != nil {
+					t.Fatalf("CreateWorkItem(%s): %v", item.ID, err)
+				}
+			}
+			activeWork, err := store.ListWorkItems(ctx, "proj_alpha", ListOptions{
+				Statuses: []string{WorkItemStatusReady, WorkItemStatusBacklog},
+			})
+			if err != nil {
+				t.Fatalf("ListWorkItems(active): %v", err)
+			}
+			if len(activeWork) != 2 || workItemIDExists(activeWork, "work_done") {
+				t.Fatalf("active work items = %+v, want ready/backlog only", activeWork)
+			}
+			limitedWork, err := store.ListWorkItems(ctx, "proj_alpha", ListOptions{
+				Statuses: []string{WorkItemStatusReady, WorkItemStatusBacklog},
+				Limit:    1,
+			})
+			if err != nil {
+				t.Fatalf("ListWorkItems(limited): %v", err)
+			}
+			if len(limitedWork) != 1 || limitedWork[0].Status == WorkItemStatusDone {
+				t.Fatalf("limited work items = %+v, want one active item", limitedWork)
+			}
+
+			for _, assignment := range []Assignment{
+				{ID: "asgn_queued", ProjectID: "proj_alpha", WorkItemID: "work_ready", RoleID: "architect", Status: AssignmentStatusQueued},
+				{ID: "asgn_running", ProjectID: "proj_alpha", WorkItemID: "work_ready", RoleID: "software_developer", Status: AssignmentStatusRunning},
+				{ID: "asgn_completed", ProjectID: "proj_alpha", WorkItemID: "work_ready", RoleID: "reviewer_qa", Status: AssignmentStatusCompleted},
+			} {
+				if _, err := store.CreateAssignment(ctx, assignment); err != nil {
+					t.Fatalf("CreateAssignment(%s): %v", assignment.ID, err)
+				}
+			}
+			activeAssignments, err := store.ListAssignments(ctx, AssignmentFilter{ProjectID: "proj_alpha"}, ListOptions{
+				Statuses: []string{AssignmentStatusQueued, AssignmentStatusRunning},
+			})
+			if err != nil {
+				t.Fatalf("ListAssignments(active): %v", err)
+			}
+			if len(activeAssignments) != 2 || assignmentIDExists(activeAssignments, "asgn_completed") {
+				t.Fatalf("active assignments = %+v, want queued/running only", activeAssignments)
+			}
+			limitedAssignments, err := store.ListAssignments(ctx, AssignmentFilter{ProjectID: "proj_alpha"}, ListOptions{
+				Statuses: []string{AssignmentStatusQueued, AssignmentStatusRunning},
+				Limit:    1,
+			})
+			if err != nil {
+				t.Fatalf("ListAssignments(limited): %v", err)
+			}
+			if len(limitedAssignments) != 1 || limitedAssignments[0].Status == AssignmentStatusCompleted {
+				t.Fatalf("limited assignments = %+v, want one active assignment", limitedAssignments)
+			}
+		})
+	}
+}
+
 func TestMemoryStore_UpdateRejectsIDChanges(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -523,6 +597,24 @@ func newSQLiteTestStore(t *testing.T) *SQLiteStore {
 func roleIDExists(roles []AgentRoleProfile, id string) bool {
 	for _, role := range roles {
 		if role.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func workItemIDExists(items []WorkItem, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func assignmentIDExists(items []Assignment, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
 			return true
 		}
 	}

@@ -2766,7 +2766,7 @@ the user message and assistant output.
 - `system_prompt` — applied to tools-off turns and new task-backed Hecate Chat
   segments. When the chat is linked to a project, Hecate prepends hidden
   project workflow guidance and bounded project context before the operator
-  prompt. That guidance uses the same project/role/skill/current-work/memory
+  prompt. That guidance uses the same project/role/skill/active-work/memory
   vocabulary as project assignment launch context and keeps Chat conversational
   while telling the model to treat project-planning intent as proposal-only
   Project Assistant work; it does not grant direct project mutation rights.
@@ -3040,7 +3040,7 @@ Section values currently used by the runtime are:
 - `memory` for project memory entries
 - `workspace` for the selected workspace path
 - `project` for project identity metadata
-- `project_work` for chat-visible current work metadata and assignment launch work-item, assignment, role, execution-hint, handoff, and artifact-reference metadata
+- `project_work` for chat-visible active work metadata and assignment launch work-item, assignment, role, execution-hint, handoff, and artifact-reference metadata
 - `sources` for enabled project context-source metadata such as `workspace_doc` and `project_notes`
 - `runtime` for transcript counts, task-runtime metadata, and external-agent session metadata
 

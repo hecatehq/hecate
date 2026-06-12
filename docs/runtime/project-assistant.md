@@ -487,7 +487,7 @@ Hecate Chat stays visually simple. Project-linked Hecate Chat turns receive
 hidden project workflow guidance and bounded project context so the model can
 infer when an operator is asking for planning, assignment, handoff, or memory
 work. That guidance uses the same project, role, enabled skill metadata,
-current work-state, and accepted-memory vocabulary as project assignment launch
+active work-state, and accepted-memory vocabulary as project assignment launch
 context, so Chat and project agents share one mental model without adding
 controls to the conversation view. Skill entries remain metadata only; Chat does
 not load or inject `SKILL.md` bodies. It tells the model to treat durable
