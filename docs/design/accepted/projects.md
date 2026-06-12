@@ -340,6 +340,13 @@ Queued assignment launches now show a launch preflight context packet before
 dispatch; confirming the preview starts the native task or prepares the External
 Agent chat, while preflight itself creates no task, run, chat session, artifact,
 memory entry, or assignment update.
+Project roots now model concrete checkouts for assignment execution: work items
+and assignments can select a root by `root_id`, and launch resolution uses
+assignment root, work-item root, project default root, then first active root.
+Operators can explicitly create linked Git worktrees from an existing project
+root; V1 registers the created checkout as a project root and constrains the
+target to a direct child of the base root's `.worktrees/` directory so Hecate
+does not create arbitrary sibling or nested workspaces.
 The Projects UI also derives a compact project timeline / decision log from
 activity rows, structured handoffs, collaboration artifacts, project memory
 entries, and memory candidates; explicit decisions are only shown when existing
@@ -391,7 +398,10 @@ Because Hecate has no stable users yet, later cleanup can remove legacy path-der
 9. Add project activity aggregation. Done for the read-only V1 inbox.
 10. Add structured handoffs. Done for memory + SQLite store parity, API, UI
     actions, and activity projection signals.
-11. Update docs, screenshots, and e2e coverage. Partial: docs, focused UI/API
+11. Add project-root selection and explicit worktree creation. Done for
+    work-item/assignment root overrides, launch preflight/start snapshots, and
+    operator-triggered Git worktree creation under `.worktrees/`.
+12. Update docs, screenshots, and e2e coverage. Partial: docs, focused UI/API
     tests, and an API-level project journey regression are updated; broad UI
     end-to-end project journeys remain beta-hardening work.
 

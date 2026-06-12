@@ -164,11 +164,11 @@ func (h *Handler) projectHecateTaskAssignmentPreflightContext(ctx context.Contex
 	if active {
 		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusConflict, errCodeConflict, "assignment already has active execution")
 	}
-	plan, err := h.projectWorkApplication().ResolveTaskAssignmentLaunchPlan(ctx, project, role)
+	plan, err := h.projectWorkApplication().ResolveTaskAssignmentLaunchPlan(ctx, project, workItem, assignment, role)
 	if err != nil {
 		return chat.ContextPacket{}, err
 	}
-	packet := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, plan.WorkingDirectory, plan.RequestedProvider, plan.RequestedModel, plan.ExecutionProfile, plan.Profile, plan.ResolvedSkills, plan.PromptContext)
+	packet := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, plan.Root, plan.WorkingDirectory, plan.RequestedProvider, plan.RequestedModel, plan.ExecutionProfile, plan.Profile, plan.ResolvedSkills, plan.PromptContext)
 	appendProjectAssignmentLaunchPreflight(&packet, projectwork.AssignmentDriverHecateTask, []string{
 		"Task: created on start",
 		"Run: created on start",
@@ -187,7 +187,7 @@ func (h *Handler) projectExternalAgentAssignmentPreflightContext(ctx context.Con
 	if strings.TrimSpace(assignment.ExecutionRef.ChatSessionID) != "" {
 		return chat.ContextPacket{}, newProjectAssignmentPreflightError(http.StatusConflict, errCodeConflict, "external-agent assignment already has a prepared chat session")
 	}
-	plan, err := h.projectWorkApplication().ResolveExternalAgentAssignmentLaunchPlan(ctx, project, workItem, role)
+	plan, err := h.projectWorkApplication().ResolveExternalAgentAssignmentLaunchPlan(ctx, project, workItem, assignment, role)
 	if err != nil {
 		var launchErr projectworkapp.LaunchPlanError
 		if errors.As(err, &launchErr) && launchErr.Kind == projectworkapp.LaunchPlanAdapterNotFound {
@@ -301,12 +301,12 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 		return
 	}
 
-	plan, err := h.projectWorkApplication().ResolveTaskAssignmentLaunchPlan(ctx, project, role)
+	plan, err := h.projectWorkApplication().ResolveTaskAssignmentLaunchPlan(ctx, project, workItem, assignment, role)
 	if err != nil {
 		WriteError(w, projectAssignmentPreflightHTTPStatus(err), projectAssignmentPreflightErrorCode(err), err.Error())
 		return
 	}
-	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, plan.WorkingDirectory, plan.RequestedProvider, plan.RequestedModel, plan.ExecutionProfile, plan.Profile, plan.ResolvedSkills, plan.PromptContext)
+	contextPacket := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, plan.Root, plan.WorkingDirectory, plan.RequestedProvider, plan.RequestedModel, plan.ExecutionProfile, plan.Profile, plan.ResolvedSkills, plan.PromptContext)
 	if contextPacket.ID == "" {
 		contextPacket.ID = newChatID("ctx")
 	}
@@ -370,7 +370,7 @@ func (h *Handler) HandleStartProjectWorkAssignment(w http.ResponseWriter, r *htt
 }
 
 func (h *Handler) projectExternalAgentAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, plan projectworkapp.ExternalAgentAssignmentLaunchPlan, sessionID string) chat.ContextPacket {
-	packet := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, plan.Workspace, "", "", plan.ExecutionProfile, plan.Profile, plan.ResolvedSkills, projectworkapp.AssignmentPromptContext{})
+	packet := h.projectAssignmentContextPacket(ctx, project, workItem, assignment, role, plan.Root, plan.Workspace, "", "", plan.ExecutionProfile, plan.Profile, plan.ResolvedSkills, projectworkapp.AssignmentPromptContext{})
 	packet.ExecutionMode = chat.ExecutionModeExternalAgent
 	packet.Provider = ""
 	packet.Model = ""
@@ -400,7 +400,7 @@ func (h *Handler) startProjectExternalAgentAssignment(w http.ResponseWriter, r *
 		WriteJSON(w, http.StatusConflict, ProjectWorkAssignmentEnvelope{Object: "project_assignment", Data: projected})
 		return
 	}
-	plan, err := h.projectWorkApplication().ResolveExternalAgentAssignmentLaunchPlan(ctx, project, workItem, role)
+	plan, err := h.projectWorkApplication().ResolveExternalAgentAssignmentLaunchPlan(ctx, project, workItem, assignment, role)
 	if err != nil {
 		var launchErr projectworkapp.LaunchPlanError
 		if errors.As(err, &launchErr) && launchErr.Kind == projectworkapp.LaunchPlanAdapterNotFound {

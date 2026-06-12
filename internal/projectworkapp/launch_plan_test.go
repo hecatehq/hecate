@@ -80,7 +80,7 @@ func TestApplication_ResolveTaskAssignmentLaunchPlanAppliesProfileHintsAndPrompt
 		SkillIDs:            []string{"missing_skill"},
 	}
 
-	plan, err := app.ResolveTaskAssignmentLaunchPlan(ctx, project, role)
+	plan, err := app.ResolveTaskAssignmentLaunchPlan(ctx, project, launchPlanTestWorkItem(), launchPlanTestAssignment(), role)
 	if err != nil {
 		t.Fatalf("ResolveTaskAssignmentLaunchPlan() error = %v", err)
 	}
@@ -126,7 +126,7 @@ func TestApplication_ResolveTaskAssignmentLaunchPlanRejectsMissingModel(t *testi
 	t.Parallel()
 
 	app := New(Options{})
-	_, err := app.ResolveTaskAssignmentLaunchPlan(context.Background(), launchPlanTestProject(t.TempDir()), projectwork.AgentRoleProfile{Name: "Builder"})
+	_, err := app.ResolveTaskAssignmentLaunchPlan(context.Background(), launchPlanTestProject(t.TempDir()), launchPlanTestWorkItem(), launchPlanTestAssignment(), projectwork.AgentRoleProfile{Name: "Builder"})
 	var launchErr LaunchPlanError
 	if !errors.As(err, &launchErr) || launchErr.Kind != LaunchPlanModelNotConfigured {
 		t.Fatalf("ResolveTaskAssignmentLaunchPlan() error = %v, want LaunchPlanModelNotConfigured", err)
@@ -137,12 +137,52 @@ func TestApplication_ResolveTaskAssignmentLaunchPlanUsesRuntimeDefaultModel(t *t
 	t.Parallel()
 
 	app := New(Options{RuntimeDefaultModel: "runtime-default"})
-	plan, err := app.ResolveTaskAssignmentLaunchPlan(context.Background(), launchPlanTestProject(t.TempDir()), projectwork.AgentRoleProfile{Name: "Builder"})
+	plan, err := app.ResolveTaskAssignmentLaunchPlan(context.Background(), launchPlanTestProject(t.TempDir()), launchPlanTestWorkItem(), launchPlanTestAssignment(), projectwork.AgentRoleProfile{Name: "Builder"})
 	if err != nil {
 		t.Fatalf("ResolveTaskAssignmentLaunchPlan() error = %v", err)
 	}
 	if plan.RequestedModel != "runtime-default" {
 		t.Fatalf("requested model = %q, want runtime-default", plan.RequestedModel)
+	}
+}
+
+func TestSelectAssignmentRootPrecedence(t *testing.T) {
+	t.Parallel()
+
+	project := projects.Project{
+		ID:            "proj_1",
+		DefaultRootID: "root_default",
+		Roots: []projects.Root{
+			{ID: "root_default", Path: "/workspace/default", Active: false},
+			{ID: "root_active", Path: "/workspace/active", Active: true},
+			{ID: "root_work", Path: "/workspace/work", Active: true},
+			{ID: "root_assignment", Path: "/workspace/assignment", Active: true},
+		},
+	}
+	workItem := projectwork.WorkItem{ID: "work_1", RootID: "root_work"}
+	assignment := projectwork.Assignment{ID: "asgn_1", RootID: "root_assignment"}
+
+	root, ok := SelectAssignmentRoot(project, workItem, assignment)
+	if !ok || root.ID != "root_assignment" {
+		t.Fatalf("assignment override root = %+v ok=%v, want root_assignment", root, ok)
+	}
+
+	assignment.RootID = ""
+	root, ok = SelectAssignmentRoot(project, workItem, assignment)
+	if !ok || root.ID != "root_work" {
+		t.Fatalf("work item root = %+v ok=%v, want root_work", root, ok)
+	}
+
+	workItem.RootID = ""
+	root, ok = SelectAssignmentRoot(project, workItem, assignment)
+	if !ok || root.ID != "root_default" {
+		t.Fatalf("project default root = %+v ok=%v, want root_default", root, ok)
+	}
+
+	project.DefaultRootID = ""
+	root, ok = SelectAssignmentRoot(project, workItem, assignment)
+	if !ok || root.ID != "root_active" {
+		t.Fatalf("active root fallback = %+v ok=%v, want root_active", root, ok)
 	}
 }
 
@@ -169,7 +209,7 @@ func TestApplication_ResolveExternalAgentAssignmentLaunchPlanResolvesAdapter(t *
 		DefaultAgentProfile: "prof_codex",
 	}
 
-	plan, err := app.ResolveExternalAgentAssignmentLaunchPlan(ctx, launchPlanTestProject(t.TempDir()), launchPlanTestWorkItem(), role)
+	plan, err := app.ResolveExternalAgentAssignmentLaunchPlan(ctx, launchPlanTestProject(t.TempDir()), launchPlanTestWorkItem(), launchPlanTestAssignment(), role)
 	if err != nil {
 		t.Fatalf("ResolveExternalAgentAssignmentLaunchPlan() error = %v", err)
 	}
@@ -247,7 +287,7 @@ func TestApplication_ResolveExternalAgentAssignmentLaunchPlanErrors(t *testing.T
 				Name:                "External implementer",
 				DefaultAgentProfile: tc.profile.ID,
 			}
-			_, err := app.ResolveExternalAgentAssignmentLaunchPlan(ctx, project, workItem, role)
+			_, err := app.ResolveExternalAgentAssignmentLaunchPlan(ctx, project, workItem, launchPlanTestAssignment(), role)
 			var launchErr LaunchPlanError
 			if !errors.As(err, &launchErr) || launchErr.Kind != tc.want {
 				t.Fatalf("ResolveExternalAgentAssignmentLaunchPlan() error = %v, want %s", err, tc.want)

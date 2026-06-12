@@ -13,6 +13,7 @@ import {
   createProjectAssignment,
   createProjectHandoff,
   createProjectMemory,
+  createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteProjectAssignment,
@@ -258,6 +259,7 @@ vi.mock("../../lib/api", async (importOriginal) => {
     })),
     startProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
     createProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
+    createProjectWorktreeRoot: vi.fn(async () => ({ object: "project", data: null })),
     createProjectAssignment: vi.fn(async () => ({ object: "project_assignment", data: null })),
     createProjectWorkRole: vi.fn(async () => ({ object: "project_role", data: null })),
     updateProjectWorkRole: vi.fn(async () => ({ object: "project_role", data: null })),
@@ -1008,6 +1010,7 @@ afterEach(() => {
   vi.mocked(rejectProjectMemoryCandidate).mockReset();
   vi.mocked(startProjectAssignment).mockReset();
   vi.mocked(createProjectWorkItem).mockReset();
+  vi.mocked(createProjectWorktreeRoot).mockReset();
   vi.mocked(createProjectAssignment).mockReset();
   vi.mocked(createProjectWorkRole).mockReset();
   vi.mocked(updateProjectWorkRole).mockReset();
@@ -3758,6 +3761,49 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
+  it("sends selected project roots when creating work items", async () => {
+    resetProjectWorkMocks();
+    const rootedProject: ProjectRecord = {
+      ...project,
+      roots: [
+        ...project.roots,
+        {
+          id: "root_feature",
+          path: "/Users/alice/dev/hecate/.worktrees/feature",
+          kind: "git_worktree",
+          git_branch: "feature/project-roots",
+          active: true,
+          created_at: "2026-06-01T10:00:00Z",
+          updated_at: "2026-06-01T10:00:00Z",
+        },
+      ],
+    };
+    window.localStorage.setItem("hecate.project", rootedProject.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [rootedProject],
+      activeProjectID: rootedProject.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Work" }));
+    fireEvent.change(screen.getByLabelText("Title"), {
+      target: { value: "Rooted work" },
+    });
+    fireEvent.change(screen.getByLabelText("Root"), {
+      target: { value: "root_feature" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Create work item" }));
+
+    expect(createProjectWorkItem).toHaveBeenCalledWith(rootedProject.id, {
+      title: "Rooted work",
+      brief: undefined,
+      status: "ready",
+      priority: "normal",
+      owner_role_id: "software_developer",
+      root_id: "root_feature",
+    });
+  });
+
   it("edits and deletes work items from the selected detail", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);
@@ -3788,6 +3834,7 @@ describe("ProjectsView cockpit", () => {
       status: "review",
       priority: "urgent",
       owner_role_id: "software_developer",
+      root_id: "",
       reviewer_role_ids: ["reviewer_qa"],
     });
 
@@ -3818,6 +3865,43 @@ describe("ProjectsView cockpit", () => {
     expect(createProjectAssignment).toHaveBeenCalledWith(project.id, workItem.id, {
       role_id: "software_developer",
       driver_kind: "external_agent",
+    });
+  });
+
+  it("sends selected project roots when creating assignments", async () => {
+    resetProjectWorkMocks();
+    const rootedProject: ProjectRecord = {
+      ...project,
+      roots: [
+        ...project.roots,
+        {
+          id: "root_feature",
+          path: "/Users/alice/dev/hecate/.worktrees/feature",
+          kind: "git_worktree",
+          git_branch: "feature/project-roots",
+          active: true,
+          created_at: "2026-06-01T10:00:00Z",
+          updated_at: "2026-06-01T10:00:00Z",
+        },
+      ],
+    };
+    window.localStorage.setItem("hecate.project", rootedProject.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [rootedProject],
+      activeProjectID: rootedProject.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Assignment" }));
+    fireEvent.change(screen.getByLabelText("Root"), {
+      target: { value: "root_feature" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Add assignment" }));
+
+    expect(createProjectAssignment).toHaveBeenCalledWith(rootedProject.id, workItem.id, {
+      role_id: "software_developer",
+      driver_kind: "hecate_task",
+      root_id: "root_feature",
     });
   });
 
@@ -4324,6 +4408,7 @@ describe("ProjectsView cockpit", () => {
       hecateAssignment.id,
       {
         role_id: "software_developer",
+        root_id: "",
         driver_kind: "external_agent",
         status: "running",
         execution_ref: {
@@ -4547,6 +4632,60 @@ describe("ProjectsView cockpit", () => {
         name: "Active project root /Users/alice/dev/hecate/.claude/worktrees/fix-array-sort",
       }),
     ).not.toBeChecked();
+  });
+
+  it("creates project worktrees from settings", async () => {
+    resetProjectWorkMocks();
+    const projectWithCreatedWorktree: ProjectRecord = {
+      ...project,
+      roots: [
+        ...project.roots,
+        {
+          id: "root_created",
+          path: "/Users/alice/dev/hecate/.worktrees/feature-project-roots",
+          kind: "git_worktree",
+          git_branch: "feature/project-roots",
+          active: true,
+          created_at: "2026-06-01T10:00:00Z",
+          updated_at: "2026-06-01T10:00:00Z",
+        },
+      ],
+      default_root_id: "root_created",
+    };
+    vi.mocked(createProjectWorktreeRoot).mockResolvedValue({
+      object: "project",
+      data: projectWithCreatedWorktree,
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Project settings" }));
+    await userEvent.click(screen.getByRole("button", { name: "Create worktree" }));
+    const dialog = screen.getByRole("dialog", { name: "Create project worktree" });
+    fireEvent.change(within(dialog).getByLabelText("Branch"), {
+      target: { value: "feature/project-roots" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Start point"), {
+      target: { value: "origin/main" },
+    });
+    await userEvent.click(within(dialog).getByLabelText("Make default root"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create worktree" }));
+
+    expect(createProjectWorktreeRoot).toHaveBeenCalledWith(project.id, {
+      branch: "feature/project-roots",
+      base_root_id: "root_1",
+      start_point: "origin/main",
+      path: undefined,
+      active: true,
+      set_default: true,
+    });
+    expect(
+      await screen.findAllByText("/Users/alice/dev/hecate/.worktrees/feature-project-roots"),
+    ).toHaveLength(2);
   });
 
   it("starts native Hecate assignments and refreshes detail state", async () => {

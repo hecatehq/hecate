@@ -8,6 +8,7 @@ import {
   createProjectHandoff,
   createProjectMemory,
   createProjectMemoryCandidate,
+  createProjectWorktreeRoot,
   createProjectWorkRole,
   createProjectWorkItem,
   deleteChatGrant,
@@ -596,9 +597,11 @@ describe("api client", () => {
       status: "ready",
       priority: "high",
       owner_role_id: "software_developer",
+      root_id: "root_worktree",
     });
     await createProjectAssignment("proj_1", "work_1", {
       role_id: "software_developer",
+      root_id: "root_worktree",
       driver_kind: "hecate_task",
     });
 
@@ -613,6 +616,7 @@ describe("api client", () => {
           status: "ready",
           priority: "high",
           owner_role_id: "software_developer",
+          root_id: "root_worktree",
         }),
       }),
     );
@@ -623,6 +627,7 @@ describe("api client", () => {
         method: "POST",
         body: JSON.stringify({
           role_id: "software_developer",
+          root_id: "root_worktree",
           driver_kind: "hecate_task",
         }),
       }),
@@ -702,10 +707,12 @@ describe("api client", () => {
       status: "ready",
       priority: "urgent",
       owner_role_id: "frontend_engineer",
+      root_id: "",
     });
     await deleteProjectWorkItem("proj/1", "work/1");
     await updateProjectAssignment("proj/1", "work/1", "asgn/1", {
       role_id: "frontend_engineer",
+      root_id: "root_review",
       driver_kind: "external_agent",
       status: "running",
     });
@@ -721,6 +728,7 @@ describe("api client", () => {
           status: "ready",
           priority: "urgent",
           owner_role_id: "frontend_engineer",
+          root_id: "",
         }),
       }),
     );
@@ -736,6 +744,7 @@ describe("api client", () => {
         method: "PATCH",
         body: JSON.stringify({
           role_id: "frontend_engineer",
+          root_id: "root_review",
           driver_kind: "external_agent",
           status: "running",
         }),
@@ -780,6 +789,32 @@ describe("api client", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({}),
+      }),
+    );
+  });
+
+  it("creates project worktree roots", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ object: "project", data: { id: "proj_1" } }));
+
+    await createProjectWorktreeRoot("proj/1", {
+      base_root_id: "root_main",
+      branch: "feature/projects",
+      start_point: "origin/main",
+      active: true,
+      set_default: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/proj%2F1/roots/worktrees",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          base_root_id: "root_main",
+          branch: "feature/projects",
+          start_point: "origin/main",
+          active: true,
+          set_default: true,
+        }),
       }),
     );
   });

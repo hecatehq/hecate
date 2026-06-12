@@ -91,12 +91,13 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 				Brief:           "Persist work coordination metadata.",
 				Priority:        "high",
 				OwnerRoleID:     "software_developer",
+				RootID:          "root_feature",
 				ReviewerRoleIDs: []string{"reviewer_qa", "architect", "reviewer_qa"},
 			})
 			if err != nil {
 				t.Fatalf("CreateWorkItem: %v", err)
 			}
-			if work.Status != WorkItemStatusBacklog || len(work.ReviewerRoleIDs) != 2 || work.ReviewerRoleIDs[0] != "architect" {
+			if work.Status != WorkItemStatusBacklog || work.RootID != "root_feature" || len(work.ReviewerRoleIDs) != 2 || work.ReviewerRoleIDs[0] != "architect" {
 				t.Fatalf("work item = %+v, want defaults and normalized reviewers", work)
 			}
 
@@ -115,12 +116,13 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 
 			updatedWork, err := store.UpdateWorkItem(ctx, "proj_alpha", "work_api", func(item *WorkItem) {
 				item.Status = WorkItemStatusReady
+				item.RootID = "root_review"
 				item.ReviewerRoleIDs = []string{"reviewer_qa"}
 			})
 			if err != nil {
 				t.Fatalf("UpdateWorkItem: %v", err)
 			}
-			if updatedWork.Status != WorkItemStatusReady || len(updatedWork.ReviewerRoleIDs) != 1 {
+			if updatedWork.Status != WorkItemStatusReady || updatedWork.RootID != "root_review" || len(updatedWork.ReviewerRoleIDs) != 1 {
 				t.Fatalf("updated work item = %+v, want ready with one reviewer", updatedWork)
 			}
 
@@ -129,6 +131,7 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 				ProjectID:  "proj_alpha",
 				WorkItemID: "work_api",
 				RoleID:     "software_developer",
+				RootID:     "root_assignment",
 				ExecutionRef: AssignmentExecutionRef{
 					Kind:              AssignmentExecutionKindTaskRun,
 					TaskID:            "task_123",
@@ -140,7 +143,7 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CreateAssignment: %v", err)
 			}
-			if assignment.Status != AssignmentStatusQueued {
+			if assignment.Status != AssignmentStatusQueued || assignment.RootID != "root_assignment" {
 				t.Fatalf("assignment status = %q, want queued", assignment.Status)
 			}
 			if assignment.DriverKind != AssignmentDriverHecateTask {
@@ -157,13 +160,14 @@ func TestStoreConformance_ProjectWorkLifecycle(t *testing.T) {
 			updatedAssignment, err := store.UpdateAssignment(ctx, "proj_alpha", "asgn_impl", func(item *Assignment) {
 				item.DriverKind = AssignmentDriverExternalAgent
 				item.Status = AssignmentStatusRunning
+				item.RootID = "root_external"
 				item.StartedAt = startedAt
 				item.ContextPacket = []byte(`{"id":"ctx_456","version":"chat.context.v1"}`)
 			})
 			if err != nil {
 				t.Fatalf("UpdateAssignment: %v", err)
 			}
-			if updatedAssignment.DriverKind != AssignmentDriverExternalAgent || updatedAssignment.Status != AssignmentStatusRunning || !updatedAssignment.StartedAt.Equal(startedAt) {
+			if updatedAssignment.DriverKind != AssignmentDriverExternalAgent || updatedAssignment.Status != AssignmentStatusRunning || updatedAssignment.RootID != "root_external" || !updatedAssignment.StartedAt.Equal(startedAt) {
 				t.Fatalf("updated assignment = %+v, want running with start time", updatedAssignment)
 			}
 			if string(updatedAssignment.ContextPacket) != `{"id":"ctx_456","version":"chat.context.v1"}` {

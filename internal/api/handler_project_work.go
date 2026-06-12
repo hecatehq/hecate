@@ -41,6 +41,7 @@ type createProjectWorkItemRequest struct {
 	Status          string   `json:"status,omitempty"`
 	Priority        string   `json:"priority,omitempty"`
 	OwnerRoleID     string   `json:"owner_role_id,omitempty"`
+	RootID          string   `json:"root_id,omitempty"`
 	ReviewerRoleIDs []string `json:"reviewer_role_ids,omitempty"`
 }
 
@@ -50,12 +51,14 @@ type updateProjectWorkItemRequest struct {
 	Status          *string   `json:"status,omitempty"`
 	Priority        *string   `json:"priority,omitempty"`
 	OwnerRoleID     *string   `json:"owner_role_id,omitempty"`
+	RootID          *string   `json:"root_id,omitempty"`
 	ReviewerRoleIDs *[]string `json:"reviewer_role_ids,omitempty"`
 }
 
 type createProjectWorkAssignmentRequest struct {
 	ID           string                                     `json:"id,omitempty"`
 	RoleID       string                                     `json:"role_id"`
+	RootID       string                                     `json:"root_id,omitempty"`
 	DriverKind   string                                     `json:"driver_kind,omitempty"`
 	Status       string                                     `json:"status,omitempty"`
 	ExecutionRef *ProjectWorkAssignmentExecutionRefResponse `json:"execution_ref,omitempty"`
@@ -65,6 +68,7 @@ type createProjectWorkAssignmentRequest struct {
 
 type updateProjectWorkAssignmentRequest struct {
 	RoleID       *string                                    `json:"role_id,omitempty"`
+	RootID       *string                                    `json:"root_id,omitempty"`
 	DriverKind   *string                                    `json:"driver_kind,omitempty"`
 	Status       *string                                    `json:"status,omitempty"`
 	ExecutionRef *ProjectWorkAssignmentExecutionRefResponse `json:"execution_ref,omitempty"`
@@ -174,6 +178,7 @@ type ProjectWorkItemResponse struct {
 	Status          string                          `json:"status"`
 	Priority        string                          `json:"priority"`
 	OwnerRoleID     string                          `json:"owner_role_id,omitempty"`
+	RootID          string                          `json:"root_id,omitempty"`
 	ReviewerRoleIDs []string                        `json:"reviewer_role_ids,omitempty"`
 	Assignments     []ProjectWorkAssignmentResponse `json:"assignments,omitempty"`
 	CreatedAt       string                          `json:"created_at"`
@@ -227,6 +232,7 @@ type ProjectWorkAssignmentResponse struct {
 	ProjectID    string                                     `json:"project_id"`
 	WorkItemID   string                                     `json:"work_item_id"`
 	RoleID       string                                     `json:"role_id"`
+	RootID       string                                     `json:"root_id,omitempty"`
 	DriverKind   string                                     `json:"driver_kind"`
 	Status       string                                     `json:"status"`
 	CreatedAt    string                                     `json:"created_at"`
@@ -425,6 +431,9 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	if !h.requireProjectRootRef(w, r, projectID, req.RootID) {
+		return
+	}
 	item, err := h.projectWorkApplication().CreateWorkItem(r.Context(), projectID, projectworkapp.CreateWorkItemCommand{
 		ID:              req.ID,
 		Title:           req.Title,
@@ -432,6 +441,7 @@ func (h *Handler) HandleCreateProjectWorkItem(w http.ResponseWriter, r *http.Req
 		Status:          req.Status,
 		Priority:        req.Priority,
 		OwnerRoleID:     req.OwnerRoleID,
+		RootID:          req.RootID,
 		ReviewerRoleIDs: req.ReviewerRoleIDs,
 	})
 	if !writeProjectWorkError(w, err) {
@@ -476,12 +486,16 @@ func (h *Handler) HandleUpdateProjectWorkItem(w http.ResponseWriter, r *http.Req
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	if req.RootID != nil && !h.requireProjectRootRef(w, r, projectID, *req.RootID) {
+		return
+	}
 	item, err := h.projectWorkApplication().UpdateWorkItem(r.Context(), projectID, r.PathValue("work_item_id"), projectworkapp.UpdateWorkItemCommand{
 		Title:           req.Title,
 		Brief:           req.Brief,
 		Status:          req.Status,
 		Priority:        req.Priority,
 		OwnerRoleID:     req.OwnerRoleID,
+		RootID:          req.RootID,
 		ReviewerRoleIDs: req.ReviewerRoleIDs,
 	})
 	if !writeProjectWorkError(w, err) {
@@ -539,6 +553,9 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	if !h.requireProjectRootRef(w, r, projectID, req.RootID) {
+		return
+	}
 	startedAt, completedAt, ok := parseProjectWorkRequestTimes(w, req.StartedAt, req.CompletedAt)
 	if !ok {
 		return
@@ -546,6 +563,7 @@ func (h *Handler) HandleCreateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	item, err := h.projectWorkApplication().CreateAssignment(r.Context(), projectID, workItemID, projectworkapp.CreateAssignmentCommand{
 		ID:           req.ID,
 		RoleID:       req.RoleID,
+		RootID:       req.RootID,
 		DriverKind:   req.DriverKind,
 		Status:       req.Status,
 		ExecutionRef: projectWorkAssignmentExecutionRefFromRequest(req.ExecutionRef),
@@ -574,6 +592,9 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	if req.RootID != nil && !h.requireProjectRootRef(w, r, projectID, *req.RootID) {
+		return
+	}
 	startedAt, completedAt, ok := parseProjectWorkOptionalRequestTimes(w, req.StartedAt, req.CompletedAt)
 	if !ok {
 		return
@@ -588,6 +609,7 @@ func (h *Handler) HandleUpdateProjectWorkAssignment(w http.ResponseWriter, r *ht
 	}
 	item, err := h.projectWorkApplication().UpdateAssignment(r.Context(), projectID, assignmentID, projectworkapp.UpdateAssignmentCommand{
 		RoleID:       req.RoleID,
+		RootID:       req.RootID,
 		DriverKind:   req.DriverKind,
 		Status:       req.Status,
 		ExecutionRef: projectWorkAssignmentExecutionRefPtrFromRequest(req.ExecutionRef),
@@ -937,6 +959,29 @@ func (h *Handler) requireProject(w http.ResponseWriter, r *http.Request, project
 	return true
 }
 
+func (h *Handler) requireProjectRootRef(w http.ResponseWriter, r *http.Request, projectID, rootID string) bool {
+	rootID = strings.TrimSpace(rootID)
+	if rootID == "" {
+		return true
+	}
+	project, ok, err := h.projects.Get(r.Context(), projectID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return false
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "project not found")
+		return false
+	}
+	for _, root := range project.Roots {
+		if strings.TrimSpace(root.ID) == rootID {
+			return true
+		}
+	}
+	WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "root_id does not match a project root")
+	return false
+}
+
 func (h *Handler) requireProjectWorkItem(w http.ResponseWriter, r *http.Request, projectID, workItemID string) bool {
 	if !h.requireProject(w, r, projectID) {
 		return false
@@ -1121,6 +1166,7 @@ func renderProjectWorkItem(item projectwork.WorkItem) ProjectWorkItemResponse {
 		Status:          item.Status,
 		Priority:        item.Priority,
 		OwnerRoleID:     item.OwnerRoleID,
+		RootID:          item.RootID,
 		ReviewerRoleIDs: append([]string(nil), item.ReviewerRoleIDs...),
 		CreatedAt:       formatOptionalTime(item.CreatedAt),
 		UpdatedAt:       formatOptionalTime(item.UpdatedAt),
@@ -1133,6 +1179,7 @@ func renderProjectWorkAssignment(item projectwork.Assignment) ProjectWorkAssignm
 		ProjectID:   item.ProjectID,
 		WorkItemID:  item.WorkItemID,
 		RoleID:      item.RoleID,
+		RootID:      item.RootID,
 		DriverKind:  item.DriverKind,
 		Status:      item.Status,
 		CreatedAt:   formatOptionalTime(item.CreatedAt),

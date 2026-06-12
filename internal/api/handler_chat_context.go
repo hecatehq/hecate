@@ -370,7 +370,7 @@ func (h *Handler) externalAgentContextPacket(ctx context.Context, session chat.S
 	return packet
 }
 
-func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, workingDirectory, provider, model, executionProfile string, profile projectworkapp.ResolvedAgentProfile, skills projectworkapp.ResolvedProjectSkills, promptContext projectworkapp.AssignmentPromptContext) chat.ContextPacket {
+func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project projects.Project, workItem projectwork.WorkItem, assignment projectwork.Assignment, role projectwork.AgentRoleProfile, root projects.Root, workingDirectory, provider, model, executionProfile string, profile projectworkapp.ResolvedAgentProfile, skills projectworkapp.ResolvedProjectSkills, promptContext projectworkapp.AssignmentPromptContext) chat.ContextPacket {
 	packet := baseChatContextPacket(chat.ExecutionModeHecateTask, provider, model, workingDirectory)
 	driverKind := firstNonEmptyString(strings.TrimSpace(assignment.DriverKind), projectwork.AssignmentDriverHecateTask)
 	includedReason := "Included in the native project assignment launch context"
@@ -419,6 +419,40 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 		Included:        true,
 		InclusionReason: includedReason,
 	})
+	rootLines := []string{
+		"Root ID: " + firstNonEmptyString(strings.TrimSpace(root.ID), "unresolved"),
+		"Path: " + firstNonEmptyString(strings.TrimSpace(workingDirectory), strings.TrimSpace(root.Path), "none"),
+		"Kind: " + firstNonEmptyString(strings.TrimSpace(root.Kind), "local"),
+	}
+	if branch := strings.TrimSpace(root.GitBranch); branch != "" {
+		rootLines = append(rootLines, "Git branch: "+branch)
+	}
+	if remote := strings.TrimSpace(root.GitRemote); remote != "" {
+		rootLines = append(rootLines, "Git remote: "+remote)
+	}
+	rootSelection := "project root fallback"
+	if strings.TrimSpace(assignment.RootID) != "" {
+		rootSelection = "assignment override"
+	} else if strings.TrimSpace(workItem.RootID) != "" {
+		rootSelection = "work item default"
+	} else if strings.TrimSpace(project.DefaultRootID) != "" && strings.TrimSpace(project.DefaultRootID) == strings.TrimSpace(root.ID) {
+		rootSelection = "project default"
+	}
+	rootLines = append(rootLines, "Selection: "+rootSelection)
+	appendContextPacketSourceWithSection(&packet, contextSectionProjectWork, chat.ContextSource{
+		Kind:   "project_root",
+		Label:  firstNonEmptyString(strings.TrimSpace(root.ID), "Project root"),
+		Detail: strings.TrimSpace(root.Path),
+		Trust:  "runtime",
+	}, chat.ContextItem{
+		Kind:            "project_root",
+		TrustLevel:      contextTrustRuntimeState,
+		Origin:          firstNonEmptyString(strings.TrimSpace(root.ID), "project_root"),
+		Title:           "Project root",
+		Body:            strings.Join(rootLines, "\n"),
+		Included:        true,
+		InclusionReason: includedReason,
+	})
 	appendContextPacketSourceWithSection(&packet, contextSectionProjectWork, chat.ContextSource{
 		Kind:   "role",
 		Label:  firstNonEmptyString(strings.TrimSpace(role.Name), strings.TrimSpace(role.ID)),
@@ -451,6 +485,7 @@ func (h *Handler) projectAssignmentContextPacket(ctx context.Context, project pr
 			"Provider: " + firstNonEmptyString(strings.TrimSpace(provider), "auto"),
 			"Model: " + firstNonEmptyString(strings.TrimSpace(model), "project/runtime default"),
 			"Profile: " + firstNonEmptyString(strings.TrimSpace(executionProfile), "none"),
+			"Root: " + firstNonEmptyString(strings.TrimSpace(root.ID), "project default"),
 			"Role defaults: " + formatAssignmentHints([]assignmentHint{
 				{"driver", role.DefaultDriverKind},
 				{"provider", role.DefaultProvider},

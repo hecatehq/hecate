@@ -78,6 +78,7 @@ func registerHecateProjectRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("PATCH /hecate/v1/projects/{id}", handler.HandleUpdateProject)
 	mux.HandleFunc("DELETE /hecate/v1/projects/{id}", handler.HandleDeleteProject)
 	mux.HandleFunc("POST /hecate/v1/projects/{id}/roots/discover", handler.HandleDiscoverProjectRoots)
+	mux.HandleFunc("POST /hecate/v1/projects/{id}/roots/worktrees", handler.HandleCreateProjectWorktreeRoot)
 	mux.HandleFunc("POST /hecate/v1/projects/{id}/context-sources/discover", handler.HandleDiscoverProjectContextSources)
 	mux.HandleFunc("GET /hecate/v1/projects/{id}/skills", handler.HandleProjectSkills)
 	mux.HandleFunc("POST /hecate/v1/projects/{id}/skills/discover", handler.HandleDiscoverProjectSkills)

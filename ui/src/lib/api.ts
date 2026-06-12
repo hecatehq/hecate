@@ -56,6 +56,7 @@ import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 import type { RetentionRunResponse, RetentionRunsResponse } from "../types/retention";
 import type {
   CreateProjectPayload,
+  CreateProjectWorktreeRootPayload,
   CreateProjectMemoryCandidatePayload,
   CreateProjectMemoryPayload,
   CreateProjectAssignmentPayload,
@@ -363,6 +364,19 @@ export async function discoverProjectRoots(id: string): Promise<ProjectResponse>
     {
       method: "POST",
       body: {},
+    },
+  );
+}
+
+export async function createProjectWorktreeRoot(
+  id: string,
+  payload: CreateProjectWorktreeRootPayload,
+): Promise<ProjectResponse> {
+  return fetchJSON<ProjectResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(id)}/roots/worktrees`,
+    {
+      method: "POST",
+      body: payload,
     },
   );
 }
