@@ -1,5 +1,11 @@
 import type { ProjectRecord } from "../types/project";
 
+type ProjectWorkspaceRoot = {
+  id?: string;
+  path: string;
+  active?: boolean;
+};
+
 export function projectByID(projects: ProjectRecord[], projectID: string): ProjectRecord | null {
   const id = projectID.trim();
   if (!id) return null;
@@ -8,9 +14,14 @@ export function projectByID(projects: ProjectRecord[], projectID: string): Proje
 
 export function projectDefaultWorkspace(project: ProjectRecord | null | undefined): string {
   if (!project) return "";
-  const defaultRoot = project.default_root_id
-    ? project.roots.find((root) => root.id === project.default_root_id)
-    : undefined;
-  const root = defaultRoot ?? project.roots.find((item) => item.active) ?? project.roots[0];
+  return projectDefaultWorkspaceFromRoots(project.roots, project.default_root_id);
+}
+
+export function projectDefaultWorkspaceFromRoots(
+  roots: ProjectWorkspaceRoot[],
+  defaultRootID?: string,
+): string {
+  const defaultRoot = defaultRootID ? roots.find((root) => root.id === defaultRootID) : undefined;
+  const root = defaultRoot ?? roots.find((item) => item.active) ?? roots[0];
   return root?.path.trim() ?? "";
 }
