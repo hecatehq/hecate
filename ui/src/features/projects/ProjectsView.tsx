@@ -13,15 +13,12 @@ import { useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
 import {
   ApiError,
-  applyProjectAssistant,
   createAgentProfile,
   createProjectAssignment,
   createProjectHandoff,
   discoverProjectContextSources,
   discoverProjectRoots,
   discoverProjectSkills,
-  draftProjectAssistant,
-  getProjectAssistantContext,
   createProjectMemory,
   createProjectWorkRole,
   createProjectWorkItem,
@@ -79,21 +76,12 @@ import {
   toProjectAssignmentEvidenceViewModel,
   toProjectAssignmentExecutionViewModel,
 } from "./projectAssignmentViewModels";
-import {
-  PROJECT_ASSISTANT_AUTO,
-  ProjectAssistantPanel,
-  type ProjectAssistantDraftForm,
-  type ProjectAssistantStatus,
-} from "./ProjectAssistantPanel";
+import { ProjectAssistantPanel } from "./ProjectAssistantPanel";
+import { useProjectAssistantController } from "./useProjectAssistantController";
 import type {
   ProjectAssignmentRecord,
   ProjectActivityData,
   ProjectActivityItemRecord,
-  ProjectAssistantApplyResult,
-  ProjectAssistantContextPayload,
-  ProjectAssistantContextRecord,
-  ProjectAssistantDraftPayload,
-  ProjectAssistantProposal,
   ProjectMemoryCandidateRecord,
   ProjectCollaborationArtifactRecord,
   ProjectContextSourceRecord,
@@ -439,17 +427,6 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   const [assignmentErrors, setAssignmentErrors] = useState<Record<string, string>>({});
   const [startingAssignmentID, setStartingAssignmentID] = useState("");
   const startingAssignmentIDsRef = useRef<Set<string>>(new Set());
-  const [assistantProposal, setAssistantProposal] = useState<ProjectAssistantProposal | null>(null);
-  const [assistantApplyResult, setAssistantApplyResult] =
-    useState<ProjectAssistantApplyResult | null>(null);
-  const [assistantContext, setAssistantContext] = useState<ProjectAssistantContextRecord | null>(
-    null,
-  );
-  const [assistantContextStatus, setAssistantContextStatus] = useState<LoadState>("idle");
-  const [assistantContextError, setAssistantContextError] = useState("");
-  const [assistantStatus, setAssistantStatus] = useState<ProjectAssistantStatus>("idle");
-  const [assistantError, setAssistantError] = useState("");
-  const [assistantBootstrapPending, setAssistantBootstrapPending] = useState(false);
 
   function updateRightPanelWidth(width: number) {
     setRightPanelWidth(width);
@@ -736,6 +713,26 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }, []);
 
+  const assistant = useProjectAssistantController({
+    project: selectedProject,
+    selectedProjectID,
+    selectedWorkItemID,
+    selectedWorkItem,
+    onProjectDiscovered: (project) => {
+      projects.actions.setProjects((current) => upsertProject(current, project));
+    },
+    onSkillsDiscovered: setProjectSkills,
+    onSkillsLoadState: setSkillsLoadState,
+    onDiscoveringContext: setDiscoveringContext,
+    onDiscoveringSkills: setDiscoveringSkills,
+    onMemoryError: setMemoryError,
+    onSkillsError: setSkillsError,
+    refreshProjects: projects.actions.loadProjects,
+    loadWorkForProject,
+    loadWorkItemDetail,
+    loadProjectMemory,
+  });
+
   useEffect(() => {
     void loadWorkForProject(selectedProjectID);
   }, [loadWorkForProject, selectedProjectID]);
@@ -754,14 +751,8 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
   }, [loadWorkItemDetail, selectedProjectID, selectedWorkItemID]);
 
   useEffect(() => {
-    setAssistantProposal(null);
-    setAssistantApplyResult(null);
-    setAssistantContext(null);
-    setAssistantContextError("");
-    setAssistantContextStatus("idle");
-    setAssistantError("");
-    setAssistantStatus("idle");
-  }, [selectedProjectID, selectedWorkItemID]);
+    assistant.dismiss();
+  }, [assistant.dismiss, selectedProjectID, selectedWorkItemID]);
 
   function openProject(projectID: string) {
     if (projectID !== selectedProjectID) {
@@ -1345,123 +1336,6 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     }
   }
 
-  async function handleProjectAssistantPropose(form: ProjectAssistantDraftForm) {
-    if (!selectedProject) return;
-    setAssistantStatus("proposing");
-    setAssistantError("");
-    setAssistantApplyResult(null);
-    try {
-      const proposal = await draftProjectAssistant(
-        projectAssistantDraftPayload(form, selectedProject.id, selectedWorkItem?.id),
-      );
-      setAssistantProposal(proposal.data);
-      setAssistantStatus("idle");
-    } catch (error) {
-      setAssistantStatus("idle");
-      setAssistantError(errorMessage(error, "Failed to draft Project Assistant proposal."));
-    }
-  }
-
-  async function handleProjectAssistantBootstrap() {
-    if (!selectedProjectID) return;
-    const projectID = selectedProjectID;
-    setAssistantBootstrapPending(true);
-    setAssistantStatus("proposing");
-    setAssistantError("");
-    setAssistantProposal(null);
-    setAssistantApplyResult(null);
-    setMemoryError("");
-    setSkillsError("");
-    setDiscoveringContext(true);
-    setDiscoveringSkills(true);
-    try {
-      const projectPayload = await discoverProjectContextSources(projectID);
-      projects.actions.setProjects((current) => upsertProject(current, projectPayload.data));
-      const skillsPayload = await discoverProjectSkills(projectID);
-      setProjectSkills(skillsPayload.data ?? []);
-      setSkillsLoadState("loaded");
-      const proposal = await draftProjectAssistant(
-        projectAssistantDraftPayload(
-          {
-            request: "Bootstrap project guidance",
-            roleID: PROJECT_ASSISTANT_AUTO,
-            driverKind: PROJECT_ASSISTANT_AUTO,
-            draftMode: "bootstrap",
-          },
-          projectID,
-        ),
-      );
-      setAssistantProposal(proposal.data);
-      setAssistantContext(null);
-      setAssistantContextError("");
-      setAssistantContextStatus("idle");
-    } catch (error) {
-      setAssistantError(errorMessage(error, "Failed to bootstrap project assistant context."));
-    } finally {
-      setDiscoveringContext(false);
-      setDiscoveringSkills(false);
-      setAssistantBootstrapPending(false);
-      setAssistantStatus("idle");
-    }
-  }
-
-  async function handleProjectAssistantContext(form: ProjectAssistantDraftForm) {
-    if (!selectedProject) return;
-    setAssistantContextStatus("loading");
-    setAssistantContextError("");
-    try {
-      const payload = await getProjectAssistantContext(
-        projectAssistantContextPayload(form, selectedProject.id, selectedWorkItem?.id),
-      );
-      setAssistantContext(payload.data);
-      setAssistantContextStatus("loaded");
-    } catch (error) {
-      setAssistantContext(null);
-      setAssistantContextStatus("error");
-      setAssistantContextError(errorMessage(error, "Failed to inspect Project Assistant context."));
-    }
-  }
-
-  async function handleProjectAssistantApply() {
-    if (!selectedProjectID || !assistantProposal) return;
-    const proposal = assistantProposal;
-    setAssistantStatus("applying");
-    setAssistantError("");
-    try {
-      const payload = await applyProjectAssistant({ proposal, confirm: true });
-      setAssistantApplyResult(payload.data);
-      setAssistantProposal(null);
-      setAssistantStatus("applied");
-      await projects.actions.loadProjects();
-      const preferredWorkItemID =
-        projectAssistantResultWorkItemID(payload.data) || selectedWorkItemID;
-      const refreshedWorkItemID = await loadWorkForProject(selectedProjectID, preferredWorkItemID);
-      if (refreshedWorkItemID) {
-        await loadWorkItemDetail(selectedProjectID, refreshedWorkItemID);
-      }
-      await loadProjectMemory(selectedProjectID);
-    } catch (error) {
-      setAssistantStatus("idle");
-      setAssistantError(projectAssistantApplyErrorMessage(error, proposal));
-      if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
-        const refreshedWorkItemID = await loadWorkForProject(selectedProjectID, selectedWorkItemID);
-        if (refreshedWorkItemID) {
-          await loadWorkItemDetail(selectedProjectID, refreshedWorkItemID);
-        }
-      }
-    }
-  }
-
-  function dismissProjectAssistantProposal() {
-    setAssistantProposal(null);
-    setAssistantApplyResult(null);
-    setAssistantContext(null);
-    setAssistantContextError("");
-    setAssistantContextStatus("idle");
-    setAssistantError("");
-    setAssistantStatus("idle");
-  }
-
   async function handleStartAssignment(
     assignment: ProjectAssignmentRecord,
     workItemID = selectedWorkItemID,
@@ -1502,8 +1376,8 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     Boolean(selectedProject) &&
     workLoadState === "loaded" &&
     workItems.length === 0 &&
-    !assistantProposal &&
-    !assistantApplyResult;
+    !assistant.proposal &&
+    !assistant.applyResult;
   const projectEmptyTitle =
     projects.state.projects.length === 0 ? "Add a project to begin" : "Select a project";
   const projectEmptyDetail =
@@ -1617,12 +1491,12 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                 <section style={domainSectionStyle} aria-label="Project workspace">
                   {projectNeedsOnboarding ? (
                     <ProjectOnboardingPanel
-                      bootstrapPending={assistantBootstrapPending}
+                      bootstrapPending={assistant.bootstrapPending}
                       contextSourceCount={
                         (selectedProject.context_sources ?? []).filter((source) => source.enabled)
                           .length
                       }
-                      onBootstrap={() => void handleProjectAssistantBootstrap()}
+                      onBootstrap={() => void assistant.bootstrap()}
                       onCreateWork={() => {
                         setNewWorkError("");
                         setNewWorkModalOpen(true);
@@ -1638,21 +1512,21 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
                   ) : (
                     <>
                       <ProjectAssistantPanel
-                        applyResult={assistantApplyResult}
-                        bootstrapPending={assistantBootstrapPending}
-                        context={assistantContext}
-                        contextError={assistantContextError}
-                        contextStatus={assistantContextStatus}
-                        error={assistantError}
-                        onApply={() => void handleProjectAssistantApply()}
-                        onBootstrap={() => void handleProjectAssistantBootstrap()}
-                        onInspectContext={(form) => void handleProjectAssistantContext(form)}
-                        onDismiss={dismissProjectAssistantProposal}
-                        onPropose={(form) => void handleProjectAssistantPropose(form)}
+                        applyResult={assistant.applyResult}
+                        bootstrapPending={assistant.bootstrapPending}
+                        context={assistant.context}
+                        contextError={assistant.contextError}
+                        contextStatus={assistant.contextStatus}
+                        error={assistant.error}
+                        onApply={() => void assistant.apply()}
+                        onBootstrap={() => void assistant.bootstrap()}
+                        onInspectContext={(form) => void assistant.inspectContext(form)}
+                        onDismiss={assistant.dismiss}
+                        onPropose={(form) => void assistant.propose(form)}
                         project={selectedProject}
-                        proposal={assistantProposal}
+                        proposal={assistant.proposal}
                         roles={roles}
-                        status={assistantStatus}
+                        status={assistant.status}
                         workItem={selectedWorkItem}
                       />
                       <ProjectWorkspaceTabs
@@ -6494,96 +6368,6 @@ function summarizeAssignments(assignments: ProjectAssignmentRecord[]): WorkItemS
     },
     { assignmentCount: 0, activeCount: 0, failedCount: 0, completedCount: 0 },
   );
-}
-
-function projectAssistantResultWorkItemID(result: ProjectAssistantApplyResult): string {
-  for (const action of result.actions) {
-    const workItemID = action.data?.work_item_id;
-    if (workItemID) return workItemID;
-  }
-  return "";
-}
-
-function projectAssistantContextPayload(
-  form: ProjectAssistantDraftForm,
-  projectID: string,
-  workItemID?: string,
-): ProjectAssistantContextPayload {
-  const roleID = form.roleID === PROJECT_ASSISTANT_AUTO ? "" : form.roleID.trim();
-  const driverKind = form.driverKind === PROJECT_ASSISTANT_AUTO ? "" : form.driverKind.trim();
-  return {
-    project_id: projectID,
-    ...(workItemID ? { work_item_id: workItemID } : {}),
-    request: form.request,
-    ...(roleID ? { role_id: roleID } : {}),
-    ...(driverKind ? { driver_kind: driverKind } : {}),
-  };
-}
-
-function projectAssistantDraftPayload(
-  form: ProjectAssistantDraftForm,
-  projectID: string,
-  workItemID?: string,
-): ProjectAssistantDraftPayload {
-  const payload: ProjectAssistantDraftPayload = projectAssistantContextPayload(
-    form,
-    projectID,
-    workItemID,
-  );
-  if (form.draftMode !== "deterministic") {
-    payload.draft_mode = form.draftMode;
-  }
-  return payload;
-}
-
-function projectAssistantApplyErrorMessage(
-  error: unknown,
-  proposal?: ProjectAssistantProposal,
-): string {
-  if (error instanceof ApiError) {
-    const partialMessage = projectAssistantPartialApplyErrorMessage(error, proposal);
-    if (partialMessage) return partialMessage;
-    if (error.status === 404) {
-      return "Project Assistant could not find a proposal target. The project may have changed; refresh project work and draft the proposal again.";
-    }
-    if (error.status === 409) {
-      return "Project Assistant could not apply because the proposal is stale, conflicts with current project state, or was already applied. Refresh project work and draft it again.";
-    }
-  }
-  return errorMessage(error, "Failed to apply Project Assistant proposal.");
-}
-
-function projectAssistantPartialApplyErrorMessage(
-  error: ApiError,
-  proposal?: ProjectAssistantProposal,
-): string {
-  const failedActionIndex = projectAssistantFailedActionIndex(error.fields.failed_action_index);
-  const partialResult = projectAssistantPartialResult(error.fields.partial_result);
-  if (failedActionIndex === null || !partialResult) return "";
-  const appliedCount = partialResult.actions.length;
-  const totalCount = proposal?.actions.length ?? Math.max(appliedCount, failedActionIndex + 1);
-  return `Project Assistant applied ${appliedCount} of ${totalCount} actions, then failed at action ${failedActionIndex + 1}. Apply the same proposal again after fixing the target state to resume from the next unapplied action.`;
-}
-
-function projectAssistantFailedActionIndex(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
-}
-
-function projectAssistantPartialResult(value: unknown): ProjectAssistantApplyResult | null {
-  if (!value || typeof value !== "object") return null;
-  const result = value as Partial<ProjectAssistantApplyResult>;
-  if (
-    typeof result.proposal_id !== "string" ||
-    typeof result.applied !== "boolean" ||
-    !Array.isArray(result.actions)
-  ) {
-    return null;
-  }
-  return {
-    proposal_id: result.proposal_id,
-    applied: result.applied,
-    actions: result.actions,
-  };
 }
 
 function emptyRoleForm(): RoleForm {
