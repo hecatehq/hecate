@@ -183,7 +183,9 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   in `projectWorkForms.ts`; keep project state loading and mutations in the
   parent page. Changes to these extracted modal seams need focused tests for the
   component and shared form helpers, plus parent-page tests only when loading or
-  mutation orchestration changes.
+  mutation orchestration changes. Shared project UI string/id helpers live in
+  `projectUtils.ts`; status option lists and form-safe status normalization live
+  in `projectWorkForms.ts`.
 - External Agent readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.

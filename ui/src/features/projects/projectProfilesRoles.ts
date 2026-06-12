@@ -4,6 +4,7 @@ import type {
   UpdateAgentProfilePayload,
 } from "../../types/agent-profile";
 import type { ProjectRecord, ProjectSkillRecord, ProjectWorkRoleRecord } from "../../types/project";
+import { splitIDs } from "./projectUtils";
 
 export type AgentProfileForm = {
   id: string;
@@ -211,13 +212,6 @@ export function projectSkillStatusRank(status: string): number {
     default:
       return 4;
   }
-}
-
-export function splitIDs(value: string): string[] {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 export function uniqueSkillIDs(ids: string[]): string[] {

@@ -18,6 +18,7 @@ import {
   toProjectActivityItemViewModel,
   toProjectAssignmentExecutionViewModel,
 } from "./projectAssignmentViewModels";
+import { firstNonEmpty } from "./projectUtils";
 
 export type ProjectActivityBucketKey = "all" | "active" | "blocked" | "completed" | "recent";
 
@@ -754,12 +755,4 @@ function activityAttention(
     chatID: execution.chatSessionID,
     actionLabel,
   };
-}
-
-function firstNonEmpty(...values: Array<string | undefined | null>): string {
-  for (const value of values) {
-    const trimmed = value?.trim();
-    if (trimmed) return trimmed;
-  }
-  return "";
 }

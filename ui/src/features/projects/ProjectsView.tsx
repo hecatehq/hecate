@@ -141,6 +141,7 @@ import {
   workItemCreatePayloadFromForm,
   workItemUpdatePayloadFromForm,
 } from "./projectWorkForms";
+import { firstNonEmpty, shortID } from "./projectUtils";
 
 type Props = {
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
@@ -4980,14 +4981,6 @@ function projectAssignmentLaunchDraft({
   return lines.join("\n");
 }
 
-function firstNonEmpty(...values: Array<string | undefined | null>): string {
-  for (const value of values) {
-    const trimmed = value?.trim();
-    if (trimmed) return trimmed;
-  }
-  return "";
-}
-
 function labelWithID(label: string | undefined, id: string): string {
   const cleanLabel = label?.trim();
   const cleanID = id.trim();
@@ -5024,11 +5017,6 @@ function projectRootTitle(project: ProjectRecord, rootID: string): string {
   const root = project.roots.find((item) => item.id === rootID);
   if (!root) return rootID;
   return projectRootOptionLabel(root);
-}
-
-function shortID(id: string): string {
-  if (id.length <= 12) return id;
-  return id.slice(0, 10) + "...";
 }
 
 function upsertRole(items: ProjectWorkRoleRecord[], item: ProjectWorkRoleRecord) {
