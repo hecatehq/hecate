@@ -484,6 +484,58 @@ describe("ConsoleShell navigation", () => {
     expect(screen.queryByText("Loose chat")).toBeNull();
   });
 
+  it("opens the linked project from an active chat header", async () => {
+    const selectProject = vi.fn(async () => undefined);
+    const onSelectWorkspace = vi.fn();
+    const state = createRuntimeConsoleFixture({
+      projects: [
+        {
+          id: "proj_1",
+          name: "Hecate",
+          roots: [],
+          created_at: "2026-05-21T10:00:00Z",
+          updated_at: "2026-05-21T10:00:00Z",
+        },
+      ],
+      activeProjectID: "proj_1",
+      activeChatSessionID: "chat_project",
+      activeChatSession: {
+        id: "chat_project",
+        title: "Project chat",
+        project_id: "proj_1",
+        agent_id: "hecate",
+        status: "idle",
+        messages: [],
+        provider_calls: [],
+      } as any,
+      chatSessions: [
+        {
+          id: "chat_project",
+          title: "Project chat",
+          project_id: "proj_1",
+          agent_id: "hecate",
+          status: "idle",
+          workspace: "",
+          message_count: 0,
+        },
+      ],
+    });
+    render(
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={onSelectWorkspace} />,
+        {
+          state,
+          actions: { ...createRuntimeConsoleActions(), selectProject },
+        },
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open project: Hecate" }));
+
+    expect(selectProject).toHaveBeenCalledWith("proj_1");
+    expect(onSelectWorkspace).toHaveBeenCalledWith("projects");
+  });
+
   it("creates new chats inside the selected project scope", async () => {
     const createChatSession = vi.fn<RuntimeConsoleFixtureActions["createChatSession"]>(
       async () => undefined,

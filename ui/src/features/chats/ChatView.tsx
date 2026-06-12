@@ -29,7 +29,7 @@ import { describeGatewayError } from "../../lib/error-diagnostics";
 import { resolveExternalAgentReadiness } from "../../lib/external-agent-readiness";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
-import { projectDefaultWorkspace } from "../../lib/project-workspace";
+import { projectByID, projectDefaultWorkspace } from "../../lib/project-workspace";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatConfigOptionRecord, ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
 import type { LocalProviderDiscoveryRecord, ProviderFilter } from "../../types/provider";
@@ -59,7 +59,7 @@ import {
 } from "./HecateTaskApprovalsBanner";
 
 type Props = {
-  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
+  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
 };
@@ -406,6 +406,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       });
   const hecateTaskToolsAvailable = isHecateAgentChat && !hecateAgentToolsDisabledForModel;
   const activeWorkspacePath = state.activeChatSession?.workspace || state.agentWorkspace;
+  const activeSessionProjectID = state.activeChatSession?.project_id?.trim() ?? "";
+  const activeSessionProject = projectByID(projects.state.projects, activeSessionProjectID);
+  const linkedProjectName = activeSessionProject?.name?.trim() || activeSessionProjectID;
   const workspaceChangesPanelOpen =
     selectedChatReady && isAgentChat && workspaceChangesOpen && Boolean(activeWorkspacePath.trim());
   const chatSettingsPanelOpen = selectedChatReady && isAgentChat && chatSettingsOpen;
@@ -536,6 +539,13 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       // works, just no auto-scroll to the auth setup card.
     }
     onNavigate?.("connections");
+  }
+
+  function openLinkedProject() {
+    const projectID = activeSessionProjectID.trim();
+    if (!projectID) return;
+    void projects.actions.selectProject(projectID);
+    onNavigate?.("projects");
   }
 
   useEffect(() => {
@@ -775,6 +785,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             }
             isAgentChat={isAgentChat}
             isExternalAgentChat={isExternalAgentChat}
+            linkedProjectName={linkedProjectName}
+            onOpenProject={
+              activeSessionProjectID && onNavigate ? () => openLinkedProject() : undefined
+            }
             showWorkspaceButton={showHeaderWorkspaceButton}
             workspacePath={activeWorkspacePath}
             workspaceDialogOpen={workspaceDialogOpen}

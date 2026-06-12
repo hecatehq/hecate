@@ -96,7 +96,7 @@ export type ChatComposerProps = {
   messageHistory: string[];
 
   // Threaded from ChatView's own Props.
-  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
+  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "projects") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
 };
