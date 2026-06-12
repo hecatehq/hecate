@@ -747,10 +747,10 @@ function cspSource(value: unknown, kind: CSPSourceKind): string {
   }
   if (parsed.protocol === "https:") return parsed.origin;
   if (kind === "connect" && parsed.protocol === "wss:") return parsed.origin;
-  if (
-    (parsed.protocol === "http:" || parsed.protocol === "ws:") &&
-    isLoopbackHost(parsed.hostname)
-  ) {
+  if (kind === "connect" && parsed.protocol === "ws:" && isLoopbackHost(parsed.hostname)) {
+    return parsed.origin;
+  }
+  if (parsed.protocol === "http:" && isLoopbackHost(parsed.hostname)) {
     return parsed.origin;
   }
   return "";
