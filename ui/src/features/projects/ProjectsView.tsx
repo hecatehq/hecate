@@ -32,6 +32,7 @@ import {
   getProjectActivity,
   getAgentProfiles,
   getProjectAssignmentContext,
+  getProjectAssignmentPreflight,
   getProjectAssignments,
   getProjectCollaborationArtifacts,
   getProjectHandoffs,
@@ -59,7 +60,7 @@ import { formatAbsoluteTime } from "../../lib/format";
 import { projectDefaultWorkspace } from "../../lib/project-workspace";
 import { providerDisplayName } from "../../lib/provider-utils";
 import { ChatRightPanel } from "../chats/ChatRightPanel";
-import { ContextInspectorModalTrigger } from "../shared/ContextInspector";
+import { ContextInspectorModalTrigger, ContextInspectorPanel } from "../shared/ContextInspector";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
 import {
   activitySignalLabel,
@@ -184,6 +185,11 @@ type EditAssignmentForm = NewAssignmentForm & {
   messageID: string;
   contextSnapshotID: string;
 };
+
+type AssignmentPreflightState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; packet: ContextPacketRecord }
+  | { status: "error"; detail: string };
 
 function projectAssignmentExecutionKindFromForm(form: EditAssignmentForm) {
   if (form.taskID.trim() || form.runID.trim()) return "task_run";
@@ -3781,6 +3787,18 @@ function WorkItemDetail({
                           ).data
                       : null
                   }
+                  loadPreflight={
+                    project
+                      ? async () =>
+                          (
+                            await getProjectAssignmentPreflight(
+                              project.id,
+                              workItem.id,
+                              assignment.id,
+                            )
+                          ).data
+                      : null
+                  }
                 />
               ))}
             </div>
@@ -3828,21 +3846,38 @@ function WorkItemDetail({
             <div style={subtleTextStyle}>No structured handoffs recorded yet.</div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
-              {handoffs.map((handoff) => (
-                <ProjectHandoffRow
-                  key={handoff.id}
-                  actionPending={handoffActionID === handoff.id}
-                  assignment={assignments.find((item) => item.id === handoff.target_assignment_id)}
-                  handoff={handoff}
-                  onCreateAssignment={() => onCreateAssignmentFromHandoff(handoff)}
-                  onDelete={() => onDeleteHandoff(handoff)}
-                  onEdit={() => onEditHandoff(handoff)}
-                  onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
-                  onStart={() => onStartHandoff(handoff)}
-                  role={handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined}
-                  starting={startingAssignmentID === handoff.target_assignment_id}
-                />
-              ))}
+              {handoffs.map((handoff) => {
+                const targetAssignment = assignments.find(
+                  (item) => item.id === handoff.target_assignment_id,
+                );
+                return (
+                  <ProjectHandoffRow
+                    key={handoff.id}
+                    actionPending={handoffActionID === handoff.id}
+                    assignment={targetAssignment}
+                    handoff={handoff}
+                    onCreateAssignment={() => onCreateAssignmentFromHandoff(handoff)}
+                    onDelete={() => onDeleteHandoff(handoff)}
+                    onEdit={() => onEditHandoff(handoff)}
+                    onSetStatus={(status) => onSetHandoffStatus(handoff, status)}
+                    onStart={() => onStartHandoff(handoff)}
+                    role={handoff.target_role_id ? roleByID.get(handoff.target_role_id) : undefined}
+                    starting={startingAssignmentID === handoff.target_assignment_id}
+                    loadPreflight={
+                      project && targetAssignment
+                        ? async () =>
+                            (
+                              await getProjectAssignmentPreflight(
+                                project.id,
+                                workItem.id,
+                                targetAssignment.id,
+                              )
+                            ).data
+                        : null
+                    }
+                  />
+                );
+              })}
             </div>
           )}
         </section>
@@ -5582,6 +5617,7 @@ function AssignmentRow({
   chatModel,
   error,
   loadContext,
+  loadPreflight,
   onCreateHandoff,
   onDelete,
   onEdit,
@@ -5596,6 +5632,7 @@ function AssignmentRow({
   chatModel: string;
   error: string;
   loadContext?: (() => Promise<ContextPacketRecord>) | null;
+  loadPreflight?: (() => Promise<ContextPacketRecord>) | null;
   onCreateHandoff: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -5605,6 +5642,10 @@ function AssignmentRow({
   role?: ProjectWorkRoleRecord;
   starting: boolean;
 }) {
+  const [preflightOpen, setPreflightOpen] = useState(false);
+  const [preflightState, setPreflightState] = useState<AssignmentPreflightState>({
+    status: "idle",
+  });
   const execution = assignment.execution;
   const assignmentExecution = toProjectAssignmentExecutionViewModel(assignment);
   const activityView = activityItem ? toProjectActivityItemViewModel(activityItem) : null;
@@ -5625,6 +5666,25 @@ function AssignmentRow({
   const startingLabel = external ? "Preparing…" : "Starting…";
   const startedAt = activityView?.startedAt || execution?.started_at || assignment.started_at;
   const finishedAt = activityView?.finishedAt || execution?.finished_at || assignment.completed_at;
+
+  async function openPreflight() {
+    if (!loadPreflight) {
+      onStart();
+      return;
+    }
+    setPreflightOpen(true);
+    setPreflightState({ status: "loading" });
+    try {
+      const packet = await loadPreflight();
+      setPreflightState({ status: "ready", packet });
+    } catch (error) {
+      setPreflightState({
+        status: "error",
+        detail: errorMessage(error, "Failed to load assignment launch preflight."),
+      });
+    }
+  }
+
   return (
     <div style={assignmentStyle}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -5656,12 +5716,12 @@ function AssignmentRow({
           <button
             className="btn btn-primary btn-sm"
             type="button"
-            onClick={onStart}
+            onClick={() => void openPreflight()}
             disabled={starting}
             title={
               external
-                ? "Prepare a linked External Agent chat. The first prompt is sent from Chats."
-                : "Start this assignment."
+                ? "Review launch context before preparing a linked External Agent chat."
+                : "Review launch context before starting this assignment."
             }
           >
             <Icon d={external ? Icons.chat : Icons.send} size={12} />
@@ -5781,7 +5841,88 @@ function AssignmentRow({
           <InlineError message={error} />
         </div>
       )}
+      {preflightOpen && (
+        <AssignmentLaunchPreflightModal
+          assignmentID={assignment.id}
+          confirmLabel={external ? "Prepare chat" : "Start assignment"}
+          loadingLabel={external ? "Preparing..." : "Starting..."}
+          onClose={() => setPreflightOpen(false)}
+          onConfirm={() => {
+            setPreflightOpen(false);
+            onStart();
+          }}
+          onReload={() => void openPreflight()}
+          pending={starting}
+          state={preflightState}
+        />
+      )}
     </div>
+  );
+}
+
+function AssignmentLaunchPreflightModal({
+  assignmentID,
+  confirmLabel,
+  loadingLabel,
+  onClose,
+  onConfirm,
+  onReload,
+  pending,
+  state,
+}: {
+  assignmentID: string;
+  confirmLabel: string;
+  loadingLabel: string;
+  onClose: () => void;
+  onConfirm: () => void;
+  onReload: () => void;
+  pending: boolean;
+  state: AssignmentPreflightState;
+}) {
+  const ready = state.status === "ready";
+  return (
+    <Modal
+      title={`Assignment ${assignmentID} launch preflight`}
+      width={860}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" type="button" onClick={onClose}>
+            Close
+          </button>
+          <button className="btn btn-ghost" type="button" onClick={onReload} disabled={pending}>
+            Reload
+          </button>
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={onConfirm}
+            disabled={!ready || pending}
+          >
+            {pending ? loadingLabel : confirmLabel}
+          </button>
+        </>
+      }
+    >
+      <div style={{ padding: 16, overflowY: "auto" }}>
+        {state.status === "idle" || state.status === "loading" ? (
+          <div style={{ display: "grid", gap: 6 }}>
+            <div style={titleStyle}>Loading launch preflight...</div>
+            <div style={subtleTextStyle}>
+              Checking the assignment launch context before any task, run, or chat session is
+              created.
+            </div>
+          </div>
+        ) : null}
+        {state.status === "error" ? <InlineError message={state.detail} /> : null}
+        {ready ? (
+          <ContextInspectorPanel
+            packet={state.packet}
+            emptyDetail="No launch context metadata returned."
+          />
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 
@@ -5789,6 +5930,7 @@ function ProjectHandoffRow({
   actionPending,
   assignment,
   handoff,
+  loadPreflight,
   onCreateAssignment,
   onDelete,
   onEdit,
@@ -5800,6 +5942,7 @@ function ProjectHandoffRow({
   actionPending: boolean;
   assignment?: ProjectAssignmentRecord;
   handoff: ProjectHandoffRecord;
+  loadPreflight?: (() => Promise<ContextPacketRecord>) | null;
   onCreateAssignment: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -5808,109 +5951,154 @@ function ProjectHandoffRow({
   role?: ProjectWorkRoleRecord;
   starting: boolean;
 }) {
+  const [preflightOpen, setPreflightOpen] = useState(false);
+  const [preflightState, setPreflightState] = useState<AssignmentPreflightState>({
+    status: "idle",
+  });
   const executionRef = assignment ? toProjectAssignmentExecutionViewModel(assignment) : null;
   const targetEvidence = assignment ? toProjectAssignmentEvidenceViewModel(assignment) : null;
   const startable =
     (assignment?.driver_kind === "hecate_task" || assignment?.driver_kind === "external_agent") &&
     executionRef?.status === "queued";
+  const external = assignment?.driver_kind === "external_agent";
   const canCreateAssignment = !assignment && handoff.status !== "dismissed";
   const sourceRefs = handoffSourceRefs(handoff);
+
+  async function openPreflight() {
+    if (!loadPreflight) {
+      onStart();
+      return;
+    }
+    setPreflightOpen(true);
+    setPreflightState({ status: "loading" });
+    try {
+      const packet = await loadPreflight();
+      setPreflightState({ status: "ready", packet });
+    } catch (error) {
+      setPreflightState({
+        status: "error",
+        detail: errorMessage(error, "Failed to load assignment launch preflight."),
+      });
+    }
+  }
+
   return (
-    <div style={artifactStyle}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Badge status={handoff.status} label={handoffStatusLabel(handoff.status)} />
-        <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{handoff.title}</div>
-        <button className="btn btn-ghost btn-sm" type="button" onClick={onEdit}>
-          <Icon d={Icons.edit} size={12} />
-          Edit
-        </button>
-        <button
-          className="btn btn-ghost btn-sm"
-          type="button"
-          onClick={onDelete}
-          disabled={actionPending}
-          style={{ color: "var(--red)" }}
-        >
-          <Icon d={Icons.trash} size={12} />
-          Delete
-        </button>
-      </div>
-      <div style={{ marginTop: 7, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
-        {handoff.summary}
-      </div>
-      <div style={{ marginTop: 7, fontSize: 12, color: "var(--t1)", lineHeight: 1.45 }}>
-        Next: {handoff.recommended_next_action}
-      </div>
-      <div style={{ ...metaLineStyle, marginTop: 8 }}>
-        {role && <span>target {role.name}</span>}
-        {handoff.target_assignment_id && (
-          <span>assignment {shortID(handoff.target_assignment_id)}</span>
+    <>
+      <div style={artifactStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Badge status={handoff.status} label={handoffStatusLabel(handoff.status)} />
+          <div style={{ ...titleStyle, flex: 1, minWidth: 0 }}>{handoff.title}</div>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onEdit}>
+            <Icon d={Icons.edit} size={12} />
+            Edit
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={onDelete}
+            disabled={actionPending}
+            style={{ color: "var(--red)" }}
+          >
+            <Icon d={Icons.trash} size={12} />
+            Delete
+          </button>
+        </div>
+        <div style={{ marginTop: 7, fontSize: 12, color: "var(--t2)", lineHeight: 1.45 }}>
+          {handoff.summary}
+        </div>
+        <div style={{ marginTop: 7, fontSize: 12, color: "var(--t1)", lineHeight: 1.45 }}>
+          Next: {handoff.recommended_next_action}
+        </div>
+        <div style={{ ...metaLineStyle, marginTop: 8 }}>
+          {role && <span>target {role.name}</span>}
+          {handoff.target_assignment_id && (
+            <span>assignment {shortID(handoff.target_assignment_id)}</span>
+          )}
+          <span>{handoff.provenance_kind}</span>
+          <span>{handoff.trust_label}</span>
+          {handoff.updated_at && <span>Updated {formatAbsoluteTime(handoff.updated_at)}</span>}
+        </div>
+        {sourceRefs.length > 0 && <HandoffSourceEvidence refs={sourceRefs} />}
+        {targetEvidence?.hasEvidence && (
+          <ProjectAssignmentEvidence evidence={targetEvidence} title="Target evidence" compact />
         )}
-        <span>{handoff.provenance_kind}</span>
-        <span>{handoff.trust_label}</span>
-        {handoff.updated_at && <span>Updated {formatAbsoluteTime(handoff.updated_at)}</span>}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
+          {handoff.status === "pending" && (
+            <>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => onSetStatus("accepted")}
+                disabled={actionPending}
+              >
+                <Icon d={Icons.check} size={12} />
+                Accept
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                onClick={() => onSetStatus("dismissed")}
+                disabled={actionPending}
+              >
+                Dismiss
+              </button>
+            </>
+          )}
+          {handoff.status !== "superseded" && (
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={() => onSetStatus("superseded")}
+              disabled={actionPending}
+            >
+              Supersede
+            </button>
+          )}
+          {canCreateAssignment && (
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              onClick={onCreateAssignment}
+              disabled={actionPending}
+            >
+              <Icon d={Icons.plus} size={12} />
+              Create follow-up assignment
+            </button>
+          )}
+          {assignment && (
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={() => void openPreflight()}
+              disabled={!startable || starting}
+              title={
+                startable
+                  ? "Review launch context before starting the linked assignment."
+                  : "Linked assignment is not queued."
+              }
+            >
+              <Icon d={external ? Icons.chat : Icons.send} size={12} />
+              {starting ? (external ? "Preparing..." : "Starting...") : "Start from handoff"}
+            </button>
+          )}
+        </div>
       </div>
-      {sourceRefs.length > 0 && <HandoffSourceEvidence refs={sourceRefs} />}
-      {targetEvidence?.hasEvidence && (
-        <ProjectAssignmentEvidence evidence={targetEvidence} title="Target evidence" compact />
+      {preflightOpen && assignment && (
+        <AssignmentLaunchPreflightModal
+          assignmentID={assignment.id}
+          confirmLabel={external ? "Prepare chat" : "Start assignment"}
+          loadingLabel={external ? "Preparing..." : "Starting..."}
+          onClose={() => setPreflightOpen(false)}
+          onConfirm={() => {
+            setPreflightOpen(false);
+            onStart();
+          }}
+          onReload={() => void openPreflight()}
+          pending={starting}
+          state={preflightState}
+        />
       )}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 }}>
-        {handoff.status === "pending" && (
-          <>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={() => onSetStatus("accepted")}
-              disabled={actionPending}
-            >
-              <Icon d={Icons.check} size={12} />
-              Accept
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              type="button"
-              onClick={() => onSetStatus("dismissed")}
-              disabled={actionPending}
-            >
-              Dismiss
-            </button>
-          </>
-        )}
-        {handoff.status !== "superseded" && (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={() => onSetStatus("superseded")}
-            disabled={actionPending}
-          >
-            Supersede
-          </button>
-        )}
-        {canCreateAssignment && (
-          <button
-            className="btn btn-ghost btn-sm"
-            type="button"
-            onClick={onCreateAssignment}
-            disabled={actionPending}
-          >
-            <Icon d={Icons.plus} size={12} />
-            Create follow-up assignment
-          </button>
-        )}
-        {assignment && (
-          <button
-            className="btn btn-primary btn-sm"
-            type="button"
-            onClick={onStart}
-            disabled={!startable || starting}
-            title={startable ? "Start linked assignment" : "Linked assignment is not queued."}
-          >
-            <Icon d={Icons.send} size={12} />
-            {starting ? "Starting…" : "Start from handoff"}
-          </button>
-        )}
-      </div>
-    </div>
+    </>
   );
 }
 

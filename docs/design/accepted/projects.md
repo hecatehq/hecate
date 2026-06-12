@@ -325,6 +325,10 @@ recommended next action text, linked artifact IDs, linked memory IDs, context
 refs, provenance labels, and `pending` / `accepted` / `superseded` /
 `dismissed` status. A handoff may help the operator create or start a follow-up
 assignment, but the handoff record itself does not dispatch another agent.
+Queued assignment launches now show a launch preflight context packet before
+dispatch; confirming the preview starts the native task or prepares the External
+Agent chat, while preflight itself creates no task, run, chat session, artifact,
+memory entry, or assignment update.
 The Projects UI also derives a compact project timeline / decision log from
 activity rows, structured handoffs, collaboration artifacts, project memory
 entries, and memory candidates; explicit decisions are only shown when existing

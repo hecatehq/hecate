@@ -197,6 +197,11 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   evidence separate from the full Context Inspector: the row summarizes
   canonical refs and warnings, while the inspector renders the persisted packet
   sections the agent actually saw.
+- Project assignment launch controls must review
+  `/assignments/{assignment_id}/preflight` before dispatch. Use the shared
+  Context Inspector panel for the launch packet, then call start only from the
+  operator's confirm action. This applies to normal assignment rows and
+  handoff-linked starts.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.

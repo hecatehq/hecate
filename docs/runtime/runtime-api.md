@@ -2029,6 +2029,28 @@ without a stored packet or execution link, or older runs that predate snapshots 
 instructions, memory, project sources, work context, runtime refs, and skipped
 or inspect-only items without reopening the raw task or chat transcript.
 
+#### `GET /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/preflight`
+
+Returns a launch context packet for a queued assignment without creating or
+mutating a Task, Run, Chat session, memory entry, artifact, or assignment
+record. Hecate performs the same launch-shape validation used by assignment
+start: project/work/assignment/role lookup, stored driver support, active
+execution checks, workspace resolution, resolved profile, provider/model hints
+for native assignments, External Agent adapter/options for external-agent
+assignments, skill metadata resolution, and prompt-context policy metadata.
+
+The response is a normal `context_packet` envelope with assignment refs only;
+task, run, chat session, and message refs remain empty because preflight is
+inspect-only. The packet includes a `runtime` / `launch_preflight` item with
+`included=false` describing what will be created on confirm. The Projects
+cockpit uses this endpoint before `Start assignment`, `Prepare chat`, and
+`Start from handoff` so the operator can review the effective launch context
+before dispatch.
+
+Unqueued, terminal, already-linked, unsupported, misconfigured, or invalid
+assignments return the same operator-facing error classes as start would use,
+without causing launch side effects.
+
 #### `POST /hecate/v1/projects/{id}/work-items/{work_item_id}/assignments/{assignment_id}/start`
 
 Starts a project assignment through its stored driver. The request body is

@@ -133,6 +133,14 @@ runner orchestration to `handler_project_work.go`. Keep app-layer dependencies
 narrow: define the minimal store/runner interfaces the command needs instead
 of accepting broad subsystem stores by habit.
 
+Project assignment launch/preflight wiring belongs in
+`internal/api/handler_project_assignment_launch.go` while it still needs
+API-local context-packet assembly. Do not add launch planning, workspace
+resolution, profile/skill resolution, adapter-option validation, or start
+orchestration back to the broad `handler_project_work.go`; either extend the
+dedicated launch helper or move the narrow behavior into `projectworkapp` when
+the dependency shape is ready.
+
 Project activity is a read/projection surface with split ownership:
 `internal/projectworkapp` owns assignment execution refs, task/run projection,
 blocking signals, bucket/status summaries, stale/missing detection, and
