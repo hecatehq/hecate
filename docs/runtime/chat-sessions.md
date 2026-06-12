@@ -87,7 +87,7 @@ visible transcript message count for that turn, the legacy high-level
 optional `body` / `body_ref`, `included`, and `inclusion_reason`. Current items
 cover visible metadata only: system prompt presence, transcript count, enabled
 project context-source metadata, enabled project skill metadata, current
-project work metadata, accepted project memory, workspace path metadata, Hecate
+active project work metadata, accepted project memory, workspace path metadata, Hecate
 task-runtime state, and external-agent session metadata. It deliberately does
 not persist full system prompts, raw transcript text, file contents, `SKILL.md`
 bodies, or agent-private prompt packing. External Agent packets explicitly note

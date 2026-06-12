@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -241,6 +242,15 @@ func TestChatContextPacketsIncludeProjectSkillAndWorkMetadata(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateWorkItem: %v", err)
 	}
+	if _, err := workStore.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_done",
+		ProjectID: "proj_1",
+		Title:     "Already done",
+		Brief:     "Completed work should not enter active chat context.",
+		Status:    projectwork.WorkItemStatusDone,
+	}); err != nil {
+		t.Fatalf("Create done work item: %v", err)
+	}
 	if _, err := workStore.CreateAssignment(ctx, projectwork.Assignment{
 		ID:         "asgn_chat",
 		ProjectID:  "proj_1",
@@ -250,6 +260,16 @@ func TestChatContextPacketsIncludeProjectSkillAndWorkMetadata(t *testing.T) {
 		Status:     projectwork.AssignmentStatusQueued,
 	}); err != nil {
 		t.Fatalf("CreateAssignment: %v", err)
+	}
+	if _, err := workStore.CreateAssignment(ctx, projectwork.Assignment{
+		ID:         "asgn_done",
+		ProjectID:  "proj_1",
+		WorkItemID: "work_chat",
+		RoleID:     "reviewer_qa",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("Create completed assignment: %v", err)
 	}
 	handler := &Handler{projectSkills: skillStore, projectWork: workStore}
 	session := chat.Session{
@@ -297,7 +317,7 @@ func TestChatContextPacketsIncludeProjectSkillAndWorkMetadata(t *testing.T) {
 				t.Fatalf("project work item = %+v, want included project work metadata", *work)
 			}
 			for _, want := range []string{
-				"Work item status counts: ready=1",
+				"Shown active work item status counts: ready=1",
 				"Work item Project chat context (work_chat): status=ready, priority=high, owner_role=architect",
 				"Brief: Make linked chat aware of project work state.",
 				"Assignment asgn_chat: work_item=work_chat, role=architect, status=queued, driver=hecate_task",
@@ -306,7 +326,79 @@ func TestChatContextPacketsIncludeProjectSkillAndWorkMetadata(t *testing.T) {
 					t.Fatalf("project work body missing %q:\n%s", want, work.Body)
 				}
 			}
+			for _, excluded := range []string{"work_done", "asgn_done"} {
+				if strings.Contains(work.Body, excluded) {
+					t.Fatalf("project work body included inactive work %q:\n%s", excluded, work.Body)
+				}
+			}
 		})
+	}
+}
+
+func TestProjectChatWorkSnapshotUsesActiveBoundedLists(t *testing.T) {
+	ctx := context.Background()
+	workStore := projectwork.NewMemoryStore()
+	for idx := 0; idx < projectChatPromptWorkMaxItems+1; idx++ {
+		workID := fmt.Sprintf("work_%02d", idx)
+		if _, err := workStore.CreateWorkItem(ctx, projectwork.WorkItem{
+			ID:        workID,
+			ProjectID: "proj_1",
+			Title:     fmt.Sprintf("Active work %02d", idx),
+			Status:    projectwork.WorkItemStatusReady,
+		}); err != nil {
+			t.Fatalf("CreateWorkItem(%s): %v", workID, err)
+		}
+	}
+	if _, err := workStore.CreateWorkItem(ctx, projectwork.WorkItem{
+		ID:        "work_done",
+		ProjectID: "proj_1",
+		Title:     "Done work",
+		Status:    projectwork.WorkItemStatusDone,
+	}); err != nil {
+		t.Fatalf("Create done work item: %v", err)
+	}
+	for idx := 0; idx < projectChatPromptAssignmentMaxItems+1; idx++ {
+		assignmentID := fmt.Sprintf("asgn_%02d", idx)
+		if _, err := workStore.CreateAssignment(ctx, projectwork.Assignment{
+			ID:         assignmentID,
+			ProjectID:  "proj_1",
+			WorkItemID: "work_00",
+			RoleID:     "architect",
+			Status:     projectwork.AssignmentStatusQueued,
+		}); err != nil {
+			t.Fatalf("CreateAssignment(%s): %v", assignmentID, err)
+		}
+	}
+	if _, err := workStore.CreateAssignment(ctx, projectwork.Assignment{
+		ID:         "asgn_completed",
+		ProjectID:  "proj_1",
+		WorkItemID: "work_00",
+		RoleID:     "reviewer_qa",
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("Create completed assignment: %v", err)
+	}
+
+	snapshot := (&Handler{projectWork: workStore}).projectChatWorkSnapshot(ctx, "proj_1")
+	if len(snapshot.WorkItems) != projectChatPromptWorkMaxItems || !snapshot.WorkItemsTruncated {
+		t.Fatalf("work snapshot = len %d truncated %v, want max %d with truncation", len(snapshot.WorkItems), snapshot.WorkItemsTruncated, projectChatPromptWorkMaxItems)
+	}
+	if len(snapshot.Assignments) != projectChatPromptAssignmentMaxItems || !snapshot.AssignmentsTruncated {
+		t.Fatalf("assignment snapshot = len %d truncated %v, want max %d with truncation", len(snapshot.Assignments), snapshot.AssignmentsTruncated, projectChatPromptAssignmentMaxItems)
+	}
+	body := projectChatWorkHintText(snapshot, projectChatPromptWorkMaxItems, projectChatPromptAssignmentMaxItems)
+	for _, want := range []string{
+		"Additional active work items omitted.",
+		"Additional active assignments omitted.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("snapshot body missing %q:\n%s", want, body)
+		}
+	}
+	for _, excluded := range []string{"work_done", "asgn_completed"} {
+		if strings.Contains(body, excluded) {
+			t.Fatalf("snapshot body included inactive record %q:\n%s", excluded, body)
+		}
 	}
 }
 

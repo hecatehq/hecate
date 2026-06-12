@@ -213,6 +213,15 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create work item: %v", err)
 	}
+	if _, err := apiHandler.projectWork.CreateWorkItem(context.Background(), projectwork.WorkItem{
+		ID:        "work_done",
+		ProjectID: project.ID,
+		Title:     "Already done",
+		Brief:     "Completed work should not enter the active chat hint.",
+		Status:    projectwork.WorkItemStatusDone,
+	}); err != nil {
+		t.Fatalf("Create done work item: %v", err)
+	}
 	if _, err := apiHandler.projectWork.CreateAssignment(context.Background(), projectwork.Assignment{
 		ID:         "asgn_plan",
 		ProjectID:  project.ID,
@@ -222,6 +231,16 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 		Status:     projectwork.AssignmentStatusQueued,
 	}); err != nil {
 		t.Fatalf("Create assignment: %v", err)
+	}
+	if _, err := apiHandler.projectWork.CreateAssignment(context.Background(), projectwork.Assignment{
+		ID:         "asgn_done",
+		ProjectID:  project.ID,
+		WorkItemID: "work_chat_context",
+		RoleID:     "reviewer_qa",
+		DriverKind: projectwork.AssignmentDriverHecateTask,
+		Status:     projectwork.AssignmentStatusCompleted,
+	}); err != nil {
+		t.Fatalf("Create completed assignment: %v", err)
 	}
 	if _, err := apiHandler.memory.Create(context.Background(), memory.Entry{
 		ID:         "mem_boundary",
@@ -262,11 +281,11 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 		"Project skills (metadata only; skill bodies are not loaded):",
 		"Backend Skill (backend): Backend changes. Path: .hecate/skills/backend/SKILL.md",
 		"Use skills as procedures/guidance, not as role assignments.",
-		"Project work snapshot:",
-		"Work item status counts: ready=1",
+		"Active project work snapshot:",
+		"Shown active work item status counts: ready=1",
 		"- Work item Implement chat context (work_chat_context): status=ready, priority=high, owner_role=architect",
 		"Brief: Teach linked chat about project skills and work state.",
-		"Assignments:",
+		"Active assignments:",
 		"- Assignment asgn_plan: work_item=work_chat_context, role=architect, status=queued, driver=hecate_task",
 		"Accepted project memory:",
 		"Project memory: Project Assistant boundary\nID: mem_boundary\nTrust: operator_memory",
@@ -275,6 +294,11 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 	} {
 		if !strings.Contains(backingTask.SystemPrompt, want) {
 			t.Fatalf("task system_prompt missing %q:\n%s", want, backingTask.SystemPrompt)
+		}
+	}
+	for _, excluded := range []string{"work_done", "asgn_done"} {
+		if strings.Contains(backingTask.SystemPrompt, excluded) {
+			t.Fatalf("task system_prompt included inactive work %q:\n%s", excluded, backingTask.SystemPrompt)
 		}
 	}
 }

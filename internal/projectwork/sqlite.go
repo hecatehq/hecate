@@ -416,12 +416,26 @@ func (s *SQLiteStore) DeleteRole(ctx context.Context, projectID, id string) erro
 	return requireAffected(res)
 }
 
-func (s *SQLiteStore) ListWorkItems(ctx context.Context, projectID string) ([]WorkItem, error) {
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+func (s *SQLiteStore) ListWorkItems(ctx context.Context, projectID string, options ...ListOptions) ([]WorkItem, error) {
+	opts := normalizeListOptions(options)
+	query := fmt.Sprintf(`
 SELECT id, project_id, title, brief, status, priority, owner_role_id, created_at, updated_at
 FROM %s
 WHERE project_id = ?
-ORDER BY updated_at DESC, id ASC`, s.workItemsTbl), strings.TrimSpace(projectID))
+`, s.workItemsTbl)
+	args := []any{strings.TrimSpace(projectID)}
+	if len(opts.Statuses) > 0 {
+		query += ` AND status IN (` + sqlPlaceholders(len(opts.Statuses)) + `)`
+		for _, status := range opts.Statuses {
+			args = append(args, status)
+		}
+	}
+	query += ` ORDER BY updated_at DESC, id ASC`
+	if opts.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, opts.Limit)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -556,9 +570,10 @@ func (s *SQLiteStore) DeleteWorkItem(ctx context.Context, projectID, id string) 
 	return tx.Commit()
 }
 
-func (s *SQLiteStore) ListAssignments(ctx context.Context, filter AssignmentFilter) ([]Assignment, error) {
+func (s *SQLiteStore) ListAssignments(ctx context.Context, filter AssignmentFilter, options ...ListOptions) ([]Assignment, error) {
 	filter.ProjectID = strings.TrimSpace(filter.ProjectID)
 	filter.WorkItemID = strings.TrimSpace(filter.WorkItemID)
+	opts := normalizeListOptions(options)
 	query := fmt.Sprintf(`
 SELECT id, project_id, work_item_id, role_id, driver_kind, status, execution_ref, context_packet, created_at, updated_at, started_at, completed_at
 FROM %s
@@ -568,7 +583,17 @@ WHERE project_id = ?`, s.assignmentsTbl)
 		query += ` AND work_item_id = ?`
 		args = append(args, filter.WorkItemID)
 	}
+	if len(opts.Statuses) > 0 {
+		query += ` AND status IN (` + sqlPlaceholders(len(opts.Statuses)) + `)`
+		for _, status := range opts.Statuses {
+			args = append(args, status)
+		}
+	}
 	query += ` ORDER BY created_at ASC, id ASC`
+	if opts.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, opts.Limit)
+	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -1303,6 +1328,17 @@ func requireAffected(res sql.Result) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func sqlPlaceholders(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	items := make([]string, count)
+	for idx := range items {
+		items[idx] = "?"
+	}
+	return strings.Join(items, ", ")
 }
 
 func isSQLiteConstraint(err error) bool {

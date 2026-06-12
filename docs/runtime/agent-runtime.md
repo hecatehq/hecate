@@ -21,7 +21,7 @@ Providers without streaming fall back to the normal non-streaming chat call.
 When a Hecate Chat session is linked to a project, Hecate keeps the Chat UI
 simple and injects project workflow guidance into the effective system prompt
 for project-linked turns. The prompt uses the same project, role, skill,
-current-work, and accepted-memory vocabulary as project assignment launch
+active-work, and accepted-memory vocabulary as project assignment launch
 context, and tells the model to treat planning/assignment/handoff/memory
 requests as proposal-only Project Assistant intent. Skill entries are metadata
 only; `SKILL.md` bodies are not injected by the simple chat path. The guidance

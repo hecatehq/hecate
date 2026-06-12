@@ -648,7 +648,7 @@ func appendProjectChatWork(packet *chat.ContextPacket, snapshot projectChatWorkS
 	appendContextPacketSourceWithSection(packet, contextSectionProjectWork, chat.ContextSource{
 		Kind:   "project_work",
 		Label:  "Project work",
-		Detail: fmt.Sprintf("%d work items, %d assignments", len(snapshot.WorkItems), len(snapshot.Assignments)),
+		Detail: fmt.Sprintf("%d active work items, %d active assignments", len(snapshot.WorkItems), len(snapshot.Assignments)),
 		Trust:  contextTrustProject,
 	}, chat.ContextItem{
 		Kind:            "project_work",
