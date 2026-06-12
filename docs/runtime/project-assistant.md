@@ -482,11 +482,14 @@ to author the same typed proposal shape.
 Hecate Chat stays visually simple. Project-linked Hecate Chat turns receive
 hidden project workflow guidance and bounded project context so the model can
 infer when an operator is asking for planning, assignment, handoff, or memory
-work. That guidance tells the model to treat durable project changes as
-Project Assistant proposal intent, not as permission to mutate project stores
-through generic tools or direct API calls. If the selected chat model routes to
-a cloud provider, that bounded project prompt context follows the normal model
-gateway route. A future chat-side proposal tool can call the same Project
+work. That guidance uses the same project, role, and accepted-memory vocabulary
+as project assignment launch context, so Chat and project agents share one
+mental model without adding controls to the conversation view. It tells the
+model to treat durable project changes as Project Assistant proposal intent,
+not as permission to mutate project stores through generic tools or direct API
+calls. If the selected chat model routes to a cloud provider, that bounded
+project prompt context follows the normal model gateway route. A future
+chat-side proposal tool or slash-command shortcut can call the same Project
 Assistant APIs, but durable mutations must still stop at the explicit
 review/apply card.
 Applying a proposal always calls `/project-assistant/apply` with `confirm: true`

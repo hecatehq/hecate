@@ -62,15 +62,17 @@ func (h *Handler) projectChatWorkflowSystemPrompt(ctx context.Context, session c
 }
 
 func projectChatWorkflowBoundary(project projects.Project) string {
-	label := firstNonEmptyString(strings.TrimSpace(project.Name), strings.TrimSpace(project.ID))
 	return strings.Join([]string{
-		"Hecate project chat guidance:",
-		fmt.Sprintf("- This chat is linked to project %q (%s).", label, strings.TrimSpace(project.ID)),
-		"- Keep the Chat surface conversational. Infer project-planning intent from the operator's request instead of asking them to use a separate form.",
-		"- For requests to plan, split, queue, assign, hand off, or remember project work, treat the durable change as Project Assistant proposal intent.",
-		"- Project Assistant is a proposal author only. Do not create or start chats, tasks, runs, external-agent sessions, promoted memory, or durable project records through generic tools or direct API calls.",
-		"- If a proposal-only Hecate Project Assistant capability is available, use it to draft typed proposal actions for explicit operator review. If it is not available, describe the proposed action set in chat.",
-		"- Assignments proposed from chat must stay queued and unstarted. Memory from model or document output should become memory candidates for operator promotion, not promoted memory.",
+		"Project chat guidance",
+		"Project: " + labelWithID(project.Name, project.ID),
+		strings.Join([]string{
+			"Project workflow boundary:",
+			"- Keep the Chat surface conversational. Infer project-planning intent from the operator's request instead of asking them to use a separate form.",
+			"- For requests to plan, split, queue, assign, hand off, or remember project work, treat the durable change as Project Assistant proposal intent.",
+			"- Project Assistant is a proposal author only. Do not create or start chats, tasks, runs, external-agent sessions, promoted memory, or durable project records through generic tools or direct API calls.",
+			"- If a proposal-only Hecate Project Assistant capability is available, use it to draft typed proposal actions for explicit operator review. If it is not available, describe the proposed action set in chat.",
+			"- Assignments proposed from chat must stay queued and unstarted. Memory from model or document output should become memory candidates for operator promotion, not promoted memory.",
+		}, "\n"),
 	}, "\n")
 }
 
@@ -87,14 +89,13 @@ func (h *Handler) projectChatRoleHints(ctx context.Context, projectID string) st
 		right := firstNonEmptyString(strings.TrimSpace(roles[j].Name), strings.TrimSpace(roles[j].ID))
 		return left < right
 	})
-	lines := []string{"Available project responsibilities:"}
+	lines := []string{"Role hints:"}
 	for i, role := range roles {
 		if i >= projectChatPromptRoleMaxItems {
 			lines = append(lines, fmt.Sprintf("- %d additional roles omitted.", len(roles)-i))
 			break
 		}
-		label := firstNonEmptyString(strings.TrimSpace(role.Name), strings.TrimSpace(role.ID))
-		line := fmt.Sprintf("- %s (%s)", label, strings.TrimSpace(role.ID))
+		line := "- " + labelWithID(role.Name, role.ID)
 		if description := strings.TrimSpace(role.Description); description != "" {
 			line += ": " + description
 		}
@@ -109,7 +110,7 @@ func (h *Handler) projectChatMemoryPrompt(ctx context.Context, projectID string)
 		return ""
 	}
 	remaining := projectChatPromptMaxBytes
-	sections := []string{"Accepted project memory excerpts:"}
+	sections := []string{"Accepted project memory:"}
 	included := 0
 	for _, entry := range entries {
 		if included >= projectChatPromptMemoryMaxItems {
@@ -135,22 +136,10 @@ func projectChatMemorySection(entry memory.Entry, remaining *int) (string, bool)
 	if title == "" || body == "" {
 		return "", false
 	}
-	header := fmt.Sprintf("- Project memory: %s\n  ID: %s\n  Trust: %s", title, strings.TrimSpace(entry.ID), firstNonEmptyString(strings.TrimSpace(entry.TrustLabel), contextTrustOperatorMemory))
-	section, _ := boundedPromptContextSection(header, indentProjectChatMemoryBody(body), projectChatPromptMemoryMaxBytes, remaining)
+	header := fmt.Sprintf("Project memory: %s\nID: %s\nTrust: %s", title, strings.TrimSpace(entry.ID), firstNonEmptyString(strings.TrimSpace(entry.TrustLabel), contextTrustOperatorMemory))
+	section, _ := boundedPromptContextSection(header, body, projectChatPromptMemoryMaxBytes, remaining)
 	if strings.TrimSpace(section) == "" {
 		return "", false
 	}
 	return section, true
-}
-
-func indentProjectChatMemoryBody(body string) string {
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return ""
-	}
-	lines := strings.Split(body, "\n")
-	for i, line := range lines {
-		lines[i] = "  " + strings.TrimSpace(line)
-	}
-	return strings.Join(lines, "\n")
 }
