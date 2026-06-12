@@ -49,6 +49,48 @@ func TestTaskRunStreamProjector_TurnCompletedMergesOverlayWithLiveState(t *testi
 	}
 }
 
+func TestTaskRunStreamProjector_LiveStateUsesParentTaskProjectLinkage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	now := time.Now().UTC()
+	if _, err := store.CreateTask(ctx, types.Task{
+		ID:           "task-project",
+		Title:        "task-project",
+		Prompt:       "projector test",
+		Status:       "running",
+		ProjectID:    "proj_1",
+		WorkItemID:   "work_1",
+		AssignmentID: "asgn_1",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}); err != nil {
+		t.Fatalf("CreateTask() error = %v", err)
+	}
+	if _, err := store.CreateRun(ctx, types.TaskRun{
+		ID:        "run-project",
+		TaskID:    "task-project",
+		Number:    1,
+		Status:    "running",
+		StartedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateRun() error = %v", err)
+	}
+	projector := newTaskRunStreamProjector(store)
+
+	state, err := projector.projectEvent(ctx, "task-project", "run-project", types.TaskRunEvent{
+		Sequence:  8,
+		EventType: "run.updated",
+	})
+	if err != nil {
+		t.Fatalf("projectEvent() error = %v", err)
+	}
+	if state.Run.ProjectID != "proj_1" || state.Run.WorkItemID != "work_1" || state.Run.AssignmentID != "asgn_1" {
+		t.Fatalf("stream run linkage = project %q work %q assignment %q, want proj_1/work_1/asgn_1", state.Run.ProjectID, state.Run.WorkItemID, state.Run.AssignmentID)
+	}
+}
+
 func TestTaskRunStreamProjector_DoesNotTopUpSnapshotApprovals(t *testing.T) {
 	t.Parallel()
 

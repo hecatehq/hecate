@@ -49,6 +49,10 @@ func (p taskRunStreamProjector) terminalLiveState(ctx context.Context, taskID, r
 }
 
 func (p taskRunStreamProjector) liveState(ctx context.Context, taskID, runID string) (TaskRunStreamEventData, error) {
+	task, taskFound, err := p.store.GetTask(ctx, taskID)
+	if err != nil {
+		return TaskRunStreamEventData{}, err
+	}
 	run, found, err := p.store.GetRun(ctx, taskID, runID)
 	if err != nil {
 		return TaskRunStreamEventData{}, err
@@ -89,8 +93,12 @@ func (p taskRunStreamProjector) liveState(ctx context.Context, taskID, runID str
 		approvalItems = append(approvalItems, renderTaskApproval(approval))
 	}
 	activityItems := buildTaskActivityItems(stepItems, artifactItems, approvalItems, run)
+	runItem := renderTaskRun(run)
+	if taskFound {
+		runItem = renderTaskRun(run, task)
+	}
 	return TaskRunStreamEventData{
-		Run:       renderTaskRun(run),
+		Run:       runItem,
 		Steps:     stepItems,
 		Artifacts: artifactItems,
 		Activity:  activityItems,

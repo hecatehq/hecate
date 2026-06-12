@@ -190,6 +190,8 @@ type TaskItem struct {
 	Title                       string `json:"title"`
 	Prompt                      string `json:"prompt"`
 	ProjectID                   string `json:"project_id,omitempty"`
+	WorkItemID                  string `json:"work_item_id,omitempty"`
+	AssignmentID                string `json:"assignment_id,omitempty"`
 	SystemPrompt                string `json:"system_prompt,omitempty"`
 	WorkspaceSystemPromptPolicy string `json:"workspace_system_prompt_policy,omitempty"`
 	ExecutionProfile            string `json:"execution_profile,omitempty"`
@@ -243,6 +245,9 @@ type TaskItem struct {
 type TaskRunItem struct {
 	ID                 string `json:"id"`
 	TaskID             string `json:"task_id"`
+	ProjectID          string `json:"project_id,omitempty"`
+	WorkItemID         string `json:"work_item_id,omitempty"`
+	AssignmentID       string `json:"assignment_id,omitempty"`
 	Number             int    `json:"number"`
 	Status             string `json:"status"`
 	Orchestrator       string `json:"orchestrator,omitempty"`

@@ -628,6 +628,18 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	if task.ExecutionKind != "agent_loop" || task.OriginKind != "project_work_item" || task.OriginID != "work_start" {
 		t.Fatalf("task execution/origin = %q %q/%q, want agent_loop project_work_item/work_start", task.ExecutionKind, task.OriginKind, task.OriginID)
 	}
+	if task.ProjectID != "proj_start" || task.WorkItemID != "work_start" || task.AssignmentID != "asgn_start" {
+		t.Fatalf("task project linkage = project %q work %q assignment %q, want proj_start/work_start/asgn_start", task.ProjectID, task.WorkItemID, task.AssignmentID)
+	}
+	client := newAPITestClient(t, server)
+	taskResp := mustRequestJSON[TaskResponse](client, http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID, "")
+	if taskResp.Data.ProjectID != "proj_start" || taskResp.Data.WorkItemID != "work_start" || taskResp.Data.AssignmentID != "asgn_start" {
+		t.Fatalf("task response linkage = project %q work %q assignment %q, want proj_start/work_start/asgn_start", taskResp.Data.ProjectID, taskResp.Data.WorkItemID, taskResp.Data.AssignmentID)
+	}
+	runResp := mustRequestJSON[TaskRunResponse](client, http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID, "")
+	if runResp.Data.ProjectID != "proj_start" || runResp.Data.WorkItemID != "work_start" || runResp.Data.AssignmentID != "asgn_start" {
+		t.Fatalf("run response linkage = project %q work %q assignment %q, want proj_start/work_start/asgn_start", runResp.Data.ProjectID, runResp.Data.WorkItemID, runResp.Data.AssignmentID)
+	}
 	if task.RequestedProvider != "anthropic" || task.RequestedModel != "claude-sonnet-4" || task.ExecutionProfile != "implementation" {
 		t.Fatalf("task provider/model/profile = %q/%q/%q, want role defaults", task.RequestedProvider, task.RequestedModel, task.ExecutionProfile)
 	}
