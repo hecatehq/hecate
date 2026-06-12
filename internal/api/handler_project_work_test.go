@@ -581,6 +581,51 @@ func TestProjectWorkAPI_StartAssignmentCreatesNativeTaskRun(t *testing.T) {
 	}
 }
 
+func TestProjectWorkAPI_PreflightAssignmentReturnsLaunchContextWithoutSideEffects(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace: workspace,
+		Driver:    projectwork.AssignmentDriverHecateTask,
+	})
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
+	if packetResp.Data.ExecutionMode != chat.ExecutionModeHecateTask || packetResp.Data.Provider != "anthropic" || packetResp.Data.Model != "claude-sonnet-4" {
+		t.Fatalf("preflight mode/provider/model = %q/%q/%q, want native task launch hints", packetResp.Data.ExecutionMode, packetResp.Data.Provider, packetResp.Data.Model)
+	}
+	if packetResp.Data.ExecutionProfile != "implementation" || packetResp.Data.Workspace != workspace {
+		t.Fatalf("preflight profile/workspace = %q/%q, want implementation/%q", packetResp.Data.ExecutionProfile, packetResp.Data.Workspace, workspace)
+	}
+	if packetResp.Data.Refs == nil || packetResp.Data.Refs.ProjectID != "proj_start" || packetResp.Data.Refs.WorkItemID != "work_start" || packetResp.Data.Refs.AssignmentID != "asgn_start" || packetResp.Data.Refs.RoleID != "role_backend" {
+		t.Fatalf("preflight refs = %+v, want project/work/assignment/role refs", packetResp.Data.Refs)
+	}
+	if packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" || packetResp.Data.Refs.SessionID != "" {
+		t.Fatalf("preflight refs = %+v, want no task/run/session side effects", packetResp.Data.Refs)
+	}
+	item := findRenderedContextItemByOrigin(packetResp.Data, "project_assignment.preflight")
+	if item == nil || item.Section != contextSectionRuntime || item.Included {
+		t.Fatalf("preflight item = %+v, want inspect-only runtime item", item)
+	}
+	for _, want := range []string{"Preview only", "Task: created on start", "Run: created on start"} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("preflight body = %q, want %q", item.Body, want)
+		}
+	}
+	tasks, err := handler.taskStore.ListTasks(t.Context(), taskstateFilterAll())
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks = %+v, want no task created by preflight", tasks)
+	}
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/context", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("assignment context status = %d body=%s, want 404 after preflight-only request", rec.Code, rec.Body.String())
+	}
+}
+
 func TestProjectWorkAPI_StartAssignmentPersistsInspectableContextPacket(t *testing.T) {
 	t.Parallel()
 	handler, server := newProjectWorkTestServer()
@@ -1138,6 +1183,7 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 		t.Fatalf("UpsertDiscovered skills: %v", err)
 	}
 
+	preflightResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/start", bytes.NewReader([]byte(`{}`))))
 	if rec.Code != http.StatusOK {
@@ -1162,6 +1208,9 @@ func TestProjectWorkAPI_StartAssignmentSnapshotsResolvedAgentProfile(t *testing.
 	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/tasks/"+ref.TaskID+"/runs/"+ref.RunID+"/context", "")
 	if packetResp.Data.ExecutionProfile != "role_profile" {
 		t.Fatalf("packet execution_profile = %q, want role_profile", packetResp.Data.ExecutionProfile)
+	}
+	if preflightResp.Data.Provider != packetResp.Data.Provider || preflightResp.Data.Model != packetResp.Data.Model || preflightResp.Data.ExecutionProfile != packetResp.Data.ExecutionProfile || preflightResp.Data.Workspace != packetResp.Data.Workspace {
+		t.Fatalf("preflight launch plan = %q/%q/%q/%q, persisted launch context = %q/%q/%q/%q", preflightResp.Data.Provider, preflightResp.Data.Model, preflightResp.Data.ExecutionProfile, preflightResp.Data.Workspace, packetResp.Data.Provider, packetResp.Data.Model, packetResp.Data.ExecutionProfile, packetResp.Data.Workspace)
 	}
 	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_role")
 	if profileItem == nil || !profileItem.Included || profileItem.Section != contextSectionProfile {
@@ -1277,6 +1326,60 @@ func TestProjectWorkAPI_StartExternalAgentAssignmentPreparesLinkedSession(t *tes
 	profileItem := findRenderedContextItemByOrigin(packetResp.Data, "prof_external")
 	if profileItem == nil || profileItem.Section != contextSectionProfile || !strings.Contains(profileItem.Body, "External agent: codex") {
 		t.Fatalf("profile item = %+v, want external profile metadata", profileItem)
+	}
+}
+
+func TestProjectWorkAPI_PreflightExternalAgentAssignmentShowsSessionTargetWithoutPreparing(t *testing.T) {
+	t.Parallel()
+	handler, server := newProjectWorkTestServer()
+	runner := &fakeAgentChatRunner{nativeSessionID: "native_project_external"}
+	handler.SetAgentChatRunner(runner)
+	workspace := t.TempDir()
+	seedProjectWorkAssignmentStartTest(t, handler, projectWorkAssignmentStartSeed{
+		Workspace:           workspace,
+		Driver:              projectwork.AssignmentDriverExternalAgent,
+		WithoutRoleDefaults: true,
+	})
+	if _, err := handler.agentProfiles.Create(t.Context(), agentprofiles.Profile{
+		ID:                "prof_external",
+		Name:              "External implementer",
+		Surface:           agentprofiles.SurfaceExternalAgent,
+		ExecutionProfile:  "external_implementation",
+		ExternalAgentKind: "codex",
+	}); err != nil {
+		t.Fatalf("Create external profile: %v", err)
+	}
+	if _, err := handler.projectWork.UpdateRole(t.Context(), "proj_start", "role_backend", func(role *projectwork.AgentRoleProfile) {
+		role.DefaultAgentProfile = "prof_external"
+	}); err != nil {
+		t.Fatalf("Update role profile: %v", err)
+	}
+
+	packetResp := mustRequestJSON[ChatContextPacketResponse](newAPITestClient(t, server), http.MethodGet, "/hecate/v1/projects/proj_start/work-items/work_start/assignments/asgn_start/preflight", "")
+	if packetResp.Data.ExecutionMode != chat.ExecutionModeExternalAgent || packetResp.Data.Provider != "" || packetResp.Data.Model != "" {
+		t.Fatalf("preflight mode/provider/model = %q/%q/%q, want external agent without provider/model", packetResp.Data.ExecutionMode, packetResp.Data.Provider, packetResp.Data.Model)
+	}
+	if packetResp.Data.Refs == nil || packetResp.Data.Refs.SessionID != "" || packetResp.Data.Refs.TaskID != "" || packetResp.Data.Refs.RunID != "" {
+		t.Fatalf("preflight refs = %+v, want no prepared chat/task/run refs", packetResp.Data.Refs)
+	}
+	item := findRenderedContextItemByOrigin(packetResp.Data, "project_assignment.preflight")
+	if item == nil || item.Section != contextSectionRuntime || item.Included {
+		t.Fatalf("preflight item = %+v, want inspect-only runtime item", item)
+	}
+	for _, want := range []string{"Driver: external_agent", "Adapter ID: codex", "Chat session: created when the assignment is prepared", "Session title: Native assignment start - Backend engineer"} {
+		if !strings.Contains(item.Body, want) {
+			t.Fatalf("preflight body = %q, want %q", item.Body, want)
+		}
+	}
+	if len(runner.prepareRequests) != 0 || len(runner.runRequests) != 0 {
+		t.Fatalf("runner requests = prepare %d run %d, want no external-agent side effects", len(runner.prepareRequests), len(runner.runRequests))
+	}
+	sessions, err := handler.agentChat.List(t.Context())
+	if err != nil {
+		t.Fatalf("List chat sessions: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("sessions = %+v, want no chat session created by preflight", sessions)
 	}
 }
 

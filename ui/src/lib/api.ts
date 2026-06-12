@@ -651,6 +651,16 @@ export async function getProjectAssignmentContext(
   );
 }
 
+export async function getProjectAssignmentPreflight(
+  projectID: string,
+  workItemID: string,
+  assignmentID: string,
+): Promise<ContextPacketResponse> {
+  return fetchJSON<ContextPacketResponse>(
+    `${HECATE_API}/projects/${encodeURIComponent(projectID)}/work-items/${encodeURIComponent(workItemID)}/assignments/${encodeURIComponent(assignmentID)}/preflight`,
+  );
+}
+
 export async function discoverProjectContextSources(projectID: string): Promise<ProjectResponse> {
   return fetchJSON<ProjectResponse>(
     `${HECATE_API}/projects/${encodeURIComponent(projectID)}/context-sources/discover`,

@@ -26,6 +26,7 @@ import {
   getChatWorkspaceFiles,
   getChatApproval,
   getProjectAssignmentContext,
+  getProjectAssignmentPreflight,
   getProjectAssignments,
   getProjectActivity,
   getProjectCollaborationArtifacts,
@@ -561,6 +562,23 @@ describe("api client", () => {
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.data.id).toBe("ctx_1");
+  });
+
+  it("fetches project assignment launch preflight packets", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        object: "context_packet",
+        data: { id: "ctx_preflight", version: "chat.context.v1" },
+      }),
+    );
+
+    const result = await getProjectAssignmentPreflight("proj/1", "work/1", "asgn/1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/projects/proj%2F1/work-items/work%2F1/assignments/asgn%2F1/preflight",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(result.data.id).toBe("ctx_preflight");
   });
 
   it("creates project work items and assignments", async () => {

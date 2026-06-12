@@ -26,6 +26,7 @@ import {
   getProjectActivity,
   getAgentProfiles,
   getProjectAssignmentContext,
+  getProjectAssignmentPreflight,
   getProjectAssignments,
   getProjectAssistantContext,
   getProjectCollaborationArtifacts,
@@ -118,6 +119,10 @@ vi.mock("../../lib/api", async (importOriginal) => {
     getProjectWorkItem: vi.fn(async () => ({ object: "project_work_item", data: null })),
     getProjectAssignments: vi.fn(async () => ({ object: "project_assignments", data: [] })),
     getProjectAssignmentContext: vi.fn(async () => ({ object: "context_packet", data: null })),
+    getProjectAssignmentPreflight: vi.fn(async () => ({
+      object: "context_packet",
+      data: null,
+    })),
     getProjectAssistantContext: vi.fn(async () => ({
       object: "project_assistant.context",
       data: {
@@ -536,6 +541,35 @@ function resetProjectWorkMocks() {
       ],
     },
   });
+  vi.mocked(getProjectAssignmentPreflight).mockResolvedValue({
+    object: "context_packet",
+    data: {
+      id: "ctx_preflight_1",
+      execution_mode: "hecate_task",
+      provider: "ollama",
+      model: "qwen2.5-coder",
+      execution_profile: "implementation",
+      workspace: "/tmp/hecate-project",
+      refs: {
+        project_id: project.id,
+        work_item_id: workItem.id,
+        assignment_id: hecateAssignment.id,
+        role_id: role.id,
+      },
+      items: [
+        {
+          section: "runtime",
+          kind: "launch_preflight",
+          trust_level: "runtime_state",
+          origin: "project_assignment.preflight",
+          title: "Launch preflight",
+          body: "Preview only: no task, run, chat session, memory entry, artifact, or assignment update has been created.\nTask: created on start\nRun: created on start",
+          included: false,
+          inclusion_reason: "Preflight metadata for operator review before assignment start",
+        },
+      ],
+    },
+  });
   vi.mocked(getProjectAssistantContext).mockResolvedValue({
     object: "project_assistant.context",
     data: {
@@ -942,6 +976,7 @@ afterEach(() => {
   vi.mocked(getProjectWorkItem).mockReset();
   vi.mocked(getProjectAssignments).mockReset();
   vi.mocked(getProjectAssignmentContext).mockReset();
+  vi.mocked(getProjectAssignmentPreflight).mockReset();
   vi.mocked(getProjectAssistantContext).mockReset();
   vi.mocked(getProjectCollaborationArtifacts).mockReset();
   vi.mocked(getProjectHandoffs).mockReset();
@@ -2187,6 +2222,34 @@ describe("ProjectsView cockpit", () => {
       object: "project_assignments",
       data: [externalAssignment],
     });
+    vi.mocked(getProjectAssignmentPreflight).mockResolvedValue({
+      object: "context_packet",
+      data: {
+        id: "ctx_external_preflight",
+        execution_mode: "external_agent",
+        provider: "",
+        model: "",
+        execution_profile: "external_agent_assignment",
+        workspace: "/tmp/hecate-project",
+        refs: {
+          project_id: project.id,
+          work_item_id: workItem.id,
+          assignment_id: externalAssignment.id,
+          role_id: role.id,
+        },
+        items: [
+          {
+            section: "runtime",
+            kind: "launch_preflight",
+            trust_level: "runtime_state",
+            origin: "project_assignment.preflight",
+            title: "Launch preflight",
+            body: "Driver: external_agent\nChat session: created when the assignment is prepared",
+            included: false,
+          },
+        ],
+      },
+    });
     let resolveStartAssignment: (
       value: Awaited<ReturnType<typeof startProjectAssignment>>,
     ) => void = () => {};
@@ -2207,8 +2270,20 @@ describe("ProjectsView cockpit", () => {
     );
     const detail = await screen.findByRole("region", { name: "Selected work item" });
     const prepareButton = within(detail).getByRole("button", { name: "Prepare chat" });
-    await userEvent.dblClick(prepareButton);
+    await userEvent.click(prepareButton);
 
+    expect(getProjectAssignmentPreflight).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      externalAssignment.id,
+    );
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+    const preflight = await screen.findByRole("dialog", {
+      name: "Assignment asgn_1 launch preflight",
+    });
+    expect(within(preflight).getByText("Launch preflight")).toBeTruthy();
+    expect(within(preflight).getByText(/Chat session: created/)).toBeTruthy();
+    await userEvent.click(within(preflight).getByRole("button", { name: "Prepare chat" }));
     expect(startProjectAssignment).toHaveBeenCalledWith(
       project.id,
       workItem.id,
@@ -3477,6 +3552,12 @@ describe("ProjectsView cockpit", () => {
     await openProjectWorkspaceTab(/Work Coordination/);
 
     await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+    const preflight = await screen.findByRole("dialog", {
+      name: "Assignment asgn_not_started launch preflight",
+    });
+    expect(within(preflight).getByText("Launch preflight")).toBeTruthy();
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+    await userEvent.click(within(preflight).getByRole("button", { name: "Start assignment" }));
 
     expect(startProjectAssignment).toHaveBeenCalledWith(
       project.id,
@@ -3806,6 +3887,110 @@ describe("ProjectsView cockpit", () => {
       }),
     );
     expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
+  it("reviews launch preflight before starting a target assignment from a handoff", async () => {
+    resetProjectWorkMocks();
+    const targetAssignment: ProjectAssignmentRecord = {
+      ...hecateAssignment,
+      id: "asgn_review",
+      status: "queued",
+      execution_ref: undefined,
+      execution: undefined,
+    };
+    vi.mocked(getProjectWorkItems).mockResolvedValue({
+      object: "project_work_items",
+      data: [{ ...workItem, assignments: [targetAssignment] }],
+    });
+    vi.mocked(getProjectWorkItem).mockResolvedValue({
+      object: "project_work_item",
+      data: { ...workItem, assignments: [targetAssignment] },
+    });
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [targetAssignment],
+    });
+    vi.mocked(getProjectHandoffs).mockResolvedValue({
+      object: "project_handoffs",
+      data: [
+        {
+          id: "handoff_1",
+          project_id: project.id,
+          work_item_id: workItem.id,
+          source_assignment_id: "asgn_1",
+          title: "Review handoff",
+          summary: "Ready for review.",
+          recommended_next_action: "Start the linked review assignment.",
+          target_role_id: role.id,
+          target_assignment_id: targetAssignment.id,
+          status: "accepted",
+          provenance_kind: "operator",
+          trust_label: "operator_reviewed",
+          created_at: "2026-06-02T12:00:00Z",
+          updated_at: "2026-06-02T12:00:00Z",
+          status_changed_at: "2026-06-02T12:00:00Z",
+        },
+      ],
+    });
+    vi.mocked(getProjectAssignmentPreflight).mockResolvedValue({
+      object: "context_packet",
+      data: {
+        id: "ctx_review_preflight",
+        execution_mode: "hecate_task",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        execution_profile: "implementation",
+        workspace: "/tmp/hecate-project",
+        refs: {
+          project_id: project.id,
+          work_item_id: workItem.id,
+          assignment_id: targetAssignment.id,
+          role_id: role.id,
+        },
+        items: [
+          {
+            section: "runtime",
+            kind: "launch_preflight",
+            trust_level: "runtime_state",
+            origin: "project_assignment.preflight",
+            title: "Launch preflight",
+            body: "Preview only.\nTask: created on start\nRun: created on start",
+            included: false,
+          },
+        ],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    const detail = screen.getByLabelText("Selected work item");
+    await waitFor(() => {
+      expect(within(detail).getAllByText("Review handoff").length).toBeGreaterThan(0);
+    });
+    await userEvent.click(within(detail).getByRole("button", { name: "Start from handoff" }));
+
+    expect(getProjectAssignmentPreflight).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      targetAssignment.id,
+    );
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+    const preflight = await screen.findByRole("dialog", {
+      name: "Assignment asgn_review launch preflight",
+    });
+    expect(within(preflight).getByText("Launch preflight")).toBeTruthy();
+    await userEvent.click(within(preflight).getByRole("button", { name: "Start assignment" }));
+
+    expect(startProjectAssignment).toHaveBeenCalledWith(
+      project.id,
+      workItem.id,
+      targetAssignment.id,
+      "hecate_task",
+    );
   });
 
   it("falls back to Hecate task follow-up assignments when the target role has no default driver", async () => {
@@ -4304,6 +4489,12 @@ describe("ProjectsView cockpit", () => {
     render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
 
     await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+    const preflight = await screen.findByRole("dialog", {
+      name: "Assignment asgn_1 launch preflight",
+    });
+    expect(within(preflight).getByText(/Task: created on start/)).toBeTruthy();
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+    await userEvent.click(within(preflight).getByRole("button", { name: "Start assignment" }));
 
     expect(startProjectAssignment).toHaveBeenCalledWith(
       project.id,

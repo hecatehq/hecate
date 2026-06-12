@@ -209,7 +209,7 @@ export function contextPacketEmpty(packet: ContextPacketRecord): boolean {
   );
 }
 
-function ContextInspectorPanel({
+export function ContextInspectorPanel({
   compact = false,
   emptyDetail,
   packet,
