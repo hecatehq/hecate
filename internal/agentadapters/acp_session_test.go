@@ -130,6 +130,39 @@ func TestACPSessionConfigOptionsSnapshotPreservesNilAndEmpty(t *testing.T) {
 	}
 }
 
+func TestACPChatClientCapturesAvailableCommandsWithoutActiveTurn(t *testing.T) {
+	var got []agentcontrols.Command
+	client := &acpChatClient{
+		onAvailableCommands: func(commands []agentcontrols.Command) {
+			got = commands
+		},
+	}
+
+	err := client.SessionUpdate(context.Background(), acp.SessionNotification{
+		SessionId: acp.SessionId("native_session"),
+		Update: acp.SessionUpdate{
+			AvailableCommandsUpdate: &acp.SessionAvailableCommandsUpdate{
+				SessionUpdate: "available_commands_update",
+				AvailableCommands: []acp.AvailableCommand{
+					{
+						Name:        "web",
+						Description: "Search the web",
+						Input: &acp.AvailableCommandInput{
+							Unstructured: &acp.UnstructuredCommandInput{Hint: "query"},
+						},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SessionUpdate: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "web" || got[0].Description != "Search the web" || got[0].InputHint != "query" {
+		t.Fatalf("available commands = %#v, want web command", got)
+	}
+}
+
 func TestSessionManagerUsesACPModelStateForBuiltInACPAdapters(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_MODELS", "1")
 

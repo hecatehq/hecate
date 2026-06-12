@@ -2669,30 +2669,32 @@ func (s *failingUpdateSessionStore) Delete(ctx context.Context, id string) error
 }
 
 type fakeAgentChatRunner struct {
-	output             string
-	finalOutput        string
-	chunks             []string
-	activities         []agentadapters.Activity
-	delay              time.Duration
-	waitForCancel      bool
-	nativeSessionID    string
-	sessionStarted     bool
-	sessionResumed     bool
-	sessionRecovery    string
-	seenPreviousID     string
-	usage              agentadapters.Usage
-	diffStat           string
-	diff               string
-	err                error
-	prepareErr         error
-	setConfigErr       error
-	prepareRequests    []agentadapters.PrepareSessionRequest
-	runRequests        []agentadapters.RunRequest
-	prepareDeadline    time.Time
-	prepareHasDeadline bool
-	closedSessions     []string
-	closeErr           error
-	configOptions      []agentcontrols.ConfigOption
+	output                   string
+	finalOutput              string
+	chunks                   []string
+	activities               []agentadapters.Activity
+	delay                    time.Duration
+	waitForCancel            bool
+	nativeSessionID          string
+	sessionStarted           bool
+	sessionResumed           bool
+	sessionRecovery          string
+	seenPreviousID           string
+	usage                    agentadapters.Usage
+	diffStat                 string
+	diff                     string
+	err                      error
+	prepareErr               error
+	setConfigErr             error
+	prepareRequests          []agentadapters.PrepareSessionRequest
+	runRequests              []agentadapters.RunRequest
+	prepareDeadline          time.Time
+	prepareHasDeadline       bool
+	closedSessions           []string
+	closeErr                 error
+	configOptions            []agentcontrols.ConfigOption
+	availableCommands        []agentcontrols.Command
+	availableCommandsUpdated bool
 	// activitiesAfterCancel are emitted via OnActivity after ctx is
 	// cancelled (waitForCancel only), so they sit in the stream
 	// coalescer when the run returns and exercise the trailing
@@ -2712,13 +2714,15 @@ func (r *fakeAgentChatRunner) PrepareSession(ctx context.Context, req agentadapt
 	}
 	adapter, _ := agentadapters.BuiltInByID(req.AdapterID)
 	return agentadapters.PrepareSessionResult{
-		Adapter:         adapter,
-		DriverKind:      agentadapters.DriverKindACP,
-		NativeSessionID: nativeSessionID,
-		SessionStarted:  r.sessionStarted,
-		SessionResumed:  r.sessionResumed,
-		SessionRecovery: r.sessionRecovery,
-		ConfigOptions:   r.configOptions,
+		Adapter:                  adapter,
+		DriverKind:               agentadapters.DriverKindACP,
+		NativeSessionID:          nativeSessionID,
+		SessionStarted:           r.sessionStarted,
+		SessionResumed:           r.sessionResumed,
+		SessionRecovery:          r.sessionRecovery,
+		ConfigOptions:            r.configOptions,
+		AvailableCommands:        r.availableCommands,
+		AvailableCommandsUpdated: r.availableCommandsUpdated,
 	}, nil
 }
 
@@ -2784,21 +2788,23 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 	}
 	adapter, _ := agentadapters.BuiltInByID(req.AdapterID)
 	return agentadapters.RunResult{
-		Adapter:         adapter,
-		DriverKind:      agentadapters.DriverKindACP,
-		NativeSessionID: nativeSessionID,
-		SessionStarted:  r.sessionStarted,
-		SessionResumed:  r.sessionResumed,
-		SessionRecovery: r.sessionRecovery,
-		Output:          output,
-		RawOutput:       output,
-		ExitCode:        exitCode,
-		StartedAt:       started,
-		CompletedAt:     time.Now().UTC(),
-		DiffStat:        r.diffStat,
-		Diff:            r.diff,
-		Usage:           r.usage,
-		ConfigOptions:   r.configOptions,
+		Adapter:                  adapter,
+		DriverKind:               agentadapters.DriverKindACP,
+		NativeSessionID:          nativeSessionID,
+		SessionStarted:           r.sessionStarted,
+		SessionResumed:           r.sessionResumed,
+		SessionRecovery:          r.sessionRecovery,
+		Output:                   output,
+		RawOutput:                output,
+		ExitCode:                 exitCode,
+		StartedAt:                started,
+		CompletedAt:              time.Now().UTC(),
+		DiffStat:                 r.diffStat,
+		Diff:                     r.diff,
+		Usage:                    r.usage,
+		ConfigOptions:            r.configOptions,
+		AvailableCommands:        r.availableCommands,
+		AvailableCommandsUpdated: r.availableCommandsUpdated,
 	}
 }
 
@@ -2818,7 +2824,11 @@ func (r *fakeAgentChatRunner) SetSessionConfigOption(_ context.Context, req agen
 		}
 	}
 	r.configOptions = options
-	return agentadapters.SetSessionConfigOptionResult{ConfigOptions: options}, nil
+	return agentadapters.SetSessionConfigOptionResult{
+		ConfigOptions:            options,
+		AvailableCommands:        r.availableCommands,
+		AvailableCommandsUpdated: r.availableCommandsUpdated,
+	}, nil
 }
 
 func (r *fakeAgentChatRunner) CloseSession(_ context.Context, sessionID string) error {
@@ -2855,6 +2865,11 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 				CurrentBool: &autoApprove,
 			},
 		},
+		availableCommandsUpdated: true,
+		availableCommands: []agentcontrols.Command{
+			{Name: "web", Description: "Search the web", InputHint: "query"},
+			{Name: "plan", Description: "Create a plan"},
+		},
 	}
 	apiHandler.SetAgentChatRunner(runner)
 	handler := NewServer(logger, apiHandler)
@@ -2883,9 +2898,15 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	if got := created.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" || got[1].CurrentBool == nil || *got[1].CurrentBool {
 		t.Fatalf("config options after create = %#v, want fast model and auto_approve false", got)
 	}
+	if got := created.Data.AvailableCommands; len(got) != 2 || got[0].Name != "web" || got[0].InputHint != "query" {
+		t.Fatalf("available commands after create = %#v, want web and plan", got)
+	}
 	afterRun := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`))
 	if got := afterRun.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" || got[1].CurrentBool == nil || *got[1].CurrentBool {
 		t.Fatalf("config options after run = %#v, want fast model and auto_approve false", got)
+	}
+	if got := afterRun.Data.AvailableCommands; len(got) != 2 || got[1].Name != "plan" {
+		t.Fatalf("available commands after run = %#v, want persisted commands", got)
 	}
 	if got := runner.runRequests[0].ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" {
 		t.Fatalf("run request config options = %#v, want fast model", got)
@@ -2894,6 +2915,9 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	updated := decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"smart"}`))
 	if got := updated.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "smart" {
 		t.Fatalf("config options after select set = %#v, want smart option", got)
+	}
+	if got := updated.Data.AvailableCommands; len(got) != 2 || got[0].Name != "web" {
+		t.Fatalf("available commands after select set = %#v, want preserved commands", got)
 	}
 
 	updated = decodeRecorder[ChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/chat/sessions/"+created.Data.ID+"/config-options/auto_approve", `{"value":true}`))

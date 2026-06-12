@@ -91,6 +91,31 @@ func TestFromACPOptions_PreservesUnknownVariants(t *testing.T) {
 	}
 }
 
+func TestFromACPCommands_NormalizesAvailableCommands(t *testing.T) {
+	got := FromACPCommands([]acp.AvailableCommand{
+		{
+			Name:        " web ",
+			Description: " Search the web ",
+			Input: &acp.AvailableCommandInput{
+				Unstructured: &acp.UnstructuredCommandInput{Hint: " query "},
+			},
+		},
+		{Name: "web", Description: "duplicate"},
+		{Name: " "},
+		{Name: "plan"},
+	})
+
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2 commands: %#v", len(got), got)
+	}
+	if got[0].Name != "web" || got[0].Description != "Search the web" || got[0].InputHint != "query" {
+		t.Fatalf("first command = %#v, want normalized web command", got[0])
+	}
+	if got[1].Name != "plan" {
+		t.Fatalf("second command = %#v, want plan", got[1])
+	}
+}
+
 func TestBuildACPSetRequest_SelectAndBoolean(t *testing.T) {
 	selectReq, err := BuildACPSetRequest(SetConfigOptionRequest{SessionID: "sess", ConfigID: "model", Value: "smart"})
 	if err != nil {

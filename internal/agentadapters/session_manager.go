@@ -121,14 +121,17 @@ func (m *SessionManager) PrepareSession(ctx context.Context, req PrepareSessionR
 	if err != nil {
 		return PrepareSessionResult{}, err
 	}
+	availableCommands, availableCommandsUpdated := session.availableCommandsSnapshot()
 	return PrepareSessionResult{
-		Adapter:         adapter,
-		DriverKind:      DriverKindACP,
-		NativeSessionID: session.nativeID,
-		SessionStarted:  started,
-		SessionResumed:  resumed,
-		SessionRecovery: recovery,
-		ConfigOptions:   session.configOptionsSnapshot(),
+		Adapter:                  adapter,
+		DriverKind:               DriverKindACP,
+		NativeSessionID:          session.nativeID,
+		SessionStarted:           started,
+		SessionResumed:           resumed,
+		SessionRecovery:          recovery,
+		ConfigOptions:            session.configOptionsSnapshot(),
+		AvailableCommands:        availableCommands,
+		AvailableCommandsUpdated: availableCommandsUpdated,
 	}, nil
 }
 

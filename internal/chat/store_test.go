@@ -391,6 +391,48 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 	}
 }
 
+func runStoreAvailableCommandsRoundTrip(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.Create(ctx, Session{
+		ID:        "chat_commands",
+		Title:     "Commands",
+		AgentID:   "codex",
+		Workspace: "/tmp/hecate",
+		AvailableCommands: []agentcontrols.Command{
+			{Name: "web", Description: "Search the web", InputHint: "query"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	created.AvailableCommands[0].Name = "mutated"
+	got, ok, err := store.Get(ctx, "chat_commands")
+	if err != nil || !ok {
+		t.Fatalf("Get: ok=%v err=%v", ok, err)
+	}
+	if len(got.AvailableCommands) != 1 || got.AvailableCommands[0].Name != "web" || got.AvailableCommands[0].InputHint != "query" {
+		t.Fatalf("stored commands = %#v, want web command", got.AvailableCommands)
+	}
+	got.AvailableCommands[0].Description = "mutated"
+	again, _, err := store.Get(ctx, "chat_commands")
+	if err != nil {
+		t.Fatalf("Get again: %v", err)
+	}
+	if again.AvailableCommands[0].Description != "Search the web" {
+		t.Fatalf("stored command mutated through get snapshot: %#v", again.AvailableCommands)
+	}
+	updated, err := store.UpdateSession(ctx, "chat_commands", func(item *Session) {
+		item.AvailableCommands = []agentcontrols.Command{}
+	})
+	if err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+	if updated.AvailableCommands == nil || len(updated.AvailableCommands) != 0 {
+		t.Fatalf("updated commands = %#v, want non-nil empty slice", updated.AvailableCommands)
+	}
+}
+
 func runStoreDeleteByProjectID(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()

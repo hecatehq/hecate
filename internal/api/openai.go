@@ -828,6 +828,7 @@ type ChatSessionItem struct {
 	MaxSessionDurationMS int64                        `json:"max_session_duration_ms,omitempty"`
 	IdleTimeoutMS        int64                        `json:"idle_timeout_ms,omitempty"`
 	ConfigOptions        []agentcontrols.ConfigOption `json:"config_options,omitempty"`
+	AvailableCommands    []agentcontrols.Command      `json:"available_commands,omitempty"`
 	CreatedAt            string                       `json:"created_at,omitempty"`
 	UpdatedAt            string                       `json:"updated_at,omitempty"`
 	Segments             []ChatSegmentItem            `json:"segments,omitempty"`

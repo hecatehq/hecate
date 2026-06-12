@@ -35,6 +35,10 @@ type acpSession struct {
 	configOptions []agentcontrols.ConfigOption
 	managedConfig map[string]struct{}
 
+	commandMu              sync.Mutex
+	availableCommands      []agentcontrols.Command
+	availableCommandsKnown bool
+
 	turnMu sync.Mutex
 
 	activeMu     sync.Mutex
@@ -94,6 +98,15 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		metrics:     metrics,
 	}
 	conn := acp.NewClientSideConnection(client, stdin, stdout)
+	session := &acpSession{
+		adapter:   adapter,
+		workspace: workspace,
+		cmd:       cmd,
+		conn:      conn,
+		client:    client,
+		logger:    sessionLogger,
+	}
+	client.onAvailableCommands = session.setAvailableCommands
 	if logger != nil {
 		conn.SetLogger(logger.With(
 			slog.String("component", "agent_adapters.acp"),
@@ -222,17 +235,10 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			)
 		}
 	}
-	return &acpSession{
-		adapter:       adapter,
-		workspace:     workspace,
-		cmd:           cmd,
-		conn:          conn,
-		client:        client,
-		nativeID:      nativeID,
-		logger:        sessionLogger,
-		configOptions: configOptions,
-		managedConfig: managedConfig,
-	}, resumed, recovery, nil
+	session.nativeID = nativeID
+	session.configOptions = configOptions
+	session.managedConfig = managedConfig
+	return session, resumed, recovery, nil
 }
 
 func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, error) {
@@ -284,6 +290,7 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 	output, raw, usage := turn.snapshot()
 	result, err := captureACPTurnResult(ctx, s.adapter, req, s.nativeID, output, raw, usage, exitCode, started, completed, initialDiffStat, initialDiff, runErr)
 	result.ConfigOptions = s.configOptionsSnapshot()
+	result.AvailableCommands, result.AvailableCommandsUpdated = s.availableCommandsSnapshot()
 	return result, err
 }
 
@@ -374,7 +381,7 @@ func (s *acpSession) SetManagedConfigOption(req SetSessionConfigOptionRequest) (
 		}
 		options[i].CurrentValue = value
 		s.configOptions = options
-		return SetSessionConfigOptionResult{ConfigOptions: cloneConfigOptions(options)}, nil
+		return s.setSessionConfigOptionResult(cloneConfigOptions(options)), nil
 	}
 	return SetSessionConfigOptionResult{}, fmt.Errorf("config option %q not found", req.ConfigID)
 }
@@ -435,13 +442,13 @@ func (s *acpSession) SetACPModel(ctx context.Context, req SetSessionConfigOption
 	if resp.ConfigOptions != nil {
 		updated = preserveACPModelConfigOption(updated, options)
 		s.configOptions = updated
-		return SetSessionConfigOptionResult{ConfigOptions: cloneConfigOptions(updated)}, nil
+		return s.setSessionConfigOptionResult(cloneConfigOptions(updated)), nil
 	}
 	for i := range options {
 		if options[i].ID == req.ConfigID && options[i].Source == agentcontrols.ConfigOptionSourceACPModel {
 			options[i].CurrentValue = value
 			s.configOptions = options
-			return SetSessionConfigOptionResult{ConfigOptions: cloneConfigOptions(options)}, nil
+			return s.setSessionConfigOptionResult(cloneConfigOptions(options)), nil
 		}
 	}
 	return SetSessionConfigOptionResult{}, fmt.Errorf("ACP model option %q not found", req.ConfigID)
@@ -468,7 +475,16 @@ func (s *acpSession) SetConfigOption(ctx context.Context, req SetSessionConfigOp
 	}
 	options = preserveACPModelConfigOption(options, previousOptions)
 	s.setConfigOptions(options)
-	return SetSessionConfigOptionResult{ConfigOptions: options}, nil
+	return s.setSessionConfigOptionResult(options), nil
+}
+
+func (s *acpSession) setSessionConfigOptionResult(options []agentcontrols.ConfigOption) SetSessionConfigOptionResult {
+	commands, commandsUpdated := s.availableCommandsSnapshot()
+	return SetSessionConfigOptionResult{
+		ConfigOptions:            options,
+		AvailableCommands:        commands,
+		AvailableCommandsUpdated: commandsUpdated,
+	}
 }
 
 func (s *acpSession) setConfigOptions(options []agentcontrols.ConfigOption) {
@@ -490,6 +506,22 @@ func (s *acpSession) configOptionsSnapshot() []agentcontrols.ConfigOption {
 	return cloneConfigOptions(s.configOptions)
 }
 
+func (s *acpSession) setAvailableCommands(commands []agentcontrols.Command) {
+	s.commandMu.Lock()
+	defer s.commandMu.Unlock()
+	s.availableCommands = cloneCommands(commands)
+	s.availableCommandsKnown = true
+}
+
+func (s *acpSession) availableCommandsSnapshot() ([]agentcontrols.Command, bool) {
+	s.commandMu.Lock()
+	defer s.commandMu.Unlock()
+	if !s.availableCommandsKnown {
+		return nil, false
+	}
+	return cloneCommands(s.availableCommands), true
+}
+
 func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.ConfigOption {
 	if options == nil {
 		return nil
@@ -503,6 +535,15 @@ func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.Co
 		out[i].Options = make([]agentcontrols.ConfigSelectOption, len(options[i].Options))
 		copy(out[i].Options, options[i].Options)
 	}
+	return out
+}
+
+func cloneCommands(commands []agentcontrols.Command) []agentcontrols.Command {
+	if commands == nil {
+		return nil
+	}
+	out := make([]agentcontrols.Command, len(commands))
+	copy(out, commands)
 	return out
 }
 

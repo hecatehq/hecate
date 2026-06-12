@@ -2,6 +2,7 @@ package agentcontrols
 
 import (
 	"fmt"
+	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
 )
@@ -39,6 +40,16 @@ type ConfigSelectOption struct {
 	GroupName   string `json:"group_name,omitempty"`
 }
 
+// Command is Hecate's stable projection of ACP available slash commands.
+// ACP owns the command names and descriptions; Hecate keeps only the
+// operator-facing metadata needed to render hints and send the command text
+// back through session/prompt.
+type Command struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	InputHint   string `json:"input_hint,omitempty"`
+}
+
 type SetConfigOptionRequest struct {
 	SessionID string
 	ConfigID  string
@@ -63,6 +74,36 @@ func FromACPOptions(options []acp.SessionConfigOption) []ConfigOption {
 		default:
 			out = append(out, unknownACPOption(len(out)))
 		}
+	}
+	return out
+}
+
+// FromACPCommands converts ACP available commands to Hecate's stable wire
+// shape. Commands with empty names are ignored because the name is the prompt
+// token the operator sends back to the agent, usually as /name.
+func FromACPCommands(commands []acp.AvailableCommand) []Command {
+	if len(commands) == 0 {
+		return nil
+	}
+	out := make([]Command, 0, len(commands))
+	seen := make(map[string]struct{}, len(commands))
+	for _, command := range commands {
+		name := trimString(command.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, Command{
+			Name:        name,
+			Description: trimString(command.Description),
+			InputHint:   acpCommandInputHint(command.Input),
+		})
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -174,6 +215,13 @@ func categoryString(category *acp.SessionConfigOptionCategory) string {
 	return string(*category)
 }
 
+func acpCommandInputHint(input *acp.AvailableCommandInput) string {
+	if input == nil || input.Unstructured == nil {
+		return ""
+	}
+	return trimString(input.Unstructured.Hint)
+}
+
 func acpSelectSource(category string) string {
 	if category == string(acp.SessionConfigOptionCategoryModel) {
 		return ConfigOptionSourceACPModel
@@ -186,4 +234,8 @@ func derefString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func trimString(value string) string {
+	return strings.TrimSpace(value)
 }

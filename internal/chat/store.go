@@ -22,15 +22,16 @@ type Session struct {
 	Workspace       string
 	// WorkspaceBranch is captured when the session is created so API
 	// snapshots don't spawn git on every streamed update.
-	WorkspaceBranch string
-	Status          string
-	TaskID          string
-	LatestRunID     string
-	Provider        string
-	Model           string
-	Capabilities    types.ModelCapabilities
-	ConfigOptions   []agentcontrols.ConfigOption
-	RTKEnabled      bool
+	WorkspaceBranch   string
+	Status            string
+	TaskID            string
+	LatestRunID       string
+	Provider          string
+	Model             string
+	Capabilities      types.ModelCapabilities
+	ConfigOptions     []agentcontrols.ConfigOption
+	AvailableCommands []agentcontrols.Command
+	RTKEnabled        bool
 	// TurnsUsed counts how many user→assistant round-trips have completed
 	// (successfully or with failure) in this session. Used to enforce the
 	// HECATE_CHAT_MAX_TURNS_PER_SESSION ceiling.
@@ -415,6 +416,7 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 
 func cloneSession(session Session) Session {
 	session.ConfigOptions = cloneConfigOptions(session.ConfigOptions)
+	session.AvailableCommands = cloneCommands(session.AvailableCommands)
 	session.Messages = append([]Message(nil), session.Messages...)
 	for i := range session.Messages {
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
@@ -437,6 +439,15 @@ func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.Co
 		out[i].Options = make([]agentcontrols.ConfigSelectOption, len(options[i].Options))
 		copy(out[i].Options, options[i].Options)
 	}
+	return out
+}
+
+func cloneCommands(commands []agentcontrols.Command) []agentcontrols.Command {
+	if commands == nil {
+		return nil
+	}
+	out := make([]agentcontrols.Command, len(commands))
+	copy(out, commands)
 	return out
 }
 
