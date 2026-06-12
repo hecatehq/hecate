@@ -217,14 +217,16 @@ func TestHecateAgentChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 		t.Fatalf("backing task %q not found", started.Data.TaskID)
 	}
 	for _, want := range []string{
-		"Hecate project chat guidance:",
-		`This chat is linked to project "Hecate" (proj_hecate).`,
+		"Project chat guidance",
+		"Project: Hecate (proj_hecate)",
+		"Project workflow boundary:",
 		"Project Assistant is a proposal author only.",
 		"Do not create or start chats, tasks, runs, external-agent sessions, promoted memory, or durable project records through generic tools or direct API calls.",
 		"Assignments proposed from chat must stay queued and unstarted.",
-		"Available project responsibilities:",
+		"Role hints:",
 		"A Project Planner (role_planner): Shapes reviewable project work.",
-		"Accepted project memory excerpts:",
+		"Accepted project memory:",
+		"Project memory: Project Assistant boundary\nID: mem_boundary\nTrust: operator_memory",
 		"Project changes should be drafted as typed proposals and applied only after operator review.",
 		"Operator system prompt:\nPrefer concise answers.",
 	} {
@@ -273,8 +275,8 @@ func TestDirectHecateChatProjectSessionInjectsProposalGuidance(t *testing.T) {
 		t.Fatalf("first provider message role = %q, want system", request.Messages[0].Role)
 	}
 	for _, want := range []string{
-		"Hecate project chat guidance:",
-		`This chat is linked to project "Direct Project" (proj_direct).`,
+		"Project chat guidance",
+		"Project: Direct Project (proj_direct)",
 		"Project Assistant is a proposal author only.",
 		"Operator system prompt:\nAnswer plainly.",
 	} {

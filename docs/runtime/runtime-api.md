@@ -2704,11 +2704,12 @@ the user message and assistant output.
 - `system_prompt` — applied to tools-off turns and new task-backed Hecate Chat
   segments. When the chat is linked to a project, Hecate prepends hidden
   project workflow guidance and bounded project context before the operator
-  prompt. That guidance keeps Chat conversational while telling the model to
-  treat project-planning intent as proposal-only Project Assistant work; it
-  does not grant direct project mutation rights. If the selected model routes
-  to a cloud provider, the bounded project prompt context is sent through the
-  normal model gateway route like any other chat prompt.
+  prompt. That guidance uses the same project/role/memory vocabulary as
+  project assignment launch context and keeps Chat conversational while telling
+  the model to treat project-planning intent as proposal-only Project
+  Assistant work; it does not grant direct project mutation rights. If the
+  selected model routes to a cloud provider, the bounded project prompt context
+  is sent through the normal model gateway route like any other chat prompt.
 - `workspace` — required when starting a task-backed Hecate Chat turn
   (`tools_enabled=true`) on a session that does not already have a workspace.
 
