@@ -269,6 +269,111 @@ gateway-scoped secrets are not inherited implicitly. Put any server-specific
 credential or proxy setting in that server's `env` map as a `$VAR_NAME`
 reference or encrypted literal so the boundary is explicit.
 
+### MCP Apps extension
+
+When Hecate connects to an external MCP server, its initialize request advertises
+the MCP Apps extension:
+
+```json
+{
+  "capabilities": {
+    "extensions": {
+      "io.modelcontextprotocol/ui": {
+        "mimeTypes": ["text/html;profile=mcp-app"]
+      }
+    }
+  }
+}
+```
+
+That lets servers expose tools with `_meta.ui.resourceUri` links to `ui://`
+resources and `_meta.ui.visibility` declarations. `ui://` is the MCP Apps
+resource URI scheme: it is not fetched by the browser or the model directly.
+Hecate resolves it through MCP `resources/read`, captures the returned
+`text/html;profile=mcp-app` resource, and then renders that HTML inside the
+local chat host. Hecate preserves the raw `_meta` object, `structuredContent`,
+tool-result `_meta`, resource descriptor `_meta`, and resource-content `_meta`
+in its MCP client layer. The dry-run probe returns the raw `_meta` plus
+`ui_resource_uri`, `ui_visibility`, and `model_visible` so operators can inspect
+MCP Apps-aware servers before using them in a task.
+
+Agent-loop model exposure follows the MCP Apps visibility rule:
+
+- Missing visibility defaults to model-visible.
+- Tools whose `_meta.ui.visibility` omits `"model"` stay visible in probe output
+  but are hidden from the LLM tool catalog and cannot be dispatched by the
+  agent loop.
+- The deprecated flat `_meta["ui/resourceUri"]` field is still recognized when
+  deriving `ui_resource_uri`.
+
+When an agent-loop tool call uses a model-visible MCP Apps tool, Hecate calls
+`resources/read` for the tool's `ui_resource_uri`, stores the returned HTML
+resource on the tool activity, and renders it inline in Hecate Chat as a
+sandboxed iframe. The chat host injects a restrictive CSP from
+`resource._meta.ui.csp`, performs the Apps JSON-RPC initialization handshake,
+and sends the captured tool arguments plus `CallToolResult` via
+`ui/notifications/tool-input` and `ui/notifications/tool-result`.
+
+The first renderer is intentionally read-mostly: apps can `ping`, read the
+embedded resource, report their preferred size, and receive the initial
+tool-input/tool-result payloads. Follow-up `tools/call` requests from historical
+chat views are rejected with a clear unsupported error because the per-run MCP
+server connection may already be closed by the time an operator reopens the
+transcript.
+
+#### Try the local app demo in Chat
+
+The repo includes a dependency-free stdio MCP Apps server at
+`examples/mcp-weather-app-server.mjs`. It exposes one `show_weather` tool with
+`_meta.ui.resourceUri = "ui://demo/weather"` and returns a tiny
+`text/html;profile=mcp-app` weather dashboard resource.
+
+The Chat composer does not yet have MCP server rows, so send a Hecate Chat turn
+through the API. Replace `SESSION_ID` with a Hecate Chat session ID, and add
+`X-Hecate-Runtime-Token` if your local runtime requires it:
+
+```bash
+curl -sS \
+  -H 'content-type: application/json' \
+  -X POST http://127.0.0.1:8765/hecate/v1/chat/sessions/SESSION_ID/messages \
+  -d '{
+    "execution_mode": "hecate_task",
+    "tools_enabled": true,
+    "workspace": "/absolute/path/to/a/workspace",
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "content": "Call mcp__weather__show_weather with location Barcelona, then show the result.",
+    "mcp_servers": [
+      {
+        "name": "weather",
+        "command": "node",
+        "args": ["/absolute/path/to/hecate/examples/mcp-weather-app-server.mjs"]
+      }
+    ]
+  }'
+```
+
+When the model calls the tool, the Chat transcript should show the weather app
+frame directly in the assistant message body. The compact activity row below it
+is still useful audit metadata (`completed · 1 tool`), but the app itself should
+not require expanding a disclosure.
+
+#### Test MCP Apps support
+
+Useful focused checks while developing MCP Apps support:
+
+```bash
+go test ./internal/mcp/... ./internal/orchestrator ./internal/api ./internal/taskapp
+cd ui && bun run test -- src/features/transcript/TranscriptMessageRow.test.tsx
+```
+
+The Go tests cover initialize capabilities, tool `_meta` passthrough,
+`structuredContent`, `resources/read`, visibility filtering, app-resource
+capture on tool calls, registry discovery, and chat activity projection. The UI
+test pins inline rendering, sandbox attributes, the Apps JSON-RPC host bridge,
+tool-input/tool-result delivery, iframe resizing, and the no-empty-iframe error
+fallback.
+
 ### Approval policy
 
 `approval_policy` gates how tool calls dispatch. Per-server, not per-tool.
@@ -300,6 +405,12 @@ Hecate maintains a shared client cache so multiple tasks targeting the same upst
 - **Live snapshot**: `GET /hecate/v1/system/mcp/cache` returns the current `{entries, in_use, idle}` plus a `configured` boolean (false on deploys without a cache). Surfaced on the observability view alongside queue depth and worker count.
 - **HTTP-transport seam**: every HTTP MCP client the cache spawns shares one `*http.Client`. Default-constructed (5-minute timeout, Go's `http.DefaultTransport`) but overridable in code via `SharedClientCacheOptions.HTTPClient` for deploys that need a corporate proxy, mTLS, alternate `DialContext`, or different timeouts. Stdio servers ignore this; uncached pools (built via `NewPool` rather than `NewPoolWithCache`) keep the prior per-transport default.
 - **Dry-run probe**: `POST /hecate/v1/mcp/probe` brings a single MCP server up exactly the way a task would, calls `tools/list`, and returns the catalog without touching the cache. Lets operators confirm a config (and discover what tools an upstream vends) before committing it to a task. See [`runtime-api.md`](runtime-api.md#runtime-backend-and-queue-configuration) for the request/response shape.
+
+### Registry discovery
+
+`GET /hecate/v1/mcp/registry/servers` queries the read-only MCP Registry REST API. It defaults to `https://registry.modelcontextprotocol.io` and forwards the registry's list/search filters: `search`, `cursor`, `limit`, `updated_since`, `version`, and `include_deleted`. `registry_url` can point at a private registry, but the endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected before Hecate performs any outbound fetch.
+
+The response keeps registry server metadata intact (`server`, `_meta`) and adds Hecate-specific `install_hints`. A `streamable-http` remote with a URL gets a ready-to-probe `hecate_config` containing `name`, `url`, and header placeholders such as `$MCP_AUTHORIZATION`. Package entries and legacy `sse` remotes remain visible for discovery, but Hecate does not treat them as one-click runnable configs. Operators still review the selected config and can use `POST /hecate/v1/mcp/probe` to inspect the actual tool catalog before adding it to a task.
 
 ### Resource limits
 

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   ChatActivityRecord,
   ChatContextPacketRecord,
+  ChatMCPAppRecord,
   ChatTimingRecord,
   ChatUsageRecord,
 } from "../../types/chat";
@@ -19,6 +20,30 @@ const baseProps = {
   onCopy: () => {},
   copied: false,
 };
+
+function weatherMCPAppActivity(app: Partial<ChatMCPAppRecord> = {}): ChatActivityRecord {
+  return {
+    type: "tool_call",
+    title: "mcp__weather__get_weather (completed)",
+    status: "completed",
+    kind: "tool",
+    mcp_app: {
+      resource_uri: "ui://weather/dashboard",
+      mime_type: "text/html;profile=mcp-app",
+      html: "<!doctype html><html><head></head><body><div>weather app</div></body></html>",
+      tool_name: "mcp__weather__get_weather",
+      tool_input: { city: "Lisbon" },
+      tool_result: { content: [{ type: "text", text: "72F" }] },
+      resource_meta: {
+        ui: {
+          csp: { resourceDomains: ["https://cdn.example.com"] },
+          prefersBorder: true,
+        },
+      },
+      ...app,
+    },
+  };
+}
 
 describe("TranscriptMessageRow", () => {
   it("renders assistant content as markdown", () => {
@@ -1022,6 +1047,120 @@ describe("TranscriptMessageRow", () => {
     await user.click(screen.getAllByText("Output")[1]);
 
     expect(screen.getByText("command output")).toBeInTheDocument();
+  });
+
+  it("renders MCP Apps inline from tool activity payloads", () => {
+    const activities = [weatherMCPAppActivity()];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    expect(screen.getByText("Rendered app")).toBeInTheDocument();
+    const frame = screen.getByTestId("mcp-app-frame") as HTMLIFrameElement;
+    expect(screen.getAllByTestId("mcp-app-frame")).toHaveLength(1);
+    expect(frame.closest("details")).toBeNull();
+    expect(screen.queryByText("App")).toBeNull();
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+    expect(frame.title).toBe("MCP App");
+    expect(frame).toHaveAttribute("aria-label", "mcp__weather__get_weather");
+    expect(frame.srcdoc).toContain("weather app");
+    expect(frame.srcdoc).toContain("https://cdn.example.com");
+  });
+
+  it("exchanges initialization and tool payloads with inline MCP Apps", () => {
+    const activities = [
+      weatherMCPAppActivity({
+        tool_result: {
+          content: [{ type: "text", text: "72F" }],
+          structuredContent: { temperature: "72F", conditions: "Sunny" },
+        },
+        tool_meta: { title: "Weather" },
+      }),
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    const frame = screen.getByTestId("mcp-app-frame") as HTMLIFrameElement;
+    const appWindow = frame.contentWindow;
+    if (!appWindow) throw new Error("iframe contentWindow is missing");
+    const postMessage = vi.spyOn(appWindow, "postMessage").mockImplementation(() => {});
+
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        source: appWindow,
+        data: { jsonrpc: "2.0", id: 1, method: "ui/initialize", params: {} },
+      }),
+    );
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        source: appWindow,
+        data: { jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} },
+      }),
+    );
+    fireEvent(
+      window,
+      new MessageEvent("message", {
+        source: appWindow,
+        data: {
+          jsonrpc: "2.0",
+          method: "ui/notifications/size-changed",
+          params: { height: 244 },
+        },
+      }),
+    );
+
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 1,
+        jsonrpc: "2.0",
+        result: expect.objectContaining({
+          hostContext: expect.objectContaining({
+            availableDisplayModes: ["inline"],
+            displayMode: "inline",
+            toolInfo: {
+              tool: expect.objectContaining({
+                _meta: { title: "Weather" },
+                name: "mcp__weather__get_weather",
+              }),
+            },
+          }),
+        }),
+      }),
+      "*",
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        jsonrpc: "2.0",
+        method: "ui/notifications/tool-input",
+        params: { arguments: { city: "Lisbon" } },
+      },
+      "*",
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        jsonrpc: "2.0",
+        method: "ui/notifications/tool-result",
+        params: {
+          content: [{ type: "text", text: "72F" }],
+          structuredContent: { temperature: "72F", conditions: "Sunny" },
+        },
+      },
+      "*",
+    );
+    expect(frame).toHaveStyle({ height: "244px" });
+  });
+
+  it("renders MCP App capture errors without an empty iframe", () => {
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        activities={[weatherMCPAppActivity({ html: undefined, error: "resources/read failed" })]}
+      />,
+    );
+
+    expect(screen.getByText("Could not render MCP App: resources/read failed")).toBeInTheDocument();
+    expect(screen.queryByTestId("mcp-app-frame")).toBeNull();
   });
 
   it("hides output detail rows without captured previews", () => {

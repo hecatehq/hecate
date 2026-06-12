@@ -139,8 +139,22 @@ export type ChatActivityRecord = {
   artifact_preview?: string;
   approval_id?: string;
   needs_action?: boolean;
+  mcp_app?: ChatMCPAppRecord;
   terminal?: boolean;
   children?: ChatActivityRecord[];
+};
+
+export type ChatMCPAppRecord = {
+  resource_uri?: string;
+  mime_type?: string;
+  html?: string;
+  html_truncated?: boolean;
+  tool_name?: string;
+  tool_input?: unknown;
+  tool_result?: unknown;
+  resource_meta?: unknown;
+  tool_meta?: unknown;
+  error?: string;
 };
 
 export type ChatConfigSelectOptionRecord = {

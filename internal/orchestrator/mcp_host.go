@@ -38,6 +38,15 @@ type AgentMCPHost interface {
 	Close() error
 }
 
+// AgentMCPDetailedHost is implemented by MCP hosts that can return the
+// full MCP tool result alongside the model-visible text fallback. The
+// agent loop uses it to capture MCP Apps resources for the chat UI
+// without changing the legacy host seam used by tests and alternate
+// hosts.
+type AgentMCPDetailedHost interface {
+	CallDetailed(ctx context.Context, name string, args json.RawMessage) (mcpclient.ToolCallResult, error)
+}
+
 // AgentMCPHostFactory builds a host from a slice of per-task server
 // configs. Returns nil when configs is empty (the agent loop skips
 // MCP plumbing entirely in that case). On error the caller treats
@@ -288,12 +297,12 @@ func ProbeMCPServer(ctx context.Context, cfg types.MCPServerConfig, cipher secre
 	}
 	defer func() { _ = pool.Close() }()
 
-	// Pool.Tools() is already populated by NewPool's bring-up
+	// Pool.AllTools() is already populated by NewPool's bring-up
 	// (initialize + tools/list) so no extra round-trip is needed.
 	// We strip the namespacing for the response — the probe surface
 	// is for understanding the upstream, not the gateway's runtime
 	// alias.
-	tools := pool.Tools()
+	tools := pool.AllTools()
 	out := &MCPProbeResult{Tools: make([]mcpclient.NamespacedTool, 0, len(tools))}
 	prefix := mcpclient.NamespacedToolName(strings.TrimSpace(cfg.Name), "")
 	for _, t := range tools {
@@ -364,6 +373,10 @@ func (h *poolMCPHost) Tools() []types.Tool {
 
 func (h *poolMCPHost) Call(ctx context.Context, name string, args json.RawMessage) (string, bool, error) {
 	return h.pool.Call(ctx, name, args)
+}
+
+func (h *poolMCPHost) CallDetailed(ctx context.Context, name string, args json.RawMessage) (mcpclient.ToolCallResult, error) {
+	return h.pool.CallDetailed(ctx, name, args)
 }
 
 func (h *poolMCPHost) Close() error {

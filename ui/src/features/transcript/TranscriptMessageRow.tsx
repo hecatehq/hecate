@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   ChatActivityRecord,
   ChatContextPacketRecord,
+  ChatMCPAppRecord,
   ChatTimingRecord,
   ChatUsageRecord,
 } from "../../types/chat";
@@ -121,14 +122,19 @@ export function TranscriptMessageRow({
           return true;
         })
       : activities;
+  const inlineMCPAppActivities =
+    isAssistant && visibleActivities?.length ? visibleActivities.filter(hasMCPApp) : [];
+  const inlineMCPAppActivitySet = new Set<ChatActivityRecord>(inlineMCPAppActivities);
   const renderActivityAdvanced =
     isAssistant && visibleActivities?.length
-      ? (activity: ChatActivityRecord) =>
-          renderAgentActivityAdvanced(activity, {
+      ? (activity: ChatActivityRecord) => {
+          if (inlineMCPAppActivitySet.has(activity)) return null;
+          return renderAgentActivityAdvanced(activity, {
             taskLink,
             diffStat,
             diff,
-          })
+          });
+        }
       : undefined;
   const showCapturedDiff =
     isAssistant &&
@@ -307,6 +313,24 @@ export function TranscriptMessageRow({
           ) : (
             <TranscriptMarkdown content={content} />
           )}
+          {inlineMCPAppActivities.length > 0 && (
+            <div
+              style={{
+                display: "grid",
+                gap: 8,
+                marginTop: content.trim() ? 8 : 0,
+                minWidth: 0,
+              }}
+            >
+              {inlineMCPAppActivities.map((activity, index) => (
+                <MCPAppFrame
+                  key={activity.id || activity.mcp_app.resource_uri || `mcp-app-${index}`}
+                  activity={activity}
+                  app={activity.mcp_app}
+                />
+              ))}
+            </div>
+          )}
           {isAssistant && visibleActivities && visibleActivities.length > 0 && (
             <TranscriptActivityTimeline
               activities={visibleActivities}
@@ -346,6 +370,12 @@ export function TranscriptMessageRow({
   );
 }
 
+type ChatActivityWithMCPApp = ChatActivityRecord & { mcp_app: ChatMCPAppRecord };
+
+function hasMCPApp(activity: ChatActivityRecord): activity is ChatActivityWithMCPApp {
+  return Boolean(activity.mcp_app);
+}
+
 function renderAgentActivityAdvanced(
   activity: ChatActivityRecord,
   options: {
@@ -354,6 +384,10 @@ function renderAgentActivityAdvanced(
     diff?: string;
   },
 ) {
+  if (activity.mcp_app) {
+    return <MCPAppFrame activity={activity} app={activity.mcp_app} />;
+  }
+
   if (activity.type === "changed_files" || activity.type === "files_changed") {
     return (
       <ActivityFilesPreview activity={activity} diffStat={options.diffStat} diff={options.diff} />
@@ -398,6 +432,304 @@ function renderAgentActivityAdvanced(
       </div>
     </div>
   );
+}
+
+function MCPAppFrame({ activity, app }: { activity: ChatActivityRecord; app: ChatMCPAppRecord }) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const appRef = useRef(app);
+  const [height, setHeight] = useState(360);
+  const srcDoc = useMemo(
+    () => htmlWithMCPAppCSP(app.html ?? "", app.resource_meta),
+    [app.html, app.resource_meta],
+  );
+  const prefersBorder = mcpAppPrefersBorder(app.resource_meta);
+
+  useEffect(() => {
+    appRef.current = app;
+  }, [app]);
+
+  useEffect(() => {
+    function postToApp(message: Record<string, unknown>) {
+      iframeRef.current?.contentWindow?.postMessage(message, "*");
+    }
+
+    function respond(id: unknown, payload: { result?: unknown; error?: MCPAppRPCError }) {
+      if (id === undefined || id === null) return;
+      postToApp({
+        jsonrpc: "2.0",
+        id,
+        ...(payload.error ? { error: payload.error } : { result: payload.result ?? {} }),
+      });
+    }
+
+    function sendToolPayloads() {
+      const current = appRef.current;
+      postToApp({
+        jsonrpc: "2.0",
+        method: "ui/notifications/tool-input",
+        params: { arguments: objectRecord(current.tool_input) },
+      });
+      postToApp({
+        jsonrpc: "2.0",
+        method: "ui/notifications/tool-result",
+        params: current.tool_result ?? { content: [] },
+      });
+    }
+
+    function handleMessage(event: MessageEvent) {
+      if (!iframeRef.current || event.source !== iframeRef.current.contentWindow) return;
+      if (!isMCPAppRPCMessage(event.data)) return;
+
+      const message = event.data;
+      if (message.method === "ui/notifications/initialized") {
+        sendToolPayloads();
+        return;
+      }
+      if (message.method === "notifications/message") {
+        return;
+      }
+      if (message.method === "ui/notifications/size-changed") {
+        const nextHeight = numericRecord(message.params).height;
+        if (typeof nextHeight === "number" && Number.isFinite(nextHeight)) {
+          setHeight(Math.max(180, Math.min(760, Math.ceil(nextHeight))));
+        }
+        return;
+      }
+
+      switch (message.method) {
+        case "ui/initialize":
+        case "initialize":
+          respond(message.id, {
+            result: {
+              protocolVersion: "2026-01-26",
+              hostCapabilities: {
+                logging: {},
+                serverResources: {},
+                sandbox: { csp: cspMetadata(appRef.current.resource_meta) },
+              },
+              hostInfo: { name: "Hecate", version: "0.0.0" },
+              hostContext: {
+                toolInfo: {
+                  tool: {
+                    name: appRef.current.tool_name || activity.title,
+                    _meta: appRef.current.tool_meta,
+                  },
+                },
+                theme: document.documentElement.dataset.theme === "light" ? "light" : "dark",
+                displayMode: "inline",
+                availableDisplayModes: ["inline"],
+                containerDimensions: { maxWidth: 760, maxHeight: 760 },
+                locale: navigator.language,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                userAgent: "hecate",
+                platform: "desktop",
+                deviceCapabilities: { hover: true },
+              },
+            },
+          });
+          return;
+        case "ping":
+          respond(message.id, { result: {} });
+          return;
+        case "resources/read":
+          handleMCPAppResourceRead(message, appRef.current, respond);
+          return;
+        case "ui/request-display-mode":
+          respond(message.id, { result: { mode: "inline" } });
+          return;
+        case "tools/call":
+          respond(message.id, {
+            error: {
+              code: -32000,
+              message:
+                "Interactive MCP App tool calls are not available from persisted Hecate chat apps yet.",
+            },
+          });
+          return;
+        default:
+          respond(message.id, {
+            error: { code: -32601, message: `Unsupported MCP App method: ${message.method}` },
+          });
+      }
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [activity.title]);
+
+  if (app.error && !app.html) {
+    return (
+      <div style={{ color: "var(--red)", fontSize: 11, lineHeight: 1.5 }}>
+        Could not render MCP App: {app.error}
+      </div>
+    );
+  }
+  if (!srcDoc) {
+    return (
+      <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.5 }}>
+        This MCP tool advertised an app, but no HTML resource was captured.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 5, minWidth: 0 }}>
+      {app.error && (
+        <div style={{ color: "var(--amber)", fontSize: 11, lineHeight: 1.5 }}>{app.error}</div>
+      )}
+      <iframe
+        ref={iframeRef}
+        data-testid="mcp-app-frame"
+        srcDoc={srcDoc}
+        title="MCP App"
+        aria-label={app.tool_name || activity.title || "MCP App"}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        style={{
+          background: "var(--bg0)",
+          border: prefersBorder ? "1px solid var(--border)" : "none",
+          borderRadius: prefersBorder ? "var(--radius-sm)" : 0,
+          display: "block",
+          height,
+          maxHeight: 760,
+          minHeight: 180,
+          overflow: "hidden",
+          width: "100%",
+        }}
+      />
+      {app.html_truncated && (
+        <div style={{ color: "var(--amber)", fontSize: 10, lineHeight: 1.5 }}>
+          App HTML exceeded the capture limit, so the rendered view may be incomplete.
+        </div>
+      )}
+    </div>
+  );
+}
+
+type MCPAppRPCError = { code: number; message: string };
+
+type MCPAppRPCMessage = {
+  jsonrpc?: string;
+  id?: unknown;
+  method?: string;
+  params?: unknown;
+};
+
+function isMCPAppRPCMessage(value: unknown): value is MCPAppRPCMessage {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    "method" in value &&
+    typeof (value as { method?: unknown }).method === "string",
+  );
+}
+
+function handleMCPAppResourceRead(
+  message: MCPAppRPCMessage,
+  app: ChatMCPAppRecord,
+  respond: (id: unknown, payload: { result?: unknown; error?: MCPAppRPCError }) => void,
+) {
+  const requestedURI = stringRecord(message.params).uri;
+  const resourceURI = app.resource_uri ?? "";
+  if (requestedURI && requestedURI !== resourceURI) {
+    respond(message.id, {
+      error: { code: -32602, message: `Unknown MCP App resource: ${requestedURI}` },
+    });
+    return;
+  }
+  respond(message.id, {
+    result: {
+      contents: [
+        {
+          uri: resourceURI,
+          mimeType: app.mime_type || "text/html;profile=mcp-app",
+          text: app.html ?? "",
+          _meta: app.resource_meta,
+        },
+      ],
+    },
+  });
+}
+
+function htmlWithMCPAppCSP(html: string, meta: unknown): string {
+  const trimmed = html.trim();
+  if (!trimmed) return "";
+  const csp = mcpAppCSP(meta);
+  const tag = `<meta http-equiv="Content-Security-Policy" content="${escapeHTMLAttribute(csp)}">`;
+  if (/<head(\s[^>]*)?>/i.test(trimmed)) {
+    return trimmed.replace(/<head(\s[^>]*)?>/i, (match) => `${match}${tag}`);
+  }
+  if (/<html(\s[^>]*)?>/i.test(trimmed)) {
+    return trimmed.replace(/<html(\s[^>]*)?>/i, (match) => `${match}<head>${tag}</head>`);
+  }
+  return `<!doctype html><html><head>${tag}</head><body>${trimmed}</body></html>`;
+}
+
+function mcpAppCSP(meta: unknown): string {
+  const csp = cspMetadata(meta);
+  const resourceDomains = csp.resourceDomains.length > 0 ? csp.resourceDomains.join(" ") : "'self'";
+  const connectDomains = csp.connectDomains.length > 0 ? csp.connectDomains.join(" ") : "'none'";
+  const frameDomains = csp.frameDomains.length > 0 ? csp.frameDomains.join(" ") : "'none'";
+  const baseUriDomains = csp.baseUriDomains.length > 0 ? csp.baseUriDomains.join(" ") : "'self'";
+  return [
+    "default-src 'none'",
+    `script-src 'self' 'unsafe-inline' ${resourceDomains}`,
+    `style-src 'self' 'unsafe-inline' ${resourceDomains}`,
+    `img-src 'self' data: ${resourceDomains}`,
+    `font-src 'self' data: ${resourceDomains}`,
+    `media-src 'self' data: ${resourceDomains}`,
+    `connect-src ${connectDomains}`,
+    `frame-src ${frameDomains}`,
+    `base-uri ${baseUriDomains}`,
+    "object-src 'none'",
+  ].join("; ");
+}
+
+function cspMetadata(meta: unknown): {
+  connectDomains: string[];
+  resourceDomains: string[];
+  frameDomains: string[];
+  baseUriDomains: string[];
+} {
+  const ui = objectRecord(objectRecord(meta).ui);
+  const csp = objectRecord(ui.csp);
+  return {
+    connectDomains: stringArray(csp.connectDomains),
+    resourceDomains: stringArray(csp.resourceDomains),
+    frameDomains: stringArray(csp.frameDomains),
+    baseUriDomains: stringArray(csp.baseUriDomains),
+  };
+}
+
+function mcpAppPrefersBorder(meta: unknown): boolean {
+  const ui = objectRecord(objectRecord(meta).ui);
+  return typeof ui.prefersBorder === "boolean" ? ui.prefersBorder : true;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function numericRecord(value: unknown): Record<string, number> {
+  return objectRecord(value) as Record<string, number>;
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  return objectRecord(value) as Record<string, string>;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is string =>
+      typeof item === "string" && item.trim() !== "" && /^[^\s;]+$/.test(item),
+  );
+}
+
+function escapeHTMLAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
 function ActivityFilesPreview({

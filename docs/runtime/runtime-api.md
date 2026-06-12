@@ -321,7 +321,48 @@ pending. The operator UI uses this same array in both Task Detail and Hecate
 Chat transcript projections; clients should treat it as the compact timeline
 surface and use raw steps/artifacts/events only for deeper inspection. Task
 Detail may expose the raw `TaskActivityItem` fields behind an advanced
-disclosure, but Chats should favor the compact projection.
+disclosure, but Chats should favor the compact projection. For MCP Apps tool
+calls, task-backed chat activities may include `mcp_app` with the captured
+`ui://` resource URI, MIME type, HTML, resource/tool metadata, tool arguments,
+and MCP `CallToolResult`; clients can render it inline or ignore it and fall
+back to the normal text activity.
+
+`mcp_app` is optional and appears only when Hecate could associate a tool call
+with an MCP Apps HTML resource:
+
+```json
+{
+  "resource_uri": "ui://weather/dashboard",
+  "mime_type": "text/html;profile=mcp-app",
+  "html": "<!doctype html>...",
+  "html_truncated": false,
+  "tool_name": "mcp__weather__get_weather",
+  "tool_input": { "city": "Lisbon" },
+  "tool_result": {
+    "content": [{ "type": "text", "text": "72F" }],
+    "structuredContent": { "temperature": "72F" }
+  },
+  "resource_meta": {
+    "ui": {
+      "csp": { "resourceDomains": ["https://cdn.example.com"] },
+      "prefersBorder": true
+    }
+  },
+  "tool_meta": {
+    "ui": {
+      "resourceUri": "ui://weather/dashboard",
+      "visibility": ["model", "app"]
+    }
+  }
+}
+```
+
+The operator UI renders the iframe directly in the assistant message body and
+keeps the normal collapsed activity row below it as audit metadata. `ui://`
+values are MCP resource identifiers, not browser URLs; clients that render apps
+should treat `html` as the captured resource body and apply their own sandboxing
+and CSP policy. If app resource capture fails, `error` may be present and `html`
+may be absent.
 
 ### Public events feed
 
@@ -421,6 +462,76 @@ The same payload includes `rtk_available` and optional `rtk_path` so the UI can 
 
 `configured: false` means no cache is wired (the deploy explicitly disabled it via `Handler.SetMCPClientCache(nil)`); the counter fields are present but zero so operator UIs can render a "no cache" cell instead of error-handling. `in_use` is the **sum** of refcounts across all entries (an entry held by two concurrent runs counts as 2), not the number of entries with at least one acquirer; `idle` is the count of entries with refcount=0. See [`mcp.md`](mcp.md#lifecycle-and-caching) for the underlying contract.
 
+`GET /hecate/v1/mcp/registry/servers` searches an MCP Registry server list. It defaults to the official registry at `https://registry.modelcontextprotocol.io`; pass `registry_url` to target a private registry. Supported query parameters mirror the read-only registry API: `search`, `cursor`, `limit` (default 30, capped at 100), `updated_since` (RFC3339), `version`, and `include_deleted`. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected before the outbound registry request.
+
+```json
+GET /hecate/v1/mcp/registry/servers?search=weather&limit=10
+
+→ 200
+{
+  "object": "mcp_registry_servers",
+  "data": {
+    "registry_url": "https://registry.modelcontextprotocol.io",
+    "servers": [
+      {
+        "server": {
+          "name": "io.github/example/weather",
+          "title": "Weather",
+          "description": "Forecasts",
+          "version": "1.0.0",
+          "remotes": [
+            {
+              "type": "streamable-http",
+              "url": "https://weather.example/mcp",
+              "headers": [
+                {"name": "Authorization", "isRequired": true, "isSecret": true}
+              ]
+            }
+          ],
+          "packages": [
+            {
+              "registryType": "npm",
+              "identifier": "@example/weather",
+              "runtimeHint": "npx",
+              "transport": {"type": "stdio"}
+            }
+          ],
+          "_meta": {"publisher": "example"}
+        },
+        "_meta": {"rank": 1},
+        "install_hints": [
+          {
+            "source": "remote",
+            "transport": "streamable-http",
+            "supported": true,
+            "url": "https://weather.example/mcp",
+            "required_secrets": ["MCP_AUTHORIZATION"],
+            "hecate_config": {
+              "name": "weather",
+              "url": "https://weather.example/mcp",
+              "headers": {"Authorization": "$MCP_AUTHORIZATION"}
+            }
+          },
+          {
+            "source": "package",
+            "transport": "stdio",
+            "supported": false,
+            "registry_type": "npm",
+            "identifier": "@example/weather",
+            "runtime_hint": "npx",
+            "unsupported_reason": "package entries require an operator-chosen local runtime command before Hecate can probe them"
+          }
+        ]
+      }
+    ],
+    "next_cursor": "cursor-2",
+    "count": 1
+  }
+}
+```
+
+Registry discovery does not install packages, spawn servers, or call `tools/list`; it only returns catalog metadata and Hecate-specific connection hints. Use `POST /hecate/v1/mcp/probe` on a selected config to inspect the live tool catalog before committing it to a task.
+
 `POST /hecate/v1/mcp/probe` is the dry-run discovery surface for an MCP server config. It accepts a single MCP server entry (same shape as one item in the task-create `mcp_servers` array — `name` defaults to `probe` when omitted), brings the server up the way an `agent_loop` run would (same secret resolution, same uncached spawn path), calls `tools/list`, and tears it down. Returns the upstream's tool catalog so operators can confirm the config before committing it to a task. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected before command handling.
 
 ```json
@@ -435,14 +546,39 @@ POST /hecate/v1/mcp/probe
   "object": "mcp_probe",
   "data": {
     "tools": [
-      { "name": "read_text_file", "description": "...", "input_schema": {...} },
-      { "name": "list_directory", "input_schema": {...} }
+      {
+        "name": "get_weather",
+        "description": "...",
+        "input_schema": {...},
+        "_meta": {
+          "ui": {
+            "resourceUri": "ui://weather/dashboard",
+            "visibility": ["model", "app"]
+          }
+        },
+        "ui_resource_uri": "ui://weather/dashboard",
+        "ui_visibility": ["model", "app"],
+        "model_visible": true
+      },
+      {
+        "name": "refresh_dashboard",
+        "input_schema": {...},
+        "_meta": {
+          "ui": {
+            "resourceUri": "ui://weather/dashboard",
+            "visibility": ["app"]
+          }
+        },
+        "ui_resource_uri": "ui://weather/dashboard",
+        "ui_visibility": ["app"],
+        "model_visible": false
+      }
     ]
   }
 }
 ```
 
-Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
+Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. MCP Apps metadata is preserved when present: `_meta` is the raw upstream object, `ui_resource_uri` and `ui_visibility` are derived convenience fields, and `model_visible: false` means the tool is app-only and will not be shown to the agent-loop model. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
 `POST /hecate/v1/system/reset-data` resets local operator state without restarting the gateway. It deletes chat sessions, projects, project memory entries and candidates, project work-coordination rows, agent profiles, tasks, configured providers, policy rules, and saved external-agent approval grants. Chat sessions are deleted through the normal chat-delete path first, so live external-agent sessions are closed before their rows disappear. When SQLite is configured, it then clears remaining Hecate-prefixed database table rows while preserving schemas. Workspace files and external CLI auth files are not touched. The endpoint is local-only: non-loopback sockets and forwarded-client headers are rejected.
 
@@ -2852,6 +2988,11 @@ the user message and assistant output.
   is sent through the normal model gateway route like any other chat prompt.
 - `workspace` — required when starting a task-backed Hecate Chat turn
   (`tools_enabled=true`) on a session that does not already have a workspace.
+- `mcp_servers` — optional per-turn external MCP server configs for Hecate
+  Chat tool-backed turns. Same shape and validation as task-create
+  `mcp_servers`; when present, Hecate starts a fresh task-backed segment so the
+  server set is explicit for that run. MCP Apps resources returned by those
+  tools render through `activities[].mcp_app`.
 
 For `tools_enabled=false` on a Hecate Chat session, Hecate calls the normal
 gateway path and stores the user/assistant messages without creating a Task.
@@ -3003,7 +3144,10 @@ surprising structured output. `driver_kind` and `native_session_id` identify the
 underlying ACP session reused across turns in the Hecate chat. `activities` is
 the structured progress model for the Chats UI: it records lifecycle markers
 such as starting, running, output, files changed, failed, cancelled, and final
-answer. Failures from the ACP adapter are still represented as assistant
+answer. Task-backed MCP Apps tool calls can include `activities[].mcp_app` so
+the UI can render the captured `text/html;profile=mcp-app` resource inline
+while retaining the text fallback. Failures from the ACP adapter are still
+represented as assistant
 messages with `"status": "failed"` and `error` so the transcript stays intact.
 Transport or request validation failures still use the normal Hecate error
 envelope.

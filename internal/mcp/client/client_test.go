@@ -227,6 +227,42 @@ func TestClient_InitializeHandshake(t *testing.T) {
 	}
 }
 
+func TestClient_InitializeAdvertisesMCPAppsExtension(t *testing.T) {
+	t.Parallel()
+	transport := newMemTransport()
+	server := newFakeServer(t, transport)
+	server.handle("initialize", func(req mcp.Request) (any, *mcp.RPCError) {
+		var params mcp.InitializeParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, mcp.NewError(mcp.ErrCodeInvalidParams, err.Error())
+		}
+		var caps struct {
+			Extensions map[string]struct {
+				MIMETypes []string `json:"mimeTypes"`
+			} `json:"extensions"`
+		}
+		if err := json.Unmarshal(params.Capabilities, &caps); err != nil {
+			t.Errorf("decode capabilities: %v", err)
+		}
+		uiCap, ok := caps.Extensions[mcp.AppsExtensionIdentifier]
+		if !ok {
+			t.Fatalf("missing %s capability in %s", mcp.AppsExtensionIdentifier, params.Capabilities)
+		}
+		if len(uiCap.MIMETypes) != 1 || uiCap.MIMETypes[0] != mcp.AppsResourceMIMEType {
+			t.Fatalf("mimeTypes = %#v, want [%q]", uiCap.MIMETypes, mcp.AppsResourceMIMEType)
+		}
+		return mcp.InitializeResult{ProtocolVersion: declaredClientProtocolVersion}, nil
+	})
+	server.start()
+
+	c := New(transport, mcp.ClientInfo{Name: "h"})
+	t.Cleanup(func() { _ = c.Close(); server.stop() })
+
+	if _, err := c.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+}
+
 // TestClient_InitializeIsCachedAcrossCalls — Initialize is a
 // once-only handshake. Repeated calls return the cached result
 // without re-handshaking; the spec doesn't allow re-init on a
@@ -320,6 +356,122 @@ func TestClient_ListToolsAndCallTool(t *testing.T) {
 	}
 	if res.IsError {
 		t.Errorf("IsError = true on a happy-path result")
+	}
+}
+
+func TestClient_PreservesMCPAppsMetadataAndStructuredResults(t *testing.T) {
+	t.Parallel()
+	transport := newMemTransport()
+	server := newFakeServer(t, transport)
+	server.handle("initialize", func(_ mcp.Request) (any, *mcp.RPCError) {
+		return mcp.InitializeResult{ProtocolVersion: declaredClientProtocolVersion}, nil
+	})
+	server.handle("tools/list", func(_ mcp.Request) (any, *mcp.RPCError) {
+		return mcp.ListToolsResult{Tools: []mcp.Tool{{
+			Name:        "weather",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+			Meta:        json.RawMessage(`{"ui":{"resourceUri":"ui://weather/dashboard","visibility":["model","app"]}}`),
+		}}}, nil
+	})
+	server.handle("tools/call", func(_ mcp.Request) (any, *mcp.RPCError) {
+		return mcp.CallToolResult{
+			Content:           mcp.TextContent("72F and sunny"),
+			StructuredContent: json.RawMessage(`{"temperature":72}`),
+			Meta:              json.RawMessage(`{"source":"fixture"}`),
+		}, nil
+	})
+	server.start()
+
+	c := New(transport, mcp.ClientInfo{Name: "h"})
+	t.Cleanup(func() { _ = c.Close(); server.stop() })
+
+	ctx := context.Background()
+	if _, err := c.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	tools, err := c.ListTools(ctx)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	if len(tools) != 1 {
+		t.Fatalf("tools len = %d, want 1", len(tools))
+	}
+	if got := string(tools[0].Meta); got != `{"ui":{"resourceUri":"ui://weather/dashboard","visibility":["model","app"]}}` {
+		t.Fatalf("tool _meta = %s", got)
+	}
+	res, err := c.CallTool(ctx, "weather", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if got := string(res.StructuredContent); got != `{"temperature":72}` {
+		t.Fatalf("structuredContent = %s", got)
+	}
+	if got := string(res.Meta); got != `{"source":"fixture"}` {
+		t.Fatalf("result _meta = %s", got)
+	}
+}
+
+func TestClient_ListAndReadResources(t *testing.T) {
+	t.Parallel()
+	transport := newMemTransport()
+	server := newFakeServer(t, transport)
+	server.handle("initialize", func(_ mcp.Request) (any, *mcp.RPCError) {
+		return mcp.InitializeResult{
+			ProtocolVersion: declaredClientProtocolVersion,
+			Capabilities:    mcp.ServerCapabilities{Resources: &mcp.ResourcesCapability{}},
+		}, nil
+	})
+	server.handle("resources/list", func(_ mcp.Request) (any, *mcp.RPCError) {
+		return mcp.ListResourcesResult{Resources: []mcp.Resource{{
+			URI:      "ui://weather/dashboard",
+			Name:     "weather_dashboard",
+			MIMEType: mcp.AppsResourceMIMEType,
+			Meta:     json.RawMessage(`{"ui":{"prefersBorder":true}}`),
+		}}}, nil
+	})
+	server.handle("resources/read", func(req mcp.Request) (any, *mcp.RPCError) {
+		var params mcp.ReadResourceParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return nil, mcp.NewError(mcp.ErrCodeInvalidParams, err.Error())
+		}
+		if params.URI != "ui://weather/dashboard" {
+			return nil, mcp.NewError(mcp.ErrCodeInvalidParams, "bad uri")
+		}
+		return mcp.ReadResourceResult{Contents: []mcp.ResourceContents{{
+			URI:      params.URI,
+			MIMEType: mcp.AppsResourceMIMEType,
+			Text:     "<!doctype html><html></html>",
+			Meta:     json.RawMessage(`{"ui":{"prefersBorder":true}}`),
+		}}}, nil
+	})
+	server.start()
+
+	c := New(transport, mcp.ClientInfo{Name: "h"})
+	t.Cleanup(func() { _ = c.Close(); server.stop() })
+
+	ctx := context.Background()
+	if _, err := c.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	resources, err := c.ListResources(ctx)
+	if err != nil {
+		t.Fatalf("ListResources: %v", err)
+	}
+	if len(resources) != 1 || resources[0].URI != "ui://weather/dashboard" {
+		t.Fatalf("resources = %+v", resources)
+	}
+	if got := string(resources[0].Meta); got != `{"ui":{"prefersBorder":true}}` {
+		t.Fatalf("resource _meta = %s", got)
+	}
+	read, err := c.ReadResource(ctx, "ui://weather/dashboard")
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if len(read.Contents) != 1 || read.Contents[0].Text == "" {
+		t.Fatalf("contents = %+v", read.Contents)
+	}
+	if got := string(read.Contents[0].Meta); got != `{"ui":{"prefersBorder":true}}` {
+		t.Fatalf("content _meta = %s", got)
 	}
 }
 

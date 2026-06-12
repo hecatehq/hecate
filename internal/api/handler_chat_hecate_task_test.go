@@ -75,6 +75,53 @@ func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithContextPacket(t *testin
 	})
 }
 
+func TestHecateAgentTaskOrchestrator_StartCreatesTaskWithMCPServers(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store := taskstate.NewMemoryStore()
+	runner := &recordingHecateAgentTaskRunner{startRunID: "run_mcp"}
+	orchestrator := hecateAgentTaskOrchestrator{
+		store:      store,
+		runner:     runner,
+		taskID:     func() string { return "task_mcp" },
+		resourceID: func(prefix string) string { return prefix + "_mcp" },
+		now:        func() time.Time { return time.Date(2026, 6, 12, 8, 0, 0, 0, time.UTC) },
+	}
+
+	_, _, err := orchestrator.StartOrContinue(ctx, hecateAgentTaskRunCommand{
+		Session: chat.Session{
+			ID:        "chat_mcp",
+			Workspace: "/tmp/hecate-chat-mcp",
+			Provider:  "openai",
+			Model:     "gpt-4o",
+		},
+		Prompt:       "show the app",
+		ForceNewTask: true,
+		MCPServers: []types.MCPServerConfig{{
+			Name:           "weather",
+			Command:        "node",
+			Args:           []string{"examples/mcp-weather-app-server.mjs"},
+			ApprovalPolicy: types.MCPApprovalAuto,
+		}},
+		ContextPacket: chat.ContextPacket{
+			Version: "chat_context_v1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartOrContinue: %v", err)
+	}
+	if runner.startCalls != 1 {
+		t.Fatalf("startCalls = %d, want 1", runner.startCalls)
+	}
+	if got := runner.startTask.MCPServers; len(got) != 1 || got[0].Name != "weather" || got[0].Command != "node" || got[0].ApprovalPolicy != types.MCPApprovalAuto {
+		t.Fatalf("task MCPServers = %+v, want weather stdio server", got)
+	}
+	if got := runner.startTask.MCPServers[0].Args; len(got) != 1 || got[0] != "examples/mcp-weather-app-server.mjs" {
+		t.Fatalf("task MCP args = %+v, want demo server arg", got)
+	}
+}
+
 func TestHecateAgentTaskOrchestrator_ContinueUsesExistingTaskRun(t *testing.T) {
 	t.Parallel()
 

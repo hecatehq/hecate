@@ -205,6 +205,16 @@ export type CreateChatSessionPayload = {
   config_options?: ChatConfigOptionRecord[];
 };
 
+export type ChatMCPServerPayload = {
+  name: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  approval_policy?: "auto" | "require_approval" | "block";
+};
+
 export type CreateChatMessagePayload = {
   content: string;
   // External-agent turns send the literal mode. Hecate-owned turns use
@@ -219,6 +229,7 @@ export type CreateChatMessagePayload = {
   model?: string;
   system_prompt?: string;
   workspace?: string;
+  mcp_servers?: ChatMCPServerPayload[];
 };
 
 export type CreateTaskPayload = {

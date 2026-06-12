@@ -36,6 +36,7 @@ type hecateAgentTaskRunCommand struct {
 	Prompt        string
 	SystemPrompt  string
 	ForceNewTask  bool
+	MCPServers    []types.MCPServerConfig
 	ContextPacket chat.ContextPacket
 }
 
@@ -94,6 +95,7 @@ func (o hecateAgentTaskOrchestrator) startNewTask(ctx context.Context, cmd hecat
 		Priority:           "normal",
 		RequestedProvider:  cmd.Session.Provider,
 		RequestedModel:     cmd.Session.Model,
+		MCPServers:         append([]types.MCPServerConfig(nil), cmd.MCPServers...),
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}

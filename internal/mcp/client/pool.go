@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,9 +54,29 @@ const (
 // `mcp__<server>__<tool>`; Description and Schema come straight from
 // the upstream server (no rewriting).
 type NamespacedTool struct {
-	Name        string
-	Description string
-	Schema      json.RawMessage
+	Name          string
+	Description   string
+	Schema        json.RawMessage
+	Meta          json.RawMessage
+	UIResourceURI string
+	UIVisibility  []string
+	ModelVisible  bool
+}
+
+type ToolCallResult struct {
+	Text     string
+	IsError  bool
+	Result   mcp.CallToolResult
+	Tool     NamespacedTool
+	App      *ToolCallAppResource
+	AppError string
+}
+
+type ToolCallAppResource struct {
+	URI      string
+	MIMEType string
+	HTML     string
+	Meta     json.RawMessage
 }
 
 // Pool runs N MCP-client connections, one per ServerConfig, and
@@ -72,11 +93,12 @@ type NamespacedTool struct {
 //     as a non-nil error.
 //   - Close shuts every client down. Idempotent.
 type Pool struct {
-	mu      sync.Mutex
-	cache   *SharedClientCache               // optional; nil = per-run lifetime
-	clients map[string]*pooledClient         // server name → client + cache release
-	tools   []NamespacedTool                 // sorted, stable
-	bind    map[string]namespacedToolBinding // namespaced name → routing info
+	mu       sync.Mutex
+	cache    *SharedClientCache               // optional; nil = per-run lifetime
+	clients  map[string]*pooledClient         // server name → client + cache release
+	tools    []NamespacedTool                 // sorted, stable
+	allTools []NamespacedTool                 // includes app-only MCP Apps tools
+	bind     map[string]namespacedToolBinding // namespaced name → routing info
 }
 
 // pooledClient pairs a Client with the bookkeeping the Pool needs to
@@ -95,6 +117,7 @@ type pooledClient struct {
 type namespacedToolBinding struct {
 	serverName string
 	toolName   string
+	tool       NamespacedTool
 }
 
 // NewPool spawns one client per config, initializes the handshake,
@@ -148,12 +171,16 @@ type clientFactory func(ctx context.Context, cfg ServerConfig) (*Client, []mcp.T
 
 // buildPool is the shared NewPool / NewPoolWithCache implementation.
 // Validates each config, calls factory for the per-config client, and
-// stitches the namespaced tool bindings.
+// stitches the namespaced tool bindings. MCP Apps tools whose
+// _meta.ui.visibility omits "model" are retained in allTools for
+// operator probe output, but hidden from Tools() and from model-origin
+// dispatch.
 func buildPool(ctx context.Context, configs []ServerConfig, factory clientFactory) (*Pool, error) {
 	p := &Pool{
 		clients: make(map[string]*pooledClient, len(configs)),
 		bind:    make(map[string]namespacedToolBinding),
 	}
+	seenToolNames := make(map[string]struct{})
 	// Cleanup on partial-failure aborts: tear down whatever's already
 	// up so a bad config doesn't leak subprocess handles or cache refs.
 	cleanup := func() {
@@ -183,24 +210,86 @@ func buildPool(ctx context.Context, configs []ServerConfig, factory clientFactor
 
 		p.clients[name] = &pooledClient{client: client, cfg: cfg, release: release}
 		for _, t := range serverTools {
-			ns := NamespacedToolName(name, t.Name)
-			if _, dup := p.bind[ns]; dup {
+			nt := namespacedToolFromMCP(name, t)
+			if _, dup := seenToolNames[nt.Name]; dup {
 				// Same upstream server vending the same tool name twice
 				// is the only realistic way to hit this; treat as a
 				// server bug and abort rather than silently shadow.
 				cleanup()
 				return nil, fmt.Errorf("mcp pool: server %q vended duplicate tool %q", name, t.Name)
 			}
-			p.bind[ns] = namespacedToolBinding{serverName: name, toolName: t.Name}
-			p.tools = append(p.tools, NamespacedTool{
-				Name:        ns,
-				Description: t.Description,
-				Schema:      t.InputSchema,
-			})
+			seenToolNames[nt.Name] = struct{}{}
+			p.allTools = append(p.allTools, nt)
+			if !nt.ModelVisible {
+				continue
+			}
+			p.bind[nt.Name] = namespacedToolBinding{serverName: name, toolName: t.Name, tool: nt}
+			p.tools = append(p.tools, nt)
 		}
 	}
 	sort.Slice(p.tools, func(i, j int) bool { return p.tools[i].Name < p.tools[j].Name })
+	sort.Slice(p.allTools, func(i, j int) bool { return p.allTools[i].Name < p.allTools[j].Name })
 	return p, nil
+}
+
+func namespacedToolFromMCP(serverName string, t mcp.Tool) NamespacedTool {
+	uiResourceURI, uiVisibility := toolUIFields(t.Meta)
+	return NamespacedTool{
+		Name:          NamespacedToolName(serverName, t.Name),
+		Description:   t.Description,
+		Schema:        t.InputSchema,
+		Meta:          cloneRawMessage(t.Meta),
+		UIResourceURI: uiResourceURI,
+		UIVisibility:  append([]string(nil), uiVisibility...),
+		ModelVisible:  toolModelVisible(uiVisibility),
+	}
+}
+
+type toolMetaEnvelope struct {
+	UI                  *toolUIMeta `json:"ui,omitempty"`
+	LegacyUIResourceURI string      `json:"ui/resourceUri,omitempty"`
+}
+
+type toolUIMeta struct {
+	ResourceURI string   `json:"resourceUri,omitempty"`
+	Visibility  []string `json:"visibility,omitempty"`
+}
+
+func toolUIFields(metaRaw json.RawMessage) (resourceURI string, visibility []string) {
+	if len(metaRaw) == 0 {
+		return "", nil
+	}
+	var meta toolMetaEnvelope
+	if err := json.Unmarshal(metaRaw, &meta); err != nil {
+		return "", nil
+	}
+	if meta.UI != nil {
+		resourceURI = strings.TrimSpace(meta.UI.ResourceURI)
+		visibility = append([]string(nil), meta.UI.Visibility...)
+	}
+	if resourceURI == "" {
+		resourceURI = strings.TrimSpace(meta.LegacyUIResourceURI)
+	}
+	return resourceURI, visibility
+}
+
+func toolModelVisible(visibility []string) bool {
+	if len(visibility) == 0 {
+		return true
+	}
+	for _, item := range visibility {
+		if item == "model" {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneRawMessage(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	return append(json.RawMessage(nil), raw...)
 }
 
 // Bounded retry constants for spawnClient. Two attempts total (one
@@ -349,14 +438,26 @@ func buildTransport(ctx context.Context, cfg ServerConfig, httpClient *http.Clie
 	return t, nil
 }
 
-// Tools returns the merged tool catalog. Stable order across calls
-// (sorted by namespaced name) so the LLM sees a deterministic list.
-// The slice is a copy — callers may not mutate it.
+// Tools returns the merged model-visible tool catalog. Stable order
+// across calls (sorted by namespaced name) so the LLM sees a
+// deterministic list. MCP Apps app-only tools are excluded here; they
+// are available through AllTools for operator probe output.
 func (p *Pool) Tools() []NamespacedTool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := make([]NamespacedTool, len(p.tools))
 	copy(out, p.tools)
+	return out
+}
+
+// AllTools returns the full merged tool catalog, including MCP Apps
+// tools whose _meta.ui.visibility is app-only. This is for discovery
+// and operator review, not for model-origin dispatch.
+func (p *Pool) AllTools() []NamespacedTool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]NamespacedTool, len(p.allTools))
+	copy(out, p.allTools)
 	return out
 }
 
@@ -370,19 +471,31 @@ func (p *Pool) Tools() []NamespacedTool {
 //     error, transport closed). Tool-level failures come back via
 //     isError=true with err=nil.
 func (p *Pool) Call(ctx context.Context, name string, args json.RawMessage) (text string, isError bool, err error) {
+	result, err := p.CallDetailed(ctx, name, args)
+	if err != nil {
+		return "", false, err
+	}
+	return result.Text, result.IsError, nil
+}
+
+// CallDetailed dispatches a namespaced tool call and returns the text
+// fallback plus MCP Apps rendering inputs when the tool advertises a
+// ui:// resource. Resource-read failures are reported in AppError but
+// do not turn a successful tool call into a failed model-visible result.
+func (p *Pool) CallDetailed(ctx context.Context, name string, args json.RawMessage) (ToolCallResult, error) {
 	p.mu.Lock()
 	bind, ok := p.bind[name]
 	pc := p.clients[bind.serverName]
 	cache := p.cache
 	p.mu.Unlock()
 	if !ok {
-		return "", false, fmt.Errorf("mcp pool: unknown tool %q", name)
+		return ToolCallResult{}, fmt.Errorf("mcp pool: unknown tool %q", name)
 	}
 	if pc == nil {
 		// Defensive — shouldn't happen since bind and clients are
 		// populated together. Surface as an error rather than
 		// panicking.
-		return "", false, fmt.Errorf("mcp pool: server for tool %q is not connected", name)
+		return ToolCallResult{}, fmt.Errorf("mcp pool: server for tool %q is not connected", name)
 	}
 	res, err := pc.client.CallTool(ctx, bind.toolName, args)
 	if err != nil {
@@ -394,9 +507,75 @@ func (p *Pool) Call(ctx context.Context, name string, args json.RawMessage) (tex
 		if cache != nil && IsTransportClosedErr(err) {
 			cache.Evict(pc.cfg)
 		}
-		return "", false, err
+		return ToolCallResult{}, err
 	}
-	return flattenContent(res.Content), res.IsError, nil
+	result := ToolCallResult{
+		Text:    flattenContent(res.Content),
+		IsError: res.IsError,
+		Result:  res,
+		Tool:    bind.tool,
+	}
+	if bind.tool.UIResourceURI != "" {
+		app, readErr := pc.client.ReadAppResource(ctx, bind.tool.UIResourceURI)
+		if readErr != nil {
+			result.AppError = readErr.Error()
+		} else {
+			result.App = app
+		}
+	}
+	return result, nil
+}
+
+func (c *Client) ReadAppResource(ctx context.Context, uri string) (*ToolCallAppResource, error) {
+	read, err := c.ReadResource(ctx, uri)
+	if err != nil {
+		return nil, err
+	}
+	for _, content := range read.Contents {
+		if content.URI != "" && content.URI != uri {
+			continue
+		}
+		app, err := appResourceFromContent(content)
+		if err != nil {
+			return nil, err
+		}
+		return app, nil
+	}
+	if len(read.Contents) == 0 {
+		return nil, fmt.Errorf("resource %q returned no contents", uri)
+	}
+	app, err := appResourceFromContent(read.Contents[0])
+	if err != nil {
+		return nil, err
+	}
+	return app, nil
+}
+
+func appResourceFromContent(content mcp.ResourceContents) (*ToolCallAppResource, error) {
+	mimeType := strings.TrimSpace(content.MIMEType)
+	if mimeType != "" && !strings.HasPrefix(mimeType, "text/html") {
+		return nil, fmt.Errorf("resource %q has unsupported MIME type %q", content.URI, content.MIMEType)
+	}
+	html := content.Text
+	if html == "" && content.Blob != "" {
+		decoded, err := base64.StdEncoding.DecodeString(content.Blob)
+		if err != nil {
+			return nil, fmt.Errorf("decode resource %q blob: %w", content.URI, err)
+		}
+		html = string(decoded)
+	}
+	if html == "" {
+		return nil, fmt.Errorf("resource %q did not include text or blob HTML", content.URI)
+	}
+	if mimeType == "" {
+		mimeType = mcp.AppsResourceMIMEType
+	}
+	return &ToolCallAppResource{
+		URI:      strings.TrimSpace(content.URI),
+		MIMEType: mimeType,
+		HTML:     html,
+		Meta:     cloneRawMessage(content.Meta),
+	}, nil
 }
 
 // Close tears every client down (uncached pools) or releases them
@@ -413,6 +592,7 @@ func (p *Pool) Close() error {
 	p.clients = make(map[string]*pooledClient)
 	p.bind = make(map[string]namespacedToolBinding)
 	p.tools = nil
+	p.allTools = nil
 	p.mu.Unlock()
 
 	var errs []error

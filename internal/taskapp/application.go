@@ -179,7 +179,7 @@ func (app *Application) CreateTask(ctx context.Context, cmd CreateCommand) (type
 		return types.Task{}, ErrPromptRequired
 	}
 
-	mcpServers, err := normalizeMCPServerConfigs(cmd.MCPServers, app.secretCipher, app.maxMCPServers)
+	mcpServers, err := NormalizeMCPServerConfigs(cmd.MCPServers, app.secretCipher, app.maxMCPServers)
 	if err != nil {
 		return types.Task{}, Validation(err)
 	}

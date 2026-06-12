@@ -156,6 +156,9 @@ instead of split across two execution-mode values:
   rehydrates the active Hecate Chat from the persisted session/task snapshot so
   queued, running, and awaiting-approval states stay visible without sending a
   new prompt.
+  If a task-backed MCP tool returns an MCP Apps resource, the transcript renders
+  the captured app iframe directly in the assistant message body and keeps the
+  compact tool activity row collapsed below it as audit metadata.
   Deleting a Hecate Chat cancels any non-terminal backing task run before the
   transcript is removed; the backing Task record remains in Tasks for audit and
   artifact history.

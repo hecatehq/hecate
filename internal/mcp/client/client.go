@@ -98,10 +98,9 @@ func (c *Client) Initialize(ctx context.Context) (mcp.InitializeResult, error) {
 		params := mcp.InitializeParams{
 			ProtocolVersion: declaredClientProtocolVersion,
 			ClientInfo:      c.clientInfo,
-			// Capabilities is intentionally empty — we don't
-			// advertise sampling / roots / elicitation yet.
-			// Servers tolerate the empty object.
-			Capabilities: json.RawMessage(`{}`),
+			// Advertise the MCP Apps extension so servers can include
+			// ui:// resource links and _meta.ui visibility on tools.
+			Capabilities: mcp.AppsClientCapabilities(),
 		}
 		raw, err := json.Marshal(params)
 		if err != nil {
@@ -151,6 +150,40 @@ func (c *Client) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 		return nil, fmt.Errorf("decode tools/list result: %w", err)
 	}
 	return res.Tools, nil
+}
+
+// ListResources fetches resources/list. MCP Apps servers may omit
+// UI-only resources from this list, but when they do expose resources
+// this method preserves descriptor metadata for host review.
+func (c *Client) ListResources(ctx context.Context) ([]mcp.Resource, error) {
+	resp, err := c.call(ctx, "resources/list", nil)
+	if err != nil {
+		return nil, fmt.Errorf("resources/list: %w", err)
+	}
+	var res mcp.ListResourcesResult
+	if err := json.Unmarshal(resp.Result, &res); err != nil {
+		return nil, fmt.Errorf("decode resources/list result: %w", err)
+	}
+	return res.Resources, nil
+}
+
+// ReadResource fetches a resource by URI. MCP Apps uses this for the
+// raw HTML ui:// resource referenced from tool _meta.ui.resourceUri.
+func (c *Client) ReadResource(ctx context.Context, uri string) (mcp.ReadResourceResult, error) {
+	params := mcp.ReadResourceParams{URI: uri}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return mcp.ReadResourceResult{}, fmt.Errorf("marshal resources/read params: %w", err)
+	}
+	resp, err := c.call(ctx, "resources/read", raw)
+	if err != nil {
+		return mcp.ReadResourceResult{}, fmt.Errorf("resources/read %q: %w", uri, err)
+	}
+	var res mcp.ReadResourceResult
+	if err := json.Unmarshal(resp.Result, &res); err != nil {
+		return mcp.ReadResourceResult{}, fmt.Errorf("decode resources/read result: %w", err)
+	}
+	return res, nil
 }
 
 // CallTool invokes a tool by name with the given JSON arguments.

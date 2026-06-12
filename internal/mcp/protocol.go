@@ -27,9 +27,10 @@
 //   - server description (2025-11-25 minor): optional human-readable
 //     context exposed during initialize
 //
-// Currently out of scope: OAuth / Streamable HTTP / elicitation /
-// tasks primitive / resource links / sampling. None apply to
-// stdio-only, tools-only servers.
+// Currently out of scope for Hecate's stdio MCP server: OAuth /
+// elicitation / tasks primitive / sampling. Hecate's external MCP
+// client supports HTTP transport and the MCP Apps metadata/resource
+// shapes used by app-capable servers.
 package mcp
 
 import "encoding/json"
@@ -41,6 +42,15 @@ import "encoding/json"
 // owns the handshake) can read it without an unexported-cross-package
 // dance, and so the client subpackage can mirror it on its own side.
 const DeclaredProtocolVersion = "2025-11-25"
+
+const (
+	// AppsExtensionIdentifier is the MCP Apps extension id from
+	// SEP-1865. Hecate advertises this as an MCP client so upstream
+	// servers can include UI metadata on tool descriptors.
+	AppsExtensionIdentifier = "io.modelcontextprotocol/ui"
+	// AppsResourceMIMEType is the initial MCP Apps HTML resource type.
+	AppsResourceMIMEType = "text/html;profile=mcp-app"
+)
 
 // JSON-RPC 2.0 wire types.
 //
@@ -132,6 +142,24 @@ type InitializeParams struct {
 	ClientInfo      ClientInfo      `json:"clientInfo,omitempty"`
 }
 
+// AppsClientCapabilities is the capabilities payload Hecate sends as
+// an MCP client when connecting to external servers. It is intentionally
+// narrow: today we only claim support for the standardized HTML MCP
+// Apps resource type.
+func AppsClientCapabilities() json.RawMessage {
+	raw, err := json.Marshal(map[string]any{
+		"extensions": map[string]any{
+			AppsExtensionIdentifier: map[string]any{
+				"mimeTypes": []string{AppsResourceMIMEType},
+			},
+		},
+	})
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return raw
+}
+
 type ClientInfo struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
@@ -205,6 +233,7 @@ type Tool struct {
 	Description string           `json:"description,omitempty"`
 	InputSchema json.RawMessage  `json:"inputSchema"`
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
+	Meta        json.RawMessage  `json:"_meta,omitempty"`
 }
 
 // ToolAnnotations is the optional behavioral-hint envelope on a tool.
@@ -247,6 +276,13 @@ type CallToolParams struct {
 // because every tool we ship returns string output.
 type CallToolResult struct {
 	Content []ContentBlock `json:"content"`
+	// StructuredContent is the MCP structuredContent field, kept raw so
+	// UI-capable hosts can render richer data without losing unknown
+	// shapes.
+	StructuredContent json.RawMessage `json:"structuredContent,omitempty"`
+	// Meta preserves result metadata that is intentionally hidden from
+	// model context but useful to MCP Apps views and host telemetry.
+	Meta json.RawMessage `json:"_meta,omitempty"`
 	// IsError surfaces tool-level failures (the call dispatched but the
 	// tool itself errored). Distinct from JSON-RPC errors which are
 	// reserved for protocol failures.
@@ -271,12 +307,13 @@ type ListToolsResult struct {
 // ─── Resources ──────────────────────────────────────────────────────
 
 type Resource struct {
-	URI         string `json:"uri"`
-	Name        string `json:"name"`
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	MIMEType    string `json:"mimeType,omitempty"`
-	Size        int64  `json:"size,omitempty"`
+	URI         string          `json:"uri"`
+	Name        string          `json:"name"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	MIMEType    string          `json:"mimeType,omitempty"`
+	Size        int64           `json:"size,omitempty"`
+	Meta        json.RawMessage `json:"_meta,omitempty"`
 }
 
 type ResourceTemplate struct {
@@ -304,10 +341,11 @@ type ReadResourceResult struct {
 }
 
 type ResourceContents struct {
-	URI      string `json:"uri"`
-	MIMEType string `json:"mimeType,omitempty"`
-	Text     string `json:"text,omitempty"`
-	Blob     string `json:"blob,omitempty"`
+	URI      string          `json:"uri"`
+	MIMEType string          `json:"mimeType,omitempty"`
+	Text     string          `json:"text,omitempty"`
+	Blob     string          `json:"blob,omitempty"`
+	Meta     json.RawMessage `json:"_meta,omitempty"`
 }
 
 // ─── Prompts ────────────────────────────────────────────────────────

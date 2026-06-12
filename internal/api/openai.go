@@ -771,6 +771,10 @@ type CreateChatMessageRequest struct {
 	Model        string `json:"model,omitempty"`
 	SystemPrompt string `json:"system_prompt,omitempty"`
 	Workspace    string `json:"workspace,omitempty"`
+	// MCPServers optionally attaches external MCP servers to this
+	// tools-on Hecate Chat turn. When present, the turn starts a fresh
+	// backing task segment so the server set is explicit for the run.
+	MCPServers []MCPServerConfigItem `json:"mcp_servers,omitempty"`
 }
 
 type UpdateChatSessionRequest struct {
@@ -1035,18 +1039,32 @@ type ChatRevertResponse struct {
 }
 
 type ChatActivityItem struct {
-	ID                string `json:"id,omitempty"`
-	Type              string `json:"type"`
-	Status            string `json:"status,omitempty"`
-	Kind              string `json:"kind,omitempty"`
-	Title             string `json:"title"`
-	Detail            string `json:"detail,omitempty"`
-	CreatedAt         string `json:"created_at,omitempty"`
-	ArtifactID        string `json:"artifact_id,omitempty"`
-	ArtifactSizeBytes int64  `json:"artifact_size_bytes,omitempty"`
-	ArtifactPreview   string `json:"artifact_preview,omitempty"`
-	ApprovalID        string `json:"approval_id,omitempty"`
-	NeedsAction       bool   `json:"needs_action,omitempty"`
+	ID                string          `json:"id,omitempty"`
+	Type              string          `json:"type"`
+	Status            string          `json:"status,omitempty"`
+	Kind              string          `json:"kind,omitempty"`
+	Title             string          `json:"title"`
+	Detail            string          `json:"detail,omitempty"`
+	CreatedAt         string          `json:"created_at,omitempty"`
+	ArtifactID        string          `json:"artifact_id,omitempty"`
+	ArtifactSizeBytes int64           `json:"artifact_size_bytes,omitempty"`
+	ArtifactPreview   string          `json:"artifact_preview,omitempty"`
+	ApprovalID        string          `json:"approval_id,omitempty"`
+	NeedsAction       bool            `json:"needs_action,omitempty"`
+	MCPApp            *ChatMCPAppItem `json:"mcp_app,omitempty"`
+}
+
+type ChatMCPAppItem struct {
+	ResourceURI   string          `json:"resource_uri,omitempty"`
+	MIMEType      string          `json:"mime_type,omitempty"`
+	HTML          string          `json:"html,omitempty"`
+	HTMLTruncated bool            `json:"html_truncated,omitempty"`
+	ToolName      string          `json:"tool_name,omitempty"`
+	ToolInput     json.RawMessage `json:"tool_input,omitempty"`
+	ToolResult    json.RawMessage `json:"tool_result,omitempty"`
+	ResourceMeta  json.RawMessage `json:"resource_meta,omitempty"`
+	ToolMeta      json.RawMessage `json:"tool_meta,omitempty"`
+	Error         string          `json:"error,omitempty"`
 }
 
 type ChatUsageItem struct {
@@ -1159,6 +1177,14 @@ type MCPProbeToolDescriptor struct {
 	// arguments, returned verbatim so operators can paste it into
 	// docs / build a test fixture without re-fetching.
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+	// Meta is the raw upstream _meta object. MCP Apps uses _meta.ui
+	// to link a tool to a ui:// resource and declare model/app
+	// visibility. Kept raw so Hecate does not discard future
+	// extension keys.
+	Meta          json.RawMessage `json:"_meta,omitempty"`
+	UIResourceURI string          `json:"ui_resource_uri,omitempty"`
+	UIVisibility  []string        `json:"ui_visibility,omitempty"`
+	ModelVisible  bool            `json:"model_visible"`
 }
 
 // MCPCacheStatsResponse is the wire shape for GET /hecate/v1/system/mcp/cache.

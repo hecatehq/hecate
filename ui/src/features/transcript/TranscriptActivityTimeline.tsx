@@ -239,7 +239,8 @@ function TimelineActivityLine({
   const children = activity.children ?? [];
   const advancedContent = renderAdvancedActivity?.(activity);
   const shouldAutoOpenAdvanced =
-    activity.type !== "tool_group" && activityEffectiveStatus(activity) === "failed";
+    Boolean(activity.mcp_app) ||
+    (activity.type !== "tool_group" && activityEffectiveStatus(activity) === "failed");
   const shouldInlineAdvanced =
     inlineOutputArtifactPreview &&
     activity.type === "artifact" &&
@@ -348,6 +349,7 @@ function CommandGroupActivities({
 }
 
 function advancedSummaryLabel(activity: ChatActivityRecord): string {
+  if (activity.mcp_app) return "App";
   if (activity.type === "tool_group" && (activity.children?.length ?? 0) > 0) return "Commands";
   if (activity.type === "changed_files" || activity.type === "files_changed")
     return "Workspace diff";
