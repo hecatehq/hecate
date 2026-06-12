@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/hecatehq/hecate/internal/projectassistant"
+	"github.com/hecatehq/hecate/internal/projectassistantapp"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -46,7 +47,7 @@ func (h *Handler) HandleProjectAssistantContext(w http.ResponseWriter, r *http.R
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant context request")
 		return
 	}
-	context, err := h.projectAssistantService().Context(r.Context(), projectassistant.ContextInput{
+	context, err := h.projectAssistantApplication().Context(r.Context(), projectassistantapp.ContextCommand{
 		ProjectID:  req.ProjectID,
 		WorkItemID: req.WorkItemID,
 		Request:    req.Request,
@@ -69,7 +70,7 @@ func (h *Handler) HandleProjectAssistantDraft(w http.ResponseWriter, r *http.Req
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant draft request")
 		return
 	}
-	proposal, err := h.projectAssistantService().Draft(r.Context(), projectassistant.DraftInput{
+	proposal, err := h.projectAssistantApplication().Draft(r.Context(), projectassistantapp.DraftCommand{
 		ProjectID:  req.ProjectID,
 		WorkItemID: req.WorkItemID,
 		Request:    req.Request,
@@ -97,7 +98,7 @@ func (h *Handler) HandleProjectAssistantPropose(w http.ResponseWriter, r *http.R
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant proposal request")
 		return
 	}
-	proposal, err := h.projectAssistantService().Propose(r.Context(), projectassistant.ProposalInput{
+	proposal, err := h.projectAssistantApplication().Propose(r.Context(), projectassistantapp.ProposeCommand{
 		ID:      req.ID,
 		Title:   req.Title,
 		Summary: req.Summary,
@@ -120,7 +121,10 @@ func (h *Handler) HandleProjectAssistantApply(w http.ResponseWriter, r *http.Req
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid project assistant apply request")
 		return
 	}
-	result, err := h.projectAssistantService().Apply(r.Context(), req.Proposal, req.Confirm)
+	result, err := h.projectAssistantApplication().Apply(r.Context(), projectassistantapp.ApplyCommand{
+		Proposal: req.Proposal,
+		Confirm:  req.Confirm,
+	})
 	if err != nil {
 		writeProjectAssistantApplyError(w, err)
 		return
@@ -129,23 +133,6 @@ func (h *Handler) HandleProjectAssistantApply(w http.ResponseWriter, r *http.Req
 		"object": "project_assistant.apply_result",
 		"data":   result,
 	})
-}
-
-func (h *Handler) projectAssistantService() *projectassistant.Service {
-	h.projectAssistantMu.Lock()
-	defer h.projectAssistantMu.Unlock()
-	if h.projectAssistant == nil {
-		h.projectAssistant = projectassistant.NewService(projectassistant.Stores{
-			Projects:         h.projects,
-			Chats:            h.agentChat,
-			Work:             h.projectWork,
-			ProjectSkills:    h.projectSkills,
-			Memory:           h.memory,
-			MemoryCandidates: h.memoryCandidates,
-			LLM:              gatewayAgentLLMClient{service: h.service},
-		}, newOpaqueTaskResourceID)
-	}
-	return h.projectAssistant
 }
 
 func writeProjectAssistantApplyError(w http.ResponseWriter, err error) {

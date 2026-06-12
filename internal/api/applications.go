@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/hecatehq/hecate/internal/chatapp"
 	"github.com/hecatehq/hecate/internal/modelapp"
+	"github.com/hecatehq/hecate/internal/projectassistantapp"
 	"github.com/hecatehq/hecate/internal/projectworkapp"
 	"github.com/hecatehq/hecate/internal/providerapp"
 	"github.com/hecatehq/hecate/internal/taskapp"
@@ -67,6 +68,27 @@ func (h *Handler) projectWorkApplication() *projectworkapp.Application {
 		RuntimeDefaultModel: h.config.Router.DefaultModel,
 		IDGenerator:         newOpaqueTaskResourceID,
 	})
+}
+
+func (h *Handler) projectAssistantApplication() *projectassistantapp.Application {
+	if h == nil {
+		return projectassistantapp.New(projectassistantapp.Options{})
+	}
+	h.projectAssistantMu.Lock()
+	defer h.projectAssistantMu.Unlock()
+	if h.projectAssistant == nil {
+		h.projectAssistant = projectassistantapp.New(projectassistantapp.Options{
+			Projects:         h.projects,
+			Chats:            h.agentChat,
+			Work:             h.projectWork,
+			ProjectSkills:    h.projectSkills,
+			Memory:           h.memory,
+			MemoryCandidates: h.memoryCandidates,
+			LLM:              gatewayAgentLLMClient{service: h.service},
+			IDGenerator:      newOpaqueTaskResourceID,
+		})
+	}
+	return h.projectAssistant
 }
 
 func (h *Handler) modelApplication() *modelapp.Application {

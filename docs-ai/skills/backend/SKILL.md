@@ -171,6 +171,15 @@ HTTP response DTOs, linked-chat loading/rendering, and artifact/handoff grouping
 Do not rebuild assignment activity decisions in UI or handlers from raw
 `task_id`/`run_id`/`chat_session_id`; use the `execution_ref` / projection seams.
 
+Project Assistant HTTP handlers call `internal/projectassistantapp.Application`
+for context, draft, propose, and apply commands. Keep service construction,
+store/LLM wiring, and in-process partial-apply progress behind that cached app
+boundary. `internal/projectassistant` owns proposal-domain behavior: context
+building, deterministic/model/bootstrap drafting, action validation, and
+confirmed apply semantics. Handlers should parse/render/map errors only; do not
+rebuild Project Assistant stores or call `projectassistant.NewService` directly
+from API code.
+
 ### Change chat-session / ACP adapter behavior
 
 Chat sessions separate ownership from turn execution:
