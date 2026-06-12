@@ -934,15 +934,16 @@ type ChatContextSourceItem struct {
 }
 
 type ChatContextItem struct {
-	Section         string `json:"section,omitempty"`
-	Kind            string `json:"kind"`
-	TrustLevel      string `json:"trust_level"`
-	Origin          string `json:"origin"`
-	Title           string `json:"title"`
-	Body            string `json:"body,omitempty"`
-	BodyRef         string `json:"body_ref,omitempty"`
-	Included        bool   `json:"included"`
-	InclusionReason string `json:"inclusion_reason,omitempty"`
+	Section         string            `json:"section,omitempty"`
+	Kind            string            `json:"kind"`
+	TrustLevel      string            `json:"trust_level"`
+	Origin          string            `json:"origin"`
+	Title           string            `json:"title"`
+	Body            string            `json:"body,omitempty"`
+	BodyRef         string            `json:"body_ref,omitempty"`
+	Included        bool              `json:"included"`
+	InclusionReason string            `json:"inclusion_reason,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
 }
 
 type ChatContextPacketResponse struct {

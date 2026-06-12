@@ -154,15 +154,16 @@ type ContextSource struct {
 }
 
 type ContextItem struct {
-	Section         string `json:"section,omitempty"`
-	Kind            string `json:"kind"`
-	TrustLevel      string `json:"trust_level"`
-	Origin          string `json:"origin"`
-	Title           string `json:"title"`
-	Body            string `json:"body,omitempty"`
-	BodyRef         string `json:"body_ref,omitempty"`
-	Included        bool   `json:"included"`
-	InclusionReason string `json:"inclusion_reason,omitempty"`
+	Section         string            `json:"section,omitempty"`
+	Kind            string            `json:"kind"`
+	TrustLevel      string            `json:"trust_level"`
+	Origin          string            `json:"origin"`
+	Title           string            `json:"title"`
+	Body            string            `json:"body,omitempty"`
+	BodyRef         string            `json:"body_ref,omitempty"`
+	Included        bool              `json:"included"`
+	InclusionReason string            `json:"inclusion_reason,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
 }
 
 func (packet ContextPacket) Empty() bool {
@@ -440,8 +441,22 @@ func cloneSession(session Session) Session {
 		}
 		session.Messages[i].Context.Sources = append([]ContextSource(nil), session.Messages[i].Context.Sources...)
 		session.Messages[i].Context.Items = append([]ContextItem(nil), session.Messages[i].Context.Items...)
+		for j := range session.Messages[i].Context.Items {
+			session.Messages[i].Context.Items[j].Metadata = cloneStringMap(session.Messages[i].Context.Items[j].Metadata)
+		}
 	}
 	return session
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func cloneMCPApp(app *MCPApp) *MCPApp {

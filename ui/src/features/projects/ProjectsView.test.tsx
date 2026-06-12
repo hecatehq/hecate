@@ -4731,6 +4731,96 @@ describe("ProjectsView cockpit", () => {
     });
   });
 
+  it("blocks native assignment confirmation when launch readiness is blocked", async () => {
+    resetProjectWorkMocks();
+    const queuedAssignment = {
+      ...hecateAssignment,
+      status: "running",
+      execution_ref: {
+        kind: "task_run",
+        task_id: "task_1",
+        run_id: "run_1",
+        status: "queued",
+      },
+      execution: { ...hecateAssignment.execution, status: "queued" },
+    };
+    vi.mocked(getProjectAssignments).mockResolvedValue({
+      object: "project_assignments",
+      data: [queuedAssignment],
+    });
+    vi.mocked(getProjectAssignmentPreflight).mockResolvedValueOnce({
+      object: "context_packet",
+      data: {
+        id: "ctx_preflight_blocked",
+        execution_mode: "hecate_task",
+        provider: "",
+        model: "dogfood-model",
+        execution_profile: "implementation",
+        workspace: "/tmp/hecate-project",
+        refs: {
+          project_id: project.id,
+          work_item_id: workItem.id,
+          assignment_id: hecateAssignment.id,
+          role_id: role.id,
+        },
+        items: [
+          {
+            section: "runtime",
+            kind: "launch_readiness",
+            trust_level: "runtime_state",
+            origin: "project_assignment.launch_readiness",
+            title: "Launch readiness",
+            body: [
+              "Ready: false",
+              "Status: blocked",
+              "Provider: auto",
+              "Model: dogfood-model",
+              "Reason: model_not_discovered",
+              'Message: No routable provider reports model "dogfood-model".',
+              "Operator action: Pick one of the discovered models.",
+            ].join("\n"),
+            included: false,
+            metadata: {
+              ready: "false",
+              status: "blocked",
+              provider: "auto",
+              model: "dogfood-model",
+              reason: "model_not_discovered",
+              message: 'No routable provider reports model "dogfood-model".',
+              operator_action: "Pick one of the discovered models.",
+            },
+          },
+          {
+            section: "runtime",
+            kind: "launch_preflight",
+            trust_level: "runtime_state",
+            origin: "project_assignment.preflight",
+            title: "Launch preflight",
+            body: "Preview only: no task, run, chat session, memory entry, artifact, or assignment update has been created.\nTask: created on start\nRun: created on start",
+            included: false,
+          },
+        ],
+      },
+    });
+    window.localStorage.setItem("hecate.project", project.id);
+    const state = createRuntimeConsoleFixture({
+      projects: [project],
+      activeProjectID: project.id,
+    });
+    render(withRuntimeConsole(<ProjectsView />, { state, actions: createRuntimeConsoleActions() }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+    const preflight = await screen.findByRole("dialog", {
+      name: "Assignment asgn_1 launch preflight",
+    });
+    const notice = within(preflight).getByRole("status");
+    expect(within(notice).getByText("Provider/model not ready")).toBeTruthy();
+    expect(notice.textContent).toContain('No routable provider reports model "dogfood-model"');
+    const confirm = within(preflight).getByRole("button", { name: "Start assignment" });
+    expect(confirm).toBeDisabled();
+    expect(startProjectAssignment).not.toHaveBeenCalled();
+  });
+
   it("renders finished-only assignment timestamps without a blank started label", async () => {
     resetProjectWorkMocks();
     window.localStorage.setItem("hecate.project", project.id);

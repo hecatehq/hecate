@@ -26,6 +26,7 @@ export type ContextPacketItemRecord = {
   body_ref?: string;
   included: boolean;
   inclusion_reason?: string;
+  metadata?: Record<string, string>;
 };
 
 export type ContextPacketRecord = {
