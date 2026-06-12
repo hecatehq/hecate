@@ -176,8 +176,12 @@ for context, draft, propose, and apply commands. Keep service construction,
 store/LLM wiring, and in-process partial-apply progress behind that cached app
 boundary. `internal/projectassistant` owns proposal-domain behavior: context
 building, deterministic/model/bootstrap drafting, action validation, and
-confirmed apply semantics. Handlers should parse/render/map errors only; do not
-rebuild Project Assistant stores or call `projectassistant.NewService` directly
+confirmed apply semantics. Keep that package split by responsibility:
+`service.go` is the facade/DTO home, `proposal_validation.go` owns action
+shape and fingerprint contracts, `proposal_apply.go` owns the confirmed apply
+loop and dispatch, and `action_handlers.go` owns durable mutation handlers.
+Handlers should parse/render/map errors only; do not rebuild Project Assistant
+stores or call `projectassistant.NewService` directly
 from API code.
 
 ### Change chat-session / ACP adapter behavior
