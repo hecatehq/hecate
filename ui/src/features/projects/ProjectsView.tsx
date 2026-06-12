@@ -78,8 +78,11 @@ import {
   toProjectAssignmentExecutionViewModel,
 } from "./projectAssignmentViewModels";
 import { ProjectAssistantPanel } from "./ProjectAssistantPanel";
+import { EditAssignmentModal, NewAssignmentModal } from "./ProjectAssignmentModals";
 import { CreateProjectWorktreeModal } from "./CreateProjectWorktreeModal";
+import { ProjectHandoffModal } from "./ProjectHandoffModal";
 import { ProfilesModal } from "./ProfilesModal";
+import { EditWorkItemModal, NewWorkItemModal } from "./ProjectWorkItemModals";
 import { RolesModal } from "./RolesModal";
 import { useProjectAssistantController } from "./useProjectAssistantController";
 import type {
@@ -90,18 +93,14 @@ import type {
   ProjectCollaborationArtifactRecord,
   ProjectContextSourceRecord,
   CreateProjectWorktreeRootPayload,
-  CreateProjectHandoffPayload,
   ProjectHandoffRecord,
   ProjectMemoryRecord,
   ProjectSkillRecord,
-  ProjectAssignmentExecutionRefRecord,
   ProjectRecord,
   ProjectWorkItemRecord,
   ProjectWorkRoleRecord,
-  UpdateProjectAssignmentPayload,
   UpdateProjectPayload,
   UpdateProjectSkillPayload,
-  UpdateProjectWorkItemPayload,
 } from "../../types/project";
 import type { AgentProfileRecord } from "../../types/agent-profile";
 import type { ContextPacketRecord } from "../../types/context";
@@ -126,10 +125,22 @@ import {
   profileUpdatePayloadFromForm,
   projectSkillStatusRank,
   rolePayloadFromForm,
-  splitIDs,
   type AgentProfileForm,
   type RoleForm,
 } from "./projectProfilesRoles";
+import {
+  assignmentCreatePayloadFromForm,
+  assignmentUpdatePayloadFromForm,
+  handoffFormFromAssignment,
+  handoffPayloadFromForm,
+  type EditAssignmentForm,
+  type EditWorkItemForm,
+  type HandoffForm,
+  type NewAssignmentForm,
+  type NewWorkItemForm,
+  workItemCreatePayloadFromForm,
+  workItemUpdatePayloadFromForm,
+} from "./projectWorkForms";
 
 type Props = {
   onOpenChat?: (request: ProjectAssignmentChatLaunchRequest) => void;
@@ -159,36 +170,6 @@ type LoadState = "idle" | "loading" | "loaded" | "error";
 
 type ProjectWorkspaceTab = "work" | "timeline" | "memory" | "skills";
 
-type NewWorkItemForm = {
-  title: string;
-  brief: string;
-  priority: string;
-  ownerRoleID: string;
-  rootID: string;
-};
-
-type NewAssignmentForm = {
-  roleID: string;
-  driverKind: string;
-  rootID: string;
-};
-
-type EditWorkItemForm = NewWorkItemForm & {
-  id: string;
-  status: string;
-  reviewerRoleIDs: string;
-};
-
-type EditAssignmentForm = NewAssignmentForm & {
-  id: string;
-  status: string;
-  taskID: string;
-  runID: string;
-  chatSessionID: string;
-  messageID: string;
-  contextSnapshotID: string;
-};
-
 type AssignmentPreflightState =
   | { status: "idle" | "loading" }
   | { status: "ready"; packet: ContextPacketRecord }
@@ -196,51 +177,6 @@ type AssignmentPreflightState =
 
 type AssignmentLaunchReadinessNoticeRecord = {
   detail: string;
-};
-
-function projectAssignmentExecutionKindFromForm(form: EditAssignmentForm) {
-  if (form.taskID.trim() || form.runID.trim()) return "task_run";
-  if (form.chatSessionID.trim() || form.messageID.trim()) return "chat_session";
-  if (form.contextSnapshotID.trim()) return "context_snapshot";
-  return "none";
-}
-
-function projectAssignmentExecutionRefFromForm(
-  form: EditAssignmentForm,
-): ProjectAssignmentExecutionRefRecord {
-  const ref: ProjectAssignmentExecutionRefRecord = {
-    kind: projectAssignmentExecutionKindFromForm(form),
-  };
-  const taskID = form.taskID.trim();
-  const runID = form.runID.trim();
-  const chatSessionID = form.chatSessionID.trim();
-  const messageID = form.messageID.trim();
-  const contextSnapshotID = form.contextSnapshotID.trim();
-  if (taskID) ref.task_id = taskID;
-  if (runID) ref.run_id = runID;
-  if (chatSessionID) ref.chat_session_id = chatSessionID;
-  if (messageID) ref.message_id = messageID;
-  if (contextSnapshotID) ref.context_snapshot_id = contextSnapshotID;
-  return ref;
-}
-
-type HandoffForm = {
-  id: string;
-  sourceAssignmentID: string;
-  sourceRunID: string;
-  sourceChatSessionID: string;
-  sourceMessageID: string;
-  targetRoleID: string;
-  targetAssignmentID: string;
-  title: string;
-  summary: string;
-  recommendedNextAction: string;
-  linkedArtifactIDs: string;
-  linkedMemoryIDs: string;
-  contextRefs: string;
-  status: string;
-  provenanceKind: string;
-  trustLabel: string;
 };
 
 type MemoryForm = {
@@ -258,25 +194,6 @@ type SkillForm = {
   trustLabel: string;
 };
 
-const WORK_ITEM_STATUSES = [
-  "backlog",
-  "ready",
-  "running",
-  "review",
-  "blocked",
-  "done",
-  "cancelled",
-];
-const WORK_ITEM_PRIORITIES = ["low", "normal", "high", "urgent"];
-const ASSIGNMENT_STATUSES = [
-  "queued",
-  "running",
-  "awaiting_approval",
-  "completed",
-  "failed",
-  "cancelled",
-];
-const HANDOFF_STATUSES = ["pending", "accepted", "superseded", "dismissed"];
 const MEMORY_TRUST_LABELS = [
   "operator_memory",
   "generated_summary",
@@ -1074,15 +991,10 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setNewWorkPending(true);
     setNewWorkError("");
     try {
-      const rootID = form.rootID.trim();
-      const payload = await createProjectWorkItem(selectedProjectID, {
-        title,
-        brief: form.brief.trim() || undefined,
-        status: "ready",
-        priority: form.priority || "normal",
-        owner_role_id: form.ownerRoleID || undefined,
-        ...(rootID ? { root_id: rootID } : {}),
-      });
+      const payload = await createProjectWorkItem(
+        selectedProjectID,
+        workItemCreatePayloadFromForm(form),
+      );
       setWorkItems((current) => upsertWorkItem(current, payload.data));
       setWorkItemSummaries((current) => ({
         ...current,
@@ -1109,15 +1021,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     if (!title) return;
     setEditWorkPending(true);
     setEditWorkError("");
-    const patch: UpdateProjectWorkItemPayload = {
-      title,
-      brief: form.brief.trim(),
-      status: form.status,
-      priority: form.priority || "normal",
-      owner_role_id: form.ownerRoleID,
-      root_id: form.rootID.trim(),
-      reviewer_role_ids: splitRoleIDs(form.reviewerRoleIDs),
-    };
+    const patch = workItemUpdatePayloadFromForm(form);
     try {
       const payload = await updateProjectWorkItem(selectedProjectID, form.id, patch);
       setWorkItems((current) => upsertWorkItem(current, payload.data));
@@ -1150,12 +1054,11 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     setNewAssignmentPending(true);
     setNewAssignmentError("");
     try {
-      const rootID = form.rootID.trim();
-      const payload = await createProjectAssignment(selectedProjectID, selectedWorkItemID, {
-        role_id: roleID,
-        driver_kind: form.driverKind || "hecate_task",
-        ...(rootID ? { root_id: rootID } : {}),
-      });
+      const payload = await createProjectAssignment(
+        selectedProjectID,
+        selectedWorkItemID,
+        assignmentCreatePayloadFromForm(form),
+      );
       setAssignments((current) => upsertAssignment(current, payload.data));
       setNewAssignmentModalOpen(false);
       await loadWorkItemDetail(selectedProjectID, selectedWorkItemID);
@@ -1172,13 +1075,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     if (!roleID) return;
     setEditAssignmentPending(true);
     setEditAssignmentError("");
-    const patch: UpdateProjectAssignmentPayload = {
-      role_id: roleID,
-      root_id: form.rootID.trim(),
-      driver_kind: form.driverKind || "hecate_task",
-      status: form.status || "queued",
-      execution_ref: projectAssignmentExecutionRefFromForm(form),
-    };
+    const patch = assignmentUpdatePayloadFromForm(form);
     try {
       const payload = await updateProjectAssignment(
         selectedProjectID,
@@ -1214,23 +1111,7 @@ export function ProjectsView({ onOpenChat, onOpenTask }: Props) {
     const summary = form.summary.trim();
     const recommendedNextAction = form.recommendedNextAction.trim();
     if (!title || !summary || !recommendedNextAction) return;
-    const payload: CreateProjectHandoffPayload = {
-      source_assignment_id: form.sourceAssignmentID.trim(),
-      source_run_id: form.sourceRunID.trim(),
-      source_chat_session_id: form.sourceChatSessionID.trim(),
-      source_message_id: form.sourceMessageID.trim(),
-      target_role_id: form.targetRoleID.trim(),
-      target_assignment_id: form.targetAssignmentID.trim(),
-      title,
-      summary,
-      recommended_next_action: recommendedNextAction,
-      linked_artifact_ids: splitIDs(form.linkedArtifactIDs),
-      linked_memory_ids: splitIDs(form.linkedMemoryIDs),
-      context_refs: splitIDs(form.contextRefs),
-      status: form.status || "pending",
-      provenance_kind: form.provenanceKind.trim() || "operator",
-      trust_label: form.trustLabel.trim() || "operator_reviewed",
-    };
+    const payload = handoffPayloadFromForm(form);
     setHandoffPending(true);
     setHandoffError("");
     try {
@@ -4168,804 +4049,6 @@ function WorkItemDetail({
   );
 }
 
-function ProjectRootSelect({
-  inheritLabel,
-  label = "Root",
-  project,
-  value,
-  onChange,
-}: {
-  inheritLabel: string;
-  label?: string;
-  project: ProjectRecord;
-  value: string;
-  onChange: (rootID: string) => void;
-}) {
-  if (project.roots.length === 0) return null;
-  return (
-    <label style={fieldStyle}>
-      <span style={fieldLabelStyle}>{label}</span>
-      <select
-        aria-label={label}
-        className="input"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        style={{ fontFamily: "var(--font-mono)", fontSize: 12, minHeight: 36 }}
-      >
-        <option value="">{inheritLabel}</option>
-        {project.roots.map((root) => (
-          <option key={root.id || root.path} value={root.id}>
-            {projectRootOptionLabel(root)}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function NewWorkItemModal({
-  error,
-  pending,
-  project,
-  roles,
-  onClose,
-  onCreate,
-}: {
-  error: string;
-  pending: boolean;
-  project: ProjectRecord;
-  roles: ProjectWorkRoleRecord[];
-  onClose: () => void;
-  onCreate: (form: NewWorkItemForm) => void | Promise<void>;
-}) {
-  const [form, setForm] = useState<NewWorkItemForm>({
-    title: "",
-    brief: "",
-    priority: "normal",
-    ownerRoleID: roles.find((role) => role.id === "software_developer")?.id ?? roles[0]?.id ?? "",
-    rootID: "",
-  });
-  const valid = form.title.trim().length > 0;
-  return (
-    <Modal
-      title="New work item"
-      onClose={onClose}
-      width={560}
-      footer={
-        <button
-          className="btn btn-primary"
-          type="button"
-          disabled={pending || !valid}
-          onClick={() => void onCreate(form)}
-          style={{ width: "100%", justifyContent: "center" }}
-        >
-          {pending ? "Creating…" : "Create work item"}
-        </button>
-      }
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) void onCreate(form);
-        }}
-        style={{ display: "grid", gap: 12 }}
-      >
-        {error && <InlineError message={error} />}
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Title</span>
-          <input
-            className="input"
-            autoFocus
-            value={form.title}
-            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-            placeholder="Implement project cockpit"
-          />
-        </label>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Brief</span>
-          <textarea
-            className="input"
-            value={form.brief}
-            onChange={(event) => setForm((current) => ({ ...current, brief: event.target.value }))}
-            rows={5}
-            placeholder="Describe the outcome, constraints, and handoff expectations."
-            style={{ resize: "vertical", minHeight: 110 }}
-          />
-        </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Priority</span>
-            <select
-              className="input"
-              value={form.priority}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, priority: event.target.value }))
-              }
-            >
-              <option value="low">low</option>
-              <option value="normal">normal</option>
-              <option value="high">high</option>
-              <option value="urgent">urgent</option>
-            </select>
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Owner role</span>
-            <select
-              className="input"
-              value={form.ownerRoleID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, ownerRoleID: event.target.value }))
-              }
-            >
-              <option value="">No owner</option>
-              {roles.map((role) => (
-                <option key={role.id} value={role.id}>
-                  {role.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <ProjectRootSelect
-          inheritLabel="project default root"
-          project={project}
-          value={form.rootID}
-          onChange={(rootID) => setForm((current) => ({ ...current, rootID }))}
-        />
-      </form>
-    </Modal>
-  );
-}
-
-function EditWorkItemModal({
-  error,
-  item,
-  pending,
-  project,
-  roles,
-  onClose,
-  onSave,
-}: {
-  error: string;
-  item: ProjectWorkItemRecord;
-  pending: boolean;
-  project: ProjectRecord;
-  roles: ProjectWorkRoleRecord[];
-  onClose: () => void;
-  onSave: (form: EditWorkItemForm) => void | Promise<void>;
-}) {
-  const [form, setForm] = useState<EditWorkItemForm>({
-    id: item.id,
-    title: item.title,
-    brief: item.brief ?? "",
-    status: item.status,
-    priority: item.priority || "normal",
-    ownerRoleID: item.owner_role_id ?? "",
-    rootID: item.root_id ?? "",
-    reviewerRoleIDs: (item.reviewer_role_ids ?? []).join(", "),
-  });
-  const valid = form.title.trim().length > 0;
-  return (
-    <Modal
-      title="Edit work item"
-      onClose={onClose}
-      width={560}
-      footer={
-        <button
-          className="btn btn-primary"
-          type="button"
-          disabled={pending || !valid}
-          onClick={() => void onSave(form)}
-          style={{ width: "100%", justifyContent: "center" }}
-        >
-          {pending ? "Saving…" : "Save work item"}
-        </button>
-      }
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) void onSave(form);
-        }}
-        style={{ display: "grid", gap: 12 }}
-      >
-        {error && <InlineError message={error} />}
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Title</span>
-          <input
-            className="input"
-            autoFocus
-            value={form.title}
-            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-          />
-        </label>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Brief</span>
-          <textarea
-            className="input"
-            value={form.brief}
-            onChange={(event) => setForm((current) => ({ ...current, brief: event.target.value }))}
-            rows={5}
-            style={{ resize: "vertical", minHeight: 110 }}
-          />
-        </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Status</span>
-            <select
-              className="input"
-              value={form.status}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, status: event.target.value }))
-              }
-            >
-              {WORK_ITEM_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Priority</span>
-            <select
-              className="input"
-              value={form.priority}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, priority: event.target.value }))
-              }
-            >
-              {WORK_ITEM_PRIORITIES.map((priority) => (
-                <option key={priority} value={priority}>
-                  {priority}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Owner role</span>
-            <select
-              className="input"
-              value={form.ownerRoleID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, ownerRoleID: event.target.value }))
-              }
-            >
-              <option value="">No owner</option>
-              {roles.map((role) => (
-                <option key={role.id} value={role.id}>
-                  {role.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Reviewer roles</span>
-            <input
-              className="input"
-              value={form.reviewerRoleIDs}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, reviewerRoleIDs: event.target.value }))
-              }
-              placeholder="reviewer_qa, architect"
-            />
-          </label>
-        </div>
-        <ProjectRootSelect
-          inheritLabel="project default root"
-          project={project}
-          value={form.rootID}
-          onChange={(rootID) => setForm((current) => ({ ...current, rootID }))}
-        />
-      </form>
-    </Modal>
-  );
-}
-
-function NewAssignmentModal({
-  error,
-  pending,
-  project,
-  workItem,
-  roles,
-  onClose,
-  onCreate,
-}: {
-  error: string;
-  pending: boolean;
-  project: ProjectRecord;
-  workItem: ProjectWorkItemRecord | null;
-  roles: ProjectWorkRoleRecord[];
-  onClose: () => void;
-  onCreate: (form: NewAssignmentForm) => void | Promise<void>;
-}) {
-  const defaultRole = roles.find((role) => role.id === "software_developer") ?? roles[0] ?? null;
-  const [form, setForm] = useState<NewAssignmentForm>({
-    roleID: defaultRole?.id ?? "",
-    driverKind: defaultDriverForRole(defaultRole),
-    rootID: "",
-  });
-  const valid = form.roleID.trim().length > 0;
-  return (
-    <Modal
-      title="Add assignment"
-      onClose={onClose}
-      width={520}
-      footer={
-        <button
-          className="btn btn-primary"
-          type="button"
-          disabled={pending || !valid}
-          onClick={() => void onCreate(form)}
-          style={{ width: "100%", justifyContent: "center" }}
-        >
-          {pending ? "Adding…" : "Add assignment"}
-        </button>
-      }
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) void onCreate(form);
-        }}
-        style={{ display: "grid", gap: 12 }}
-      >
-        {error && <InlineError message={error} />}
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Role</span>
-          <select
-            className="input"
-            autoFocus
-            value={form.roleID}
-            onChange={(event) => {
-              const roleID = event.target.value;
-              const role = roles.find((item) => item.id === roleID) ?? null;
-              setForm((current) => ({
-                ...current,
-                roleID,
-                driverKind: defaultDriverForRole(role),
-              }));
-            }}
-          >
-            {roles.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Driver</span>
-          <select
-            className="input"
-            value={form.driverKind}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, driverKind: event.target.value }))
-            }
-          >
-            <option value="hecate_task">hecate_task</option>
-            <option value="external_agent">external_agent</option>
-          </select>
-        </label>
-        <ProjectRootSelect
-          inheritLabel={workItem?.root_id ? "work item root" : "work item/project root"}
-          project={project}
-          value={form.rootID}
-          onChange={(rootID) => setForm((current) => ({ ...current, rootID }))}
-        />
-        {form.driverKind === "external_agent" && (
-          <div style={subtleTextStyle}>
-            External assignment execution is recorded here but still starts from Chats.
-          </div>
-        )}
-      </form>
-    </Modal>
-  );
-}
-
-function EditAssignmentModal({
-  assignment,
-  error,
-  pending,
-  project,
-  workItem,
-  roles,
-  onClose,
-  onSave,
-}: {
-  assignment: ProjectAssignmentRecord;
-  error: string;
-  pending: boolean;
-  project: ProjectRecord;
-  workItem: ProjectWorkItemRecord | null;
-  roles: ProjectWorkRoleRecord[];
-  onClose: () => void;
-  onSave: (form: EditAssignmentForm) => void | Promise<void>;
-}) {
-  const [form, setForm] = useState<EditAssignmentForm>({
-    id: assignment.id,
-    roleID: assignment.role_id,
-    driverKind: assignment.driver_kind || "hecate_task",
-    rootID: assignment.root_id ?? "",
-    status: assignment.status || "queued",
-    taskID: assignment.execution_ref?.task_id ?? "",
-    runID: assignment.execution_ref?.run_id ?? "",
-    chatSessionID: assignment.execution_ref?.chat_session_id ?? "",
-    messageID: assignment.execution_ref?.message_id ?? "",
-    contextSnapshotID: assignment.execution_ref?.context_snapshot_id ?? "",
-  });
-  const valid = form.roleID.trim().length > 0;
-  return (
-    <Modal
-      title="Edit assignment"
-      onClose={onClose}
-      width={560}
-      footer={
-        <button
-          className="btn btn-primary"
-          type="button"
-          disabled={pending || !valid}
-          onClick={() => void onSave(form)}
-          style={{ width: "100%", justifyContent: "center" }}
-        >
-          {pending ? "Saving…" : "Save assignment"}
-        </button>
-      }
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) void onSave(form);
-        }}
-        style={{ display: "grid", gap: 12 }}
-      >
-        {error && <InlineError message={error} />}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Role</span>
-            <select
-              className="input"
-              autoFocus
-              value={form.roleID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, roleID: event.target.value }))
-              }
-            >
-              {roles.map((role) => (
-                <option key={role.id} value={role.id}>
-                  {role.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Status</span>
-            <select
-              className="input"
-              value={form.status}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, status: event.target.value }))
-              }
-            >
-              {ASSIGNMENT_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Driver</span>
-          <select
-            className="input"
-            value={form.driverKind}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, driverKind: event.target.value }))
-            }
-          >
-            <option value="hecate_task">hecate_task</option>
-            <option value="external_agent">external_agent</option>
-          </select>
-        </label>
-        <ProjectRootSelect
-          inheritLabel={workItem?.root_id ? "work item root" : "work item/project root"}
-          project={project}
-          value={form.rootID}
-          onChange={(rootID) => setForm((current) => ({ ...current, rootID }))}
-        />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Task ID</span>
-            <input
-              className="input"
-              value={form.taskID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, taskID: event.target.value }))
-              }
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Run ID</span>
-            <input
-              className="input"
-              value={form.runID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, runID: event.target.value }))
-              }
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Chat session ID</span>
-            <input
-              className="input"
-              value={form.chatSessionID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, chatSessionID: event.target.value }))
-              }
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Message ID</span>
-            <input
-              className="input"
-              value={form.messageID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, messageID: event.target.value }))
-              }
-            />
-          </label>
-        </div>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Context snapshot ID</span>
-          <input
-            className="input"
-            value={form.contextSnapshotID}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, contextSnapshotID: event.target.value }))
-            }
-          />
-        </label>
-        <div style={subtleTextStyle}>
-          Editing assignment metadata does not mutate or cancel linked task, run, or chat execution.
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function ProjectHandoffModal({
-  assignments,
-  draft,
-  error,
-  handoff,
-  pending,
-  roles,
-  onClose,
-  onSave,
-}: {
-  assignments: ProjectAssignmentRecord[];
-  draft?: HandoffForm | null;
-  error: string;
-  handoff: ProjectHandoffRecord | null;
-  pending: boolean;
-  roles: ProjectWorkRoleRecord[];
-  onClose: () => void;
-  onSave: (form: HandoffForm) => void | Promise<void>;
-}) {
-  const [form, setForm] = useState<HandoffForm>(() => draft ?? handoffFormFromRecord(handoff));
-  const valid =
-    form.title.trim().length > 0 &&
-    form.summary.trim().length > 0 &&
-    form.recommendedNextAction.trim().length > 0;
-  return (
-    <Modal
-      title={handoff ? "Edit handoff" : "New handoff"}
-      onClose={onClose}
-      width={620}
-      footer={
-        <button
-          className="btn btn-primary"
-          type="button"
-          disabled={pending || !valid}
-          onClick={() => void onSave(form)}
-          style={{ width: "100%", justifyContent: "center" }}
-        >
-          {pending ? "Saving…" : "Save handoff"}
-        </button>
-      }
-    >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (valid) void onSave(form);
-        }}
-        style={{ display: "grid", gap: 12 }}
-      >
-        {error && <InlineError message={error} />}
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Title</span>
-          <input
-            className="input"
-            autoFocus
-            value={form.title}
-            onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-            placeholder="QA review handoff"
-          />
-        </label>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Summary</span>
-          <textarea
-            className="input"
-            value={form.summary}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, summary: event.target.value }))
-            }
-            rows={4}
-            style={{ resize: "vertical", minHeight: 90 }}
-          />
-        </label>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Recommended next action</span>
-          <textarea
-            className="input"
-            value={form.recommendedNextAction}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                recommendedNextAction: event.target.value,
-              }))
-            }
-            rows={3}
-            style={{ resize: "vertical", minHeight: 76 }}
-          />
-        </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Source assignment</span>
-            <select
-              className="input"
-              value={form.sourceAssignmentID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, sourceAssignmentID: event.target.value }))
-              }
-            >
-              <option value="">No source assignment</option>
-              {assignments.map((assignment) => (
-                <option key={assignment.id} value={assignment.id}>
-                  {shortID(assignment.id)} · {assignment.role_id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Target role</span>
-            <select
-              className="input"
-              value={form.targetRoleID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, targetRoleID: event.target.value }))
-              }
-            >
-              <option value="">No target role</option>
-              {roles.map((role) => (
-                <option key={role.id} value={role.id}>
-                  {role.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Target assignment</span>
-            <select
-              className="input"
-              value={form.targetAssignmentID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, targetAssignmentID: event.target.value }))
-              }
-            >
-              <option value="">No target assignment</option>
-              {assignments.map((assignment) => (
-                <option key={assignment.id} value={assignment.id}>
-                  {shortID(assignment.id)} · {assignment.role_id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Status</span>
-            <select
-              className="input"
-              value={form.status}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, status: event.target.value }))
-              }
-            >
-              {HANDOFF_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Source run</span>
-            <input
-              className="input"
-              value={form.sourceRunID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, sourceRunID: event.target.value }))
-              }
-              placeholder="run_..."
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Source chat</span>
-            <input
-              className="input"
-              value={form.sourceChatSessionID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, sourceChatSessionID: event.target.value }))
-              }
-              placeholder="chat_..."
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Source message</span>
-            <input
-              className="input"
-              value={form.sourceMessageID}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, sourceMessageID: event.target.value }))
-              }
-              placeholder="msg_..."
-            />
-          </label>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Artifact IDs</span>
-            <input
-              className="input"
-              value={form.linkedArtifactIDs}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, linkedArtifactIDs: event.target.value }))
-              }
-              placeholder="art_1, art_2"
-            />
-          </label>
-          <label style={fieldStyle}>
-            <span style={fieldLabelStyle}>Memory IDs</span>
-            <input
-              className="input"
-              value={form.linkedMemoryIDs}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, linkedMemoryIDs: event.target.value }))
-              }
-              placeholder="mem_1"
-            />
-          </label>
-        </div>
-        <label style={fieldStyle}>
-          <span style={fieldLabelStyle}>Context refs</span>
-          <input
-            className="input"
-            value={form.contextRefs}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, contextRefs: event.target.value }))
-            }
-            placeholder="ctx_1, task/run/context"
-          />
-        </label>
-      </form>
-    </Modal>
-  );
-}
-
 function AssignmentRow({
   activityItem,
   assignment,
@@ -5605,69 +4688,6 @@ function skillFormFromRecord(skill: ProjectSkillRecord): SkillForm {
   };
 }
 
-function handoffFormFromRecord(handoff: ProjectHandoffRecord | null): HandoffForm {
-  return {
-    id: handoff?.id ?? "",
-    sourceAssignmentID: handoff?.source_assignment_id ?? "",
-    sourceRunID: handoff?.source_run_id ?? "",
-    sourceChatSessionID: handoff?.source_chat_session_id ?? "",
-    sourceMessageID: handoff?.source_message_id ?? "",
-    targetRoleID: handoff?.target_role_id ?? "",
-    targetAssignmentID: handoff?.target_assignment_id ?? "",
-    title: handoff?.title ?? "",
-    summary: handoff?.summary ?? "",
-    recommendedNextAction: handoff?.recommended_next_action ?? "",
-    linkedArtifactIDs: (handoff?.linked_artifact_ids ?? []).join(", "),
-    linkedMemoryIDs: (handoff?.linked_memory_ids ?? []).join(", "),
-    contextRefs: (handoff?.context_refs ?? []).join(", "),
-    status: handoff?.status ?? "pending",
-    provenanceKind: handoff?.provenance_kind ?? "operator",
-    trustLabel: handoff?.trust_label ?? "operator_reviewed",
-  };
-}
-
-function handoffFormFromAssignment(
-  assignment: ProjectAssignmentRecord,
-  role: ProjectWorkRoleRecord | null,
-  activityItem?: ProjectActivityItemRecord,
-): HandoffForm {
-  const execution = toProjectAssignmentExecutionViewModel(assignment);
-  const sourceChatSessionID = execution.chatSessionID;
-  const sourceRunID = execution.runID;
-  const sourceMessageID =
-    execution.messageID ||
-    activityItem?.linked_message_id ||
-    activityItem?.linked_chat?.latest_message_id ||
-    "";
-  const contextRefs = [
-    execution.contextSnapshotID,
-    execution.taskID,
-    sourceRunID,
-    sourceChatSessionID,
-    sourceMessageID,
-  ]
-    .filter(Boolean)
-    .join(", ");
-  return {
-    id: "",
-    sourceAssignmentID: assignment.id,
-    sourceRunID,
-    sourceChatSessionID,
-    sourceMessageID,
-    targetRoleID: "",
-    targetAssignmentID: "",
-    title: `${role?.name || assignment.role_id} handoff`,
-    summary: "",
-    recommendedNextAction: "",
-    linkedArtifactIDs: "",
-    linkedMemoryIDs: "",
-    contextRefs,
-    status: "pending",
-    provenanceKind: "operator",
-    trustLabel: "operator_reviewed",
-  };
-}
-
 function linkedChatStatusTitle(linkedChat: NonNullable<ProjectActivityItemRecord["linked_chat"]>) {
   return [
     linkedChat.title,
@@ -5895,10 +4915,6 @@ function formatLaunchContextBullet(label: string, value: string): string {
   return continuation ? `- ${label}: ${firstLine}\n${continuation}` : `- ${label}: ${firstLine}`;
 }
 
-function defaultDriverForRole(role: ProjectWorkRoleRecord | null): string {
-  return role?.default_driver_kind || "hecate_task";
-}
-
 function projectRootDisplayLabel(project: ProjectRecord, rootID: string): string {
   const root = project.roots.find((item) => item.id === rootID);
   if (!root) return shortID(rootID);
@@ -6022,10 +5038,6 @@ function rememberRightPanelWidth(width: number) {
   } catch {
     // Best-effort preference only.
   }
-}
-
-function splitRoleIDs(value: string): string[] {
-  return splitIDs(value);
 }
 
 function assignmentLaunchReadinessNotice(
