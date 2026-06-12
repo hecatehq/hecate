@@ -2669,32 +2669,32 @@ func (s *failingUpdateSessionStore) Delete(ctx context.Context, id string) error
 }
 
 type fakeAgentChatRunner struct {
-	output                   string
-	finalOutput              string
-	chunks                   []string
-	activities               []agentadapters.Activity
-	delay                    time.Duration
-	waitForCancel            bool
-	nativeSessionID          string
-	sessionStarted           bool
-	sessionResumed           bool
-	sessionRecovery          string
-	seenPreviousID           string
-	usage                    agentadapters.Usage
-	diffStat                 string
-	diff                     string
-	err                      error
-	prepareErr               error
-	setConfigErr             error
-	prepareRequests          []agentadapters.PrepareSessionRequest
-	runRequests              []agentadapters.RunRequest
-	prepareDeadline          time.Time
-	prepareHasDeadline       bool
-	closedSessions           []string
-	closeErr                 error
-	configOptions            []agentcontrols.ConfigOption
-	availableCommands        []agentcontrols.Command
-	availableCommandsUpdated bool
+	output                 string
+	finalOutput            string
+	chunks                 []string
+	activities             []agentadapters.Activity
+	delay                  time.Duration
+	waitForCancel          bool
+	nativeSessionID        string
+	sessionStarted         bool
+	sessionResumed         bool
+	sessionRecovery        string
+	seenPreviousID         string
+	usage                  agentadapters.Usage
+	diffStat               string
+	diff                   string
+	err                    error
+	prepareErr             error
+	setConfigErr           error
+	prepareRequests        []agentadapters.PrepareSessionRequest
+	runRequests            []agentadapters.RunRequest
+	prepareDeadline        time.Time
+	prepareHasDeadline     bool
+	closedSessions         []string
+	closeErr               error
+	configOptions          []agentcontrols.ConfigOption
+	availableCommands      []agentcontrols.Command
+	availableCommandsKnown bool
 	// activitiesAfterCancel are emitted via OnActivity after ctx is
 	// cancelled (waitForCancel only), so they sit in the stream
 	// coalescer when the run returns and exercise the trailing
@@ -2714,15 +2714,15 @@ func (r *fakeAgentChatRunner) PrepareSession(ctx context.Context, req agentadapt
 	}
 	adapter, _ := agentadapters.BuiltInByID(req.AdapterID)
 	return agentadapters.PrepareSessionResult{
-		Adapter:                  adapter,
-		DriverKind:               agentadapters.DriverKindACP,
-		NativeSessionID:          nativeSessionID,
-		SessionStarted:           r.sessionStarted,
-		SessionResumed:           r.sessionResumed,
-		SessionRecovery:          r.sessionRecovery,
-		ConfigOptions:            r.configOptions,
-		AvailableCommands:        r.availableCommands,
-		AvailableCommandsUpdated: r.availableCommandsUpdated,
+		Adapter:                adapter,
+		DriverKind:             agentadapters.DriverKindACP,
+		NativeSessionID:        nativeSessionID,
+		SessionStarted:         r.sessionStarted,
+		SessionResumed:         r.sessionResumed,
+		SessionRecovery:        r.sessionRecovery,
+		ConfigOptions:          r.configOptions,
+		AvailableCommands:      r.availableCommands,
+		AvailableCommandsKnown: r.availableCommandsKnown,
 	}, nil
 }
 
@@ -2788,23 +2788,23 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 	}
 	adapter, _ := agentadapters.BuiltInByID(req.AdapterID)
 	return agentadapters.RunResult{
-		Adapter:                  adapter,
-		DriverKind:               agentadapters.DriverKindACP,
-		NativeSessionID:          nativeSessionID,
-		SessionStarted:           r.sessionStarted,
-		SessionResumed:           r.sessionResumed,
-		SessionRecovery:          r.sessionRecovery,
-		Output:                   output,
-		RawOutput:                output,
-		ExitCode:                 exitCode,
-		StartedAt:                started,
-		CompletedAt:              time.Now().UTC(),
-		DiffStat:                 r.diffStat,
-		Diff:                     r.diff,
-		Usage:                    r.usage,
-		ConfigOptions:            r.configOptions,
-		AvailableCommands:        r.availableCommands,
-		AvailableCommandsUpdated: r.availableCommandsUpdated,
+		Adapter:                adapter,
+		DriverKind:             agentadapters.DriverKindACP,
+		NativeSessionID:        nativeSessionID,
+		SessionStarted:         r.sessionStarted,
+		SessionResumed:         r.sessionResumed,
+		SessionRecovery:        r.sessionRecovery,
+		Output:                 output,
+		RawOutput:              output,
+		ExitCode:               exitCode,
+		StartedAt:              started,
+		CompletedAt:            time.Now().UTC(),
+		DiffStat:               r.diffStat,
+		Diff:                   r.diff,
+		Usage:                  r.usage,
+		ConfigOptions:          r.configOptions,
+		AvailableCommands:      r.availableCommands,
+		AvailableCommandsKnown: r.availableCommandsKnown,
 	}
 }
 
@@ -2825,9 +2825,9 @@ func (r *fakeAgentChatRunner) SetSessionConfigOption(_ context.Context, req agen
 	}
 	r.configOptions = options
 	return agentadapters.SetSessionConfigOptionResult{
-		ConfigOptions:            options,
-		AvailableCommands:        r.availableCommands,
-		AvailableCommandsUpdated: r.availableCommandsUpdated,
+		ConfigOptions:          options,
+		AvailableCommands:      r.availableCommands,
+		AvailableCommandsKnown: r.availableCommandsKnown,
 	}, nil
 }
 
@@ -2865,7 +2865,7 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 				CurrentBool: &autoApprove,
 			},
 		},
-		availableCommandsUpdated: true,
+		availableCommandsKnown: true,
 		availableCommands: []agentcontrols.Command{
 			{Name: "web", Description: "Search the web", InputHint: "query"},
 			{Name: "plan", Description: "Create a plan"},

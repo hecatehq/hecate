@@ -156,15 +156,15 @@ type PrepareSessionRequest struct {
 }
 
 type PrepareSessionResult struct {
-	Adapter                  Adapter
-	DriverKind               string
-	NativeSessionID          string
-	SessionStarted           bool
-	SessionResumed           bool
-	SessionRecovery          string
-	ConfigOptions            []agentcontrols.ConfigOption
-	AvailableCommands        []agentcontrols.Command
-	AvailableCommandsUpdated bool
+	Adapter                Adapter
+	DriverKind             string
+	NativeSessionID        string
+	SessionStarted         bool
+	SessionResumed         bool
+	SessionRecovery        string
+	ConfigOptions          []agentcontrols.ConfigOption
+	AvailableCommands      []agentcontrols.Command
+	AvailableCommandsKnown bool
 }
 
 type SetSessionConfigOptionRequest struct {
@@ -175,29 +175,29 @@ type SetSessionConfigOptionRequest struct {
 }
 
 type SetSessionConfigOptionResult struct {
-	ConfigOptions            []agentcontrols.ConfigOption
-	AvailableCommands        []agentcontrols.Command
-	AvailableCommandsUpdated bool
+	ConfigOptions          []agentcontrols.ConfigOption
+	AvailableCommands      []agentcontrols.Command
+	AvailableCommandsKnown bool
 }
 
 type RunResult struct {
-	Adapter                  Adapter
-	DriverKind               string
-	NativeSessionID          string
-	SessionStarted           bool
-	SessionResumed           bool
-	SessionRecovery          string
-	Output                   string
-	RawOutput                string
-	ExitCode                 int
-	StartedAt                time.Time
-	CompletedAt              time.Time
-	DiffStat                 string
-	Diff                     string
-	Usage                    Usage
-	ConfigOptions            []agentcontrols.ConfigOption
-	AvailableCommands        []agentcontrols.Command
-	AvailableCommandsUpdated bool
+	Adapter                Adapter
+	DriverKind             string
+	NativeSessionID        string
+	SessionStarted         bool
+	SessionResumed         bool
+	SessionRecovery        string
+	Output                 string
+	RawOutput              string
+	ExitCode               int
+	StartedAt              time.Time
+	CompletedAt            time.Time
+	DiffStat               string
+	Diff                   string
+	Usage                  Usage
+	ConfigOptions          []agentcontrols.ConfigOption
+	AvailableCommands      []agentcontrols.Command
+	AvailableCommandsKnown bool
 }
 
 type Usage struct {
